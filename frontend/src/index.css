@@ -130,3 +130,8 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
+
+/* Improve visibility of the native date-picker icon on dark backgrounds */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
