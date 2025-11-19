@@ -10,9 +10,10 @@ import { cn } from "../../lib/utils";
 
 interface HelpTooltipProps {
   text: string;
+  side?: "top" | "bottom" | "left" | "right";
 }
 
-export function HelpTooltip({ text }: HelpTooltipProps) {
+export function HelpTooltip({ text, side = "top" }: HelpTooltipProps) {
   return (
     <TooltipProvider delayDuration={150}>
       <Tooltip>
@@ -29,7 +30,7 @@ export function HelpTooltip({ text }: HelpTooltipProps) {
         </TooltipTrigger>
 
         <TooltipContent
-          side="top"
+          side={side}
           align="start"
           className={cn(
             "z-50 max-w-xs rounded-md border border-slate-700/80 bg-slate-900/95 px-2 py-1 text-[11px] text-slate-100 shadow-soft"

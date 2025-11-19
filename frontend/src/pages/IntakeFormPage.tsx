@@ -21,6 +21,7 @@ import GoogleAddressInput from "../components/GoogleAddressInput";
 import GoogleBusinessTypeInput from "../components/GoogleBusinessTypeInput";
 import IndustryInput from "../components/IndustryInput";
 import HelpTooltip from "../components/ui/HelpTooltip";
+import { TOOLTIP_TEXT } from "../components/ui/tooltip";
 
 const apiBase =
   ((import.meta as any).env &&
@@ -92,7 +93,9 @@ const intakeSchema = z
   currentCogs: z.string().optional(),
   expectedRevenueGrowthPctNextYear: z.string().optional(),
   unitsSoldPerMonth: z.string().optional(),
+  taxRate: z.string().optional(),
   marketingExpense: z.string().optional(),
+  rAndDExpense: z.string().optional(),
   sgaExpense: z.string().optional(),
   otherOperatingExpense: z.string().optional(),
   monthlyRentExpense: z.string().optional(),
@@ -102,9 +105,13 @@ const intakeSchema = z
   plannedNumEmployees5yrs: z.string().optional(),
   currentCapex: z.string().optional(),
   plannedCapex5yr: z.string().optional(),
+  arBalance: z.string().optional(),
+  apBalance: z.string().optional(),
+  inventoryBalance: z.string().optional(),
   totalDebtOutstanding: z.string().optional(),
   annualInterestPayment: z.string().optional(),
   annualPrincipalPayment: z.string().optional(),
+  ownerCompensation: z.string().optional(),
   cashOnHand: z.string().optional(),
 })
   .superRefine((values, ctx) => {
@@ -112,7 +119,9 @@ const intakeSchema = z
       "currentRevenue",
       "currentCogs",
       "unitsSoldPerMonth",
+      "taxRate",
       "marketingExpense",
+      "rAndDExpense",
       "sgaExpense",
       "otherOperatingExpense",
       "currentPayroll",
@@ -120,9 +129,13 @@ const intakeSchema = z
       "plannedNumEmployees5yrs",
       "currentCapex",
       "plannedCapex5yr",
+      "arBalance",
+      "apBalance",
+      "inventoryBalance",
       "totalDebtOutstanding",
       "annualInterestPayment",
       "annualPrincipalPayment",
+      "ownerCompensation",
       "cashOnHand",
     ] as const;
 
@@ -184,7 +197,9 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   current_cogs: "currentCogs",
   expected_revenue_growth_pct_next_year: "expectedRevenueGrowthPctNextYear",
   units_sold_per_month: "unitsSoldPerMonth",
+  tax_rate: "taxRate",
   marketing_expense: "marketingExpense",
+  r_and_d_expense: "rAndDExpense",
   sga_expense: "sgaExpense",
   other_operating_expense: "otherOperatingExpense",
   current_payroll: "currentPayroll",
@@ -192,9 +207,13 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   planned_num_employees_5yrs: "plannedNumEmployees5yrs",
   current_capex: "currentCapex",
   planned_capex_5yr: "plannedCapex5yr",
+  ar_balance: "arBalance",
+  ap_balance: "apBalance",
+  inventory_balance: "inventoryBalance",
   total_debt_outstanding: "totalDebtOutstanding",
   annual_interest_payment: "annualInterestPayment",
   annual_principal_payment: "annualPrincipalPayment",
+  owner_compensation: "ownerCompensation",
   cash_on_hand: "cashOnHand",
 };
 
@@ -220,7 +239,9 @@ const defaultValues: IntakeValues = {
   currentCogs: "",
   expectedRevenueGrowthPctNextYear: "",
   unitsSoldPerMonth: "",
+  taxRate: "",
   marketingExpense: "",
+  rAndDExpense: "",
   sgaExpense: "",
   otherOperatingExpense: "",
   monthlyRentExpense: "",
@@ -230,9 +251,13 @@ const defaultValues: IntakeValues = {
   plannedNumEmployees5yrs: "",
   currentCapex: "",
   plannedCapex5yr: "",
+  arBalance: "",
+  apBalance: "",
+  inventoryBalance: "",
   totalDebtOutstanding: "",
   annualInterestPayment: "",
   annualPrincipalPayment: "",
+  ownerCompensation: "",
   cashOnHand: "",
 };
 
@@ -333,7 +358,9 @@ function IntakeFormPage() {
         expected_revenue_growth_pct_next_year:
           values.expectedRevenueGrowthPctNextYear,
       units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
+      tax_rate: parseNumberFromString(values.taxRate),
       marketing_expense: parseNumberFromString(values.marketingExpense),
+      r_and_d_expense: parseNumberFromString(values.rAndDExpense),
       sga_expense: parseNumberFromString(values.sgaExpense),
       other_operating_expense: parseNumberFromString(
         values.otherOperatingExpense
@@ -351,6 +378,9 @@ function IntakeFormPage() {
         ),
         current_capex: parseNumberFromString(values.currentCapex),
         planned_capex_5yr: parseNumberFromString(values.plannedCapex5yr),
+        ar_balance: parseNumberFromString(values.arBalance),
+        ap_balance: parseNumberFromString(values.apBalance),
+        inventory_balance: parseNumberFromString(values.inventoryBalance),
         total_debt_outstanding: parseNumberFromString(
           values.totalDebtOutstanding
         ),
@@ -360,6 +390,7 @@ function IntakeFormPage() {
         annual_principal_payment: parseNumberFromString(
           values.annualPrincipalPayment
         ),
+        owner_compensation: parseNumberFromString(values.ownerCompensation),
         cash_on_hand: parseNumberFromString(values.cashOnHand),
         customer_age_range: values.customerAgeRange,
         customer_income_level: values.customerIncomeLevel,
@@ -907,7 +938,10 @@ function IntakeFormPage() {
                   <FormField name="currentCogs" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Cost of Goods Sold (COGS)</FormLabel>
+                        <FormLabel>
+                          Cost of Goods Sold (COGS){" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.cogs} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -937,7 +971,10 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Expected Revenue Growth (%)</FormLabel>
+                        <FormLabel>
+                          Expected Revenue Growth (%){" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.expectedRevenueGrowth} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -968,7 +1005,10 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Units Sold Per Month</FormLabel>
+                        <FormLabel>
+                          Units Sold Per Month{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.unitsSoldPerMonth} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -991,6 +1031,35 @@ function IntakeFormPage() {
                       </FormItem>
                     )}
                   </FormField>
+
+                  <FormField name="taxRate" control={form.control}>
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Tax Rate{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.taxRate} />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(event, "taxRate");
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.taxRate?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
                 </div>
               </div>
 
@@ -1002,7 +1071,10 @@ function IntakeFormPage() {
                   <FormField name="marketingExpense" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Marketing Expense</FormLabel>
+                        <FormLabel>
+                          Marketing Expense{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.marketingExpense} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1025,10 +1097,42 @@ function IntakeFormPage() {
                     )}
                   </FormField>
 
+                  <FormField name="rAndDExpense" control={form.control}>
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Research &amp; Development (R&amp;D){" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.rAndDExpense} />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(event, "rAndDExpense");
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.rAndDExpense?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
+
                   <FormField name="sgaExpense" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>SG&amp;A Expense</FormLabel>
+                        <FormLabel>
+                          SG&amp;A Expense{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.sgAndAExpense} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1057,7 +1161,10 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Other Operating Expense</FormLabel>
+                        <FormLabel>
+                          Other Operating Expense{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.otherOpExpense} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1092,7 +1199,10 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Monthly Rent / Lease Expense</FormLabel>
+                        <FormLabel>
+                          Monthly Rent / Lease Expense{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.rentLeaseExpense} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1125,7 +1235,8 @@ function IntakeFormPage() {
                     {(field) => (
                       <FormItem>
                         <FormLabel>
-                          Other Monthly Debt Payments
+                          Other Monthly Debt Payments{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.otherDebtPayments} />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1158,7 +1269,10 @@ function IntakeFormPage() {
                   <FormField name="currentPayroll" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Current Payroll</FormLabel>
+                        <FormLabel>
+                          Current Payroll{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.currentPayroll} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1187,7 +1301,10 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Current Number of Employees</FormLabel>
+                        <FormLabel>
+                          Current Number of Employees{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.currentEmployees} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1223,7 +1340,10 @@ function IntakeFormPage() {
                     {(field) => (
                       <FormItem>
                         <FormLabel>
-                          Planned Number of Employees in 5 Years
+                          Planned Number of Employees in 5 Years{" "}
+                          <HelpTooltip
+                            text={TOOLTIP_TEXT.plannedEmployees5Years}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1257,13 +1377,16 @@ function IntakeFormPage() {
 
               <div className="space-y-3 rounded-lg border border-slate-800/80 bg-slate-950/80 p-4">
                 <div className="text-[11px] font-semibold tracking-tight text-slate-200">
-                  Capital Expenditures
+                  Capital Expenditures &amp; Working Capital
                 </div>
                 <div className="grid gap-3">
                   <FormField name="currentCapex" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Current Capex</FormLabel>
+                        <FormLabel>
+                          Current Capex{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.currentCapex} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1289,7 +1412,10 @@ function IntakeFormPage() {
                   <FormField name="plannedCapex5yr" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Planned Capex (5 Years)</FormLabel>
+                        <FormLabel>
+                          Planned Capex (5 Years){" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.plannedCapex} />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1311,6 +1437,93 @@ function IntakeFormPage() {
                       </FormItem>
                     )}
                   </FormField>
+
+                  <FormField name="arBalance" control={form.control}>
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Accounts Receivable Balance{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.arBalance} />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(event, "arBalance");
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.arBalance?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
+
+                  <FormField name="apBalance" control={form.control}>
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Accounts Payable Balance{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.apBalance} />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(event, "apBalance");
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.apBalance?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
+
+                  <FormField name="inventoryBalance" control={form.control}>
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Inventory Balance{" "}
+                          <HelpTooltip text={TOOLTIP_TEXT.inventoryBalance} />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(event, "inventoryBalance");
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.inventoryBalance?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
                 </div>
               </div>
 
@@ -1325,7 +1538,13 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Total Debt Outstanding</FormLabel>
+                        <FormLabel>
+                          Total Debt Outstanding{" "}
+                          <HelpTooltip
+                            side="left"
+                            text={TOOLTIP_TEXT.totalDebtOutstanding}
+                          />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1360,7 +1579,13 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Annual Interest Payment</FormLabel>
+                        <FormLabel>
+                          Annual Interest Payment{" "}
+                          <HelpTooltip
+                            side="left"
+                            text={TOOLTIP_TEXT.annualInterest}
+                          />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1395,7 +1620,13 @@ function IntakeFormPage() {
                   >
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Annual Principal Payment</FormLabel>
+                        <FormLabel>
+                          Annual Principal Payment{" "}
+                          <HelpTooltip
+                            side="left"
+                            text={TOOLTIP_TEXT.annualPrincipal}
+                          />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1424,10 +1655,54 @@ function IntakeFormPage() {
                     )}
                   </FormField>
 
+                  <FormField
+                    name="ownerCompensation"
+                    control={form.control}
+                  >
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Owner Compensation (if applicable){" "}
+                          <HelpTooltip
+                            side="left"
+                            text={TOOLTIP_TEXT.ownerCompensation}
+                          />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(
+                                event,
+                                "ownerCompensation"
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.ownerCompensation?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
+
                   <FormField name="cashOnHand" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Cash on Hand</FormLabel>
+                        <FormLabel>
+                          Cash on Hand{" "}
+                          <HelpTooltip
+                            side="left"
+                            text={TOOLTIP_TEXT.cashOnHand}
+                          />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
