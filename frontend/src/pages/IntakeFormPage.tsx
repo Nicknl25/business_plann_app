@@ -20,6 +20,7 @@ import { Textarea } from "../components/ui/Textarea";
 import GoogleAddressInput from "../components/GoogleAddressInput";
 import GoogleBusinessTypeInput from "../components/GoogleBusinessTypeInput";
 import IndustryInput from "../components/IndustryInput";
+import HelpTooltip from "../components/ui/HelpTooltip";
 
 const apiBase =
   ((import.meta as any).env &&
@@ -94,6 +95,8 @@ const intakeSchema = z
   marketingExpense: z.string().optional(),
   sgaExpense: z.string().optional(),
   otherOperatingExpense: z.string().optional(),
+  monthlyRentExpense: z.string().optional(),
+  otherMonthlyDebtPayments: z.string().optional(),
   currentPayroll: z.string().optional(),
   currentNumEmployees: z.string().optional(),
   plannedNumEmployees5yrs: z.string().optional(),
@@ -220,6 +223,8 @@ const defaultValues: IntakeValues = {
   marketingExpense: "",
   sgaExpense: "",
   otherOperatingExpense: "",
+  monthlyRentExpense: "",
+  otherMonthlyDebtPayments: "",
   currentPayroll: "",
   currentNumEmployees: "",
   plannedNumEmployees5yrs: "",
@@ -327,12 +332,16 @@ function IntakeFormPage() {
         current_cogs: parseNumberFromString(values.currentCogs),
         expected_revenue_growth_pct_next_year:
           values.expectedRevenueGrowthPctNextYear,
-        units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
-        marketing_expense: parseNumberFromString(values.marketingExpense),
-        sga_expense: parseNumberFromString(values.sgaExpense),
-        other_operating_expense: parseNumberFromString(
-          values.otherOperatingExpense
-        ),
+      units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
+      marketing_expense: parseNumberFromString(values.marketingExpense),
+      sga_expense: parseNumberFromString(values.sgaExpense),
+      other_operating_expense: parseNumberFromString(
+        values.otherOperatingExpense
+      ),
+      monthly_rent_expense: parseNumberFromString(values.monthlyRentExpense),
+      other_monthly_debt_payments: parseNumberFromString(
+        values.otherMonthlyDebtPayments
+      ),
         current_payroll: parseNumberFromString(values.currentPayroll),
         current_num_employees: parseNumberFromString(
           values.currentNumEmployees
@@ -868,7 +877,10 @@ function IntakeFormPage() {
                   <FormField name="currentRevenue" control={form.control}>
                     {(field) => (
                       <FormItem>
-                        <FormLabel>Current Revenue</FormLabel>
+                        <FormLabel>
+                          Current Revenue{" "}
+                          <HelpTooltip text="Enter your current annual revenue. Use 0 if you are pre-revenue." />
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -1067,6 +1079,75 @@ function IntakeFormPage() {
                         <FormMessage>
                           {
                             form.formState.errors.otherOperatingExpense
+                              ?.message
+                          }
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
+
+                  <FormField
+                    name="monthlyRentExpense"
+                    control={form.control}
+                  >
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>Monthly Rent / Lease Expense</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(
+                                event,
+                                "monthlyRentExpense"
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {form.formState.errors.monthlyRentExpense?.message}
+                        </FormMessage>
+                      </FormItem>
+                    )}
+                  </FormField>
+
+                  <FormField
+                    name="otherMonthlyDebtPayments"
+                    control={form.control}
+                  >
+                    {(field) => (
+                      <FormItem>
+                        <FormLabel>
+                          Other Monthly Debt Payments
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="text"
+                            inputMode="decimal"
+                            min={0}
+                            onChange={(event) =>
+                              handleNumericChange(event, field.onChange)
+                            }
+                            onBlur={(event) => {
+                              field.onBlur();
+                              handleNumericBlur(
+                                event,
+                                "otherMonthlyDebtPayments"
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage>
+                          {
+                            form.formState.errors.otherMonthlyDebtPayments
                               ?.message
                           }
                         </FormMessage>
