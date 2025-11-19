@@ -4,13 +4,20 @@ import {
   FormProvider,
   type FieldValues,
   type UseFormReturn,
+  type ControllerRenderProps,
+  type Path
 } from "react-hook-form";
 import { cn } from "../../lib/utils";
 
-interface FormProps<TFieldValues extends FieldValues>
-  extends React.HTMLAttributes<HTMLFormElement> {
+/* ---------------------------------------
+   Form Wrapper — CLEAN, CORRECT VERSION
+----------------------------------------*/
+
+interface FormProps<TFieldValues extends FieldValues> {
   form: UseFormReturn<TFieldValues>;
   onSubmit: (values: TFieldValues) => void;
+  className?: string;
+  children: React.ReactNode;
 }
 
 export function Form<TFieldValues extends FieldValues>({
@@ -18,14 +25,12 @@ export function Form<TFieldValues extends FieldValues>({
   onSubmit,
   className,
   children,
-  ...props
 }: FormProps<TFieldValues>) {
   return (
     <FormProvider {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
         className={cn("space-y-6", className)}
-        {...props}
       >
         {children}
       </form>
@@ -33,15 +38,16 @@ export function Form<TFieldValues extends FieldValues>({
   );
 }
 
-interface FormFieldProps<TFieldValues extends FieldValues>
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children"> {
-  name: keyof TFieldValues & string;
+/* ---------------------------------------
+   FormField
+----------------------------------------*/
+
+interface FormFieldProps<TFieldValues extends FieldValues> {
+  name: Path<TFieldValues>;
   control: UseFormReturn<TFieldValues>["control"];
-  children: (field: {
-    value: unknown;
-    onChange: (value: unknown) => void;
-    onBlur: () => void;
-  }) => React.ReactNode;
+  children: (
+    field: ControllerRenderProps<TFieldValues, Path<TFieldValues>>
+  ) => React.ReactNode;
 }
 
 export function FormField<TFieldValues extends FieldValues>({
@@ -57,6 +63,10 @@ export function FormField<TFieldValues extends FieldValues>({
     />
   );
 }
+
+/* ---------------------------------------
+   UI Helpers
+----------------------------------------*/
 
 export function FormItem({
   className,
@@ -107,4 +117,3 @@ export function FormMessage({
     </p>
   );
 }
-

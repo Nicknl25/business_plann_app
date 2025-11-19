@@ -56,9 +56,16 @@ const intakeSchema = z
   sellingMethod: z
     .string()
     .min(4, "Describe how you expect to sell your product or service."),
-  targetCustomer: z
+  customerAgeRange: z
     .string()
-    .min(10, "Describe your ideal customer or audience."),
+    .min(1, "Age Range is required."),
+  customerIncomeLevel: z
+    .string()
+    .min(1, "Income Level is required."),
+  customerType: z
+    .string()
+    .min(1, "Customer Type is required."),
+  customerAdditionalDetails: z.string().optional(),
   estimatedRevenue: z
     .string()
     .min(2, "Share a rough revenue estimate or range."),
@@ -84,13 +91,6 @@ const intakeSchema = z
   currentCogs: z.string().optional(),
   expectedRevenueGrowthPctNextYear: z.string().optional(),
   unitsSoldPerMonth: z.string().optional(),
-  unitDefinition: z
-    .string()
-    .optional()
-    .refine(
-      (value) => value === undefined || !/\d/.test(value),
-      "Define Your Unit cannot contain numbers."
-    ),
   marketingExpense: z.string().optional(),
   sgaExpense: z.string().optional(),
   otherOperatingExpense: z.string().optional(),
@@ -170,14 +170,6 @@ const intakeSchema = z
             "Units Sold Per Month is required when revenue is greater than zero.",
         });
       }
-      if (!values.unitDefinition) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["unitDefinition"],
-          message:
-            "Define Your Unit is required when revenue is greater than zero.",
-        });
-      }
     }
   });
 
@@ -201,7 +193,6 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   annual_interest_payment: "annualInterestPayment",
   annual_principal_payment: "annualPrincipalPayment",
   cash_on_hand: "cashOnHand",
-  unit_definition: "unitDefinition",
 };
 
 const defaultValues: IntakeValues = {
@@ -212,7 +203,10 @@ const defaultValues: IntakeValues = {
   address: "",
   productKeywords: "",
   sellingMethod: "",
-  targetCustomer: "",
+  customerAgeRange: "",
+  customerIncomeLevel: "",
+  customerType: "",
+  customerAdditionalDetails: "",
   estimatedRevenue: "",
   startupCosts: "",
   monthlyCosts: "",
@@ -223,7 +217,6 @@ const defaultValues: IntakeValues = {
   currentCogs: "",
   expectedRevenueGrowthPctNextYear: "",
   unitsSoldPerMonth: "",
-  unitDefinition: "",
   marketingExpense: "",
   sgaExpense: "",
   otherOperatingExpense: "",
@@ -311,107 +304,112 @@ function IntakeFormPage() {
     });
   }
 
-  async function handleSubmit(values: IntakeValues) {
-    const base =
-      typeof apiBase === "string" && apiBase.length
-        ? apiBase.replace(/\/$/, "")
-        : "";
-    const url = base ? `${base}/api/financials` : "/api/financials";
+  function handleSubmit(values: IntakeValues) {
+    (async () => {
+      const base =
+        typeof apiBase === "string" && apiBase.length
+          ? apiBase.replace(/\/$/, "")
+          : "";
+      const url = base ? `${base}/api/financials` : "/api/financials";
 
-    const dateRaw = values.businessStartDate;
-    let businessStartDateFormatted: string | null = null;
-    if (dateRaw) {
-      const [year, month, day] = dateRaw.split("-");
-      if (year && month && day) {
-        businessStartDateFormatted = `${month}-${day}-${year}`;
+      const dateRaw = values.businessStartDate;
+      let businessStartDateFormatted: string | null = null;
+      if (dateRaw) {
+        const [year, month, day] = dateRaw.split("-");
+        if (year && month && day) {
+          businessStartDateFormatted = `${month}-${day}-${year}`;
+        }
       }
-    }
 
-    const financialsPayload = {
-      business_start_date: businessStartDateFormatted,
-      current_revenue: parseNumberFromString(values.currentRevenue),
-      current_cogs: parseNumberFromString(values.currentCogs),
-      expected_revenue_growth_pct_next_year:
-        values.expectedRevenueGrowthPctNextYear,
-      units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
-      marketing_expense: parseNumberFromString(values.marketingExpense),
-      sga_expense: parseNumberFromString(values.sgaExpense),
-      other_operating_expense: parseNumberFromString(
-        values.otherOperatingExpense
-      ),
-      current_payroll: parseNumberFromString(values.currentPayroll),
-      current_num_employees: parseNumberFromString(
-        values.currentNumEmployees
-      ),
-      planned_num_employees_5yrs: parseNumberFromString(
-        values.plannedNumEmployees5yrs
-      ),
-      current_capex: parseNumberFromString(values.currentCapex),
-      planned_capex_5yr: parseNumberFromString(values.plannedCapex5yr),
-      total_debt_outstanding: parseNumberFromString(
-        values.totalDebtOutstanding
-      ),
-      annual_interest_payment: parseNumberFromString(
-        values.annualInterestPayment
-      ),
-      annual_principal_payment: parseNumberFromString(
-        values.annualPrincipalPayment
-      ),
-      cash_on_hand: parseNumberFromString(values.cashOnHand),
-      unit_definition: values.unitDefinition,
-    };
+      const financialsPayload = {
+        business_start_date: businessStartDateFormatted,
+        current_revenue: parseNumberFromString(values.currentRevenue),
+        current_cogs: parseNumberFromString(values.currentCogs),
+        expected_revenue_growth_pct_next_year:
+          values.expectedRevenueGrowthPctNextYear,
+        units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
+        marketing_expense: parseNumberFromString(values.marketingExpense),
+        sga_expense: parseNumberFromString(values.sgaExpense),
+        other_operating_expense: parseNumberFromString(
+          values.otherOperatingExpense
+        ),
+        current_payroll: parseNumberFromString(values.currentPayroll),
+        current_num_employees: parseNumberFromString(
+          values.currentNumEmployees
+        ),
+        planned_num_employees_5yrs: parseNumberFromString(
+          values.plannedNumEmployees5yrs
+        ),
+        current_capex: parseNumberFromString(values.currentCapex),
+        planned_capex_5yr: parseNumberFromString(values.plannedCapex5yr),
+        total_debt_outstanding: parseNumberFromString(
+          values.totalDebtOutstanding
+        ),
+        annual_interest_payment: parseNumberFromString(
+          values.annualInterestPayment
+        ),
+        annual_principal_payment: parseNumberFromString(
+          values.annualPrincipalPayment
+        ),
+        cash_on_hand: parseNumberFromString(values.cashOnHand),
+        customer_age_range: values.customerAgeRange,
+        customer_income_level: values.customerIncomeLevel,
+        customer_type: values.customerType,
+        customer_additional_details: values.customerAdditionalDetails || "",
+      };
 
-    Object.values(serverFieldToFormField).forEach((fieldName) => {
-      form.clearErrors(fieldName);
-    });
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(financialsPayload),
+      Object.values(serverFieldToFormField).forEach((fieldName) => {
+        form.clearErrors(fieldName);
       });
 
-      const contentType = res.headers.get("content-type") || "";
-      let body: any = null;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(financialsPayload),
+        });
 
-      if (contentType.includes("application/json")) {
-        body = await res.json();
-      } else {
-        const text = await res.text();
-        throw new Error(
-          `Unexpected response from /api/financials: ${res.status} ${res.statusText} ${text.slice(
-            0,
-            120
-          )}`
-        );
-      }
+        const contentType = res.headers.get("content-type") || "";
+        let body: any = null;
 
-      if (!res.ok) {
-        if (body && typeof body === "object" && body.errors) {
-          Object.entries(body.errors).forEach(([serverField, message]) => {
-            const formField = serverFieldToFormField[serverField];
-            if (formField) {
-              form.setError(formField, {
-                type: "server",
-                message: String(message),
-              });
-            }
-          });
+        if (contentType.includes("application/json")) {
+          body = await res.json();
         } else {
-          console.error("Error submitting financials:", body);
+          const text = await res.text();
+          throw new Error(
+            `Unexpected response from /api/financials: ${res.status} ${res.statusText} ${text.slice(
+              0,
+              120
+            )}`
+          );
         }
-        return;
+
+        if (!res.ok) {
+          if (body && typeof body === "object" && body.errors) {
+            Object.entries(body.errors).forEach(([serverField, message]) => {
+              const formField = serverFieldToFormField[serverField];
+              if (formField) {
+                form.setError(formField, {
+                  type: "server",
+                  message: String(message),
+                });
+              }
+            });
+          } else {
+            console.error("Error submitting financials:", body);
+          }
+          return;
+        }
+
+        console.log("Financials submitted successfully", body);
+      } catch (error) {
+        console.error("Error submitting financials:", error);
       }
 
-      console.log("Financials submitted successfully", body);
-    } catch (error) {
-      console.error("Error submitting financials:", error);
-    }
-
-    console.log("Intake submission", values);
+      console.log("Intake submission", values);
+    })();
   }
 
   return (
@@ -440,7 +438,7 @@ function IntakeFormPage() {
           </motion.div>
         </section>
 
-        <Form form={form} onSubmit={handleSubmit} className="space-y-8">
+        <Form form={form} onSubmit={(values) => { handleSubmit(values); }} className="space-y-8">
           <div className="grid gap-5 md:grid-cols-[1.3fr_1fr]">
             {/* Business basics */}
             <Card className="border border-slate-800/80 bg-slate-950/90">
@@ -595,11 +593,39 @@ function IntakeFormPage() {
                     <FormItem>
                       <FormLabel>Preferred selling method</FormLabel>
                       <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={3}
-                          placeholder="Describe how you plan to sell: in-person, online, recurring, project-based, etc."
-                        />
+                        <select
+                          name={field.name}
+                          value={(field.value as string) || ""}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          onBlur={field.onBlur}
+                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+                        >
+                          <option value="">Select a selling method</option>
+                          <option value="In-person">In-person</option>
+                          <option value="Online">Online</option>
+                          <option value="Hybrid (in-person + online)">
+                            Hybrid (in-person + online)
+                          </option>
+                          <option value="Recurring / Membership">
+                            Recurring / Membership
+                          </option>
+                          <option value="Project-based">Project-based</option>
+                          <option value="Service-based">Service-based</option>
+                          <option value="Retail (in-store)">
+                            Retail (in-store)
+                          </option>
+                          <option value="E-commerce">E-commerce</option>
+                          <option value="Wholesale / B2B">
+                            Wholesale / B2B
+                          </option>
+                          <option value="Subscription delivery">
+                            Subscription delivery
+                          </option>
+                          <option value="Digital product">Digital product</option>
+                          <option value="Marketplace / platform">
+                            Marketplace / platform
+                          </option>
+                        </select>
                       </FormControl>
                       <FormMessage>
                         {form.formState.errors.sellingMethod?.message}
@@ -617,19 +643,143 @@ function IntakeFormPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <FormField name="targetCustomer" control={form.control}>
+                <FormField name="customerAgeRange" control={form.control}>
                   {(field) => (
                     <FormItem>
-                      <FormLabel>Target customer</FormLabel>
+                      <FormLabel>Age Range</FormLabel>
+                      <FormControl>
+                        <select
+                          name={field.name}
+                          value={(field.value as string) || ""}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          onBlur={field.onBlur}
+                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+                        >
+                          <option value="">Select an age range</option>
+                          <option value="18–24">18–24</option>
+                          <option value="25–34">25–34</option>
+                          <option value="35–44">35–44</option>
+                          <option value="45–54">45–54</option>
+                          <option value="55–64">55–64</option>
+                          <option value="65+">65+</option>
+                          <option value="All adults (18+)">
+                            All adults (18+)
+                          </option>
+                          <option value="Families with children">
+                            Families with children
+                          </option>
+                        </select>
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.customerAgeRange?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField name="customerIncomeLevel" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>Income Level</FormLabel>
+                      <FormControl>
+                        <select
+                          name={field.name}
+                          value={(field.value as string) || ""}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          onBlur={field.onBlur}
+                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+                        >
+                          <option value="">Select an income level</option>
+                          <option value="Low income (<$40k)">
+                            Low income (&lt;$40k)
+                          </option>
+                          <option value="Middle income ($40k–$85k)">
+                            Middle income ($40k–$85k)
+                          </option>
+                          <option value="Upper-middle income ($85k–$150k)">
+                            Upper-middle income ($85k–$150k)
+                          </option>
+                          <option value="High income ($150k+)">
+                            High income ($150k+)
+                          </option>
+                          <option value="All income levels">
+                            All income levels
+                          </option>
+                        </select>
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.customerIncomeLevel?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField name="customerType" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>Customer Type</FormLabel>
+                      <FormControl>
+                        <select
+                          name={field.name}
+                          value={(field.value as string) || ""}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          onBlur={field.onBlur}
+                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+                        >
+                          <option value="">Select a customer type</option>
+                          <option value="Consumers (B2C)">Consumers (B2C)</option>
+                          <option value="Small businesses (B2B – under 50 employees)">
+                            Small businesses (B2B – under 50 employees)
+                          </option>
+                          <option value="Mid-size businesses (B2B – 50 to 500 employees)">
+                            Mid-size businesses (B2B – 50 to 500 employees)
+                          </option>
+                          <option value="Large enterprises (B2B – 500+ employees)">
+                            Large enterprises (B2B – 500+ employees)
+                          </option>
+                          <option value="Nonprofits">Nonprofits</option>
+                          <option value="Government / Municipal">
+                            Government / Municipal
+                          </option>
+                          <option value="Schools / Education">
+                            Schools / Education
+                          </option>
+                          <option value="Families with children">
+                            Families with children
+                          </option>
+                          <option value="Seniors">Seniors</option>
+                          <option value="Young professionals">
+                            Young professionals
+                          </option>
+                          <option value="Homeowners">Homeowners</option>
+                          <option value="Renters">Renters</option>
+                        </select>
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.customerType?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField
+                  name="customerAdditionalDetails"
+                  control={form.control}
+                >
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>
+                        Additional customer details (optional)
+                      </FormLabel>
                       <FormControl>
                         <Textarea
                           {...field}
                           rows={3}
-                          placeholder="Who is your ideal customer? Include demographics, behaviors, and context."
+                          placeholder="Add any extra context about your target customers (behaviors, locations, niches, etc.)."
                         />
                       </FormControl>
                       <FormMessage>
-                        {form.formState.errors.targetCustomer?.message}
+                        {form.formState.errors.customerAdditionalDetails?.message}
                       </FormMessage>
                     </FormItem>
                   )}
@@ -640,11 +790,39 @@ function IntakeFormPage() {
                     <FormItem>
                       <FormLabel>Pricing model</FormLabel>
                       <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={3}
-                          placeholder="Describe your pricing (e.g., flat-fee, tiered, hourly, subscription, retainers)."
-                        />
+                        <select
+                          name={field.name}
+                          value={(field.value as string) || ""}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          onBlur={field.onBlur}
+                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+                        >
+                          <option value="">Select a pricing model</option>
+                          <option value="Flat-fee">Flat-fee</option>
+                          <option value="Hourly">Hourly</option>
+                          <option value="Tiered pricing">Tiered pricing</option>
+                          <option value="Subscription (monthly)">
+                            Subscription (monthly)
+                          </option>
+                          <option value="Subscription (annual)">
+                            Subscription (annual)
+                          </option>
+                          <option value="Per-project / Per-contract">
+                            Per-project / Per-contract
+                          </option>
+                          <option value="Per-unit / Retail">
+                            Per-unit / Retail
+                          </option>
+                          <option value="Commission-based">Commission-based</option>
+                          <option value="Retainer">Retainer</option>
+                          <option value="Licensing">Licensing</option>
+                          <option value="Freemium to paid upgrade">
+                            Freemium to paid upgrade
+                          </option>
+                          <option value="Hybrid / Mixed model">
+                            Hybrid / Mixed model
+                          </option>
+                        </select>
                       </FormControl>
                       <FormMessage>
                         {form.formState.errors.pricingModel?.message}
@@ -797,24 +975,6 @@ function IntakeFormPage() {
                         </FormControl>
                         <FormMessage>
                           {form.formState.errors.unitsSoldPerMonth?.message}
-                        </FormMessage>
-                      </FormItem>
-                    )}
-                  </FormField>
-
-                  <FormField name="unitDefinition" control={form.control}>
-                    {(field) => (
-                      <FormItem>
-                        <FormLabel>Define Your Unit</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            type="text"
-                            placeholder="E.g., billable hours, taxi rides, cups sold"
-                          />
-                        </FormControl>
-                        <FormMessage>
-                          {form.formState.errors.unitDefinition?.message}
                         </FormMessage>
                       </FormItem>
                     )}
