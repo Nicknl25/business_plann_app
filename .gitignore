@@ -6,11 +6,16 @@ __pycache__/
 .Rproj.user/
 .DS_Store
 .idea/
-.vscode/*.log
-/.ipynb_checkpoints/
+.vscode/
+.ipynb_checkpoints/
 *.Rproj
 *.sqlite
 *.db
+
+# Node modules
+node_modules/
+frontend/node_modules/
+backend/node_modules/
 
 # Frontend environment files
 /frontend/.env

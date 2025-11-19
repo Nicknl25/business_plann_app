@@ -2,6 +2,58 @@ import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cn } from "../../lib/utils";
 
+export const TOOLTIP_TEXT = {
+  cogs:
+    "Direct cost to make or deliver what you sell. Skip if unsure; we will use industry estimates.",
+  expectedRevenueGrowth:
+    "How fast you expect revenue to increase. Skip if unsure; we will estimate.",
+  unitsSoldPerMonth:
+    "Number of units, items, or customers sold each month. Skip if unsure; we will estimate.",
+  taxRate:
+    "Your estimated business tax rate. Skip if unsure; we will apply a standard rate.",
+
+  marketingExpense:
+    "Monthly advertising or promotion spend. Skip if unsure; we will estimate.",
+  rAndDExpense:
+    "Spending on improving products, services, or technology. Skip if unsure; we will estimate.",
+  sgAndAExpense:
+    "General admin costs like office supplies or software. Skip if unsure; we will estimate.",
+  otherOpExpense:
+    "Any other monthly cost not listed above. Can be used for startup costs. Skip if unsure.",
+  rentLeaseExpense:
+    "Monthly office or retail rent. Skip if unsure; we will estimate.",
+  otherDebtPayments:
+    "Monthly payments for smaller loans or credit lines. Skip if unsure; we will assume zero.",
+  currentPayroll:
+    "Total monthly payroll for employees or contractors. Skip if unsure; we will estimate.",
+  currentEmployees:
+    "Total current employees. Skip if unsure; we will estimate.",
+  plannedEmployees5Years:
+    "Expected number of employees in five years. Skip if unsure; we will estimate.",
+
+  currentCapex:
+    "Recent spending on long-term assets like equipment. Skip if unsure; we will estimate.",
+  plannedCapex:
+    "Expected major asset purchases over the next five years. Skip if unsure; we will estimate.",
+  arBalance:
+    "Money owed to you by customers. Skip if unsure; we will use industry defaults.",
+  apBalance:
+    "Money you owe to suppliers. Skip if unsure; we will use industry defaults.",
+  inventoryBalance:
+    "Value of products or materials on hand. Skip if unsure; we will use industry defaults.",
+
+  totalDebtOutstanding:
+    "Total business loans you owe. Skip if unsure; we will assume zero.",
+  annualInterest:
+    "Yearly interest paid on loans. Skip if unsure; we will estimate.",
+  annualPrincipal:
+    "Yearly repayment of loan principal. Skip if unsure; we will estimate.",
+  ownerCompensation:
+    "Amount you pay yourself. Skip if unsure; we will assume zero.",
+  cashOnHand:
+    "Cash the business has available. Skip if unsure; we will estimate.",
+} as const;
+
 const TooltipProvider = TooltipPrimitive.Provider;
 
 const Tooltip = TooltipPrimitive.Root;
@@ -26,4 +78,3 @@ const TooltipContent = React.forwardRef<
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
-
