@@ -68,15 +68,13 @@ const intakeSchema = z
     .string()
     .min(1, "Customer Type is required."),
   customerAdditionalDetails: z.string().optional(),
-  estimatedRevenue: z
+  firstName: z.string().min(1, "First Name is required."),
+  lastName: z.string().min(1, "Last Name is required."),
+  emailAddress: z
     .string()
-    .min(2, "Share a rough revenue estimate or range."),
-  startupCosts: z
-    .string()
-    .min(2, "Share your estimated one-time startup costs."),
-  monthlyCosts: z
-    .string()
-    .min(2, "Share your estimated ongoing monthly costs."),
+    .email("Please enter a valid email address."),
+  phoneNumber: z.string().optional(),
+  howDidYouHear: z.string().optional(),
   pricingModel: z
     .string()
     .min(4, "Describe your pricing model or structure."),
@@ -229,9 +227,11 @@ const defaultValues: IntakeValues = {
   customerIncomeLevel: "",
   customerType: "",
   customerAdditionalDetails: "",
-  estimatedRevenue: "",
-  startupCosts: "",
-  monthlyCosts: "",
+  firstName: "",
+  lastName: "",
+  emailAddress: "",
+  phoneNumber: "",
+  howDidYouHear: "",
   pricingModel: "",
   founderBackground: "",
   businessStartDate: "",
@@ -545,7 +545,13 @@ function IntakeFormPage() {
                   <FormField name="address" control={form.control}>
                   {(field) => (
                     <FormItem>
-                      <FormLabel>Business address</FormLabel>
+                      <FormLabel>
+                        Business address{" "}
+                        <HelpTooltip
+                          fieldName="address"
+                          text={TOOLTIP_TEXT.businessAddress}
+                        />
+                      </FormLabel>
                       <FormControl>
                         <GoogleAddressInput
                           {...field}
@@ -562,7 +568,13 @@ function IntakeFormPage() {
                 <FormField name="description" control={form.control}>
                   {(field) => (
                     <FormItem className="col-span-2">
-                      <FormLabel>Business description</FormLabel>
+                      <FormLabel>
+                        Business description{" "}
+                        <HelpTooltip
+                          fieldName="description"
+                          text={TOOLTIP_TEXT.businessDescription}
+                        />
+                      </FormLabel>
                       <FormControl>
                         <Textarea
                           {...field}
@@ -580,7 +592,7 @@ function IntakeFormPage() {
             </Card>
 
             {/* Snapshot card */}
-            <Card className="border border-slate-800/80 bg-slate-950/90">
+            <Card className="relative border border-slate-800/80 bg-slate-950/90">
               <CardHeader className="border-0 pb-2">
                 <CardTitle className="text-sm">What to expect next</CardTitle>
               </CardHeader>
@@ -599,6 +611,161 @@ function IntakeFormPage() {
                   The more specific you are, the more precise and compelling
                   your finished plan can be.
                 </p>
+                <div className="absolute top-4 right-4 animate-glow">
+                  <span className="relative flex h-8 w-8 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/40 shadow-glow animate-slowspin">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="absolute inset-0 -z-10 rounded-2xl bg-sky-500/15 blur-xl" />
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Client information & founder background */}
+          <div className="grid gap-5 md:grid-cols-2">
+            <Card className="border border-slate-800/80 bg-slate-950/90">
+              <CardHeader className="border-0 pb-3">
+                <CardTitle className="text-sm">
+                  Client Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FormField name="firstName" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>First Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="text"
+                          placeholder="Enter your first name"
+                        />
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.firstName?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField name="lastName" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>Last Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="text"
+                          placeholder="Enter your last name"
+                        />
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.lastName?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField name="emailAddress" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>Email Address</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="email"
+                          placeholder="you@example.com"
+                        />
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.emailAddress?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField name="phoneNumber" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>
+                        Phone Number{" "}
+                        <span className="text-slate-400">(optional)</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="text"
+                          placeholder="Optional"
+                        />
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.phoneNumber?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+
+                <FormField name="howDidYouHear" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>How did you hear about us?</FormLabel>
+                      <FormControl>
+                        <select
+                          name={field.name}
+                          value={(field.value as string) || ""}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                          onBlur={field.onBlur}
+                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+                        >
+                          <option value="">Select an option</option>
+                          <option value="Twitter">Twitter</option>
+                          <option value="TikTok">TikTok</option>
+                          <option value="YouTube">YouTube</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.howDidYouHear?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-slate-800/80 bg-slate-950/90">
+              <CardHeader className="border-0 pb-3">
+                <CardTitle className="text-sm">
+                  Founder background &amp; story
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FormField name="founderBackground" control={form.control}>
+                  {(field) => (
+                    <FormItem>
+                      <FormLabel>
+                        Founder background{" "}
+                        <HelpTooltip
+                          side="bottom"
+                          fieldName="founderBackground"
+                          text={TOOLTIP_TEXT.founderBackground}
+                        />
+                      </FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          rows={5}
+                          placeholder="Share your experience, expertise, and why you are the right person or team to build this business."
+                        />
+                      </FormControl>
+                      <FormMessage>
+                        {form.formState.errors.founderBackground?.message}
+                      </FormMessage>
+                    </FormItem>
+                  )}
+                </FormField>
               </CardContent>
             </Card>
           </div>
@@ -613,7 +780,14 @@ function IntakeFormPage() {
                 <FormField name="productKeywords" control={form.control}>
                   {(field) => (
                     <FormItem>
-                      <FormLabel>Product / service keywords</FormLabel>
+                      <FormLabel>
+                        Product / service keywords{" "}
+                        <HelpTooltip
+                          side="bottom"
+                          fieldName="productKeywords"
+                          text={TOOLTIP_TEXT.productKeywords}
+                        />
+                      </FormLabel>
                       <FormControl>
                         <Textarea
                           {...field}
@@ -809,7 +983,12 @@ function IntakeFormPage() {
                   {(field) => (
                     <FormItem>
                       <FormLabel>
-                        Additional customer details (optional)
+                        Additional customer details (optional){" "}
+                        <HelpTooltip
+                          side="bottom"
+                          fieldName="customerAdditionalDetails"
+                          text={TOOLTIP_TEXT.customerAdditionalDetails}
+                        />
                       </FormLabel>
                       <FormControl>
                         <Textarea
@@ -910,7 +1089,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Current Revenue{" "}
-                          <HelpTooltip text="Enter your current annual revenue. Use 0 if you are pre-revenue." />
+                          <HelpTooltip
+                            fieldName="currentRevenue"
+                            text="Enter your current annual revenue. Use 0 if you are pre-revenue."
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -940,7 +1122,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Cost of Goods Sold (COGS){" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.cogs} />
+                          <HelpTooltip
+                            fieldName="currentCogs"
+                            text={TOOLTIP_TEXT.cogs}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -973,7 +1158,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Expected Revenue Growth (%){" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.expectedRevenueGrowth} />
+                          <HelpTooltip
+                            fieldName="expectedRevenueGrowthPctNextYear"
+                            text={TOOLTIP_TEXT.expectedRevenueGrowth}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1007,7 +1195,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Units Sold Per Month{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.unitsSoldPerMonth} />
+                          <HelpTooltip
+                            fieldName="unitsSoldPerMonth"
+                            text={TOOLTIP_TEXT.unitsSoldPerMonth}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1037,7 +1228,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Tax Rate{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.taxRate} />
+                          <HelpTooltip
+                            fieldName="taxRate"
+                            text={TOOLTIP_TEXT.taxRate}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1073,7 +1267,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Marketing Expense{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.marketingExpense} />
+                          <HelpTooltip
+                            fieldName="marketingExpense"
+                            text={TOOLTIP_TEXT.marketingExpense}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1102,7 +1299,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Research &amp; Development (R&amp;D){" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.rAndDExpense} />
+                          <HelpTooltip
+                            fieldName="rAndDExpense"
+                            text={TOOLTIP_TEXT.rAndDExpense}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1131,7 +1331,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           SG&amp;A Expense{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.sgAndAExpense} />
+                          <HelpTooltip
+                            fieldName="sgaExpense"
+                            text={TOOLTIP_TEXT.sgAndAExpense}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1163,7 +1366,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Other Operating Expense{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.otherOpExpense} />
+                          <HelpTooltip
+                            fieldName="otherOperatingExpense"
+                            text={TOOLTIP_TEXT.otherOpExpense}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1201,7 +1407,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Monthly Rent / Lease Expense{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.rentLeaseExpense} />
+                          <HelpTooltip
+                            fieldName="monthlyRentExpense"
+                            text={TOOLTIP_TEXT.rentLeaseExpense}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1236,7 +1445,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Other Monthly Debt Payments{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.otherDebtPayments} />
+                          <HelpTooltip
+                            fieldName="otherMonthlyDebtPayments"
+                            text={TOOLTIP_TEXT.otherDebtPayments}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1271,7 +1483,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Current Payroll{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.currentPayroll} />
+                          <HelpTooltip
+                            fieldName="currentPayroll"
+                            text={TOOLTIP_TEXT.currentPayroll}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1303,7 +1518,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Current Number of Employees{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.currentEmployees} />
+                          <HelpTooltip
+                            fieldName="currentNumEmployees"
+                            text={TOOLTIP_TEXT.currentEmployees}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1342,6 +1560,7 @@ function IntakeFormPage() {
                         <FormLabel>
                           Planned Number of Employees in 5 Years{" "}
                           <HelpTooltip
+                            fieldName="plannedNumEmployees5yrs"
                             text={TOOLTIP_TEXT.plannedEmployees5Years}
                           />
                         </FormLabel>
@@ -1385,7 +1604,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Current Capex{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.currentCapex} />
+                          <HelpTooltip
+                            fieldName="currentCapex"
+                            text={TOOLTIP_TEXT.currentCapex}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1414,7 +1636,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Planned Capex (5 Years){" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.plannedCapex} />
+                          <HelpTooltip
+                            fieldName="plannedCapex5yr"
+                            text={TOOLTIP_TEXT.plannedCapex}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1443,7 +1668,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Accounts Receivable Balance{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.arBalance} />
+                          <HelpTooltip
+                            fieldName="arBalance"
+                            text={TOOLTIP_TEXT.arBalance}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1472,7 +1700,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Accounts Payable Balance{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.apBalance} />
+                          <HelpTooltip
+                            fieldName="apBalance"
+                            text={TOOLTIP_TEXT.apBalance}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1501,7 +1732,10 @@ function IntakeFormPage() {
                       <FormItem>
                         <FormLabel>
                           Inventory Balance{" "}
-                          <HelpTooltip text={TOOLTIP_TEXT.inventoryBalance} />
+                          <HelpTooltip
+                            fieldName="inventoryBalance"
+                            text={TOOLTIP_TEXT.inventoryBalance}
+                          />
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -1542,6 +1776,7 @@ function IntakeFormPage() {
                           Total Debt Outstanding{" "}
                           <HelpTooltip
                             side="left"
+                            fieldName="totalDebtOutstanding"
                             text={TOOLTIP_TEXT.totalDebtOutstanding}
                           />
                         </FormLabel>
@@ -1583,6 +1818,7 @@ function IntakeFormPage() {
                           Annual Interest Payment{" "}
                           <HelpTooltip
                             side="left"
+                            fieldName="annualInterestPayment"
                             text={TOOLTIP_TEXT.annualInterest}
                           />
                         </FormLabel>
@@ -1624,6 +1860,7 @@ function IntakeFormPage() {
                           Annual Principal Payment{" "}
                           <HelpTooltip
                             side="left"
+                            fieldName="annualPrincipalPayment"
                             text={TOOLTIP_TEXT.annualPrincipal}
                           />
                         </FormLabel>
@@ -1665,6 +1902,7 @@ function IntakeFormPage() {
                           Owner Compensation (if applicable){" "}
                           <HelpTooltip
                             side="left"
+                            fieldName="ownerCompensation"
                             text={TOOLTIP_TEXT.ownerCompensation}
                           />
                         </FormLabel>
@@ -1700,6 +1938,7 @@ function IntakeFormPage() {
                           Cash on Hand{" "}
                           <HelpTooltip
                             side="left"
+                            fieldName="cashOnHand"
                             text={TOOLTIP_TEXT.cashOnHand}
                           />
                         </FormLabel>
@@ -1729,99 +1968,6 @@ function IntakeFormPage() {
               </div>
             </CardContent>
           </Card>
-
-          {/* Financial snapshot & founder background */}
-          <div className="grid gap-5 md:grid-cols-2">
-            <Card className="border border-slate-800/80 bg-slate-950/90">
-              <CardHeader className="border-0 pb-3">
-                <CardTitle className="text-sm">
-                  Financial snapshot (high level)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField name="estimatedRevenue" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Estimated annual revenue</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={2}
-                          placeholder="Share your expected first-year or steady-state annual revenue (ranges are okay)."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.estimatedRevenue?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
-                <FormField name="startupCosts" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Startup costs</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={2}
-                          placeholder="List your one-time startup costs (build-out, equipment, launch, etc.)."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.startupCosts?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
-                <FormField name="monthlyCosts" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Ongoing monthly costs</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={2}
-                          placeholder="List key monthly costs (rent, payroll, software, marketing, etc.)."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.monthlyCosts?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-slate-800/80 bg-slate-950/90">
-              <CardHeader className="border-0 pb-3">
-                <CardTitle className="text-sm">
-                  Founder background &amp; story
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField name="founderBackground" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Founder background</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={5}
-                          placeholder="Share your experience, expertise, and why you are the right person or team to build this business."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.founderBackground?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-              </CardContent>
-            </Card>
-          </div>
 
           <motion.div
             className="flex flex-col items-start justify-between gap-4 border-t border-slate-800/80 pt-4 text-[11px] text-slate-400 md:flex-row md:items-center"

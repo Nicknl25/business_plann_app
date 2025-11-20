@@ -111,12 +111,6 @@ const IndustryInput = React.forwardRef<HTMLInputElement, IndustryInputProps>(
       event: React.ChangeEvent<HTMLInputElement>
     ) => {
       setQuery(event.target.value);
-      setSelected(null);
-
-      if (onChange) {
-        onChange(event);
-      }
-
       setOpen(true);
     };
 
@@ -155,7 +149,10 @@ const IndustryInput = React.forwardRef<HTMLInputElement, IndustryInputProps>(
     };
 
     const handleBlur = (event: React.FocusEvent<HTMLInputElement>) => {
-      setTimeout(() => setOpen(false), 120);
+      setTimeout(() => {
+        setOpen(false);
+        setQuery((value as string) || "");
+      }, 120);
       if (onBlur) {
         onBlur(event);
       }
@@ -172,6 +169,7 @@ const IndustryInput = React.forwardRef<HTMLInputElement, IndustryInputProps>(
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
           autoComplete="off"
           {...rest}
         />
@@ -199,7 +197,7 @@ const IndustryInput = React.forwardRef<HTMLInputElement, IndustryInputProps>(
               ))
             ) : (
               <div className="px-3 py-2 text-slate-500">
-                No matches. You can type freely.
+                No industry options available.
               </div>
             )}
           </div>
@@ -212,4 +210,3 @@ const IndustryInput = React.forwardRef<HTMLInputElement, IndustryInputProps>(
 IndustryInput.displayName = "IndustryInput";
 
 export default IndustryInput;
-

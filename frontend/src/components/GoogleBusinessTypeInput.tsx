@@ -111,9 +111,6 @@ const GoogleBusinessTypeInput = React.forwardRef<
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     setQuery(event.target.value);
-    if (onChange) {
-      onChange(event);
-    }
     setOpen(true);
   };
 
@@ -152,7 +149,10 @@ const GoogleBusinessTypeInput = React.forwardRef<
   };
 
   const handleBlur = (event: React.FocusEvent<HTMLInputElement>) => {
-    setTimeout(() => setOpen(false), 120);
+    setTimeout(() => {
+      setOpen(false);
+      setQuery((value as string) || "");
+    }, 120);
     if (onBlur) {
       onBlur(event);
     }
@@ -169,6 +169,7 @@ const GoogleBusinessTypeInput = React.forwardRef<
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
         autoComplete="off"
         {...rest}
       />
@@ -196,7 +197,7 @@ const GoogleBusinessTypeInput = React.forwardRef<
             ))
           ) : (
             <div className="px-3 py-2 text-slate-500">
-              No matches. You can type freely.
+              No business types available.
             </div>
           )}
         </div>
