@@ -54,9 +54,18 @@ module.exports = {
       backgroundImage: {
         "hero-grid":
           "radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.1) 1px, transparent 0)"
+      },
+      keyframes: {
+        glow: {
+          "0%, 100%": { opacity: "0.4" },
+          "50%": { opacity: "0.85" }
+        }
+      },
+      animation: {
+        slowspin: "spin 8s linear infinite",
+        glow: "glow 3s ease-in-out infinite"
       }
     }
   },
   plugins: []
 };
-

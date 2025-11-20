@@ -52,6 +52,17 @@ export const TOOLTIP_TEXT = {
     "Amount you pay yourself. Skip if unsure; we will assume zero.",
   cashOnHand:
     "Cash the business has available. Skip if unsure; we will estimate.",
+
+  businessDescription:
+    "Describe your business in your own words. This helps us understand your tone and vision. If you’re unsure what to write, you can skip it — we will refine and enhance your description using the rest of your information.",
+  businessAddress:
+    "Start typing your address and choose your exact location from the popup. Make sure to select a full, complete address so your plan includes accurate local market and demographic data.",
+  founderBackground:
+    "Tell us about the founder or founders. Include names, their role in the business, relevant experience, and what makes them well-suited to run this business. For example: 'Larry J – Chief Marketing Officer, 10 years of marketing experience, MBA, led multiple successful campaigns.' The more detail you provide, the stronger the plan will be.",
+  productKeywords:
+    "List the key products or services you offer. This helps us personalize your plan with details specific to your business. If you’re not sure what to write, you can skip this — we’ll use your industry and business type to identify the most common offerings.",
+  customerAdditionalDetails:
+    "Add any helpful context about your target customers — behaviors, locations, niches, or specific groups you want to reach. This helps us personalize your plan’s positioning. If you’re not sure what to write, you can skip this.",
 } as const;
 
 const TooltipProvider = TooltipPrimitive.Provider;
@@ -78,3 +89,4 @@ const TooltipContent = React.forwardRef<
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+
