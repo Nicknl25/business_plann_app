@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import apiClient from "../apiClient";
 import { Input } from "./ui/Input";
 
 type GoogleBusinessTypeInputProps =
@@ -22,14 +23,6 @@ const GoogleBusinessTypeInput = React.forwardRef<
   const [query, setQuery] = useState<string>((value as string) || "");
   const [activeIndex, setActiveIndex] = useState<number>(-1);
 
-  const apiBase =
-    ((import.meta as any).env &&
-      (import.meta as any).env.VITE_API_BASE_URL) ||
-    (((import.meta as any).env &&
-      (import.meta as any).env.DEV) ?
-      "http://localhost:5000" :
-      "");
-
   useEffect(() => {
     setQuery((value as string) || "");
   }, [value]);
@@ -37,28 +30,19 @@ const GoogleBusinessTypeInput = React.forwardRef<
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const base =
-      typeof apiBase === "string" && apiBase.length
-        ? apiBase.replace(/\/$/, "")
-        : "";
-    const url = base ? `${base}/api/business-types` : "/api/business-types";
 
-    fetch(url)
-      .then(async (res) => {
-        const contentType = res.headers.get("content-type") || "";
-        if (!res.ok || !contentType.includes("application/json")) {
-          const text = await res.text();
+    apiClient
+      .get<BusinessTypeOption[]>("/api/business-types", {
+        validateStatus: () => true,
+      })
+      .then((res) => {
+        const data = res.data;
+        if (!Array.isArray(data)) {
           throw new Error(
-            `Failed to load business types: ${res.status} ${res.statusText} (${contentType || "no content-type"}) ${text.slice(
-              0,
-              120
-            )}`
+            `Failed to load business types: ${res.status} ${res.statusText}`
           );
         }
-        return (res.json() as Promise<BusinessTypeOption[]>);
-      })
-      .then((data) => {
-        if (!cancelled && Array.isArray(data)) {
+        if (!cancelled) {
           setOptions(data);
         }
       })

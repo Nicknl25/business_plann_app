@@ -22,13 +22,7 @@ import GoogleBusinessTypeInput from "../components/GoogleBusinessTypeInput";
 import IndustryInput from "../components/IndustryInput";
 import HelpTooltip from "../components/ui/HelpTooltip";
 import { TOOLTIP_TEXT } from "../components/ui/tooltip";
-
-const apiBase =
-  ((import.meta as any).env &&
-    (import.meta as any).env.VITE_API_BASE_URL) ||
-  (((import.meta as any).env && (import.meta as any).env.DEV)
-    ? "http://localhost:5000"
-    : "");
+import apiClient from "../apiClient";
 
 function parseNumberFromString(
   value: string | undefined | null
@@ -336,12 +330,6 @@ function IntakeFormPage() {
 
   function handleSubmit(values: IntakeValues) {
     (async () => {
-      const base =
-        typeof apiBase === "string" && apiBase.length
-          ? apiBase.replace(/\/$/, "")
-          : "";
-      const url = base ? `${base}/api/financials` : "/api/financials";
-
       const dateRaw = values.businessStartDate;
       let businessStartDateFormatted: string | null = null;
       if (dateRaw) {
@@ -357,18 +345,18 @@ function IntakeFormPage() {
         current_cogs: parseNumberFromString(values.currentCogs),
         expected_revenue_growth_pct_next_year:
           values.expectedRevenueGrowthPctNextYear,
-      units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
-      tax_rate: parseNumberFromString(values.taxRate),
-      marketing_expense: parseNumberFromString(values.marketingExpense),
-      r_and_d_expense: parseNumberFromString(values.rAndDExpense),
-      sga_expense: parseNumberFromString(values.sgaExpense),
-      other_operating_expense: parseNumberFromString(
-        values.otherOperatingExpense
-      ),
-      monthly_rent_expense: parseNumberFromString(values.monthlyRentExpense),
-      other_monthly_debt_payments: parseNumberFromString(
-        values.otherMonthlyDebtPayments
-      ),
+        units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
+        tax_rate: parseNumberFromString(values.taxRate),
+        marketing_expense: parseNumberFromString(values.marketingExpense),
+        r_and_d_expense: parseNumberFromString(values.rAndDExpense),
+        sga_expense: parseNumberFromString(values.sgaExpense),
+        other_operating_expense: parseNumberFromString(
+          values.otherOperatingExpense
+        ),
+        monthly_rent_expense: parseNumberFromString(values.monthlyRentExpense),
+        other_monthly_debt_payments: parseNumberFromString(
+          values.otherMonthlyDebtPayments
+        ),
         current_payroll: parseNumberFromString(values.currentPayroll),
         current_num_employees: parseNumberFromString(
           values.currentNumEmployees
@@ -403,21 +391,18 @@ function IntakeFormPage() {
       });
 
       try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(financialsPayload),
+        const res = await apiClient.post("/api/financials", financialsPayload, {
+          validateStatus: () => true,
+          headers: { "Content-Type": "application/json" },
         });
 
-        const contentType = res.headers.get("content-type") || "";
-        let body: any = null;
+        const contentType =
+          (res.headers && res.headers["content-type"]) || "";
+        const body: any = res.data;
 
-        if (contentType.includes("application/json")) {
-          body = await res.json();
-        } else {
-          const text = await res.text();
+        if (!contentType.includes("application/json")) {
+          const text =
+            typeof body === "string" ? body : JSON.stringify(body || "");
           throw new Error(
             `Unexpected response from /api/financials: ${res.status} ${res.statusText} ${text.slice(
               0,
@@ -426,7 +411,7 @@ function IntakeFormPage() {
           );
         }
 
-        if (!res.ok) {
+        if (res.status < 200 || res.status >= 300) {
           if (body && typeof body === "object" && body.errors) {
             Object.entries(body.errors).forEach(([serverField, message]) => {
               const formField = serverFieldToFormField[serverField];
@@ -756,7 +741,8 @@ function IntakeFormPage() {
                       <FormControl>
                         <Textarea
                           {...field}
-                          rows={5}
+                          rows={12}
+                          className="min-h-[320px]"
                           placeholder="Share your experience, expertise, and why you are the right person or team to build this business."
                         />
                       </FormControl>
