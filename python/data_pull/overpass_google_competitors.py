@@ -1,10 +1,35 @@
+import os
 import requests
 import time
+from pathlib import Path
+from dotenv import load_dotenv
+
+# ===========================
+# LOAD ENV FROM ROOT
+# ===========================
+
+PROJECT_ROOT_NAME = "Business Plan Generator"
+
+def get_project_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if parent.name == PROJECT_ROOT_NAME:
+            return parent
+    raise FileNotFoundError(f"Cannot locate project root '{PROJECT_ROOT_NAME}'")
+
+def load_env():
+    env_path = get_project_root() / ".env"
+    load_dotenv(env_path, override=True)
+
+load_env()
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    raise Exception("Missing GOOGLE_API_KEY in .env")
 
 # ===========================
 # CONFIG
 # ===========================
-GOOGLE_API_KEY = "AIzaSyDyXr3Ez26m14XJ2XbNl1KxyYHNZVVQ1Mo"
 
 OVERPASS_SERVERS = [
     "https://overpass.kumi.systems/api/interpreter",
@@ -13,13 +38,13 @@ OVERPASS_SERVERS = [
 ]
 
 # Bounding box for ZIP 32065 (Oakleaf/Orange Park)
-BBOX = (30.110, -81.865, 30.205, -81.740)
- # (south, west, north, east)
-
+BBOX = (30.110, -81.865, 30.205, -81.740)  
+# (south, west, north, east)
 
 # ===========================
 # RUN OVERPASS QUERY
 # ===========================
+
 def run_overpass(query):
     for url in OVERPASS_SERVERS:
         try:
@@ -34,10 +59,10 @@ def run_overpass(query):
             print("Error:", e)
     raise Exception("All Overpass servers failed")
 
-
 # ===========================
 # BUILD QUERY FOR COFFEE SHOPS
 # ===========================
+
 query = f"""
 [out:json];
 (
@@ -53,16 +78,15 @@ competitors = osm_data.get("elements", [])
 
 print(f"Found {len(competitors)} competitors in OSM\n")
 
-
-
 # ===========================
-# GET GOOGLE PLACE ID for each competitor
+# GOOGLE PLACE SEARCH
 # ===========================
+
 def google_find_place(name, lat, lon):
     url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
     params = {
         "location": f"{lat},{lon}",
-        "radius": 150,  # small radius to match exact place
+        "radius": 150,
         "keyword": name,
         "key": GOOGLE_API_KEY
     }
@@ -71,10 +95,10 @@ def google_find_place(name, lat, lon):
         return r["results"][0]
     return None
 
+# ===========================
+# GOOGLE PLACE DETAILS
+# ===========================
 
-# ===========================
-# GET GOOGLE REVIEWS for each place
-# ===========================
 def google_place_details(place_id):
     url = "https://maps.googleapis.com/maps/api/place/details/json"
     params = {
@@ -85,10 +109,10 @@ def google_place_details(place_id):
     r = requests.get(url, params=params).json()
     return r.get("result", {})
 
-
 # ===========================
 # BUILD COMPETITOR DATASET
 # ===========================
+
 full_competitors = []
 
 for c in competitors:
@@ -99,15 +123,12 @@ for c in competitors:
 
     print(f"Processing: {name}")
 
-    # Step 1: Find Google match
     google_match = google_find_place(name, lat, lon)
     if not google_match:
         print("  No Google match.\n")
         continue
 
     place_id = google_match["place_id"]
-
-    # Step 2: Get Place Details (reviews)
     details = google_place_details(place_id)
 
     competitor_record = {
@@ -126,10 +147,10 @@ for c in competitors:
 
     time.sleep(1)  # avoid Google rate limits
 
-
 # ===========================
 # PRINT RESULT
 # ===========================
+
 print("\n==================== FINAL COMPETITORS ====================\n")
 
 for comp in full_competitors:
