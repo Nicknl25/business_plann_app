@@ -19,9 +19,25 @@ if not GOOGLE_API_KEY:
 # CONFIGURATION – MODIFY THESE FOR TESTING
 # ------------------------------------------------------------
 
-CLIENT_ZIP = "32207"          # Test ZIP – change to any zip code
-SEARCH_RADIUS_METERS = 5000   # 5km radius
-SEARCH_KEYWORD = "coffee shop"  # Change based on industry
+CLIENT_ZIP = "32065"          # Test ZIP – change to any zip code
+SEARCH_RADIUS_METERS = 15000   # 5km radius
+SEARCH_KEYWORD =  [
+    "women's clothing store",
+    "women's boutique",
+    "women's fashion boutique",
+    "ladies clothing store",
+    "women's apparel shop",
+    "dress boutique",
+    "women's fashion retailer",
+    "women's plus size clothing",
+    "women's casual wear store",
+    "women's formal wear store",
+    "women's clothing boutique",
+    "boutique clothing store",
+    "fashion boutique",
+    "women's trendy clothing store",
+    "women's designer clothing store"
+]  # Change based on industry
 
 # ------------------------------------------------------------
 # STEP 1 — Convert ZIP → lat/lng (Geocoding API)
