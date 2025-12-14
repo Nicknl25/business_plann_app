@@ -86,11 +86,22 @@ def get_zip_population(z):
 # ------------------------------------------------------------
 # USER INPUT — CLIENT PROVIDES ONE PHRASE
 # ------------------------------------------------------------
+# Primary client inputs
 CLIENT_ZIP = "32065"
 CLIENT_KEYWORD = "hair cut"
 CLIENT_NAICS = "812111"  # example NAICS context
 
-zip_population = get_zip_population(CLIENT_ZIP)
+# Candidate ZIPs to score (include the client ZIP; add more as needed)
+CANDIDATE_ZIPS = [
+    CLIENT_ZIP,
+    # Add more candidate ZIPs here to compare locations, e.g.:
+    # "32073", "32003"
+]
+
+# Pull population for each candidate ZIP
+zip_populations = {z: get_zip_population(z) for z in CANDIDATE_ZIPS}
+
+zip_population = zip_populations.get(CLIENT_ZIP)
 config = get_search_config(CLIENT_KEYWORD, CLIENT_ZIP, CLIENT_NAICS, zip_population)
 
 SEARCH_RADIUS_METERS = min(config["radius_meters"], 16093)  # cap at 10 miles
@@ -117,10 +128,10 @@ def geocode_zip(z):
 # RUN SEARCHES FOR MAIN ZIP + ADJACENT ZIPS
 # ------------------------------------------------------------
 all_places = {}
+# Per-ZIP competitor sets for scoring
+zip_places = {z: {} for z in CANDIDATE_ZIPS}
 
-SEARCH_ZIPS = [CLIENT_ZIP]
-
-for z in SEARCH_ZIPS:
+for z in CANDIDATE_ZIPS:
     coords = geocode_zip(z)
     if not coords:
         continue
@@ -144,9 +155,37 @@ for z in SEARCH_ZIPS:
 
         for p in results:
             all_places[p["place_id"]] = p
+            zip_places[z][p["place_id"]] = p
 
 
 print(f"\n--- TOTAL UNIQUE COMPETITORS FOUND: {len(all_places)} ---\n")
+
+# ------------------------------------------------------------
+# SIMPLE LOCATION SCORING (demand vs competition)
+# ------------------------------------------------------------
+scores = []
+for z in CANDIDATE_ZIPS:
+    pop = zip_populations.get(z) or 0
+    comp = len(zip_places[z])
+    comp_per_10k = comp / (pop / 10000) if pop and pop > 0 else comp
+    demand_score = pop / 10000  # simple scale
+    score = demand_score - comp_per_10k
+    scores.append((score, z, pop, comp, comp_per_10k))
+
+scores.sort(reverse=True)
+
+print("--- LOCATION SCORES ---")
+for score, z, pop, comp, comp_per_10k in scores:
+    print(f"ZIP {z}: score={score:.2f}, pop={pop}, competitors={comp}, comp_per_10k={comp_per_10k:.2f}")
+
+# Recommend initial and expansion locations based on scores
+if scores:
+    best = scores[0]
+    print("\n--- RECOMMENDED LOCATIONS ---")
+    print(f"Open first: ZIP {best[1]} (score={best[0]:.2f}, pop={best[2]}, competitors={best[3]}, comp_per_10k={best[4]:.2f})")
+    if len(scores) > 1:
+        next_best = scores[1]
+        print(f"Expand next: ZIP {next_best[1]} (score={next_best[0]:.2f}, pop={next_best[2]}, competitors={next_best[3]}, comp_per_10k={next_best[4]:.2f})")
 
 # ------------------------------------------------------------
 # FETCH DETAILS
@@ -154,7 +193,7 @@ print(f"\n--- TOTAL UNIQUE COMPETITORS FOUND: {len(all_places)} ---\n")
 DETAIL_FIELDS = (
     "name,formatted_address,formatted_phone_number,geometry,"
     "rating,user_ratings_total,price_level,opening_hours,"
-    "business_status,website,editorial_summary"
+    "business_status,website,editorial_summary,reviews"
 )
 
 for i, place in enumerate(all_places.values(), start=1):
@@ -175,7 +214,70 @@ for i, place in enumerate(all_places.values(), start=1):
     print("Address:", details.get("formatted_address"))
     print("Rating:", details.get("rating"))
     print("Reviews:", details.get("user_ratings_total"))
+    print("Price level:", details.get("price_level"))
     print("Phone:", details.get("formatted_phone_number"))
     print("Website:", details.get("website"))
+
+    # Extract a few review snippets
+    review_texts = []
+    for rev in details.get("reviews", [])[:5]:
+        txt = rev.get("text")
+        if txt:
+            review_texts.append(txt.strip())
+
+    if review_texts:
+        prompt = f"""
+You are advising a client on how to beat a nearby competitor.
+Client keyword: "{CLIENT_KEYWORD}"
+NAICS: {CLIENT_NAICS}
+Competitor: "{details.get('name')}"
+Competitor price_level (0=free, 1=cheap, 4=very expensive): {details.get('price_level')}
+Client ZIP population (ACS): {zip_population if 'zip_population' in globals() and zip_population is not None else "unknown"}
+You have these customer reviews for the competitor:
+{json.dumps(review_texts, indent=2)}
+
+Write a concise 3–5 sentence paragraph on how the client can outperform this competitor, focusing on clear opportunities from the reviews (including any price/value signals).
+"""
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4.1",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=400,
+            )
+            advice = (resp.choices[0].message.content or "").strip()
+            print("\nAdvice to beat this competitor:")
+            print(advice)
+        except Exception as e:
+            print(f"\nGPT advice error: {e}")
+
+        # Additional storytelling + action plan tied to reviews
+        prompt_story = f"""
+You are advising a client on how to beat a nearby competitor.
+Client keyword: "{CLIENT_KEYWORD}"
+NAICS: {CLIENT_NAICS}
+Competitor: "{details.get('name')}"
+Competitor price_level (0=free, 1=cheap, 4=very expensive): {details.get('price_level')}
+Client ZIP population (ACS): {zip_population if 'zip_population' in globals() and zip_population is not None else "unknown"}
+Here are sample customer reviews for the competitor:
+{json.dumps(review_texts, indent=2)}
+
+Write two short sections:
+1) 1–2 paragraphs telling the story of what customers are saying (highlights, patterns, sentiment).
+2) 1–2 paragraphs with specific, actionable moves the client can take to win, explicitly tied to those review insights (including price/value positioning).
+Be concise and practical.
+"""
+        try:
+            resp2 = client.chat.completions.create(
+                model="gpt-4.1",
+                messages=[{"role": "user", "content": prompt_story}],
+                temperature=0.3,
+                max_tokens=600,
+            )
+            advice2 = (resp2.choices[0].message.content or "").strip()
+            print("\nReview story + how to win:")
+            print(advice2)
+        except Exception as e:
+            print(f"\nGPT storytelling error: {e}")
 
 print("\n--- DONE ---\n")

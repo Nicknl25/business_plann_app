@@ -21,7 +21,7 @@ def test_places_simple():
     # Coordinates for Times Square for testing
     lat = 40.7580 
     lng = -73.9855
-    keyword = "Natural Resources and Mining"
+    keyword = "crop production"
     radius = 1500  # 1.5km
     
     # Build URL
