@@ -57,7 +57,12 @@ def create_app() -> Flask:
   @app.route("/api/business-types", methods=["GET", "OPTIONS"])
   def get_business_types():
     """
-    Return the list of business types from MySQL.
+    Return the list of business types sourced from naics_master.business_types.
+
+    - Split comma-separated values
+    - Trim whitespace
+    - Drop blanks/nulls
+    - Deduplicate
 
     Response shape:
     [
@@ -67,7 +72,6 @@ def create_app() -> Flask:
     ]
     """
     if request.method == "OPTIONS":
-      # Preflight request for CORS.
       return ("", 204)
 
     host = getenv("MYSQL_HOST")
@@ -86,10 +90,6 @@ def create_app() -> Flask:
       if not val
     ]
     if missing:
-      app.logger.error(
-        "Missing required MySQL environment variables: %s",
-        ", ".join(missing),
-      )
       return (
         jsonify(
           {
@@ -102,8 +102,7 @@ def create_app() -> Flask:
 
     try:
       import mysql.connector  # type: ignore
-    except Exception as exc:  # pragma: no cover
-      app.logger.exception("mysql-connector-python is not installed: %s", exc)
+    except Exception:
       return (
         jsonify(
           {
@@ -121,29 +120,28 @@ def create_app() -> Flask:
         password=password,
         database=database,
       )
-    except Exception as exc:
-      app.logger.exception("Failed to connect to MySQL: %s", exc)
-      return (
-        jsonify(
-          {
-            "error": "database_connection_error",
-          }
-        ),
-        500,
-      )
+    except Exception:
+      return (jsonify({"error": "database_connection_error"}), 500)
 
     try:
-      cursor = conn.cursor()
-      cursor.execute(
-        "SELECT id, display_name FROM business_types ORDER BY display_name ASC"
-      )
-      rows: List[Tuple[Any, Any]] = cursor.fetchall()
-      items: List[Dict[str, Any]] = [
-        {"id": row[0], "display_name": row[1]} for row in rows
-      ]
+      cur = conn.cursor()
+      cur.execute("SELECT business_types FROM naics_master WHERE business_types IS NOT NULL")
+      rows = cur.fetchall()
+      # Flatten comma-separated values
+      values: List[str] = []
+      for (bt,) in rows:
+        if bt is None:
+          continue
+        parts = [p.strip() for p in str(bt).split(",")]
+        for p in parts:
+          if p:
+            values.append(p)
+      # Deduplicate and sort
+      uniq = sorted(set(values), key=lambda x: x.lower())
+      items = [{"id": idx + 1, "display_name": val} for idx, val in enumerate(uniq)]
       return jsonify(items)
     except Exception as exc:
-      app.logger.exception("Error querying business_types table: %s", exc)
+      app.logger.exception("Error querying naics_master: %s", exc)
       return (
         jsonify(
           {
@@ -154,7 +152,7 @@ def create_app() -> Flask:
       )
     finally:
       try:
-        cursor.close()
+        cur.close()
       except Exception:
         pass
       try:
