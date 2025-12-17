@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, request
@@ -35,6 +36,10 @@ def create_app() -> Flask:
 
   app = Flask(__name__)
 
+  # Allow importing local helper modules
+  root_path = Path(__file__).resolve().parent
+  sys.path.append(str(root_path / "client_intake_and_finmo"))
+
   if CORS is not None:
     # Enable CORS for all routes to support the separate frontend dev server.
     CORS(app)
@@ -51,7 +56,7 @@ def create_app() -> Flask:
     response.headers["Access-Control-Allow-Headers"] = (
       "Content-Type, Authorization"
     )
-    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
   @app.route("/api/business-types", methods=["GET", "OPTIONS"])
@@ -159,6 +164,41 @@ def create_app() -> Flask:
         conn.close()
       except Exception:
         pass
+
+  @app.route("/api/financials", methods=["POST", "OPTIONS"])
+  def post_financials():
+    """
+    Populate the FINMO workbook using the submitted business_type.
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    business_type = payload.get("business_type")
+    if not business_type or not str(business_type).strip():
+      return (
+        jsonify({"error": "invalid_request", "detail": "business_type is required"}),
+        400,
+      )
+
+    try:
+      from intake_values import populate_finmo  # type: ignore
+    except Exception as exc:
+      app.logger.exception("Failed to import populate_finmo: %s", exc)
+      return (
+        jsonify({"error": "server_error", "detail": "populate_finmo unavailable"}),
+        500,
+      )
+
+    try:
+      info = populate_finmo(str(business_type).strip())
+      return jsonify({"status": "ok", "populated": info})
+    except Exception as exc:
+      app.logger.exception("Failed to populate FINMO: %s", exc)
+      return (
+        jsonify({"error": "server_error", "detail": str(exc)}),
+        500,
+      )
 
   @app.route("/api/industry-types", methods=["GET", "OPTIONS"])
   def get_industry_types():

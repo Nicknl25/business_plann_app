@@ -19,7 +19,6 @@ import {
 import { Textarea } from "../components/ui/Textarea";
 import GoogleAddressInput from "../components/GoogleAddressInput";
 import GoogleBusinessTypeInput from "../components/GoogleBusinessTypeInput";
-import IndustryInput from "../components/IndustryInput";
 import HelpTooltip from "../components/ui/HelpTooltip";
 import { TOOLTIP_TEXT } from "../components/ui/tooltip";
 import apiClient from "../apiClient";
@@ -38,7 +37,6 @@ function parseNumberFromString(
 const intakeSchema = z
   .object({
   businessName: z.string().min(2, "Please enter your business name."),
-  industry: z.string().min(2, "Please describe your industry."),
   businessType: z
     .string()
     .min(2, "Please describe the type of business."),
@@ -211,7 +209,6 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
 
 const defaultValues: IntakeValues = {
   businessName: "",
-  industry: "",
   businessType: "",
   description: "",
   address: "",
@@ -340,6 +337,7 @@ function IntakeFormPage() {
       }
 
       const financialsPayload = {
+        business_type: values.businessType,
         business_start_date: businessStartDateFormatted,
         current_revenue: parseNumberFromString(values.currentRevenue),
         current_cogs: parseNumberFromString(values.currentCogs),
@@ -493,26 +491,9 @@ function IntakeFormPage() {
                   )}
                 </FormField>
 
-                <FormField name="industry" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Industry</FormLabel>
-                      <FormControl>
-                        <IndustryInput
-                          {...field}
-                          placeholder="Select your industry"
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.industry?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
                   <FormField name="businessType" control={form.control}>
                     {(field) => (
-                      <FormItem>
+                      <FormItem className="col-span-2 md:col-span-2">
                         <FormLabel>Type of Business</FormLabel>
                         <FormControl>
                           <GoogleBusinessTypeInput
