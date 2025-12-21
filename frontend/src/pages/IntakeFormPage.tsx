@@ -182,6 +182,23 @@ const intakeSchema = z
 type IntakeValues = z.infer<typeof intakeSchema>;
 
 const serverFieldToFormField: Record<string, keyof IntakeValues> = {
+  business_name: "businessName",
+  business_type: "businessType",
+  description: "description",
+  address: "address",
+  product_keywords: "productKeywords",
+  selling_method: "sellingMethod",
+  customer_age_range: "customerAgeRange",
+  customer_income_level: "customerIncomeLevel",
+  customer_type: "customerType",
+  customer_additional_details: "customerAdditionalDetails",
+  first_name: "firstName",
+  last_name: "lastName",
+  email_address: "emailAddress",
+  phone_number: "phoneNumber",
+  how_did_you_hear: "howDidYouHear",
+  pricing_model: "pricingModel",
+  founder_background: "founderBackground",
   business_start_date: "businessStartDate",
   current_revenue: "currentRevenue",
   current_cogs: "currentCogs",
@@ -327,22 +344,31 @@ function IntakeFormPage() {
 
   function handleSubmit(values: IntakeValues) {
     (async () => {
-      const dateRaw = values.businessStartDate;
-      let businessStartDateFormatted: string | null = null;
-      if (dateRaw) {
-        const [year, month, day] = dateRaw.split("-");
-        if (year && month && day) {
-          businessStartDateFormatted = `${month}-${day}-${year}`;
-        }
-      }
+      const businessStartDate = values.businessStartDate;
 
       const financialsPayload = {
+        business_name: values.businessName,
         business_type: values.businessType,
-        business_start_date: businessStartDateFormatted,
+        description: values.description,
+        address: values.address || null,
+        product_keywords: values.productKeywords,
+        selling_method: values.sellingMethod,
+        customer_age_range: values.customerAgeRange,
+        customer_income_level: values.customerIncomeLevel,
+        customer_type: values.customerType,
+        customer_additional_details: values.customerAdditionalDetails || "",
+        first_name: values.firstName,
+        last_name: values.lastName,
+        email_address: values.emailAddress,
+        phone_number: values.phoneNumber || null,
+        how_did_you_hear: values.howDidYouHear || null,
+        pricing_model: values.pricingModel,
+        founder_background: values.founderBackground,
+        business_start_date: businessStartDate,
         current_revenue: parseNumberFromString(values.currentRevenue),
         current_cogs: parseNumberFromString(values.currentCogs),
         expected_revenue_growth_pct_next_year:
-          values.expectedRevenueGrowthPctNextYear,
+          parseNumberFromString(values.expectedRevenueGrowthPctNextYear),
         units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
         tax_rate: parseNumberFromString(values.taxRate),
         marketing_expense: parseNumberFromString(values.marketingExpense),
@@ -378,10 +404,6 @@ function IntakeFormPage() {
         ),
         owner_compensation: parseNumberFromString(values.ownerCompensation),
         cash_on_hand: parseNumberFromString(values.cashOnHand),
-        customer_age_range: values.customerAgeRange,
-        customer_income_level: values.customerIncomeLevel,
-        customer_type: values.customerType,
-        customer_additional_details: values.customerAdditionalDetails || "",
       };
 
       Object.values(serverFieldToFormField).forEach((fieldName) => {

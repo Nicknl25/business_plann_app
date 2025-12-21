@@ -168,37 +168,31 @@ def create_app() -> Flask:
   @app.route("/api/financials", methods=["POST", "OPTIONS"])
   def post_financials():
     """
-    Populate the FINMO workbook using the submitted business_type.
+    Receive intake submission and trigger downstream processing.
     """
     if request.method == "OPTIONS":
       return ("", 204)
 
     payload = request.get_json(silent=True) or {}
-    business_type = payload.get("business_type")
-    if not business_type or not str(business_type).strip():
-      return (
-        jsonify({"error": "invalid_request", "detail": "business_type is required"}),
-        400,
+    app.logger.info("Intake payload received: %s", payload)
+    print("Intake payload received:", payload)
+    try:
+      from intake_pipeline import (  # type: ignore
+        IntakeValidationError,
+        process_intake_submission,
       )
+    except Exception as exc:
+      app.logger.exception("Failed to import intake pipeline: %s", exc)
+      return (jsonify({"error": "server_error", "detail": "pipeline unavailable"}), 500)
 
     try:
-      from intake_values import populate_finmo  # type: ignore
+      result = process_intake_submission(payload)
+      return jsonify(result)
+    except IntakeValidationError as exc:
+      return (jsonify({"error": "invalid_request", "errors": exc.errors}), 400)
     except Exception as exc:
-      app.logger.exception("Failed to import populate_finmo: %s", exc)
-      return (
-        jsonify({"error": "server_error", "detail": "populate_finmo unavailable"}),
-        500,
-      )
-
-    try:
-      info = populate_finmo(str(business_type).strip())
-      return jsonify({"status": "ok", "populated": info})
-    except Exception as exc:
-      app.logger.exception("Failed to populate FINMO: %s", exc)
-      return (
-        jsonify({"error": "server_error", "detail": str(exc)}),
-        500,
-      )
+      app.logger.exception("Failed processing intake submission: %s", exc)
+      return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
 
   @app.route("/api/industry-types", methods=["GET", "OPTIONS"])
   def get_industry_types():
