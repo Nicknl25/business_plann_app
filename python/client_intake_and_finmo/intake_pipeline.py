@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
-from finmo_revenue import sync_intake_revenue_to_finmo
+from finmo_revenue import (
+  sync_intake_revenue_to_finmo,
+  write_soi_revenue_total_all_firms_to_finmo,
+)
 from intake_business_types import get_naics_from_business_type, populate_finmo
 from intake_submission import (
   create_client_finmo_workbook,
@@ -141,6 +144,10 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     str(business_type).strip(),
     finmo_path=str(submission_row.get("finmo_path") or ""),
   )
+  soi_info = write_soi_revenue_total_all_firms_to_finmo(
+    client_id=client_id,
+    soi_corp_base=str(populated_info.get("soi_corp_base") or "").strip() or None,
+  )
 
   try:
     email_result = send_intake_confirmation_email(
@@ -158,7 +165,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "naics_code": row.get("naics_code"),
     "finmo_path": submission_row.get("finmo_path"),
     "starting_revenue_intake": revenue_info.get("starting_revenue_intake"),
+    "soi_receipts_per_return": soi_info.get("soi_receipts_per_return"),
     "populated": populated_info,
     "email": email_result,
   }
-

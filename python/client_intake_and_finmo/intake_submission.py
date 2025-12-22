@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 
-ALLOWED_SPECIALS = "!@#$%^&*_-"
+# Windows filename-safe special characters (avoid <>:"/\\|?*).
+ALLOWED_SPECIALS = "!@#$%^&_-"
 
 
 def generate_client_id() -> str:
@@ -65,6 +66,16 @@ def sanitize_filename_component(value: str, *, max_len: int = 80) -> str:
   return cleaned
 
 
+def _sanitize_env_path(value: str) -> str:
+  # Common when .env values get wrapped in quotes.
+  cleaned = str(value).strip()
+  if cleaned.startswith('"') and cleaned.endswith('"') and len(cleaned) >= 2:
+    cleaned = cleaned[1:-1].strip()
+  if cleaned.startswith("'") and cleaned.endswith("'") and len(cleaned) >= 2:
+    cleaned = cleaned[1:-1].strip()
+  return cleaned
+
+
 def created_at_numeric(value: Any) -> str:
   if isinstance(value, datetime):
     return value.strftime("%Y%m%d%H%M%S%f")
@@ -83,17 +94,24 @@ def create_client_finmo_workbook(
   created_at: Any,
   client_id: str,
 ) -> str:
-  template = Path(str(template_path).strip())
+  template = Path(_sanitize_env_path(template_path))
   if not template.exists():
     raise FileNotFoundError(f"FINMO template not found at {template}")
 
-  dest_dir = Path(str(client_finmo_dir).strip())
+  dest_dir = Path(_sanitize_env_path(client_finmo_dir))
   dest_dir.mkdir(parents=True, exist_ok=True)
 
   business_part = sanitize_filename_component(business_name)
   ts_part = created_at_numeric(created_at)
-  filename = f"{business_part}_{ts_part}_{client_id}.xlsx"
-  dest_path = dest_dir / filename
+  # User requirement: name the copy using business_name + numeric created_at only.
+  base_name = f"{business_part}_{ts_part}"
+  dest_path = dest_dir / f"{base_name}.xlsx"
+
+  # Avoid collisions without introducing invalid filename characters.
+  counter = 2
+  while dest_path.exists():
+    dest_path = dest_dir / f"{base_name}_{counter}.xlsx"
+    counter += 1
 
   shutil.copy2(str(template), str(dest_path))
   return str(dest_path)
