@@ -42,16 +42,8 @@ const intakeSchema = z
   businessType: z
     .string()
     .min(2, "Please describe the type of business."),
-  description: z
-    .string()
-    .min(20, "Give us a bit more detail about what you do."),
   address: z.string().optional(),
-  productKeywords: z
-    .string()
-    .min(6, "List a few keywords that describe what you sell."),
-  sellingMethod: z
-    .string()
-    .min(4, "Describe how you expect to sell your product or service."),
+  productKeywords: z.string().optional(),
   customerAgeRange: z
     .string()
     .min(1, "Age Range is required."),
@@ -61,7 +53,6 @@ const intakeSchema = z
   customerType: z
     .string()
     .min(1, "Customer Type is required."),
-  customerAdditionalDetails: z.string().optional(),
   firstName: z.string().min(1, "First Name is required."),
   lastName: z.string().min(1, "Last Name is required."),
   emailAddress: z
@@ -69,9 +60,6 @@ const intakeSchema = z
     .email("Please enter a valid email address."),
   phoneNumber: z.string().optional(),
   howDidYouHear: z.string().optional(),
-  pricingModel: z
-    .string()
-    .min(4, "Describe your pricing model or structure."),
   founderBackground: z
     .string()
     .min(10, "Share your background and why you're starting this business."),
@@ -84,7 +72,6 @@ const intakeSchema = z
     .min(1, "Current Revenue is required."),
   currentCogs: z.string().optional(),
   expectedRevenueGrowthPctNextYear: z.string().optional(),
-  unitsSoldPerMonth: z.string().optional(),
   taxRate: z.string().optional(),
   marketingExpense: z.string().optional(),
   rAndDExpense: z.string().optional(),
@@ -110,7 +97,6 @@ const intakeSchema = z
     const nonNegativeNumericFields = [
       "currentRevenue",
       "currentCogs",
-      "unitsSoldPerMonth",
       "taxRate",
       "marketingExpense",
       "rAndDExpense",
@@ -170,14 +156,6 @@ const intakeSchema = z
             "Expected Revenue Growth is required when revenue is greater than zero.",
         });
       }
-      if (!values.unitsSoldPerMonth) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["unitsSoldPerMonth"],
-          message:
-            "Units Sold Per Month is required when revenue is greater than zero.",
-        });
-      }
     }
   });
 
@@ -186,26 +164,20 @@ type IntakeValues = z.infer<typeof intakeSchema>;
 const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   business_name: "businessName",
   business_type: "businessType",
-  description: "description",
   address: "address",
-  product_keywords: "productKeywords",
-  selling_method: "sellingMethod",
   customer_age_range: "customerAgeRange",
   customer_income_level: "customerIncomeLevel",
   customer_type: "customerType",
-  customer_additional_details: "customerAdditionalDetails",
   first_name: "firstName",
   last_name: "lastName",
   email_address: "emailAddress",
   phone_number: "phoneNumber",
   how_did_you_hear: "howDidYouHear",
-  pricing_model: "pricingModel",
   founder_background: "founderBackground",
   business_start_date: "businessStartDate",
   current_revenue: "currentRevenue",
   current_cogs: "currentCogs",
   expected_revenue_growth_pct_next_year: "expectedRevenueGrowthPctNextYear",
-  units_sold_per_month: "unitsSoldPerMonth",
   tax_rate: "taxRate",
   marketing_expense: "marketingExpense",
   r_and_d_expense: "rAndDExpense",
@@ -229,26 +201,21 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
 const defaultValues: IntakeValues = {
   businessName: "",
   businessType: "",
-  description: "Collected via consultant intake.",
   address: "",
   productKeywords: "",
-  sellingMethod: "",
   customerAgeRange: "",
   customerIncomeLevel: "",
   customerType: "",
-  customerAdditionalDetails: "",
   firstName: "",
   lastName: "",
   emailAddress: "",
   phoneNumber: "",
   howDidYouHear: "",
-  pricingModel: "",
   founderBackground: "",
   businessStartDate: "",
   currentRevenue: "",
   currentCogs: "",
   expectedRevenueGrowthPctNextYear: "",
-  unitsSoldPerMonth: "",
   taxRate: "",
   marketingExpense: "",
   rAndDExpense: "",
@@ -596,18 +563,12 @@ function IntakeFormPage() {
       setSubmitError(null);
       setSubmitSuccess(null);
       if (!draftId) {
-        form.setError("description", {
-          type: "manual",
-          message: "Start and complete the consultant conversation first.",
-        });
+        setSubmitError("Start and complete the consultant conversation first.");
         return;
       }
 
       if (!consultDone) {
-        form.setError("description", {
-          type: "manual",
-          message: "Complete the consultant conversation before submitting.",
-        });
+        setSubmitError("Complete the consultant conversation before submitting.");
         return;
       }
 
@@ -617,27 +578,24 @@ function IntakeFormPage() {
         draft_id: draftId,
         business_name: values.businessName,
         business_type: values.businessType,
-        description: values.description,
+        description: null,
         address: values.address || null,
-        product_keywords: values.productKeywords,
-        selling_method: values.sellingMethod,
-        customer_age_range: values.customerAgeRange,
-        customer_income_level: values.customerIncomeLevel,
-        customer_type: values.customerType,
-        customer_additional_details: values.customerAdditionalDetails || "",
-        first_name: values.firstName,
+        // What you offer (removed from UI for now)
+        product_keywords: null,
+          customer_age_range: values.customerAgeRange,
+          customer_income_level: values.customerIncomeLevel,
+          customer_type: values.customerType,
+          first_name: values.firstName,
         last_name: values.lastName,
         email_address: values.emailAddress,
         phone_number: values.phoneNumber || null,
         how_did_you_hear: values.howDidYouHear || null,
-        pricing_model: values.pricingModel,
         founder_background: values.founderBackground,
         business_start_date: businessStartDate,
         current_revenue: parseNumberFromString(values.currentRevenue),
         current_cogs: parseNumberFromString(values.currentCogs),
         expected_revenue_growth_pct_next_year:
           parseNumberFromString(values.expectedRevenueGrowthPctNextYear),
-        units_sold_per_month: parseNumberFromString(values.unitsSoldPerMonth),
         tax_rate: parseNumberFromString(values.taxRate),
         marketing_expense: parseNumberFromString(values.marketingExpense),
         r_and_d_expense: parseNumberFromString(values.rAndDExpense),
@@ -872,30 +830,7 @@ function IntakeFormPage() {
                   )}
                 </FormField>
 
-                <FormField name="description" control={form.control}>
-                  {(field) => (
-                    <FormItem className="col-span-2">
-                      <FormLabel>
-                        Business description (generated later){" "}
-                        <HelpTooltip
-                          fieldName="description"
-                          text={TOOLTIP_TEXT.businessDescription}
-                        />
-                      </FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={4}
-                          disabled
-                          placeholder="In 3–5 sentences, describe what your business does and how it creates value."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.description?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
+
 
                 <div className="col-span-2 space-y-3">
                   {!clientId ? (
@@ -1202,86 +1137,8 @@ function IntakeFormPage() {
             </Card>
           </div>
 
-          {/* Offering & customers */}
+          {/* Customers */}
           <div className="grid gap-5 md:grid-cols-2">
-            <Card className="border border-slate-800/80 bg-slate-950/90">
-              <CardHeader className="border-0 pb-3">
-                <CardTitle className="text-sm">What you offer</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField name="productKeywords" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>
-                        Product / service keywords{" "}
-                        <HelpTooltip
-                          side="bottom"
-                          fieldName="productKeywords"
-                          text={TOOLTIP_TEXT.productKeywords}
-                        />
-                      </FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={3}
-                          placeholder="List key products or services, separated by commas."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.productKeywords?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
-                <FormField name="sellingMethod" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Preferred selling method</FormLabel>
-                      <FormControl>
-                        <select
-                          name={field.name}
-                          value={(field.value as string) || ""}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          onBlur={field.onBlur}
-                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
-                        >
-                          <option value="">Select a selling method</option>
-                          <option value="In-person">In-person</option>
-                          <option value="Online">Online</option>
-                          <option value="Hybrid (in-person + online)">
-                            Hybrid (in-person + online)
-                          </option>
-                          <option value="Recurring / Membership">
-                            Recurring / Membership
-                          </option>
-                          <option value="Project-based">Project-based</option>
-                          <option value="Service-based">Service-based</option>
-                          <option value="Retail (in-store)">
-                            Retail (in-store)
-                          </option>
-                          <option value="E-commerce">E-commerce</option>
-                          <option value="Wholesale / B2B">
-                            Wholesale / B2B
-                          </option>
-                          <option value="Subscription delivery">
-                            Subscription delivery
-                          </option>
-                          <option value="Digital product">Digital product</option>
-                          <option value="Marketplace / platform">
-                            Marketplace / platform
-                          </option>
-                        </select>
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.sellingMethod?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-              </CardContent>
-            </Card>
-
             <Card className="border border-slate-800/80 bg-slate-950/90">
               <CardHeader className="border-0 pb-3">
                 <CardTitle className="text-sm">
@@ -1408,79 +1265,6 @@ function IntakeFormPage() {
                   )}
                 </FormField>
 
-                <FormField
-                  name="customerAdditionalDetails"
-                  control={form.control}
-                >
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>
-                        Additional customer details (optional){" "}
-                        <HelpTooltip
-                          side="bottom"
-                          fieldName="customerAdditionalDetails"
-                          text={TOOLTIP_TEXT.customerAdditionalDetails}
-                        />
-                      </FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={3}
-                          placeholder="Add any extra context about your target customers (behaviors, locations, niches, etc.)."
-                        />
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.customerAdditionalDetails?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
-                <FormField name="pricingModel" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Pricing model</FormLabel>
-                      <FormControl>
-                        <select
-                          name={field.name}
-                          value={(field.value as string) || ""}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          onBlur={field.onBlur}
-                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
-                        >
-                          <option value="">Select a pricing model</option>
-                          <option value="Flat-fee">Flat-fee</option>
-                          <option value="Hourly">Hourly</option>
-                          <option value="Tiered pricing">Tiered pricing</option>
-                          <option value="Subscription (monthly)">
-                            Subscription (monthly)
-                          </option>
-                          <option value="Subscription (annual)">
-                            Subscription (annual)
-                          </option>
-                          <option value="Per-project / Per-contract">
-                            Per-project / Per-contract
-                          </option>
-                          <option value="Per-unit / Retail">
-                            Per-unit / Retail
-                          </option>
-                          <option value="Commission-based">Commission-based</option>
-                          <option value="Retainer">Retainer</option>
-                          <option value="Licensing">Licensing</option>
-                          <option value="Freemium to paid upgrade">
-                            Freemium to paid upgrade
-                          </option>
-                          <option value="Hybrid / Mixed model">
-                            Hybrid / Mixed model
-                          </option>
-                        </select>
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.pricingModel?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
               </CardContent>
             </Card>
           </div>
@@ -1614,42 +1398,6 @@ function IntakeFormPage() {
                             form.formState.errors
                               .expectedRevenueGrowthPctNextYear?.message
                           }
-                        </FormMessage>
-                      </FormItem>
-                    )}
-                  </FormField>
-
-                  <FormField
-                    name="unitsSoldPerMonth"
-                    control={form.control}
-                  >
-                    {(field) => (
-                      <FormItem>
-                        <FormLabel>
-                          Units Sold Per Month{" "}
-                          <HelpTooltip
-                            fieldName="unitsSoldPerMonth"
-                            text={TOOLTIP_TEXT.unitsSoldPerMonth}
-                          />
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            type="text"
-                            inputMode="decimal"
-                            min={0}
-                            placeholder="Required if revenue is greater than 0"
-                            onChange={(event) =>
-                              handleNumericChange(event, field.onChange)
-                            }
-                            onBlur={(event) => {
-                              field.onBlur();
-                              handleNumericBlur(event, "unitsSoldPerMonth");
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage>
-                          {form.formState.errors.unitsSoldPerMonth?.message}
                         </FormMessage>
                       </FormItem>
                     )}

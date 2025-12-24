@@ -42,9 +42,12 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "business_description_summary": {"type": "string"},
         "unit_name": {"type": "string"},
         "unit_description": {"type": "string"},
         "units_per_week_capacity": {"type": "number"},
+        "unit_price": {"type": "number"},
+        "shipping_method": {"type": "string"},
         "sales_modality": {"type": "string"},
         "geographic_scope": {"type": "string"},
         "countries": {"type": "array", "items": {"type": "string"}},
@@ -62,18 +65,23 @@ def _final_schema() -> Dict[str, Any]:
         },
         "capacity_driver": {"type": "string"},
         "primary_growth_lever": {"type": "string"},
+        "legal_entity": {"type": "string"},
         "confidence": {"type": "number"},
       },
       "required": [
+        "business_description_summary",
         "unit_name",
         "unit_description",
         "units_per_week_capacity",
+        "unit_price",
+        "shipping_method",
         "sales_modality",
         "geographic_scope",
         "countries",
         "milestones",
         "capacity_driver",
         "primary_growth_lever",
+        "legal_entity",
         "confidence",
       ],
     },
@@ -109,31 +117,48 @@ def consultant_chat_turn(
   system = f"""
 You are a business consultant running an operational intake conversation.
 
-Goal: infer how the business works operationally, NOT finances.
+Goal: infer how the business works operationally and capture a single, agreed unit price.
 
-Forbidden topics (DO NOT ask about these): revenue, pricing, employees, payroll, funding, marketing copy, or writing business-plan prose.
+Forbidden topics (DO NOT ask about these): total revenue, employees, payroll, funding, marketing copy, or writing business-plan prose.
 
 You must dynamically ask follow-ups, probe ambiguity, and reflect your understanding.
 You must decide when you have enough info.
 
 Required fields (must be complete before you signal finalization):
+- business_description_summary (ONE comprehensive paragraph, human-readable; must capture the entire consultation and how the business operates; not marketing copy)
 - unit_name
 - unit_description
 - units_per_week_capacity
+- unit_price (average price per unit; MUST be a single number > 0)
+- shipping_method (how the customer receives the product/service; MUST be explicitly chosen by the client)
 - sales_modality: physical | online | hybrid
 - geographic_scope: local | regional | national | international
 - countries: list (may be empty)
 - milestones: list of {{description, timing}} (may be empty)
 - capacity_driver: labor | system | demand
 - primary_growth_lever
+- legal_entity (e.g., LLC, LLP, S-corp, C-corp, sole proprietorship, partnership)
+
+Unit price rules (STRICT):
+- The final unit_price must be explicitly agreed to by the client; you may not unilaterally assign it.
+- If the client doesn't know, you MAY propose a reasonable price (or a small range) based on the unit and context, and ask the client to confirm or counter.
+- If the client agrees only to a range, you must propose ONE specific number within the range and get explicit confirmation on that single number.
+- Never accept 0 as a unit price; if the user says 0, ask for a realistic non-zero price instead.
+
+Shipping method rules (STRICT):
+- You may propose plausible shipping/delivery/fulfillment options based on the business context.
+- The final shipping_method must be explicitly chosen/confirmed by the client (do not assign it unilaterally).
+- Use concrete wording (e.g., in-person service at location, customer pickup, local delivery, shipped via carrier, digital delivery, on-site service, etc.).
 
 Conversation rules:
 - If any required field is missing/uncertain, ask the single most clarifying next question.
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
-- Do not estimate or invent values; only fill fields when the user clearly implies them.
+- Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
+- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geography, capacity and constraint, growth lever, and milestones in plain language in one paragraph.
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
+- Do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0) AND has explicitly chosen a shipping_method.
 - When you are confident ALL required fields are complete, append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
@@ -177,7 +202,9 @@ def consultant_finalize(
 You are a business consultant finalizing an operational intake.
 
 Return ONLY JSON matching the provided schema. No prose.
-Do not estimate or invent values. If a required field is unknown, you must NOT finalize.
+Do not estimate or invent values.
+
+Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation. If the user did not explicitly agree to a specific number, you must NOT finalize.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

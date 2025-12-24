@@ -55,16 +55,12 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   required_text_fields = (
     "business_name",
     "business_type",
-    "description",
-    "product_keywords",
-    "selling_method",
     "customer_age_range",
     "customer_income_level",
     "customer_type",
     "first_name",
     "last_name",
     "email_address",
-    "pricing_model",
     "founder_background",
     "business_start_date",
   )
@@ -96,18 +92,31 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   row["client_id"] = client_id
   row["business_start_date"] = business_start_date
   row["current_revenue"] = revenue_value
+  # These fields are stored but not collected in the UI right now.
+  if row.get("description") is None:
+    row["description"] = ""
+  if row.get("product_keywords") is None:
+    row["product_keywords"] = ""
+  if row.get("customer_additional_details") is None:
+    row["customer_additional_details"] = ""
+  if row.get("pricing_model") is None:
+    row["pricing_model"] = ""
 
   # Operating model (from GPT consultant finalization)
   operating_required = (
     "unit_name",
     "unit_description",
     "units_per_week_capacity",
+    "unit_price",
+    "shipping_method",
     "sales_modality",
     "geographic_scope",
     "countries",
     "milestones",
     "capacity_driver",
     "primary_growth_lever",
+    "legal_entity",
+    "business_description_summary",
   )
   for key in operating_required:
     if payload.get(key) is None or payload.get(key) == "":
@@ -118,6 +127,15 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     row["units_per_week_capacity"] = float(payload.get("units_per_week_capacity"))
   except Exception:
     errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
+
+  # Validate numeric unit price
+  try:
+    row["unit_price"] = float(payload.get("unit_price"))
+  except Exception:
+    errors["unit_price"] = "unit_price must be a number"
+  else:
+    if row["unit_price"] <= 0:
+      errors["unit_price"] = "unit_price must be greater than 0"
 
   # Store countries/milestones as JSON strings for TEXT columns.
   for key in ("countries", "milestones"):
