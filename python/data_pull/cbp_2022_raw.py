@@ -88,11 +88,7 @@ for row in rows:
 ) = row
 
 
-    # ---------------------------------------------------------------
-    # FILTER: Keep only pure 3-digit numeric NAICS
-    # ---------------------------------------------------------------
-    if not (naics.isdigit() and len(naics) == 3):
-        continue  # skip all other NAICS levels
+    # No NAICS-level filtering here: store all rows returned by the API.
 
     # convert to numbers
     estab = to_int(estab)
@@ -121,4 +117,4 @@ conn.commit()
 cursor.close()
 conn.close()
 
-print(f"Inserted {clean_count} clean 3-digit NAICS records into cbp_2022_raw.")
+print(f"Inserted {clean_count} records into cbp_2022_raw.")

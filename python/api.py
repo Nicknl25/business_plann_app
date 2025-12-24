@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,8 +28,10 @@ def getenv(name: str) -> Optional[str]:
 def create_app() -> Flask:
   if load_dotenv:
     try:
-      # Load variables from the project-level .env if present.
-      load_dotenv()
+      # Force load variables from the project root .env (consistent across CWDs).
+      root_dir = Path(__file__).resolve().parent.parent
+      env_path = root_dir / ".env"
+      load_dotenv(str(env_path))
     except Exception:
       # Failing to load .env should not prevent the app from starting;
       # environment variables may already be configured.
@@ -181,12 +184,82 @@ def create_app() -> Flask:
         IntakeValidationError,
         process_intake_submission,
       )
+      from intake_submission import get_mysql_connection  # type: ignore
+      from intake_consult_draft import get_draft, mark_submitted  # type: ignore
     except Exception as exc:
       app.logger.exception("Failed to import intake pipeline: %s", exc)
       return (jsonify({"error": "server_error", "detail": "pipeline unavailable"}), 500)
 
     try:
+      draft_id = payload.get("draft_id")
+      if not draft_id or not str(draft_id).strip():
+        raise IntakeValidationError({"draft_id": "draft_id is required"})
+
+      conn = get_mysql_connection()
+      try:
+        draft = get_draft(conn, draft_id=str(draft_id).strip())
+      finally:
+        try:
+          conn.close()
+        except Exception:
+          pass
+
+      draft_status = str(draft.get("status") or "").strip().lower()
+      if draft_status == "submitted":
+        return (
+          jsonify(
+            {
+              "error": "duplicate_submit",
+              "detail": "This draft was already submitted.",
+              "intake_submission_id": draft.get("intake_submission_id"),
+            }
+          ),
+          409,
+        )
+      if draft_status != "completed":
+        raise IntakeValidationError(
+          {"draft_id": "Consult draft must be completed before submitting intake."}
+        )
+
+      operating_model_raw = draft.get("operating_model_json")
+      if not operating_model_raw:
+        raise IntakeValidationError(
+          {"draft_id": "Consult draft is missing operating_model_json."}
+        )
+      try:
+        operating_model = json.loads(str(operating_model_raw))
+      except Exception as exc:
+        raise IntakeValidationError(
+          {"draft_id": "operating_model_json is invalid JSON."}
+        ) from exc
+      if not isinstance(operating_model, dict):
+        raise IntakeValidationError(
+          {"draft_id": "operating_model_json must be a JSON object."}
+        )
+
+      # Ensure the submission is keyed to the consult draft's client_id and model.
+      payload = dict(payload)
+      payload["client_id"] = str(draft.get("client_id") or "").strip()
+      payload.update(operating_model)
+      if "confidence" in payload:
+        payload["operating_model_confidence"] = payload.pop("confidence")
+
       result = process_intake_submission(payload)
+
+      intake_submission_id = result.get("intake_submission_id")
+      if intake_submission_id is not None:
+        conn = get_mysql_connection()
+        try:
+          mark_submitted(
+            conn,
+            draft_id=str(draft_id).strip(),
+            intake_submission_id=int(intake_submission_id),
+          )
+        finally:
+          try:
+            conn.close()
+          except Exception:
+            pass
       return jsonify(result)
     except IntakeValidationError as exc:
       return (jsonify({"error": "invalid_request", "errors": exc.errors}), 400)
@@ -298,6 +371,238 @@ def create_app() -> Flask:
         cursor.close()
       except Exception:
         pass
+      try:
+        conn.close()
+      except Exception:
+        pass
+
+  @app.route("/api/intake-consult", methods=["POST", "OPTIONS"])
+  def post_intake_consult():
+    """
+    GPT-led operational intake consultant conversation (iterative).
+
+    Request shape:
+      { "client_id": "...", "message": "..." }
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    draft_id = payload.get("draft_id")
+    client_id = payload.get("client_id")
+    raw_message = payload.get("message")
+    message = raw_message
+    if not draft_id or not str(draft_id).strip():
+      return (
+        jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+        400,
+      )
+    reset = bool(payload.get("reset", False))
+    starting = message is None or not str(message).strip()
+    if starting:
+      message = "Start the operational intake. Ask your first question."
+
+    try:
+      from intake_consultant import (  # type: ignore
+        consultant_chat_turn,
+        consultant_finalize,
+      )
+      from intake_submission import get_mysql_connection  # type: ignore
+      from intake_consult_draft import (  # type: ignore
+        append_messages,
+        get_draft,
+      )
+    except Exception as exc:
+      app.logger.exception("Failed to import intake consultant helpers: %s", exc)
+      return (jsonify({"error": "server_error"}), 500)
+
+    try:
+      conn = get_mysql_connection()
+      try:
+        draft = get_draft(conn, draft_id=str(draft_id).strip())
+      finally:
+        try:
+          conn.close()
+        except Exception:
+          pass
+
+      client_id_str = str(draft.get("client_id") or (client_id or "")).strip()
+      draft_status = str(draft.get("status") or "").strip().lower()
+      if draft_status in ("completed", "submitted"):
+        operating_model_raw = draft.get("operating_model_json")
+        if operating_model_raw:
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id_str,
+              "done": True,
+              "assistant_message": str(operating_model_raw),
+            }
+          )
+
+      context = {
+        "client_id": client_id_str,
+        "business_name": payload.get("business_name"),
+        "business_type": payload.get("business_type"),
+      }
+
+      app.logger.info(
+        "Intake consult message for draft_id=%s client_id=%s: %s",
+        draft_id,
+        client_id_str,
+        message,
+      )
+      print(f"Intake consult message draft_id={draft_id} client_id={client_id_str}:", str(message))
+
+      history: List[Dict[str, str]] = []
+      try:
+        raw_messages = draft.get("messages_json")
+        if raw_messages:
+          parsed = json.loads(str(raw_messages))
+          if isinstance(parsed, list):
+            history = [m for m in parsed if isinstance(m, dict)]
+      except Exception:
+        history = []
+
+      if reset:
+        history = []
+
+      user_msg = {"role": "user", "content": str(message).strip()}
+      turn = consultant_chat_turn(
+        intake_context=context,
+        conversation_messages=[*history, user_msg],
+      )
+      assistant_text = str(turn.get("assistant_message") or "").strip()
+      finalize_ready = bool(turn.get("finalize_ready", False))
+      assistant_msg = {"role": "assistant", "content": assistant_text}
+      new_messages = [user_msg, assistant_msg]
+
+      done = False
+      assistant_message = assistant_text
+
+      if finalize_ready:
+        final_obj = consultant_finalize(
+          intake_context=context,
+          conversation_messages=[*history, *new_messages],
+        )
+        if not isinstance(final_obj, dict):
+          raise RuntimeError("Finalization did not return an object.")
+
+        app.logger.info(
+          "Intake consult final for draft_id=%s client_id=%s: %s",
+          draft_id,
+          client_id_str,
+          final_obj,
+        )
+        print(f"Intake consult final draft_id={draft_id} client_id={client_id_str}:", final_obj)
+
+        conn = get_mysql_connection()
+        try:
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=new_messages,
+            status="completed",
+            operating_model_json=final_obj,
+            completed=True,
+          )
+        finally:
+          try:
+            conn.close()
+          except Exception:
+            pass
+
+        done = True
+        assistant_message = json.dumps(final_obj, ensure_ascii=False)
+      else:
+        conn = get_mysql_connection()
+        try:
+          # Persist conversation after each turn (durable draft).
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=new_messages,
+            status="in_progress",
+          )
+        finally:
+          try:
+            conn.close()
+          except Exception:
+            pass
+
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id_str,
+          "done": done,
+          "assistant_message": assistant_message,
+        }
+      )
+    except Exception as exc:
+      app.logger.exception("Failed intake consult: %s", exc)
+      return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
+
+  @app.route("/api/intake-consult/session", methods=["POST", "OPTIONS"])
+  def post_intake_consult_session():
+    """
+    Create a new durable pre-submit consultant draft and return {draft_id, client_id}.
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    try:
+      from intake_submission import generate_client_id, get_mysql_connection  # type: ignore
+      from intake_consult_draft import create_draft  # type: ignore
+    except Exception as exc:
+      app.logger.exception("Failed to import generate_client_id: %s", exc)
+      return (jsonify({"error": "server_error"}), 500)
+
+    client_id = generate_client_id()
+    conn = get_mysql_connection()
+    try:
+      draft = create_draft(conn, client_id=client_id)
+      return jsonify({"status": "ok", **draft})
+    finally:
+      try:
+        conn.close()
+      except Exception:
+        pass
+
+  @app.route("/api/intake-consult/draft", methods=["GET", "OPTIONS"])
+  def get_intake_consult_draft():
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    draft_id = request.args.get("draft_id")
+    if not draft_id:
+      return (
+        jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+        400,
+      )
+
+    try:
+      from intake_submission import get_mysql_connection  # type: ignore
+      from intake_consult_draft import get_draft  # type: ignore
+    except Exception as exc:
+      app.logger.exception("Failed to import consult draft helpers: %s", exc)
+      return (jsonify({"error": "server_error"}), 500)
+
+    conn = get_mysql_connection()
+    try:
+      draft = get_draft(conn, draft_id=str(draft_id).strip())
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": draft.get("draft_id"),
+          "client_id": draft.get("client_id"),
+          "draft_status": draft.get("status"),
+          "messages_json": draft.get("messages_json"),
+          "operating_model_json": draft.get("operating_model_json"),
+        }
+      )
+    finally:
       try:
         conn.close()
       except Exception:

@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   Controller,
   FormProvider,
+  type FieldErrors,
   type FieldValues,
   type UseFormReturn,
   type ControllerRenderProps,
@@ -16,6 +17,7 @@ import { cn } from "../../lib/utils";
 interface FormProps<TFieldValues extends FieldValues> {
   form: UseFormReturn<TFieldValues>;
   onSubmit: (values: TFieldValues) => void;
+  onInvalid?: (errors: FieldErrors<TFieldValues>) => void;
   className?: string;
   children: React.ReactNode;
 }
@@ -23,13 +25,14 @@ interface FormProps<TFieldValues extends FieldValues> {
 export function Form<TFieldValues extends FieldValues>({
   form,
   onSubmit,
+  onInvalid,
   className,
   children,
 }: FormProps<TFieldValues>) {
   return (
     <FormProvider {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={form.handleSubmit(onSubmit, onInvalid)}
         className={cn("space-y-6", className)}
       >
         {children}

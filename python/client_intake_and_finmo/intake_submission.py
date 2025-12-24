@@ -167,6 +167,16 @@ def insert_intake_submission(
     "annual_principal_payment",
     "owner_compensation",
     "cash_on_hand",
+    "unit_name",
+    "unit_description",
+    "units_per_week_capacity",
+    "sales_modality",
+    "geographic_scope",
+    "countries",
+    "milestones",
+    "capacity_driver",
+    "primary_growth_lever",
+    "operating_model_confidence",
   )
 
   values = [row.get(col) for col in columns]
@@ -212,6 +222,33 @@ def fetch_intake_submission_by_id(
   return row
 
 
+def fetch_intake_submission_by_client_id(
+  *,
+  conn,
+  client_id: str,
+) -> Dict[str, Any]:
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      "SELECT * FROM intake_submissions WHERE client_id = %s LIMIT 1",
+      (str(client_id).strip(),),
+    )
+    row = cur.fetchone()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+  if not row:
+    raise RuntimeError(
+      f"intake_submissions row not found for client_id={client_id!r}"
+    )
+  if not isinstance(row, dict):
+    raise RuntimeError("Unexpected DB row shape for intake_submissions.")
+  return row
+
+
 def update_intake_submission_finmo_path(
   *,
   conn,
@@ -224,6 +261,56 @@ def update_intake_submission_finmo_path(
       "UPDATE intake_submissions SET finmo_path = %s WHERE id = %s",
       (finmo_path, submission_id),
     )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
+def update_intake_operating_model_fields(
+  *,
+  conn,
+  client_id: str,
+  updates: Dict[str, Any],
+) -> None:
+  allowed = {
+    "unit_name",
+    "unit_description",
+    "units_per_week_capacity",
+    "sales_modality",
+    "geographic_scope",
+    "countries",
+    "milestones",
+    "capacity_driver",
+    "primary_growth_lever",
+    "operating_model_confidence",
+  }
+
+  set_parts = []
+  values = []
+  for key, val in updates.items():
+    if key not in allowed:
+      continue
+    if val is None:
+      continue
+    if key in ("countries", "milestones") and not isinstance(val, str):
+      # Store arrays as JSON strings in TEXT columns.
+      import json
+
+      val = json.dumps(val, ensure_ascii=False)
+    set_parts.append(f"`{key}` = %s")
+    values.append(val)
+
+  if not set_parts:
+    return
+
+  values.append(str(client_id).strip())
+  sql = "UPDATE intake_submissions SET " + ", ".join(set_parts) + " WHERE client_id = %s"
+  cur = conn.cursor()
+  try:
+    cur.execute(sql, values)
     conn.commit()
   finally:
     try:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Any, Dict, Optional
 
 from finmo_revenue import (
@@ -37,6 +38,11 @@ def _parse_float(value: Any) -> Optional[float]:
 
 def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   errors: Dict[str, str] = {}
+
+  client_id_raw = payload.get("client_id")
+  if not client_id_raw or not str(client_id_raw).strip():
+    errors["client_id"] = "client_id is required"
+  client_id = str(client_id_raw).strip() if client_id_raw else ""
 
   business_type = payload.get("business_type")
   if not business_type or not str(business_type).strip():
@@ -86,11 +92,53 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   if errors:
     raise IntakeValidationError(errors)
 
-  client_id = generate_client_id()
   row: Dict[str, Any] = dict(payload)
   row["client_id"] = client_id
   row["business_start_date"] = business_start_date
   row["current_revenue"] = revenue_value
+
+  # Operating model (from GPT consultant finalization)
+  operating_required = (
+    "unit_name",
+    "unit_description",
+    "units_per_week_capacity",
+    "sales_modality",
+    "geographic_scope",
+    "countries",
+    "milestones",
+    "capacity_driver",
+    "primary_growth_lever",
+  )
+  for key in operating_required:
+    if payload.get(key) is None or payload.get(key) == "":
+      errors[key] = f"{key} is required"
+
+  # Validate numeric capacity
+  try:
+    row["units_per_week_capacity"] = float(payload.get("units_per_week_capacity"))
+  except Exception:
+    errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
+
+  # Store countries/milestones as JSON strings for TEXT columns.
+  for key in ("countries", "milestones"):
+    val = payload.get(key)
+    if isinstance(val, str):
+      # Allow already-serialized JSON strings.
+      row[key] = val
+    else:
+      row[key] = json.dumps(val, ensure_ascii=False)
+
+  confidence = payload.get("operating_model_confidence", None)
+  if confidence is not None and confidence != "":
+    try:
+      row["operating_model_confidence"] = float(confidence)
+    except Exception:
+      errors["operating_model_confidence"] = (
+        "operating_model_confidence must be a number"
+      )
+
+  if errors:
+    raise IntakeValidationError(errors)
 
   conn = get_mysql_connection()
   try:
@@ -109,9 +157,9 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
       except Exception as exc:
         msg = str(exc).lower()
         if "duplicate" in msg and "client_id" in msg:
-          row["client_id"] = generate_client_id()
-          client_id = row["client_id"]
-          continue
+          raise IntakeValidationError(
+            {"client_id": "client_id already exists; start a new intake session"}
+          ) from exc
         raise
 
     if not inserted or not inserted.get("inserted_id"):
@@ -161,6 +209,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
 
   return {
     "status": "ok",
+    "intake_submission_id": submission_row.get("id"),
     "client_id": client_id,
     "naics_code": row.get("naics_code"),
     "finmo_path": submission_row.get("finmo_path"),

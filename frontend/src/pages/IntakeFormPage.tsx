@@ -2,7 +2,9 @@ import type React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
 import { ClipboardList, Sparkles } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useState } from "react";
+import { useEffect } from "react";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { z } from "zod";
 import PageShell from "../components/PageShell";
 import { Button } from "../components/ui/Button";
@@ -227,7 +229,7 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
 const defaultValues: IntakeValues = {
   businessName: "",
   businessType: "",
-  description: "",
+  description: "Collected via consultant intake.",
   address: "",
   productKeywords: "",
   sellingMethod: "",
@@ -275,6 +277,253 @@ function IntakeFormPage() {
     defaultValues,
     mode: "onBlur",
   });
+
+  const consultStorage = {
+    getDraftId: () => sessionStorage.getItem("intake_consult_draft_id"),
+    getClientId: () => sessionStorage.getItem("intake_consult_client_id"),
+    set: (draft_id: string, client_id: string) => {
+      sessionStorage.setItem("intake_consult_draft_id", draft_id);
+      sessionStorage.setItem("intake_consult_client_id", client_id);
+    },
+    clear: () => {
+      sessionStorage.removeItem("intake_consult_draft_id");
+      sessionStorage.removeItem("intake_consult_client_id");
+    },
+  };
+
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [consultMessages, setConsultMessages] = useState<
+    { role: "user" | "assistant"; content: string }[]
+  >([]);
+  const [consultInput, setConsultInput] = useState("");
+  const [consultDone, setConsultDone] = useState(false);
+  const [consultLoading, setConsultLoading] = useState(false);
+  const [consultError, setConsultError] = useState<string | null>(null);
+  const [consultFinal, setConsultFinal] = useState<any | null>(null);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<{
+    clientId: string;
+    intakeSubmissionId?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const storedDraftId = consultStorage.getDraftId();
+      const storedClientId = consultStorage.getClientId();
+      if (!storedDraftId || !storedClientId) return;
+
+      try {
+        const res = await apiClient.get("/api/intake-consult/draft", {
+          params: { draft_id: storedDraftId },
+          validateStatus: () => true,
+        });
+        if (res.status < 200 || res.status >= 300) return;
+
+        const body: any = res.data;
+        setDraftId(String(body?.draft_id || storedDraftId));
+        setClientId(String(body?.client_id || storedClientId));
+
+        const draftStatus = String(body?.draft_status || "");
+        if (draftStatus === "submitted") {
+          consultStorage.clear();
+          return;
+        }
+        const messagesJson = body?.messages_json;
+        if (messagesJson) {
+          try {
+            const parsed = JSON.parse(String(messagesJson));
+            if (Array.isArray(parsed)) {
+              setConsultMessages(
+                parsed
+                  .filter((m) => m && typeof m === "object")
+                  .map((m: any) => ({
+                    role: m.role === "user" ? "user" : "assistant",
+                    content: String(m.content || ""),
+                  }))
+              );
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        if (draftStatus === "completed") {
+          setConsultDone(true);
+          const modelJson = body?.operating_model_json;
+          if (modelJson) {
+            try {
+              setConsultFinal(JSON.parse(String(modelJson)));
+            } catch {
+              setConsultFinal(null);
+            }
+          }
+        }
+      } catch {
+        // ignore resume errors
+      }
+    })();
+  }, []);
+
+  function resetConsultSession() {
+    consultStorage.clear();
+    setClientId(null);
+    setDraftId(null);
+    setConsultMessages([]);
+    setConsultInput("");
+    setConsultDone(false);
+    setConsultFinal(null);
+    setConsultError(null);
+  }
+
+  async function startConsultConversation(nextDraftId: string, nextClientId: string) {
+    setConsultError(null);
+    setConsultMessages([]);
+    setConsultInput("");
+    setConsultDone(false);
+    setConsultFinal(null);
+    setConsultLoading(true);
+
+    try {
+      const { businessName, businessType } = form.getValues();
+      const res = await apiClient.post(
+        "/api/intake-consult",
+        {
+          draft_id: nextDraftId,
+          client_id: nextClientId,
+          business_name: businessName,
+          business_type: businessType,
+        },
+        {
+          validateStatus: () => true,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (res.status < 200 || res.status >= 300) {
+        const body = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Consult error: ${res.status} ${res.statusText}`
+        );
+      }
+
+      const body: any = res.data;
+      setConsultDone(Boolean(body?.done));
+      if (body?.done) {
+        try {
+          setConsultFinal(JSON.parse(String(body?.assistant_message || "{}")));
+        } catch {
+          setConsultFinal(null);
+        }
+      }
+      setConsultMessages([
+        { role: "assistant", content: String(body?.assistant_message || "") },
+      ]);
+    } catch (error) {
+      setConsultError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConsultLoading(false);
+    }
+  }
+
+  async function createConsultSession() {
+    setConsultError(null);
+    setConsultLoading(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      resetConsultSession();
+      const res = await apiClient.post(
+        "/api/intake-consult/session",
+        {},
+        {
+          validateStatus: () => true,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (res.status < 200 || res.status >= 300) {
+        const body = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Session error: ${res.status} ${res.statusText}`
+        );
+      }
+
+      const body: any = res.data;
+      const nextDraftId = String(body?.draft_id || "").trim();
+      const nextClientId = String(body?.client_id || "").trim();
+      if (!nextDraftId || !nextClientId) {
+        throw new Error("Session did not return draft_id/client_id.");
+      }
+
+      consultStorage.set(nextDraftId, nextClientId);
+      setDraftId(nextDraftId);
+      setClientId(nextClientId);
+      await startConsultConversation(nextDraftId, nextClientId);
+    } catch (error) {
+      setConsultError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConsultLoading(false);
+    }
+  }
+
+  async function sendConsultMessage(message: string) {
+    if (!draftId || !clientId) return;
+
+    setConsultError(null);
+    setConsultLoading(true);
+
+    try {
+      const { businessName, businessType } = form.getValues();
+      const res = await apiClient.post(
+        "/api/intake-consult",
+        {
+          draft_id: draftId,
+          client_id: clientId,
+          message,
+          business_name: businessName,
+          business_type: businessType,
+        },
+        {
+          validateStatus: () => true,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (res.status < 200 || res.status >= 300) {
+        const body = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Consult error: ${res.status} ${res.statusText}`
+        );
+      }
+
+      const body: any = res.data;
+      setConsultDone(Boolean(body?.done));
+      if (body?.done) {
+        try {
+          setConsultFinal(JSON.parse(String(body?.assistant_message || "{}")));
+        } catch {
+          setConsultFinal(null);
+        }
+      }
+      setConsultMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: String(body?.assistant_message || "") },
+      ]);
+    } catch (error) {
+      setConsultError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConsultLoading(false);
+    }
+  }
 
   function formatNumericForDisplay(raw: string): string {
     const withoutCommas = raw.replace(/,/g, "");
@@ -344,9 +593,28 @@ function IntakeFormPage() {
 
   function handleSubmit(values: IntakeValues) {
     (async () => {
+      setSubmitError(null);
+      setSubmitSuccess(null);
+      if (!draftId) {
+        form.setError("description", {
+          type: "manual",
+          message: "Start and complete the consultant conversation first.",
+        });
+        return;
+      }
+
+      if (!consultDone) {
+        form.setError("description", {
+          type: "manual",
+          message: "Complete the consultant conversation before submitting.",
+        });
+        return;
+      }
+
       const businessStartDate = values.businessStartDate;
 
       const financialsPayload = {
+        draft_id: draftId,
         business_name: values.businessName,
         business_type: values.businessType,
         description: values.description,
@@ -410,6 +678,7 @@ function IntakeFormPage() {
         form.clearErrors(fieldName);
       });
 
+      setSubmitLoading(true);
       try {
         const res = await apiClient.post("/api/financials", financialsPayload, {
           validateStatus: () => true,
@@ -433,6 +702,7 @@ function IntakeFormPage() {
 
         if (res.status < 200 || res.status >= 300) {
           if (body && typeof body === "object" && body.errors) {
+            const unmapped: string[] = [];
             Object.entries(body.errors).forEach(([serverField, message]) => {
               const formField = serverFieldToFormField[serverField];
               if (formField) {
@@ -440,21 +710,63 @@ function IntakeFormPage() {
                   type: "server",
                   message: String(message),
                 });
+              } else {
+                unmapped.push(`${serverField}: ${String(message)}`);
               }
             });
+            if (unmapped.length) {
+              setSubmitError(unmapped.join(" | "));
+            }
           } else {
+            const detail =
+              body && typeof body === "object"
+                ? String(body.detail || body.error || JSON.stringify(body))
+                : String(body);
+            setSubmitError(detail);
             console.error("Error submitting financials:", body);
           }
           return;
         }
 
         console.log("Financials submitted successfully", body);
+        const returnedClientId =
+          body && typeof body === "object" ? String(body.client_id || "") : "";
+        const intakeSubmissionId =
+          body && typeof body === "object"
+            ? String(body.intake_submission_id || "")
+            : "";
+        setSubmitSuccess({
+          clientId: returnedClientId || (clientId || ""),
+          intakeSubmissionId: intakeSubmissionId || undefined,
+        });
+
+        // Clear consult session so a new session starts clean.
+        consultStorage.clear();
       } catch (error) {
         console.error("Error submitting financials:", error);
+        setSubmitError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setSubmitLoading(false);
       }
 
       console.log("Intake submission", values);
     })();
+  }
+
+  function handleInvalid(errors: FieldErrors<IntakeValues>) {
+    setSubmitSuccess(null);
+    setSubmitError("Please fix the highlighted fields and try again.");
+
+    const firstField = Object.keys(errors || {})[0];
+    if (!firstField) return;
+
+    const el = document.querySelector(
+      `[name="${CSS.escape(firstField)}"]`
+    ) as HTMLElement | null;
+
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   }
 
   return (
@@ -483,7 +795,14 @@ function IntakeFormPage() {
           </motion.div>
         </section>
 
-        <Form form={form} onSubmit={(values) => { handleSubmit(values); }} className="space-y-8">
+        <Form
+          form={form}
+          onSubmit={(values) => {
+            handleSubmit(values);
+          }}
+          onInvalid={handleInvalid}
+          className="space-y-8"
+        >
           <div className="grid gap-5 md:grid-cols-[1.3fr_1fr]">
             {/* Business basics */}
             <Card className="border border-slate-800/80 bg-slate-950/90">
@@ -557,7 +876,7 @@ function IntakeFormPage() {
                   {(field) => (
                     <FormItem className="col-span-2">
                       <FormLabel>
-                        Business description{" "}
+                        Business description (generated later){" "}
                         <HelpTooltip
                           fieldName="description"
                           text={TOOLTIP_TEXT.businessDescription}
@@ -567,6 +886,7 @@ function IntakeFormPage() {
                         <Textarea
                           {...field}
                           rows={4}
+                          disabled
                           placeholder="In 3–5 sentences, describe what your business does and how it creates value."
                         />
                       </FormControl>
@@ -576,6 +896,129 @@ function IntakeFormPage() {
                     </FormItem>
                   )}
                 </FormField>
+
+                <div className="col-span-2 space-y-3">
+                  {!clientId ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="text-xs text-slate-300">
+                        Start the consultant conversation before submitting the
+                        intake. GPT will ask operational questions and will
+                        tell you when it's complete.
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={consultLoading}
+                        onClick={createConsultSession}
+                      >
+                        {consultLoading ? "Starting..." : "Start conversation"}
+                      </Button>
+                      {consultError ? (
+                        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+                          {consultError}
+                        </div>
+                      ) : null}
+                    </div>
+                   ) : (
+                     <div className="space-y-2">
+                       <div className="text-xs text-slate-300">
+                         Reference code:{" "}
+                         <span className="font-mono">{clientId}</span>
+                       </div>
+
+                       <div className="flex flex-wrap gap-2">
+                         <Button
+                           type="button"
+                           size="sm"
+                           variant="outline"
+                           disabled={consultLoading || submitLoading}
+                           onClick={createConsultSession}
+                         >
+                           Start new conversation
+                         </Button>
+                       </div>
+
+                       {consultError ? (
+                         <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+                           {consultError}
+                        </div>
+                      ) : null}
+
+                      <div className="max-h-64 space-y-2 overflow-auto rounded-md border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-200">
+                        {consultMessages.length === 0 ? (
+                          <div className="text-slate-400">
+                            {consultLoading
+                              ? "Starting consultant conversation..."
+                              : "Conversation will appear here."}
+                          </div>
+                        ) : (
+                          consultMessages.map((m, idx) => (
+                            <div key={idx} className="whitespace-pre-wrap">
+                              <span className="text-slate-400">{m.role}:</span>{" "}
+                              {m.content}
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {consultDone ? (
+                        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                          Operational intake complete. Continue filling out the
+                          rest of the form and click Submit intake.
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-400">
+                          Complete this conversation to unlock submission.
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Input
+                          value={consultInput}
+                          onChange={(e) => setConsultInput(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              if (consultLoading || consultDone) return;
+                              const msg = consultInput.trim();
+                              if (!msg) return;
+                              setConsultInput("");
+                              setConsultMessages((prev) => [
+                                ...prev,
+                                { role: "user", content: msg },
+                              ]);
+                              await sendConsultMessage(msg);
+                            }
+                          }}
+                          placeholder={
+                            consultDone
+                              ? "Conversation completed."
+                              : "Reply to the consultant..."
+                          }
+                          disabled={consultLoading || consultDone}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={
+                            consultLoading || consultDone || !consultInput.trim()
+                          }
+                          onClick={async () => {
+                            const msg = consultInput.trim();
+                            setConsultInput("");
+                            setConsultMessages((prev) => [
+                              ...prev,
+                              { role: "user", content: msg },
+                            ]);
+                            await sendConsultMessage(msg);
+                          }}
+                        >
+                          Send
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -1978,10 +2421,93 @@ function IntakeFormPage() {
               type="submit"
               size="lg"
               className="group rounded-full px-6 text-xs sm:text-sm"
+              disabled={!consultDone || submitLoading}
             >
-              Submit intake
+              {submitLoading ? "Submitting..." : "Submit intake"}
             </Button>
           </motion.div>
+
+          {submitError ? (
+            <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+              {submitError}
+            </div>
+          ) : null}
+
+          {submitSuccess ? (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+              Intake submitted successfully. Reference code:{" "}
+              <span className="font-mono">{submitSuccess.clientId}</span>
+            </div>
+          ) : null}
+
+          {false ? (
+            <Card className="border border-slate-800/80 bg-slate-950/90">
+              <CardHeader className="border-0 pb-3">
+                <CardTitle className="text-sm">
+                  Let’s understand how your business operates
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="text-xs text-slate-300">
+                  Reference code: <span className="font-mono">{clientId}</span>
+                </div>
+
+                {consultError ? (
+                  <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+                    {consultError}
+                  </div>
+                ) : null}
+
+                <div className="max-h-72 space-y-2 overflow-auto rounded-md border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-200">
+                  {consultMessages.length === 0 ? (
+                    <div className="text-slate-400">
+                      {consultLoading
+                        ? "Starting consultant conversation..."
+                        : "Conversation will appear here."}
+                    </div>
+                  ) : (
+                    consultMessages.map((m, idx) => (
+                      <div key={idx} className="whitespace-pre-wrap">
+                        <span className="text-slate-400">{m.role}:</span>{" "}
+                        {m.content}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    value={consultInput}
+                    onChange={(e) => setConsultInput(e.target.value)}
+                    placeholder={
+                      consultDone
+                        ? "Conversation completed."
+                        : "Reply to the consultant..."
+                    }
+                    disabled={consultLoading || consultDone}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={
+                      consultLoading || consultDone || !consultInput.trim()
+                    }
+                    onClick={async () => {
+                      const msg = consultInput.trim();
+                      setConsultInput("");
+                      setConsultMessages((prev) => [
+                        ...prev,
+                        { role: "user", content: msg },
+                      ]);
+                      await sendConsultMessage(msg);
+                    }}
+                  >
+                    Send
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
         </Form>
       </div>
     </PageShell>
