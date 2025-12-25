@@ -36,6 +36,25 @@ def _parse_float(value: Any) -> Optional[float]:
     return None
 
 
+def _normalize_capacity_driver(value: Any) -> Optional[str]:
+  if value is None:
+    return None
+  raw = str(value).strip().lower()
+  if not raw:
+    return None
+  # Accept short canonical values.
+  if raw in ("labor", "system", "demand"):
+    return raw
+  # Accept descriptive strings and map to canonical.
+  if "labor" in raw or "staff" in raw or "chair" in raw or "hours" in raw:
+    return "labor"
+  if "system" in raw or "process" in raw or "equipment" in raw or "space" in raw:
+    return "system"
+  if "demand" in raw or "customer" in raw or "clients" in raw or "leads" in raw:
+    return "demand"
+  return None
+
+
 def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   errors: Dict[str, str] = {}
 
@@ -58,6 +77,8 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "customer_age_range",
     "customer_income_level",
     "customer_type",
+    "target_market",
+    "target_market_summary",
     "first_name",
     "last_name",
     "email_address",
@@ -121,6 +142,12 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   for key in operating_required:
     if payload.get(key) is None or payload.get(key) == "":
       errors[key] = f"{key} is required"
+
+  normalized_capacity_driver = _normalize_capacity_driver(payload.get("capacity_driver"))
+  if not normalized_capacity_driver:
+    errors["capacity_driver"] = "capacity_driver must be one of: labor, system, demand"
+  else:
+    row["capacity_driver"] = normalized_capacity_driver
 
   # Validate numeric capacity
   try:

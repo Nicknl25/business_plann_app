@@ -63,7 +63,7 @@ def _final_schema() -> Dict[str, Any]:
             "required": ["description", "timing"],
           },
         },
-        "capacity_driver": {"type": "string"},
+        "capacity_driver": {"type": "string", "enum": ["labor", "system", "demand"]},
         "primary_growth_lever": {"type": "string"},
         "legal_entity": {"type": "string"},
         "confidence": {"type": "number"},
@@ -155,6 +155,7 @@ Conversation rules:
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
 - Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
 - When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geography, capacity and constraint, growth lever, and milestones in plain language in one paragraph.
+- For capacity_driver, you must use exactly ONE of: labor, system, demand (single word only).
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).

@@ -186,6 +186,7 @@ def create_app() -> Flask:
       )
       from intake_submission import get_mysql_connection  # type: ignore
       from intake_consult_draft import get_draft, mark_submitted  # type: ignore
+      from target_market_draft import get_draft as get_target_market_draft  # type: ignore
     except Exception as exc:
       app.logger.exception("Failed to import intake pipeline: %s", exc)
       return (jsonify({"error": "server_error", "detail": "pipeline unavailable"}), 500)
@@ -237,10 +238,71 @@ def create_app() -> Flask:
           {"draft_id": "operating_model_json must be a JSON object."}
         )
 
+      # Require the target market consult to be completed as well.
+      conn = get_mysql_connection()
+      try:
+        try:
+          tm_draft = get_target_market_draft(conn, draft_id=str(draft_id).strip())
+        except Exception as exc:
+          raise IntakeValidationError(
+            {"draft_id": "Target market consult must be started and completed before submitting intake."}
+          ) from exc
+      finally:
+        try:
+          conn.close()
+        except Exception:
+          pass
+      tm_status = str(tm_draft.get("status") or "").strip().lower()
+      if tm_status != "completed":
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult must be completed before submitting intake."}
+        )
+      tm_raw = tm_draft.get("target_market_json")
+      if not tm_raw:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult is missing target_market_json."}
+        )
+      try:
+        tm_obj = json.loads(str(tm_raw))
+      except Exception as exc:
+        raise IntakeValidationError(
+          {"draft_id": "target_market_json is invalid JSON."}
+        ) from exc
+      if not isinstance(tm_obj, dict):
+        raise IntakeValidationError(
+          {"draft_id": "target_market_json must be a JSON object."}
+        )
+
+      # Flatten ACS codes across segments to a CSV for intake_submissions.target_market.
+      codes: List[str] = []
+      selections = tm_obj.get("selections")
+      if isinstance(selections, list):
+        for sel in selections:
+          if not isinstance(sel, dict):
+            continue
+          acs = sel.get("acs_codes")
+          if isinstance(acs, list):
+            for code in acs:
+              code_str = str(code).strip()
+              if code_str and code_str not in codes:
+                codes.append(code_str)
+      target_market_csv = ",".join(codes)
+      target_market_summary = str(tm_obj.get("target_market_summary") or "").strip()
+      if not target_market_csv:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult did not produce any ACS codes."}
+        )
+      if not target_market_summary:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult is missing target_market_summary."}
+        )
+
       # Ensure the submission is keyed to the consult draft's client_id and model.
       payload = dict(payload)
       payload["client_id"] = str(draft.get("client_id") or "").strip()
       payload.update(operating_model)
+      payload["target_market"] = target_market_csv
+      payload["target_market_summary"] = target_market_summary
       if "confidence" in payload:
         payload["operating_model_confidence"] = payload.pop("confidence")
 
@@ -607,6 +669,366 @@ def create_app() -> Flask:
         conn.close()
       except Exception:
         pass
+
+  @app.route("/api/target-market/session", methods=["POST", "OPTIONS"])
+  def post_target_market_session():
+    """
+    Ensure a durable target market draft exists for an existing intake draft_id.
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    draft_id = payload.get("draft_id")
+    if not draft_id or not str(draft_id).strip():
+      return (
+        jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+        400,
+      )
+
+    try:
+      from intake_submission import get_mysql_connection  # type: ignore
+      from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+      from target_market_draft import create_draft  # type: ignore
+    except Exception as exc:
+      app.logger.exception("Failed to import target market draft helpers: %s", exc)
+      return (jsonify({"error": "server_error"}), 500)
+
+    conn = get_mysql_connection()
+    try:
+      consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
+      client_id = str(consult.get("client_id") or "").strip()
+      if not client_id:
+        raise RuntimeError("Consult draft missing client_id.")
+      create_draft(conn, draft_id=str(draft_id).strip(), client_id=client_id)
+      return jsonify({"status": "ok", "draft_id": str(draft_id).strip(), "client_id": client_id})
+    finally:
+      try:
+        conn.close()
+      except Exception:
+        pass
+
+  @app.route("/api/target-market/draft", methods=["GET", "OPTIONS"])
+  def get_target_market_draft():
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    draft_id = request.args.get("draft_id")
+    if not draft_id:
+      return (
+        jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+        400,
+      )
+
+    try:
+      from intake_submission import get_mysql_connection  # type: ignore
+      from target_market_draft import get_draft as get_tm_draft  # type: ignore
+    except Exception as exc:
+      app.logger.exception("Failed to import target market draft helpers: %s", exc)
+      return (jsonify({"error": "server_error"}), 500)
+
+    conn = get_mysql_connection()
+    try:
+      draft = get_tm_draft(conn, draft_id=str(draft_id).strip())
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": draft.get("draft_id"),
+          "client_id": draft.get("client_id"),
+          "draft_status": draft.get("status"),
+          "messages_json": draft.get("messages_json"),
+          "target_market_json": draft.get("target_market_json"),
+        }
+      )
+    except Exception as exc:
+      return (
+        jsonify({"error": "not_found", "detail": str(exc)}),
+        404,
+      )
+    finally:
+      try:
+        conn.close()
+      except Exception:
+        pass
+
+  @app.route("/api/target-market", methods=["POST", "OPTIONS"])
+  def post_target_market_consult():
+    """
+    GPT-led target market discovery consult (iterative).
+
+    Uses the operational consult summary as context and produces:
+      - selections of ACS codes by segment (stored, not shown to user)
+      - target_market_summary paragraph
+      - confidence score
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    draft_id = payload.get("draft_id")
+    raw_message = payload.get("message")
+    message = raw_message
+    if not draft_id or not str(draft_id).strip():
+      return (
+        jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+        400,
+      )
+
+    starting = message is None or not str(message).strip()
+    if starting:
+      message = "Start the target market intake. Ask your first question."
+
+    try:
+      from intake_submission import get_mysql_connection  # type: ignore
+      from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+      from target_market_draft import append_messages, create_draft, get_draft as get_tm_draft  # type: ignore
+      from target_market_consultant import (  # type: ignore
+        target_market_chat_turn,
+        target_market_finalize,
+      )
+    except Exception as exc:
+      app.logger.exception("Failed to import target market consult helpers: %s", exc)
+      return (jsonify({"error": "server_error"}), 500)
+
+    def _fetch_mapping_rows(conn) -> List[Dict[str, str]]:
+      cur = conn.cursor(dictionary=True)
+      try:
+        cur.execute(
+          "SELECT acs_code, description, segment FROM target_market_mapping"
+        )
+        rows = cur.fetchall() or []
+      finally:
+        try:
+          cur.close()
+        except Exception:
+          pass
+      mapping_rows: List[Dict[str, str]] = []
+      for r in rows:
+        if not isinstance(r, dict):
+          continue
+        mapping_rows.append(
+          {
+            "acs_code": str(r.get("acs_code") or "").strip(),
+            "description": str(r.get("description") or "").strip(),
+            "segment": str(r.get("segment") or "").strip(),
+          }
+        )
+
+      allowed_segments = {
+        "Gender & Age",
+        "Income",
+        "Education",
+        "Household Structure",
+        "Housing Economics",
+        "Employment",
+      }
+
+      cleaned: List[Dict[str, str]] = []
+      for r in mapping_rows:
+        if not r["acs_code"] or not r["segment"]:
+          continue
+        if r["segment"] not in allowed_segments:
+          continue
+        # Ignore "Total households" rows for household structure selection.
+        if r["segment"] == "Household Structure":
+          desc_norm = " ".join(str(r["description"]).split()).strip().lower()
+          if desc_norm == "total households":
+            continue
+        cleaned.append(r)
+      if not cleaned:
+        raise RuntimeError("target_market_mapping table is empty; load it before running the target market consult.")
+      return cleaned
+
+    def _validate_final(final_obj: Dict[str, Any], mapping_rows: List[Dict[str, str]]) -> None:
+      mapping_by_code = {r["acs_code"]: r["segment"] for r in mapping_rows}
+      selections = final_obj.get("selections")
+      if not isinstance(selections, list):
+        raise RuntimeError("Final target market JSON missing selections list.")
+
+      required_segments = [
+        "Gender & Age",
+        "Income",
+        "Education",
+        "Household Structure",
+      ]
+      optional_segments = [
+        "Employment",
+        "Housing Economics",
+      ]
+      allowed_segments = set([*required_segments, *optional_segments])
+      seen_segments: set[str] = set()
+      for sel in selections:
+        if not isinstance(sel, dict):
+          continue
+        seg = str(sel.get("segment") or "").strip()
+        if not seg:
+          continue
+        if seg not in allowed_segments:
+          raise RuntimeError(
+            f"Segment {seg!r} is not allowed. Allowed segments: {', '.join(sorted(allowed_segments))}"
+          )
+        seen_segments.add(seg)
+        codes = sel.get("acs_codes")
+        if not isinstance(codes, list) or len(codes) == 0:
+          raise RuntimeError(f"Segment {seg} must include at least one ACS code.")
+        for code in codes:
+          code_str = str(code).strip()
+          if code_str not in mapping_by_code:
+            raise RuntimeError(f"Unknown ACS code selected: {code_str}")
+          if mapping_by_code[code_str] != seg:
+            raise RuntimeError(
+              f"ACS code {code_str} belongs to segment {mapping_by_code[code_str]!r}, not {seg!r}"
+            )
+
+      missing = [s for s in required_segments if s not in seen_segments]
+      if missing:
+        raise RuntimeError(f"Missing required segments: {', '.join(missing)}")
+
+      if not str(final_obj.get("target_market_summary") or "").strip():
+        raise RuntimeError("Final target market JSON missing target_market_summary.")
+
+      conf = final_obj.get("confidence")
+      try:
+        conf_val = float(conf)
+      except Exception as exc:
+        raise RuntimeError("Final target market JSON missing valid confidence.") from exc
+      if conf_val <= 0 or conf_val > 1:
+        raise RuntimeError("confidence must be between 0 and 1.")
+
+    try:
+      conn = get_mysql_connection()
+      try:
+        consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
+        client_id = str(consult.get("client_id") or "").strip()
+        operating_raw = consult.get("operating_model_json")
+        operating_model: Dict[str, Any] = {}
+        if operating_raw:
+          try:
+            parsed = json.loads(str(operating_raw))
+            if isinstance(parsed, dict):
+              operating_model = parsed
+          except Exception:
+            operating_model = {}
+
+        # Ensure the target market draft row exists.
+        try:
+          tm_draft = get_tm_draft(conn, draft_id=str(draft_id).strip())
+        except Exception:
+          create_draft(conn, draft_id=str(draft_id).strip(), client_id=client_id)
+          tm_draft = get_tm_draft(conn, draft_id=str(draft_id).strip())
+
+        tm_status = str(tm_draft.get("status") or "").strip().lower()
+        if tm_status == "completed":
+          tm_raw = tm_draft.get("target_market_json")
+          tm_summary = ""
+          if tm_raw:
+            try:
+              tm_obj = json.loads(str(tm_raw))
+              if isinstance(tm_obj, dict):
+                tm_summary = str(tm_obj.get("target_market_summary") or "").strip()
+            except Exception:
+              tm_summary = ""
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "done": True,
+              "assistant_message": tm_summary or "Target market intake complete.",
+            }
+          )
+
+        history: List[Dict[str, str]] = []
+        try:
+          raw_messages = tm_draft.get("messages_json")
+          if raw_messages:
+            parsed = json.loads(str(raw_messages))
+            if isinstance(parsed, list):
+              history = [m for m in parsed if isinstance(m, dict)]
+        except Exception:
+          history = []
+
+        context = {
+          "client_id": client_id,
+          "business_description_summary": operating_model.get("business_description_summary"),
+          "unit_name": operating_model.get("unit_name"),
+          "unit_description": operating_model.get("unit_description"),
+          "unit_price": operating_model.get("unit_price"),
+          "shipping_method": operating_model.get("shipping_method"),
+          "sales_modality": operating_model.get("sales_modality"),
+          "geographic_scope": operating_model.get("geographic_scope"),
+        }
+
+        user_msg = {"role": "user", "content": str(message).strip()}
+        turn = target_market_chat_turn(
+          intake_context=context,
+          conversation_messages=[*history, user_msg],
+        )
+        assistant_text = str(turn.get("assistant_message") or "").strip()
+        # Guardrail: never expose raw ACS codes in the UI conversation.
+        try:
+          import re
+
+          assistant_text = re.sub(
+            r"\b[A-Z]\d{5}_\d{3}E\b",
+            "[ACS code redacted]",
+            assistant_text,
+          )
+        except Exception:
+          pass
+        finalize_ready = bool(turn.get("finalize_ready", False))
+        assistant_msg = {"role": "assistant", "content": assistant_text}
+        new_messages = [user_msg, assistant_msg]
+
+        done = False
+        assistant_message = assistant_text
+
+        if finalize_ready:
+          mapping_rows = _fetch_mapping_rows(conn)
+          final_obj = target_market_finalize(
+            intake_context=context,
+            conversation_messages=[*history, *new_messages],
+            mapping_rows=mapping_rows,
+          )
+          if not isinstance(final_obj, dict):
+            raise RuntimeError("Finalization did not return an object.")
+          _validate_final(final_obj, mapping_rows)
+
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=new_messages,
+            status="completed",
+            target_market_json=final_obj,
+            completed=True,
+          )
+          done = True
+          assistant_message = str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
+        else:
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=new_messages,
+            status="in_progress",
+          )
+
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "done": done,
+            "assistant_message": assistant_message,
+          }
+        )
+      finally:
+        try:
+          conn.close()
+        except Exception:
+          pass
+    except Exception as exc:
+      app.logger.exception("Failed target market consult: %s", exc)
+      return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
 
   return app
 

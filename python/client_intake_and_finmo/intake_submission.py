@@ -8,7 +8,7 @@ import string
 from datetime import date, datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, Set, List
 
 
 # Windows filename-safe special characters (avoid <>:"/\\|?*).
@@ -122,14 +122,46 @@ def insert_intake_submission(
   conn,
   row: Dict[str, Any],
 ) -> Dict[str, Any]:
-  columns: Sequence[str] = (
+  def _table_columns(conn, table_name: str) -> Set[str]:
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        """
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = %s
+        """,
+        (table_name,),
+      )
+      rows = cur.fetchall() or []
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+    cols: Set[str] = set()
+    for r in rows:
+      try:
+        cols.add(str(r[0]))
+      except Exception:
+        continue
+    return cols
+
+  available_columns = _table_columns(conn, "intake_submissions")
+
+  # Candidate columns this app knows how to provide. We insert only columns that exist.
+  candidate_columns: List[str] = [
     "client_id",
     "business_name",
     "legal_entity",
     "business_type",
     "naics_code",
+    # Legacy field; safe if present, ignored if dropped.
     "description",
     "business_description_summary",
+    "target_market",
+    "target_market_summary",
     "address",
     "product_keywords",
     "customer_age_range",
@@ -179,8 +211,43 @@ def insert_intake_submission(
     "capacity_driver",
     "primary_growth_lever",
     "operating_model_confidence",
-  )
+  ]
 
+  required_in_db = {
+    "client_id",
+    "business_name",
+    "business_type",
+    "naics_code",
+    "first_name",
+    "last_name",
+    "email_address",
+    "business_start_date",
+    "current_revenue",
+    "legal_entity",
+    "business_description_summary",
+    "unit_name",
+    "unit_description",
+    "units_per_week_capacity",
+    "unit_price",
+    "shipping_method",
+    "sales_modality",
+    "geographic_scope",
+    "countries",
+    "milestones",
+    "capacity_driver",
+    "primary_growth_lever",
+    "target_market",
+    "target_market_summary",
+  }
+
+  missing_required = sorted([c for c in required_in_db if c not in available_columns])
+  if missing_required:
+    raise RuntimeError(
+      "intake_submissions is missing required columns: "
+      + ", ".join(missing_required)
+    )
+
+  columns: List[str] = [c for c in candidate_columns if c in available_columns]
   values = [row.get(col) for col in columns]
   placeholders = ",".join(["%s"] * len(columns))
   cols_sql = ",".join(f"`{c}`" for c in columns)
