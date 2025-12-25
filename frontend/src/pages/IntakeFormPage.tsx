@@ -43,15 +43,6 @@ const intakeSchema = z
     .min(2, "Please describe the type of business."),
   address: z.string().optional(),
   productKeywords: z.string().optional(),
-  customerAgeRange: z
-    .string()
-    .min(1, "Age Range is required."),
-  customerIncomeLevel: z
-    .string()
-    .min(1, "Income Level is required."),
-  customerType: z
-    .string()
-    .min(1, "Customer Type is required."),
   firstName: z.string().min(1, "First Name is required."),
   lastName: z.string().min(1, "Last Name is required."),
   emailAddress: z
@@ -164,9 +155,6 @@ const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   business_name: "businessName",
   business_type: "businessType",
   address: "address",
-  customer_age_range: "customerAgeRange",
-  customer_income_level: "customerIncomeLevel",
-  customer_type: "customerType",
   first_name: "firstName",
   last_name: "lastName",
   email_address: "emailAddress",
@@ -202,9 +190,6 @@ const defaultValues: IntakeValues = {
   businessType: "",
   address: "",
   productKeywords: "",
-  customerAgeRange: "",
-  customerIncomeLevel: "",
-  customerType: "",
   firstName: "",
   lastName: "",
   emailAddress: "",
@@ -749,10 +734,7 @@ function IntakeFormPage() {
         address: values.address || null,
         // What you offer (removed from UI for now)
         product_keywords: null,
-          customer_age_range: values.customerAgeRange,
-          customer_income_level: values.customerIncomeLevel,
-          customer_type: values.customerType,
-          first_name: values.firstName,
+        first_name: values.firstName,
         last_name: values.lastName,
         email_address: values.emailAddress,
         phone_number: values.phoneNumber || null,
@@ -1321,130 +1303,11 @@ function IntakeFormPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <FormField name="customerAgeRange" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Age Range</FormLabel>
-                      <FormControl>
-                        <select
-                          name={field.name}
-                          value={(field.value as string) || ""}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          onBlur={field.onBlur}
-                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
-                        >
-                          <option value="">Select an age range</option>
-                          <option value="18–24">18–24</option>
-                          <option value="25–34">25–34</option>
-                          <option value="35–44">35–44</option>
-                          <option value="45–54">45–54</option>
-                          <option value="55–64">55–64</option>
-                          <option value="65+">65+</option>
-                          <option value="All adults (18+)">
-                            All adults (18+)
-                          </option>
-                          <option value="Families with children">
-                            Families with children
-                          </option>
-                        </select>
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.customerAgeRange?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
-                <FormField name="customerIncomeLevel" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Income Level</FormLabel>
-                      <FormControl>
-                        <select
-                          name={field.name}
-                          value={(field.value as string) || ""}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          onBlur={field.onBlur}
-                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
-                        >
-                          <option value="">Select an income level</option>
-                          <option value="Low income (<$40k)">
-                            Low income (&lt;$40k)
-                          </option>
-                          <option value="Middle income ($40k–$85k)">
-                            Middle income ($40k–$85k)
-                          </option>
-                          <option value="Upper-middle income ($85k–$150k)">
-                            Upper-middle income ($85k–$150k)
-                          </option>
-                          <option value="High income ($150k+)">
-                            High income ($150k+)
-                          </option>
-                          <option value="All income levels">
-                            All income levels
-                          </option>
-                        </select>
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.customerIncomeLevel?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
-                <FormField name="customerType" control={form.control}>
-                  {(field) => (
-                    <FormItem>
-                      <FormLabel>Customer Type</FormLabel>
-                      <FormControl>
-                        <select
-                          name={field.name}
-                          value={(field.value as string) || ""}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          onBlur={field.onBlur}
-                          className="mt-1 flex h-9 w-full rounded-md border border-slate-700/80 bg-slate-900/80 px-3 text-xs text-slate-50 shadow-sm transition-all placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
-                        >
-                          <option value="">Select a customer type</option>
-                          <option value="Consumers (B2C)">Consumers (B2C)</option>
-                          <option value="Small businesses (B2B – under 50 employees)">
-                            Small businesses (B2B – under 50 employees)
-                          </option>
-                          <option value="Mid-size businesses (B2B – 50 to 500 employees)">
-                            Mid-size businesses (B2B – 50 to 500 employees)
-                          </option>
-                          <option value="Large enterprises (B2B – 500+ employees)">
-                            Large enterprises (B2B – 500+ employees)
-                          </option>
-                          <option value="Nonprofits">Nonprofits</option>
-                          <option value="Government / Municipal">
-                            Government / Municipal
-                          </option>
-                          <option value="Schools / Education">
-                            Schools / Education
-                          </option>
-                          <option value="Families with children">
-                            Families with children
-                          </option>
-                          <option value="Seniors">Seniors</option>
-                          <option value="Young professionals">
-                            Young professionals
-                          </option>
-                          <option value="Homeowners">Homeowners</option>
-                          <option value="Renters">Renters</option>
-                        </select>
-                      </FormControl>
-                      <FormMessage>
-                        {form.formState.errors.customerType?.message}
-                      </FormMessage>
-                    </FormItem>
-                  )}
-                </FormField>
-
                 <div className="mt-2 space-y-3 rounded-md border border-slate-800/80 bg-slate-950/60 p-3">
                   <div className="text-xs text-slate-300">
                     Target market consultation: GPT will help you define who you
-                    serve (age, income, household, etc.) and will confirm each
-                    segment before finalizing.
+                    serve (age, income, household, etc.) and will summarize
+                    before finalizing.
                   </div>
 
                   {!consultDone ? (

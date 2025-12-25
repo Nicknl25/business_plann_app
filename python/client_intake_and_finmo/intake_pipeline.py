@@ -55,6 +55,50 @@ def _normalize_capacity_driver(value: Any) -> Optional[str]:
   return None
 
 
+def _normalize_sales_modality(value: Any) -> Optional[str]:
+  if value is None:
+    return None
+  raw = str(value).strip().lower()
+  if not raw:
+    return None
+  if raw in ("physical", "in-person", "in person", "offline"):
+    return "physical"
+  if raw in ("online", "digital", "virtual", "ecommerce", "e-commerce", "web"):
+    return "online"
+  if raw == "hybrid":
+    return "hybrid"
+
+  # Heuristics for descriptive strings.
+  has_online = any(token in raw for token in ("online", "digital", "virtual", "e-comm", "ecomm", "website", "web"))
+  has_physical = any(token in raw for token in ("in-person", "in person", "physical", "store", "shop", "location", "on-site", "onsite"))
+  if has_online and has_physical:
+    return "hybrid"
+  if has_online:
+    return "online"
+  if has_physical:
+    return "physical"
+  return None
+
+
+def _normalize_geographic_scope(value: Any) -> Optional[str]:
+  if value is None:
+    return None
+  raw = str(value).strip().lower()
+  if not raw:
+    return None
+  if raw in ("local", "regional", "national", "international"):
+    return raw
+  if "international" in raw or "global" in raw or "world" in raw:
+    return "international"
+  if "national" in raw or "nationwide" in raw or "country" in raw or "usa" in raw or "us" == raw:
+    return "national"
+  if "regional" in raw or "state" in raw or "multi-city" in raw or "multiple cities" in raw:
+    return "regional"
+  if "local" in raw or "nearby" in raw or "neighborhood" in raw or "town" in raw or "city" in raw:
+    return "local"
+  return None
+
+
 def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   errors: Dict[str, str] = {}
 
@@ -74,9 +118,6 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   required_text_fields = (
     "business_name",
     "business_type",
-    "customer_age_range",
-    "customer_income_level",
-    "customer_type",
     "target_market",
     "target_market_summary",
     "first_name",
@@ -118,6 +159,13 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     row["description"] = ""
   if row.get("product_keywords") is None:
     row["product_keywords"] = ""
+  # Legacy fields removed from the UI; keep non-null for backward-compatible DB schemas.
+  if row.get("customer_age_range") is None:
+    row["customer_age_range"] = ""
+  if row.get("customer_income_level") is None:
+    row["customer_income_level"] = ""
+  if row.get("customer_type") is None:
+    row["customer_type"] = ""
   if row.get("customer_additional_details") is None:
     row["customer_additional_details"] = ""
   if row.get("pricing_model") is None:
@@ -148,6 +196,18 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     errors["capacity_driver"] = "capacity_driver must be one of: labor, system, demand"
   else:
     row["capacity_driver"] = normalized_capacity_driver
+
+  normalized_sales_modality = _normalize_sales_modality(payload.get("sales_modality"))
+  if not normalized_sales_modality:
+    errors["sales_modality"] = "sales_modality must be one of: physical, online, hybrid"
+  else:
+    row["sales_modality"] = normalized_sales_modality
+
+  normalized_scope = _normalize_geographic_scope(payload.get("geographic_scope"))
+  if not normalized_scope:
+    errors["geographic_scope"] = "geographic_scope must be one of: local, regional, national, international"
+  else:
+    row["geographic_scope"] = normalized_scope
 
   # Validate numeric capacity
   try:

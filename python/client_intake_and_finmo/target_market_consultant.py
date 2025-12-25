@@ -54,8 +54,39 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "gender_age_intent": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "gender_focus": {
+                "type": "string",
+                "enum": ["female", "male", "all"],
+              },
+              "age_min": {"type": "number"},
+              "age_max": {"type": "number"},
+            },
+            "required": ["gender_focus", "age_min", "age_max"],
+          },
+        },
+        "income_intent": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "income_min": {"type": "number"},
+              "income_max": {"type": "number"},
+            },
+            "required": ["income_min", "income_max"],
+          },
+        },
         "selections": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": False,
@@ -63,8 +94,6 @@ def _final_schema() -> Dict[str, Any]:
               "segment": {
                 "type": "string",
                 "enum": [
-                  "Gender & Age",
-                  "Income",
                   "Education",
                   "Household Structure",
                   "Housing Economics",
@@ -79,7 +108,13 @@ def _final_schema() -> Dict[str, Any]:
         "target_market_summary": {"type": "string"},
         "confidence": {"type": "number"},
       },
-      "required": ["selections", "target_market_summary", "confidence"],
+      "required": [
+        "gender_age_intent",
+        "income_intent",
+        "selections",
+        "target_market_summary",
+        "confidence",
+      ],
     },
   }
 
@@ -112,9 +147,10 @@ Segments to consult on (in this order):
 1) Gender & Age
 2) Income
 3) Education
-4) Household structure
-5) Employment (ONLY if necessary)
-6) Housing economics (ONLY if necessary)
+4) Optional segments decision (Household / Employment / Housing)
+5) Household structure (ONLY if client opts in)
+6) Employment (ONLY if client opts in)
+7) Housing economics (ONLY if client opts in)
 
 Rules:
 - Default to ranges and breadth: multiple groups per segment is normal.
@@ -125,6 +161,12 @@ Rules:
 - Avoid pressuring "please confirm / once you confirm / let's lock this in" loops. Treat the user's answer to your question as the decision, briefly reflect it back, and move on. Only ask a follow-up if the answer is ambiguous or incomplete.
 - The user may revise earlier choices at any time; accept the revision and continue without restarting the consult.
 - Do not consult or discuss any other segments.
+- For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
+- Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
+  - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1–2 sentences total, grounded in the business context).
+  - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
+  - If the client says skip, do not discuss those segments at all.
+  - If the client opts in, handle one optional segment at a time, with minimal questions.
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -177,14 +219,23 @@ You are a business consultant finalizing a Target Market intake.
 Return ONLY JSON matching the provided schema. No prose.
 
 Hard requirements:
+- For Gender & Age and Income: DO NOT output ACS codes directly.
+  - Populate gender_age_intent and income_intent from the conversation.
+  - Do NOT include "Gender & Age" or "Income" in selections; the backend will map the intent to codes.
 - selections must include segment names exactly as in the mapping table.
 - acs_codes must be selected ONLY from the mapping table.
 - Do not invent codes.
 - Do not cross segments: each code must belong to the segment it is listed under.
 - Default to multiple codes per segment to represent ranges/breadth; single-code choices should be rare.
 - Required segments: Gender & Age, Income, Education, Household Structure.
-- Optional segments (include ONLY if necessary): Employment, Housing Economics.
+- Required segments: Gender & Age, Income, Education.
+- Optional segments (include ONLY if the client opted in): Household Structure, Employment, Housing Economics. If the conversation never discussed an optional segment, DO NOT include it.
+- If the client explicitly chose to skip a segment, DO NOT include the skipped segment.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across segments.
+- The mapping table includes min_value and max_value (numeric) for some rows (notably Gender & Age and Income). Use them to be precise:
+  - When the client specifies a numeric range (e.g., age 19–58 or income $40k–$120k), select ALL mapping rows whose [min_value, max_value] overlaps that intended range.
+  - If the client’s boundary falls between buckets, include the nearest bucket that covers it (e.g., min 19 should include an 18–24 bucket; max 58 should include a 55–64 bucket).
+  - If Gender is intended to be all genders, include both male and female rows for the selected age buckets; if a specific gender focus was chosen, include only that gender’s rows.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -193,7 +244,7 @@ Hard requirements:
     "Use the conversation and the prior business context to finalize target market selections.\n"
     "Prior business context (JSON):\n"
     f"{context_blob}\n\n"
-    "Target market mapping table rows (JSON array of {acs_code, description, segment}):\n"
+    "Target market mapping table rows (JSON array of {acs_code, description, segment, min_value, max_value}):\n"
     f"{mapping_blob}\n"
   )
 

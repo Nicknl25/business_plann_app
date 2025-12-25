@@ -48,8 +48,11 @@ def _final_schema() -> Dict[str, Any]:
         "units_per_week_capacity": {"type": "number"},
         "unit_price": {"type": "number"},
         "shipping_method": {"type": "string"},
-        "sales_modality": {"type": "string"},
-        "geographic_scope": {"type": "string"},
+        "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
+        "geographic_scope": {
+          "type": "string",
+          "enum": ["local", "regional", "national", "international"],
+        },
         "countries": {"type": "array", "items": {"type": "string"}},
         "milestones": {
           "type": "array",
