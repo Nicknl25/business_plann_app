@@ -120,10 +120,10 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "business_type",
     "target_market",
     "target_market_summary",
+    "key_people_summary",
     "first_name",
     "last_name",
     "email_address",
-    "founder_background",
     "business_start_date",
   )
   for key in required_text_fields:
@@ -170,6 +170,9 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     row["customer_additional_details"] = ""
   if row.get("pricing_model") is None:
     row["pricing_model"] = ""
+  # Legacy field removed from UI; keep non-null for backward-compatible DB schemas.
+  if row.get("founder_background") is None:
+    row["founder_background"] = ""
 
   # Operating model (from GPT consultant finalization)
   operating_required = (
@@ -232,6 +235,27 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
       row[key] = val
     else:
       row[key] = json.dumps(val, ensure_ascii=False)
+
+  # Require at least one forward-looking milestone.
+  try:
+    milestones_val = payload.get("milestones")
+    if isinstance(milestones_val, str):
+      milestones_val = json.loads(milestones_val)
+    if not isinstance(milestones_val, list) or len(milestones_val) == 0:
+      errors["milestones"] = "At least one future milestone is required"
+    else:
+      for idx, m in enumerate(milestones_val):
+        if not isinstance(m, dict):
+          errors["milestones"] = "milestones must be a list of {description, timing}"
+          break
+        if not str(m.get("description") or "").strip():
+          errors["milestones"] = f"milestones[{idx}].description is required"
+          break
+        if not str(m.get("timing") or "").strip():
+          errors["milestones"] = f"milestones[{idx}].timing is required"
+          break
+  except Exception:
+    errors["milestones"] = "milestones must be valid JSON"
 
   confidence = payload.get("operating_model_confidence", None)
   if confidence is not None and confidence != "":

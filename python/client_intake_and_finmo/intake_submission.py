@@ -160,6 +160,7 @@ def insert_intake_submission(
     # Legacy field; safe if present, ignored if dropped.
     "description",
     "business_description_summary",
+    "key_people_summary",
     "target_market",
     "target_market_summary",
     "address",
@@ -225,6 +226,7 @@ def insert_intake_submission(
     "current_revenue",
     "legal_entity",
     "business_description_summary",
+    "key_people_summary",
     "unit_name",
     "unit_description",
     "units_per_week_capacity",

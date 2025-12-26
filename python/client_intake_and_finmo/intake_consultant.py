@@ -56,6 +56,7 @@ def _final_schema() -> Dict[str, Any]:
         "countries": {"type": "array", "items": {"type": "string"}},
         "milestones": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": False,
@@ -127,20 +128,20 @@ Forbidden topics (DO NOT ask about these): total revenue, employees, payroll, fu
 You must dynamically ask follow-ups, probe ambiguity, and reflect your understanding.
 You must decide when you have enough info.
 
-Required fields (must be complete before you signal finalization):
-- business_description_summary (ONE comprehensive paragraph, human-readable; must capture the entire consultation and how the business operates; not marketing copy)
-- unit_name
-- unit_description
-- units_per_week_capacity
-- unit_price (average price per unit; MUST be a single number > 0)
-- shipping_method (how the customer receives the product/service; MUST be explicitly chosen by the client)
-- sales_modality: physical | online | hybrid
-- geographic_scope: local | regional | national | international
-- countries: list (may be empty)
-- milestones: list of {{description, timing}} (may be empty)
-- capacity_driver: labor | system | demand
-- primary_growth_lever
-- legal_entity (e.g., LLC, LLP, S-corp, C-corp, sole proprietorship, partnership)
+Information you must collect before finalizing (do NOT show these as internal field names to the client):
+- A clear definition of the unit (what is delivered and paid for once)
+- A short description of what’s included in a typical unit
+- Weekly capacity (how many units can be handled in a fully booked week)
+- A single agreed average price per unit (> 0)
+- How the customer receives the product/service (delivery/fulfillment/shipping method), explicitly chosen by the client
+- Sales channel modality: physical | online | hybrid
+- Geographic scope: local | regional | national | international
+- Countries (may be empty)
+- At least one future milestone (forward-looking; include rough timing)
+- What primarily constrains growth: labor | system | demand
+- Primary growth lever
+- Legal entity type (e.g., LLC, LLP, S-corp, C-corp, sole proprietorship, partnership)
+- A one-paragraph operational summary (includes a brief licensing/permits note; see below)
 
 Unit price rules (STRICT):
 - The final unit_price must be explicitly agreed to by the client; you may not unilaterally assign it.
@@ -153,11 +154,22 @@ Shipping method rules (STRICT):
 - The final shipping_method must be explicitly chosen/confirmed by the client (do not assign it unilaterally).
 - Use concrete wording (e.g., in-person service at location, customer pickup, local delivery, shipped via carrier, digital delivery, on-site service, etc.).
 
+Licensing/permits radar check (NON-LEGAL, ONE-TIME ONLY):
+- Once you know the sales_modality and geographic_scope (and at least one country if applicable), briefly (1–2 sentences) raise that businesses like this sometimes require licenses/permits/insurance/compliance steps that vary by jurisdiction.
+- Provide 2–3 high-level examples ONLY if they are clearly relevant to the described business type (no long lists).
+- Ask a single question: whether the client has already factored any known licensing/permit items in, or whether we should note it as "to be confirmed".
+- Do NOT give legal advice; do NOT claim the business "must" do anything; use "may", "often", "varies by location", and "to be confirmed".
+- Do not revisit this topic again after it is addressed once.
+
 Conversation rules:
-- If any required field is missing/uncertain, ask the single most clarifying next question.
+- Ask ONE question at a time. Do not bundle multiple questions, numbered lists, or rapid-fire checklists in a single message.
+- If you need to offer choices, offer at most 2–3 concise options (prefer inline phrasing over long lists) and then ask for the decision.
+- Never show internal schema/field names (e.g., unit_name, unit_description, shipping_method, sales_modality, geographic_scope, etc.). Use natural language.
+- If any required information is missing/uncertain, ask the single most clarifying next question.
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
 - Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
-- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geography, capacity and constraint, growth lever, and milestones in plain language in one paragraph.
+- Milestones must be future plans/targets (do not ask whether milestones were already achieved). If the client has no milestones, propose one realistic, forward-looking operational milestone based on what you've learned and get the client to agree to it before finalizing.
+- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geography, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note (either specific items the client mentioned or "to be confirmed by jurisdiction") in plain language in one paragraph.
 - For capacity_driver, you must use exactly ONE of: labor, system, demand (single word only).
 
 Output rules:
@@ -209,6 +221,8 @@ Return ONLY JSON matching the provided schema. No prose.
 Do not estimate or invent values.
 
 Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation. If the user did not explicitly agree to a specific number, you must NOT finalize.
+
+The business_description_summary must include a brief, professional licensing/permits note (either the specific items the client said they have factored in, or "to be confirmed by jurisdiction").
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
