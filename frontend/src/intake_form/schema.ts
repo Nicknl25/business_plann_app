@@ -1,0 +1,186 @@
+import { z } from "zod";
+
+export function parseNumberFromString(
+  value: string | undefined | null
+): number | null {
+  if (!value) return null;
+  const normalized = value.replace(/,/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+export const intakeSchema = z
+  .object({
+    businessName: z.string().min(2, "Please enter your business name."),
+    businessType: z.string().min(2, "Please describe the type of business."),
+    address: z.string().optional(),
+    productKeywords: z.string().optional(),
+    firstName: z.string().min(1, "First Name is required."),
+    lastName: z.string().min(1, "Last Name is required."),
+    emailAddress: z.string().email("Please enter a valid email address."),
+    phoneNumber: z.string().optional(),
+    howDidYouHear: z.string().optional(),
+    // Financials section
+    businessStartDate: z.string().min(1, "Business Start Date is required."),
+    currentRevenue: z.string().min(1, "Current Revenue is required."),
+    currentCogs: z.string().optional(),
+    expectedRevenueGrowthPctNextYear: z.string().optional(),
+    taxRate: z.string().optional(),
+    marketingExpense: z.string().optional(),
+    rAndDExpense: z.string().optional(),
+    sgaExpense: z.string().optional(),
+    otherOperatingExpense: z.string().optional(),
+    monthlyRentExpense: z.string().optional(),
+    otherMonthlyDebtPayments: z.string().optional(),
+    currentPayroll: z.string().optional(),
+    currentNumEmployees: z.string().optional(),
+    plannedNumEmployees5yrs: z.string().optional(),
+    currentCapex: z.string().optional(),
+    plannedCapex5yr: z.string().optional(),
+    arBalance: z.string().optional(),
+    apBalance: z.string().optional(),
+    inventoryBalance: z.string().optional(),
+    totalDebtOutstanding: z.string().optional(),
+    annualInterestPayment: z.string().optional(),
+    annualPrincipalPayment: z.string().optional(),
+    ownerCompensation: z.string().optional(),
+    cashOnHand: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    const nonNegativeNumericFields = [
+      "currentRevenue",
+      "currentCogs",
+      "taxRate",
+      "marketingExpense",
+      "rAndDExpense",
+      "sgaExpense",
+      "otherOperatingExpense",
+      "currentPayroll",
+      "currentNumEmployees",
+      "plannedNumEmployees5yrs",
+      "currentCapex",
+      "plannedCapex5yr",
+      "arBalance",
+      "apBalance",
+      "inventoryBalance",
+      "totalDebtOutstanding",
+      "annualInterestPayment",
+      "annualPrincipalPayment",
+      "ownerCompensation",
+      "cashOnHand",
+    ] as const;
+
+    nonNegativeNumericFields.forEach((fieldName) => {
+      const raw = (values as any)[fieldName];
+      if (!raw) return;
+      const parsed = parseNumberFromString(raw);
+      if (parsed === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [fieldName],
+          message: "Enter a valid number.",
+        });
+        return;
+      }
+      if (parsed < 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [fieldName],
+          message: "Value must be zero or greater.",
+        });
+      }
+    });
+
+    const revenue = parseNumberFromString(values.currentRevenue);
+    if (revenue !== null && revenue > 0) {
+      if (!values.currentCogs) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["currentCogs"],
+          message:
+            "Cost of Goods Sold is required when revenue is greater than zero.",
+        });
+      }
+      if (!values.expectedRevenueGrowthPctNextYear) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["expectedRevenueGrowthPctNextYear"],
+          message:
+            "Expected Revenue Growth is required when revenue is greater than zero.",
+        });
+      }
+    }
+  });
+
+export type IntakeValues = z.infer<typeof intakeSchema>;
+
+export const serverFieldToFormField: Record<string, keyof IntakeValues> = {
+  business_name: "businessName",
+  business_type: "businessType",
+  address: "address",
+  first_name: "firstName",
+  last_name: "lastName",
+  email_address: "emailAddress",
+  phone_number: "phoneNumber",
+  how_did_you_hear: "howDidYouHear",
+  business_start_date: "businessStartDate",
+  current_revenue: "currentRevenue",
+  current_cogs: "currentCogs",
+  expected_revenue_growth_pct_next_year: "expectedRevenueGrowthPctNextYear",
+  tax_rate: "taxRate",
+  marketing_expense: "marketingExpense",
+  r_and_d_expense: "rAndDExpense",
+  sga_expense: "sgaExpense",
+  other_operating_expense: "otherOperatingExpense",
+  current_payroll: "currentPayroll",
+  current_num_employees: "currentNumEmployees",
+  planned_num_employees_5yrs: "plannedNumEmployees5yrs",
+  current_capex: "currentCapex",
+  planned_capex_5yr: "plannedCapex5yr",
+  ar_balance: "arBalance",
+  ap_balance: "apBalance",
+  inventory_balance: "inventoryBalance",
+  total_debt_outstanding: "totalDebtOutstanding",
+  annual_interest_payment: "annualInterestPayment",
+  annual_principal_payment: "annualPrincipalPayment",
+  owner_compensation: "ownerCompensation",
+  cash_on_hand: "cashOnHand",
+};
+
+export const defaultValues: IntakeValues = {
+  businessName: "",
+  businessType: "",
+  address: "",
+  productKeywords: "",
+  firstName: "",
+  lastName: "",
+  emailAddress: "",
+  phoneNumber: "",
+  howDidYouHear: "",
+  businessStartDate: "",
+  currentRevenue: "",
+  currentCogs: "",
+  expectedRevenueGrowthPctNextYear: "",
+  taxRate: "",
+  marketingExpense: "",
+  rAndDExpense: "",
+  sgaExpense: "",
+  otherOperatingExpense: "",
+  monthlyRentExpense: "",
+  otherMonthlyDebtPayments: "",
+  currentPayroll: "",
+  currentNumEmployees: "",
+  plannedNumEmployees5yrs: "",
+  currentCapex: "",
+  plannedCapex5yr: "",
+  arBalance: "",
+  apBalance: "",
+  inventoryBalance: "",
+  totalDebtOutstanding: "",
+  annualInterestPayment: "",
+  annualPrincipalPayment: "",
+  ownerCompensation: "",
+  cashOnHand: "",
+};

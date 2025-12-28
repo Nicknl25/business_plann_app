@@ -99,6 +99,37 @@ def _normalize_geographic_scope(value: Any) -> Optional[str]:
   return None
 
 
+def _normalize_legal_entity(value: Any) -> str:
+  """
+  Normalize legal entity values to a short canonical label.
+
+  Requirement: if the client cannot clearly identify the entity type,
+  default to "Sole proprietor" (no "unknown/other" values).
+  """
+  raw = "" if value is None else str(value).strip().lower()
+  if not raw:
+    return "Sole proprietor"
+
+  # Common canonical values.
+  if "llc" in raw or "limited liability company" in raw:
+    return "LLC"
+  if "llp" in raw or "limited liability partnership" in raw:
+    return "LLP"
+  if "s-corp" in raw or "s corp" in raw or "scorp" in raw:
+    return "S-corp"
+  if "c-corp" in raw or "c corp" in raw or "ccorp" in raw:
+    return "C-corp"
+  if "partnership" in raw:
+    return "Partnership"
+
+  # Sole proprietorship variants.
+  if "sole" in raw and ("prop" in raw or "propriet" in raw):
+    return "Sole proprietor"
+
+  # If it's ambiguous or not one of the supported values, default.
+  return "Sole proprietor"
+
+
 def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   errors: Dict[str, str] = {}
 
@@ -154,6 +185,12 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   row["client_id"] = client_id
   row["business_start_date"] = business_start_date
   row["current_revenue"] = revenue_value
+  # Normalize legal entity early so we never write long explanatory strings to the DB.
+  # If the client isn't sure, default to Sole proprietor.
+  normalized_legal_entity = _normalize_legal_entity(payload.get("legal_entity"))
+  row["legal_entity"] = normalized_legal_entity
+  if payload.get("legal_entity") is None or not str(payload.get("legal_entity")).strip():
+    payload["legal_entity"] = normalized_legal_entity
   # These fields are stored but not collected in the UI right now.
   if row.get("description") is None:
     row["description"] = ""

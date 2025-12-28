@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
 
@@ -198,8 +198,9 @@ def post_target_market_consult_handler(*, app, request):
         age_max = float(item.get("age_max"))
       except Exception as exc:
         raise RuntimeError("gender_age_intent age_min/age_max must be numbers.") from exc
-      if age_min <= 0 or age_max <= 0 or age_max < age_min:
-        raise RuntimeError("gender_age_intent requires age_min <= age_max and both > 0.")
+      # Age ranges can legitimately start at 0 (e.g., "all ages" or child-focused ranges).
+      if age_min < 0 or age_max < 0 or age_max < age_min:
+        raise RuntimeError("gender_age_intent requires age_min <= age_max and both >= 0.")
 
     income_intent = final_obj.get("income_intent")
     if not isinstance(income_intent, list) or len(income_intent) == 0:
@@ -273,7 +274,11 @@ def post_target_market_consult_handler(*, app, request):
   ) -> List[str]:
     import re
 
-    rows = []
+    # Collect all eligible buckets for the segment (and gender filter if applicable).
+    rows: List[Tuple[float, float, str]] = []
+    min_candidates: List[float] = []
+    max_candidates: List[float] = []
+
     for r in mapping_rows:
       if str(r.get("segment") or "").strip() != segment:
         continue
@@ -286,8 +291,7 @@ def post_target_market_consult_handler(*, app, request):
         mx_f = float(mx)
       except Exception:
         continue
-      if mx_f < range_min or mn_f > range_max:
-        continue
+
       desc = str(r.get("description") or "")
       if gender_focus:
         dl = desc.lower()
@@ -300,7 +304,24 @@ def post_target_market_consult_handler(*, app, request):
           continue
         if gender_focus == "all" and not (is_female or is_male):
           continue
+
+      min_candidates.append(mn_f)
+      max_candidates.append(mx_f)
       rows.append((mn_f, mx_f, str(r.get("acs_code") or "").strip()))
+
+    if not rows:
+      return []
+
+    # Anchor the requested range to the closest bucket boundaries using min_value/max_value.
+    # For example, if a user says 19–58, choose min=18 (closest <=19) and max=59 (closest >=58),
+    # then include every bucket overlapping that anchored range.
+    lower_min_candidates = [v for v in min_candidates if v <= range_min]
+    anchor_min = max(lower_min_candidates) if lower_min_candidates else min(min_candidates)
+
+    upper_max_candidates = [v for v in max_candidates if v >= range_max]
+    anchor_max = min(upper_max_candidates) if upper_max_candidates else max(max_candidates)
+
+    rows = [t for t in rows if not (t[1] < anchor_min or t[0] > anchor_max)]
     rows.sort(key=lambda t: (t[0], t[1], t[2]))
     codes: List[str] = []
     for _, _, code in rows:
@@ -411,6 +432,57 @@ def post_target_market_consult_handler(*, app, request):
         )
         if not isinstance(final_obj, dict):
           raise RuntimeError("Finalization did not return an object.")
+
+        def _user_requested_all_ages(conversation_messages: List[Dict[str, Any]]) -> bool:
+          import re
+
+          # Only treat "all ages" as the active intent if it's the last age-related
+          # statement. This avoids a stale override if the user later provides a
+          # numeric age range.
+          last_age_intent: Optional[str] = None  # "all" | "range"
+
+          for m in conversation_messages:
+            if not isinstance(m, dict):
+              continue
+            if str(m.get("role") or "").strip().lower() != "user":
+              continue
+            content = str(m.get("content") or "").strip().lower()
+            if "age" not in content:
+              continue
+
+            if "all ages" in content or "all age" in content:
+              last_age_intent = "all"
+              continue
+
+            # Detect a numeric age range like "18-45", "18–45", "18 to 45", etc.
+            if re.search(r"\b\d{1,3}\s*(?:-|–|to)\s*\d{1,3}\b", content):
+              last_age_intent = "range"
+
+          return last_age_intent == "all"
+
+        wants_all_ages = _user_requested_all_ages([*history, *new_messages])
+        if wants_all_ages:
+          all_age_rows = [
+            r
+            for r in mapping_rows
+            if str(r.get("segment") or "").strip() == "Gender & Age"
+            and r.get("min_value") is not None
+            and r.get("max_value") is not None
+          ]
+          if all_age_rows:
+            try:
+              global_min_age = min(float(r["min_value"]) for r in all_age_rows)  # type: ignore[arg-type]
+              global_max_age = max(float(r["max_value"]) for r in all_age_rows)  # type: ignore[arg-type]
+              gender_age_intent = final_obj.get("gender_age_intent")
+              if isinstance(gender_age_intent, list) and gender_age_intent:
+                for intent in gender_age_intent:
+                  if not isinstance(intent, dict):
+                    continue
+                  intent["age_min"] = global_min_age
+                  intent["age_max"] = global_max_age
+            except Exception:
+              pass
+
         _validate_final(final_obj, mapping_rows)
 
         # Deterministically derive ACS codes for Gender & Age and Income from intent ranges.
@@ -526,4 +598,3 @@ def post_target_market_consult_handler(*, app, request):
   except Exception as exc:
     app.logger.exception("Failed target market consult: %s", exc)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
-
