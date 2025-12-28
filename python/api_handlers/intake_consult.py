@@ -77,6 +77,12 @@ def post_intake_consult_handler(*, app, request):
       "client_id": client_id_str,
       "business_name": payload.get("business_name"),
       "business_type": payload.get("business_type"),
+      "address": payload.get("address"),
+      "address_street": payload.get("address_street"),
+      "address_city": payload.get("address_city"),
+      "address_state": payload.get("address_state"),
+      "address_zip": payload.get("address_zip"),
+      "address_country": payload.get("address_country"),
     }
 
     app.logger.info(
@@ -245,4 +251,3 @@ def get_intake_consult_draft_handler(*, app, request):
       conn.close()
     except Exception:
       pass
-

@@ -153,6 +153,7 @@ def insert_intake_submission(
   # Candidate columns this app knows how to provide. We insert only columns that exist.
   candidate_columns: List[str] = [
     "client_id",
+    "consumer_type",
     "business_name",
     "legal_entity",
     "business_type",
@@ -163,6 +164,9 @@ def insert_intake_submission(
     "key_people_summary",
     "target_market",
     "target_market_summary",
+    "target_market_b2b_industry",
+    "target_market_b2b_size",
+    "target_market_b2b_age",
     "address",
     "product_keywords",
     "customer_age_range",
@@ -207,6 +211,7 @@ def insert_intake_submission(
     "shipping_method",
     "sales_modality",
     "geographic_scope",
+    "geographic_coverage",
     "countries",
     "milestones",
     "capacity_driver",
@@ -216,6 +221,7 @@ def insert_intake_submission(
 
   required_in_db = {
     "client_id",
+    "consumer_type",
     "business_name",
     "business_type",
     "naics_code",
@@ -234,12 +240,16 @@ def insert_intake_submission(
     "shipping_method",
     "sales_modality",
     "geographic_scope",
+    "geographic_coverage",
     "countries",
     "milestones",
     "capacity_driver",
     "primary_growth_lever",
     "target_market",
     "target_market_summary",
+    "target_market_b2b_industry",
+    "target_market_b2b_size",
+    "target_market_b2b_age",
   }
 
   missing_required = sorted([c for c in required_in_db if c not in available_columns])
@@ -352,6 +362,7 @@ def update_intake_operating_model_fields(
     "units_per_week_capacity",
     "sales_modality",
     "geographic_scope",
+    "geographic_coverage",
     "countries",
     "milestones",
     "capacity_driver",

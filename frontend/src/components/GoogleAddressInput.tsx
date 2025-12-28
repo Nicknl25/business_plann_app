@@ -79,21 +79,27 @@ const GoogleAddressInput = React.forwardRef<
           });
         }
 
-        setValue("business_address", formatted);
-        setValue(
-          "address_street",
+        const setDerived = (fieldName: string, fieldValue: any) => {
+          setValue(fieldName, fieldValue, {
+            shouldValidate: true,
+            shouldDirty: true,
+          });
+        };
+
+        setDerived(
+          "addressStreet",
           [streetNumber, route].filter(Boolean).join(" ").trim()
         );
-        setValue("address_city", city);
-        setValue("address_state", state);
-        setValue("address_county", county);
-        setValue("address_zip", zip);
-        setValue("address_country", country);
+        setDerived("addressCity", city);
+        setDerived("addressState", state);
+        setDerived("addressZip", zip);
+        setDerived("addressCountry", country);
+        setDerived("addressCounty", county);
         if (typeof lat === "number") {
-          setValue("address_lat", lat);
+          setDerived("addressLat", lat);
         }
         if (typeof lng === "number") {
-          setValue("address_lng", lng);
+          setDerived("addressLng", lng);
         }
 
         if (onChange) {

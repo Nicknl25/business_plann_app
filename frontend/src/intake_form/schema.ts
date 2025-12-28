@@ -15,7 +15,12 @@ export const intakeSchema = z
   .object({
     businessName: z.string().min(2, "Please enter your business name."),
     businessType: z.string().min(2, "Please describe the type of business."),
-    address: z.string().optional(),
+    address: z.string().min(1, "Please select a full address from suggestions."),
+    addressStreet: z.string().min(1, "Street address is required."),
+    addressCity: z.string().min(1, "City is required."),
+    addressState: z.string().min(1, "State is required."),
+    addressZip: z.string().min(1, "ZIP code is required."),
+    addressCountry: z.string().min(1, "Country is required."),
     productKeywords: z.string().optional(),
     firstName: z.string().min(1, "First Name is required."),
     lastName: z.string().min(1, "Last Name is required."),
@@ -49,6 +54,23 @@ export const intakeSchema = z
     cashOnHand: z.string().optional(),
   })
   .superRefine((values, ctx) => {
+    const addressParts = [
+      values.addressStreet,
+      values.addressCity,
+      values.addressState,
+      values.addressZip,
+      values.addressCountry,
+    ];
+    const hasAllAddressParts = addressParts.every((v) => Boolean(v && v.trim()));
+    if (values.address && values.address.trim() && !hasAllAddressParts) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["address"],
+        message:
+          "Please select a full address from suggestions (street, city, state, ZIP, country).",
+      });
+    }
+
     const nonNegativeNumericFields = [
       "currentRevenue",
       "currentCogs",
@@ -153,6 +175,11 @@ export const defaultValues: IntakeValues = {
   businessName: "",
   businessType: "",
   address: "",
+  addressStreet: "",
+  addressCity: "",
+  addressState: "",
+  addressZip: "",
+  addressCountry: "",
   productKeywords: "",
   firstName: "",
   lastName: "",

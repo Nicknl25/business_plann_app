@@ -136,7 +136,32 @@ export default function BusinessOverviewStep() {
     setConsultLoading(true);
 
     try {
-      const { businessName, businessType } = form.getValues();
+      const ok = await form.trigger([
+        "businessName",
+        "businessType",
+        "address",
+        "addressStreet",
+        "addressCity",
+        "addressState",
+        "addressZip",
+        "addressCountry",
+      ]);
+      if (!ok) {
+        throw new Error(
+          "Please select a complete business address (street, city, state, ZIP, country) before starting the conversation."
+        );
+      }
+
+      const {
+        businessName,
+        businessType,
+        address,
+        addressStreet,
+        addressCity,
+        addressState,
+        addressZip,
+        addressCountry,
+      } = form.getValues();
       const res = await apiClient.post(
         "/api/intake-consult",
         {
@@ -144,6 +169,12 @@ export default function BusinessOverviewStep() {
           client_id: nextClientId,
           business_name: businessName,
           business_type: businessType,
+          address,
+          address_street: addressStreet,
+          address_city: addressCity,
+          address_state: addressState,
+          address_zip: addressZip,
+          address_country: addressCountry,
         },
         {
           validateStatus: () => true,
@@ -235,7 +266,16 @@ export default function BusinessOverviewStep() {
     setConsultLoading(true);
 
     try {
-      const { businessName, businessType } = form.getValues();
+      const {
+        businessName,
+        businessType,
+        address,
+        addressStreet,
+        addressCity,
+        addressState,
+        addressZip,
+        addressCountry,
+      } = form.getValues();
       const res = await apiClient.post(
         "/api/intake-consult",
         {
@@ -244,6 +284,12 @@ export default function BusinessOverviewStep() {
           message,
           business_name: businessName,
           business_type: businessType,
+          address,
+          address_street: addressStreet,
+          address_city: addressCity,
+          address_state: addressState,
+          address_zip: addressZip,
+          address_country: addressCountry,
         },
         {
           validateStatus: () => true,
@@ -517,4 +563,3 @@ export default function BusinessOverviewStep() {
     </div>
   );
 }
-

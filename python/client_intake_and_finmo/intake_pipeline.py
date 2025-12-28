@@ -99,6 +99,26 @@ def _normalize_geographic_scope(value: Any) -> Optional[str]:
   return None
 
 
+def _normalize_consumer_type(value: Any) -> Optional[str]:
+  if value is None:
+    return None
+  raw = str(value).strip().lower()
+  if not raw:
+    return None
+  if raw in ("consumer", "b2b", "mixed"):
+    return raw
+  # Allow a few natural-language variants.
+  if "b2b" in raw or "business" in raw:
+    if "both" in raw or "mixed" in raw or "and" in raw:
+      return "mixed"
+    return "b2b"
+  if "consumer" in raw or "b2c" in raw:
+    if "both" in raw or "mixed" in raw or "and" in raw:
+      return "mixed"
+    return "consumer"
+  return None
+
+
 def _normalize_legal_entity(value: Any) -> str:
   """
   Normalize legal entity values to a short canonical label.
@@ -133,6 +153,11 @@ def _normalize_legal_entity(value: Any) -> str:
 def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   errors: Dict[str, str] = {}
 
+  consumer_type_raw = payload.get("consumer_type")
+  consumer_type = _normalize_consumer_type(consumer_type_raw)
+  if not consumer_type:
+    errors["consumer_type"] = "consumer_type is required (consumer, b2b, or mixed)"
+
   client_id_raw = payload.get("client_id")
   if not client_id_raw or not str(client_id_raw).strip():
     errors["client_id"] = "client_id is required"
@@ -149,7 +174,6 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   required_text_fields = (
     "business_name",
     "business_type",
-    "target_market",
     "target_market_summary",
     "key_people_summary",
     "first_name",
@@ -160,6 +184,22 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   for key in required_text_fields:
     if payload.get(key) is None or not str(payload.get(key)).strip():
       errors[key] = f"{key} is required"
+
+  # Consumer demographics are only required when the business targets consumers.
+  if consumer_type in ("consumer", "mixed"):
+    if payload.get("target_market") is None or not str(payload.get("target_market")).strip():
+      errors["target_market"] = "target_market is required"
+
+  # B2B firmographic segmentation is required when the business targets businesses.
+  if consumer_type in ("b2b", "mixed"):
+    b2b_required = (
+      "target_market_b2b_industry",
+      "target_market_b2b_size",
+      "target_market_b2b_age",
+    )
+    for key in b2b_required:
+      if payload.get(key) is None or not str(payload.get(key)).strip():
+        errors[key] = f"{key} is required"
 
   try:
     business_start_date = parse_business_start_date(
@@ -183,8 +223,18 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
 
   row: Dict[str, Any] = dict(payload)
   row["client_id"] = client_id
+  if consumer_type:
+    row["consumer_type"] = consumer_type
   row["business_start_date"] = business_start_date
   row["current_revenue"] = revenue_value
+
+  # Normalize target-market storage based on consumer_type so we don't persist blanks.
+  if consumer_type == "consumer":
+    row["target_market_b2b_industry"] = None
+    row["target_market_b2b_size"] = None
+    row["target_market_b2b_age"] = None
+  if consumer_type == "b2b":
+    row["target_market"] = None
   # Normalize legal entity early so we never write long explanatory strings to the DB.
   # If the client isn't sure, default to Sole proprietor.
   normalized_legal_entity = _normalize_legal_entity(payload.get("legal_entity"))
@@ -213,6 +263,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
 
   # Operating model (from GPT consultant finalization)
   operating_required = (
+    "consumer_type",
     "unit_name",
     "unit_description",
     "units_per_week_capacity",
@@ -220,6 +271,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "shipping_method",
     "sales_modality",
     "geographic_scope",
+    "geographic_coverage",
     "countries",
     "milestones",
     "capacity_driver",
@@ -248,6 +300,12 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     errors["geographic_scope"] = "geographic_scope must be one of: local, regional, national, international"
   else:
     row["geographic_scope"] = normalized_scope
+
+  geographic_coverage = payload.get("geographic_coverage")
+  if geographic_coverage is None or str(geographic_coverage).strip() == "":
+    errors["geographic_coverage"] = "geographic_coverage is required"
+  else:
+    row["geographic_coverage"] = str(geographic_coverage).strip()
 
   # Validate numeric capacity
   try:

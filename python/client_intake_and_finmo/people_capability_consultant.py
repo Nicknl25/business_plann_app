@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -33,6 +34,37 @@ def _require_openai_key() -> str:
 def _openai_model() -> str:
   _load_root_env()
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
+
+def _openai_timeout_seconds() -> int:
+  _load_root_env()
+  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
+  if raw:
+    try:
+      return max(30, int(raw))
+    except Exception:
+      return 180
+  return 180
+
+
+def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
+  timeout = _openai_timeout_seconds()
+  last_exc: Optional[Exception] = None
+  for attempt in range(3):
+    try:
+      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+    except requests.exceptions.ConnectionError as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+  if last_exc:
+    raise last_exc
+  raise RuntimeError("OpenAI request failed unexpectedly.")
 
 
 def _parse_responses_text(data: Dict[str, Any]) -> str:
@@ -160,7 +192,7 @@ Output rules:
     ],
   }
 
-  resp = requests.post(url, headers=headers, json=payload, timeout=60)
+  resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
@@ -221,7 +253,7 @@ Hard requirements:
     },
   }
 
-  resp = requests.post(url, headers=headers, json=payload, timeout=60)
+  resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 

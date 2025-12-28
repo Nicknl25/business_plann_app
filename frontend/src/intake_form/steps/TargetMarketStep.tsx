@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { useFormContext } from "react-hook-form";
 import apiClient from "../../apiClient";
 import { Button } from "../../components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { useIntakeFlow } from "../flow/IntakeFlowContext";
+import type { IntakeValues } from "../schema";
 
 export default function TargetMarketStep() {
+  const form = useFormContext<IntakeValues>();
   const {
     draftId,
     clientId,
@@ -93,6 +96,17 @@ export default function TargetMarketStep() {
     setTargetMarketLoading(true);
 
     try {
+      const {
+        businessName,
+        businessType,
+        address,
+        addressStreet,
+        addressCity,
+        addressState,
+        addressZip,
+        addressCountry,
+      } = form.getValues();
+
       const sessionRes = await apiClient.post(
         "/api/target-market/session",
         { draft_id: draftId },
@@ -109,7 +123,17 @@ export default function TargetMarketStep() {
 
       const res = await apiClient.post(
         "/api/target-market",
-        { draft_id: draftId },
+        {
+          draft_id: draftId,
+          business_name: businessName,
+          business_type: businessType,
+          address,
+          address_street: addressStreet,
+          address_city: addressCity,
+          address_state: addressState,
+          address_zip: addressZip,
+          address_country: addressCountry,
+        },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
 
@@ -143,9 +167,30 @@ export default function TargetMarketStep() {
     setTargetMarketLoading(true);
 
     try {
+      const {
+        businessName,
+        businessType,
+        address,
+        addressStreet,
+        addressCity,
+        addressState,
+        addressZip,
+        addressCountry,
+      } = form.getValues();
       const res = await apiClient.post(
         "/api/target-market",
-        { draft_id: draftId, message },
+        {
+          draft_id: draftId,
+          message,
+          business_name: businessName,
+          business_type: businessType,
+          address,
+          address_street: addressStreet,
+          address_city: addressCity,
+          address_state: addressState,
+          address_zip: addressZip,
+          address_country: addressCountry,
+        },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
 
@@ -287,4 +332,3 @@ export default function TargetMarketStep() {
     </div>
   );
 }
-

@@ -74,6 +74,10 @@ def post_financials_handler(*, app, request):
         {"draft_id": "operating_model_json must be a JSON object."}
       )
 
+    consumer_type = str(operating_model.get("consumer_type") or "").strip().lower()
+    if consumer_type not in ("consumer", "b2b", "mixed"):
+      consumer_type = "consumer"
+
     # Require the target market consult to be completed as well.
     conn = get_mysql_connection()
     try:
@@ -109,29 +113,49 @@ def post_financials_handler(*, app, request):
         {"draft_id": "target_market_json must be a JSON object."}
       )
 
-    # Flatten ACS codes across segments to a CSV for intake_submissions.target_market.
-    codes: List[str] = []
-    selections = tm_obj.get("selections")
-    if isinstance(selections, list):
-      for sel in selections:
-        if not isinstance(sel, dict):
-          continue
-        acs = sel.get("acs_codes")
-        if isinstance(acs, list):
-          for code in acs:
-            code_str = str(code).strip()
-            if code_str and code_str not in codes:
-              codes.append(code_str)
-    target_market_csv = ",".join(codes)
     target_market_summary = str(tm_obj.get("target_market_summary") or "").strip()
-    if not target_market_csv:
-      raise IntakeValidationError(
-        {"draft_id": "Target market consult did not produce any ACS codes."}
-      )
     if not target_market_summary:
       raise IntakeValidationError(
         {"draft_id": "Target market consult is missing target_market_summary."}
       )
+
+    target_market_csv: str = ""
+    if consumer_type in ("consumer", "mixed"):
+      # Flatten ACS codes across segments to a CSV for intake_submissions.target_market.
+      codes: List[str] = []
+      selections = tm_obj.get("selections")
+      if isinstance(selections, list):
+        for sel in selections:
+          if not isinstance(sel, dict):
+            continue
+          acs = sel.get("acs_codes")
+          if isinstance(acs, list):
+            for code in acs:
+              code_str = str(code).strip()
+              if code_str and code_str not in codes:
+                codes.append(code_str)
+      target_market_csv = ",".join(codes)
+      if not target_market_csv:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult did not produce any ACS codes."}
+        )
+
+    b2b_industry = str(tm_obj.get("target_market_b2b_industry") or "").strip()
+    b2b_size = str(tm_obj.get("target_market_b2b_size") or "").strip()
+    b2b_age = str(tm_obj.get("target_market_b2b_age") or "").strip()
+    if consumer_type in ("b2b", "mixed"):
+      if not b2b_industry:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult is missing target_market_b2b_industry."}
+        )
+      if not b2b_size:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult is missing target_market_b2b_size."}
+        )
+      if not b2b_age:
+        raise IntakeValidationError(
+          {"draft_id": "Target market consult is missing target_market_b2b_age."}
+        )
 
     # Require the People & Capability consult to be completed as well.
     conn = get_mysql_connection()
@@ -179,8 +203,11 @@ def post_financials_handler(*, app, request):
     payload = dict(payload)
     payload["client_id"] = str(draft.get("client_id") or "").strip()
     payload.update(operating_model)
-    payload["target_market"] = target_market_csv
+    payload["target_market"] = (target_market_csv or None)
     payload["target_market_summary"] = target_market_summary
+    payload["target_market_b2b_industry"] = (b2b_industry or None)
+    payload["target_market_b2b_size"] = (b2b_size or None)
+    payload["target_market_b2b_age"] = (b2b_age or None)
     payload["key_people_summary"] = key_people_summary
     if "confidence" in payload:
       payload["operating_model_confidence"] = payload.pop("confidence")
@@ -207,4 +234,3 @@ def post_financials_handler(*, app, request):
   except Exception as exc:
     app.logger.exception("Failed processing intake submission: %s", exc)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
-

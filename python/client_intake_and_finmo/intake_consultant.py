@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -35,6 +36,38 @@ def _openai_model() -> str:
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
 
 
+def _openai_timeout_seconds() -> int:
+  _load_root_env()
+  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
+  if raw:
+    try:
+      return max(30, int(raw))
+    except Exception:
+      return 180
+  return 180
+
+
+def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
+  timeout = _openai_timeout_seconds()
+  last_exc: Optional[Exception] = None
+  for attempt in range(3):
+    try:
+      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+    except requests.exceptions.ConnectionError as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+  if last_exc:
+    raise last_exc
+  raise RuntimeError("OpenAI request failed unexpectedly.")
+
+
 def _final_schema() -> Dict[str, Any]:
   return {
     "name": "intake_operating_model_final",
@@ -42,6 +75,10 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "consumer_type": {
+          "type": "string",
+          "enum": ["consumer", "b2b", "mixed"],
+        },
         "business_description_summary": {"type": "string"},
         "unit_name": {"type": "string"},
         "unit_description": {"type": "string"},
@@ -53,6 +90,7 @@ def _final_schema() -> Dict[str, Any]:
           "type": "string",
           "enum": ["local", "regional", "national", "international"],
         },
+        "geographic_coverage": {"type": "string"},
         "countries": {"type": "array", "items": {"type": "string"}},
         "milestones": {
           "type": "array",
@@ -73,6 +111,7 @@ def _final_schema() -> Dict[str, Any]:
         "confidence": {"type": "number"},
       },
       "required": [
+        "consumer_type",
         "business_description_summary",
         "unit_name",
         "unit_description",
@@ -81,6 +120,7 @@ def _final_schema() -> Dict[str, Any]:
         "shipping_method",
         "sales_modality",
         "geographic_scope",
+        "geographic_coverage",
         "countries",
         "milestones",
         "capacity_driver",
@@ -122,6 +162,7 @@ def consultant_chat_turn(
 You are a business consultant running an operational intake conversation.
 
 Goal: infer how the business works operationally and capture a single, agreed unit price.
+Early in the conversation, determine whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed).
 
 Forbidden topics (DO NOT ask about these): total revenue, employees, payroll, funding, marketing copy, or writing business-plan prose.
 
@@ -129,6 +170,7 @@ You must dynamically ask follow-ups, probe ambiguity, and reflect your understan
 You must decide when you have enough info.
 
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
+- Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
 - A clear definition of the unit (what is delivered and paid for once)
 - A short description of what’s included in a typical unit
 - Weekly capacity (how many units can be handled in a fully booked week)
@@ -170,7 +212,16 @@ Conversation rules:
 - Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
 - Milestones must be future plans/targets (do not ask whether milestones were already achieved). If the client has no milestones, propose one realistic, forward-looking operational milestone based on what you've learned and get the client to agree to it before finalizing.
 - Legal entity handling: help the client choose the closest label; if they are unsure after one clarification question, default to "Sole proprietor". Never respond with long explanatory phrases for the legal entity.
-- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geography, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note (either specific items the client mentioned or "to be confirmed by jurisdiction") in plain language in one paragraph.
+- Geography rules:
+  - Use the provided business address context (street/city/state/ZIP/country) to avoid asking basic location questions like "which country are you operating in?" when it is already known.
+  - After agreeing on the high-level geographic scope (local/regional/national/international), you MUST capture geographic coverage as a concrete set of areas that matches the scope:
+    - local: one or more ZIP codes, cities, counties, and/or metro areas
+    - regional: one or more states/provinces and/or metro regions
+    - national: one or more states or "United States" if truly nationwide
+    - international: one or more countries (and optionally regions within them)
+  - You may propose a reasonable default coverage based on the provided address and the chosen scope, then the client must agree or correct it.
+  - geographic_coverage must not be left blank.
+- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geographic scope and geographic coverage, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note (either specific items the client mentioned or "to be confirmed by jurisdiction") in plain language in one paragraph.
 - For capacity_driver, you must use exactly ONE of: labor, system, demand (single word only).
 
 Output rules:
@@ -194,7 +245,7 @@ Output rules:
     ],
   }
 
-  resp = requests.post(url, headers=headers, json=payload, timeout=60)
+  resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
@@ -220,11 +271,13 @@ You are a business consultant finalizing an operational intake.
 
 Return ONLY JSON matching the provided schema. No prose.
 Do not estimate or invent values.
+consumer_type must be exactly one of: consumer, b2b, mixed, reflecting whether the business primarily sells to consumers, businesses, or both.
 For legal_entity, use a short label only (Sole proprietor, LLC, LLP, S-corp, C-corp, Partnership). If the client is unsure, default to "Sole proprietor".
 
 Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation. If the user did not explicitly agree to a specific number, you must NOT finalize.
 
 The business_description_summary must include a brief, professional licensing/permits note (either the specific items the client said they have factored in, or "to be confirmed by jurisdiction").
+If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -254,7 +307,7 @@ The business_description_summary must include a brief, professional licensing/pe
     },
   }
 
-  resp = requests.post(url, headers=headers, json=payload, timeout=60)
+  resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
