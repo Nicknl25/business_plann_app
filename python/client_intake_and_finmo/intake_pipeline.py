@@ -305,7 +305,28 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   if geographic_coverage is None or str(geographic_coverage).strip() == "":
     errors["geographic_coverage"] = "geographic_coverage is required"
   else:
-    row["geographic_coverage"] = str(geographic_coverage).strip()
+    geo_cov = str(geographic_coverage).strip()
+    # Enforce that geographic_coverage is a concrete area list (ZIPs/counties/metros/states),
+    # not a radius like "within 25 miles".
+    try:
+      import re
+
+      geo_lower = geo_cov.lower()
+      if "radius" in geo_lower:
+        errors["geographic_coverage"] = (
+          "geographic_coverage must be ZIPs, counties, metro areas, and/or states (not a radius)."
+        )
+      if re.search(r"\bwithin\s+\d+(?:\.\d+)?\s*(?:mi|mile|miles|km|kilometer|kilometers)\b", geo_lower):
+        errors["geographic_coverage"] = (
+          "geographic_coverage must be ZIPs, counties, metro areas, and/or states (not a radius)."
+        )
+      if re.search(r"\b\d+(?:\.\d+)?\s*(?:mi|mile|miles|km|kilometer|kilometers)\b", geo_lower):
+        errors["geographic_coverage"] = (
+          "geographic_coverage must be ZIPs, counties, metro areas, and/or states (not a radius)."
+        )
+    except Exception:
+      pass
+    row["geographic_coverage"] = geo_cov
 
   # Validate numeric capacity
   try:

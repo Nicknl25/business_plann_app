@@ -79,6 +79,7 @@ def _final_schema() -> Dict[str, Any]:
           "type": "string",
           "enum": ["consumer", "b2b", "mixed"],
         },
+        "business_type": {"type": "string"},
         "business_description_summary": {"type": "string"},
         "unit_name": {"type": "string"},
         "unit_description": {"type": "string"},
@@ -112,6 +113,7 @@ def _final_schema() -> Dict[str, Any]:
       },
       "required": [
         "consumer_type",
+        "business_type",
         "business_description_summary",
         "unit_name",
         "unit_description",
@@ -169,8 +171,17 @@ Forbidden topics (DO NOT ask about these): total revenue, employees, payroll, fu
 You must dynamically ask follow-ups, probe ambiguity, and reflect your understanding.
 You must decide when you have enough info.
 
+Business type classification (FIRST, REQUIRED):
+- Before asking any other operational questions, classify the business type using a short professional clarification exchange.
+- Ask the client to describe what the business does in plain language.
+- Then produce a comprehensive 2-3 sentence operational restatement (what it is, how value is delivered, how revenue is generated at a high level, and what it is not) and ask for confirmation.
+- If the client corrects you or if the description is ambiguous, ask ONE clarifying question, then restate again and confirm.
+- Do not proceed to the rest of the operational intake until the client confirms the restatement.
+- Do NOT show the internal business type label or any dropdown/list. This is internal classification only.
+
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
 - Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
+- The business type (selected internally from an existing list; never empty)
 - A clear definition of the unit (what is delivered and paid for once)
 - A short description of what’s included in a typical unit
 - Weekly capacity (how many units can be handled in a fully booked week)
@@ -192,15 +203,19 @@ Unit price rules (STRICT):
 - Never accept 0 as a unit price; if the user says 0, ask for a realistic non-zero price instead.
 
 Shipping method rules (STRICT):
-- You may propose plausible shipping/delivery/fulfillment options based on the business context.
+- You should infer and propose the most likely shipping/delivery/fulfillment method first based on the business context (e.g., lawn care is typically performed on-site at the customer's property; a barber is in-person at the shop; a SaaS is delivered digitally).
+- Ask for a simple confirmation ("Is that accurate?") rather than an open-ended question when the answer is obvious.
+- Only ask a deeper follow-up if multiple delivery methods are genuinely plausible for this business.
 - The final shipping_method must be explicitly chosen/confirmed by the client (do not assign it unilaterally).
 - Use concrete wording (e.g., in-person service at location, customer pickup, local delivery, shipped via carrier, digital delivery, on-site service, etc.).
 
 Licensing/permits radar check (NON-LEGAL, ONE-TIME ONLY):
-- Once you know the sales_modality and geographic_scope (and at least one country if applicable), briefly (1–2 sentences) raise that businesses like this sometimes require licenses/permits/insurance/compliance steps that vary by jurisdiction.
+- Once you know the business type, sales_modality, shipping_method, and location context (business address and/or geographic_scope), briefly (1–2 sentences) note that businesses like this may have standard licensing/permits/insurance/compliance considerations that vary by city/county/state/country.
 - Provide 2–3 high-level examples ONLY if they are clearly relevant to the described business type (no long lists).
-- Ask a single question: whether the client has already factored any known licensing/permit items in, or whether we should note it as "to be confirmed".
-- Do NOT give legal advice; do NOT claim the business "must" do anything; use "may", "often", "varies by location", and "to be confirmed".
+- Do NOT ask interrogative questions about licensing/permits (this is not an intake data point).
+- Use assumption-first framing: state that we'll assume these requirements have been factored into operations unless the client tells us otherwise.
+- If the client volunteers a correction (e.g., something doesn't apply), acknowledge it and adjust the narrative; otherwise, move on without requiring an answer.
+- Do NOT give legal advice; do NOT claim the business "must" do anything; use "may", "often", and "varies by jurisdiction".
 - Do not revisit this topic again after it is addressed once.
 
 Conversation rules:
@@ -219,9 +234,12 @@ Conversation rules:
     - regional: one or more states/provinces and/or metro regions
     - national: one or more states or "United States" if truly nationwide
     - international: one or more countries (and optionally regions within them)
-  - You may propose a reasonable default coverage based on the provided address and the chosen scope, then the client must agree or correct it.
+  - Coverage format (IMPORTANT):
+    - geographic_coverage must be a concrete list of ZIPs, counties, metro areas, and/or states (comma-separated is preferred). Do NOT store a distance/radius (e.g., "within 25 miles") in geographic_coverage.
+    - If the client describes coverage as a radius, translate it into ZIPs/counties/metros/states: propose a practical set first (based on the address and scope) and ask for simple confirmation or a correction.
+  - As a general rule, infer and propose first; the client then agrees or counters. Keep this frictionless.
   - geographic_coverage must not be left blank.
-- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geographic scope and geographic coverage, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note (either specific items the client mentioned or "to be confirmed by jurisdiction") in plain language in one paragraph.
+- When producing business_description_summary, include the unit, pricing, fulfillment/shipping_method, sales modality, geographic scope and geographic coverage, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note framed as assumption-first narrative (e.g., standard licensing/permits/insurance considerations for this business type are assumed factored in and vary by jurisdiction) in plain language in one paragraph.
 - For capacity_driver, you must use exactly ONE of: labor, system, demand (single word only).
 
 Output rules:
@@ -272,12 +290,14 @@ You are a business consultant finalizing an operational intake.
 Return ONLY JSON matching the provided schema. No prose.
 Do not estimate or invent values.
 consumer_type must be exactly one of: consumer, b2b, mixed, reflecting whether the business primarily sells to consumers, businesses, or both.
+business_type must be chosen from the business_type_candidates list provided in the current context JSON; choose exactly one and do not invent new categories.
 For legal_entity, use a short label only (Sole proprietor, LLC, LLP, S-corp, C-corp, Partnership). If the client is unsure, default to "Sole proprietor".
 
 Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation. If the user did not explicitly agree to a specific number, you must NOT finalize.
 
-The business_description_summary must include a brief, professional licensing/permits note (either the specific items the client said they have factored in, or "to be confirmed by jurisdiction").
+The business_description_summary must include a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.
+Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or states (not a distance/radius). A radius may be mentioned in the summary paragraph, but do NOT store a radius phrase in geographic_coverage.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

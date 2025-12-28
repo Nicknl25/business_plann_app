@@ -160,7 +160,7 @@ const GoogleBusinessTypeInput = React.forwardRef<
       {open && (
         <div className="absolute z-50 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-slate-700/80 bg-slate-950/95 text-xs text-slate-100 shadow-soft">
           {loading ? (
-            <div className="px-3 py-2 text-slate-400">Loading…</div>
+            <div className="px-3 py-2 text-slate-400">Loading...</div>
           ) : filteredOptions.length ? (
             filteredOptions.map((opt, index) => (
               <button

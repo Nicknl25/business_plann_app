@@ -121,12 +121,107 @@ def post_intake_consult_handler(*, app, request):
     operating_model_json_out: Optional[str] = None
 
     if finalize_ready:
+      # Provide business type candidates to the finalization step so the model can
+      # choose a single best-fit value from the existing business_types list.
+      business_type_candidates: List[str] = []
+      all_business_types: List[str] = []
+      try:
+        from difflib import SequenceMatcher
+
+        conn = get_mysql_connection()
+        try:
+          cur = conn.cursor()
+          cur.execute("SELECT business_types FROM naics_master WHERE business_types IS NOT NULL")
+          rows = cur.fetchall() or []
+          values: List[str] = []
+          for (bt,) in rows:
+            if bt is None:
+              continue
+            for part in str(bt).split(","):
+              part_str = str(part).strip()
+              if part_str:
+                values.append(part_str)
+          all_business_types = sorted(set(values), key=lambda x: x.lower())
+        finally:
+          try:
+            cur.close()
+          except Exception:
+            pass
+          try:
+            conn.close()
+          except Exception:
+            pass
+
+        # Build a condensed description from the earliest user messages.
+        user_texts: List[str] = []
+        for msg in [*history, *new_messages]:
+          if str(msg.get("role") or "") != "user":
+            continue
+          content = str(msg.get("content") or "").strip()
+          if not content:
+            continue
+          if "Start the operational intake." in content:
+            continue
+          user_texts.append(content)
+          if len(user_texts) >= 6:
+            break
+        base = " ".join(user_texts).strip().lower()
+        base = " ".join(base.split())
+        tokens = {t for t in base.replace("/", " ").replace("-", " ").split() if len(t) >= 3}
+
+        scored = []
+        for bt in all_business_types:
+          btl = bt.lower()
+          token_score = sum(1 for t in tokens if t in btl) if tokens else 0
+          ratio = SequenceMatcher(None, base, btl).ratio() if base else 0.0
+          scored.append((token_score, ratio, bt))
+        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        business_type_candidates = [bt for _, _, bt in scored[:80]]
+      except Exception as exc:
+        app.logger.exception("Failed building business type candidates: %s", exc)
+        business_type_candidates = []
+        all_business_types = []
+
+      if business_type_candidates:
+        context = dict(context)
+        context["business_type_candidates"] = business_type_candidates
+      else:
+        # Fallback: still provide something non-empty for the finalizer.
+        context = dict(context)
+        context["business_type_candidates"] = all_business_types[:80] if all_business_types else []
+
       final_obj = consultant_finalize(
         intake_context=context,
         conversation_messages=[*history, *new_messages],
       )
       if not isinstance(final_obj, dict):
         raise RuntimeError("Finalization did not return an object.")
+
+      # Ensure business_type is present, non-empty, and matches an existing value.
+      bt_out = str(final_obj.get("business_type") or "").strip()
+      if not bt_out:
+        if business_type_candidates:
+          bt_out = str(business_type_candidates[0]).strip()
+        elif all_business_types:
+          bt_out = str(all_business_types[0]).strip()
+      if all_business_types and bt_out and bt_out not in set(all_business_types):
+        # If the model picked something outside the known list, snap to the closest candidate.
+        try:
+          from difflib import SequenceMatcher
+
+          pool = business_type_candidates or all_business_types[:200]
+          best = ""
+          best_score = -1.0
+          for cand in pool:
+            score = SequenceMatcher(None, bt_out.lower(), cand.lower()).ratio()
+            if score > best_score:
+              best = cand
+              best_score = score
+          if best:
+            bt_out = best
+        except Exception:
+          pass
+      final_obj["business_type"] = bt_out
 
       app.logger.info(
         "Intake consult final for draft_id=%s client_id=%s: %s",

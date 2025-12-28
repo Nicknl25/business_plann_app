@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import apiClient from "../../apiClient";
 import GoogleAddressInput from "../../components/GoogleAddressInput";
-import GoogleBusinessTypeInput from "../../components/GoogleBusinessTypeInput";
 import { Button } from "../../components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card";
 import {
@@ -138,7 +137,6 @@ export default function BusinessOverviewStep() {
     try {
       const ok = await form.trigger([
         "businessName",
-        "businessType",
         "address",
         "addressStreet",
         "addressCity",
@@ -154,7 +152,6 @@ export default function BusinessOverviewStep() {
 
       const {
         businessName,
-        businessType,
         address,
         addressStreet,
         addressCity,
@@ -168,7 +165,6 @@ export default function BusinessOverviewStep() {
           draft_id: nextDraftId,
           client_id: nextClientId,
           business_name: businessName,
-          business_type: businessType,
           address,
           address_street: addressStreet,
           address_city: addressCity,
@@ -268,7 +264,6 @@ export default function BusinessOverviewStep() {
     try {
       const {
         businessName,
-        businessType,
         address,
         addressStreet,
         addressCity,
@@ -283,7 +278,6 @@ export default function BusinessOverviewStep() {
           client_id: clientId,
           message,
           business_name: businessName,
-          business_type: businessType,
           address,
           address_street: addressStreet,
           address_city: addressCity,
@@ -356,23 +350,6 @@ export default function BusinessOverviewStep() {
                 </FormControl>
                 <FormMessage>
                   {form.formState.errors.businessName?.message}
-                </FormMessage>
-              </FormItem>
-            )}
-          </FormField>
-
-          <FormField name="businessType" control={form.control}>
-            {(field) => (
-              <FormItem className="col-span-2 md:col-span-2">
-                <FormLabel>Type of Business</FormLabel>
-                <FormControl>
-                  <GoogleBusinessTypeInput
-                    {...field}
-                    placeholder="E.g., coffee shop, trucking company, HVAC repair, childcare, bookkeeping"
-                  />
-                </FormControl>
-                <FormMessage>
-                  {form.formState.errors.businessType?.message}
                 </FormMessage>
               </FormItem>
             )}
@@ -544,9 +521,9 @@ export default function BusinessOverviewStep() {
             intake.
           </p>
           <ul className="space-y-1.5">
-            <li>â€¢ Review and alignment on goals and audience.</li>
-            <li>â€¢ Clarifying questions where needed.</li>
-            <li>â€¢ Confirmation of timeline and next steps.</li>
+            <li>- Review and alignment on goals and audience.</li>
+            <li>- Clarifying questions where needed.</li>
+            <li>- Confirmation of timeline and next steps.</li>
           </ul>
           <p className="text-slate-400">
             The more specific you are, the more precise and compelling your

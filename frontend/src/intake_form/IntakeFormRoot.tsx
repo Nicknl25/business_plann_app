@@ -40,9 +40,9 @@ function IntakeFormInner() {
             Tell us about your business.
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-            This intake form gives us the context we need to craft a
-            lender-ready business plan tailored to your goals, industry, and
-            numbers. Expect ~15â€“20 minutes to complete.
+            This intake form gives us the context we need to craft a lender-ready
+            business plan tailored to your goals, industry, and numbers. Expect
+            ~15-20 minutes to complete.
           </p>
         </motion.div>
       </section>
@@ -79,4 +79,3 @@ export default function IntakeFormRoot() {
     </PageShell>
   );
 }
-

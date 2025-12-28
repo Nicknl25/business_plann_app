@@ -14,7 +14,6 @@ export function parseNumberFromString(
 export const intakeSchema = z
   .object({
     businessName: z.string().min(2, "Please enter your business name."),
-    businessType: z.string().min(2, "Please describe the type of business."),
     address: z.string().min(1, "Please select a full address from suggestions."),
     addressStreet: z.string().min(1, "Street address is required."),
     addressCity: z.string().min(1, "City is required."),
@@ -140,7 +139,6 @@ export type IntakeValues = z.infer<typeof intakeSchema>;
 
 export const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   business_name: "businessName",
-  business_type: "businessType",
   address: "address",
   first_name: "firstName",
   last_name: "lastName",
@@ -173,7 +171,6 @@ export const serverFieldToFormField: Record<string, keyof IntakeValues> = {
 
 export const defaultValues: IntakeValues = {
   businessName: "",
-  businessType: "",
   address: "",
   addressStreet: "",
   addressCity: "",

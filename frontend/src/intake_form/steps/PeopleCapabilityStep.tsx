@@ -110,10 +110,10 @@ export default function PeopleCapabilityStep() {
         );
       }
 
-      const { businessName, businessType } = form.getValues();
+      const { businessName } = form.getValues();
       const res = await apiClient.post(
         "/api/people-capability",
-        { draft_id: draftId, business_name: businessName, business_type: businessType },
+        { draft_id: draftId, business_name: businessName },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
 
@@ -145,10 +145,10 @@ export default function PeopleCapabilityStep() {
     setPeopleLoading(true);
 
     try {
-      const { businessName, businessType } = form.getValues();
+      const { businessName } = form.getValues();
       const res = await apiClient.post(
         "/api/people-capability",
-        { draft_id: draftId, message, business_name: businessName, business_type: businessType },
+        { draft_id: draftId, message, business_name: businessName },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
 
@@ -285,4 +285,3 @@ export default function PeopleCapabilityStep() {
     </Card>
   );
 }
-

@@ -98,7 +98,6 @@ export default function TargetMarketStep() {
     try {
       const {
         businessName,
-        businessType,
         address,
         addressStreet,
         addressCity,
@@ -126,7 +125,6 @@ export default function TargetMarketStep() {
         {
           draft_id: draftId,
           business_name: businessName,
-          business_type: businessType,
           address,
           address_street: addressStreet,
           address_city: addressCity,
@@ -169,7 +167,6 @@ export default function TargetMarketStep() {
     try {
       const {
         businessName,
-        businessType,
         address,
         addressStreet,
         addressCity,
@@ -183,7 +180,6 @@ export default function TargetMarketStep() {
           draft_id: draftId,
           message,
           business_name: businessName,
-          business_type: businessType,
           address,
           address_street: addressStreet,
           address_city: addressCity,

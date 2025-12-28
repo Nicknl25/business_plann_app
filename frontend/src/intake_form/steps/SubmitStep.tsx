@@ -55,7 +55,6 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
       const financialsPayload = {
         draft_id: draftId,
         business_name: values.businessName,
-        business_type: values.businessType,
         description: null,
         address: values.address || null,
         // What you offer (removed from UI for now)
