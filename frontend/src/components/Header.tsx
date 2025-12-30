@@ -60,9 +60,9 @@ function Header() {
           <Button
             asChild
             size="sm"
-            className="hidden rounded-full bg-sky-500 px-4 text-xs font-semibold shadow-glow transition-transform duration-200 hover:scale-[1.03] hover:bg-sky-400 md:inline-flex"
+            className="rounded-full bg-sky-500 px-4 text-xs font-semibold shadow-glow transition-transform duration-200 hover:scale-[1.03] hover:bg-sky-400"
           >
-            <NavLink to="/business-plan-form">Start Your Plan</NavLink>
+            <NavLink to="/business-plan-form?start=1">Start Your Plan</NavLink>
           </Button>
         </div>
       </div>
@@ -71,4 +71,3 @@ function Header() {
 }
 
 export default Header;
-

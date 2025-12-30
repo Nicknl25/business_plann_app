@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -77,6 +78,21 @@ def _parse_responses_text(data: Dict[str, Any]) -> str:
   if not chunks:
     raise RuntimeError("OpenAI response contained no output_text.")
   return "\n".join(chunks).strip()
+
+
+_SECOND_NUMBERED_QUESTION_RE = re.compile(r"(?m)^[ \t]*[2-9]\d*[\)\.]\s+")
+
+
+def _trim_after_first_question_block(text: str) -> str:
+  """
+  Enforce "one question at a time" by trimming obvious multi-question numbering like:
+    1) ...?
+    2) ...?
+  """
+  match = _SECOND_NUMBERED_QUESTION_RE.search(text)
+  if not match:
+    return text
+  return text[: match.start()].rstrip()
 
 
 def _final_schema() -> Dict[str, Any]:
@@ -236,7 +252,9 @@ Rules:
 - Do not force artificial precision; single-point targets are rare.
 - Never show ACS codes to the user.
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
-- Keep messages concise: ask one question at a time and offer at most 2–3 suggested options unless the user asks for more.
+- Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
+- Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
+- Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring "please confirm / once you confirm / let's lock this in" loops. Treat the user's answer to your question as the decision, briefly reflect it back, and move on. Only ask a follow-up if the answer is ambiguous or incomplete.
 - The user may revise earlier choices at any time; accept the revision and continue without restarting the consult.
 - Do not consult or discuss any other segments.
@@ -325,7 +343,9 @@ Segments to consult on (in this order):
 Rules:
 - Do not discuss consumer demographics (age/gender/income/ACS) at all in this mode.
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
-- Keep messages concise: ask one question at a time and offer at most 2â€“3 suggested options unless the user asks for more.
+- Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
+- Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
+- Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, reflect it back briefly, and move on unless ambiguous.
 - Firm size must use these employee bands (the client may pick one or more): 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+.
 - Firm age must use these bands (the client may pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
@@ -368,7 +388,9 @@ Rules:
 - Do not force artificial precision; single-point targets are rare.
 - Never show ACS codes to the user.
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
-- Keep messages concise: ask one question at a time and offer at most 2â€“3 suggested options unless the user asks for more.
+- Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
+- Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
+- Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, briefly reflect it back, and move on. Only ask follow-ups if ambiguous or incomplete.
 - Do not consult or discuss any other segments.
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
@@ -416,6 +438,8 @@ Output rules:
   text = _parse_responses_text(resp.json())
   finalize_ready = FINALIZE_TOKEN in text
   text = text.replace(FINALIZE_TOKEN, "").strip()
+  if not finalize_ready:
+    text = _trim_after_first_question_block(text)
   return {"assistant_message": text, "finalize_ready": finalize_ready}
 
 

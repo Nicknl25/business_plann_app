@@ -16,8 +16,13 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
     clientId,
     draftId,
     consultDone,
+    opsConfirmed,
     targetMarketDone,
+    targetMarketConfirmed,
     peopleDone,
+    peopleConfirmed,
+    financialsDone,
+    financialsConfirmed,
     setSubmitLoading,
     setSubmitError,
     setSubmitSuccess,
@@ -37,16 +42,41 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
         return;
       }
 
+      if (!opsConfirmed) {
+        setSubmitError("Confirm Business overview before submitting.");
+        return;
+      }
+
       if (!targetMarketDone) {
         setSubmitError(
           "Complete the target market conversation before submitting."
         );
         return;
       }
+
+      if (!targetMarketConfirmed) {
+        setSubmitError("Confirm Customers & positioning before submitting.");
+        return;
+      }
       if (!peopleDone) {
         setSubmitError(
           "Complete the People & Capability conversation before submitting."
         );
+        return;
+      }
+
+      if (!peopleConfirmed) {
+        setSubmitError("Confirm People & Capability before submitting.");
+        return;
+      }
+
+      if (!financialsDone) {
+        setSubmitError("Complete the financials conversation before submitting.");
+        return;
+      }
+
+      if (!financialsConfirmed) {
+        setSubmitError("Confirm Financials before submitting.");
         return;
       }
 
@@ -190,9 +220,24 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
   return { handleInvalid, handleSubmit };
 }
 
-export default function SubmitStep() {
-  const { consultDone, submitLoading, submitError, submitSuccess, targetMarketDone } =
-    useIntakeFlow();
+export default function SubmitStep({
+  onRequestSubmit,
+}: {
+  onRequestSubmit?: () => void;
+}) {
+  const {
+    consultDone,
+    opsConfirmed,
+    submitLoading,
+    submitError,
+    submitSuccess,
+    targetMarketDone,
+    targetMarketConfirmed,
+    peopleDone,
+    peopleConfirmed,
+    financialsDone,
+    financialsConfirmed,
+  } = useIntakeFlow();
 
   return (
     <>
@@ -213,12 +258,28 @@ export default function SubmitStep() {
           </p>
         </div>
         <Button
-          type="submit"
+          type="button"
           size="lg"
           className="group rounded-full px-6 text-xs sm:text-sm"
-          disabled={!consultDone || !targetMarketDone || submitLoading}
+          disabled={
+            !consultDone ||
+            !opsConfirmed ||
+            !targetMarketDone ||
+            !targetMarketConfirmed ||
+            !peopleDone ||
+            !peopleConfirmed ||
+            !financialsDone ||
+            !financialsConfirmed ||
+            submitLoading ||
+            Boolean(submitSuccess)
+          }
+          onClick={() => {
+            if (submitLoading) return;
+            if (submitSuccess) return;
+            onRequestSubmit?.();
+          }}
         >
-          {submitLoading ? "Submitting..." : "Submit intake"}
+          {submitLoading ? "Submitting..." : submitSuccess ? "Submitted" : "Submit intake"}
         </Button>
       </motion.div>
 

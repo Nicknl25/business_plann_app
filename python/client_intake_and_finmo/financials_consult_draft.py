@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -15,18 +14,15 @@ def ensure_table(conn) -> None:
   try:
     cur.execute(
       """
-      CREATE TABLE IF NOT EXISTS intake_consult_drafts (
+      CREATE TABLE IF NOT EXISTS intake_financials_drafts (
         draft_id CHAR(32) NOT NULL PRIMARY KEY,
         client_id CHAR(20) NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
         messages_json LONGTEXT NULL,
-        operating_model_json LONGTEXT NULL,
+        financials_json LONGTEXT NULL,
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         completed_at DATETIME(6) NULL,
-        submitted_at DATETIME(6) NULL,
-        intake_submission_id BIGINT UNSIGNED NULL,
-        UNIQUE KEY uniq_client_id (client_id),
         KEY idx_status (status),
         KEY idx_updated_at (updated_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -39,18 +35,19 @@ def ensure_table(conn) -> None:
       pass
 
 
-def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
+def create_draft(conn, *, draft_id: str, client_id: str) -> Dict[str, Any]:
   ensure_table(conn)
-  draft_id = uuid.uuid4().hex
   now = _utc_now_str()
   cur = conn.cursor()
   try:
     cur.execute(
       """
-      INSERT INTO intake_consult_drafts
+      INSERT INTO intake_financials_drafts
         (draft_id, client_id, status, messages_json, created_at, updated_at)
       VALUES
         (%s, %s, 'in_progress', %s, %s, %s)
+      ON DUPLICATE KEY UPDATE
+        updated_at = VALUES(updated_at)
       """,
       (draft_id, client_id, json.dumps([], ensure_ascii=False), now, now),
     )
@@ -68,7 +65,7 @@ def get_draft(conn, *, draft_id: str) -> Dict[str, Any]:
   cur = conn.cursor(dictionary=True)
   try:
     cur.execute(
-      "SELECT * FROM intake_consult_drafts WHERE draft_id = %s LIMIT 1",
+      "SELECT * FROM intake_financials_drafts WHERE draft_id = %s LIMIT 1",
       (draft_id,),
     )
     row = cur.fetchone()
@@ -78,7 +75,7 @@ def get_draft(conn, *, draft_id: str) -> Dict[str, Any]:
     except Exception:
       pass
   if not row or not isinstance(row, dict):
-    raise RuntimeError(f"Consult draft not found for draft_id={draft_id!r}")
+    raise RuntimeError(f"Financials draft not found for draft_id={draft_id!r}")
   return row
 
 
@@ -102,7 +99,7 @@ def append_messages(
   draft_id: str,
   new_messages: List[Dict[str, str]],
   status: Optional[str] = None,
-  operating_model_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
   completed: bool = False,
 ) -> Dict[str, Any]:
   row = get_draft(conn, draft_id=draft_id)
@@ -117,16 +114,20 @@ def append_messages(
     set_parts.append("status = %s")
     values.append(status)
 
-  if operating_model_json is not None:
-    set_parts.append("operating_model_json = %s")
-    values.append(json.dumps(operating_model_json, ensure_ascii=False))
+  if financials_json is not None:
+    set_parts.append("financials_json = %s")
+    values.append(json.dumps(financials_json, ensure_ascii=False))
 
   if completed:
     set_parts.append("completed_at = %s")
     values.append(now)
 
   values.append(draft_id)
-  sql = "UPDATE intake_consult_drafts SET " + ", ".join(set_parts) + " WHERE draft_id = %s"
+  sql = (
+    "UPDATE intake_financials_drafts SET "
+    + ", ".join(set_parts)
+    + " WHERE draft_id = %s"
+  )
 
   cur = conn.cursor()
   try:
@@ -141,41 +142,10 @@ def append_messages(
   return {"draft_id": draft_id, "client_id": row.get("client_id"), "messages": messages}
 
 
-def mark_submitted(
-  conn,
-  *,
-  draft_id: str,
-  intake_submission_id: int,
-) -> None:
-  now = _utc_now_str()
-  cur = conn.cursor()
-  try:
-    cur.execute(
-      """
-      UPDATE intake_consult_drafts
-      SET status = 'submitted',
-          submitted_at = %s,
-          intake_submission_id = %s,
-          updated_at = %s
-      WHERE draft_id = %s
-        AND (intake_submission_id IS NULL)
-      """,
-      (now, int(intake_submission_id), now, draft_id),
-    )
-    if getattr(cur, "rowcount", 0) == 0:
-      raise RuntimeError("Draft already submitted or missing.")
-    conn.commit()
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
-
-
 def reopen_draft(conn, *, draft_id: str) -> None:
   """
-  Reopen a completed consult for continued conversation and refinement.
-  Keeps messages_json intact but clears operating_model_json and completed_at.
+  Reopen a completed draft for continued conversation and refinement.
+  Keeps messages_json intact but clears the finalized JSON and completed_at.
   """
   ensure_table(conn)
   now = _utc_now_str()
@@ -183,9 +153,9 @@ def reopen_draft(conn, *, draft_id: str) -> None:
   try:
     cur.execute(
       """
-      UPDATE intake_consult_drafts
+      UPDATE intake_financials_drafts
       SET status = 'in_progress',
-          operating_model_json = NULL,
+          financials_json = NULL,
           completed_at = NULL,
           updated_at = %s
       WHERE draft_id = %s
@@ -199,4 +169,3 @@ def reopen_draft(conn, *, draft_id: str) -> None:
       cur.close()
     except Exception:
       pass
-

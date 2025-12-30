@@ -408,12 +408,10 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise
 
     if not inserted or not inserted.get("inserted_id"):
-      raise RuntimeError("Failed to insert intake submission.")
+      raise RuntimeError("Failed to write intake submission.")
 
     submission_id = int(inserted["inserted_id"])
-    submission_row = fetch_intake_submission_by_id(
-      conn=conn, submission_id=submission_id
-    )
+    submission_row = fetch_intake_submission_by_id(conn=conn, submission_id=submission_id)
 
     finmo_path = create_client_finmo_workbook(
       template_path=finmo_template_path,

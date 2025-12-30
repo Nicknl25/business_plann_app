@@ -1,17 +1,21 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useSearchParams } from "react-router-dom";
 import PageShell from "../components/PageShell";
 import { Form } from "../components/ui/Form";
 import { IntakeFlowProvider } from "./flow/IntakeFlowContext";
+import { useIntakeFlow } from "./flow/IntakeFlowContext";
 import { defaultValues, intakeSchema, type IntakeValues } from "./schema";
 import BusinessOverviewStep from "./steps/BusinessOverviewStep";
-import ClientInformationStep from "./steps/ClientInformationStep";
 import FinancialsStep from "./steps/FinancialsStep";
 import PeopleCapabilityStep from "./steps/PeopleCapabilityStep";
 import SubmitStep, { useSubmitIntakeHandlers } from "./steps/SubmitStep";
 import TargetMarketStep from "./steps/TargetMarketStep";
+import ClientInformationModal from "./components/ClientInformationModal";
+import WhatToExpectNextInfo from "./components/WhatToExpectNextInfo";
 
 function IntakeFormInner() {
   const form = useForm<IntakeValues>({
@@ -20,7 +24,52 @@ function IntakeFormInner() {
     mode: "onBlur",
   });
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const { handleInvalid, handleSubmit } = useSubmitIntakeHandlers(form);
+  const { submitLoading, setPlanStarted } = useIntakeFlow();
+  const [clientInfoOpen, setClientInfoOpen] = useState(false);
+
+  const clientInfoFields: (keyof IntakeValues)[] = [
+    "firstName",
+    "lastName",
+    "emailAddress",
+    "phoneNumber",
+    "howDidYouHear",
+  ];
+
+  const allFieldNames = Object.keys(defaultValues) as (keyof IntakeValues)[];
+  const nonClientFields = allFieldNames.filter(
+    (k) => !clientInfoFields.includes(k)
+  );
+
+  async function beginSubmitFlow() {
+    const ok = await form.trigger(nonClientFields as any);
+    if (!ok) {
+      handleInvalid(form.formState.errors);
+      return;
+    }
+    setClientInfoOpen(true);
+  }
+
+  async function confirmClientInfoAndSubmit() {
+    const ok = await form.trigger(clientInfoFields as any);
+    if (!ok) return;
+    setClientInfoOpen(false);
+    await form.handleSubmit(
+      (values) => handleSubmit(values),
+      (errors) => handleInvalid(errors)
+    )();
+  }
+
+  useEffect(() => {
+    const startParam = searchParams.get("start");
+    if (startParam !== "1") return;
+
+    setPlanStarted(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("start");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setPlanStarted, setSearchParams]);
 
   return (
     <div className="space-y-8 md:space-y-10">
@@ -56,15 +105,22 @@ function IntakeFormInner() {
         className="space-y-8"
       >
         <BusinessOverviewStep />
+        <TargetMarketStep />
 
-        <div className="grid gap-5 md:grid-cols-2">
-          <ClientInformationStep />
-          <PeopleCapabilityStep />
+        <PeopleCapabilityStep />
+        <FinancialsStep />
+
+        <div id="submit-intake-section" className="space-y-6">
+          <WhatToExpectNextInfo />
+          <SubmitStep onRequestSubmit={beginSubmitFlow} />
         </div>
 
-        <TargetMarketStep />
-        <FinancialsStep />
-        <SubmitStep />
+        <ClientInformationModal
+          open={clientInfoOpen}
+          submitting={submitLoading}
+          onClose={() => setClientInfoOpen(false)}
+          onConfirm={confirmClientInfoAndSubmit}
+        />
       </Form>
     </div>
   );

@@ -141,3 +141,31 @@ def append_messages(
 
   return {"draft_id": draft_id, "client_id": row.get("client_id"), "messages": messages}
 
+
+def reopen_draft(conn, *, draft_id: str) -> None:
+  """
+  Reopen a completed draft for continued conversation and refinement.
+  Keeps messages_json intact but clears the finalized JSON and completed_at.
+  """
+  ensure_table(conn)
+  now = _utc_now_str()
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      UPDATE intake_target_market_drafts
+      SET status = 'in_progress',
+          target_market_json = NULL,
+          completed_at = NULL,
+          updated_at = %s
+      WHERE draft_id = %s
+        AND status = 'completed'
+      """,
+      (now, draft_id),
+    )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
