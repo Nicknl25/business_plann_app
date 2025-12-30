@@ -242,6 +242,7 @@ def post_people_capability_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           people_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
         return jsonify(
@@ -278,6 +279,7 @@ def post_people_capability_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           people_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
         done = True

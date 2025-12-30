@@ -233,6 +233,7 @@ def post_financials_consult_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           financials_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
         return jsonify(
@@ -271,6 +272,7 @@ def post_financials_consult_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           financials_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
         done = True

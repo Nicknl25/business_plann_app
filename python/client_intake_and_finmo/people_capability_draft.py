@@ -2,11 +2,42 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
 def _utc_now_str() -> str:
   return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+def _table_columns(conn, table_name: str) -> Set[str]:
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = %s
+      """,
+      (table_name,),
+    )
+    rows = cur.fetchall() or []
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  out: Set[str] = set()
+  for r in rows:
+    try:
+      out.add(str(r[0]))
+    except Exception:
+      continue
+  return out
+
+def _normalize_flat_value(value: Any) -> Any:
+  if isinstance(value, (dict, list)):
+    return json.dumps(value, ensure_ascii=False)
+  return value
 
 
 def ensure_table(conn) -> None:
@@ -100,6 +131,7 @@ def append_messages(
   new_messages: List[Dict[str, str]],
   status: Optional[str] = None,
   people_json: Optional[Dict[str, Any]] = None,
+  flat_fields: Optional[Dict[str, Any]] = None,
   completed: bool = False,
 ) -> Dict[str, Any]:
   row = get_draft(conn, draft_id=draft_id)
@@ -117,6 +149,26 @@ def append_messages(
   if people_json is not None:
     set_parts.append("people_json = %s")
     values.append(json.dumps(people_json, ensure_ascii=False))
+
+  if flat_fields:
+    reserved = {
+      "draft_id",
+      "client_id",
+      "status",
+      "messages_json",
+      "people_json",
+      "created_at",
+      "updated_at",
+      "completed_at",
+    }
+    cols = _table_columns(conn, "intake_people_capability_drafts")
+    for key, raw_val in flat_fields.items():
+      if key in reserved:
+        continue
+      if key not in cols:
+        continue
+      set_parts.append(f"`{key}` = %s")
+      values.append(_normalize_flat_value(raw_val))
 
   if completed:
     set_parts.append("completed_at = %s")

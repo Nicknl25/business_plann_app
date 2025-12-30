@@ -262,6 +262,7 @@ def post_intake_consult_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           operating_model_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
       finally:
@@ -413,6 +414,7 @@ def post_intake_consult_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           operating_model_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
       finally:

@@ -734,6 +734,7 @@ def post_target_market_consult_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           target_market_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
 
@@ -1028,6 +1029,7 @@ def post_target_market_consult_handler(*, app, request):
           new_messages=new_messages,
           status="completed",
           target_market_json=final_obj,
+          flat_fields=final_obj,
           completed=True,
         )
         done = True
