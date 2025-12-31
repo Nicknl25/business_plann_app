@@ -111,6 +111,7 @@ def _final_schema() -> Dict[str, Any]:
         "initial_assets": {"type": "number"},
         "initial_lease": {"type": "string"},
         "initial_equity": {"type": "number"},
+        "total_debt_outstanding": {"type": "number"},
         "legal_entity": {"type": "string"},
         "confidence": {"type": "number"},
       },
@@ -133,6 +134,7 @@ def _final_schema() -> Dict[str, Any]:
         "initial_assets",
         "initial_lease",
         "initial_equity",
+        "total_debt_outstanding",
         "legal_entity",
         "confidence",
       ],
@@ -212,6 +214,10 @@ Existing assets, leased equipment, and value already put into the business (NEW 
   - If the business type makes likely assets obvious (e.g., lawn care → mower/trimmer/blower), propose 1–2 concrete examples and ask for a simple yes/no confirmation first (no bundled alternatives).
   - If they confirm, then ask for one rough total value (not itemized, not appraised). If they say no, ask what (if anything) they use.
   - If none/unsure after one clarification, explicitly record 0 and say so.
+  - Source-of-funds awareness (NOT finance modeling): if initial_assets > 0, recognize the assets must have been paid for and ask ONE natural follow-up to understand the source of funds in plain language:
+    - owner’s own money, investor money, loans/financing, or a mix
+    - If loans/financing are involved, ask one additional question for a rough estimate of how much is still owed as of last month; record it in total_debt_outstanding (otherwise set total_debt_outstanding = 0).
+    - If the answer is owner/investor money, treat this as part of initial_equity (do not do accounting; just capture best-known reality).
 - Leased/rented equipment (as of last month): ask if they pay to use equipment they do not own (e.g., rented vehicle, leased machine). If yes, collect payment amount and how often it is paid (monthly/weekly/quarterly/etc.). If unclear, default payment to 0 and say so. Store as "amount,period". If none, store "0,none".
 - Value already put into the business (not a future plan): ask for a rough total of money/value already put in (owner cash, investor money, owner-paid equipment/inventory/expenses the business relies on). Rough estimate is fine. If none/unsure, explicitly record 0 and say so.
 
@@ -321,6 +327,7 @@ Assets/lease/equity rules:
   - If none/unclear, set initial_lease = "0,none".
   - If amount is unclear but lease exists, use 0 for the payment amount and best-known period (or "unknown" if not known).
 - initial_equity must be a number >= 0 representing a rough total of money/value already put into the business so far. If none/unclear, set initial_equity = 0.
+- total_debt_outstanding must be a number >= 0 representing how much the business currently owes (as of last month). If none/unclear, set total_debt_outstanding = 0.
 
 The business_description_summary must include a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.

@@ -200,9 +200,13 @@ def post_financials_handler(*, app, request):
       )
 
     # Ensure the submission is keyed to the consult draft's client_id and model.
+    # Merge operating_model as defaults only so it never overwrites client-entered values
+    # (especially Financials fields like total_debt_outstanding).
     payload = dict(payload)
     payload["client_id"] = str(draft.get("client_id") or "").strip()
-    payload.update(operating_model)
+    for k, v in operating_model.items():
+      if k not in payload or payload.get(k) in (None, ""):
+        payload[k] = v
     payload["target_market"] = (target_market_csv or None)
     payload["target_market_summary"] = target_market_summary
     payload["target_market_b2b_industry"] = (b2b_industry or None)
