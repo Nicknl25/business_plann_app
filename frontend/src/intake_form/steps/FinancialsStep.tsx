@@ -13,19 +13,12 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 const FINANCIAL_SERVER_FIELDS: (keyof typeof serverFieldToFormField)[] = [
   "current_revenue",
   "current_cogs",
-  "expected_revenue_growth_pct_next_year",
-  "tax_rate",
-  "marketing_expense",
-  "r_and_d_expense",
-  "sga_expense",
   "other_operating_expense",
   "monthly_rent_expense",
   "other_monthly_debt_payments",
   "current_payroll",
   "current_num_employees",
-  "planned_num_employees_5yrs",
   "current_capex",
-  "planned_capex_5yr",
   "ar_balance",
   "ap_balance",
   "inventory_balance",
@@ -373,23 +366,15 @@ export default function FinancialsStep() {
       const body: any = res.data;
       setFinancialsDone(Boolean(body?.done));
       setMessages((prev) => {
-        const editFinalize = Boolean(options?.editFinalize) && Boolean(body?.done);
-        const base = editFinalize
-          ? prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-          : prev;
         const next: ChatMessage[] = [
-          ...base,
+          ...prev,
           { role: "assistant" as const, content: String(body?.assistant_message || "") },
         ];
         if (body?.done) {
-          if (editFinalize) {
-            next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-          } else {
-            const already = next.some(
-              (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-            );
-            if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-          }
+          const already = next.some(
+            (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
+          );
+          if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
         }
         return next;
       });

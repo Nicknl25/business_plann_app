@@ -36,6 +36,81 @@ def _parse_float(value: Any) -> Optional[float]:
     return None
 
 
+def _format_float_compact(value: float) -> str:
+  # Compact numeric string suitable for comma-separated storage.
+  try:
+    if float(value).is_integer():
+      return str(int(value))
+  except Exception:
+    pass
+  return f"{float(value):g}"
+
+
+def _normalize_lease_period(value: Any) -> str:
+  raw = "" if value is None else str(value).strip().lower()
+  if not raw:
+    return "unknown"
+  if raw in ("none", "no", "n/a", "na", "0", "zero"):
+    return "none"
+  aliases = {
+    "month": "monthly",
+    "monthly": "monthly",
+    "per month": "monthly",
+    "mo": "monthly",
+    "week": "weekly",
+    "weekly": "weekly",
+    "per week": "weekly",
+    "wk": "weekly",
+    "biweekly": "biweekly",
+    "bi-weekly": "biweekly",
+    "every two weeks": "biweekly",
+    "quarter": "quarterly",
+    "quarterly": "quarterly",
+    "per quarter": "quarterly",
+    "year": "annually",
+    "annual": "annually",
+    "annually": "annually",
+    "per year": "annually",
+    "semiannual": "semiannually",
+    "semi-annually": "semiannually",
+    "semiannually": "semiannually",
+  }
+  for key, normalized in aliases.items():
+    if raw == key:
+      return normalized
+  # Accept short descriptive phrases (e.g., "every month").
+  for key, normalized in aliases.items():
+    if key in raw:
+      return normalized
+  return raw
+
+
+def _normalize_initial_lease(value: Any) -> str:
+  raw = "" if value is None else str(value).strip()
+  if not raw:
+    return "0,none"
+  lowered = raw.lower()
+  if lowered in ("0", "none", "no", "n/a", "na", "zero"):
+    return "0,none"
+
+  amount_part = raw
+  period_part = "unknown"
+  if "," in raw:
+    parts = [p.strip() for p in raw.split(",") if p.strip() or p == "0"]
+    if len(parts) >= 1:
+      amount_part = parts[0]
+    if len(parts) >= 2:
+      period_part = parts[1]
+
+  amount_val = _parse_float(amount_part)
+  if amount_val is None or amount_val < 0:
+    amount_val = 0.0
+  period_norm = _normalize_lease_period(period_part)
+  if period_norm == "none":
+    return "0,none"
+  return f"{_format_float_compact(amount_val)},{period_norm}"
+
+
 def _normalize_capacity_driver(value: Any) -> Optional[str]:
   if value is None:
     return None
@@ -342,6 +417,21 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   else:
     if row["unit_price"] <= 0:
       errors["unit_price"] = "unit_price must be greater than 0"
+
+  # Operating assets / leases (captured conversationally; default to non-null values).
+  assets_raw = payload.get("initial_assets")
+  assets_val = _parse_float(assets_raw)
+  if assets_val is None or assets_val < 0:
+    assets_val = 0.0
+  row["initial_assets"] = float(assets_val)
+
+  row["initial_lease"] = _normalize_initial_lease(payload.get("initial_lease"))
+
+  equity_raw = payload.get("initial_equity")
+  equity_val = _parse_float(equity_raw)
+  if equity_val is None or equity_val < 0:
+    equity_val = 0.0
+  row["initial_equity"] = float(equity_val)
 
   # Store countries/milestones as JSON strings for TEXT columns.
   for key in ("countries", "milestones"):

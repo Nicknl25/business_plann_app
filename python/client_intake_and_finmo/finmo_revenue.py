@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 import os
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 try:
@@ -14,10 +11,6 @@ except Exception:  # pragma: no cover
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
-
-DEFAULT_STATE_PATH = (
-  Path(__file__).resolve().parent / "temp" / "latest_intake.json"
-)
 
 
 def _maybe_load_dotenv() -> None:
@@ -81,38 +74,6 @@ def _to_float(value: Any) -> Optional[float]:
     return float(raw)
   except Exception:
     return None
-
-
-def record_latest_intake(
-  *,
-  current_revenue: float,
-  state_path: Path = DEFAULT_STATE_PATH,
-  extra: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-  state_path.parent.mkdir(parents=True, exist_ok=True)
-
-  payload: Dict[str, Any] = {
-    "current_revenue": float(current_revenue),
-    "submitted_at_utc": datetime.now(timezone.utc).isoformat(),
-  }
-  if extra:
-    payload.update(extra)
-
-  state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-  return payload
-
-
-def read_latest_intake(
-  *, state_path: Path = DEFAULT_STATE_PATH
-) -> Dict[str, Any]:
-  if not state_path.exists():
-    raise FileNotFoundError(
-      f"Latest intake state not found at {state_path}. Submit the intake form first."
-    )
-  data = json.loads(state_path.read_text(encoding="utf-8"))
-  if not isinstance(data, dict):
-    raise ValueError(f"Invalid latest intake state at {state_path}.")
-  return data
 
 
 def read_intake_submission_from_db(*, client_id: str) -> Dict[str, Any]:

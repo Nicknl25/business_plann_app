@@ -133,19 +133,39 @@ def post_financials_consult_handler(*, app, request):
     if conf_val <= 0 or conf_val > 1:
       raise RuntimeError("confidence must be between 0 and 1.")
 
-    try:
-      revenue = float(final_obj.get("current_revenue"))
-    except Exception as exc:
-      raise RuntimeError("current_revenue must be a number.") from exc
-    if revenue < 0:
-      raise RuntimeError("current_revenue must be >= 0.")
+    numeric_fields = [
+      "current_revenue",
+      "current_cogs",
+      "other_operating_expense",
+      "monthly_rent_expense",
+      "other_monthly_debt_payments",
+      "current_payroll",
+      "current_num_employees",
+      "current_capex",
+      "ar_balance",
+      "ap_balance",
+      "inventory_balance",
+      "total_debt_outstanding",
+      "annual_interest_payment",
+      "annual_principal_payment",
+      "owner_compensation",
+      "cash_on_hand",
+    ]
 
-    if revenue > 0:
-      if final_obj.get("current_cogs") is None:
-        raise RuntimeError("current_cogs is required when current_revenue > 0.")
-      if final_obj.get("expected_revenue_growth_pct_next_year") is None:
+    numeric_vals: Dict[str, float] = {}
+    for field in numeric_fields:
+      try:
+        numeric_vals[field] = float(final_obj.get(field))
+      except Exception as exc:
+        raise RuntimeError(f"{field} must be a number.") from exc
+      if numeric_vals[field] < 0:
+        raise RuntimeError(f"{field} must be >= 0.")
+
+    debt = numeric_vals["total_debt_outstanding"]
+    if debt <= 1e-9:
+      if numeric_vals["annual_interest_payment"] > 1e-9 or numeric_vals["annual_principal_payment"] > 1e-9:
         raise RuntimeError(
-          "expected_revenue_growth_pct_next_year is required when current_revenue > 0."
+          "annual_interest_payment and annual_principal_payment must be 0 when total_debt_outstanding is 0."
         )
 
   try:

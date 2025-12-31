@@ -81,9 +81,6 @@ def _parse_responses_text(data: Dict[str, Any]) -> str:
 
 
 def _final_schema() -> Dict[str, Any]:
-  def _num_or_null() -> Dict[str, Any]:
-    return {"type": ["number", "null"]}
-
   return {
     "name": "intake_financials_final",
     "schema": {
@@ -92,47 +89,33 @@ def _final_schema() -> Dict[str, Any]:
       "properties": {
         "financials_summary": {"type": "string"},
         "current_revenue": {"type": "number"},
-        "current_cogs": _num_or_null(),
-        "expected_revenue_growth_pct_next_year": _num_or_null(),
-        "tax_rate": _num_or_null(),
-        "marketing_expense": _num_or_null(),
-        "r_and_d_expense": _num_or_null(),
-        "sga_expense": _num_or_null(),
-        "other_operating_expense": _num_or_null(),
-        "monthly_rent_expense": _num_or_null(),
-        "other_monthly_debt_payments": _num_or_null(),
-        "current_payroll": _num_or_null(),
-        "current_num_employees": _num_or_null(),
-        "planned_num_employees_5yrs": _num_or_null(),
-        "current_capex": _num_or_null(),
-        "planned_capex_5yr": _num_or_null(),
-        "ar_balance": _num_or_null(),
-        "ap_balance": _num_or_null(),
-        "inventory_balance": _num_or_null(),
-        "total_debt_outstanding": _num_or_null(),
-        "annual_interest_payment": _num_or_null(),
-        "annual_principal_payment": _num_or_null(),
-        "owner_compensation": _num_or_null(),
-        "cash_on_hand": _num_or_null(),
+        "current_cogs": {"type": "number"},
+        "other_operating_expense": {"type": "number"},
+        "monthly_rent_expense": {"type": "number"},
+        "other_monthly_debt_payments": {"type": "number"},
+        "current_payroll": {"type": "number"},
+        "current_num_employees": {"type": "number"},
+        "current_capex": {"type": "number"},
+        "ar_balance": {"type": "number"},
+        "ap_balance": {"type": "number"},
+        "inventory_balance": {"type": "number"},
+        "total_debt_outstanding": {"type": "number"},
+        "annual_interest_payment": {"type": "number"},
+        "annual_principal_payment": {"type": "number"},
+        "owner_compensation": {"type": "number"},
+        "cash_on_hand": {"type": "number"},
         "confidence": {"type": "number"},
       },
       "required": [
         "financials_summary",
         "current_revenue",
         "current_cogs",
-        "expected_revenue_growth_pct_next_year",
-        "tax_rate",
-        "marketing_expense",
-        "r_and_d_expense",
-        "sga_expense",
         "other_operating_expense",
         "monthly_rent_expense",
         "other_monthly_debt_payments",
         "current_payroll",
         "current_num_employees",
-        "planned_num_employees_5yrs",
         "current_capex",
-        "planned_capex_5yr",
         "ar_balance",
         "ap_balance",
         "inventory_balance",
@@ -165,30 +148,61 @@ def financials_chat_turn(
 You are a business consultant running the Financials intake conversation.
 
 Goal:
-- Capture the client's baseline financial inputs required for their financial model.
+- Capture the client's best-current picture of their financial reality as of last month.
 - Ask one question at a time and keep it non-overwhelming.
-- Do not invent values. If the client is unsure, ask for their best estimate and confirm.
+- Behave like a human consultant: infer intent, keep it conversational, and avoid rigid command-style prompts.
 
-Data to capture (you can gather over multiple turns):
-- current_revenue (annual, numeric; allow 0 for pre-revenue)
-- current_cogs (annual, numeric; required if revenue > 0)
-- expected_revenue_growth_pct_next_year (percent, numeric; required if revenue > 0; example: 10 means 10%)
-- tax_rate (percent, numeric; example: 25 means 25%)
-- operating expenses: marketing_expense, r_and_d_expense, sga_expense, other_operating_expense (annual)
-- monthly_rent_expense (monthly)
-- other_monthly_debt_payments (monthly)
-- current_payroll (annual)
-- current_num_employees (count)
-- planned_num_employees_5yrs (count)
-- current_capex (annual)
-- planned_capex_5yr (annual)
-- working capital: ar_balance, ap_balance, inventory_balance (current balances)
-- debt/liquidity: total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand (annual or current as applicable)
+Core rule for this section:
+- Do not ask the client to choose or label a time basis. Use the anchor "as of last month".
+- Anchor everything to "as of last month". If the client doesn't have the item, explicitly tell them you're recording 0 and move on.
+- Nothing should be left unknown: if you can't get a clear answer after minimal clarification, record 0 and move on.
 
 Style:
-- Use simple language and confirm units (annual vs monthly) in the question.
-- Keep answers numeric. If they give ranges, ask for one number.
-- Do not discuss operations, target market, or people except as context to clarify financial scope.
+- One plain question sentence per message.
+- Optional short bullet choices under it (not numbered).
+- Explain each item in everyday terms (assume no finance background).
+- Only ask for a number if the client actually has the item as of last month.
+- If the client says "no", "none", "not yet", or they don't know after brief clarification, record 0 and explicitly say so.
+- If they give a range, ask for one best number. If they give formatted strings ($, commas, "k"), interpret them into a number.
+- Ask the minimum number of clarifying questions needed to reconcile economic reality, then stop. Usually 0–1; occasionally 2; never a chain.
+- Use information from other consults only to reconcile reality (not to debate or forecast).
+
+Items to cover (one at a time, in a sensible order):
+- Money coming in (revenue)
+- Direct costs to deliver product/service (COGS)
+- Other regular operating bills (other operating expense)
+- Rent payments (rent)
+- Payroll for employees (payroll) and headcount (employees)
+- Owner pay or owner's draws (owner compensation)
+- Larger one-time equipment/investment spend (capex)
+- Debt (how much is owed) and required payments; if there is no debt, do not ask about interest or principal and record them as 0
+- Cash on hand (cash)
+- Money customers owe you (AR), money you owe others (AP), and inventory on hand (inventory)
+
+Everyday phrasing guide (adapt as needed; keep it short and natural):
+- Revenue: "money that came in from customers"
+- COGS: "what it cost to make/buy what you sold, or to deliver the service"
+- Other operating expense: "other regular business bills (utilities, software, insurance, shipping, etc.)"
+- Rent: "rent for your space"
+- Payroll: "what you paid employees"
+- Employees: "how many people were on payroll"
+- Owner compensation: "money you paid yourself from the business (wages/draws)"
+- Capex: "bigger one-time purchases like equipment, vehicles, or build-out"
+- Debt outstanding: "how much the business still owes on loans/credit"
+- Debt payments: "loan/credit payments you made"
+- Interest: "the interest portion of loan payments"
+- Principal: "the part of payments that pays down the balance"
+- Cash on hand: "cash in business bank accounts (and cash register, if applicable)"
+- AR: "money customers still owe you"
+- AP: "money you owe suppliers/credit cards/bills"
+- Inventory: "the value of products you have on hand to sell"
+
+Relationship reasoning (keep it light):
+- If revenue exists but cash is low/zero, consider whether money is tied up in customer IOUs (AR) and ask one clarification if needed.
+- If revenue exists and AR is zero, infer collections are mostly immediate (cash/card).
+- If cash exists but revenue is zero, consider owner funding or borrowing; ask one clarification if helpful.
+- Defaulting to 0 is a last resort: if context strongly suggests an item likely exists (e.g., inventory business with inventory=0, founder working but no pay, revenue with no cash), pause and ask a quick sanity-check question before recording 0.
+- Use judgment, not a checklist: reconcile obvious reality with the minimum clarifying questions, then move on.
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -237,11 +251,20 @@ You are a business consultant finalizing the Financials intake.
 Return ONLY JSON matching the provided schema. No prose.
 
 Rules:
-- Do not invent values. Use only values the client provided and explicitly agreed to.
-- Values must be numeric. Percent fields (tax_rate, expected_revenue_growth_pct_next_year) must be given as percent numbers (e.g., 10 means 10%).
-- If current_revenue > 0, current_cogs and expected_revenue_growth_pct_next_year must not be null.
-- If a field was not discussed and the client did not provide a value, return null for that field (except required-by-revenue rule above).
-- financials_summary should be a short, human-readable recap of the key financial assumptions (1 paragraph).
+- Do not invent non-zero values. Use only values the client provided; if a value is unknown/not applicable, return 0.
+- No nulls: every numeric field must be a number (0 is allowed).
+- All values must be >= 0.
+- If total_debt_outstanding is 0, annual_interest_payment and annual_principal_payment must be 0.
+
+Unit conventions (do not mention these in the summary):
+- Treat these as annualized flow assumptions: current_revenue, current_cogs, other_operating_expense, current_payroll, current_capex, annual_interest_payment, annual_principal_payment, owner_compensation.
+  - If the conversation only establishes a "last month" amount, annualize it by multiplying by 12.
+  - If the client clearly stated a yearly total, use it as-is.
+- Treat these as last-month amounts: monthly_rent_expense, other_monthly_debt_payments.
+- Treat these as end-of-last-month balances: ar_balance, ap_balance, inventory_balance, total_debt_outstanding, cash_on_hand.
+- current_num_employees is a count; round to a whole number if needed.
+
+financials_summary should be a short, plain-language recap anchored to "as of last month" (1 paragraph).
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -287,4 +310,3 @@ Rules:
   if not isinstance(parsed, dict):
     raise RuntimeError("Finalization did not return a JSON object.")
   return parsed
-

@@ -312,23 +312,15 @@ export default function PeopleCapabilityStep() {
       const body: any = res.data;
       setPeopleDone(Boolean(body?.done));
       setPeopleMessages((prev) => {
-        const editFinalize = Boolean(options?.editFinalize) && Boolean(body?.done);
-        const base = editFinalize
-          ? prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-          : prev;
         const next: { role: "user" | "assistant"; content: string }[] = [
-          ...base,
+          ...prev,
           { role: "assistant" as const, content: String(body?.assistant_message || "") },
         ];
         if (body?.done) {
-          if (editFinalize) {
-            next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-          } else {
-            const already = next.some(
-              (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-            );
-            if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-          }
+          const already = next.some(
+            (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
+          );
+          if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
         }
         return next;
       });

@@ -108,6 +108,9 @@ def _final_schema() -> Dict[str, Any]:
         },
         "capacity_driver": {"type": "string", "enum": ["labor", "system", "demand"]},
         "primary_growth_lever": {"type": "string"},
+        "initial_assets": {"type": "number"},
+        "initial_lease": {"type": "string"},
+        "initial_equity": {"type": "number"},
         "legal_entity": {"type": "string"},
         "confidence": {"type": "number"},
       },
@@ -127,6 +130,9 @@ def _final_schema() -> Dict[str, Any]:
         "milestones",
         "capacity_driver",
         "primary_growth_lever",
+        "initial_assets",
+        "initial_lease",
+        "initial_equity",
         "legal_entity",
         "confidence",
       ],
@@ -193,8 +199,21 @@ Information you must collect before finalizing (do NOT show these as internal fi
 - At least one future milestone (forward-looking; include rough timing)
 - What primarily constrains growth: labor | system | demand
 - Primary growth lever
+- As of last month: whether the business already uses any meaningful equipment/vehicles/tools/computers/etc. to operate, and the rough total value of those items (record 0 if none)
+- As of last month: whether the business uses any equipment it does not own but pays to use (leased/rented), and if yes the payment and how often it is paid (store as a comma-separated "amount,period"; record 0 if none)
+- Money/value already put into the business so far (owner cash, investor money, owner-paid equipment/inventory/expenses the business relies on); collect a rough total and record 0 if none/unsure
 - Legal entity type (use a short label only: Sole proprietor, LLC, LLP, S-corp, C-corp, Partnership)
 - A one-paragraph operational summary (includes a brief licensing/permits note; see below)
+
+Existing assets, leased equipment, and value already put into the business (NEW REQUIRED ITEMS):
+- Explain in plain everyday language before asking for numbers. Assume no accounting knowledge.
+- Keep it simple and conversational. No future planning, no ranges, no approval loops.
+- Assets used to operate (as of last month): infer and propose when obvious, then confirm.
+  - If the business type makes likely assets obvious (e.g., lawn care → mower/trimmer/blower), propose 1–2 concrete examples and ask for a simple yes/no confirmation first (no bundled alternatives).
+  - If they confirm, then ask for one rough total value (not itemized, not appraised). If they say no, ask what (if anything) they use.
+  - If none/unsure after one clarification, explicitly record 0 and say so.
+- Leased/rented equipment (as of last month): ask if they pay to use equipment they do not own (e.g., rented vehicle, leased machine). If yes, collect payment amount and how often it is paid (monthly/weekly/quarterly/etc.). If unclear, default payment to 0 and say so. Store as "amount,period". If none, store "0,none".
+- Value already put into the business (not a future plan): ask for a rough total of money/value already put in (owner cash, investor money, owner-paid equipment/inventory/expenses the business relies on). Rough estimate is fine. If none/unsure, explicitly record 0 and say so.
 
 Unit price rules (STRICT):
 - The final unit_price must be explicitly agreed to by the client; you may not unilaterally assign it.
@@ -205,6 +224,7 @@ Unit price rules (STRICT):
 Shipping method rules (STRICT):
 - You should infer and propose the most likely shipping/delivery/fulfillment method first based on the business context (e.g., lawn care is typically performed on-site at the customer's property; a barber is in-person at the shop; a SaaS is delivered digitally).
 - Ask for a simple confirmation ("Is that accurate?") rather than an open-ended question when the answer is obvious.
+- When the likely answer is obvious, do NOT bundle alternatives into the same question (no "...or is there another way?"). Make it a single yes/no confirmation; if they say no, then ask one follow-up about the main way they deliver.
 - Only ask a deeper follow-up if multiple delivery methods are genuinely plausible for this business.
 - The final shipping_method must be explicitly chosen/confirmed by the client (do not assign it unilaterally).
 - Use concrete wording (e.g., in-person service at location, customer pickup, local delivery, shipped via carrier, digital delivery, on-site service, etc.).
@@ -294,6 +314,13 @@ business_type must be chosen from the business_type_candidates list provided in 
 For legal_entity, use a short label only (Sole proprietor, LLC, LLP, S-corp, C-corp, Partnership). If the client is unsure, default to "Sole proprietor".
 
 Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation. If the user did not explicitly agree to a specific number, you must NOT finalize.
+
+Assets/lease/equity rules:
+- initial_assets must be a number >= 0. If none/unclear, set initial_assets = 0.
+- initial_lease must be a comma-separated string "payment_amount,period" (examples: "0,none", "500,monthly", "200,weekly").
+  - If none/unclear, set initial_lease = "0,none".
+  - If amount is unclear but lease exists, use 0 for the payment amount and best-known period (or "unknown" if not known).
+- initial_equity must be a number >= 0 representing a rough total of money/value already put into the business so far. If none/unclear, set initial_equity = 0.
 
 The business_description_summary must include a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.

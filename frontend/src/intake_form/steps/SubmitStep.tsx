@@ -97,13 +97,6 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
         business_start_date: businessStartDate,
         current_revenue: parseNumberFromString(values.currentRevenue),
         current_cogs: parseNumberFromString(values.currentCogs),
-        expected_revenue_growth_pct_next_year: parseNumberFromString(
-          values.expectedRevenueGrowthPctNextYear
-        ),
-        tax_rate: parseNumberFromString(values.taxRate),
-        marketing_expense: parseNumberFromString(values.marketingExpense),
-        r_and_d_expense: parseNumberFromString(values.rAndDExpense),
-        sga_expense: parseNumberFromString(values.sgaExpense),
         other_operating_expense: parseNumberFromString(values.otherOperatingExpense),
         monthly_rent_expense: parseNumberFromString(values.monthlyRentExpense),
         other_monthly_debt_payments: parseNumberFromString(
@@ -111,9 +104,7 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
         ),
         current_payroll: parseNumberFromString(values.currentPayroll),
         current_num_employees: parseNumberFromString(values.currentNumEmployees),
-        planned_num_employees_5yrs: parseNumberFromString(values.plannedNumEmployees5yrs),
         current_capex: parseNumberFromString(values.currentCapex),
-        planned_capex_5yr: parseNumberFromString(values.plannedCapex5yr),
         ar_balance: parseNumberFromString(values.arBalance),
         ap_balance: parseNumberFromString(values.apBalance),
         inventory_balance: parseNumberFromString(values.inventoryBalance),
