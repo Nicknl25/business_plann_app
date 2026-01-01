@@ -1,0 +1,663 @@
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any, Dict, Optional, Sequence
+
+import requests
+
+ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+
+def _load_root_env() -> None:
+  try:
+    from dotenv import load_dotenv  # type: ignore
+  except Exception:
+    return
+  try:
+    load_dotenv(str(ROOT_ENV_PATH))
+  except Exception:
+    pass
+
+
+def _require_openai_key() -> str:
+  _load_root_env()
+  key = (os.getenv("OPENAI_API_KEY") or "").strip()
+  if not key:
+    raise RuntimeError("OPENAI_API_KEY is not configured.")
+  return key
+
+
+def _openai_model() -> str:
+  _load_root_env()
+  return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
+
+
+def _openai_timeout_seconds() -> int:
+  _load_root_env()
+  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
+  if raw:
+    try:
+      return max(30, int(raw))
+    except Exception:
+      return 180
+  return 180
+
+
+def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
+  timeout = _openai_timeout_seconds()
+  last_exc: Optional[Exception] = None
+  for attempt in range(3):
+    try:
+      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+    except requests.exceptions.ConnectionError as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+  if last_exc:
+    raise last_exc
+  raise RuntimeError("OpenAI request failed unexpectedly.")
+
+
+def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
+  consult_type_norm = str(consult_type or "").strip().lower()
+  if consult_type_norm == "ops":
+    return {
+      "consumer_type": {"type": "string", "enum": ["consumer", "b2b", "mixed"]},
+      "business_type": {"type": "string"},
+      "business_description_summary": {"type": "string"},
+      "unit_name": {"type": "string"},
+      "unit_description": {"type": "string"},
+      "units_per_week_capacity": {"type": "number"},
+      "unit_price": {"type": "number"},
+      "shipping_method": {"type": "string"},
+      "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
+      "geographic_scope": {"type": "string", "enum": ["local", "regional", "national", "international"]},
+      "geographic_coverage": {"type": "string"},
+      "countries": {"type": "array", "items": {"type": "string"}},
+      "milestones": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "description": {"type": "string"},
+            "timing": {"type": "string"},
+          },
+          "required": ["description", "timing"],
+        },
+      },
+      "capacity_driver": {"type": "string", "enum": ["labor", "system", "demand"]},
+      "primary_growth_lever": {"type": "string"},
+      "initial_assets": {"type": "number"},
+      "initial_lease": {"type": "string"},
+      "initial_equity": {"type": "number"},
+      "total_debt_outstanding": {"type": "number"},
+      "legal_entity": {"type": "string"},
+      "confidence": {"type": "number"},
+    }
+
+  if consult_type_norm == "target_market":
+    return {
+      "consumer_type": {"type": "string", "enum": ["consumer", "b2b", "mixed"]},
+      "gender_age_intent": {
+        "type": ["array", "null"],
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "gender_focus": {"type": "string", "enum": ["female", "male", "all"]},
+            "age_min": {"type": "number"},
+            "age_max": {"type": "number"},
+          },
+          "required": ["gender_focus", "age_min", "age_max"],
+        },
+      },
+      "income_intent": {
+        "type": ["array", "null"],
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "income_min": {"type": "number"},
+            "income_max": {"type": "number"},
+          },
+          "required": ["income_min", "income_max"],
+        },
+      },
+      "selections": {
+        "type": ["array", "null"],
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "segment": {
+              "type": "string",
+              "enum": [
+                "Education",
+                "Household Structure",
+                "Housing Economics",
+                "Employment",
+              ],
+            },
+            "acs_codes": {"type": "array", "items": {"type": "string"}},
+          },
+          "required": ["segment", "acs_codes"],
+        },
+      },
+      "b2b_industry_terms": {"type": ["array", "null"], "items": {"type": "string"}},
+      "b2b_naics_6": {
+        "type": ["array", "null"],
+        "items": {"type": "string", "pattern": "^[0-9]{6}$"},
+        "minItems": 1,
+        "maxItems": 20,
+      },
+      "b2b_size_bands": {
+        "type": ["array", "null"],
+        "items": {
+          "type": "string",
+          "enum": [
+            "1-4",
+            "5-9",
+            "10-19",
+            "20-99",
+            "100-499",
+            "500-999",
+            "1000-2499",
+            "2500-4999",
+            "5000-9999",
+            "10000+",
+          ],
+        },
+      },
+      "b2b_age_bands": {
+        "type": ["array", "null"],
+        "items": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6-10",
+            "11-15",
+            "16-20",
+            "21-25",
+            "26+",
+          ],
+        },
+      },
+      "target_market_summary": {"type": "string"},
+      "confidence": {"type": "number"},
+    }
+
+  if consult_type_norm == "people":
+    return {
+      "people": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "full_name": {"type": "string"},
+            "role_title": {"type": "string"},
+            "primary_responsibilities": {"type": "string"},
+            "relevant_background": {"type": "string"},
+            "experience_years": {"type": "string"},
+            "why_strengthens_business": {"type": "string"},
+            "paragraph": {"type": "string"},
+          },
+          "required": [
+            "full_name",
+            "role_title",
+            "primary_responsibilities",
+            "relevant_background",
+            "experience_years",
+            "why_strengthens_business",
+            "paragraph",
+          ],
+        },
+      },
+      "key_people_summary": {"type": "string"},
+      "confidence": {"type": "number"},
+    }
+
+  if consult_type_norm == "financials":
+    return {
+      "financials_summary": {"type": "string"},
+      "current_revenue": {"type": "number"},
+      "current_cogs": {"type": "number"},
+      "other_operating_expense": {"type": "number"},
+      "monthly_rent_expense": {"type": "number"},
+      "other_monthly_debt_payments": {"type": "number"},
+      "current_payroll": {"type": "number"},
+      "current_num_employees": {"type": "number"},
+      "current_capex": {"type": "number"},
+      "ar_balance": {"type": "number"},
+      "ap_balance": {"type": "number"},
+      "inventory_balance": {"type": "number"},
+      "total_debt_outstanding": {"type": "number"},
+      "annual_interest_payment": {"type": "number"},
+      "annual_principal_payment": {"type": "number"},
+      "owner_compensation": {"type": "number"},
+      "cash_on_hand": {"type": "number"},
+      "confidence": {"type": "number"},
+    }
+
+  raise ValueError(f"Unknown consult_type={consult_type!r}")
+
+
+def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> Dict[str, Any]:
+  """
+  OpenAI strict json_schema requires:
+  - every object schema must include additionalProperties: false
+  - every object schema must include required listing ALL keys in properties
+
+  Sparse patch objects with optional keys are not compatible.
+  We represent a patch as an array of operations:
+    [{ "field": "unit_price", "value_json": "10000" }]
+  where value_json is a JSON-encoded value string (parsed deterministically server-side).
+
+  NOTE: OpenAI's json_schema subset rejects oneOf/anyOf in response schemas.
+  """
+  return {
+    "name": "consult_intent_router",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "confirm_proceed",
+            "confirm_clarify",
+            "edit_patch",
+            "answer_readonly",
+          ],
+        },
+        "assistant_message": {"type": "string"},
+        "patch": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "field": {"type": "string", "enum": list(allowed_patch_fields)},
+              "value_json": {"type": "string"},
+            },
+            "required": ["field", "value_json"],
+          },
+        },
+      },
+      "required": ["action", "assistant_message", "patch"],
+    },
+  }
+
+
+def _last_assistant_message(messages: Sequence[Dict[str, Any]]) -> str:
+  for msg in reversed(list(messages)):
+    if str(msg.get("role") or "").strip().lower() != "assistant":
+      continue
+    content = str(msg.get("content") or "").strip()
+    if content:
+      return content
+  return ""
+
+
+def route_intent(
+  *,
+  consult_type: str,
+  user_message: str,
+  baseline_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  recent_messages: Sequence[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+  """
+  GPT-only intent router for post-completion messages.
+
+  This function is the sole authority for interpreting user intent:
+  - confirmation vs. objection vs. ambiguity
+  - which field(s) the user intends to change
+  - numeric normalization (e.g., 10k -> 10000)
+
+  Returns:
+    { action, assistant_message, patch }
+  """
+  consult_type_norm = str(consult_type or "").strip().lower()
+  if consult_type_norm not in ("ops", "target_market", "people", "financials"):
+    raise ValueError(f"Unknown consult_type={consult_type!r}")
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+
+  confirm_questions = {
+    "ops": "Does this look right before we move on to Customers & Positioning?",
+    "target_market": "Does this look right before we move on to People & Capability?",
+    "people": "Does this look right before we move on to Financials?",
+    "financials": "Does this look right before we move on to Submit intake?",
+  }
+  confirm_question = confirm_questions[consult_type_norm]
+  summary_fields = {
+    "ops": "business_description_summary",
+    "target_market": "target_market_summary",
+    "people": "key_people_summary",
+    "financials": "financials_summary",
+  }
+  summary_field = summary_fields[consult_type_norm]
+
+  allowed_fields = {
+    "ops": [
+      "consumer_type",
+      "business_type",
+      "business_description_summary",
+      "unit_name",
+      "unit_description",
+      "units_per_week_capacity",
+      "unit_price",
+      "shipping_method",
+      "sales_modality",
+      "geographic_scope",
+      "geographic_coverage",
+      "countries",
+      "milestones",
+      "capacity_driver",
+      "primary_growth_lever",
+      "initial_assets",
+      "initial_lease",
+      "initial_equity",
+      "total_debt_outstanding",
+      "legal_entity",
+      "confidence",
+    ],
+    "target_market": [
+      "consumer_type",
+      "gender_age_intent",
+      "income_intent",
+      "selections",
+      "b2b_industry_terms",
+      "b2b_naics_6",
+      "b2b_size_bands",
+      "b2b_age_bands",
+      "target_market_summary",
+      "confidence",
+    ],
+    "people": [
+      "people",
+      "key_people_summary",
+      "confidence",
+    ],
+    "financials": [
+      "current_revenue",
+      "current_cogs",
+      "other_operating_expense",
+      "monthly_rent_expense",
+      "other_monthly_debt_payments",
+      "current_payroll",
+      "current_num_employees",
+      "current_capex",
+      "ar_balance",
+      "ap_balance",
+      "inventory_balance",
+      "total_debt_outstanding",
+      "annual_interest_payment",
+      "annual_principal_payment",
+      "owner_compensation",
+      "cash_on_hand",
+      "financials_summary",
+      "confidence",
+    ],
+  }[consult_type_norm]
+
+  recent_messages_list = list(recent_messages or [])
+  last_assistant = _last_assistant_message(recent_messages_list)
+
+  system = f"""
+You are the intent router for a multi-step business intake app.
+
+Non-negotiable rule:
+- You are the SOLE authority for interpreting the user's intent. Do NOT defer intent decisions to any frontend/back-end heuristics.
+
+You are operating ONLY on post-completion messages for the "{consult_type_norm}" consult.
+
+You are given:
+- baseline_json: the last confirmed structured output for this consult (canonical baseline)
+- shared_context: read-only outputs from other consults
+- last_assistant_message: the most recent assistant message shown to the user
+- user_message: the new user message
+
+Your job is to decide what the user meant, like a human consultant would.
+
+Output ONLY JSON matching the schema.
+
+Actions:
+1) confirm_proceed
+  - Use when the user is clearly agreeing / confirming OR their response does not express disagreement, uncertainty, or a request to change something.
+  - Objection-first model: if they are not objecting, proceed.
+2) confirm_clarify
+  - Use when the user message is ambiguous/contradictory/uncertain and you cannot confidently infer whether they want changes or want to proceed.
+  - assistant_message MUST be a single, brief clarifying question.
+3) edit_patch
+  - Use when the user is requesting a correction/update to the already-completed consult (even if phrased casually).
+  - patch MUST be an array of operations. Each operation is an object:
+      {{ "field": "<field_name>", "value_json": "<JSON-encoded value>" }}
+    - value_json MUST be valid JSON for the value type:
+      - numbers: "10000" (no quotes)
+      - strings: "\"some text\"" (must be quoted JSON string)
+      - arrays/objects: valid JSON like "[...]" or "{...}"
+  - You MUST normalize values:
+    - numeric shorthand like 10k/10K -> 10000, 1.2m -> 1200000
+    - currency words/symbols to plain numbers (numbers must be JSON numbers, not strings)
+  - patch MUST contain ONLY the field(s) that should change (no full rewrites).
+  - patch field names MUST stay within the allowed fields list: {json.dumps(allowed_fields, ensure_ascii=False)}.
+  - For edit_patch, assistant_message MUST:
+    - briefly acknowledge the specific change(s)
+    - include an updated summary paragraph (preserve the original wording/style as much as possible; change only the facts that changed)
+    - end with this exact confirmation question:
+      "{confirm_question}"
+  - For edit_patch, patch MUST include the updated summary field for this consult:
+    - ops: business_description_summary
+    - target_market: target_market_summary
+    - people: key_people_summary
+    - financials: financials_summary
+4) answer_readonly
+  - Use when the user is asking a question that is NOT a change request and is not an approval/disapproval of the summary.
+  - Answer using baseline_json + shared_context (read-only). Do NOT apply any patch (patch=null).
+  - Keep it short and directly answer the user's question. Do not reprint the full baseline summary.
+
+Interpretation rules:
+- If the user says something like "10000, not 10" after correcting unit price, infer they are correcting the same thing again (do not require keywords).
+- If the user's intent is clear, proceed confidently; do not re-ask for confirmation.
+- If the user disagrees or requests changes, treat it as edit_patch.
+
+Return JSON only. No prose.
+""".strip()
+
+  context = {
+    "consult_type": consult_type_norm,
+    "baseline_json": baseline_json,
+    "shared_context": shared_context,
+    "last_assistant_message": last_assistant,
+    "user_message": str(user_message or "").strip(),
+    "confirm_question": confirm_question,
+  }
+  context_blob = json.dumps(context, ensure_ascii=False)
+
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  if summary_field not in allowed_fields:
+    raise RuntimeError(f"Intent router allowed_fields missing required summary field: {summary_field}")
+  schema_wrapper = _final_schema(allowed_patch_fields=allowed_fields, consult_type=consult_type_norm)
+  payload = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": context_blob},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        result = part["json"]
+        action = str(result.get("action") or "").strip()
+        patch_ops = result.get("patch")
+
+        if action != "edit_patch":
+          # For non-edit actions, enforce read-only semantics: no patch application.
+          result["patch"] = None
+          return result
+
+        if not isinstance(patch_ops, list) or not patch_ops:
+          raise RuntimeError("Intent router returned edit_patch without a patch operations array.")
+
+        value_schemas = _value_schema_by_consult_field(consult_type=consult_type_norm)
+        patch_dict: Dict[str, Any] = {}
+        for op in patch_ops:
+          if not isinstance(op, dict):
+            continue
+          field = str(op.get("field") or "").strip()
+          value_json_raw = str(op.get("value_json") or "").strip()
+          if not field:
+            continue
+          if field not in allowed_fields:
+            raise RuntimeError(f"Intent router returned disallowed patch field: {field}")
+          expected_schema = value_schemas.get(field) if isinstance(value_schemas.get(field), dict) else {}
+          expected_types = expected_schema.get("type")
+          allowed_types: list[str] = []
+          if isinstance(expected_types, str):
+            allowed_types = [expected_types]
+          elif isinstance(expected_types, list):
+            allowed_types = [str(t) for t in expected_types if isinstance(t, str)]
+
+          try:
+            value = json.loads(value_json_raw)
+          except Exception:
+            if "string" in allowed_types:
+              value = value_json_raw
+            else:
+              raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
+
+          if allowed_types:
+            if value is None:
+              if "null" not in allowed_types:
+                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+            elif isinstance(value, bool):
+              if "boolean" not in allowed_types:
+                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+              if "number" not in allowed_types:
+                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+            elif isinstance(value, str):
+              if "string" not in allowed_types:
+                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+            elif isinstance(value, list):
+              if "array" not in allowed_types:
+                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+            elif isinstance(value, dict):
+              if "object" not in allowed_types:
+                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+
+          patch_dict[field] = value
+
+        if summary_field not in patch_dict:
+          raise RuntimeError(f"Intent router edit_patch missing required summary field: {summary_field}")
+
+        result["patch"] = patch_dict
+        return result
+
+  # Fallback: parse output_text as JSON (should be rare with strict schema).
+  text_chunks: list[str] = []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_text" and part.get("text"):
+        text_chunks.append(str(part["text"]))
+  raw = "\n".join(text_chunks).strip()
+  parsed = json.loads(raw)
+  if not isinstance(parsed, dict):
+    raise RuntimeError("Intent router did not return a JSON object.")
+  # Mirror normalization done in the output_json path.
+  action = str(parsed.get("action") or "").strip()
+  patch_ops = parsed.get("patch")
+  if action != "edit_patch":
+    parsed["patch"] = None
+    return parsed
+  if not isinstance(patch_ops, list) or not patch_ops:
+    raise RuntimeError("Intent router returned edit_patch without a patch operations array.")
+  value_schemas = _value_schema_by_consult_field(consult_type=consult_type_norm)
+  patch_dict: Dict[str, Any] = {}
+  for op in patch_ops:
+    if not isinstance(op, dict):
+      continue
+    field = str(op.get("field") or "").strip()
+    value_json_raw = str(op.get("value_json") or "").strip()
+    if not field:
+      continue
+    if field not in allowed_fields:
+      raise RuntimeError(f"Intent router returned disallowed patch field: {field}")
+    expected_schema = value_schemas.get(field) if isinstance(value_schemas.get(field), dict) else {}
+    expected_types = expected_schema.get("type")
+    allowed_types: list[str] = []
+    if isinstance(expected_types, str):
+      allowed_types = [expected_types]
+    elif isinstance(expected_types, list):
+      allowed_types = [str(t) for t in expected_types if isinstance(t, str)]
+
+    try:
+      value = json.loads(value_json_raw)
+    except Exception:
+      if "string" in allowed_types:
+        value = value_json_raw
+      else:
+        raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
+
+    if allowed_types:
+      if value is None:
+        if "null" not in allowed_types:
+          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+      elif isinstance(value, bool):
+        if "boolean" not in allowed_types:
+          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+      elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "number" not in allowed_types:
+          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+      elif isinstance(value, str):
+        if "string" not in allowed_types:
+          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+      elif isinstance(value, list):
+        if "array" not in allowed_types:
+          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+      elif isinstance(value, dict):
+        if "object" not in allowed_types:
+          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+
+    patch_dict[field] = value
+  if summary_field not in patch_dict:
+    raise RuntimeError(f"Intent router edit_patch missing required summary field: {summary_field}")
+  parsed["patch"] = patch_dict
+  return parsed

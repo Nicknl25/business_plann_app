@@ -442,11 +442,11 @@ def send_intake_confirmation_email(
 
   body = f"""Dear {first_name} {last_name},
 
-Thank you for submitting your business plan intake. We’ve received your information and will begin reviewing it shortly.
+Thank you for submitting your business plan intake. We've received your information and will begin reviewing it shortly.
 
 Your reference code is: {client_id}
 
-Please keep this code for your records—our team may use it to quickly locate your submission if you contact us with questions or updates.
+Please keep this code for your records-our team may use it to quickly locate your submission if you contact us with questions or updates.
 
 Sincerely,
 Tithe Financial Wealth Management

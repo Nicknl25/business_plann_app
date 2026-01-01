@@ -27,14 +27,6 @@ export default function ClientInformationModal({
   const form = useFormContext<IntakeValues>();
   const {
     setEditSection,
-    setOpsConfirmed,
-    setTargetMarketConfirmed,
-    setPeopleConfirmed,
-    setFinancialsConfirmed,
-    setConsultDone,
-    setTargetMarketDone,
-    setPeopleDone,
-    setFinancialsDone,
     setSubmitError,
     setSubmitSuccess,
   } = useIntakeFlow();
@@ -54,31 +46,23 @@ export default function ClientInformationModal({
 
     if (section === "ops") {
       setEditSection("ops");
-      setOpsConfirmed(false);
-      setConsultDone(false);
       onClose();
       jumpToSection("intake-section-ops");
       return;
     }
     if (section === "targetMarket") {
       setEditSection("targetMarket");
-      setTargetMarketConfirmed(false);
-      setTargetMarketDone(false);
       onClose();
       jumpToSection("intake-section-target-market");
       return;
     }
     if (section === "people") {
       setEditSection("people");
-      setPeopleConfirmed(false);
-      setPeopleDone(false);
       onClose();
       jumpToSection("intake-section-people");
       return;
     }
     setEditSection("financials");
-    setFinancialsConfirmed(false);
-    setFinancialsDone(false);
     onClose();
     jumpToSection("intake-section-financials");
   }

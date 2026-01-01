@@ -5,7 +5,6 @@ import { Button } from "../../components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { useIntakeFlow } from "../flow/IntakeFlowContext";
-import { decideConfirmation } from "../flow/confirmationIntent";
 import type { IntakeValues } from "../schema";
 
 export default function TargetMarketStep() {
@@ -13,7 +12,6 @@ export default function TargetMarketStep() {
   const {
     planStarted,
     draftId,
-    clientId,
     opsConfirmed,
     editSection,
     setEditSection,
@@ -31,7 +29,6 @@ export default function TargetMarketStep() {
   const [targetMarketInput, setTargetMarketInput] = useState("");
   const [targetMarketLoading, setTargetMarketLoading] = useState(false);
   const [targetMarketError, setTargetMarketError] = useState<string | null>(null);
-  const [editConfirmPending, setEditConfirmPending] = useState(false);
   const didAutoStart = useRef(false);
   const [resumeChecked, setResumeChecked] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -49,46 +46,14 @@ export default function TargetMarketStep() {
     setTargetMarketInput("");
     setTargetMarketLoading(false);
     setTargetMarketError(null);
-    setEditConfirmPending(false);
     didAutoStart.current = false;
     setResumeChecked(false);
   }, [resetCounter]);
 
-  const awaitingConfirmation = Boolean(targetMarketDone && !targetMarketConfirmed);
-  const isActive = Boolean(opsConfirmed && !targetMarketConfirmed);
-
-  const CONFIRM_PROMPT =
-    "Does this look right before we move on to People & Capability?";
-  const CLARIFY_PROMPT =
-    "Just to confirm - are we good to move on, or is there anything you want to change?";
   const editMode = editSection === "targetMarket";
-
-  function handleConfirmationReply(message: string) {
-    const decision = decideConfirmation(message);
-    if (decision === "proceed") {
-      setTargetMarketConfirmed(true);
-      setTargetMarketMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Great — let’s move on to People & Capability." },
-      ]);
-      return;
-    }
-
-    if (decision === "clarify") {
-      setTargetMarketMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: CLARIFY_PROMPT },
-      ]);
-      return;
-    }
-
-    setTargetMarketMessages((prev) =>
-      prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-    );
-    setTargetMarketDone(false);
-    setTargetMarketSummary(null);
-    void sendTargetMarketMessage(message, { reopen: true, editFinalize: editConfirmPending });
-  }
+  const awaitingConfirmation = Boolean(targetMarketDone && !targetMarketConfirmed);
+  const isActive = Boolean(editMode || (opsConfirmed && !targetMarketConfirmed));
+  const isUnlocked = Boolean(opsConfirmed);
 
   useEffect(() => {
     if (!planStarted) return;
@@ -117,7 +82,7 @@ export default function TargetMarketStep() {
     if (!container) return;
 
     const wasLoading = prevLoading.current;
-    const isLoading = targetMarketLoading && !targetMarketDone;
+    const isLoading = targetMarketLoading;
     const prevLen = prevMessagesLen.current;
 
     if (isLoading) {
@@ -157,38 +122,16 @@ export default function TargetMarketStep() {
 
   useEffect(() => {
     if (!planStarted) return;
-    if (!awaitingConfirmation) return;
-    setTargetMarketMessages((prev) => {
-      const already = prev.some(
-        (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-      );
-      if (already) return prev;
-      return [...prev, { role: "assistant", content: CONFIRM_PROMPT }];
-    });
-  }, [awaitingConfirmation, planStarted]);
-
-  useEffect(() => {
-    if (!planStarted) return;
-    if (!targetMarketConfirmed) return;
-    setTargetMarketMessages((prev) =>
-      prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-    );
-    setEditConfirmPending(false);
-  }, [planStarted, targetMarketConfirmed]);
-
-  useEffect(() => {
-    if (!draftId || !clientId) return;
-    if (!planStarted) return;
     if (!resumeChecked) return;
     if (!isActive) return;
     if (targetMarketDone) return;
     if (targetMarketLoading) return;
     if (targetMarketMessages.length > 0) return;
     if (didAutoStart.current) return;
+    if (!draftId) return;
     didAutoStart.current = true;
     void startTargetMarketConversation();
   }, [
-    clientId,
     draftId,
     isActive,
     planStarted,
@@ -257,7 +200,10 @@ export default function TargetMarketStep() {
   }, [draftId, planStarted, setTargetMarketDone, setTargetMarketSummary]);
 
   async function startTargetMarketConversation(preface?: string) {
-    if (!draftId || !clientId) return;
+    if (!draftId) {
+      setTargetMarketError("Missing draft id. Reload and start Ops first.");
+      return;
+    }
     setTargetMarketError(null);
     setTargetMarketLoading(true);
     setTargetMarketMessages(preface ? [{ role: "assistant", content: preface }] : []);
@@ -315,22 +261,27 @@ export default function TargetMarketStep() {
       }
 
       const body: any = res.data;
+      const action = String(body?.action || "");
+      if (action === "confirm_proceed") {
+        setTargetMarketConfirmed(true);
+      }
       setTargetMarketDone(Boolean(body?.done));
-      setTargetMarketMessages((prev) => {
-        const next: { role: "user" | "assistant"; content: string }[] = [
-          ...prev,
-          { role: "assistant" as const, content: String(body?.assistant_message || "") },
-        ];
-        if (body?.done) {
-          const already = next.some(
-            (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
+      setTargetMarketMessages((prev) => [
+        ...prev,
+        { role: "assistant" as const, content: String(body?.assistant_message || "") },
+      ]);
+      const tmJson = body?.target_market_json;
+      if (tmJson) {
+        try {
+          const parsed = JSON.parse(String(tmJson));
+          setTargetMarketSummary(
+            parsed && typeof parsed === "object"
+              ? String((parsed as any).target_market_summary || "").trim() || null
+              : null
           );
-          if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
+        } catch {
+          setTargetMarketSummary(null);
         }
-        return next;
-      });
-      if (body?.done) {
-        setTargetMarketSummary(String(body?.assistant_message || "").trim() || null);
       }
     } catch (error) {
       setTargetMarketError(error instanceof Error ? error.message : String(error));
@@ -339,11 +290,11 @@ export default function TargetMarketStep() {
     }
   }
 
-  async function sendTargetMarketMessage(
-    message: string,
-    options?: { reopen?: boolean; editFinalize?: boolean }
-  ) {
-    if (!draftId || !clientId) return;
+  async function sendTargetMarketMessage(message: string) {
+    if (!draftId) {
+      setTargetMarketError("Missing draft id. Reload and start Ops first.");
+      return;
+    }
     setTargetMarketError(null);
     setTargetMarketLoading(true);
 
@@ -362,8 +313,6 @@ export default function TargetMarketStep() {
         {
           draft_id: draftId,
           message,
-          reopen: Boolean(options?.reopen),
-          edit_finalize: Boolean(options?.editFinalize),
           business_name: businessName,
           address,
           address_street: addressStreet,
@@ -385,22 +334,27 @@ export default function TargetMarketStep() {
       }
 
       const body: any = res.data;
+      const action = String(body?.action || "");
+      if (action === "confirm_proceed") {
+        setTargetMarketConfirmed(true);
+      }
       setTargetMarketDone(Boolean(body?.done));
-      setTargetMarketMessages((prev) => {
-        const next: { role: "user" | "assistant"; content: string }[] = [
-          ...prev,
-          { role: "assistant" as const, content: String(body?.assistant_message || "") },
-        ];
-        if (body?.done) {
-          const already = next.some(
-            (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
+      setTargetMarketMessages((prev) => [
+        ...prev,
+        { role: "assistant" as const, content: String(body?.assistant_message || "") },
+      ]);
+      const tmJson = body?.target_market_json;
+      if (tmJson) {
+        try {
+          const parsed = JSON.parse(String(tmJson));
+          setTargetMarketSummary(
+            parsed && typeof parsed === "object"
+              ? String((parsed as any).target_market_summary || "").trim() || null
+              : null
           );
-          if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
+        } catch {
+          setTargetMarketSummary(null);
         }
-        return next;
-      });
-      if (body?.done) {
-        setTargetMarketSummary(String(body?.assistant_message || "").trim() || null);
       }
     } catch (error) {
       setTargetMarketError(error instanceof Error ? error.message : String(error));
@@ -491,7 +445,7 @@ export default function TargetMarketStep() {
                     {m.content}
                   </div>
                 ))}
-                {targetMarketLoading && !targetMarketDone ? (
+                {targetMarketLoading ? (
                   <div
                     className="whitespace-pre-wrap rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-slate-400 italic animate-pulse"
                     data-msg-role="assistant"
@@ -504,12 +458,20 @@ export default function TargetMarketStep() {
             ) : null}
 
             {targetMarketConfirmed ? (
-              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
-                Customers &amp; positioning confirmed.
+              <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                <span>Customers &amp; positioning confirmed.</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setEditSection("targetMarket")}
+                >
+                  Edit
+                </Button>
               </div>
             ) : null}
 
-            {isActive ? (
+            {isUnlocked ? (
               <div className="flex gap-2">
                 <Input
                   ref={chatInputRef}
@@ -519,8 +481,8 @@ export default function TargetMarketStep() {
                     if (e.key === "Enter") {
                       e.preventDefault();
                       if (targetMarketLoading) return;
-                      if (!awaitingConfirmation && targetMarketMessages.length === 0)
-                        return;
+                      if (!isActive) return;
+                      if (!awaitingConfirmation && !editMode && !targetMarketConfirmed && targetMarketMessages.length === 0) return;
                       const msg = targetMarketInput.trim();
                       if (!msg) return;
                       setTargetMarketInput("");
@@ -528,30 +490,25 @@ export default function TargetMarketStep() {
                         ...prev,
                         { role: "user", content: msg },
                       ]);
-                      if (awaitingConfirmation) {
-                        handleConfirmationReply(msg);
-                        return;
-                      }
                       if (editMode) {
                         setEditSection(null);
-                        setEditConfirmPending(true);
-                        await sendTargetMarketMessage(msg, {
-                          reopen: true,
-                          editFinalize: true,
-                        });
-                        return;
                       }
                       await sendTargetMarketMessage(msg);
                     }
                   }}
                   placeholder={
-                    awaitingConfirmation
-                      ? "Reply to continue..."
-                      : "Reply about your target market..."
+                    !isActive
+                      ? targetMarketConfirmed
+                        ? "Click Edit to update this section..."
+                        : "Complete the previous step to continue..."
+                      : awaitingConfirmation
+                        ? "Reply to continue..."
+                        : "Reply about your target market..."
                   }
                   disabled={
                     targetMarketLoading ||
-                    (!awaitingConfirmation && targetMarketMessages.length === 0)
+                    !isActive ||
+                    (!awaitingConfirmation && !editMode && !targetMarketConfirmed && targetMarketMessages.length === 0)
                   }
                 />
                 <Button
@@ -559,7 +516,8 @@ export default function TargetMarketStep() {
                   size="sm"
                   disabled={
                     targetMarketLoading ||
-                    (!awaitingConfirmation && targetMarketMessages.length === 0) ||
+                    !isActive ||
+                    (!awaitingConfirmation && !editMode && !targetMarketConfirmed && targetMarketMessages.length === 0) ||
                     !targetMarketInput.trim()
                   }
                   onClick={async () => {
@@ -569,18 +527,8 @@ export default function TargetMarketStep() {
                       ...prev,
                       { role: "user", content: msg },
                     ]);
-                    if (awaitingConfirmation) {
-                      handleConfirmationReply(msg);
-                      return;
-                    }
                     if (editMode) {
                       setEditSection(null);
-                      setEditConfirmPending(true);
-                      await sendTargetMarketMessage(msg, {
-                        reopen: true,
-                        editFinalize: true,
-                      });
-                      return;
                     }
                     await sendTargetMarketMessage(msg);
                   }}

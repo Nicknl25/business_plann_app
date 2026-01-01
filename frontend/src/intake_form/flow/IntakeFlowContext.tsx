@@ -1,5 +1,6 @@
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { consultStorage } from "./consultStorage";
 
 export type SubmitSuccess = {
   clientId: string;
@@ -102,8 +103,22 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       return false;
     }
   });
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return consultStorage.getClientId();
+    } catch {
+      return null;
+    }
+  });
+  const [draftId, setDraftId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return consultStorage.getDraftId();
+    } catch {
+      return null;
+    }
+  });
   const [consultDone, setConsultDone] = useState(false);
   const [consultFinal, setConsultFinal] = useState<any | null>(null);
   const [targetMarketDone, setTargetMarketDone] = useState(false);

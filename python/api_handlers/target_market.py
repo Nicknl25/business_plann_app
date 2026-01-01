@@ -100,7 +100,9 @@ def post_target_market_consult_handler(*, app, request):
   raw_message = payload.get("message")
   message = raw_message
   edit_finalize = bool(payload.get("edit_finalize", False))
-  reopen = bool(payload.get("reopen", False)) or edit_finalize
+  reopen = bool(payload.get("reopen", False))
+  allow_on_completed = reopen or edit_finalize
+  reopen_status = reopen and not edit_finalize
   if not draft_id or not str(draft_id).strip():
     return (
       jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
@@ -124,6 +126,7 @@ def post_target_market_consult_handler(*, app, request):
       target_market_chat_turn,
       target_market_finalize,
     )
+    from intent_router import route_intent  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import target market consult helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
@@ -396,15 +399,10 @@ def post_target_market_consult_handler(*, app, request):
     try:
       consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
       client_id = str(consult.get("client_id") or "").strip()
-      operating_raw = consult.get("operating_model_json")
-      operating_model: Dict[str, Any] = {}
-      if operating_raw:
-        try:
-          parsed = json.loads(str(operating_raw))
-          if isinstance(parsed, dict):
-            operating_model = parsed
-        except Exception:
-          operating_model = {}
+      from api_handlers.shared_context import build_shared_context
+
+      shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+      operating_model = shared_context.get("operating_model") or {}
 
       consumer_type = str(operating_model.get("consumer_type") or "").strip().lower()
       if consumer_type not in ("consumer", "b2b", "mixed"):
@@ -418,35 +416,117 @@ def post_target_market_consult_handler(*, app, request):
         tm_draft = get_tm_draft(conn, draft_id=str(draft_id).strip())
 
       tm_status = str(tm_draft.get("status") or "").strip().lower()
-      if tm_status == "completed" and not reopen:
-        tm_raw = tm_draft.get("target_market_json")
-        tm_summary = ""
-        if tm_raw:
+
+      user_msg = {"role": "user", "content": str(message).strip()}
+
+      # Completed consult: route ALL user messages through the GPT intent router.
+      if tm_status == "completed":
+        baseline_target_market: Dict[str, Any] = {}
+        try:
+          raw_existing = tm_draft.get("target_market_json")
+          if isinstance(raw_existing, dict):
+            baseline_target_market = raw_existing
+          elif raw_existing:
+            parsed_existing = json.loads(str(raw_existing))
+            if isinstance(parsed_existing, dict):
+              baseline_target_market = parsed_existing
+        except Exception:
+          baseline_target_market = {}
+
+        history_for_router: List[Dict[str, str]] = []
+        try:
+          raw_messages = tm_draft.get("messages_json")
+          if raw_messages:
+            parsed = json.loads(str(raw_messages))
+            if isinstance(parsed, list):
+              history_for_router = [m for m in parsed if isinstance(m, dict)]
+        except Exception:
+          history_for_router = []
+
+        if starting:
+          summary = str(baseline_target_market.get("target_market_summary") or "").strip()
+          assistant_message = (summary or "Target market intake complete.").strip()
+          assistant_message = (
+            f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
+          ).strip()
           try:
-            tm_obj = json.loads(str(tm_raw))
-            if isinstance(tm_obj, dict):
-              tm_summary = str(tm_obj.get("target_market_summary") or "").strip()
+            import re
+
+            assistant_message = re.sub(
+              r"\b[A-Z]\d{5}_\d{3}E\b",
+              "[ACS code redacted]",
+              assistant_message,
+            )
           except Exception:
-            tm_summary = ""
+            pass
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "done": True,
+              "action": "await_confirmation",
+              "assistant_message": assistant_message,
+              "target_market_json": json.dumps(baseline_target_market, ensure_ascii=False)
+              if baseline_target_market
+              else None,
+            }
+          )
+
+        routed = route_intent(
+          consult_type="target_market",
+          user_message=str(message).strip(),
+          baseline_json=baseline_target_market,
+          shared_context=shared_context,
+          recent_messages=history_for_router[-30:] if history_for_router else [],
+        )
+        action = str(routed.get("action") or "").strip()
+        assistant_message = str(routed.get("assistant_message") or "").strip()
+        patch = routed.get("patch")
+
+        updated_target_market = baseline_target_market
+        if action == "edit_patch":
+          if not isinstance(patch, dict):
+            patch = {}
+          updated_target_market = dict(baseline_target_market)
+          updated_target_market.update(patch)
+
+        # Guardrail: never expose raw ACS codes in the UI conversation.
         try:
           import re
 
-          tm_summary = re.sub(r"\b[A-Z]\d{5}_\d{3}E\b", "[ACS code redacted]", tm_summary)
+          assistant_message = re.sub(
+            r"\b[A-Z]\d{5}_\d{3}E\b",
+            "[ACS code redacted]",
+            assistant_message,
+          )
         except Exception:
           pass
+
+        assistant_msg = {"role": "assistant", "content": assistant_message}
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, assistant_msg],
+          status="completed",
+          target_market_json=updated_target_market if action == "edit_patch" else None,
+          flat_fields=updated_target_market if action == "edit_patch" else None,
+          completed=bool(action == "edit_patch"),
+        )
+
         return jsonify(
           {
             "status": "ok",
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
             "done": True,
-            "assistant_message": tm_summary or "Target market intake complete.",
+            "action": action,
+            "assistant_message": assistant_message,
+            "target_market_json": json.dumps(updated_target_market, ensure_ascii=False)
+            if updated_target_market
+            else None,
           }
         )
-      if tm_status == "completed" and reopen:
-        reopen_draft(conn, draft_id=str(draft_id).strip())
-        tm_draft = get_tm_draft(conn, draft_id=str(draft_id).strip())
-        tm_status = str(tm_draft.get("status") or "").strip().lower()
 
       history: List[Dict[str, str]] = []
       try:
@@ -460,6 +540,7 @@ def post_target_market_consult_handler(*, app, request):
 
       context = {
         "client_id": client_id,
+        "shared_context": shared_context,
         "consumer_type": consumer_type,
         "business_name": payload.get("business_name"),
         "business_type": payload.get("business_type"),
@@ -479,15 +560,35 @@ def post_target_market_consult_handler(*, app, request):
         "geographic_coverage": operating_model.get("geographic_coverage"),
       }
 
-      user_msg = {"role": "user", "content": str(message).strip()}
+      # user_msg is defined above (needed for completed routing).
       if edit_finalize:
         mapping_rows: List[Dict[str, Any]] = []
         if consumer_type != "b2b":
           mapping_rows = _fetch_mapping_rows(conn)
 
+        existing_target_market: Dict[str, Any] = {}
+        try:
+          raw_existing = tm_draft.get("target_market_json")
+          if isinstance(raw_existing, dict):
+            existing_target_market = raw_existing
+          elif raw_existing:
+            parsed_existing = json.loads(str(raw_existing))
+            if isinstance(parsed_existing, dict):
+              existing_target_market = parsed_existing
+        except Exception:
+          existing_target_market = {}
+
+        final_context = dict(context)
+        if existing_target_market:
+          final_context["edit_mode"] = True
+          final_context["edit_request"] = str(message).strip()
+          final_context["existing_target_market_json"] = existing_target_market
+
         final_obj = target_market_finalize(
-          intake_context=context,
-          conversation_messages=[*history, user_msg],
+          intake_context=final_context,
+          # IMPORTANT: in edit mode, rely on existing_target_market_json as the baseline
+          # to avoid drift from previously generated summaries.
+          conversation_messages=[user_msg],
           mapping_rows=mapping_rows,
         )
         if not isinstance(final_obj, dict):
@@ -718,7 +819,13 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_size"] = ",".join([v for v in size_order if v in size_set])
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
-        assistant_message = str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
+        assistant_message = (
+          str(final_obj.get("target_market_summary") or "").strip()
+          or "Target market intake complete."
+        )
+        assistant_message = (
+          f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
+        ).strip()
         try:
           import re
 
@@ -744,7 +851,9 @@ def post_target_market_consult_handler(*, app, request):
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
             "done": True,
+            "action": "await_confirmation",
             "assistant_message": assistant_message,
+            "target_market_json": json.dumps(final_obj, ensure_ascii=False),
           }
         )
 
@@ -770,6 +879,7 @@ def post_target_market_consult_handler(*, app, request):
 
       done = False
       assistant_message = assistant_text
+      target_market_json_out: Optional[str] = None
 
       if finalize_ready:
         mapping_rows: List[Dict[str, Any]] = []
@@ -1023,17 +1133,36 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_size"] = ",".join([v for v in size_order if v in size_set])
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
+        done = True
+        assistant_message = (
+          str(final_obj.get("target_market_summary") or "").strip()
+          or "Target market intake complete."
+        )
+        assistant_message = (
+          f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
+        ).strip()
+        try:
+          import re
+
+          assistant_message = re.sub(
+            r"\b[A-Z]\d{5}_\d{3}E\b",
+            "[ACS code redacted]",
+            assistant_message,
+          )
+        except Exception:
+          pass
+
+        assistant_msg_final = {"role": "assistant", "content": assistant_message}
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
+          new_messages=[user_msg, assistant_msg_final],
           status="completed",
           target_market_json=final_obj,
           flat_fields=final_obj,
           completed=True,
         )
-        done = True
-        assistant_message = str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
+        target_market_json_out = json.dumps(final_obj, ensure_ascii=False)
       else:
         append_messages(
           conn,
@@ -1048,7 +1177,9 @@ def post_target_market_consult_handler(*, app, request):
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
           "done": done,
+          "action": "await_confirmation" if done else "continue",
           "assistant_message": assistant_message,
+          "target_market_json": target_market_json_out,
         }
       )
     finally:

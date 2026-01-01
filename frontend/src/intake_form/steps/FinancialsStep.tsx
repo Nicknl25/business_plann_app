@@ -5,7 +5,6 @@ import { Button } from "../../components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { useIntakeFlow } from "../flow/IntakeFlowContext";
-import { decideConfirmation } from "../flow/confirmationIntent";
 import { serverFieldToFormField, type IntakeValues } from "../schema";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -45,7 +44,6 @@ export default function FinancialsStep() {
   const {
     planStarted,
     draftId,
-    clientId,
     peopleConfirmed,
     editSection,
     setEditSection,
@@ -72,7 +70,6 @@ export default function FinancialsStep() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editConfirmPending, setEditConfirmPending] = useState(false);
 
   const businessContext = useMemo(() => {
     const { businessName, businessStartDate } = form.getValues();
@@ -86,6 +83,7 @@ export default function FinancialsStep() {
     if (!obj || typeof obj !== "object") return;
     FINANCIAL_SERVER_FIELDS.forEach((serverField) => {
       const formField = serverFieldToFormField[serverField];
+      if (!formField) return;
       const raw = (obj as any)[serverField];
       const value = formatNumberForField(raw);
       form.setValue(formField, value as any, {
@@ -100,45 +98,15 @@ export default function FinancialsStep() {
     setInput("");
     setLoading(false);
     setError(null);
-    setEditConfirmPending(false);
     setFinancialsDone(false);
     didAutoStart.current = false;
     setResumeChecked(false);
   }, [resetCounter, setFinancialsDone]);
 
   const awaitingConfirmation = Boolean(financialsDone && !financialsConfirmed);
-  const isActive = Boolean(peopleConfirmed && !financialsConfirmed);
-
-  const CONFIRM_PROMPT = "Does this look right before we move on to Submit intake?";
-  const CLARIFY_PROMPT =
-    "Just to confirm - are we good to move on, or is there anything you want to change?";
   const editMode = editSection === "financials";
-
-  function handleConfirmationReply(message: string) {
-    const decision = decideConfirmation(message);
-    if (decision === "proceed") {
-      setFinancialsConfirmed(true);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Great — you’re ready to submit your intake." },
-      ]);
-      return;
-    }
-
-    if (decision === "clarify") {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: CLARIFY_PROMPT },
-      ]);
-      return;
-    }
-
-    setMessages((prev) =>
-      prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-    );
-    setFinancialsDone(false);
-    void sendMessage(message, { reopen: true, editFinalize: editConfirmPending });
-  }
+  const isActive = Boolean(editMode || (peopleConfirmed && !financialsConfirmed));
+  const isUnlocked = Boolean(peopleConfirmed);
 
   useEffect(() => {
     if (!planStarted) return;
@@ -178,7 +146,7 @@ export default function FinancialsStep() {
     if (!container) return;
 
     const wasLoading = prevLoading.current;
-    const isLoading = loading && !financialsDone;
+    const isLoading = loading;
     const prevLen = prevMessagesLen.current;
 
     if (isLoading) {
@@ -218,34 +186,12 @@ export default function FinancialsStep() {
 
   useEffect(() => {
     if (!planStarted) return;
-    if (!awaitingConfirmation) return;
-    setMessages((prev) => {
-      const already = prev.some(
-        (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-      );
-      if (already) return prev;
-      return [...prev, { role: "assistant", content: CONFIRM_PROMPT }];
-    });
-  }, [awaitingConfirmation, planStarted]);
-
-  useEffect(() => {
-    if (!planStarted) return;
-    if (!financialsConfirmed) return;
-    setMessages((prev) =>
-      prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-    );
-    setEditConfirmPending(false);
-  }, [financialsConfirmed, planStarted]);
-
-  useEffect(() => {
-    if (!planStarted) return;
     if (!financialsConfirmed) return;
     const el = document.getElementById("submit-intake-section");
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [financialsConfirmed, planStarted]);
 
   useEffect(() => {
-    if (!draftId || !clientId) return;
     if (!planStarted) return;
     if (!resumeChecked) return;
     if (!isActive) return;
@@ -253,10 +199,10 @@ export default function FinancialsStep() {
     if (loading) return;
     if (messages.length > 0) return;
     if (didAutoStart.current) return;
+    if (!draftId) return;
     didAutoStart.current = true;
     void startConversation();
   }, [
-    clientId,
     draftId,
     isActive,
     financialsDone,
@@ -320,7 +266,10 @@ export default function FinancialsStep() {
   }, [draftId, planStarted, setFinancialsDone]);
 
   async function startConversation(preface?: string) {
-    if (!draftId || !clientId) return;
+    if (!draftId) {
+      setError("Missing draft id. Reload and start Ops first.");
+      return;
+    }
     setError(null);
     setLoading(true);
     setMessages(preface ? [{ role: "assistant", content: preface }] : []);
@@ -364,29 +313,22 @@ export default function FinancialsStep() {
       }
 
       const body: any = res.data;
+      const action = String(body?.action || "");
+      if (action === "confirm_proceed") {
+        setFinancialsConfirmed(true);
+      }
       setFinancialsDone(Boolean(body?.done));
-      setMessages((prev) => {
-        const next: ChatMessage[] = [
-          ...prev,
-          { role: "assistant" as const, content: String(body?.assistant_message || "") },
-        ];
-        if (body?.done) {
-          const already = next.some(
-            (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-          );
-          if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-        }
-        return next;
-      });
-      if (body?.done) {
-        const finJson = body?.financials_json;
-        if (finJson) {
-          try {
-            const parsed = JSON.parse(String(finJson));
-            applyFinancialsFromObject(parsed);
-          } catch {
-            // ignore
-          }
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant" as const, content: String(body?.assistant_message || "") },
+      ]);
+      const finJson = body?.financials_json;
+      if (finJson) {
+        try {
+          const parsed = JSON.parse(String(finJson));
+          applyFinancialsFromObject(parsed);
+        } catch {
+          // ignore
         }
       }
     } catch (err) {
@@ -396,8 +338,11 @@ export default function FinancialsStep() {
     }
   }
 
-  async function sendMessage(message: string, options?: { reopen?: boolean; editFinalize?: boolean }) {
-    if (!draftId || !clientId) return;
+  async function sendMessage(message: string) {
+    if (!draftId) {
+      setError("Missing draft id. Reload and start Ops first.");
+      return;
+    }
     setError(null);
     setLoading(true);
 
@@ -407,8 +352,6 @@ export default function FinancialsStep() {
         {
           draft_id: draftId,
           message,
-          reopen: Boolean(options?.reopen),
-          edit_finalize: Boolean(options?.editFinalize),
           ...businessContext,
         },
         {
@@ -427,29 +370,22 @@ export default function FinancialsStep() {
       }
 
       const body: any = res.data;
+      const action = String(body?.action || "");
+      if (action === "confirm_proceed") {
+        setFinancialsConfirmed(true);
+      }
       setFinancialsDone(Boolean(body?.done));
-      setMessages((prev) => {
-        const next: ChatMessage[] = [
-          ...prev,
-          { role: "assistant" as const, content: String(body?.assistant_message || "") },
-        ];
-        if (body?.done) {
-          const already = next.some(
-            (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-          );
-          if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-        }
-        return next;
-      });
-      if (body?.done) {
-        const finJson = body?.financials_json;
-        if (finJson) {
-          try {
-            const parsed = JSON.parse(String(finJson));
-            applyFinancialsFromObject(parsed);
-          } catch {
-            // ignore
-          }
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant" as const, content: String(body?.assistant_message || "") },
+      ]);
+      const finJson = body?.financials_json;
+      if (finJson) {
+        try {
+          const parsed = JSON.parse(String(finJson));
+          applyFinancialsFromObject(parsed);
+        } catch {
+          // ignore
         }
       }
     } catch (err) {
@@ -494,8 +430,9 @@ export default function FinancialsStep() {
       <CardContent className="space-y-4">
         <div className="mt-2 space-y-3 rounded-md border border-slate-800/80 bg-slate-950/60 p-3">
           <div className="text-xs text-slate-300">
-            Financials consultation: GPT will collect your baseline revenue, costs,
-            expenses, debt, and liquidity inputs and populate the model fields.
+            Financials consultation: GPT will capture your baseline revenue, costs,
+            expenses, debt, and liquidity as of last month and sanity-check numbers
+            against your Ops/Customers/People context.
           </div>
 
           {!peopleConfirmed ? (
@@ -541,7 +478,7 @@ export default function FinancialsStep() {
                   {m.content}
                 </div>
               ))}
-              {loading && !financialsDone ? (
+              {loading ? (
                 <div
                   className="whitespace-pre-wrap rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-slate-400 italic animate-pulse"
                   data-msg-role="assistant"
@@ -554,12 +491,20 @@ export default function FinancialsStep() {
           ) : null}
 
           {financialsConfirmed ? (
-            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
-              Financials confirmed.
+            <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+              <span>Financials confirmed.</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => setEditSection("financials")}
+              >
+                Edit
+              </Button>
             </div>
           ) : null}
 
-          {isActive ? (
+          {isUnlocked ? (
             <div className="flex gap-2">
               <Input
                 ref={chatInputRef}
@@ -569,37 +514,40 @@ export default function FinancialsStep() {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     if (loading) return;
-                    if (!awaitingConfirmation && messages.length === 0) return;
+                    if (!isActive) return;
+                    if (!awaitingConfirmation && !editMode && !financialsConfirmed && messages.length === 0) return;
                     const msg = input.trim();
                     if (!msg) return;
                     setInput("");
                     setMessages((prev) => [...prev, { role: "user", content: msg }]);
-                    if (awaitingConfirmation) {
-                      handleConfirmationReply(msg);
-                      return;
-                    }
                     if (editMode) {
                       setEditSection(null);
-                      setEditConfirmPending(true);
-                      await sendMessage(msg, { reopen: true, editFinalize: true });
-                      return;
                     }
                     await sendMessage(msg);
                   }
                 }}
                 placeholder={
-                  awaitingConfirmation
-                    ? "Reply to continue..."
-                    : "Reply with a number or short answer..."
+                  !isActive
+                    ? financialsConfirmed
+                      ? "Click Edit to update this section..."
+                      : "Complete the previous step to continue..."
+                    : awaitingConfirmation
+                      ? "Reply to continue..."
+                      : "Reply with a number or short answer..."
                 }
-                disabled={loading || (!awaitingConfirmation && messages.length === 0)}
+                disabled={
+                  loading ||
+                  !isActive ||
+                  (!awaitingConfirmation && !editMode && !financialsConfirmed && messages.length === 0)
+                }
               />
               <Button
                 type="button"
                 size="sm"
                 disabled={
                   loading ||
-                  (!awaitingConfirmation && messages.length === 0) ||
+                  !isActive ||
+                  (!awaitingConfirmation && !editMode && !financialsConfirmed && messages.length === 0) ||
                   !input.trim()
                 }
                 onClick={async () => {
@@ -607,15 +555,8 @@ export default function FinancialsStep() {
                   if (!msg) return;
                   setInput("");
                   setMessages((prev) => [...prev, { role: "user", content: msg }]);
-                  if (awaitingConfirmation) {
-                    handleConfirmationReply(msg);
-                    return;
-                  }
                   if (editMode) {
                     setEditSection(null);
-                    setEditConfirmPending(true);
-                    await sendMessage(msg, { reopen: true, editFinalize: true });
-                    return;
                   }
                   await sendMessage(msg);
                 }}

@@ -151,6 +151,7 @@ Style requirements:
 - Do not ask the client to author content: never ask them to list responsibilities, background, strengths, bullet points, short phrases, or write narrative/justification.
 - Do not refer to anything as a "section" and do not claim the wording will appear verbatim in a business plan. This is intake capture used later for plan generation.
 - Use existing business context first (business model, delivery model, operating summary, pricing, and any prior people entries) to infer responsibilities and credibility signals before asking anything new.
+- The context JSON may include shared_context with outputs from other consults; treat it as read-only facts and do not re-run other consults.
 
 One-time nudge (use once early, then never repeat):
 - Briefly mention that businesses often highlight a small number of pivotal roles (leadership, operations, technical/licensed, client-facing), but this is not a checklist.
@@ -163,7 +164,7 @@ Flow:
    - Relevant education/credentials (degrees/licenses/certifications). If none, record "none".
 2) Inference-first (replaces most questioning):
    - Based on the person's title and the business context, infer typical responsibilities and credibility signals.
-   - Present a short inferred summary (2–4 sentences) and ask ONE confirmation question:
+   - Present a short inferred summary (2-4 sentences) and ask ONE confirmation question:
      "Is this accurate, or what should I adjust?"
    - If adjustment is needed, ask ONE targeted clarification question and then update the inferred summary.
 3) Continue:
@@ -224,6 +225,13 @@ Hard requirements:
 - key_people_summary must be a concatenation of the per-person paragraphs in a clear order (separated by blank lines).
 - Do NOT include meta phrases like "professional way to say this" or "I'll clean up wording" in the paragraph text.
 - Do not refer to the output as a "section" and do not say it will appear verbatim in a plan; treat it as narrative source material.
+
+Edit mode (if intake_context.edit_mode is true):
+- You will be provided:
+  - existing_people_capability_json: the last confirmed finalized object (canonical baseline)
+  - edit_request: the client's update request
+- Treat existing_people_capability_json as the baseline truth. Output a complete object by copying it and applying ONLY the changes clearly implied by edit_request.
+- Do NOT rewrite or reframe unrelated people; keep prior people objects unchanged unless the edit_request requires changes.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

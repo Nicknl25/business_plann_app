@@ -128,6 +128,8 @@ export const serverFieldToFormField: Record<string, keyof IntakeValues> = {
   current_revenue: "currentRevenue",
   current_cogs: "currentCogs",
   other_operating_expense: "otherOperatingExpense",
+  monthly_rent_expense: "monthlyRentExpense",
+  other_monthly_debt_payments: "otherMonthlyDebtPayments",
   current_payroll: "currentPayroll",
   current_num_employees: "currentNumEmployees",
   current_capex: "currentCapex",

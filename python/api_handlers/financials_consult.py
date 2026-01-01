@@ -1,7 +1,87 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from flask import jsonify
+
+
+FIN_CONFIRM_QUESTION = "Does this look right before we move on to Submit intake?"
+
+
+def _parse_json_dict(raw: Any) -> Dict[str, Any]:
+  if raw is None:
+    return {}
+  if isinstance(raw, dict):
+    return raw
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _parse_messages(raw: Any) -> List[Dict[str, str]]:
+  if raw is None:
+    return []
+  if isinstance(raw, list):
+    return [m for m in raw if isinstance(m, dict)]
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return []
+  return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
+
+
+def _validate_final(final_obj: Dict[str, Any]) -> None:
+  if not isinstance(final_obj, dict):
+    raise RuntimeError("Final financials JSON must be an object.")
+  summary = str(final_obj.get("financials_summary") or "").strip()
+  if not summary:
+    raise RuntimeError("Final financials JSON missing financials_summary.")
+  conf = final_obj.get("confidence")
+  try:
+    conf_val = float(conf)
+  except Exception as exc:
+    raise RuntimeError("Final financials JSON missing valid confidence.") from exc
+  if conf_val <= 0 or conf_val > 1:
+    raise RuntimeError("confidence must be between 0 and 1.")
+
+  numeric_fields = [
+    "current_revenue",
+    "current_cogs",
+    "other_operating_expense",
+    "monthly_rent_expense",
+    "other_monthly_debt_payments",
+    "current_payroll",
+    "current_num_employees",
+    "current_capex",
+    "ar_balance",
+    "ap_balance",
+    "inventory_balance",
+    "total_debt_outstanding",
+    "annual_interest_payment",
+    "annual_principal_payment",
+    "owner_compensation",
+    "cash_on_hand",
+  ]
+
+  numeric_vals: Dict[str, float] = {}
+  for field in numeric_fields:
+    try:
+      numeric_vals[field] = float(final_obj.get(field))
+    except Exception as exc:
+      raise RuntimeError(f"{field} must be a number.") from exc
+    if numeric_vals[field] < 0:
+      raise RuntimeError(f"{field} must be >= 0.")
+
+  debt = numeric_vals["total_debt_outstanding"]
+  if debt <= 1e-9:
+    if (
+      numeric_vals["annual_interest_payment"] > 1e-9
+      or numeric_vals["annual_principal_payment"] > 1e-9
+    ):
+      raise RuntimeError(
+        "annual_interest_payment and annual_principal_payment must be 0 when total_debt_outstanding is 0."
+      )
 
 
 def post_financials_consult_session_handler(*, app, request):
@@ -89,101 +169,37 @@ def post_financials_consult_handler(*, app, request):
   payload = request.get_json(silent=True) or {}
   draft_id = payload.get("draft_id")
   raw_message = payload.get("message")
+  starting = raw_message is None or not str(raw_message).strip()
   message = raw_message
-  edit_finalize = bool(payload.get("edit_finalize", False))
-  reopen = bool(payload.get("reopen", False)) or edit_finalize
+  if starting:
+    message = "Start the financials intake. Ask your first question."
+
   if not draft_id or not str(draft_id).strip():
     return (
       jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
       400,
     )
 
-  starting = message is None or not str(message).strip()
-  if starting:
-    message = "Start the financials intake. Ask your first question."
-
   try:
     from intake_submission import get_mysql_connection  # type: ignore
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
-    from financials_consult_draft import (  # type: ignore
-      append_messages,
-      create_draft,
-      get_draft as get_fin_draft,
-      reopen_draft,
-    )
-    from financials_consultant import (  # type: ignore
-      financials_chat_turn,
-      financials_finalize,
-    )
+    from financials_consult_draft import append_messages, create_draft, get_draft as get_fin_draft  # type: ignore
+    from financials_consultant import financials_chat_turn, financials_finalize  # type: ignore
+    from api_handlers.shared_context import build_shared_context
+    from intent_router import route_intent  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import financials consult helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
-
-  def _validate_final(final_obj: Dict[str, Any]) -> None:
-    if not isinstance(final_obj, dict):
-      raise RuntimeError("Final financials JSON must be an object.")
-    summary = str(final_obj.get("financials_summary") or "").strip()
-    if not summary:
-      raise RuntimeError("Final financials JSON missing financials_summary.")
-    conf = final_obj.get("confidence")
-    try:
-      conf_val = float(conf)
-    except Exception as exc:
-      raise RuntimeError("Final financials JSON missing valid confidence.") from exc
-    if conf_val <= 0 or conf_val > 1:
-      raise RuntimeError("confidence must be between 0 and 1.")
-
-    numeric_fields = [
-      "current_revenue",
-      "current_cogs",
-      "other_operating_expense",
-      "monthly_rent_expense",
-      "other_monthly_debt_payments",
-      "current_payroll",
-      "current_num_employees",
-      "current_capex",
-      "ar_balance",
-      "ap_balance",
-      "inventory_balance",
-      "total_debt_outstanding",
-      "annual_interest_payment",
-      "annual_principal_payment",
-      "owner_compensation",
-      "cash_on_hand",
-    ]
-
-    numeric_vals: Dict[str, float] = {}
-    for field in numeric_fields:
-      try:
-        numeric_vals[field] = float(final_obj.get(field))
-      except Exception as exc:
-        raise RuntimeError(f"{field} must be a number.") from exc
-      if numeric_vals[field] < 0:
-        raise RuntimeError(f"{field} must be >= 0.")
-
-    debt = numeric_vals["total_debt_outstanding"]
-    if debt <= 1e-9:
-      if numeric_vals["annual_interest_payment"] > 1e-9 or numeric_vals["annual_principal_payment"] > 1e-9:
-        raise RuntimeError(
-          "annual_interest_payment and annual_principal_payment must be 0 when total_debt_outstanding is 0."
-        )
 
   try:
     conn = get_mysql_connection()
     try:
       consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
       client_id = str(consult.get("client_id") or "").strip()
-      operating_raw = consult.get("operating_model_json")
-      operating_model: Dict[str, Any] = {}
-      if operating_raw:
-        try:
-          parsed = json.loads(str(operating_raw))
-          if isinstance(parsed, dict):
-            operating_model = parsed
-        except Exception:
-          operating_model = {}
 
-      # Ensure the financials draft row exists.
+      shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+      operating_model = shared_context.get("operating_model") or {}
+
       try:
         fin_draft = get_fin_draft(conn, draft_id=str(draft_id).strip())
       except Exception:
@@ -191,81 +207,87 @@ def post_financials_consult_handler(*, app, request):
         fin_draft = get_fin_draft(conn, draft_id=str(draft_id).strip())
 
       fin_status = str(fin_draft.get("status") or "").strip().lower()
-      if fin_status == "completed" and not reopen:
-        fin_raw = fin_draft.get("financials_json")
-        fin_summary = ""
-        if fin_raw:
-          try:
-            fin_obj = json.loads(str(fin_raw))
-            if isinstance(fin_obj, dict):
-              fin_summary = str(fin_obj.get("financials_summary") or "").strip()
-          except Exception:
-            fin_summary = ""
+      history = _parse_messages(fin_draft.get("messages_json"))
+      user_msg = {"role": "user", "content": str(message).strip()}
+
+      # Completed: route all user messages through GPT intent router.
+      if fin_status == "completed":
+        baseline_financials = _parse_json_dict(fin_draft.get("financials_json"))
+
+        if starting:
+          summary = str(baseline_financials.get("financials_summary") or "").strip()
+          assistant_message = (summary or "Financials intake complete.").strip()
+          assistant_message = f"{assistant_message}\n\n{FIN_CONFIRM_QUESTION}".strip()
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "done": True,
+              "action": "await_confirmation",
+              "assistant_message": assistant_message,
+              "financials_json": json.dumps(baseline_financials, ensure_ascii=False)
+              if baseline_financials
+              else None,
+            }
+          )
+
+        routed = route_intent(
+          consult_type="financials",
+          user_message=str(message).strip(),
+          baseline_json=baseline_financials,
+          shared_context=shared_context,
+          recent_messages=history[-30:] if history else [],
+        )
+        action = str(routed.get("action") or "").strip()
+        assistant_message = str(routed.get("assistant_message") or "").strip()
+        patch = routed.get("patch")
+
+        updated_financials = baseline_financials
+        if action == "edit_patch":
+          if not isinstance(patch, dict):
+            patch = {}
+          updated_financials = dict(baseline_financials)
+          updated_financials.update(patch)
+
+        assistant_msg = {"role": "assistant", "content": assistant_message}
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, assistant_msg],
+          status="completed",
+          financials_json=updated_financials if action == "edit_patch" else None,
+          flat_fields=updated_financials if action == "edit_patch" else None,
+          completed=bool(action == "edit_patch"),
+        )
+
         return jsonify(
           {
             "status": "ok",
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
             "done": True,
-            "assistant_message": fin_summary or "Financials intake complete.",
-            "financials_json": str(fin_raw) if fin_raw is not None else None,
+            "action": action,
+            "assistant_message": assistant_message,
+            "financials_json": json.dumps(updated_financials, ensure_ascii=False)
+            if updated_financials
+            else None,
           }
         )
-      if fin_status == "completed" and reopen:
-        reopen_draft(conn, draft_id=str(draft_id).strip())
-        fin_draft = get_fin_draft(conn, draft_id=str(draft_id).strip())
-        fin_status = str(fin_draft.get("status") or "").strip().lower()
-
-      history: List[Dict[str, str]] = []
-      try:
-        raw_messages = fin_draft.get("messages_json")
-        if raw_messages:
-          parsed = json.loads(str(raw_messages))
-          if isinstance(parsed, list):
-            history = [m for m in parsed if isinstance(m, dict)]
-      except Exception:
-        history = []
 
       context = {
         "client_id": client_id,
         "business_name": payload.get("business_name"),
         "business_start_date": payload.get("business_start_date"),
+        "shared_context": shared_context,
+        "operating_model": operating_model,
+        "target_market": shared_context.get("target_market") or {},
+        "people_capability": shared_context.get("people_capability") or {},
         "unit_name": operating_model.get("unit_name"),
         "unit_price": operating_model.get("unit_price"),
         "business_description_summary": operating_model.get("business_description_summary"),
         "consumer_type": operating_model.get("consumer_type"),
       }
-
-      user_msg = {"role": "user", "content": str(message).strip()}
-
-      if edit_finalize:
-        final_obj = financials_finalize(
-          intake_context=context,
-          conversation_messages=[*history, user_msg],
-        )
-        _validate_final(final_obj)
-        assistant_message = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
-        assistant_msg = {"role": "assistant", "content": assistant_message}
-        new_messages = [user_msg, assistant_msg]
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
-          status="completed",
-          financials_json=final_obj,
-          flat_fields=final_obj,
-          completed=True,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "done": True,
-            "assistant_message": assistant_message,
-            "financials_json": json.dumps(final_obj, ensure_ascii=False),
-          }
-        )
 
       turn = financials_chat_turn(
         intake_context=context,
@@ -273,47 +295,56 @@ def post_financials_consult_handler(*, app, request):
       )
       assistant_text = str(turn.get("assistant_message") or "").strip()
       finalize_ready = bool(turn.get("finalize_ready", False))
-      assistant_msg = {"role": "assistant", "content": assistant_text}
-      new_messages = [user_msg, assistant_msg]
 
-      done = False
-      assistant_message = assistant_text
-      financials_json_out = None
-
-      if finalize_ready:
-        final_obj = financials_finalize(
-          intake_context=context,
-          conversation_messages=[*history, *new_messages],
-        )
-        _validate_final(final_obj)
+      if not finalize_ready:
+        assistant_msg = {"role": "assistant", "content": assistant_text}
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
-          status="completed",
-          financials_json=final_obj,
-          flat_fields=final_obj,
-          completed=True,
-        )
-        done = True
-        assistant_message = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
-        financials_json_out = json.dumps(final_obj, ensure_ascii=False)
-      else:
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
+          new_messages=[user_msg, assistant_msg],
           status="in_progress",
         )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+            "financials_json": None,
+          }
+        )
+
+      final_obj = financials_finalize(
+        intake_context=context,
+        conversation_messages=[*history, user_msg, {"role": "assistant", "content": assistant_text}],
+      )
+      _validate_final(final_obj)
+
+      summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
+      assistant_message = f"{summary_text}\n\n{FIN_CONFIRM_QUESTION}".strip()
+      assistant_msg = {"role": "assistant", "content": assistant_message}
+
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, assistant_msg],
+        status="completed",
+        financials_json=final_obj,
+        flat_fields=final_obj,
+        completed=True,
+      )
 
       return jsonify(
         {
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "done": done,
+          "done": True,
+          "action": "await_confirmation",
           "assistant_message": assistant_message,
-          "financials_json": financials_json_out,
+          "financials_json": json.dumps(final_obj, ensure_ascii=False),
         }
       )
     finally:
@@ -324,3 +355,4 @@ def post_financials_consult_handler(*, app, request):
   except Exception as exc:
     app.logger.exception("Failed financials consult: %s", exc)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
+

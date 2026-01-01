@@ -15,7 +15,6 @@ import HelpTooltip from "../../components/ui/HelpTooltip";
 import { Input } from "../../components/ui/Input";
 import { TOOLTIP_TEXT } from "../../components/ui/tooltip";
 import { consultStorage } from "../flow/consultStorage";
-import { decideConfirmation } from "../flow/confirmationIntent";
 import { useIntakeFlow } from "../flow/IntakeFlowContext";
 import type { IntakeValues } from "../schema";
 
@@ -61,7 +60,6 @@ export default function BusinessOverviewStep() {
   const [consultInput, setConsultInput] = useState("");
   const [consultLoading, setConsultLoading] = useState(false);
   const [consultError, setConsultError] = useState<string | null>(null);
-  const [editConfirmPending, setEditConfirmPending] = useState(false);
   const [opsSetupStage, setOpsSetupStage] = useState<
     "need_business_name" | "need_address" | "need_business_start_date" | "ready"
   >("need_business_name");
@@ -81,41 +79,8 @@ export default function BusinessOverviewStep() {
     role === "user" ? "client" : "consultant";
 
   const awaitingConfirmation = Boolean(consultDone && !opsConfirmed);
-  const CONFIRM_PROMPT =
-    "Does this look right before we move on to Customers & Positioning?";
-  const CLARIFY_PROMPT =
-    "Just to confirm - are we good to move on, or is there anything you want to change?";
   const editMode = editSection === "ops";
-
-  function handleConfirmationReply(message: string) {
-    const decision = decideConfirmation(message);
-    if (decision === "proceed") {
-      setOpsConfirmed(true);
-      setConsultMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Great — let’s move on to Customers & Positioning.",
-        },
-      ]);
-      return;
-    }
-
-    if (decision === "clarify") {
-      setConsultMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: CLARIFY_PROMPT },
-      ]);
-      return;
-    }
-
-    setConsultMessages((prev) =>
-      prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-    );
-    setConsultDone(false);
-    setConsultFinal(null);
-    void sendConsultMessage(message, { reopen: true, editFinalize: editConfirmPending });
-  }
+  const isActive = Boolean(editMode || !opsConfirmed);
 
   const hasCompleteAddress =
     Boolean(address && address.trim()) &&
@@ -129,7 +94,7 @@ export default function BusinessOverviewStep() {
     (async () => {
       const storedDraftId = consultStorage.getDraftId();
       const storedClientId = consultStorage.getClientId();
-      if (!storedDraftId || !storedClientId) return;
+      if (!storedDraftId) return;
 
       const storedBusinessName = consultStorage.getBusinessName();
       if (storedBusinessName && !form.getValues("businessName")) {
@@ -199,8 +164,11 @@ export default function BusinessOverviewStep() {
         if (res.status < 200 || res.status >= 300) return;
 
         const body: any = res.data;
-        setDraftId(String(body?.draft_id || storedDraftId));
-        setClientId(String(body?.client_id || storedClientId));
+        const nextDraftId = String(body?.draft_id || storedDraftId).trim();
+        const nextClientId = String(body?.client_id || storedClientId || "").trim();
+        if (nextDraftId) setDraftId(nextDraftId);
+        if (nextClientId) setClientId(nextClientId);
+        if (nextDraftId && nextClientId) consultStorage.set(nextDraftId, nextClientId);
 
         const draftStatus = String(body?.draft_status || "");
         if (draftStatus === "submitted") {
@@ -329,9 +297,8 @@ export default function BusinessOverviewStep() {
     if (!planStarted) return;
     if (didAutoStart.current) return;
     const storedDraftId = consultStorage.getDraftId();
-    const storedClientId = consultStorage.getClientId();
-    if (storedDraftId && storedClientId) return;
-    if (clientId || draftId) return;
+    if (storedDraftId) return;
+    if (draftId) return;
     didAutoStart.current = true;
     void createConsultSession();
   }, [clientId, draftId, planStarted]);
@@ -339,8 +306,8 @@ export default function BusinessOverviewStep() {
   useEffect(() => {
     if (!planStarted) return;
     if (!clientId) return;
+    if (!isActive) return;
     if (consultLoading) return;
-    if (consultDone && opsConfirmed) return;
     if (lastFocusedStage.current === opsSetupStage) return;
     lastFocusedStage.current = opsSetupStage;
 
@@ -356,18 +323,18 @@ export default function BusinessOverviewStep() {
       }
       chatInputRef.current?.focus();
     }, 80);
-  }, [clientId, consultDone, consultLoading, opsSetupStage, planStarted]);
+  }, [clientId, consultDone, consultLoading, isActive, opsSetupStage, planStarted]);
 
   useEffect(() => {
     if (!planStarted) return;
-    if (clientId) return;
+    if (clientId || draftId) return;
     cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [clientId, planStarted]);
+  }, [clientId, draftId, planStarted]);
 
   useEffect(() => {
     if (!planStarted) return;
     if (!clientId) return;
-    if (consultDone && opsConfirmed) return;
+    if (!isActive) return;
     if (consultLoading) return;
 
     const last = consultMessages[consultMessages.length - 1];
@@ -391,6 +358,7 @@ export default function BusinessOverviewStep() {
     consultDone,
     consultLoading,
     consultMessages,
+    isActive,
     opsSetupStage,
     planStarted,
     startDateInputRef,
@@ -402,7 +370,7 @@ export default function BusinessOverviewStep() {
     if (!container) return;
 
     const wasLoading = prevLoading.current;
-    const isLoading = consultLoading && !consultDone;
+    const isLoading = consultLoading;
     const prevLen = prevMessagesLen.current;
 
     if (isLoading) {
@@ -440,27 +408,6 @@ export default function BusinessOverviewStep() {
     prevLoading.current = isLoading;
   }, [consultDone, consultLoading, consultMessages, planStarted]);
 
-  useEffect(() => {
-    if (!planStarted) return;
-    if (!awaitingConfirmation) return;
-    setConsultMessages((prev) => {
-      const already = prev.some(
-        (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-      );
-      if (already) return prev;
-      return [...prev, { role: "assistant", content: CONFIRM_PROMPT }];
-    });
-  }, [awaitingConfirmation, planStarted]);
-
-  useEffect(() => {
-    if (!planStarted) return;
-    if (!opsConfirmed) return;
-    setConsultMessages((prev) =>
-      prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-    );
-    setEditConfirmPending(false);
-  }, [opsConfirmed, planStarted]);
-
   function resetConsultSession() {
     consultStorage.clear();
     form.setValue("businessName", "", { shouldDirty: true, shouldValidate: false });
@@ -482,7 +429,6 @@ export default function BusinessOverviewStep() {
     setOpsConfirmed(false);
     setConsultFinal(null);
     setConsultError(null);
-    setEditConfirmPending(false);
     setEditSection(null);
     setOpsSetupStage("need_business_name");
     setAddressAccepted(false);
@@ -582,6 +528,10 @@ export default function BusinessOverviewStep() {
       }
 
       const body: any = res.data;
+      const action = String(body?.action || "");
+      if (action === "confirm_proceed") {
+        setOpsConfirmed(true);
+      }
       setConsultDone(Boolean(body?.done));
       if (body?.done) {
         const rawModel = body?.operating_model_json;
@@ -595,15 +545,9 @@ export default function BusinessOverviewStep() {
           setConsultFinal(null);
         }
       }
-      setConsultMessages(() => {
-        const next = [
-          { role: "assistant" as const, content: String(body?.assistant_message || "") },
-        ];
-        if (body?.done) {
-          next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-        }
-        return next;
-      });
+      setConsultMessages(() => [
+        { role: "assistant" as const, content: String(body?.assistant_message || "") },
+      ]);
       setOpsSetupStage("ready");
       return true;
     } catch (error) {
@@ -663,11 +607,11 @@ export default function BusinessOverviewStep() {
     }
   }
 
-  async function sendConsultMessage(
-    message: string,
-    options?: { reopen?: boolean; editFinalize?: boolean }
-  ) {
-    if (!draftId || !clientId) return;
+  async function sendConsultMessage(message: string) {
+    if (!draftId) {
+      setConsultError("Missing draft id. Reload and start the intake again.");
+      return;
+    }
 
     setConsultError(null);
     setConsultLoading(true);
@@ -686,10 +630,8 @@ export default function BusinessOverviewStep() {
         "/api/intake-consult",
         {
           draft_id: draftId,
-          client_id: clientId,
+          client_id: clientId || undefined,
           message,
-          reopen: Boolean(options?.reopen),
-          edit_finalize: Boolean(options?.editFinalize),
           business_name: businessName,
           address,
           address_street: addressStreet,
@@ -714,40 +656,23 @@ export default function BusinessOverviewStep() {
       }
 
       const body: any = res.data;
+      const action = String(body?.action || "");
+      if (action === "confirm_proceed") {
+        setOpsConfirmed(true);
+      }
       setConsultDone(Boolean(body?.done));
-      if (body?.done) {
-        const rawModel = body?.operating_model_json;
-        if (rawModel) {
-          try {
-            setConsultFinal(JSON.parse(String(rawModel)));
-          } catch {
-            setConsultFinal(null);
-          }
-        } else {
+      const rawModel = body?.operating_model_json;
+      if (rawModel) {
+        try {
+          setConsultFinal(JSON.parse(String(rawModel)));
+        } catch {
           setConsultFinal(null);
         }
       }
-      setConsultMessages((prev) => {
-        const editFinalize = Boolean(options?.editFinalize) && Boolean(body?.done);
-        const base = editFinalize
-          ? prev.filter((m) => !(m.role === "assistant" && m.content === CONFIRM_PROMPT))
-          : prev;
-        const next = [
-          ...base,
-          { role: "assistant" as const, content: String(body?.assistant_message || "") },
-        ];
-        if (body?.done) {
-          if (editFinalize) {
-            next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-          } else {
-            const already = next.some(
-              (m) => m.role === "assistant" && m.content === CONFIRM_PROMPT
-            );
-            if (!already) next.push({ role: "assistant" as const, content: CONFIRM_PROMPT });
-          }
-        }
-        return next;
-      });
+      setConsultMessages((prev) => [
+        ...prev,
+        { role: "assistant" as const, content: String(body?.assistant_message || "") },
+      ]);
     } catch (error) {
       setConsultError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -759,13 +684,6 @@ export default function BusinessOverviewStep() {
     const msg = String(rawMessage || "").trim();
     if (!msg) return;
     if (consultLoading) return;
-    if (consultDone && opsConfirmed) return;
-
-    if (consultDone && !opsConfirmed) {
-      setConsultMessages((prev) => [...prev, { role: "user", content: msg }]);
-      handleConfirmationReply(msg);
-      return;
-    }
 
     if (opsSetupStage === "need_business_name") {
       setConsultMessages((prev) => [...prev, { role: "user", content: msg }]);
@@ -804,9 +722,6 @@ export default function BusinessOverviewStep() {
       setConsultMessages((prev) => [...prev, { role: "user", content: msg }]);
       if (editMode) {
         setEditSection(null);
-        setEditConfirmPending(true);
-        await sendConsultMessage(msg, { reopen: true, editFinalize: true });
-        return;
       }
       await sendConsultMessage(msg);
     }
@@ -1029,7 +944,7 @@ export default function BusinessOverviewStep() {
                           {m.content}
                         </div>
                       ))}
-                      {consultLoading && !consultDone ? (
+                      {consultLoading ? (
                         <div
                           className="whitespace-pre-wrap rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-slate-400 italic animate-pulse"
                           data-msg-role="assistant"
@@ -1119,7 +1034,17 @@ export default function BusinessOverviewStep() {
 
                 {opsConfirmed ? (
                   <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
-                    Business overview confirmed.
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>Business overview confirmed.</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditSection("ops")}
+                      >
+                        Edit
+                      </Button>
+                    </div>
                   </div>
                 ) : consultDone ? (
                   <div className="text-xs text-slate-400">
@@ -1140,7 +1065,7 @@ export default function BusinessOverviewStep() {
                     onKeyDown={async (e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        if (consultLoading || (consultDone && opsConfirmed)) return;
+                        if (consultLoading) return;
                         if (
                           opsSetupStage === "need_address" ||
                           opsSetupStage === "need_business_start_date"
@@ -1155,17 +1080,15 @@ export default function BusinessOverviewStep() {
                     placeholder={
                       awaitingConfirmation
                         ? "Reply to continue..."
-                        : consultDone
-                        ? "Conversation completed."
                         : opsSetupStage === "need_business_name"
                           ? "Enter your business name..."
                           : "Reply to the consultant..."
                     }
                     disabled={
                       consultLoading ||
-                      (consultDone && opsConfirmed) ||
                       opsSetupStage === "need_address" ||
-                      opsSetupStage === "need_business_start_date"
+                      opsSetupStage === "need_business_start_date" ||
+                      (opsConfirmed && !editMode)
                     }
                   />
                   <Button
@@ -1173,9 +1096,9 @@ export default function BusinessOverviewStep() {
                     size="sm"
                     disabled={
                       consultLoading ||
-                      (consultDone && opsConfirmed) ||
                       opsSetupStage === "need_address" ||
                       opsSetupStage === "need_business_start_date" ||
+                      (opsConfirmed && !editMode) ||
                       !consultInput.trim()
                     }
                     onClick={async () => {

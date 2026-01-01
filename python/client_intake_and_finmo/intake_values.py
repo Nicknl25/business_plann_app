@@ -32,7 +32,7 @@ def get_conn():
 
 def get_naics_from_business_type(conn, business_type):
     """
-    Resolve client-selected business_type → 6-digit NAICS
+    Resolve client-selected business_type -> 6-digit NAICS
     """
     bt_clean = business_type.strip()
     cur = conn.cursor(dictionary=True)

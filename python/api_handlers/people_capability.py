@@ -4,9 +4,53 @@ from typing import Any, Dict, List
 from flask import jsonify
 
 
+PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?"
+
+
+def _parse_json_dict(raw: Any) -> Dict[str, Any]:
+  if raw is None:
+    return {}
+  if isinstance(raw, dict):
+    return raw
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _parse_messages(raw: Any) -> List[Dict[str, str]]:
+  if raw is None:
+    return []
+  if isinstance(raw, list):
+    return [m for m in raw if isinstance(m, dict)]
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return []
+  return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
+
+
+def _validate_final(final_obj: Dict[str, Any]) -> None:
+  if not isinstance(final_obj, dict):
+    raise RuntimeError("Final people output must be an object.")
+  people = final_obj.get("people")
+  if not isinstance(people, list) or not people:
+    raise RuntimeError("people must be a non-empty array.")
+  for p in people:
+    if not isinstance(p, dict):
+      raise RuntimeError("people items must be objects.")
+    if not str(p.get("full_name") or "").strip():
+      raise RuntimeError("people.full_name is required.")
+    if not str(p.get("role_title") or "").strip():
+      raise RuntimeError("people.role_title is required.")
+    if not str(p.get("paragraph") or "").strip():
+      raise RuntimeError("people.paragraph is required.")
+
+
 def post_people_capability_session_handler(*, app, request):
   """
-  Relocated verbatim from python/api.py:post_people_capability_session (Phase 1 sweep).
+  Ensure a durable People & Capability draft exists for an existing intake draft_id.
   """
   if request.method == "OPTIONS":
     return ("", 204)
@@ -44,7 +88,7 @@ def post_people_capability_session_handler(*, app, request):
 
 def get_people_capability_draft_handler(*, app, request):
   """
-  Relocated verbatim from python/api.py:get_people_capability_draft (Phase 1 sweep).
+  Return the People & Capability draft row.
   """
   if request.method == "OPTIONS":
     return ("", 204)
@@ -91,16 +135,23 @@ def get_people_capability_draft_handler(*, app, request):
 
 def post_people_capability_handler(*, app, request):
   """
-  Relocated verbatim from python/api.py:post_people_capability (Phase 1 sweep).
+  Durable People & Capability conversation.
+
+  Invariant:
+  - If the People consult is completed, ALL new messages are routed through the GPT intent router.
+  - Deterministic code only applies the explicit patch from GPT (no keyword heuristics).
   """
   if request.method == "OPTIONS":
     return ("", 204)
 
   payload = request.get_json(silent=True) or {}
   draft_id = payload.get("draft_id")
-  message = payload.get("message")
-  edit_finalize = bool(payload.get("edit_finalize", False))
-  reopen = bool(payload.get("reopen", False)) or edit_finalize
+  raw_message = payload.get("message")
+  starting = raw_message is None or not str(raw_message).strip()
+  message = raw_message
+  if starting:
+    message = "Start the People & Capability intake. Ask your first question."
+
   business_name = payload.get("business_name")
   business_type = payload.get("business_type")
   if not draft_id or not str(draft_id).strip():
@@ -109,71 +160,29 @@ def post_people_capability_handler(*, app, request):
       400,
     )
 
-  starting = message is None or not str(message).strip()
-  if starting:
-    message = "Start the People & Capability intake. Ask your first question."
-
   try:
     from intake_submission import get_mysql_connection  # type: ignore
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
-    from people_capability_draft import (  # type: ignore
-      append_messages,
-      create_draft,
-      get_draft as get_pc_draft,
-      reopen_draft,
-    )
+    from people_capability_draft import append_messages, create_draft, get_draft as get_pc_draft  # type: ignore
     from people_capability_consultant import (  # type: ignore
       people_capability_chat_turn,
       people_capability_finalize,
     )
+    from api_handlers.shared_context import build_shared_context
+    from intent_router import route_intent  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import people consult helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
-
-  def _validate_final(final_obj: Dict[str, Any]) -> None:
-    if not isinstance(final_obj, dict):
-      raise RuntimeError("Final people JSON must be an object.")
-    summary = str(final_obj.get("key_people_summary") or "").strip()
-    if not summary:
-      raise RuntimeError("Final people JSON missing key_people_summary.")
-    conf = final_obj.get("confidence")
-    try:
-      conf_val = float(conf)
-    except Exception as exc:
-      raise RuntimeError("Final people JSON missing valid confidence.") from exc
-    if conf_val <= 0 or conf_val > 1:
-      raise RuntimeError("confidence must be between 0 and 1.")
-    people = final_obj.get("people")
-    if not isinstance(people, list):
-      raise RuntimeError("Final people JSON missing people array.")
-    if len(people) == 0:
-      raise RuntimeError("At least one person is required in this section.")
-    for p in people:
-      if not isinstance(p, dict):
-        raise RuntimeError("people items must be objects.")
-      if not str(p.get("full_name") or "").strip():
-        raise RuntimeError("people.full_name is required.")
-      if not str(p.get("role_title") or "").strip():
-        raise RuntimeError("people.role_title is required.")
-      if not str(p.get("paragraph") or "").strip():
-        raise RuntimeError("people.paragraph is required.")
 
   try:
     conn = get_mysql_connection()
     try:
       consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
       client_id = str(consult.get("client_id") or "").strip()
-      operating_raw = consult.get("operating_model_json")
-      operating_model: Dict[str, Any] = {}
-      if operating_raw:
-        try:
-          parsed = json.loads(str(operating_raw))
-          if isinstance(parsed, dict):
-            operating_model = parsed
-        except Exception:
-          operating_model = {}
 
-      # Ensure the people draft row exists.
+      shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+      operating_model = shared_context.get("operating_model") or {}
+
       try:
         pc_draft = get_pc_draft(conn, draft_id=str(draft_id).strip())
       except Exception:
@@ -181,42 +190,73 @@ def post_people_capability_handler(*, app, request):
         pc_draft = get_pc_draft(conn, draft_id=str(draft_id).strip())
 
       pc_status = str(pc_draft.get("status") or "").strip().lower()
-      if pc_status == "completed" and not reopen:
-        pc_raw = pc_draft.get("people_json")
-        pc_summary = ""
-        if pc_raw:
-          try:
-            pc_obj = json.loads(str(pc_raw))
-            if isinstance(pc_obj, dict):
-              pc_summary = str(pc_obj.get("key_people_summary") or "").strip()
-          except Exception:
-            pc_summary = ""
+      history = _parse_messages(pc_draft.get("messages_json"))
+      user_msg = {"role": "user", "content": str(message).strip()}
+
+      # Completed: route all user messages through GPT intent router.
+      if pc_status == "completed":
+        baseline_people = _parse_json_dict(pc_draft.get("people_json"))
+
+        if starting:
+          summary = str(baseline_people.get("key_people_summary") or "").strip()
+          assistant_message = f"{(summary or 'People & capability intake complete.').strip()}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "done": True,
+              "action": "await_confirmation",
+              "assistant_message": assistant_message,
+              "people_json": json.dumps(baseline_people, ensure_ascii=False) if baseline_people else None,
+            }
+          )
+
+        routed = route_intent(
+          consult_type="people",
+          user_message=str(message).strip(),
+          baseline_json=baseline_people,
+          shared_context=shared_context,
+          recent_messages=history[-30:] if history else [],
+        )
+        action = str(routed.get("action") or "").strip()
+        assistant_message = str(routed.get("assistant_message") or "").strip()
+        patch = routed.get("patch")
+
+        updated_people = baseline_people
+        if action == "edit_patch":
+          if not isinstance(patch, dict):
+            patch = {}
+          updated_people = dict(baseline_people)
+          updated_people.update(patch)
+
+        assistant_msg = {"role": "assistant", "content": assistant_message}
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, assistant_msg],
+          status="completed",
+          people_json=updated_people if action == "edit_patch" else None,
+          flat_fields=updated_people if action == "edit_patch" else None,
+          completed=bool(action == "edit_patch"),
+        )
+
         return jsonify(
           {
             "status": "ok",
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
             "done": True,
-            "assistant_message": pc_summary or "People & capability intake complete.",
+            "action": action,
+            "assistant_message": assistant_message,
+            "people_json": json.dumps(updated_people, ensure_ascii=False) if updated_people else None,
           }
         )
-      if pc_status == "completed" and reopen:
-        reopen_draft(conn, draft_id=str(draft_id).strip())
-        pc_draft = get_pc_draft(conn, draft_id=str(draft_id).strip())
-        pc_status = str(pc_draft.get("status") or "").strip().lower()
 
-      history: List[Dict[str, str]] = []
-      try:
-        raw_messages = pc_draft.get("messages_json")
-        if raw_messages:
-          parsed = json.loads(str(raw_messages))
-          if isinstance(parsed, list):
-            history = [m for m in parsed if isinstance(m, dict)]
-      except Exception:
-        history = []
-
+      # In-progress: normal chat turns until finalize-ready.
       context = {
         "client_id": client_id,
+        "shared_context": shared_context,
         "business_name": (str(business_name).strip() if business_name else None),
         "business_type": (str(business_type).strip() if business_type else None),
         "business_description_summary": operating_model.get("business_description_summary"),
@@ -225,80 +265,61 @@ def post_people_capability_handler(*, app, request):
         "shipping_method": operating_model.get("shipping_method"),
       }
 
-      user_msg = {"role": "user", "content": str(message).strip()}
-
-      if edit_finalize:
-        final_obj = people_capability_finalize(
-          intake_context=context,
-          conversation_messages=[*history, user_msg],
-        )
-        _validate_final(final_obj)
-        assistant_message = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
-        assistant_msg = {"role": "assistant", "content": assistant_message}
-        new_messages = [user_msg, assistant_msg]
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
-          status="completed",
-          people_json=final_obj,
-          flat_fields=final_obj,
-          completed=True,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "done": True,
-            "assistant_message": assistant_message,
-          }
-        )
-
       turn = people_capability_chat_turn(
         intake_context=context,
         conversation_messages=[*history, user_msg],
       )
       assistant_text = str(turn.get("assistant_message") or "").strip()
       finalize_ready = bool(turn.get("finalize_ready", False))
-      assistant_msg = {"role": "assistant", "content": assistant_text}
-      new_messages = [user_msg, assistant_msg]
 
-      done = False
-      assistant_message = assistant_text
-
-      if finalize_ready:
-        final_obj = people_capability_finalize(
-          intake_context=context,
-          conversation_messages=[*history, *new_messages],
-        )
-        _validate_final(final_obj)
+      if not finalize_ready:
+        assistant_msg = {"role": "assistant", "content": assistant_text}
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
-          status="completed",
-          people_json=final_obj,
-          flat_fields=final_obj,
-          completed=True,
-        )
-        done = True
-        assistant_message = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
-      else:
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=new_messages,
+          new_messages=[user_msg, assistant_msg],
           status="in_progress",
         )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
+
+      final_obj = people_capability_finalize(
+        intake_context=context,
+        conversation_messages=[*history, user_msg, {"role": "assistant", "content": assistant_text}],
+      )
+      _validate_final(final_obj)
+
+      summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
+      assistant_message = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+      assistant_msg = {"role": "assistant", "content": assistant_message}
+
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, assistant_msg],
+        status="completed",
+        people_json=final_obj,
+        flat_fields=final_obj,
+        completed=True,
+      )
 
       return jsonify(
         {
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "done": done,
+          "done": True,
+          "action": "await_confirmation",
           "assistant_message": assistant_message,
+          "people_json": json.dumps(final_obj, ensure_ascii=False),
         }
       )
     finally:
@@ -309,3 +330,4 @@ def post_people_capability_handler(*, app, request):
   except Exception as exc:
     app.logger.exception("Failed people capability consult: %s", exc)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
+
