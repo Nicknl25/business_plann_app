@@ -275,6 +275,18 @@ Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics. Keep it high-level and realistic.
 - Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
+Fact-bearing templates (STRICT):
+- The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
+- For any value that already exists in the provided context JSON (including shared_context), do NOT print the literal value.
+- Instead, reference the fact using this placeholder syntax exactly:
+  {{{{fact:business.name}}}}
+  {{{{fact:ops.unit_name}}}}
+  {{{{fact:ops.unit_price}}}}
+- You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
+- Allowed groups/fields you may reference:
+  - business: name, address, start_date
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
+
 Output rules:
 - Respond with normal conversation text (NOT JSON).
 - When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
@@ -320,6 +332,18 @@ Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
 - Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+
+Fact-bearing templates (STRICT):
+- The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
+- For any value that already exists in the provided context JSON (including shared_context), do NOT print the literal value.
+- Instead, reference the fact using this placeholder syntax exactly:
+  {{{{fact:business.name}}}}
+  {{{{fact:ops.unit_name}}}}
+  {{{{fact:ops.unit_price}}}}
+- You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
+- Allowed groups/fields you may reference:
+  - business: name, address, start_date
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -380,6 +404,18 @@ Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
 - Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+
+Fact-bearing templates (STRICT):
+- The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
+- For any value that already exists in the provided context JSON (including shared_context), do NOT print the literal value.
+- Instead, reference the fact using this placeholder syntax exactly:
+  {{{{fact:business.name}}}}
+  {{{{fact:ops.unit_name}}}}
+  {{{{fact:ops.unit_price}}}}
+- You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
+- Allowed groups/fields you may reference:
+  - business: name, address, start_date
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -460,6 +496,7 @@ Field rules by mode:
 - If consumer_type is mixed: populate all consumer demographic fields AND all B2B fields.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across segments.
 - Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
+- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 - The mapping table includes min_value and max_value (numeric) for some rows (notably Gender & Age and Income). Use them to be precise:
   - When the client specifies a numeric range (e.g., age 19-58 or income $40k-$120k), select ALL mapping rows whose [min_value, max_value] overlaps that intended range.
   - If the client's boundary falls between buckets, include the nearest bucket that covers it (e.g., min 19 should include an 18-24 bucket; max 58 should include a 55-64 bucket).
@@ -498,6 +535,7 @@ Return ONLY JSON matching the provided schema. No prose.
 - Do not invent new bands. Do not include any values outside the allowed enums.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across the B2B segments.
 - Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
+- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:
@@ -527,6 +565,7 @@ Hard requirements:
   - Businesses are not people: do NOT add any people-based demographic targeting for B2B.
 - target_market_summary must be one comprehensive paragraph that reflects BOTH the consumer and B2B targeting (without listing raw codes).
 - Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
+- Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:

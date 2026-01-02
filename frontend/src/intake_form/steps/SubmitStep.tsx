@@ -5,24 +5,13 @@ import type { FieldErrors, UseFormReturn } from "react-hook-form";
 import apiClient from "../../apiClient";
 import { Button } from "../../components/ui/Button";
 import { consultStorage } from "../flow/consultStorage";
-import {
-  parseNumberFromString,
-  serverFieldToFormField,
-  type IntakeValues,
-} from "../schema";
+import { serverFieldToFormField, type IntakeValues } from "../schema";
 
 export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
   const {
     clientId,
     draftId,
     consultDone,
-    opsConfirmed,
-    targetMarketDone,
-    targetMarketConfirmed,
-    peopleDone,
-    peopleConfirmed,
-    financialsDone,
-    financialsConfirmed,
     setSubmitLoading,
     setSubmitError,
     setSubmitSuccess,
@@ -38,81 +27,21 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
       }
 
       if (!consultDone) {
-        setSubmitError("Complete the consultant conversation before submitting.");
+        setSubmitError("Complete the intake consultation before submitting.");
         return;
       }
 
-      if (!opsConfirmed) {
-        setSubmitError("Confirm Business overview before submitting.");
-        return;
-      }
-
-      if (!targetMarketDone) {
-        setSubmitError(
-          "Complete the target market conversation before submitting."
-        );
-        return;
-      }
-
-      if (!targetMarketConfirmed) {
-        setSubmitError("Confirm Customers & positioning before submitting.");
-        return;
-      }
-      if (!peopleDone) {
-        setSubmitError(
-          "Complete the People & Capability conversation before submitting."
-        );
-        return;
-      }
-
-      if (!peopleConfirmed) {
-        setSubmitError("Confirm People & Capability before submitting.");
-        return;
-      }
-
-      if (!financialsDone) {
-        setSubmitError("Complete the financials conversation before submitting.");
-        return;
-      }
-
-      if (!financialsConfirmed) {
-        setSubmitError("Confirm Financials before submitting.");
-        return;
-      }
-
-      const businessStartDate = values.businessStartDate;
-
-      const financialsPayload = {
+      const submissionPayload = {
         draft_id: draftId,
         business_name: values.businessName,
-        description: null,
         address: values.address || null,
-        // What you offer (removed from UI for now)
-        product_keywords: null,
+        product_keywords: values.productKeywords || null,
         first_name: values.firstName,
         last_name: values.lastName,
         email_address: values.emailAddress,
         phone_number: values.phoneNumber || null,
         how_did_you_hear: values.howDidYouHear || null,
-        business_start_date: businessStartDate,
-        current_revenue: parseNumberFromString(values.currentRevenue),
-        current_cogs: parseNumberFromString(values.currentCogs),
-        other_operating_expense: parseNumberFromString(values.otherOperatingExpense),
-        monthly_rent_expense: parseNumberFromString(values.monthlyRentExpense),
-        other_monthly_debt_payments: parseNumberFromString(
-          values.otherMonthlyDebtPayments
-        ),
-        current_payroll: parseNumberFromString(values.currentPayroll),
-        current_num_employees: parseNumberFromString(values.currentNumEmployees),
-        current_capex: parseNumberFromString(values.currentCapex),
-        ar_balance: parseNumberFromString(values.arBalance),
-        ap_balance: parseNumberFromString(values.apBalance),
-        inventory_balance: parseNumberFromString(values.inventoryBalance),
-        total_debt_outstanding: parseNumberFromString(values.totalDebtOutstanding),
-        annual_interest_payment: parseNumberFromString(values.annualInterestPayment),
-        annual_principal_payment: parseNumberFromString(values.annualPrincipalPayment),
-        owner_compensation: parseNumberFromString(values.ownerCompensation),
-        cash_on_hand: parseNumberFromString(values.cashOnHand),
+        business_start_date: values.businessStartDate,
       };
 
       Object.values(serverFieldToFormField).forEach((fieldName) => {
@@ -121,7 +50,7 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
 
       setSubmitLoading(true);
       try {
-        const res = await apiClient.post("/api/financials", financialsPayload, {
+        const res = await apiClient.post("/api/financials", submissionPayload, {
           validateStatus: () => true,
           headers: { "Content-Type": "application/json" },
         });
@@ -218,16 +147,9 @@ export default function SubmitStep({
 }) {
   const {
     consultDone,
-    opsConfirmed,
     submitLoading,
     submitError,
     submitSuccess,
-    targetMarketDone,
-    targetMarketConfirmed,
-    peopleDone,
-    peopleConfirmed,
-    financialsDone,
-    financialsConfirmed,
   } = useIntakeFlow();
 
   return (
@@ -254,13 +176,6 @@ export default function SubmitStep({
           className="group rounded-full px-6 text-xs sm:text-sm"
           disabled={
             !consultDone ||
-            !opsConfirmed ||
-            !targetMarketDone ||
-            !targetMarketConfirmed ||
-            !peopleDone ||
-            !peopleConfirmed ||
-            !financialsDone ||
-            !financialsConfirmed ||
             submitLoading ||
             Boolean(submitSuccess)
           }

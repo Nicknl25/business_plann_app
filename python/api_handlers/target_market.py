@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import jsonify
 
 
+TM_CONFIRM_QUESTION = "Does this look right before we move on to People & Capability?"
+
+
 def post_target_market_session_handler(*, app, request):
   """
   Relocated verbatim from python/api.py:post_target_market_session (Phase 1 sweep).
@@ -447,7 +450,7 @@ def post_target_market_consult_handler(*, app, request):
           summary = str(baseline_target_market.get("target_market_summary") or "").strip()
           assistant_message = (summary or "Target market intake complete.").strip()
           assistant_message = (
-            f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
+            f"{assistant_message}\n\n{TM_CONFIRM_QUESTION}"
           ).strip()
           try:
             import re
@@ -459,6 +462,9 @@ def post_target_market_consult_handler(*, app, request):
             )
           except Exception:
             pass
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          assistant_message = sanitize_fact_template(assistant_message)
           return jsonify(
             {
               "status": "ok",
@@ -486,10 +492,25 @@ def post_target_market_consult_handler(*, app, request):
 
         updated_target_market = baseline_target_market
         if action == "edit_patch":
+          from fact_templates import sanitize_fact_template  # type: ignore
+
           if not isinstance(patch, dict):
             patch = {}
           updated_target_market = dict(baseline_target_market)
           updated_target_market.update(patch)
+          updated_target_market = {
+            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+            for k, v in updated_target_market.items()
+          }
+
+          summary_for_ui = str(updated_target_market.get("target_market_summary") or "").strip()
+          ack = assistant_message or "Got it."
+          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{TM_CONFIRM_QUESTION}".strip()
+          assistant_message = sanitize_fact_template(assistant_message)
+        else:
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          assistant_message = sanitize_fact_template(assistant_message)
 
         # Guardrail: never expose raw ACS codes in the UI conversation.
         try:
@@ -832,6 +853,12 @@ def post_target_market_consult_handler(*, app, request):
           assistant_message = re.sub(r"\b[A-Z]\d{5}_\d{3}E\b", "[ACS code redacted]", assistant_message)
         except Exception:
           pass
+        from fact_templates import sanitize_fact_template  # type: ignore
+
+        for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
+          if isinstance(v, str):
+            final_obj[k] = sanitize_fact_template(v)
+        assistant_message = sanitize_fact_template(assistant_message)
 
         assistant_msg = {"role": "assistant", "content": assistant_message}
         new_messages = [user_msg, assistant_msg]
@@ -873,6 +900,9 @@ def post_target_market_consult_handler(*, app, request):
         )
       except Exception:
         pass
+      from fact_templates import sanitize_fact_template  # type: ignore
+
+      assistant_text = sanitize_fact_template(assistant_text)
       finalize_ready = bool(turn.get("finalize_ready", False))
       assistant_msg = {"role": "assistant", "content": assistant_text}
       new_messages = [user_msg, assistant_msg]
@@ -892,6 +922,9 @@ def post_target_market_consult_handler(*, app, request):
         )
         if not isinstance(final_obj, dict):
           raise RuntimeError("Finalization did not return an object.")
+        for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
+          if isinstance(v, str):
+            final_obj[k] = sanitize_fact_template(v)
 
         def _user_requested_all_ages(conversation_messages: List[Dict[str, Any]]) -> bool:
           import re
@@ -1151,6 +1184,9 @@ def post_target_market_consult_handler(*, app, request):
           )
         except Exception:
           pass
+        from fact_templates import sanitize_fact_template  # type: ignore
+
+        assistant_message = sanitize_fact_template(assistant_message)
 
         assistant_msg_final = {"role": "assistant", "content": assistant_message}
         append_messages(

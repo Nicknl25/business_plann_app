@@ -1,5 +1,13 @@
 import type React from "react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import apiClient from "../../apiClient";
 import { consultStorage } from "./consultStorage";
 
 export type SubmitSuccess = {
@@ -8,6 +16,19 @@ export type SubmitSuccess = {
 } | null;
 
 export type IntakeEditSection = "ops" | "targetMarket" | "people" | "financials" | null;
+export type IntakeConsultType = Exclude<IntakeEditSection, null>;
+
+export type IntakeDraftMutation = {
+  nonce: number;
+  source: IntakeConsultType;
+} | null;
+
+export type IntakeSharedContext = {
+  operating_model?: any;
+  target_market?: any;
+  people_capability?: any;
+  financials?: any;
+} | null;
 
 type IntakeFlowContextValue = {
   planStarted: boolean;
@@ -57,6 +78,15 @@ type IntakeFlowContextValue = {
 
   resetCounter: number;
   bumpResetCounter: () => void;
+
+  draftMutation: IntakeDraftMutation;
+  notifyDraftMutation: (source: IntakeConsultType) => void;
+
+  sharedContext: IntakeSharedContext;
+  sharedContextUpdatedAt: number;
+  sharedContextLoading: boolean;
+  sharedContextError: string | null;
+  refreshSharedContext: (options?: { silent?: boolean }) => Promise<void>;
 };
 
 const IntakeFlowContext = createContext<IntakeFlowContextValue | null>(null);
@@ -132,6 +162,11 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<SubmitSuccess>(null);
   const [resetCounter, setResetCounter] = useState(0);
+  const [draftMutation, setDraftMutation] = useState<IntakeDraftMutation>(null);
+  const [sharedContext, setSharedContext] = useState<IntakeSharedContext>(null);
+  const [sharedContextUpdatedAt, setSharedContextUpdatedAt] = useState(0);
+  const [sharedContextLoading, setSharedContextLoading] = useState(false);
+  const [sharedContextError, setSharedContextError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -162,6 +197,69 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       // ignore
     }
   }, [financialsConfirmed, opsConfirmed, peopleConfirmed, targetMarketConfirmed]);
+
+  const refreshSharedContext = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!planStarted) return;
+      const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+      if (!effectiveDraftId) return;
+
+      if (!silent) {
+        setSharedContextLoading(true);
+      }
+      setSharedContextError(null);
+      try {
+        const res = await apiClient.get("/api/shared-context", {
+          params: { draft_id: effectiveDraftId },
+          validateStatus: () => true,
+        });
+        if (res.status < 200 || res.status >= 300) {
+          if (!silent) {
+            const body: any = res.data;
+            const detail =
+              body && typeof body === "object"
+                ? String(body.detail || body.error || "")
+                : String(body || "");
+            setSharedContextError(detail || `Shared context error: ${res.status}`);
+          }
+          return;
+        }
+        const body: any = res.data;
+        const nextContext = body?.shared_context;
+        if (nextContext && typeof nextContext === "object") {
+          setSharedContext(nextContext);
+          setSharedContextUpdatedAt(Date.now());
+        }
+      } catch (err) {
+        if (!silent) {
+          setSharedContextError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!silent) {
+          setSharedContextLoading(false);
+        }
+      }
+    },
+    [draftId, planStarted]
+  );
+
+  useEffect(() => {
+    if (!planStarted) return;
+    if (!draftId && !consultStorage.getDraftId()) return;
+    void refreshSharedContext({ silent: true });
+  }, [draftId, planStarted, refreshSharedContext]);
+
+  useEffect(() => {
+    if (!planStarted) return;
+    if (!draftId && !consultStorage.getDraftId()) return;
+
+    const intervalMs = 8000;
+    const id = window.setInterval(() => {
+      void refreshSharedContext({ silent: true });
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [draftId, planStarted, refreshSharedContext]);
 
   const value = useMemo<IntakeFlowContextValue>(
     () => ({
@@ -203,6 +301,19 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       setSubmitSuccess,
       resetCounter,
       bumpResetCounter: () => setResetCounter((prev) => prev + 1),
+      draftMutation,
+      notifyDraftMutation: (source) => {
+        setDraftMutation((prev) => ({
+          nonce: (prev?.nonce ?? 0) + 1,
+          source,
+        }));
+        void refreshSharedContext({ silent: true });
+      },
+      sharedContext,
+      sharedContextUpdatedAt,
+      sharedContextLoading,
+      sharedContextError,
+      refreshSharedContext,
     }),
     [
       planStarted,
@@ -224,6 +335,12 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       submitSuccess,
       targetMarketDone,
       targetMarketSummary,
+      draftMutation,
+      refreshSharedContext,
+      sharedContext,
+      sharedContextError,
+      sharedContextLoading,
+      sharedContextUpdatedAt,
     ]
   );
 

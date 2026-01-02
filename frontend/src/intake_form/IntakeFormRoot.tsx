@@ -9,11 +9,8 @@ import { Form } from "../components/ui/Form";
 import { IntakeFlowProvider } from "./flow/IntakeFlowContext";
 import { useIntakeFlow } from "./flow/IntakeFlowContext";
 import { defaultValues, intakeSchema, type IntakeValues } from "./schema";
-import BusinessOverviewStep from "./steps/BusinessOverviewStep";
-import FinancialsStep from "./steps/FinancialsStep";
-import PeopleCapabilityStep from "./steps/PeopleCapabilityStep";
 import SubmitStep, { useSubmitIntakeHandlers } from "./steps/SubmitStep";
-import TargetMarketStep from "./steps/TargetMarketStep";
+import UnifiedConsultStep from "./steps/UnifiedConsultStep";
 import ClientInformationModal from "./components/ClientInformationModal";
 import WhatToExpectNextInfo from "./components/WhatToExpectNextInfo";
 
@@ -104,11 +101,7 @@ function IntakeFormInner() {
         onInvalid={handleInvalid}
         className="space-y-8"
       >
-        <BusinessOverviewStep />
-        <TargetMarketStep />
-
-        <PeopleCapabilityStep />
-        <FinancialsStep />
+        <UnifiedConsultStep />
 
         <div id="submit-intake-section" className="space-y-6">
           <WhatToExpectNextInfo />

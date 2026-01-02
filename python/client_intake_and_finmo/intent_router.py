@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
@@ -69,6 +70,37 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
 
 def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
   consult_type_norm = str(consult_type or "").strip().lower()
+  if consult_type_norm == "unified":
+    # Patch keys are scoped (group.field). This mapping is used for deterministic
+    # type checking of value_json payloads.
+    schemas: Dict[str, Any] = {}
+
+    def add(group: str, field: str, schema: Dict[str, Any]) -> None:
+      schemas[f"{group}.{field}"] = schema
+
+    # business facts (stored on the draft)
+    add("business", "name", {"type": "string"})
+    add("business", "address", {"type": "string"})
+    add("business", "start_date", {"type": "string"})
+
+    # ops
+    for k, v in _value_schema_by_consult_field(consult_type="ops").items():
+      add("ops", k, v)
+
+    # market
+    for k, v in _value_schema_by_consult_field(consult_type="target_market").items():
+      add("market", k, v)
+
+    # people
+    for k, v in _value_schema_by_consult_field(consult_type="people").items():
+      add("people", k, v)
+
+    # financials
+    for k, v in _value_schema_by_consult_field(consult_type="financials").items():
+      add("financials", k, v)
+
+    return schemas
+
   if consult_type_norm == "ops":
     return {
       "consumer_type": {"type": "string", "enum": ["consumer", "b2b", "mixed"]},
@@ -259,6 +291,49 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
   raise ValueError(f"Unknown consult_type={consult_type!r}")
 
 
+def _parse_number_value_json(raw: str) -> Optional[float]:
+  """
+  Best-effort parse for value_json when the model returns a number-like string
+  that is not valid JSON (e.g. "$504", "18.5k", "504/month").
+
+  This is NOT intent inference; it only coerces an already-selected patch field
+  to a numeric value when possible.
+  """
+  text = str(raw or "").strip()
+  if not text:
+    return None
+
+  lowered = text.lower().strip()
+  if lowered in ("none", "n/a", "na", "null", "unknown"):
+    return None
+
+  # Remove common currency/formatting noise.
+  cleaned = lowered.replace(",", "")
+  cleaned = cleaned.replace("$", "").replace("usd", "").strip()
+
+  # Extract the first number token with optional k/m/b shorthand.
+  match = re.search(r"(?P<num>\d+(?:\.\d+)?)\s*(?P<suffix>[kmb])?", cleaned)
+  if not match:
+    return None
+
+  try:
+    num = float(match.group("num"))
+  except Exception:
+    return None
+
+  suffix = (match.group("suffix") or "").strip().lower()
+  if suffix == "k":
+    num *= 1_000
+  elif suffix == "m":
+    num *= 1_000_000
+  elif suffix == "b":
+    num *= 1_000_000_000
+
+  if not (num >= 0):
+    return None
+  return num
+
+
 def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> Dict[str, Any]:
   """
   OpenAI strict json_schema requires:
@@ -285,11 +360,15 @@ def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> 
             "confirm_clarify",
             "edit_patch",
             "answer_readonly",
+            "continue_chat",
           ],
         },
         "assistant_message": {"type": "string"},
         "patch": {
-          "type": ["array", "null"],
+          # OpenAI structured outputs rejects union types here (it surfaces as an implicit oneOf),
+          # so patch is always an array. For non-edit actions, the model must return [].
+          "type": "array",
+          "minItems": 0,
           "items": {
             "type": "object",
             "additionalProperties": False,
@@ -323,6 +402,7 @@ def route_intent(
   baseline_json: Dict[str, Any],
   shared_context: Dict[str, Any],
   recent_messages: Sequence[Dict[str, Any]] | None = None,
+  confirm_question_override: str | None = None,
 ) -> Dict[str, Any]:
   """
   GPT-only intent router for post-completion messages.
@@ -336,7 +416,7 @@ def route_intent(
     { action, assistant_message, patch }
   """
   consult_type_norm = str(consult_type or "").strip().lower()
-  if consult_type_norm not in ("ops", "target_market", "people", "financials"):
+  if consult_type_norm not in ("ops", "target_market", "people", "financials", "unified"):
     raise ValueError(f"Unknown consult_type={consult_type!r}")
 
   api_key = _require_openai_key()
@@ -347,21 +427,17 @@ def route_intent(
     "target_market": "Does this look right before we move on to People & Capability?",
     "people": "Does this look right before we move on to Financials?",
     "financials": "Does this look right before we move on to Submit intake?",
+    "unified": "Does this look right before we move on?",
   }
-  confirm_question = confirm_questions[consult_type_norm]
-  summary_fields = {
-    "ops": "business_description_summary",
-    "target_market": "target_market_summary",
-    "people": "key_people_summary",
-    "financials": "financials_summary",
-  }
-  summary_field = summary_fields[consult_type_norm]
+  if confirm_question_override is None:
+    confirm_question = str(confirm_questions[consult_type_norm]).strip()
+  else:
+    confirm_question = str(confirm_question_override).strip()
 
   allowed_fields = {
     "ops": [
       "consumer_type",
       "business_type",
-      "business_description_summary",
       "unit_name",
       "unit_description",
       "units_per_week_capacity",
@@ -390,12 +466,10 @@ def route_intent(
       "b2b_naics_6",
       "b2b_size_bands",
       "b2b_age_bands",
-      "target_market_summary",
       "confidence",
     ],
     "people": [
       "people",
-      "key_people_summary",
       "confidence",
     ],
     "financials": [
@@ -415,8 +489,16 @@ def route_intent(
       "annual_principal_payment",
       "owner_compensation",
       "cash_on_hand",
-      "financials_summary",
       "confidence",
+    ],
+    "unified": [
+      "business.name",
+      "business.address",
+      "business.start_date",
+      *[f"ops.{f}" for f in _value_schema_by_consult_field(consult_type="ops").keys()],
+      *[f"market.{f}" for f in _value_schema_by_consult_field(consult_type="target_market").keys()],
+      *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys()],
+      *[f"financials.{f}" for f in _value_schema_by_consult_field(consult_type="financials").keys()],
     ],
   }[consult_type_norm]
 
@@ -429,7 +511,7 @@ You are the intent router for a multi-step business intake app.
 Non-negotiable rule:
 - You are the SOLE authority for interpreting the user's intent. Do NOT defer intent decisions to any frontend/back-end heuristics.
 
-You are operating ONLY on post-completion messages for the "{consult_type_norm}" consult.
+You are operating on any message for the "{consult_type_norm}" consult.
 
 You are given:
 - baseline_json: the last confirmed structured output for this consult (canonical baseline)
@@ -452,34 +534,35 @@ Actions:
   - Use when the user is requesting a correction/update to the already-completed consult (even if phrased casually).
   - patch MUST be an array of operations. Each operation is an object:
       {{ "field": "<field_name>", "value_json": "<JSON-encoded value>" }}
-    - value_json MUST be valid JSON for the value type:
-      - numbers: "10000" (no quotes)
-      - strings: "\"some text\"" (must be quoted JSON string)
-      - arrays/objects: valid JSON like "[...]" or "{...}"
+    - value_json MUST be a JSON snippet encoded as a string:
+      - numbers: digits only, e.g. "504" or "18.5" (no $ signs, no commas, no "/month")
+      - strings: a valid JSON string, e.g. "\"monthly\""
+      - arrays/objects: valid JSON like "[\"US\"]" or "{\"a\":1}"
   - You MUST normalize values:
     - numeric shorthand like 10k/10K -> 10000, 1.2m -> 1200000
     - currency words/symbols to plain numbers (numbers must be JSON numbers, not strings)
   - patch MUST contain ONLY the field(s) that should change (no full rewrites).
   - patch field names MUST stay within the allowed fields list: {json.dumps(allowed_fields, ensure_ascii=False)}.
-  - For edit_patch, assistant_message MUST:
+  - For edit_patch, assistant_message MUST be short and conversational:
     - briefly acknowledge the specific change(s)
-    - include an updated summary paragraph (preserve the original wording/style as much as possible; change only the facts that changed)
-    - end with this exact confirmation question:
-      "{confirm_question}"
-  - For edit_patch, patch MUST include the updated summary field for this consult:
-    - ops: business_description_summary
-    - target_market: target_market_summary
-    - people: key_people_summary
-    - financials: financials_summary
+    - do NOT rewrite or re-summarize the entire section
+    - do NOT ask multi-part questions
 4) answer_readonly
   - Use when the user is asking a question that is NOT a change request and is not an approval/disapproval of the summary.
-  - Answer using baseline_json + shared_context (read-only). Do NOT apply any patch (patch=null).
+  - Answer using baseline_json + shared_context (read-only). Do NOT apply any patch (patch=[]).
   - Keep it short and directly answer the user's question. Do not reprint the full baseline summary.
+5) continue_chat
+  - Use when the user is answering the current question and the consult should continue normally (no patch, no confirmation decision).
+  - patch MUST be [].
 
 Interpretation rules:
 - If the user says something like "10000, not 10" after correcting unit price, infer they are correcting the same thing again (do not require keywords).
 - If the user's intent is clear, proceed confidently; do not re-ask for confirmation.
 - If the user disagrees or requests changes, treat it as edit_patch.
+
+Unified mode:
+- If consult_type is "unified", patch fields must be scoped as "<group>.<field>" (e.g., "ops.unit_price", "financials.current_revenue", "business.name").
+- Only patch the specific intended facts; do not rewrite summaries.
 
 Return JSON only. No prose.
 """.strip()
@@ -496,8 +579,6 @@ Return JSON only. No prose.
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  if summary_field not in allowed_fields:
-    raise RuntimeError(f"Intent router allowed_fields missing required summary field: {summary_field}")
   schema_wrapper = _final_schema(allowed_patch_fields=allowed_fields, consult_type=consult_type_norm)
   payload = {
     "model": model,
@@ -558,8 +639,15 @@ Return JSON only. No prose.
           try:
             value = json.loads(value_json_raw)
           except Exception:
-            if "string" in allowed_types:
+            if "number" in allowed_types:
+              parsed_num = _parse_number_value_json(value_json_raw)
+              if parsed_num is None:
+                raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
+              value = parsed_num
+            elif "string" in allowed_types:
               value = value_json_raw
+            elif "array" in allowed_types and value_json_raw.strip().lower() in ("none", "n/a", "na", ""):
+              value = []
             else:
               raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
 
@@ -584,9 +672,6 @@ Return JSON only. No prose.
                 raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
 
           patch_dict[field] = value
-
-        if summary_field not in patch_dict:
-          raise RuntimeError(f"Intent router edit_patch missing required summary field: {summary_field}")
 
         result["patch"] = patch_dict
         return result
@@ -631,8 +716,15 @@ Return JSON only. No prose.
     try:
       value = json.loads(value_json_raw)
     except Exception:
-      if "string" in allowed_types:
+      if "number" in allowed_types:
+        parsed_num = _parse_number_value_json(value_json_raw)
+        if parsed_num is None:
+          raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
+        value = parsed_num
+      elif "string" in allowed_types:
         value = value_json_raw
+      elif "array" in allowed_types and value_json_raw.strip().lower() in ("none", "n/a", "na", ""):
+        value = []
       else:
         raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
 
@@ -657,7 +749,5 @@ Return JSON only. No prose.
           raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
 
     patch_dict[field] = value
-  if summary_field not in patch_dict:
-    raise RuntimeError(f"Intent router edit_patch missing required summary field: {summary_field}")
   parsed["patch"] = patch_dict
   return parsed

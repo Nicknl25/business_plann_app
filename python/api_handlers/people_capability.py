@@ -200,6 +200,9 @@ def post_people_capability_handler(*, app, request):
         if starting:
           summary = str(baseline_people.get("key_people_summary") or "").strip()
           assistant_message = f"{(summary or 'People & capability intake complete.').strip()}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          assistant_message = sanitize_fact_template(assistant_message)
           return jsonify(
             {
               "status": "ok",
@@ -225,10 +228,25 @@ def post_people_capability_handler(*, app, request):
 
         updated_people = baseline_people
         if action == "edit_patch":
+          from fact_templates import sanitize_fact_template  # type: ignore
+
           if not isinstance(patch, dict):
             patch = {}
           updated_people = dict(baseline_people)
           updated_people.update(patch)
+          updated_people = {
+            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+            for k, v in updated_people.items()
+          }
+
+          summary_for_ui = str(updated_people.get("key_people_summary") or "").strip()
+          ack = assistant_message or "Got it."
+          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+          assistant_message = sanitize_fact_template(assistant_message)
+        else:
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          assistant_message = sanitize_fact_template(assistant_message)
 
         assistant_msg = {"role": "assistant", "content": assistant_message}
         append_messages(
@@ -269,7 +287,9 @@ def post_people_capability_handler(*, app, request):
         intake_context=context,
         conversation_messages=[*history, user_msg],
       )
-      assistant_text = str(turn.get("assistant_message") or "").strip()
+      from fact_templates import sanitize_fact_template  # type: ignore
+
+      assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
       finalize_ready = bool(turn.get("finalize_ready", False))
 
       if not finalize_ready:
@@ -295,10 +315,14 @@ def post_people_capability_handler(*, app, request):
         intake_context=context,
         conversation_messages=[*history, user_msg, {"role": "assistant", "content": assistant_text}],
       )
+      for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
+        if isinstance(v, str):
+          final_obj[k] = sanitize_fact_template(v)
       _validate_final(final_obj)
 
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
       assistant_message = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+      assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}
 
       append_messages(
@@ -330,4 +354,3 @@ def post_people_capability_handler(*, app, request):
   except Exception as exc:
     app.logger.exception("Failed people capability consult: %s", exc)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
-

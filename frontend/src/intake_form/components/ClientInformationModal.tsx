@@ -26,46 +26,10 @@ export default function ClientInformationModal({
 }) {
   const form = useFormContext<IntakeValues>();
   const {
-    setEditSection,
     setSubmitError,
     setSubmitSuccess,
   } = useIntakeFlow();
   const firstInputRef = useRef<HTMLInputElement | null>(null);
-
-  function jumpToSection(sectionId: string) {
-    window.setTimeout(() => {
-      const el = document.getElementById(sectionId);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 60);
-  }
-
-  function beginEdit(section: "ops" | "targetMarket" | "people" | "financials") {
-    if (submitting) return;
-    setSubmitError(null);
-    setSubmitSuccess(null);
-
-    if (section === "ops") {
-      setEditSection("ops");
-      onClose();
-      jumpToSection("intake-section-ops");
-      return;
-    }
-    if (section === "targetMarket") {
-      setEditSection("targetMarket");
-      onClose();
-      jumpToSection("intake-section-target-market");
-      return;
-    }
-    if (section === "people") {
-      setEditSection("people");
-      onClose();
-      jumpToSection("intake-section-people");
-      return;
-    }
-    setEditSection("financials");
-    onClose();
-    jumpToSection("intake-section-financials");
-  }
 
   useEffect(() => {
     if (!open) return;
@@ -104,46 +68,8 @@ export default function ClientInformationModal({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-md border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-300">
-            Need to change something in a section? You can edit without restarting the
-            full intake.
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={submitting}
-                onClick={() => beginEdit("ops")}
-              >
-                Edit Ops
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={submitting}
-                onClick={() => beginEdit("targetMarket")}
-              >
-                Edit Customers
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={submitting}
-                onClick={() => beginEdit("people")}
-              >
-                Edit People
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={submitting}
-                onClick={() => beginEdit("financials")}
-              >
-                Edit Financials
-              </Button>
-            </div>
+            Need to change something? Close this window and continue the chat — edits
+            update the intake in place and don’t reset progress.
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">

@@ -173,6 +173,19 @@ Flow:
    - When the client says they are done adding people, present ALL final paragraphs together (no duplicates).
    - Ask for edits across the full set. Only finalize once they approve the full set.
 
+Fact-bearing templates (STRICT):
+- The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
+- For any value that already exists in the provided context JSON (including shared_context), do NOT print the literal value.
+- Instead, reference the fact using this placeholder syntax exactly:
+  {{{{fact:business.name}}}}
+  {{{{fact:ops.unit_name}}}}
+- You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
+- Allowed groups/fields you may reference:
+  - business: name
+  - ops: business_type, unit_name, shipping_method, sales_modality, geographic_scope, geographic_coverage
+  - market: target_market_summary
+  - people: key_people_summary
+
 Output rules:
 - Respond with normal conversation text (NOT JSON).
 - Only when the client explicitly approves the full set of drafted paragraph(s), append the token
@@ -225,6 +238,7 @@ Hard requirements:
 - key_people_summary must be a concatenation of the per-person paragraphs in a clear order (separated by blank lines).
 - Do NOT include meta phrases like "professional way to say this" or "I'll clean up wording" in the paragraph text.
 - Do not refer to the output as a "section" and do not say it will appear verbatim in a plan; treat it as narrative source material.
+- Fact-bearing template rule: if you mention the business name, use {{fact:business.name}} (do not print the literal name).
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:

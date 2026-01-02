@@ -21,8 +21,6 @@ def post_financials_handler(*, app, request):
     )
     from intake_submission import get_mysql_connection  # type: ignore
     from intake_consult_draft import get_draft, mark_submitted  # type: ignore
-    from target_market_draft import get_draft as get_target_market_draft  # type: ignore
-    from people_capability_draft import get_draft as get_people_capability_draft  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import intake pipeline: %s", exc)
     return (jsonify({"error": "server_error", "detail": "pipeline unavailable"}), 500)
@@ -78,40 +76,13 @@ def post_financials_handler(*, app, request):
     if consumer_type not in ("consumer", "b2b", "mixed"):
       consumer_type = "consumer"
 
-    # Require the target market consult to be completed as well.
-    conn = get_mysql_connection()
-    try:
-      try:
-        tm_draft = get_target_market_draft(conn, draft_id=str(draft_id).strip())
-      except Exception as exc:
-        raise IntakeValidationError(
-          {"draft_id": "Target market consult must be started and completed before submitting intake."}
-        ) from exc
-    finally:
-      try:
-        conn.close()
-      except Exception:
-        pass
-    tm_status = str(tm_draft.get("status") or "").strip().lower()
-    if tm_status != "completed":
-      raise IntakeValidationError(
-        {"draft_id": "Target market consult must be completed before submitting intake."}
-      )
-    tm_raw = tm_draft.get("target_market_json")
+    # Unified consult: target market is stored on the same canonical draft row.
+    tm_raw = draft.get("target_market_json")
     if not tm_raw:
-      raise IntakeValidationError(
-        {"draft_id": "Target market consult is missing target_market_json."}
-      )
-    try:
-      tm_obj = json.loads(str(tm_raw))
-    except Exception as exc:
-      raise IntakeValidationError(
-        {"draft_id": "target_market_json is invalid JSON."}
-      ) from exc
+      raise IntakeValidationError({"draft_id": "Draft is missing target_market_json."})
+    tm_obj = json.loads(str(tm_raw)) if not isinstance(tm_raw, dict) else tm_raw
     if not isinstance(tm_obj, dict):
-      raise IntakeValidationError(
-        {"draft_id": "target_market_json must be a JSON object."}
-      )
+      raise IntakeValidationError({"draft_id": "target_market_json must be a JSON object."})
 
     target_market_summary = str(tm_obj.get("target_market_summary") or "").strip()
     if not target_market_summary:
@@ -141,8 +112,26 @@ def post_financials_handler(*, app, request):
         )
 
     b2b_industry = str(tm_obj.get("target_market_b2b_industry") or "").strip()
+    if not b2b_industry:
+      naics6 = tm_obj.get("b2b_naics_6")
+      if isinstance(naics6, list):
+        b2b_industry = ",".join(sorted({str(x).strip() for x in naics6 if str(x).strip()}))
+
     b2b_size = str(tm_obj.get("target_market_b2b_size") or "").strip()
+    if not b2b_size:
+      bands = tm_obj.get("b2b_size_bands")
+      if isinstance(bands, list):
+        order = ["1-4", "5-9", "10-19", "20-99", "100-499", "500-999", "1000-2499", "2500-4999", "5000-9999", "10000+"]
+        band_set = {str(x).strip() for x in bands if str(x).strip()}
+        b2b_size = ",".join([v for v in order if v in band_set])
+
     b2b_age = str(tm_obj.get("target_market_b2b_age") or "").strip()
+    if not b2b_age:
+      bands = tm_obj.get("b2b_age_bands")
+      if isinstance(bands, list):
+        order = ["0", "1", "2", "3", "4", "5", "6-10", "11-15", "16-20", "21-25", "26+"]
+        band_set = {str(x).strip() for x in bands if str(x).strip()}
+        b2b_age = ",".join([v for v in order if v in band_set])
     if consumer_type in ("b2b", "mixed"):
       if not b2b_industry:
         raise IntakeValidationError(
@@ -157,41 +146,12 @@ def post_financials_handler(*, app, request):
           {"draft_id": "Target market consult is missing target_market_b2b_age."}
         )
 
-    # Require the People & Capability consult to be completed as well.
-    conn = get_mysql_connection()
-    try:
-      try:
-        pc_draft = get_people_capability_draft(conn, draft_id=str(draft_id).strip())
-      except Exception as exc:
-        raise IntakeValidationError(
-          {"draft_id": "People & Capability consult must be started and completed before submitting intake."}
-        ) from exc
-    finally:
-      try:
-        conn.close()
-      except Exception:
-        pass
-
-    pc_status = str(pc_draft.get("status") or "").strip().lower()
-    if pc_status != "completed":
-      raise IntakeValidationError(
-        {"draft_id": "People & Capability consult must be completed before submitting intake."}
-      )
-    pc_raw = pc_draft.get("people_json")
+    pc_raw = draft.get("people_json")
     if not pc_raw:
-      raise IntakeValidationError(
-        {"draft_id": "People & Capability consult is missing people_json."}
-      )
-    try:
-      pc_obj = json.loads(str(pc_raw))
-    except Exception as exc:
-      raise IntakeValidationError(
-        {"draft_id": "people_json is invalid JSON."}
-      ) from exc
+      raise IntakeValidationError({"draft_id": "Draft is missing people_json."})
+    pc_obj = json.loads(str(pc_raw)) if not isinstance(pc_raw, dict) else pc_raw
     if not isinstance(pc_obj, dict):
-      raise IntakeValidationError(
-        {"draft_id": "people_json must be a JSON object."}
-      )
+      raise IntakeValidationError({"draft_id": "people_json must be a JSON object."})
 
     key_people_summary = str(pc_obj.get("key_people_summary") or "").strip()
     if not key_people_summary:
@@ -199,12 +159,22 @@ def post_financials_handler(*, app, request):
         {"draft_id": "People & Capability consult is missing key_people_summary."}
       )
 
+    fin_raw = draft.get("financials_json")
+    if not fin_raw:
+      raise IntakeValidationError({"draft_id": "Draft is missing financials_json."})
+    fin_obj = json.loads(str(fin_raw)) if not isinstance(fin_raw, dict) else fin_raw
+    if not isinstance(fin_obj, dict):
+      raise IntakeValidationError({"draft_id": "financials_json must be a JSON object."})
+
     # Ensure the submission is keyed to the consult draft's client_id and model.
     # Merge operating_model as defaults only so it never overwrites client-entered values
     # (especially Financials fields like total_debt_outstanding).
     payload = dict(payload)
     payload["client_id"] = str(draft.get("client_id") or "").strip()
     for k, v in operating_model.items():
+      if k not in payload or payload.get(k) in (None, ""):
+        payload[k] = v
+    for k, v in fin_obj.items():
       if k not in payload or payload.get(k) in (None, ""):
         payload[k] = v
     payload["target_market"] = (target_market_csv or None)

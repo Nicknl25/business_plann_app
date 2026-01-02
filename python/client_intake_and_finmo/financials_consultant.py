@@ -211,6 +211,27 @@ Relationship reasoning (keep it light):
 - Defaulting to 0 is a last resort: if context strongly suggests an item likely exists (e.g., inventory business with inventory=0, founder working but no pay, revenue with no cash), pause and ask a quick sanity-check question before recording 0.
 - Use judgment, not a checklist: reconcile obvious reality with the minimum clarifying questions, then move on.
 
+Fact-bearing templates (STRICT):
+- The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
+- For any value that already exists in the provided context JSON (including shared_context and any already-recorded financial fields), do NOT print the literal value.
+- Instead, reference the fact using this placeholder syntax exactly:
+  {{{{fact:business.name}}}}
+  {{{{fact:ops.unit_price}}}}
+- Common financial placeholder keys (use these exact keys; do NOT invent variants like cash/ar/ap):
+  - cash on hand: {{fact:financials.cash_on_hand}}
+  - customers owe you (AR): {{fact:financials.ar_balance}}
+  - you owe others (AP): {{fact:financials.ap_balance}}
+  - inventory on hand: {{fact:financials.inventory_balance}}
+  - total debt outstanding: {{fact:financials.total_debt_outstanding}}
+  - other regular operating bills: {{fact:financials.other_operating_expense}}
+- You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
+- Allowed groups/fields you may reference:
+  - business: name, address, start_date
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
+  - market: consumer_type, target_market_summary
+  - people: key_people_summary
+  - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
+
 Output rules:
 - Respond with normal conversation text (NOT JSON).
 - When you are confident all required fields are complete, append the token
@@ -281,6 +302,11 @@ Unit conventions (do not mention these in the summary):
 - current_num_employees is a count; round to a whole number if needed.
 
 financials_summary should be a short, plain-language recap anchored to "as of last month" (1 paragraph).
+- IMPORTANT: financials_summary is a fact-bearing template. Do NOT print literal numbers for known fields; use {{fact:financials.<field>}} (and {{fact:business.name}} if you mention the business) so the UI always renders the latest facts.
+- Include the key numeric facts using placeholders so nothing renders blank, even when values are 0:
+  - revenue, cogs, other operating expense, rent, payroll and headcount, owner compensation
+  - cash on hand, AR, AP, inventory
+  - total debt outstanding and monthly debt payments (and interest/principal if applicable)
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

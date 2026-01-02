@@ -1,6 +1,8 @@
 import json
 from typing import Any, Dict
 
+from flask import jsonify
+
 
 def _parse_json_maybe(raw: Any) -> Dict[str, Any]:
   if raw is None:
@@ -27,11 +29,29 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   people_capability: Dict[str, Any] = {}
   financials: Dict[str, Any] = {}
 
+  # Preferred: unified draft table (single canonical model).
   try:
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
 
     consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
     operating_model = _parse_json_maybe(consult.get("operating_model_json"))
+    target_market = _parse_json_maybe(consult.get("target_market_json"))
+    people_capability = _parse_json_maybe(consult.get("people_json"))
+    financials = _parse_json_maybe(consult.get("financials_json"))
+  except Exception:
+    # Fall back to legacy per-consult drafts below.
+    operating_model = {}
+    target_market = {}
+    people_capability = {}
+    financials = {}
+
+  try:
+    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+
+    consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
+    # Legacy fallback: operating_model_json is still stored in intake_consult_drafts.
+    if not operating_model:
+      operating_model = _parse_json_maybe(consult.get("operating_model_json"))
   except Exception:
     operating_model = {}
 
@@ -39,7 +59,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     from target_market_draft import get_draft as get_tm_draft  # type: ignore
 
     tm = get_tm_draft(conn, draft_id=str(draft_id).strip())
-    target_market = _parse_json_maybe(tm.get("target_market_json"))
+    if not target_market:
+      target_market = _parse_json_maybe(tm.get("target_market_json"))
   except Exception:
     target_market = {}
 
@@ -47,7 +68,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     from people_capability_draft import get_draft as get_pc_draft  # type: ignore
 
     pc = get_pc_draft(conn, draft_id=str(draft_id).strip())
-    people_capability = _parse_json_maybe(pc.get("people_json"))
+    if not people_capability:
+      people_capability = _parse_json_maybe(pc.get("people_json"))
   except Exception:
     people_capability = {}
 
@@ -55,7 +77,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     from financials_consult_draft import get_draft as get_fin_draft  # type: ignore
 
     fin = get_fin_draft(conn, draft_id=str(draft_id).strip())
-    financials = _parse_json_maybe(fin.get("financials_json"))
+    if not financials:
+      financials = _parse_json_maybe(fin.get("financials_json"))
   except Exception:
     financials = {}
 
@@ -66,3 +89,36 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "financials": financials,
   }
 
+
+def get_shared_context_handler(*, app, request):
+  if request.method == "OPTIONS":
+    return ("", 204)
+
+  draft_id = request.args.get("draft_id")
+  if not draft_id or not str(draft_id).strip():
+    return (
+      jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+      400,
+    )
+
+  try:
+    from intake_submission import get_mysql_connection  # type: ignore
+  except Exception as exc:
+    app.logger.exception("Failed to import MySQL helper: %s", exc)
+    return (jsonify({"error": "server_error"}), 500)
+
+  conn = get_mysql_connection()
+  try:
+    shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+    return jsonify(
+      {
+        "status": "ok",
+        "draft_id": str(draft_id).strip(),
+        "shared_context": shared_context,
+      }
+    )
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass

@@ -282,6 +282,17 @@ Conversation rules:
 - When producing business_description_summary, include the unit, pricing, the confirmed fulfillment model (who fulfills + typical timing) and shipping_method, sales modality, geographic scope and geographic coverage, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note framed as assumption-first narrative (e.g., standard licensing/permits/insurance considerations for this business type are assumed factored in and vary by jurisdiction) in plain language in one paragraph.
 - For capacity_driver, you must use exactly ONE of: labor, system, demand (single word only).
 
+Fact-bearing templates (STRICT):
+- The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
+- For any value that already exists in the provided context JSON (including shared_context), do NOT print the literal value.
+- Instead, reference the fact using placeholder tokens like:
+  {{{{fact:business.name}}}}
+  {{{{fact:ops.unit_price}}}}
+- You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
+- Allowed groups/fields you may reference:
+  - business: name, address, start_date
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
+
 Output rules:
 - Respond with normal conversation text (NOT JSON).
 - Do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0) AND has explicitly chosen a shipping_method.
@@ -358,6 +369,10 @@ Assets/lease/equity rules:
 The business_description_summary must include a concrete fulfillment model narrative consistent with the conversation (who fulfills the work, typical timing/lead time, and what primarily constrains capacity: labor/system/demand) and a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.
 Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or states (not a distance/radius). A radius may be mentioned in the summary paragraph, but do NOT store a radius phrase in geographic_coverage.
+- IMPORTANT: business_description_summary is a fact-bearing template. Do NOT print literal values for known facts; use placeholders like {{fact:business.name}} and {{fact:ops.unit_price}} so the UI always renders the latest facts.
+- business_description_summary MUST use placeholders (not literal values) for any already-known ops facts it mentions, especially:
+  {{fact:business.name}}, {{fact:ops.unit_name}}, {{fact:ops.unit_price}}, {{fact:ops.units_per_week_capacity}}, {{fact:ops.initial_assets}}, {{fact:ops.initial_lease}}, {{fact:ops.initial_equity}}, {{fact:ops.total_debt_outstanding}}, {{fact:ops.legal_entity}}.
+- Do NOT leave "blank" factual slots (e.g., "about  worth"). If a value is unknown or zero, still include the correct placeholder so the UI renders $0/none.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

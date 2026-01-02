@@ -214,6 +214,17 @@ def create_app() -> Flask:
 
     return post_financials_consult_handler(app=app, request=request)
 
+  @app.route("/api/shared-context", methods=["GET", "OPTIONS"])
+  def get_shared_context():
+    """
+    Return the latest read-only shared context built from draft tables for a given draft_id.
+
+    IMPORTANT: This endpoint is read-only and MUST NOT trigger GPT or mutate any drafts.
+    """
+    from api_handlers.shared_context import get_shared_context_handler
+
+    return get_shared_context_handler(app=app, request=request)
+
   return app
 
 
