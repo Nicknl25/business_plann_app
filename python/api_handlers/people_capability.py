@@ -221,6 +221,7 @@ def post_people_capability_handler(*, app, request):
           baseline_json=baseline_people,
           shared_context=shared_context,
           recent_messages=history[-30:] if history else [],
+          active_focus="people",
         )
         action = str(routed.get("action") or "").strip()
         assistant_message = str(routed.get("assistant_message") or "").strip()

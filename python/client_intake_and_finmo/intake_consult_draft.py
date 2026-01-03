@@ -58,6 +58,11 @@ def ensure_table(conn) -> None:
         consistency_passed TINYINT(1) NOT NULL DEFAULT 0,
         business_name VARCHAR(255) NULL,
         business_address LONGTEXT NULL,
+        address_street VARCHAR(255) NULL,
+        address_city VARCHAR(255) NULL,
+        address_state VARCHAR(255) NULL,
+        address_zip VARCHAR(50) NULL,
+        address_country VARCHAR(255) NULL,
         business_start_date VARCHAR(50) NULL,
         messages_json LONGTEXT NULL,
         operating_model_json LONGTEXT NULL,
@@ -101,6 +106,16 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN business_name VARCHAR(255) NULL")
   if "business_address" not in cols:
     alterations.append("ADD COLUMN business_address LONGTEXT NULL")
+  if "address_street" not in cols:
+    alterations.append("ADD COLUMN address_street VARCHAR(255) NULL")
+  if "address_city" not in cols:
+    alterations.append("ADD COLUMN address_city VARCHAR(255) NULL")
+  if "address_state" not in cols:
+    alterations.append("ADD COLUMN address_state VARCHAR(255) NULL")
+  if "address_zip" not in cols:
+    alterations.append("ADD COLUMN address_zip VARCHAR(50) NULL")
+  if "address_country" not in cols:
+    alterations.append("ADD COLUMN address_country VARCHAR(255) NULL")
   if "business_start_date" not in cols:
     alterations.append("ADD COLUMN business_start_date VARCHAR(50) NULL")
   if "target_market_json" not in cols:
@@ -258,6 +273,21 @@ def append_messages(
     if "address" in business_facts:
       set_parts.append("business_address = %s")
       values.append(str(business_facts.get("address") or "").strip() or None)
+    if "address_street" in business_facts:
+      set_parts.append("address_street = %s")
+      values.append(str(business_facts.get("address_street") or "").strip() or None)
+    if "address_city" in business_facts:
+      set_parts.append("address_city = %s")
+      values.append(str(business_facts.get("address_city") or "").strip() or None)
+    if "address_state" in business_facts:
+      set_parts.append("address_state = %s")
+      values.append(str(business_facts.get("address_state") or "").strip() or None)
+    if "address_zip" in business_facts:
+      set_parts.append("address_zip = %s")
+      values.append(str(business_facts.get("address_zip") or "").strip() or None)
+    if "address_country" in business_facts:
+      set_parts.append("address_country = %s")
+      values.append(str(business_facts.get("address_country") or "").strip() or None)
     if "start_date" in business_facts:
       set_parts.append("business_start_date = %s")
       values.append(str(business_facts.get("start_date") or "").strip() or None)
@@ -279,6 +309,11 @@ def append_messages(
       "consistency_passed",
       "business_name",
       "business_address",
+      "address_street",
+      "address_city",
+      "address_state",
+      "address_zip",
+      "address_country",
       "business_start_date",
       "messages_json",
       "operating_model_json",

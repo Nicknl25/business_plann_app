@@ -46,6 +46,7 @@ export default function UnifiedConsultStep() {
     clientId,
     refreshSharedContext,
     sharedContext,
+    sharedContextError,
     setConsultDone,
   } = useIntakeFlow();
 
@@ -60,11 +61,25 @@ export default function UnifiedConsultStep() {
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
+  const businessNameInputRef = useRef<HTMLInputElement | null>(null);
+  const businessStartDateInputRef = useRef<HTMLInputElement | null>(null);
+  const businessAddressInputRef = useRef<HTMLInputElement | null>(null);
+  const lastDraftBusinessRef = useRef({
+    name: "",
+    address: "",
+    startDate: "",
+    street: "",
+    city: "",
+    state: "",
+    zip: "",
+    country: "",
+  });
 
   const [draftMeta, setDraftMeta] = useState<DraftMeta | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [draftSyncing, setDraftSyncing] = useState(false);
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
 
@@ -77,6 +92,15 @@ export default function UnifiedConsultStep() {
     return Boolean(businessName && businessName.trim()) && hasAddress && Boolean(businessStartDate && businessStartDate.trim());
   }, [address, addressCity, addressCountry, addressState, addressStreet, addressZip, businessName, businessStartDate]);
 
+  const detailsCompleteForChat = useMemo(() => {
+    const hasCoreDetails =
+      Boolean(businessName && businessName.trim()) &&
+      Boolean(address && address.trim()) &&
+      Boolean(businessStartDate && businessStartDate.trim());
+    if (messages.length > 0) return hasCoreDetails;
+    return detailsComplete;
+  }, [address, businessName, businessStartDate, detailsComplete, messages.length]);
+
   const roleLabel = useCallback((role: "user" | "assistant") => (role === "user" ? "client" : "consultant"), []);
 
   const scrollToBottom = useCallback(() => {
@@ -85,11 +109,15 @@ export default function UnifiedConsultStep() {
     el.scrollTop = el.scrollHeight;
   }, []);
 
-  const refreshDraft = useCallback(async () => {
+  const refreshDraft = useCallback(async (options?: { preserveError?: boolean }) => {
     const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
     if (!effectiveDraftId) return;
 
-    setDraftError(null);
+    const preserveError = Boolean(options?.preserveError);
+    if (!preserveError) {
+      setDraftError(null);
+    }
+    setDraftSyncing(true);
     try {
       const res = await apiClient.get("/api/intake-consult/draft", {
         params: { draft_id: effectiveDraftId },
@@ -107,6 +135,110 @@ export default function UnifiedConsultStep() {
       const body: any = res.data;
       setDraftMeta(normalizeDraftMeta(body));
       setConsultDone(String(body?.draft_status || "") === "completed");
+
+      try {
+        const nextBusinessName = String(body?.business_name || "").trim();
+        const nextAddress = String(body?.business_address || "").trim();
+        const nextStartDate = String(body?.business_start_date || "").trim();
+        const nextStreet = String(body?.address_street || "").trim();
+        const nextCity = String(body?.address_city || "").trim();
+        const nextState = String(body?.address_state || "").trim();
+        const nextZip = String(body?.address_zip || "").trim();
+        const nextCountry = String(body?.address_country || "").trim();
+
+        const activeEl = typeof document !== "undefined" ? document.activeElement : null;
+        const nameFocused = Boolean(
+          businessNameInputRef.current && activeEl === businessNameInputRef.current
+        );
+        const addressFocused = Boolean(
+          businessAddressInputRef.current && activeEl === businessAddressInputRef.current
+        );
+        const startDateFocused = Boolean(
+          businessStartDateInputRef.current && activeEl === businessStartDateInputRef.current
+        );
+
+        const lastBusiness = lastDraftBusinessRef.current;
+
+        const currentName = String(form.getValues("businessName") || "").trim();
+        const currentAddress = String(form.getValues("address") || "").trim();
+        const currentStartDate = String(form.getValues("businessStartDate") || "").trim();
+
+        const canSyncName = !currentName || currentName === String(lastBusiness.name || "").trim();
+        const canSyncAddress =
+          !currentAddress || currentAddress === String(lastBusiness.address || "").trim();
+        const canSyncStartDate =
+          !currentStartDate || currentStartDate === String(lastBusiness.startDate || "").trim();
+
+        if (nextBusinessName && nextBusinessName !== currentName && canSyncName && !nameFocused) {
+          form.setValue("businessName", nextBusinessName, { shouldDirty: false });
+        }
+        const backendAddressChanged = Boolean(nextAddress && nextAddress !== String(lastBusiness.address || "").trim());
+        if (nextAddress && nextAddress !== currentAddress && canSyncAddress && !addressFocused) {
+          form.setValue("address", nextAddress, { shouldDirty: false });
+        }
+        if (nextStartDate && nextStartDate !== currentStartDate && canSyncStartDate && !startDateFocused) {
+          form.setValue("businessStartDate", nextStartDate, { shouldDirty: false });
+        }
+
+        const currentStreet = String(form.getValues("addressStreet") || "").trim();
+        const currentCity = String(form.getValues("addressCity") || "").trim();
+        const currentState = String(form.getValues("addressState") || "").trim();
+        const currentZip = String(form.getValues("addressZip") || "").trim();
+        const currentCountry = String(form.getValues("addressCountry") || "").trim();
+        const hasCurrentParts = Boolean(
+          currentStreet && currentCity && currentState && currentZip && currentCountry
+        );
+        const hasNextParts = Boolean(nextStreet && nextCity && nextState && nextZip && nextCountry);
+        const canSyncParts =
+          !hasCurrentParts ||
+          (currentStreet === String(lastBusiness.street || "").trim() &&
+            currentCity === String(lastBusiness.city || "").trim() &&
+            currentState === String(lastBusiness.state || "").trim() &&
+            currentZip === String(lastBusiness.zip || "").trim() &&
+            currentCountry === String(lastBusiness.country || "").trim());
+
+        if (hasNextParts && canSyncAddress && canSyncParts && !addressFocused) {
+          form.setValue("addressStreet", nextStreet, { shouldDirty: false });
+          form.setValue("addressCity", nextCity, { shouldDirty: false });
+          form.setValue("addressState", nextState, { shouldDirty: false });
+          form.setValue("addressZip", nextZip, { shouldDirty: false });
+          form.setValue("addressCountry", nextCountry, { shouldDirty: false });
+        } else if (backendAddressChanged && canSyncAddress && !addressFocused && !hasNextParts) {
+          form.setValue("addressStreet", "", { shouldDirty: false });
+          form.setValue("addressCity", "", { shouldDirty: false });
+          form.setValue("addressState", "", { shouldDirty: false });
+          form.setValue("addressZip", "", { shouldDirty: false });
+          form.setValue("addressCountry", "", { shouldDirty: false });
+        }
+
+        if (nextBusinessName && canSyncName) consultStorage.setBusinessName(nextBusinessName);
+        if (nextAddress && canSyncAddress) consultStorage.setAddress(nextAddress);
+        if (nextStartDate && canSyncStartDate) consultStorage.setBusinessStartDate(nextStartDate);
+        if (hasNextParts && canSyncAddress && canSyncParts) {
+          consultStorage.setAddressParts({
+            street: nextStreet,
+            city: nextCity,
+            state: nextState,
+            zip: nextZip,
+            country: nextCountry,
+          });
+        } else if (backendAddressChanged && canSyncAddress && !hasNextParts) {
+          consultStorage.clearAddressParts();
+        }
+
+        lastDraftBusinessRef.current = {
+          name: nextBusinessName,
+          address: nextAddress,
+          startDate: nextStartDate,
+          street: nextStreet,
+          city: nextCity,
+          state: nextState,
+          zip: nextZip,
+          country: nextCountry,
+        };
+      } catch {
+        // ignore hydration errors
+      }
 
       const rawMessages = body?.messages_json;
       if (rawMessages) {
@@ -128,8 +260,21 @@ export default function UnifiedConsultStep() {
       }
     } catch (err) {
       setDraftError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDraftSyncing(false);
     }
-  }, [draftId, setConsultDone]);
+  }, [draftId, form, setConsultDone]);
+
+  const syncNow = useCallback(
+    async (options?: { preserveError?: boolean }) => {
+      const preserveError = Boolean(options?.preserveError);
+      await Promise.all([
+        refreshDraft({ preserveError }),
+        refreshSharedContext({ silent: true }),
+      ]);
+    },
+    [refreshDraft, refreshSharedContext]
+  );
 
   const createSession = useCallback(async () => {
     setDraftError(null);
@@ -177,9 +322,125 @@ export default function UnifiedConsultStep() {
 
   useEffect(() => {
     if (!planStarted) return;
+
+    const storedName = String(consultStorage.getBusinessName() || "").trim();
+    const storedAddress = String(consultStorage.getAddress() || "").trim();
+    const storedStartDate = String(consultStorage.getBusinessStartDate() || "").trim();
+    const storedStreet = String(consultStorage.getAddressStreet() || "").trim();
+    const storedCity = String(consultStorage.getAddressCity() || "").trim();
+    const storedState = String(consultStorage.getAddressState() || "").trim();
+    const storedZip = String(consultStorage.getAddressZip() || "").trim();
+    const storedCountry = String(consultStorage.getAddressCountry() || "").trim();
+
+    const currentName = String(form.getValues("businessName") || "").trim();
+    const currentAddress = String(form.getValues("address") || "").trim();
+    const currentStartDate = String(form.getValues("businessStartDate") || "").trim();
+
+    if (!currentName && storedName) {
+      form.setValue("businessName", storedName, { shouldDirty: false });
+    }
+    if (!currentAddress && storedAddress) {
+      form.setValue("address", storedAddress, { shouldDirty: false });
+    }
+    if (!currentStartDate && storedStartDate) {
+      form.setValue("businessStartDate", storedStartDate, { shouldDirty: false });
+    }
+
+    const currentStreet = String(form.getValues("addressStreet") || "").trim();
+    const currentCity = String(form.getValues("addressCity") || "").trim();
+    const currentState = String(form.getValues("addressState") || "").trim();
+    const currentZip = String(form.getValues("addressZip") || "").trim();
+    const currentCountry = String(form.getValues("addressCountry") || "").trim();
+    const hasCurrentParts = Boolean(currentStreet && currentCity && currentState && currentZip && currentCountry);
+    const hasStoredParts = Boolean(storedStreet && storedCity && storedState && storedZip && storedCountry);
+
+    if (!hasCurrentParts && hasStoredParts) {
+      form.setValue("addressStreet", storedStreet, { shouldDirty: false });
+      form.setValue("addressCity", storedCity, { shouldDirty: false });
+      form.setValue("addressState", storedState, { shouldDirty: false });
+      form.setValue("addressZip", storedZip, { shouldDirty: false });
+      form.setValue("addressCountry", storedCountry, { shouldDirty: false });
+    }
+  }, [form, planStarted]);
+
+  useEffect(() => {
+    if (!planStarted) return;
     if (!draftId && !consultStorage.getDraftId()) return;
     void refreshDraft();
   }, [draftId, planStarted, refreshDraft]);
+
+  useEffect(() => {
+    if (!planStarted) return;
+    const raw = String(businessName || "").trim();
+    if (raw) consultStorage.setBusinessName(raw);
+  }, [businessName, planStarted]);
+
+  useEffect(() => {
+    if (!planStarted) return;
+    const raw = String(address || "").trim();
+    if (raw) consultStorage.setAddress(raw);
+  }, [address, planStarted]);
+
+  useEffect(() => {
+    if (!planStarted) return;
+    const raw = String(businessStartDate || "").trim();
+    if (raw) consultStorage.setBusinessStartDate(raw);
+  }, [businessStartDate, planStarted]);
+
+  useEffect(() => {
+    if (!planStarted) return;
+    const street = String(addressStreet || "").trim();
+    const city = String(addressCity || "").trim();
+    const state = String(addressState || "").trim();
+    const zip = String(addressZip || "").trim();
+    const country = String(addressCountry || "").trim();
+    if (!street || !city || !state || !zip || !country) return;
+    consultStorage.setAddressParts({ street, city, state, zip, country });
+  }, [addressCity, addressCountry, addressState, addressStreet, addressZip, planStarted]);
+
+  const syncEligibilityRef = useRef({
+    planStarted: false,
+    hasDraft: false,
+    busy: false,
+  });
+  useEffect(() => {
+    syncEligibilityRef.current = {
+      planStarted,
+      hasDraft: Boolean(draftId || consultStorage.getDraftId()),
+      busy: Boolean(loading || sending || draftSyncing),
+    };
+  }, [draftId, draftSyncing, loading, planStarted, sending]);
+
+  const syncNowRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    syncNowRef.current = () => {
+      void syncNow({ preserveError: true });
+    };
+  }, [syncNow]);
+
+  useEffect(() => {
+    if (!planStarted) return;
+
+    const maybeSync = () => {
+      const state = syncEligibilityRef.current;
+      if (!state.planStarted || !state.hasDraft || state.busy) return;
+      syncNowRef.current();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      maybeSync();
+    };
+
+    window.addEventListener("focus", maybeSync);
+    window.addEventListener("online", maybeSync);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", maybeSync);
+      window.removeEventListener("online", maybeSync);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [planStarted]);
 
   useEffect(() => {
     scrollToBottom();
@@ -188,7 +449,7 @@ export default function UnifiedConsultStep() {
   async function startConsultIfNeeded() {
     const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
     if (!effectiveDraftId) return;
-    if (!detailsComplete) return;
+    if (!detailsCompleteForChat) return;
     if (messages.length > 0) return;
 
     setSending(true);
@@ -219,11 +480,11 @@ export default function UnifiedConsultStep() {
             : `Consult error: ${res.status} ${res.statusText}`
         );
       }
-      await refreshDraft();
-      await refreshSharedContext({ silent: true });
+      await syncNow();
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
     } catch (err) {
       setDraftError(err instanceof Error ? err.message : String(err));
+      await syncNow({ preserveError: true });
     } finally {
       setSending(false);
     }
@@ -267,11 +528,11 @@ export default function UnifiedConsultStep() {
         );
       }
       setInputValue("");
-      await refreshDraft();
-      await refreshSharedContext({ silent: true });
+      await syncNow();
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
     } catch (err) {
       setDraftError(err instanceof Error ? err.message : String(err));
+      await syncNow({ preserveError: true });
     } finally {
       setSending(false);
     }
@@ -300,6 +561,11 @@ export default function UnifiedConsultStep() {
     ],
     [draftMeta]
   );
+
+  const syncInProgress = Boolean(loading || sending || draftSyncing);
+  const syncHasError = Boolean(draftError || sharedContextError);
+  const canReconnect = Boolean(planStarted && syncHasError && !syncInProgress);
+  const syncLabel = syncInProgress ? "Updating…" : syncHasError ? "Reconnect" : "Up to date";
 
   return (
     <Card className="border border-slate-800/80 bg-slate-950/60 shadow-soft" id="intake-section-unified">
@@ -349,11 +615,12 @@ export default function UnifiedConsultStep() {
             type="button"
             size="sm"
             variant="secondary"
-            disabled={!planStarted || loading}
-            onClick={() => void refreshDraft()}
+            disabled={!canReconnect}
+            onClick={canReconnect ? () => void syncNow() : undefined}
+            className="disabled:opacity-100"
           >
-            <RefreshCw className="mr-2 h-3.5 w-3.5" />
-            Refresh
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 ${syncInProgress ? "animate-spin" : ""}`} />
+            {syncLabel}
           </Button>
         </div>
       </CardHeader>
@@ -373,10 +640,18 @@ export default function UnifiedConsultStep() {
 
         <div className="grid gap-3 md:grid-cols-2">
           <FormField name="businessName" control={form.control}>
-            {(field) => (
+            {({ ref, ...field }) => (
               <FormItem>
                 <FormControl>
-                  <Input {...field} placeholder="Business name" autoComplete="off" />
+                  <Input
+                    {...field}
+                    ref={(el) => {
+                      ref(el);
+                      businessNameInputRef.current = el;
+                    }}
+                    placeholder="Business name"
+                    autoComplete="off"
+                  />
                 </FormControl>
                 <FormMessage>{form.formState.errors.businessName?.message}</FormMessage>
               </FormItem>
@@ -384,10 +659,17 @@ export default function UnifiedConsultStep() {
           </FormField>
 
           <FormField name="businessStartDate" control={form.control}>
-            {(field) => (
+            {({ ref, ...field }) => (
               <FormItem>
                 <FormControl>
-                  <Input {...field} type="date" />
+                  <Input
+                    {...field}
+                    ref={(el) => {
+                      ref(el);
+                      businessStartDateInputRef.current = el;
+                    }}
+                    type="date"
+                  />
                 </FormControl>
                 <FormMessage>{form.formState.errors.businessStartDate?.message}</FormMessage>
               </FormItem>
@@ -401,7 +683,10 @@ export default function UnifiedConsultStep() {
                   <FormControl>
                     <GoogleAddressInput
                       {...field}
-                      ref={ref}
+                      ref={(el) => {
+                        ref(el);
+                        businessAddressInputRef.current = el;
+                      }}
                       placeholder="Business address (select a full address from suggestions)"
                     />
                   </FormControl>
@@ -422,7 +707,7 @@ export default function UnifiedConsultStep() {
             <Button
               type="button"
               size="sm"
-              disabled={!planStarted || loading || sending || !detailsComplete}
+              disabled={!planStarted || loading || sending || !detailsCompleteForChat}
               onClick={() => void startConsultIfNeeded()}
             >
               Start consultation
@@ -480,9 +765,9 @@ export default function UnifiedConsultStep() {
             ref={chatInputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            disabled={!planStarted || sending || loading || !detailsComplete || !draftId}
+            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId}
             placeholder={
-              !detailsComplete
+              !detailsCompleteForChat
                 ? "Complete business details to begin..."
                 : messages.length === 0
                   ? "Start the consultation first..."
@@ -497,7 +782,7 @@ export default function UnifiedConsultStep() {
           />
           <Button
             type="button"
-            disabled={!planStarted || sending || loading || !detailsComplete || !draftId || !inputValue.trim()}
+            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId || !inputValue.trim()}
             onClick={() => void sendMessage(inputValue)}
           >
             Send

@@ -31,8 +31,16 @@ def post_financials_handler(*, app, request):
       raise IntakeValidationError({"draft_id": "draft_id is required"})
 
     conn = get_mysql_connection()
+    shared_context_for_render: Dict[str, Any] = {}
     try:
       draft = get_draft(conn, draft_id=str(draft_id).strip())
+      try:
+        # Ensure we snapshot rendered summaries (no {{fact:...}} placeholders) at submission time.
+        from api_handlers.shared_context import build_shared_context  # type: ignore
+
+        shared_context_for_render = build_shared_context(conn, draft_id=str(draft_id).strip())
+      except Exception:
+        shared_context_for_render = {}
     finally:
       try:
         conn.close()
@@ -165,6 +173,50 @@ def post_financials_handler(*, app, request):
     fin_obj = json.loads(str(fin_raw)) if not isinstance(fin_raw, dict) else fin_raw
     if not isinstance(fin_obj, dict):
       raise IntakeValidationError({"draft_id": "financials_json must be a JSON object."})
+
+    # Render fact-bearing templates into a frozen submission snapshot.
+    try:
+      from fact_templates import render_fact_template  # type: ignore
+
+      business_facts = {
+        "name": str(payload.get("business_name") or draft.get("business_name") or "").strip(),
+        "address": str(payload.get("address") or draft.get("business_address") or "").strip(),
+        "start_date": str(payload.get("business_start_date") or draft.get("business_start_date") or "").strip(),
+      }
+
+      shared_ctx = shared_context_for_render or {
+        "operating_model": operating_model,
+        "target_market": tm_obj,
+        "people_capability": pc_obj,
+        "financials": fin_obj,
+      }
+
+      rendered_ops_summary = render_fact_template(
+        str(operating_model.get("business_description_summary") or ""),
+        shared_context=shared_ctx,
+        business_facts=business_facts,
+      ).strip()
+      if rendered_ops_summary:
+        payload["business_description_summary"] = rendered_ops_summary
+
+      rendered_market_summary = render_fact_template(
+        str(target_market_summary or ""),
+        shared_context=shared_ctx,
+        business_facts=business_facts,
+      ).strip()
+      if rendered_market_summary:
+        payload["target_market_summary"] = rendered_market_summary
+
+      rendered_people_summary = render_fact_template(
+        str(key_people_summary or ""),
+        shared_context=shared_ctx,
+        business_facts=business_facts,
+      ).strip()
+      if rendered_people_summary:
+        payload["key_people_summary"] = rendered_people_summary
+    except Exception:
+      # Best-effort: if rendering fails, fall back to storing raw strings (may contain placeholders).
+      pass
 
     # Ensure the submission is keyed to the consult draft's client_id and model.
     # Merge operating_model as defaults only so it never overwrites client-entered values

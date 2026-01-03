@@ -208,6 +208,19 @@ def _apply_scoped_patch(
 
     if group == "business":
       next_business[field] = value
+      if field == "address":
+        # If the canonical address string changes via chat-driven patch, we do not
+        # have reliable structured parts (street/city/state/zip/country). Clear
+        # parts so the UI can prompt the client to re-select a full address from
+        # suggestions before final submit.
+        for part_key in (
+          "address_street",
+          "address_city",
+          "address_state",
+          "address_zip",
+          "address_country",
+        ):
+          next_business[part_key] = None
     elif group == "ops":
       next_ops[field] = value
     elif group == "market":
@@ -354,6 +367,11 @@ def get_intake_consult_draft_handler(*, app, request):
         "consistency_passed": bool(draft.get("consistency_passed")),
         "business_name": draft.get("business_name"),
         "business_address": draft.get("business_address"),
+        "address_street": draft.get("address_street"),
+        "address_city": draft.get("address_city"),
+        "address_state": draft.get("address_state"),
+        "address_zip": draft.get("address_zip"),
+        "address_country": draft.get("address_country"),
         "business_start_date": draft.get("business_start_date"),
         "messages_json": draft.get("messages_json"),
         "operating_model_json": draft.get("operating_model_json"),
@@ -392,8 +410,9 @@ def post_intake_consult_handler(*, app, request):
     from intake_submission import get_mysql_connection  # type: ignore
     from intake_consult_draft import append_messages, get_draft  # type: ignore
     from api_handlers.shared_context import build_shared_context  # type: ignore
-    from fact_templates import sanitize_fact_template  # type: ignore
+    from fact_templates import FACT_GROUPS, sanitize_fact_template  # type: ignore
     from intent_router import route_intent  # type: ignore
+    from template_rewriter import rewrite_summary_as_fact_template  # type: ignore
 
     from intake_consultant import consultant_chat_turn, consultant_finalize  # type: ignore
     from target_market_consultant import target_market_chat_turn, target_market_finalize  # type: ignore
@@ -435,18 +454,36 @@ def post_intake_consult_handler(*, app, request):
       "name": consult.get("business_name"),
       "address": consult.get("business_address"),
       "start_date": consult.get("business_start_date"),
+      "address_street": consult.get("address_street"),
+      "address_city": consult.get("address_city"),
+      "address_state": consult.get("address_state"),
+      "address_zip": consult.get("address_zip"),
+      "address_country": consult.get("address_country"),
     }
 
     # Allow explicit client-detail updates from the UI (no intent inference).
     if payload.get("business_name") is not None:
-      business_facts["name"] = str(payload.get("business_name") or "").strip() or None
+      name_raw = str(payload.get("business_name") or "").strip()
+      if name_raw:
+        business_facts["name"] = name_raw
     if payload.get("address") is not None:
-      business_facts["address"] = str(payload.get("address") or "").strip() or None
+      addr_raw = str(payload.get("address") or "").strip()
+      if addr_raw:
+        business_facts["address"] = addr_raw
     start_date_raw = payload.get("business_start_date")
     if start_date_raw is None:
       start_date_raw = payload.get("businessStartDate") or payload.get("business_startDate")
     if start_date_raw is not None:
-      business_facts["start_date"] = str(start_date_raw or "").strip() or None
+      sd_raw = str(start_date_raw or "").strip()
+      if sd_raw:
+        business_facts["start_date"] = sd_raw
+
+    for key in ("address_street", "address_city", "address_state", "address_zip", "address_country"):
+      if payload.get(key) is None:
+        continue
+      val = str(payload.get(key) or "").strip()
+      if val:
+        business_facts[key] = val
 
     focus, confirm_question = _compute_focus_and_confirm_question(
       ops_json=ops_json,
@@ -544,6 +581,7 @@ def post_intake_consult_handler(*, app, request):
       shared_context=shared_context,
       recent_messages=recent_messages,
       confirm_question_override=confirm_override,
+      active_focus=focus,
     )
 
     action = str(intent.get("action") or "").strip()
@@ -586,9 +624,95 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json,
         financials_json=financials_json,
       )
-      assistant_text = router_msg
       active_focus_out = focus
       status_out: str | None = None
+
+      # Always echo the latest relevant summary templates after an edit so the user
+      # doesn't have to scroll to see the updated current-state narrative.
+      summary_by_group: Dict[str, str] = {
+        "ops": str((ops_json or {}).get("business_description_summary") or "").strip(),
+        "market": str((market_json or {}).get("target_market_summary") or "").strip(),
+        "people": str((people_json or {}).get("key_people_summary") or "").strip(),
+        "financials": str((financials_json or {}).get("financials_summary") or "").strip(),
+      }
+      changed_groups: List[str] = []
+      try:
+        for raw_key in (patch or {}).keys():
+          key = str(raw_key or "").strip()
+          if key.count(".") != 1:
+            continue
+          group, _field = key.split(".", 1)
+          group = group.strip().lower()
+          if group and group not in changed_groups:
+            changed_groups.append(group)
+      except Exception:
+        changed_groups = []
+
+      # One-time upgrade path: older drafts may contain literal summaries that do not
+      # use {{fact:...}} placeholders, which prevents fact propagation after edits.
+      try:
+        allowed_fact_keys: List[str] = []
+        for g, fields in (FACT_GROUPS or {}).items():
+          for f in list(fields or []):
+            allowed_fact_keys.append(f"{g}.{f}")
+
+        required_by_group: Dict[str, List[str]] = {
+          "ops": ["business.name", "ops.unit_name", "ops.unit_price", "ops.units_per_week_capacity"],
+          "market": ["business.name", "ops.unit_price"],
+          "people": ["business.name"],
+          "financials": ["business.name", "financials.current_revenue", "financials.cash_on_hand"],
+        }
+
+        def _needs_upgrade(group: str, text: str) -> bool:
+          raw = str(text or "")
+          if "{{fact:" not in raw:
+            return True
+          for k in required_by_group.get(group, []):
+            if f"{{{{fact:{k}}}}}" not in raw:
+              return True
+          return False
+
+        def _upgrade(group: str, text: str) -> str:
+          if not text:
+            return ""
+          if not _needs_upgrade(group, text):
+            return text
+          return rewrite_summary_as_fact_template(
+            text=text,
+            shared_context={
+              "operating_model": ops_json,
+              "target_market": market_json,
+              "people_capability": people_json,
+              "financials": financials_json,
+            },
+            business_facts=business_facts,
+            required_fact_keys=required_by_group.get(group, []),
+            allowed_fact_keys=allowed_fact_keys,
+          )
+
+        upgrade_targets = [str(focus or "").strip().lower(), *changed_groups]
+        for g in upgrade_targets:
+          if g not in summary_by_group:
+            continue
+          current = summary_by_group.get(g) or ""
+          if not current:
+            continue
+          try:
+            upgraded = _upgrade(g, current)
+          except Exception:
+            upgraded = current
+          if upgraded and upgraded != current:
+            summary_by_group[g] = upgraded
+            if g == "ops":
+              ops_json["business_description_summary"] = upgraded
+            elif g == "market":
+              market_json["target_market_summary"] = upgraded
+            elif g == "people":
+              people_json["key_people_summary"] = upgraded
+            elif g == "financials":
+              financials_json["financials_summary"] = upgraded
+      except Exception:
+        pass
 
       # If the draft was already marked complete, edits must reopen it and trigger
       # a new consistency pass.
@@ -596,20 +720,27 @@ def post_intake_consult_handler(*, app, request):
         status_out = "in_progress"
         active_focus_out = "consistency"
 
+      # For edit patches, the intent router is used only to interpret intent and
+      # produce the deterministic patch. The domain consultant generates the next
+      # conversational turn. Showing both messages causes duplicated acknowledgements
+      # and repeated questions.
+      #
+      # Exception: if the edit re-opens a completed intake into Consistency, keep the
+      # router acknowledgement so the user clearly sees the update before the audit.
+      assistant_text = router_msg if (confirm_question or active_focus_out != focus) else ""
+
       # If we're awaiting a section-final confirmation, edits should re-ask the same confirm question.
       if confirm_question:
-        summary_template = ""
-        if focus == "ops":
-          summary_template = str((ops_json or {}).get("business_description_summary") or "").strip()
-        elif focus == "market":
-          summary_template = str((market_json or {}).get("target_market_summary") or "").strip()
-        elif focus == "people":
-          summary_template = str((people_json or {}).get("key_people_summary") or "").strip()
-        elif focus == "financials":
-          summary_template = str((financials_json or {}).get("financials_summary") or "").strip()
-
-        if summary_template:
-          assistant_text = f"{assistant_text}\n\n{summary_template}".strip() if assistant_text else summary_template
+        echo_groups: List[str] = []
+        if focus in summary_by_group and summary_by_group.get(focus):
+          echo_groups.append(focus)
+        for g in changed_groups:
+          if g == focus:
+            continue
+          if g in summary_by_group and summary_by_group.get(g):
+            echo_groups.append(g)
+        for g in echo_groups:
+          assistant_text = f"{assistant_text}\n\n{summary_by_group[g]}".strip() if assistant_text else summary_by_group[g]
         assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
       else:
         # Otherwise, keep the intake moving: acknowledge the edit and then continue
@@ -973,6 +1104,50 @@ def post_intake_consult_handler(*, app, request):
     # Finalize the current focus into structured JSON, then ask for confirmation.
     final_messages = [*messages, user_msg, {"role": "assistant", "content": assistant_text}]
 
+    # Ensure fact-bearing summaries are stored as templates (no stale embedded literals).
+    allowed_fact_keys_for_rewrite: List[str] = []
+    try:
+      for g, fields in (FACT_GROUPS or {}).items():
+        for f in list(fields or []):
+          allowed_fact_keys_for_rewrite.append(f"{g}.{f}")
+    except Exception:
+      allowed_fact_keys_for_rewrite = []
+
+    required_placeholders_by_group: Dict[str, List[str]] = {
+      "ops": ["business.name", "ops.unit_name", "ops.unit_price", "ops.units_per_week_capacity"],
+      "market": ["business.name", "ops.unit_price"],
+      "people": ["business.name"],
+      "financials": ["business.name", "financials.current_revenue", "financials.cash_on_hand"],
+    }
+
+    def _upgrade_summary_if_needed(group: str, summary: str) -> str:
+      raw = str(summary or "").strip()
+      if not raw:
+        return raw
+      if "{{fact:" not in raw:
+        needs = True
+      else:
+        needs = any(
+          f"{{{{fact:{k}}}}}" not in raw for k in required_placeholders_by_group.get(group, [])
+        )
+      if not needs:
+        return raw
+      try:
+        return rewrite_summary_as_fact_template(
+          text=raw,
+          shared_context={
+            "operating_model": ops_json,
+            "target_market": market_json,
+            "people_capability": people_json,
+            "financials": financials_json,
+          },
+          business_facts=business_facts,
+          required_fact_keys=required_placeholders_by_group.get(group, []),
+          allowed_fact_keys=allowed_fact_keys_for_rewrite,
+        )
+      except Exception:
+        return raw
+
     if focus == "ops":
       business_type_candidates = _build_business_type_candidates(conn=conn, messages=final_messages)
       intake_context["business_type_candidates"] = business_type_candidates
@@ -981,6 +1156,8 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
+      summary_text = _upgrade_summary_if_needed("ops", summary_text)
+      final_obj["business_description_summary"] = summary_text
       assistant_final = f"{summary_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
       ops_json = final_obj
       market_json_out = None
@@ -1000,6 +1177,8 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       summary_text = str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
+      summary_text = _upgrade_summary_if_needed("market", summary_text)
+      final_obj["target_market_summary"] = summary_text
       assistant_final = f"{summary_text}\n\n{MARKET_CONFIRM_QUESTION}".strip()
       assistant_final = _strip_acs_codes(assistant_final)
       market_json = final_obj
@@ -1013,6 +1192,8 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
+      summary_text = _upgrade_summary_if_needed("people", summary_text)
+      final_obj["key_people_summary"] = summary_text
       assistant_final = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
       people_json = final_obj
       people_json_out = final_obj
@@ -1025,6 +1206,8 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
+      summary_text = _upgrade_summary_if_needed("financials", summary_text)
+      final_obj["financials_summary"] = summary_text
       assistant_final = f"{summary_text}\n\n{FIN_CONFIRM_QUESTION}".strip()
       financials_json = final_obj
       financials_json_out = final_obj

@@ -140,7 +140,9 @@ def _to_float(value: Any) -> Optional[float]:
 def _format_number(value: Any, *, money: bool) -> str:
   num = _to_float(value)
   if num is None:
-    return ""
+    # Canonical intake facts should be non-null; when they aren't, default to 0 so
+    # fact-bearing templates never display blanks.
+    return "$0" if money else "0"
   if abs(num - round(num)) < 1e-9:
     core = f"{int(round(num)):,}"
   else:
@@ -150,10 +152,10 @@ def _format_number(value: Any, *, money: bool) -> str:
 
 def _format_lease(value: Any) -> str:
   if value is None:
-    return ""
+    return "none"
   raw = str(value).strip()
   if not raw:
-    return ""
+    return "none"
   parts = [p.strip() for p in raw.split(",")]
   amount = _to_float(parts[0]) if parts else None
   period = parts[1] if len(parts) > 1 else ""
@@ -224,4 +226,3 @@ def render_fact_template(
     return format_value(group, field, raw_value)
 
   return _FACT_PATTERN.sub(_replace, str(text))
-

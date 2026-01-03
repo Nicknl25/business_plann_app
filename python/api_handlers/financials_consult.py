@@ -241,6 +241,7 @@ def post_financials_consult_handler(*, app, request):
           baseline_json=baseline_financials,
           shared_context=shared_context,
           recent_messages=history[-30:] if history else [],
+          active_focus="financials",
         )
         action = str(routed.get("action") or "").strip()
         assistant_message = str(routed.get("assistant_message") or "").strip()

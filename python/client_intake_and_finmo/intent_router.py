@@ -395,6 +395,63 @@ def _last_assistant_message(messages: Sequence[Dict[str, Any]]) -> str:
   return ""
 
 
+def _humanize_patch_field(field: str) -> str:
+  raw = str(field or "").strip()
+  if not raw:
+    return "that value"
+  if raw.count(".") == 1:
+    _, tail = raw.split(".", 1)
+  else:
+    tail = raw
+  return tail.replace("_", " ")
+
+
+def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tuple[bool, Any]:
+  """
+  Server-side safety net to prevent user-facing 500s when the model returns an
+  invalid value_json string. This does NOT guess intent; it only coerces types
+  for an already-selected field.
+  """
+  raw = str(value_json_raw or "").strip()
+  if not raw:
+    if "number" in allowed_types:
+      return True, 0.0
+    if "string" in allowed_types:
+      return True, ""
+    if "array" in allowed_types:
+      return True, []
+    if "object" in allowed_types:
+      return True, {}
+    return False, None
+
+  try:
+    return True, json.loads(raw)
+  except Exception:
+    pass
+
+  if "number" in allowed_types:
+    parsed_num = _parse_number_value_json(raw)
+    if parsed_num is None:
+      return False, None
+    return True, parsed_num
+
+  if "string" in allowed_types:
+    # Accept raw string without JSON quoting as a last resort.
+    return True, raw
+
+  if "array" in allowed_types:
+    if raw.lower() in ("none", "n/a", "na", "null", "unknown"):
+      return True, []
+    return False, None
+
+  if "object" in allowed_types:
+    if raw.lower() in ("none", "n/a", "na", "null", "unknown"):
+      return True, {}
+    return False, None
+
+  return False, None
+
+
 def route_intent(
   *,
   consult_type: str,
@@ -403,6 +460,7 @@ def route_intent(
   shared_context: Dict[str, Any],
   recent_messages: Sequence[Dict[str, Any]] | None = None,
   confirm_question_override: str | None = None,
+  active_focus: str | None = None,
 ) -> Dict[str, Any]:
   """
   GPT-only intent router for post-completion messages.
@@ -455,7 +513,6 @@ def route_intent(
       "initial_equity",
       "total_debt_outstanding",
       "legal_entity",
-      "confidence",
     ],
     "target_market": [
       "consumer_type",
@@ -466,11 +523,9 @@ def route_intent(
       "b2b_naics_6",
       "b2b_size_bands",
       "b2b_age_bands",
-      "confidence",
     ],
     "people": [
       "people",
-      "confidence",
     ],
     "financials": [
       "current_revenue",
@@ -489,16 +544,63 @@ def route_intent(
       "annual_principal_payment",
       "owner_compensation",
       "cash_on_hand",
-      "confidence",
     ],
     "unified": [
       "business.name",
       "business.address",
       "business.start_date",
-      *[f"ops.{f}" for f in _value_schema_by_consult_field(consult_type="ops").keys()],
-      *[f"market.{f}" for f in _value_schema_by_consult_field(consult_type="target_market").keys()],
-      *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys()],
-      *[f"financials.{f}" for f in _value_schema_by_consult_field(consult_type="financials").keys()],
+      *[f"ops.{f}" for f in _value_schema_by_consult_field(consult_type="ops").keys() if f in {
+        "consumer_type",
+        "business_type",
+        "unit_name",
+        "unit_description",
+        "units_per_week_capacity",
+        "unit_price",
+        "shipping_method",
+        "sales_modality",
+        "geographic_scope",
+        "geographic_coverage",
+        "countries",
+        "milestones",
+        "capacity_driver",
+        "primary_growth_lever",
+        "initial_assets",
+        "initial_lease",
+        "initial_equity",
+        "total_debt_outstanding",
+        "legal_entity",
+      }],
+      *[f"market.{f}" for f in _value_schema_by_consult_field(consult_type="target_market").keys() if f in {
+        "consumer_type",
+        "gender_age_intent",
+        "income_intent",
+        "selections",
+        "b2b_industry_terms",
+        "b2b_naics_6",
+        "b2b_size_bands",
+        "b2b_age_bands",
+      }],
+      *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys() if f in {
+        "people",
+      }],
+      *[f"financials.{f}" for f in _value_schema_by_consult_field(consult_type="financials").keys() if f in {
+        "current_revenue",
+        "current_cogs",
+        "other_operating_expense",
+        "monthly_rent_expense",
+        "other_monthly_debt_payments",
+        "current_payroll",
+        "current_num_employees",
+        "current_capex",
+        "ar_balance",
+        "ap_balance",
+        "inventory_balance",
+        "total_debt_outstanding",
+        "annual_interest_payment",
+        "annual_principal_payment",
+        "owner_compensation",
+        "cash_on_hand",
+      }],
     ],
   }[consult_type_norm]
 
@@ -531,13 +633,16 @@ Actions:
   - Use when the user message is ambiguous/contradictory/uncertain and you cannot confidently infer whether they want changes or want to proceed.
   - assistant_message MUST be a single, brief clarifying question.
 3) edit_patch
-  - Use when the user is requesting a correction/update to the already-completed consult (even if phrased casually).
+  - Use when the user is requesting a correction/update to ANY already-captured fact in the canonical intake model (even if phrased casually), regardless of what stage the consult is currently in.
+  - IMPORTANT: If the last assistant message PROPOSED a specific change to one or more facts (e.g., "Should we update X to 700?")
+    and the user clearly agrees (yes/ok/sure/that’s right), you MUST return edit_patch with the proposed patch.
+    In that scenario, do NOT return confirm_proceed.
   - patch MUST be an array of operations. Each operation is an object:
       {{ "field": "<field_name>", "value_json": "<JSON-encoded value>" }}
     - value_json MUST be a JSON snippet encoded as a string:
       - numbers: digits only, e.g. "504" or "18.5" (no $ signs, no commas, no "/month")
       - strings: a valid JSON string, e.g. "\"monthly\""
-      - arrays/objects: valid JSON like "[\"US\"]" or "{\"a\":1}"
+      - arrays/objects: valid JSON like "[\"US\"]" or "{{\"a\":1}}"
   - You MUST normalize values:
     - numeric shorthand like 10k/10K -> 10000, 1.2m -> 1200000
     - currency words/symbols to plain numbers (numbers must be JSON numbers, not strings)
@@ -557,8 +662,11 @@ Actions:
 
 Interpretation rules:
 - If the user says something like "10000, not 10" after correcting unit price, infer they are correcting the same thing again (do not require keywords).
+- If the user corrects business identity details (name, address, start date) anywhere in the conversation, treat it as an edit_patch to business.name / business.address / business.start_date (unified mode uses scoped fields).
+- For business.start_date, normalize to ISO format YYYY-MM-DD when the user provides a specific date.
 - If the user's intent is clear, proceed confidently; do not re-ask for confirmation.
 - If the user disagrees or requests changes, treat it as edit_patch.
+- If the user is agreeing to a proposed fact update from the last assistant message, treat it as edit_patch and apply that update.
 
 Unified mode:
 - If consult_type is "unified", patch fields must be scoped as "<group>.<field>" (e.g., "ops.unit_price", "financials.current_revenue", "business.name").
@@ -569,6 +677,7 @@ Return JSON only. No prose.
 
   context = {
     "consult_type": consult_type_norm,
+    "active_focus": str(active_focus or "").strip().lower() or None,
     "baseline_json": baseline_json,
     "shared_context": shared_context,
     "last_assistant_message": last_assistant,
@@ -635,41 +744,57 @@ Return JSON only. No prose.
             allowed_types = [expected_types]
           elif isinstance(expected_types, list):
             allowed_types = [str(t) for t in expected_types if isinstance(t, str)]
-
-          try:
-            value = json.loads(value_json_raw)
-          except Exception:
-            if "number" in allowed_types:
-              parsed_num = _parse_number_value_json(value_json_raw)
-              if parsed_num is None:
-                raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
-              value = parsed_num
-            elif "string" in allowed_types:
-              value = value_json_raw
-            elif "array" in allowed_types and value_json_raw.strip().lower() in ("none", "n/a", "na", ""):
-              value = []
-            else:
-              raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
+          ok, value = _coerce_value_json(value_json_raw=value_json_raw, allowed_types=allowed_types)
+          if not ok:
+            return {
+              "action": "confirm_clarify",
+              "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+              "patch": None,
+            }
 
           if allowed_types:
             if value is None:
               if "null" not in allowed_types:
-                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+                return {
+                  "action": "confirm_clarify",
+                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+                  "patch": None,
+                }
             elif isinstance(value, bool):
               if "boolean" not in allowed_types:
-                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+                return {
+                  "action": "confirm_clarify",
+                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+                  "patch": None,
+                }
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
               if "number" not in allowed_types:
-                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+                return {
+                  "action": "confirm_clarify",
+                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+                  "patch": None,
+                }
             elif isinstance(value, str):
               if "string" not in allowed_types:
-                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+                return {
+                  "action": "confirm_clarify",
+                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+                  "patch": None,
+                }
             elif isinstance(value, list):
               if "array" not in allowed_types:
-                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+                return {
+                  "action": "confirm_clarify",
+                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+                  "patch": None,
+                }
             elif isinstance(value, dict):
               if "object" not in allowed_types:
-                raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+                return {
+                  "action": "confirm_clarify",
+                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
+                  "patch": None,
+                }
 
           patch_dict[field] = value
 
@@ -712,41 +837,64 @@ Return JSON only. No prose.
       allowed_types = [expected_types]
     elif isinstance(expected_types, list):
       allowed_types = [str(t) for t in expected_types if isinstance(t, str)]
-
-    try:
-      value = json.loads(value_json_raw)
-    except Exception:
-      if "number" in allowed_types:
-        parsed_num = _parse_number_value_json(value_json_raw)
-        if parsed_num is None:
-          raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
-        value = parsed_num
-      elif "string" in allowed_types:
-        value = value_json_raw
-      elif "array" in allowed_types and value_json_raw.strip().lower() in ("none", "n/a", "na", ""):
-        value = []
-      else:
-        raise RuntimeError(f"Intent router value_json is not valid JSON for field={field!r}")
+    ok, value = _coerce_value_json(value_json_raw=value_json_raw, allowed_types=allowed_types)
+    if not ok:
+      parsed["action"] = "confirm_clarify"
+      parsed["assistant_message"] = (
+        f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+      )
+      parsed["patch"] = None
+      return parsed
 
     if allowed_types:
       if value is None:
         if "null" not in allowed_types:
-          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+          parsed["action"] = "confirm_clarify"
+          parsed["assistant_message"] = (
+            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+          )
+          parsed["patch"] = None
+          return parsed
       elif isinstance(value, bool):
         if "boolean" not in allowed_types:
-          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+          parsed["action"] = "confirm_clarify"
+          parsed["assistant_message"] = (
+            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+          )
+          parsed["patch"] = None
+          return parsed
       elif isinstance(value, (int, float)) and not isinstance(value, bool):
         if "number" not in allowed_types:
-          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+          parsed["action"] = "confirm_clarify"
+          parsed["assistant_message"] = (
+            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+          )
+          parsed["patch"] = None
+          return parsed
       elif isinstance(value, str):
         if "string" not in allowed_types:
-          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+          parsed["action"] = "confirm_clarify"
+          parsed["assistant_message"] = (
+            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+          )
+          parsed["patch"] = None
+          return parsed
       elif isinstance(value, list):
         if "array" not in allowed_types:
-          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+          parsed["action"] = "confirm_clarify"
+          parsed["assistant_message"] = (
+            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+          )
+          parsed["patch"] = None
+          return parsed
       elif isinstance(value, dict):
         if "object" not in allowed_types:
-          raise RuntimeError(f"Intent router patch value type invalid for field={field!r}")
+          parsed["action"] = "confirm_clarify"
+          parsed["assistant_message"] = (
+            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
+          )
+          parsed["patch"] = None
+          return parsed
 
     patch_dict[field] = value
   parsed["patch"] = patch_dict

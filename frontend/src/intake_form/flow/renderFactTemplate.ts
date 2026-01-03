@@ -51,7 +51,7 @@ function toNumber(value: unknown): number | null {
 
 function formatNumber(value: unknown, { money }: { money: boolean }): string {
   const num = toNumber(value);
-  if (num === null) return "";
+  if (num === null) return money ? "$0" : "0";
   const isInt = Math.abs(num - Math.round(num)) < 1e-9;
   const core = isInt
     ? Math.round(num).toLocaleString("en-US")
@@ -63,9 +63,9 @@ function formatNumber(value: unknown, { money }: { money: boolean }): string {
 }
 
 function formatLease(value: unknown): string {
-  if (value === null || value === undefined) return "";
+  if (value === null || value === undefined) return "none";
   const raw = String(value).trim();
-  if (!raw) return "";
+  if (!raw) return "none";
   const [amountRaw, periodRaw] = raw.split(",", 2).map((p) => (p ?? "").trim());
   const amount = toNumber(amountRaw);
   const period = String(periodRaw || "").trim();

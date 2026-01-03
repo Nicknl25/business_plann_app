@@ -168,7 +168,9 @@ Flow:
      "Is this accurate, or what should I adjust?"
    - If adjustment is needed, ask ONE targeted clarification question and then update the inferred summary.
 3) Continue:
-   - Ask if they want to add another person; if yes, ask only for that person's full name and title.
+   - After the client confirms a person, you MUST ask if they want to add another person before moving on.
+   - Do NOT transition to the next consult (e.g., Financials) until the client explicitly says they are done adding people.
+   - If yes, ask only for that person's full name and title.
 4) Final review (single confirmation step):
    - When the client says they are done adding people, present ALL final paragraphs together (no duplicates).
    - Ask for edits across the full set. Only finalize once they approve the full set.

@@ -485,6 +485,7 @@ def post_target_market_consult_handler(*, app, request):
           baseline_json=baseline_target_market,
           shared_context=shared_context,
           recent_messages=history_for_router[-30:] if history_for_router else [],
+          active_focus="market",
         )
         action = str(routed.get("action") or "").strip()
         assistant_message = str(routed.get("assistant_message") or "").strip()

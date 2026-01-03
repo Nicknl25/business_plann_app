@@ -43,6 +43,13 @@ export const consultStorage = {
     sessionStorage.setItem(ADDRESS_ZIP_KEY, parts.zip);
     sessionStorage.setItem(ADDRESS_COUNTRY_KEY, parts.country);
   },
+  clearAddressParts: () => {
+    sessionStorage.removeItem(ADDRESS_STREET_KEY);
+    sessionStorage.removeItem(ADDRESS_CITY_KEY);
+    sessionStorage.removeItem(ADDRESS_STATE_KEY);
+    sessionStorage.removeItem(ADDRESS_ZIP_KEY);
+    sessionStorage.removeItem(ADDRESS_COUNTRY_KEY);
+  },
   setBusinessStartDate: (value: string) => {
     sessionStorage.setItem(BUSINESS_START_DATE_KEY, value);
   },
