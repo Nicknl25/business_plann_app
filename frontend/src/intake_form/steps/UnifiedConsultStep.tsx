@@ -38,6 +38,10 @@ function normalizeDraftMeta(body: any): DraftMeta {
 
 export default function UnifiedConsultStep() {
   const form = useFormContext<IntakeValues>();
+  const formApiRef = useRef(form);
+  useEffect(() => {
+    formApiRef.current = form;
+  }, [form]);
   const {
     planStarted,
     setDraftId,
@@ -137,6 +141,7 @@ export default function UnifiedConsultStep() {
       setConsultDone(String(body?.draft_status || "") === "completed");
 
       try {
+        const formApi = formApiRef.current;
         const nextBusinessName = String(body?.business_name || "").trim();
         const nextAddress = String(body?.business_address || "").trim();
         const nextStartDate = String(body?.business_start_date || "").trim();
@@ -159,9 +164,9 @@ export default function UnifiedConsultStep() {
 
         const lastBusiness = lastDraftBusinessRef.current;
 
-        const currentName = String(form.getValues("businessName") || "").trim();
-        const currentAddress = String(form.getValues("address") || "").trim();
-        const currentStartDate = String(form.getValues("businessStartDate") || "").trim();
+        const currentName = String(formApi.getValues("businessName") || "").trim();
+        const currentAddress = String(formApi.getValues("address") || "").trim();
+        const currentStartDate = String(formApi.getValues("businessStartDate") || "").trim();
 
         const canSyncName = !currentName || currentName === String(lastBusiness.name || "").trim();
         const canSyncAddress =
@@ -170,21 +175,21 @@ export default function UnifiedConsultStep() {
           !currentStartDate || currentStartDate === String(lastBusiness.startDate || "").trim();
 
         if (nextBusinessName && nextBusinessName !== currentName && canSyncName && !nameFocused) {
-          form.setValue("businessName", nextBusinessName, { shouldDirty: false });
+          formApi.setValue("businessName", nextBusinessName, { shouldDirty: false });
         }
         const backendAddressChanged = Boolean(nextAddress && nextAddress !== String(lastBusiness.address || "").trim());
         if (nextAddress && nextAddress !== currentAddress && canSyncAddress && !addressFocused) {
-          form.setValue("address", nextAddress, { shouldDirty: false });
+          formApi.setValue("address", nextAddress, { shouldDirty: false });
         }
         if (nextStartDate && nextStartDate !== currentStartDate && canSyncStartDate && !startDateFocused) {
-          form.setValue("businessStartDate", nextStartDate, { shouldDirty: false });
+          formApi.setValue("businessStartDate", nextStartDate, { shouldDirty: false });
         }
 
-        const currentStreet = String(form.getValues("addressStreet") || "").trim();
-        const currentCity = String(form.getValues("addressCity") || "").trim();
-        const currentState = String(form.getValues("addressState") || "").trim();
-        const currentZip = String(form.getValues("addressZip") || "").trim();
-        const currentCountry = String(form.getValues("addressCountry") || "").trim();
+        const currentStreet = String(formApi.getValues("addressStreet") || "").trim();
+        const currentCity = String(formApi.getValues("addressCity") || "").trim();
+        const currentState = String(formApi.getValues("addressState") || "").trim();
+        const currentZip = String(formApi.getValues("addressZip") || "").trim();
+        const currentCountry = String(formApi.getValues("addressCountry") || "").trim();
         const hasCurrentParts = Boolean(
           currentStreet && currentCity && currentState && currentZip && currentCountry
         );
@@ -198,17 +203,17 @@ export default function UnifiedConsultStep() {
             currentCountry === String(lastBusiness.country || "").trim());
 
         if (hasNextParts && canSyncAddress && canSyncParts && !addressFocused) {
-          form.setValue("addressStreet", nextStreet, { shouldDirty: false });
-          form.setValue("addressCity", nextCity, { shouldDirty: false });
-          form.setValue("addressState", nextState, { shouldDirty: false });
-          form.setValue("addressZip", nextZip, { shouldDirty: false });
-          form.setValue("addressCountry", nextCountry, { shouldDirty: false });
+          formApi.setValue("addressStreet", nextStreet, { shouldDirty: false });
+          formApi.setValue("addressCity", nextCity, { shouldDirty: false });
+          formApi.setValue("addressState", nextState, { shouldDirty: false });
+          formApi.setValue("addressZip", nextZip, { shouldDirty: false });
+          formApi.setValue("addressCountry", nextCountry, { shouldDirty: false });
         } else if (backendAddressChanged && canSyncAddress && !addressFocused && !hasNextParts) {
-          form.setValue("addressStreet", "", { shouldDirty: false });
-          form.setValue("addressCity", "", { shouldDirty: false });
-          form.setValue("addressState", "", { shouldDirty: false });
-          form.setValue("addressZip", "", { shouldDirty: false });
-          form.setValue("addressCountry", "", { shouldDirty: false });
+          formApi.setValue("addressStreet", "", { shouldDirty: false });
+          formApi.setValue("addressCity", "", { shouldDirty: false });
+          formApi.setValue("addressState", "", { shouldDirty: false });
+          formApi.setValue("addressZip", "", { shouldDirty: false });
+          formApi.setValue("addressCountry", "", { shouldDirty: false });
         }
 
         if (nextBusinessName && canSyncName) consultStorage.setBusinessName(nextBusinessName);
@@ -263,7 +268,7 @@ export default function UnifiedConsultStep() {
     } finally {
       setDraftSyncing(false);
     }
-  }, [draftId, form, setConsultDone]);
+  }, [draftId, setConsultDone]);
 
   const syncNow = useCallback(
     async (options?: { preserveError?: boolean }) => {
