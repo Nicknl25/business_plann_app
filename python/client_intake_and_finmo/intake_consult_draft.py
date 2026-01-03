@@ -65,6 +65,8 @@ def ensure_table(conn) -> None:
         address_country VARCHAR(255) NULL,
         business_start_date VARCHAR(50) NULL,
         messages_json LONGTEXT NULL,
+        fact_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        fact_revisions_json LONGTEXT NULL,
         operating_model_json LONGTEXT NULL,
         target_market_json LONGTEXT NULL,
         people_json LONGTEXT NULL,
@@ -118,6 +120,10 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN address_country VARCHAR(255) NULL")
   if "business_start_date" not in cols:
     alterations.append("ADD COLUMN business_start_date VARCHAR(50) NULL")
+  if "fact_revision_nonce" not in cols:
+    alterations.append("ADD COLUMN fact_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0")
+  if "fact_revisions_json" not in cols:
+    alterations.append("ADD COLUMN fact_revisions_json LONGTEXT NULL")
   if "target_market_json" not in cols:
     alterations.append("ADD COLUMN target_market_json LONGTEXT NULL")
   if "people_json" not in cols:
@@ -215,6 +221,8 @@ def append_messages(
   confirmations: Optional[Dict[str, bool]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
   consistency_passed: Optional[bool] = None,
+  fact_revision_nonce: Optional[int] = None,
+  fact_revisions: Optional[List[Dict[str, Any]]] = None,
   flat_fields: Optional[Dict[str, Any]] = None,
   completed: bool = False,
 ) -> Dict[str, Any]:
@@ -296,6 +304,14 @@ def append_messages(
     set_parts.append("consistency_passed = %s")
     values.append(1 if consistency_passed else 0)
 
+  if fact_revision_nonce is not None:
+    set_parts.append("fact_revision_nonce = %s")
+    values.append(int(fact_revision_nonce))
+
+  if fact_revisions is not None:
+    set_parts.append("fact_revisions_json = %s")
+    values.append(json.dumps(fact_revisions, ensure_ascii=False))
+
   if flat_fields:
     reserved = {
       "draft_id",
@@ -316,6 +332,8 @@ def append_messages(
       "address_country",
       "business_start_date",
       "messages_json",
+      "fact_revision_nonce",
+      "fact_revisions_json",
       "operating_model_json",
       "target_market_json",
       "people_json",

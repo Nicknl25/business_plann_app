@@ -157,6 +157,7 @@ Style requirements:
 - Do not refer to anything as a "section" and do not claim the wording will appear verbatim in a business plan. This is intake capture used later for plan generation.
 - Use existing business context first (business model, delivery model, operating summary, pricing, and any prior people entries) to infer responsibilities and credibility signals before asking anything new.
 - The context JSON may include shared_context with outputs from other consults; treat it as read-only facts and do not re-run other consults.
+- If the context includes NAICS (e.g., naics_6), treat it as internal-only benchmarking context and NEVER mention NAICS codes to the client.
 
 One-time nudge (use once early, then never repeat):
 - Briefly mention that businesses often highlight a small number of pivotal roles (leadership, operations, technical/licensed, client-facing), but this is not a checklist.

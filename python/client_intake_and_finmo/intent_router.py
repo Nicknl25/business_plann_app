@@ -675,6 +675,11 @@ Interpretation rules:
 - If the user says something like "10000, not 10" after correcting unit price, infer they are correcting the same thing again (do not require keywords).
 - If the user corrects business identity details (name, address, start date) anywhere in the conversation, treat it as an edit_patch to business.name / business.address / business.start_date (unified mode uses scoped fields).
 - For business.start_date, normalize to ISO format YYYY-MM-DD when the user provides a specific date.
+- Internal Ops classification (unified mode, never shown to the client):
+  - If active_focus is "ops", baseline_json.ops.business_type is empty, and baseline_json.business_type_candidates is present,
+    then when the user is clearly confirming the initial business restatement ("yes/correct/looks right"),
+    return edit_patch setting ops.business_type to the single best match from business_type_candidates (and ops.consumer_type if inferable).
+  - Do NOT mention the business_type label or any NAICS codes in assistant_message.
 - If the user's intent is clear, proceed confidently; do not re-ask for confirmation.
 - If the user disagrees or requests changes, treat it as edit_patch.
 - If the user is agreeing to a proposed fact update from the last assistant message, treat it as edit_patch and apply that update.

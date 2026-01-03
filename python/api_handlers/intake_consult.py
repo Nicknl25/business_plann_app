@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
@@ -100,6 +101,57 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
     return [bt for _, _, bt in scored[:80]] or (all_business_types[:80] if all_business_types else [])
   except Exception:
     return []
+
+
+_BUSINESS_TYPE_TO_NAICS_6_CACHE: Dict[str, str] | None = None
+
+
+def _ensure_business_type_to_naics_cache(*, conn) -> Dict[str, str]:
+  global _BUSINESS_TYPE_TO_NAICS_6_CACHE
+  if _BUSINESS_TYPE_TO_NAICS_6_CACHE is not None:
+    return _BUSINESS_TYPE_TO_NAICS_6_CACHE
+
+  mapping: Dict[str, str] = {}
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      "SELECT business_types, naics_6 FROM naics_master WHERE business_types IS NOT NULL AND naics_6 IS NOT NULL"
+    )
+    rows = cur.fetchall() or []
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+  for row in rows:
+    try:
+      business_types_raw, naics_6 = row
+    except Exception:
+      continue
+    if not business_types_raw or not naics_6:
+      continue
+    naics_6_str = str(naics_6).strip()
+    if not naics_6_str:
+      continue
+    for part in str(business_types_raw).split(","):
+      token = str(part).strip()
+      if token and token not in mapping:
+        mapping[token] = naics_6_str
+
+  _BUSINESS_TYPE_TO_NAICS_6_CACHE = mapping
+  return mapping
+
+
+def _resolve_naics_6(*, conn, business_type: str) -> Optional[str]:
+  bt = str(business_type or "").strip()
+  if not bt:
+    return None
+  try:
+    mapping = _ensure_business_type_to_naics_cache(conn=conn)
+  except Exception:
+    return None
+  return mapping.get(bt)
 
 
 def _compute_focus_and_confirm_question(
@@ -507,6 +559,18 @@ def post_intake_consult_handler(*, app, request):
       "financials": financials_json,
     }
 
+    # Provide business_type candidates for GPT-only intent routing (internal only).
+    # This enables early classification confirmation without exposing any labels to the client UI.
+    if focus == "ops" and not str((ops_json or {}).get("business_type") or "").strip():
+      try:
+        baseline_json["business_type_candidates"] = _build_business_type_candidates(
+          conn=conn, messages=messages
+        )
+      except Exception:
+        baseline_json["business_type_candidates"] = []
+
+    naics_6 = _resolve_naics_6(conn=conn, business_type=str((ops_json or {}).get("business_type") or ""))
+
     if starting:
       start_instruction = _start_instruction_for_focus(focus)
       turn_messages = [*messages, {"role": "user", "content": start_instruction}]
@@ -516,6 +580,7 @@ def post_intake_consult_handler(*, app, request):
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "naics_6": naics_6,
         "shared_context": shared_context,
       }
 
@@ -594,7 +659,7 @@ def post_intake_consult_handler(*, app, request):
 
     # If the intake is fully complete, "continue" should guide the user to submission.
     if focus == "done" and action == "continue_chat":
-      assistant_text = 'Consistency check is complete and the facts line up well enough to proceed.\n\nClick "Submit intake" to finish.'
+      assistant_text = 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -616,6 +681,12 @@ def post_intake_consult_handler(*, app, request):
       )
 
     if action == "edit_patch" and patch:
+      prev_business_facts = dict(business_facts)
+      prev_ops_json = dict(ops_json)
+      prev_market_json = dict(market_json)
+      prev_people_json = dict(people_json)
+      prev_financials_json = dict(financials_json)
+
       business_facts, ops_json, market_json, people_json, financials_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
@@ -624,6 +695,77 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json,
         financials_json=financials_json,
       )
+
+      # Track fact revisions as immutable history (drivers are superseded, not blended).
+      fact_revision_nonce_out: int | None = None
+      fact_revisions_out: List[Dict[str, Any]] | None = None
+      try:
+        current_nonce = int(consult.get("fact_revision_nonce") or 0)
+      except Exception:
+        current_nonce = 0
+      try:
+        raw_revs = consult.get("fact_revisions_json")
+        parsed_revs = json.loads(str(raw_revs)) if raw_revs else []
+        if not isinstance(parsed_revs, list):
+          parsed_revs = []
+      except Exception:
+        parsed_revs = []
+
+      revision_entries: List[Dict[str, Any]] = []
+      try:
+        for raw_key in (patch or {}).keys():
+          key = str(raw_key or "").strip()
+          if key.count(".") != 1:
+            continue
+          group, field = key.split(".", 1)
+          group = group.strip().lower()
+          field = field.strip()
+          if not group or not field:
+            continue
+
+          old_value: Any = None
+          next_value: Any = None
+          if group == "business":
+            old_value = prev_business_facts.get(field)
+            next_value = business_facts.get(field)
+          elif group == "ops":
+            old_value = prev_ops_json.get(field)
+            next_value = ops_json.get(field)
+          elif group == "market":
+            old_value = prev_market_json.get(field)
+            next_value = market_json.get(field)
+          elif group == "people":
+            old_value = prev_people_json.get(field)
+            next_value = people_json.get(field)
+          elif group == "financials":
+            old_value = prev_financials_json.get(field)
+            next_value = financials_json.get(field)
+          else:
+            continue
+
+          if old_value == next_value:
+            continue
+          revision_entries.append(
+            {
+              "field": key,
+              "old": old_value,
+              "new": next_value,
+            }
+          )
+      except Exception:
+        revision_entries = []
+
+      if revision_entries:
+        next_nonce = current_nonce + 1
+        now_ms = int(time.time() * 1000)
+        for e in revision_entries:
+          e["nonce"] = next_nonce
+          e["at_ms"] = now_ms
+        parsed_revs.extend(revision_entries)
+        if len(parsed_revs) > 200:
+          parsed_revs = parsed_revs[-200:]
+        fact_revision_nonce_out = next_nonce
+        fact_revisions_out = parsed_revs
       active_focus_out = focus
       status_out: str | None = None
 
@@ -787,6 +929,9 @@ def post_intake_consult_handler(*, app, request):
           "address_state": payload.get("address_state"),
           "address_zip": payload.get("address_zip"),
           "address_country": payload.get("address_country"),
+          "naics_6": _resolve_naics_6(
+            conn=conn, business_type=str((ops_json or {}).get("business_type") or "")
+          ),
           "shared_context": shared_context_live,
           "operating_model_json": ops_json,
           "target_market_json": market_json,
@@ -846,6 +991,8 @@ def post_intake_consult_handler(*, app, request):
         business_facts=business_facts,
         consistency_passed=False,
         status=status_out,
+        fact_revision_nonce=fact_revision_nonce_out,
+        fact_revisions=fact_revisions_out,
       )
 
       return jsonify(
@@ -874,6 +1021,7 @@ def post_intake_consult_handler(*, app, request):
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "naics_6": naics_6,
         "shared_context": shared_context,
       }
 
@@ -1002,6 +1150,7 @@ def post_intake_consult_handler(*, app, request):
       "address_state": payload.get("address_state"),
       "address_zip": payload.get("address_zip"),
       "address_country": payload.get("address_country"),
+      "naics_6": naics_6,
       "shared_context": shared_context,
       "operating_model_json": ops_json,
       "target_market_json": market_json,

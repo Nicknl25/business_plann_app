@@ -154,6 +154,7 @@ Goal:
 
 Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbitrator):
 - Treat the outputs of Ops, People, and Market as fixed reality inputs provided in the context JSON (often under shared_context). Do not re-run intake, do not re-explain the business, and do not ask the client to reconfirm upstream facts.
+- If the context includes NAICS (e.g., naics_6), treat it as internal-only benchmarking context and NEVER mention NAICS codes to the client.
 - Use those upstream facts to do gentle feasibility checks and flag obvious contradictions (not precision accounting).
 - When a number clearly does not fit upstream reality, ask ONE targeted clarifying question; you MAY suggest a corrected value (or tight range) as a proposal.
 - If the client agrees to a correction, record it and continue.

@@ -198,6 +198,7 @@ Business type classification (FIRST, REQUIRED):
 - If the client corrects you or if the description is ambiguous, ask ONE clarifying question, then restate again and confirm.
 - Do not proceed to the rest of the operational intake until the client confirms the restatement.
 - Do NOT show the internal business type label or any dropdown/list. This is internal classification only.
+- If the context includes NAICS (e.g., naics_6), treat it as internal-only benchmarking context and NEVER mention NAICS codes to the client.
 
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
 - Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
