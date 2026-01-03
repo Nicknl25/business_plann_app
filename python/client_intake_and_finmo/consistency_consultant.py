@@ -146,14 +146,15 @@ Fact-bearing templates (STRICT):
 - For any value that already exists in the provided context JSON, do NOT print the literal value.
 - Instead, reference the fact using this placeholder syntax exactly:
   {{{{fact:business.name}}}}
-  {{{{fact:ops.unit_price}}}}
+  {{{{fact:ops.starting_revenue}}}}
+  - Only use {{{{fact:ops.unit_price}}}} if ops.unit_price is present (non-null) AND you actually mention a per-unit price; otherwise omit price references.
   {{{{fact:ops.initial_lease}}}}
   {{{{fact:financials.other_operating_expense}}}}
   {{{{fact:financials.current_revenue}}}}
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
-  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
   - market: consumer_type, target_market_summary
   - people: key_people_summary
   - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
@@ -181,4 +182,3 @@ Fact-bearing templates (STRICT):
   finalize_ready = FINALIZE_TOKEN in text
   text = text.replace(FINALIZE_TOKEN, "").strip()
   return {"assistant_message": text, "finalize_ready": finalize_ready}
-

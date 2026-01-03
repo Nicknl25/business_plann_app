@@ -92,7 +92,7 @@ def read_intake_submission_from_db(*, client_id: str) -> Dict[str, Any]:
     try:
       cur.execute(
         """
-        SELECT id, client_id, current_revenue, finmo_path, created_at
+        SELECT id, client_id, current_revenue, starting_revenue, finmo_path, created_at
         FROM intake_submissions
         WHERE client_id = %s
         LIMIT 1
@@ -279,16 +279,16 @@ def write_soi_revenue_total_all_firms_to_finmo(
 
 def write_starting_revenue_intake_to_finmo(
   *,
-  current_revenue: float,
+  starting_revenue: float,
   finmo_path: Optional[str] = None,
 ) -> Dict[str, Any]:
   finmo_path = _require_finmo_path(finmo_path)
   wb = load_workbook(finmo_path)
-  _write_named_cell(wb, "starting_revenue_intake", float(current_revenue))
+  _write_named_cell(wb, "starting_revenue_intake", float(starting_revenue))
   wb.save(finmo_path)
   return {
     "finmo_path": finmo_path,
-    "starting_revenue_intake": float(current_revenue),
+    "starting_revenue_intake": float(starting_revenue),
   }
 
 
@@ -298,14 +298,14 @@ def sync_intake_revenue_to_finmo(
 ) -> Dict[str, Any]:
   submission = read_intake_submission_from_db(client_id=client_id)
 
-  revenue = submission.get("current_revenue", None)
+  revenue = submission.get("starting_revenue", None)
   if revenue is None:
-    raise ValueError("Intake submission is missing current_revenue.")
+    raise ValueError("Intake submission is missing starting_revenue.")
   try:
     revenue_value = float(revenue)
   except Exception as exc:
     raise ValueError(
-      f"Latest intake current_revenue is not numeric: {revenue}"
+      f"Latest intake starting_revenue is not numeric: {revenue}"
     ) from exc
 
   submission_finmo_path = submission.get("finmo_path")
@@ -313,7 +313,7 @@ def sync_intake_revenue_to_finmo(
     raise ValueError("Intake submission is missing finmo_path.")
 
   result = write_starting_revenue_intake_to_finmo(
-    current_revenue=revenue_value,
+    starting_revenue=revenue_value,
     finmo_path=str(submission_finmo_path).strip(),
   )
   return {"intake_submission": submission, **result}

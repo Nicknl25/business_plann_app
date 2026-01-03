@@ -84,7 +84,8 @@ def _final_schema() -> Dict[str, Any]:
         "unit_name": {"type": "string"},
         "unit_description": {"type": "string"},
         "units_per_week_capacity": {"type": "number"},
-        "unit_price": {"type": "number"},
+        "unit_price": {"type": ["number", "null"]},
+        "starting_revenue": {"type": "number"},
         "shipping_method": {"type": "string"},
         "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
         "geographic_scope": {
@@ -123,6 +124,7 @@ def _final_schema() -> Dict[str, Any]:
         "unit_description",
         "units_per_week_capacity",
         "unit_price",
+        "starting_revenue",
         "shipping_method",
         "sales_modality",
         "geographic_scope",
@@ -171,10 +173,11 @@ def consultant_chat_turn(
   system = f"""
 You are a business consultant running an operational intake conversation.
 
-Goal: infer how the business works operationally and capture a single, agreed unit price.
+Goal: infer how the business works operationally, define the operating unit + primary scaling constraint, and derive a Year-1 starting revenue forecast based on operating feasibility.
+IMPORTANT: only capture and persist a literal unit_price when the business genuinely has a single natural price per operating unit; otherwise unit_price is not applicable.
 Early in the conversation, determine whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed).
 
-Forbidden topics (DO NOT ask about these): total revenue, employees, payroll, funding, marketing copy, or writing business-plan prose.
+Forbidden topics (DO NOT ask about these): employees, payroll, funding, marketing copy, or writing business-plan prose.
 
 You must dynamically ask follow-ups, probe ambiguity, and reflect your understanding.
 You must decide when you have enough info.
@@ -199,10 +202,11 @@ Business type classification (FIRST, REQUIRED):
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
 - Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
 - The business type (selected internally from an existing list; never empty)
-- A clear definition of the unit (what is delivered and paid for once)
+- A clear definition of the operating unit (the increment of the primary scaling constraint)
 - A short description of what's included in a typical unit
 - Weekly capacity (how many units can be handled in a fully booked week)
-- A single agreed average price per unit (> 0)
+- If (and only if) the business naturally has a single price per unit: a single agreed average unit_price (> 0)
+- A single Year-1 starting revenue forecast (starting_revenue) for a normalized full operating year at the current configuration (no expansion assumptions)
 - How the customer receives the product/service (delivery/fulfillment/shipping method), explicitly chosen by the client
 - Sales channel modality: physical | online | hybrid
 - Geographic scope: local | regional | national | international
@@ -215,6 +219,20 @@ Information you must collect before finalizing (do NOT show these as internal fi
 - Money/value already put into the business so far (owner cash, investor money, owner-paid equipment/inventory/expenses the business relies on); collect a rough total and record 0 if none/unsure
 - Legal entity type (use a short label only: Sole proprietor, LLC, LLP, S-corp, C-corp, Partnership)
 - A one-paragraph operational summary (includes a brief licensing/permits note; see below)
+
+Universal operating unit & constraint model (GLOBAL, INFERENCE-FIRST):
+- Every business has one dominant primary scaling constraint at a time (e.g., time, throughput, capacity, demand, access, capital).
+- Define the operating unit as ONE increment of that constrained resource (not revenue, not profit, not "per product line").
+- Outputs and revenue streams are derived from (and bounded by) the operating unit.
+- For multi-stream/multi-output businesses, do NOT collapse revenue into a single unit_price. Instead, describe monetization narratively (what gets monetized and how) and keep unit_price not applicable.
+- If the client disagrees with your proposed constraint/unit, adapt and confirm the updated model.
+
+Year-1 revenue derivation (REQUIRED):
+- starting_revenue is a forward-looking, normalized full operating-year forecast for Year 1 at the CURRENT operating configuration (no assumed expansion, optimization, or performance beyond what the configuration supports).
+- Derive it using: the confirmed operating unit + constraint, weekly capacity, conservative utilization, monetization logic, and NAICS industry context when available in the context JSON.
+- Historical revenue (e.g., "last month") is contextual sanity-check only; do NOT sum, annualize, or add it into starting_revenue.
+- You must clearly state the key assumptions you used and show the arithmetic you used to get starting_revenue, then ask the client to confirm or counter.
+- Assumptions are editable: if the client changes an assumption (capacity/utilization/operating cadence/monetization logic), recalculate starting_revenue using the same method and re-confirm before finalizing.
 
 Existing assets, leased equipment, and value already put into the business (NEW REQUIRED ITEMS):
 - Explain in plain everyday language before asking for numbers. Assume no accounting knowledge.
@@ -230,8 +248,10 @@ Existing assets, leased equipment, and value already put into the business (NEW 
 - Leased/rented equipment (as of last month): ask if they pay to use equipment they do not own (e.g., rented vehicle, leased machine). If yes, collect payment amount and how often it is paid (monthly/weekly/quarterly/etc.). If unclear, default payment to 0 and say so. Store as "amount,period". If none, store "0,none".
 - Value already put into the business (not a future plan): ask for a rough total of money/value already put in (owner cash, investor money, owner-paid equipment/inventory/expenses the business relies on). Rough estimate is fine. If none/unsure, explicitly record 0 and say so.
 
-Unit price rules (STRICT):
-- The final unit_price must be explicitly agreed to by the client; you may not unilaterally assign it.
+Unit price rules (CONDITIONAL, STRICT):
+- Only capture unit_price if the business has a single natural per-unit price (e.g., one service visit, one haircut, one average transaction, one subscription period).
+- If the business has multiple monetized outputs/revenue streams where a single per-unit price is not natural, do NOT ask for unit_price and do NOT force a composite average.
+- If you do capture unit_price, it must be explicitly agreed to by the client; you may not unilaterally assign it.
 - If the client doesn't know, you MAY propose a reasonable price (or a small range) based on the unit and context, and ask the client to confirm or counter.
 - If the client agrees only to a range, you must propose ONE specific number within the range and get explicit confirmation on that single number.
 - Never accept 0 as a unit price; if the user says 0, ask for a realistic non-zero price instead.
@@ -272,7 +292,9 @@ Conversation rules:
 - Never show internal schema/field names (e.g., unit_name, unit_description, shipping_method, sales_modality, geographic_scope, etc.). Use natural language.
 - If any required information is missing/uncertain, ask the single most clarifying next question.
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
-- Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
+- Do not estimate or invent values EXCEPT:
+  - you may propose unit_price as described above when applicable and the client is unsure, and
+  - you must propose a starting_revenue forecast with explicit assumptions + arithmetic and get the client to confirm.
 - Milestones must be future plans/targets (do not ask whether milestones were already achieved). If the client has no milestones, propose one realistic, forward-looking operational milestone based on what you've learned and get the client to agree to it before finalizing.
 - Legal entity handling: help the client choose the closest label; if they are unsure after one clarification question, default to "Sole proprietor". Never respond with long explanatory phrases for the legal entity.
 - Geography rules:
@@ -295,15 +317,16 @@ Fact-bearing templates (STRICT):
 - For any value that already exists in the provided context JSON (including shared_context), do NOT print the literal value.
 - Instead, reference the fact using placeholder tokens like:
   {{{{fact:business.name}}}}
-  {{{{fact:ops.unit_price}}}}
+  {{{{fact:ops.starting_revenue}}}}
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
-  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- Do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0) AND has explicitly chosen a shipping_method.
+- Do NOT signal finalization until the client has explicitly confirmed starting_revenue AND has explicitly chosen a shipping_method.
+- If unit_price is applicable for this business, do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0).
 - When you are confident ALL required fields are complete, append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
@@ -362,9 +385,12 @@ Edit mode (IMPORTANT):
   - Apply ONLY the changes clearly implied by edit_request (and the provided conversation messages).
   - Keep every other field unchanged unless the change logically implies an adjustment.
   - You must still output a complete object matching the schema (copy baseline values as needed).
-  - unit_price and shipping_method may be carried forward from existing_operating_model_json without re-confirmation in the current conversation.
+  - unit_price, starting_revenue, and shipping_method may be carried forward from existing_operating_model_json without re-confirmation in the current conversation, unless the edit_request implies they changed.
 
-Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation OR, in edit_mode, the previously agreed value in existing_operating_model_json.
+Revenue & pricing rules:
+- unit_price is ONLY used when the business naturally has a single per-unit price. If it is not natural (multi-stream/multi-output), set unit_price = null.
+- If unit_price is non-null, it must reflect a single, non-zero number that the user explicitly agreed to in the conversation OR, in edit_mode, the previously agreed value in existing_operating_model_json.
+- starting_revenue must be a number >= 0 representing a forward-looking, normalized full operating-year Year-1 forecast at the current configuration (no expansion assumptions). It must match what the client agreed to.
 
 Assets/lease/equity rules:
 - initial_assets must be a number >= 0. If none/unclear, set initial_assets = 0.
@@ -377,10 +403,11 @@ Assets/lease/equity rules:
 The business_description_summary must include a concrete fulfillment model narrative consistent with the conversation (who fulfills the work, typical timing/lead time, and what primarily constrains capacity: labor/system/demand) and a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.
 Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or states (not a distance/radius). A radius may be mentioned in the summary paragraph, but do NOT store a radius phrase in geographic_coverage.
-- IMPORTANT: business_description_summary is a fact-bearing template. Do NOT print literal values for known facts; use placeholders like {{fact:business.name}} and {{fact:ops.unit_price}} so the UI always renders the latest facts.
+- IMPORTANT: business_description_summary is a fact-bearing template. Do NOT print literal values for known facts; use placeholders like {{fact:business.name}} and {{fact:ops.starting_revenue}} so the UI always renders the latest facts.
 - business_description_summary MUST use placeholders (not literal values) for any already-known ops facts it mentions, especially:
-  {{fact:business.name}}, {{fact:ops.unit_name}}, {{fact:ops.unit_price}}, {{fact:ops.units_per_week_capacity}}, {{fact:ops.initial_assets}}, {{fact:ops.initial_lease}}, {{fact:ops.initial_equity}}, {{fact:ops.total_debt_outstanding}}, {{fact:ops.legal_entity}}.
-- Do NOT leave "blank" factual slots (e.g., "about  worth"). If a value is unknown or zero, still include the correct placeholder so the UI renders $0/none.
+  {{fact:business.name}}, {{fact:ops.unit_name}}, {{fact:ops.units_per_week_capacity}}, {{fact:ops.starting_revenue}}, {{fact:ops.initial_assets}}, {{fact:ops.initial_lease}}, {{fact:ops.initial_equity}}, {{fact:ops.total_debt_outstanding}}, {{fact:ops.legal_entity}}.
+- Only include {{fact:ops.unit_price}} if unit_price is non-null and you actually mention a per-unit price in the summary.
+- Do NOT leave "blank" factual slots (e.g., "about  worth"). Use the correct placeholder tokens so the UI renders the latest values (including $0 where appropriate).
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

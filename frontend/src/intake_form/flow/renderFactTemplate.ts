@@ -15,6 +15,7 @@ const FACT_PATTERN = /\{\{fact:([A-Za-z0-9_.-]+)\}\}/g;
 
 const OPS_MONEY_FIELDS = new Set([
   "unit_price",
+  "starting_revenue",
   "initial_assets",
   "initial_equity",
   "total_debt_outstanding",
@@ -165,6 +166,9 @@ function formatFact(group: string, field: string, value: unknown): string {
   if (group === "market" && field === "gender_age_intent") return formatMarketGenderAgeIntent(value);
   if (field === "initial_lease") return formatLease(value);
   if (COUNT_FIELDS.has(field)) return formatNumber(value, { money: false });
+  if (group === "ops" && field === "unit_price" && (value === null || value === undefined || value === "")) {
+    return "";
+  }
   if (group === "ops" && OPS_MONEY_FIELDS.has(field)) return formatNumber(value, { money: true });
   if (group === "financials" && FIN_MONEY_FIELDS.has(field))
     return formatNumber(value, { money: true });

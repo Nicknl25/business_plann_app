@@ -109,7 +109,11 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "unit_name": {"type": "string"},
       "unit_description": {"type": "string"},
       "units_per_week_capacity": {"type": "number"},
-      "unit_price": {"type": "number"},
+      # unit_price is intentionally optional for multi-stream businesses.
+      # When not applicable, it is represented as null (not 0).
+      "unit_price": {"type": ["number", "null"]},
+      # starting_revenue is a forward-looking, normalized Year-1 operating-year forecast.
+      "starting_revenue": {"type": "number"},
       "shipping_method": {"type": "string"},
       "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
       "geographic_scope": {"type": "string", "enum": ["local", "regional", "national", "international"]},
@@ -414,6 +418,8 @@ def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tupl
   """
   raw = str(value_json_raw or "").strip()
   if not raw:
+    if "number" in allowed_types and "null" in allowed_types:
+      return True, None
     if "number" in allowed_types:
       return True, 0.0
     if "string" in allowed_types:
@@ -423,6 +429,9 @@ def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tupl
     if "object" in allowed_types:
       return True, {}
     return False, None
+
+  if "null" in allowed_types and raw.lower() in ("none", "n/a", "na", "null", "unknown"):
+    return True, None
 
   try:
     return True, json.loads(raw)
@@ -500,6 +509,7 @@ def route_intent(
       "unit_description",
       "units_per_week_capacity",
       "unit_price",
+      "starting_revenue",
       "shipping_method",
       "sales_modality",
       "geographic_scope",
@@ -556,6 +566,7 @@ def route_intent(
         "unit_description",
         "units_per_week_capacity",
         "unit_price",
+        "starting_revenue",
         "shipping_method",
         "sales_modality",
         "geographic_scope",

@@ -656,9 +656,34 @@ def post_intake_consult_handler(*, app, request):
           for f in list(fields or []):
             allowed_fact_keys.append(f"{g}.{f}")
 
+        def _has_unit_price(ops_obj: Dict[str, Any]) -> bool:
+          try:
+            val = (ops_obj or {}).get("unit_price")
+          except Exception:
+            return False
+          if val is None:
+            return False
+          if isinstance(val, (int, float)):
+            return float(val) > 0
+          raw = str(val).strip()
+          if not raw:
+            return False
+          try:
+            return float(raw) > 0
+          except Exception:
+            return False
+
+        unit_price_required = _has_unit_price(ops_json)
+
         required_by_group: Dict[str, List[str]] = {
-          "ops": ["business.name", "ops.unit_name", "ops.unit_price", "ops.units_per_week_capacity"],
-          "market": ["business.name", "ops.unit_price"],
+          "ops": [
+            "business.name",
+            "ops.unit_name",
+            "ops.units_per_week_capacity",
+            "ops.starting_revenue",
+            *(("ops.unit_price",) if unit_price_required else ()),
+          ],
+          "market": ["business.name", *(("ops.unit_price",) if unit_price_required else ())],
           "people": ["business.name"],
           "financials": ["business.name", "financials.current_revenue", "financials.cash_on_hand"],
         }
@@ -1115,9 +1140,32 @@ def post_intake_consult_handler(*, app, request):
     except Exception:
       allowed_fact_keys_for_rewrite = []
 
+    def _has_unit_price(ops_obj: Dict[str, Any]) -> bool:
+      try:
+        val = (ops_obj or {}).get("unit_price")
+      except Exception:
+        return False
+      if val is None:
+        return False
+      if isinstance(val, (int, float)):
+        return float(val) > 0
+      raw = str(val).strip()
+      if not raw:
+        return False
+      try:
+        return float(raw) > 0
+      except Exception:
+        return False
+
     required_placeholders_by_group: Dict[str, List[str]] = {
-      "ops": ["business.name", "ops.unit_name", "ops.unit_price", "ops.units_per_week_capacity"],
-      "market": ["business.name", "ops.unit_price"],
+      "ops": [
+        "business.name",
+        "ops.unit_name",
+        "ops.units_per_week_capacity",
+        "ops.starting_revenue",
+        *(("ops.unit_price",) if _has_unit_price(ops_json) else ()),
+      ],
+      "market": ["business.name", *(("ops.unit_price",) if _has_unit_price(ops_json) else ())],
       "people": ["business.name"],
       "financials": ["business.name", "financials.current_revenue", "financials.cash_on_hand"],
     }

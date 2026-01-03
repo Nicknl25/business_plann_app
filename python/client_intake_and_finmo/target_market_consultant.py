@@ -287,11 +287,11 @@ Fact-bearing templates (STRICT):
 - Instead, reference the fact using this placeholder syntax exactly:
   {{{{fact:business.name}}}}
   {{{{fact:ops.unit_name}}}}
-  {{{{fact:ops.unit_price}}}}
+- Only use {{{{fact:ops.unit_price}}}} if ops.unit_price is present (non-null) AND you actually mention a per-unit price; otherwise omit price references.
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
-  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -350,11 +350,11 @@ Fact-bearing templates (STRICT):
 - Instead, reference the fact using this placeholder syntax exactly:
   {{{{fact:business.name}}}}
   {{{{fact:ops.unit_name}}}}
-  {{{{fact:ops.unit_price}}}}
+- Only use {{{{fact:ops.unit_price}}}} if ops.unit_price is present (non-null) AND you actually mention a per-unit price; otherwise omit price references.
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
-  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -428,11 +428,11 @@ Fact-bearing templates (STRICT):
 - Instead, reference the fact using this placeholder syntax exactly:
   {{{{fact:business.name}}}}
   {{{{fact:ops.unit_name}}}}
-  {{{{fact:ops.unit_price}}}}
+- Only use {{{{fact:ops.unit_price}}}} if ops.unit_price is present (non-null) AND you actually mention a per-unit price; otherwise omit price references.
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
-  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).

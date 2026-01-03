@@ -122,12 +122,12 @@ def insert_intake_submission(
   conn,
   row: Dict[str, Any],
 ) -> Dict[str, Any]:
-  def _table_columns(conn, table_name: str) -> Set[str]:
+  def _table_column_meta(conn, table_name: str) -> Dict[str, Dict[str, Any]]:
     cur = conn.cursor()
     try:
       cur.execute(
         """
-        SELECT COLUMN_NAME
+        SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = %s
@@ -140,15 +140,19 @@ def insert_intake_submission(
         cur.close()
       except Exception:
         pass
-    cols: Set[str] = set()
+    meta: Dict[str, Dict[str, Any]] = {}
     for r in rows:
       try:
-        cols.add(str(r[0]))
+        name = str(r[0])
       except Exception:
         continue
-    return cols
+      is_nullable = str(r[1] or "").strip().upper() == "YES" if len(r) > 1 else True
+      default_val = r[2] if len(r) > 2 else None
+      meta[name] = {"nullable": bool(is_nullable), "default": default_val}
+    return meta
 
-  available_columns = _table_columns(conn, "intake_submissions")
+  column_meta = _table_column_meta(conn, "intake_submissions")
+  available_columns: Set[str] = set(column_meta.keys())
 
   # Candidate columns this app knows how to provide. We insert only columns that exist.
   candidate_columns: List[str] = [
@@ -182,6 +186,7 @@ def insert_intake_submission(
     "founder_background",
     "business_start_date",
     "current_revenue",
+    "starting_revenue",
     "current_cogs",
     "other_operating_expense",
     "monthly_rent_expense",
@@ -226,6 +231,7 @@ def insert_intake_submission(
     "email_address",
     "business_start_date",
     "current_revenue",
+    "starting_revenue",
     "legal_entity",
     "business_description_summary",
     "key_people_summary",
@@ -254,6 +260,17 @@ def insert_intake_submission(
       "intake_submissions is missing required columns: "
       + ", ".join(missing_required)
     )
+
+  # unit_price is optional for multi-stream / multi-output businesses; when not applicable,
+  # it is stored as NULL. Ensure the DB schema permits that so we never silently fall back
+  # to a misleading default like 0.
+  if row.get("unit_price") is None and "unit_price" in available_columns:
+    meta = column_meta.get("unit_price") or {}
+    if meta and not bool(meta.get("nullable")):
+      raise RuntimeError(
+        "intake_submissions.unit_price must be NULLable to support multi-stream businesses. "
+        "Run: ALTER TABLE intake_submissions MODIFY unit_price DOUBLE NULL;"
+      )
 
   columns: List[str] = [c for c in candidate_columns if c in available_columns]
   values = [row.get(col) for col in columns]

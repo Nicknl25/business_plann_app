@@ -16,6 +16,7 @@ OPS_FACT_FIELDS = {
   "unit_description",
   "units_per_week_capacity",
   "unit_price",
+  "starting_revenue",
   "shipping_method",
   "sales_modality",
   "geographic_scope",
@@ -83,7 +84,13 @@ FACT_GROUPS = {
 }
 
 
-OPS_MONEY_FIELDS = {"unit_price", "initial_assets", "initial_equity", "total_debt_outstanding"}
+OPS_MONEY_FIELDS = {
+  "unit_price",
+  "starting_revenue",
+  "initial_assets",
+  "initial_equity",
+  "total_debt_outstanding",
+}
 FIN_MONEY_FIELDS = {
   "current_revenue",
   "current_cogs",
@@ -260,6 +267,11 @@ def render_fact_template(
 
     if field in COUNT_FIELDS:
       return _format_number(value, money=False)
+
+    if group == "ops" and field == "unit_price" and (value is None or value == ""):
+      # unit_price is intentionally optional for multi-stream businesses; when absent, render as blank
+      # rather than implying a $0 price.
+      return ""
 
     if group == "ops" and field in OPS_MONEY_FIELDS:
       return _format_number(value, money=True)

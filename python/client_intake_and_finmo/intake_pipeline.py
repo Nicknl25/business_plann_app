@@ -342,7 +342,6 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "unit_name",
     "unit_description",
     "units_per_week_capacity",
-    "unit_price",
     "shipping_method",
     "sales_modality",
     "geographic_scope",
@@ -352,6 +351,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "capacity_driver",
     "primary_growth_lever",
     "legal_entity",
+    "starting_revenue",
     "business_description_summary",
   )
   for key in operating_required:
@@ -409,14 +409,28 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   except Exception:
     errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
 
-  # Validate numeric unit price
-  try:
-    row["unit_price"] = float(payload.get("unit_price"))
-  except Exception:
-    errors["unit_price"] = "unit_price must be a number"
+  # Validate numeric unit price (optional: only required when the business naturally has a
+  # single price per operating unit; multi-stream businesses may omit it).
+  unit_price_raw = payload.get("unit_price")
+  if unit_price_raw is None or unit_price_raw == "":
+    row["unit_price"] = None
   else:
-    if row["unit_price"] <= 0:
-      errors["unit_price"] = "unit_price must be greater than 0"
+    try:
+      row["unit_price"] = float(unit_price_raw)
+    except Exception:
+      errors["unit_price"] = "unit_price must be a number"
+    else:
+      if row["unit_price"] <= 0:
+        errors["unit_price"] = "unit_price must be greater than 0"
+
+  # Year-1 starting revenue forecast (required, forward-looking)
+  try:
+    row["starting_revenue"] = float(payload.get("starting_revenue"))
+  except Exception:
+    errors["starting_revenue"] = "starting_revenue must be a number"
+  else:
+    if row["starting_revenue"] < 0:
+      errors["starting_revenue"] = "starting_revenue must be >= 0"
 
   # Operating assets / leases (captured conversationally; default to non-null values).
   assets_raw = payload.get("initial_assets")
