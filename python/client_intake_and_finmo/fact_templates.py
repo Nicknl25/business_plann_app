@@ -167,6 +167,59 @@ def _format_lease(value: Any) -> str:
   return f"{money}/{period}"
 
 
+def _format_market_income_intent(value: Any) -> str:
+  if not isinstance(value, list) or not value:
+    return ""
+  mins: list[float] = []
+  maxs: list[float] = []
+  for item in value:
+    if not isinstance(item, dict):
+      continue
+    income_min = _to_float(item.get("income_min"))
+    income_max = _to_float(item.get("income_max"))
+    if income_min is not None:
+      mins.append(income_min)
+    if income_max is not None:
+      maxs.append(income_max)
+  if not mins or not maxs:
+    return ""
+  return f"{_format_number(min(mins), money=True)}–{_format_number(max(maxs), money=True)}"
+
+
+def _format_market_gender_age_intent(value: Any) -> str:
+  if not isinstance(value, list) or not value:
+    return ""
+  mins: list[float] = []
+  maxs: list[float] = []
+  gender_focuses: set[str] = set()
+  for item in value:
+    if not isinstance(item, dict):
+      continue
+    gender = str(item.get("gender_focus") or "").strip().lower()
+    if gender:
+      gender_focuses.add(gender)
+    age_min = _to_float(item.get("age_min"))
+    age_max = _to_float(item.get("age_max"))
+    if age_min is not None:
+      mins.append(age_min)
+    if age_max is not None:
+      maxs.append(age_max)
+  if not mins or not maxs:
+    return ""
+
+  gender_label = "all genders"
+  if "all" in gender_focuses or ("female" in gender_focuses and "male" in gender_focuses):
+    gender_label = "all genders"
+  elif "female" in gender_focuses:
+    gender_label = "women"
+  elif "male" in gender_focuses:
+    gender_label = "men"
+
+  age_min_str = _format_number(min(mins), money=False)
+  age_max_str = _format_number(max(maxs), money=False)
+  return f"{gender_label} ages {age_min_str}–{age_max_str}"
+
+
 def render_fact_template(
   text: str,
   *,
@@ -197,6 +250,11 @@ def render_fact_template(
     return None
 
   def format_value(group: str, field: str, value: Any) -> str:
+    if group == "market" and field == "income_intent":
+      return _format_market_income_intent(value)
+    if group == "market" and field == "gender_age_intent":
+      return _format_market_gender_age_intent(value)
+
     if field == "initial_lease":
       return _format_lease(value)
 

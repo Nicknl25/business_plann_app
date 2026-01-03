@@ -68,6 +68,7 @@ export default function UnifiedConsultStep() {
   const businessNameInputRef = useRef<HTMLInputElement | null>(null);
   const businessStartDateInputRef = useRef<HTMLInputElement | null>(null);
   const businessAddressInputRef = useRef<HTMLInputElement | null>(null);
+  const lastAutoSyncAtRef = useRef(0);
   const lastDraftBusinessRef = useRef({
     name: "",
     address: "",
@@ -125,6 +126,7 @@ export default function UnifiedConsultStep() {
     try {
       const res = await apiClient.get("/api/intake-consult/draft", {
         params: { draft_id: effectiveDraftId },
+        timeout: 15000,
         validateStatus: () => true,
       });
       if (res.status < 200 || res.status >= 300) {
@@ -429,6 +431,9 @@ export default function UnifiedConsultStep() {
     const maybeSync = () => {
       const state = syncEligibilityRef.current;
       if (!state.planStarted || !state.hasDraft || state.busy) return;
+      const now = Date.now();
+      if (now - lastAutoSyncAtRef.current < 4000) return;
+      lastAutoSyncAtRef.current = now;
       syncNowRef.current();
     };
 

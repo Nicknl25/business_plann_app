@@ -175,6 +175,9 @@ def post_financials_handler(*, app, request):
       raise IntakeValidationError({"draft_id": "financials_json must be a JSON object."})
 
     # Render fact-bearing templates into a frozen submission snapshot.
+    rendered_business_description_summary: str = ""
+    rendered_target_market_summary: str = ""
+    rendered_key_people_summary: str = ""
     try:
       from fact_templates import render_fact_template  # type: ignore
 
@@ -197,7 +200,7 @@ def post_financials_handler(*, app, request):
         business_facts=business_facts,
       ).strip()
       if rendered_ops_summary:
-        payload["business_description_summary"] = rendered_ops_summary
+        rendered_business_description_summary = rendered_ops_summary
 
       rendered_market_summary = render_fact_template(
         str(target_market_summary or ""),
@@ -205,7 +208,7 @@ def post_financials_handler(*, app, request):
         business_facts=business_facts,
       ).strip()
       if rendered_market_summary:
-        payload["target_market_summary"] = rendered_market_summary
+        rendered_target_market_summary = rendered_market_summary
 
       rendered_people_summary = render_fact_template(
         str(key_people_summary or ""),
@@ -213,7 +216,7 @@ def post_financials_handler(*, app, request):
         business_facts=business_facts,
       ).strip()
       if rendered_people_summary:
-        payload["key_people_summary"] = rendered_people_summary
+        rendered_key_people_summary = rendered_people_summary
     except Exception:
       # Best-effort: if rendering fails, fall back to storing raw strings (may contain placeholders).
       pass
@@ -230,11 +233,26 @@ def post_financials_handler(*, app, request):
       if k not in payload or payload.get(k) in (None, ""):
         payload[k] = v
     payload["target_market"] = (target_market_csv or None)
-    payload["target_market_summary"] = target_market_summary
+    payload["target_market_summary"] = rendered_target_market_summary or target_market_summary
     payload["target_market_b2b_industry"] = (b2b_industry or None)
     payload["target_market_b2b_size"] = (b2b_size or None)
     payload["target_market_b2b_age"] = (b2b_age or None)
-    payload["key_people_summary"] = key_people_summary
+    payload["key_people_summary"] = rendered_key_people_summary or key_people_summary
+    if rendered_business_description_summary and (
+      not str(payload.get("business_description_summary") or "").strip()
+      or "{{fact:" in str(payload.get("business_description_summary") or "")
+    ):
+      payload["business_description_summary"] = rendered_business_description_summary
+
+    # Hard guard: intake_submissions must never store unresolved fact templates.
+    for field in ("business_description_summary", "target_market_summary", "key_people_summary"):
+      val = str(payload.get(field) or "")
+      if "{{fact:" in val:
+        raise IntakeValidationError(
+          {
+            field: "Submission snapshot contains unresolved fact templates; this should never happen.",
+          }
+        )
     if "confidence" in payload:
       payload["operating_model_confidence"] = payload.pop("confidence")
 

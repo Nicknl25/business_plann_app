@@ -943,6 +943,8 @@ def post_intake_consult_handler(*, app, request):
       assistant_text = sanitize_fact_template(router_msg)
       if focus == "market":
         assistant_text = _strip_acs_codes(assistant_text)
+      if confirm_question:
+        assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),

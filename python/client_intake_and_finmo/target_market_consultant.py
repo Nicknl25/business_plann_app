@@ -265,6 +265,7 @@ Rules:
 - The user may revise earlier choices at any time; accept the revision and continue without restarting the consult.
 - Do not consult or discuss any other segments (except the promotion model confirmation at the end).
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
+- For Income language, avoid socioeconomic labels ("lower class", "middle class", etc.). State the numeric range plainly.
 - If the user says they serve "everyone" or "all incomes", propose a broad range starting at $0 (or the lowest practical bracket) and a high upper bound that clearly covers everyone, then move on once the user accepts.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
@@ -404,6 +405,7 @@ Rules:
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, briefly reflect it back, and move on. Only ask follow-ups if ambiguous or incomplete.
 - Do not consult or discuss any other segments (except the promotion model confirmation at the end).
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
+- For Income language, avoid socioeconomic labels ("lower class", "middle class", etc.). State the numeric range plainly.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
@@ -512,6 +514,8 @@ Field rules by mode:
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across segments.
 - Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
+  - Also use placeholders for consumer ranges: {{fact:market.gender_age_intent}} and {{fact:market.income_intent}}. Do NOT print literal age or income numbers in the summary; rely on these placeholders so cross-domain edits (like price) propagate immediately.
+  - Avoid socioeconomic labels ("lower class", "middle class", etc.) in the summary; state the numeric intent via placeholders instead.
 - The mapping table includes min_value and max_value (numeric) for some rows (notably Gender & Age and Income). Use them to be precise:
   - When the client specifies a numeric range (e.g., age 19-58 or income $40k-$120k), select ALL mapping rows whose [min_value, max_value] overlaps that intended range.
   - If the client's boundary falls between buckets, include the nearest bucket that covers it (e.g., min 19 should include an 18-24 bucket; max 58 should include a 55-64 bucket).
@@ -581,6 +585,8 @@ Hard requirements:
 - target_market_summary must be one comprehensive paragraph that reflects BOTH the consumer and B2B targeting (without listing raw codes).
 - Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
+  - Also use placeholders for consumer ranges: {{fact:market.gender_age_intent}} and {{fact:market.income_intent}}. Do NOT print literal age or income numbers in the summary; rely on these placeholders so cross-domain edits propagate immediately.
+  - Avoid socioeconomic labels ("lower class", "middle class", etc.) in the summary; state the numeric intent via placeholders instead.
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:

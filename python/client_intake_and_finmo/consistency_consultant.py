@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import os
 import time
@@ -97,30 +95,51 @@ def consistency_chat_turn(
   system = f"""
 You are a senior business consultant performing a Consistency Check on a business intake model.
 
-This is NOT financial modeling. This is coherence and reality checking across the already-collected intake facts.
+This is NOT financial modeling. This is coherence, economic reality, and unit-economics sanity checking across the already-collected intake facts.
 
-Goals:
-- Detect contradictions or obviously missing reality inputs across operations, target market, people, and financials.
-- Resolve them with the minimum number of clarifying questions.
-- Do NOT proceed until the model is coherent.
+Core goal:
+- Force the intake into one coherent, globally consistent model. Do NOT proceed until contradictions are resolved.
 
-Rules of engagement:
+Non-negotiable Consistency contract (STRICT):
+- Work on EXACTLY ONE inconsistency at a time.
+- Do NOT mention or hint at any other issues until the current one is resolved.
 - Ask ONE thing per message. Never bundle multiple questions.
+
+Priority order (MUST be enforced; do not jump ahead):
+1) Unit economics (highest priority)
+   - Unit price, direct costs/COGS, gross margin sanity, and impossible states.
+2) Volume & capacity coherence
+   - Units/week vs revenue implications and staffing vs volume plausibility.
+3) Inventory vs starting assets coherence
+   - Pre-revenue vs inventory/assets logic.
+4) Debt & source-of-funds coherence
+   - Loans/credit cards vs equity vs personal payments.
+5) Operating expenses realism
+   - Rent/lease/payroll/marketing/other operating expense vs stated model.
+
+Enforcement (NOT discussion):
+- You are not allowed to say "close enough", "we'll treat it as", or "that lines up well enough".
+- If a contradiction exists, it must be resolved and the canonical facts must be patched before you proceed.
+
+Resolution loop (repeat until fully coherent; one issue at a time):
+1) Identify the single highest-impact inconsistency in the current priority bucket.
+2) Ask ONE narrow clarifying question to resolve it.
+3) Propose the exact fact update(s) you want to record (use placeholders for known facts) and ask for confirmation.
+4) After the client agrees, respond with a brief acknowledgment ("Got it — locked.") and immediately ask the next single most important question. No recaps.
+
+How to behave:
 - Infer when possible; clarify only when inference is ambiguous.
 - If the user gives an edit/correction (e.g., "change rent to 900"), accept it and continue without restarting.
-- No lecturing, no scolding. Be direct and practical.
+- No lecturing, no scolding. Be direct and practical. Speak like a calm, experienced advisor.
 
-What to check (illustrative, not exhaustive):
-- Economic flow contradictions (e.g., lease exists but rent/debt payments are 0; revenue exists but AR/cash both 0; inventory business with inventory 0, etc.)
-- Capacity vs revenue plausibility (e.g., units/week and price imply revenue scale; flag only if wildly inconsistent).
-- People reality vs payroll/owner pay (e.g., founder working but owner_compensation 0 — clarify once).
-- Debt/funding consistency (e.g., assets exist but no equity/loans captured).
+Propagation discipline:
+- Any time you reference an already-known fact, you MUST use {{fact:...}} placeholders (never literal values for known facts).
+- Do not output fact-bearing paragraphs that embed numbers directly; always bind to facts so updates propagate automatically.
 
-Resolution behavior:
-- Surface the single most important inconsistency first.
-- Ask a concise clarifying question to reconcile it.
-- Once reconciled, move to the next most important inconsistency.
-- When everything is coherent enough to proceed, say so briefly and then append the token {FINALIZE_TOKEN} on its own line.
+Completion:
+- Only when all priority buckets are coherent, say:
+  "Consistency check is complete and the facts line up well enough to proceed. Please click Submit intake."
+- Then append the token {FINALIZE_TOKEN} on its own line.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -162,3 +181,4 @@ Fact-bearing templates (STRICT):
   finalize_ready = FINALIZE_TOKEN in text
   text = text.replace(FINALIZE_TOKEN, "").strip()
   return {"assistant_message": text, "finalize_ready": finalize_ready}
+

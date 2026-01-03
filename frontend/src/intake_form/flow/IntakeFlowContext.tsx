@@ -212,6 +212,7 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       try {
         const res = await apiClient.get("/api/shared-context", {
           params: { draft_id: effectiveDraftId },
+          timeout: 15000,
           validateStatus: () => true,
         });
         if (res.status < 200 || res.status >= 300) {

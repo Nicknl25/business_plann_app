@@ -40,6 +40,53 @@ const FIN_MONEY_FIELDS = new Set([
 
 const COUNT_FIELDS = new Set(["units_per_week_capacity", "current_num_employees"]);
 
+function formatMarketIncomeIntent(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const mins: number[] = [];
+  const maxs: number[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as any;
+    const minVal = toNumber(record.income_min);
+    const maxVal = toNumber(record.income_max);
+    if (minVal !== null) mins.push(minVal);
+    if (maxVal !== null) maxs.push(maxVal);
+  }
+  if (mins.length === 0 || maxs.length === 0) return "";
+  return `${formatNumber(Math.min(...mins), { money: true })}–${formatNumber(Math.max(...maxs), { money: true })}`;
+}
+
+function formatMarketGenderAgeIntent(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const mins: number[] = [];
+  const maxs: number[] = [];
+  const genderFocuses = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as any;
+    const gender = String(record.gender_focus || "").trim().toLowerCase();
+    if (gender) genderFocuses.add(gender);
+    const ageMin = toNumber(record.age_min);
+    const ageMax = toNumber(record.age_max);
+    if (ageMin !== null) mins.push(ageMin);
+    if (ageMax !== null) maxs.push(ageMax);
+  }
+  if (mins.length === 0 || maxs.length === 0) return "";
+
+  let genderLabel = "all genders";
+  if (genderFocuses.has("all") || (genderFocuses.has("female") && genderFocuses.has("male"))) {
+    genderLabel = "all genders";
+  } else if (genderFocuses.has("female")) {
+    genderLabel = "women";
+  } else if (genderFocuses.has("male")) {
+    genderLabel = "men";
+  }
+
+  const ageMinStr = formatNumber(Math.min(...mins), { money: false });
+  const ageMaxStr = formatNumber(Math.max(...maxs), { money: false });
+  return `${genderLabel} ages ${ageMinStr}–${ageMaxStr}`;
+}
+
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -114,6 +161,8 @@ function resolveFactValue(
 }
 
 function formatFact(group: string, field: string, value: unknown): string {
+  if (group === "market" && field === "income_intent") return formatMarketIncomeIntent(value);
+  if (group === "market" && field === "gender_age_intent") return formatMarketGenderAgeIntent(value);
   if (field === "initial_lease") return formatLease(value);
   if (COUNT_FIELDS.has(field)) return formatNumber(value, { money: false });
   if (group === "ops" && OPS_MONEY_FIELDS.has(field)) return formatNumber(value, { money: true });
