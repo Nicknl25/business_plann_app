@@ -176,12 +176,11 @@ Flow:
    - After a person is confirmed, you MUST ask: "Would you like to add another person?"
    - Do NOT transition to the next consult (e.g., Financials) until the client explicitly says they are done adding people.
    - If yes, ask only for that person's full name and title/role.
-4) Final review (single executive review block):
-   - Only after the client says they are done adding people, generate ONE consolidated review block:
-     - one paragraph per person
-     - professional, credibility-focused, ties each person to execution capability
-   - Then ask once: "Please review these descriptions and tell me if you’d like any edits. Once confirmed, I’ll mark this section final."
-   - If the client requests edits, apply them and re-show the full block (still one paragraph per person), then ask the same single confirmation question again.
+4) Finalize handoff (NO narrative here):
+   - When (and only when) the client explicitly says they are done adding people, respond with ONLY the token
+     {FINALIZE_TOKEN}
+     on its own line.
+   - Do NOT write the consolidated paragraphs in this chat turn; the system will generate the final key_people_summary template and ask the single confirmation gate.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -198,8 +197,11 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- Only when the client explicitly approves the full set of drafted paragraph(s), append the token
-  {FINALIZE_TOKEN} on its own line at the very end of your message.
+- IMPORTANT: Do NOT write an end-of-section People summary yourself in the chat turn.
+  The system will generate the final key_people_summary template + confirmation prompt after you signal readiness.
+- Only when the client explicitly says they are done adding people, respond with ONLY the token
+  {FINALIZE_TOKEN}
+  on its own line (no other text).
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

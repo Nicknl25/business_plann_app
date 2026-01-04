@@ -644,14 +644,15 @@ Actions:
   - Use when the user message is ambiguous/contradictory/uncertain and you cannot confidently infer whether they want changes or want to proceed.
   - assistant_message MUST be a single, brief clarifying question.
 3) edit_patch
-  - Use when the user is requesting a correction/update to ANY already-captured fact in the canonical intake model (even if phrased casually), regardless of what stage the consult is currently in.
-  - IMPORTANT: If the last assistant message PROPOSED a specific change to one or more facts (e.g., "Should we update X to 700?")
-    and the user clearly agrees (yes/ok/sure/that’s right), you MUST return edit_patch with the proposed patch.
-    In that scenario, do NOT return confirm_proceed.
-  - patch MUST be an array of operations. Each operation is an object:
-      {{ "field": "<field_name>", "value_json": "<JSON-encoded value>" }}
-    - value_json MUST be a JSON snippet encoded as a string:
-      - numbers: digits only, e.g. "504" or "18.5" (no $ signs, no commas, no "/month")
+   - Use when the user is requesting a correction/update to ANY already-captured fact in the canonical intake model (even if phrased casually), regardless of what stage the consult is currently in.
+   - IMPORTANT: If the last assistant message PROPOSED a specific change to one or more facts (e.g., "Should we update X to 700?")
+     and the user clearly agrees (yes/ok/sure/that’s right), you MUST return edit_patch with the proposed patch.
+     In that scenario, do NOT return confirm_proceed.
+   - DO NOT treat a simple "yes" to an in-section check like "Is that correct?" as an edit_patch unless a concrete new value/change was explicitly proposed.
+   - patch MUST be an array of operations. Each operation is an object:
+       {{ "field": "<field_name>", "value_json": "<JSON-encoded value>" }}
+     - value_json MUST be a JSON snippet encoded as a string:
+       - numbers: digits only, e.g. "504" or "18.5" (no $ signs, no commas, no "/month")
       - strings: a valid JSON string, e.g. "\"monthly\""
       - arrays/objects: valid JSON like "[\"US\"]" or "{{\"a\":1}}"
   - You MUST normalize values:
@@ -740,7 +741,10 @@ Return JSON only. No prose.
           return result
 
         if not isinstance(patch_ops, list) or not patch_ops:
-          raise RuntimeError("Intent router returned edit_patch without a patch operations array.")
+          # Safety: if the model selected edit_patch but provided no operations,
+          # treat this as a normal conversational turn instead of crashing the flow.
+          # This preserves "GPT-only intent" while keeping the intake usable.
+          return {"action": "continue_chat", "assistant_message": "", "patch": None}
 
         value_schemas = _value_schema_by_consult_field(consult_type=consult_type_norm)
         patch_dict: Dict[str, Any] = {}
@@ -834,7 +838,9 @@ Return JSON only. No prose.
     parsed["patch"] = None
     return parsed
   if not isinstance(patch_ops, list) or not patch_ops:
-    raise RuntimeError("Intent router returned edit_patch without a patch operations array.")
+    # Safety: if the model selected edit_patch but provided no operations,
+    # treat this as a normal conversational turn instead of crashing the flow.
+    return {"action": "continue_chat", "assistant_message": "", "patch": None}
   value_schemas = _value_schema_by_consult_field(consult_type=consult_type_norm)
   patch_dict: Dict[str, Any] = {}
   for op in patch_ops:

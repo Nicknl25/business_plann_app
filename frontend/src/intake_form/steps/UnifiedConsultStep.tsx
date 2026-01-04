@@ -66,7 +66,6 @@ export default function UnifiedConsultStep() {
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
   const businessNameInputRef = useRef<HTMLInputElement | null>(null);
-  const businessStartDateInputRef = useRef<HTMLInputElement | null>(null);
   const businessAddressInputRef = useRef<HTMLInputElement | null>(null);
   const lastAutoSyncAtRef = useRef(0);
   const lastDraftBusinessRef = useRef({
@@ -94,17 +93,16 @@ export default function UnifiedConsultStep() {
       [addressStreet, addressCity, addressState, addressZip, addressCountry].every(
         (v) => Boolean(v && v.trim())
       );
-    return Boolean(businessName && businessName.trim()) && hasAddress && Boolean(businessStartDate && businessStartDate.trim());
-  }, [address, addressCity, addressCountry, addressState, addressStreet, addressZip, businessName, businessStartDate]);
+    return Boolean(businessName && businessName.trim()) && hasAddress;
+  }, [address, addressCity, addressCountry, addressState, addressStreet, addressZip, businessName]);
 
   const detailsCompleteForChat = useMemo(() => {
     const hasCoreDetails =
       Boolean(businessName && businessName.trim()) &&
-      Boolean(address && address.trim()) &&
-      Boolean(businessStartDate && businessStartDate.trim());
+      Boolean(address && address.trim());
     if (messages.length > 0) return hasCoreDetails;
     return detailsComplete;
-  }, [address, businessName, businessStartDate, detailsComplete, messages.length]);
+  }, [address, businessName, detailsComplete, messages.length]);
 
   const roleLabel = useCallback((role: "user" | "assistant") => (role === "user" ? "client" : "consultant"), []);
 
@@ -160,9 +158,6 @@ export default function UnifiedConsultStep() {
         const addressFocused = Boolean(
           businessAddressInputRef.current && activeEl === businessAddressInputRef.current
         );
-        const startDateFocused = Boolean(
-          businessStartDateInputRef.current && activeEl === businessStartDateInputRef.current
-        );
 
         const lastBusiness = lastDraftBusinessRef.current;
 
@@ -173,8 +168,6 @@ export default function UnifiedConsultStep() {
         const canSyncName = !currentName || currentName === String(lastBusiness.name || "").trim();
         const canSyncAddress =
           !currentAddress || currentAddress === String(lastBusiness.address || "").trim();
-        const canSyncStartDate =
-          !currentStartDate || currentStartDate === String(lastBusiness.startDate || "").trim();
 
         if (nextBusinessName && nextBusinessName !== currentName && canSyncName && !nameFocused) {
           formApi.setValue("businessName", nextBusinessName, { shouldDirty: false });
@@ -183,7 +176,7 @@ export default function UnifiedConsultStep() {
         if (nextAddress && nextAddress !== currentAddress && canSyncAddress && !addressFocused) {
           formApi.setValue("address", nextAddress, { shouldDirty: false });
         }
-        if (nextStartDate && nextStartDate !== currentStartDate && canSyncStartDate && !startDateFocused) {
+        if (nextStartDate && nextStartDate !== currentStartDate) {
           formApi.setValue("businessStartDate", nextStartDate, { shouldDirty: false });
         }
 
@@ -220,7 +213,7 @@ export default function UnifiedConsultStep() {
 
         if (nextBusinessName && canSyncName) consultStorage.setBusinessName(nextBusinessName);
         if (nextAddress && canSyncAddress) consultStorage.setAddress(nextAddress);
-        if (nextStartDate && canSyncStartDate) consultStorage.setBusinessStartDate(nextStartDate);
+        if (nextStartDate) consultStorage.setBusinessStartDate(nextStartDate);
         if (hasNextParts && canSyncAddress && canSyncParts) {
           consultStorage.setAddressParts({
             street: nextStreet,
@@ -465,6 +458,7 @@ export default function UnifiedConsultStep() {
     setSending(true);
     setDraftError(null);
     try {
+      const startDatePayload = String(businessStartDate || consultStorage.getBusinessStartDate() || "").trim();
       const res = await apiClient.post(
         "/api/intake-consult",
         {
@@ -473,7 +467,7 @@ export default function UnifiedConsultStep() {
           message: "",
           business_name: String(businessName || "").trim(),
           address: String(address || "").trim(),
-          business_start_date: String(businessStartDate || "").trim(),
+          business_start_date: startDatePayload || undefined,
           address_street: String(addressStreet || "").trim(),
           address_city: String(addressCity || "").trim(),
           address_state: String(addressState || "").trim(),
@@ -512,6 +506,7 @@ export default function UnifiedConsultStep() {
     setSending(true);
     setDraftError(null);
     try {
+      const startDatePayload = String(businessStartDate || consultStorage.getBusinessStartDate() || "").trim();
       const res = await apiClient.post(
         "/api/intake-consult",
         {
@@ -520,7 +515,7 @@ export default function UnifiedConsultStep() {
           message: msg,
           business_name: String(businessName || "").trim(),
           address: String(address || "").trim(),
-          business_start_date: String(businessStartDate || "").trim(),
+          business_start_date: startDatePayload || undefined,
           address_street: String(addressStreet || "").trim(),
           address_city: String(addressCity || "").trim(),
           address_state: String(addressState || "").trim(),
@@ -575,7 +570,7 @@ export default function UnifiedConsultStep() {
   const syncInProgress = Boolean(loading || sending || draftSyncing);
   const syncHasError = Boolean(draftError || sharedContextError);
   const canReconnect = Boolean(planStarted && syncHasError && !syncInProgress);
-  const syncLabel = syncInProgress ? "Updating…" : syncHasError ? "Reconnect" : "Up to date";
+  const syncLabel = syncInProgress ? "Updating..." : syncHasError ? "Reconnect" : "Up to date";
 
   return (
     <Card className="border border-slate-800/80 bg-slate-950/60 shadow-soft" id="intake-section-unified">
@@ -611,7 +606,7 @@ export default function UnifiedConsultStep() {
                     )}
                     <span className={labelClass}>{step.label}</span>
                     {idx < progressSteps.length - 1 ? (
-                      <span className="mx-1 text-slate-700">→</span>
+                      <span className="mx-1 text-slate-700">{">"}</span>
                     ) : null}
                   </div>
                 );
@@ -668,24 +663,6 @@ export default function UnifiedConsultStep() {
             )}
           </FormField>
 
-          <FormField name="businessStartDate" control={form.control}>
-            {({ ref, ...field }) => (
-              <FormItem>
-                <FormControl>
-                  <Input
-                    {...field}
-                    ref={(el) => {
-                      ref(el);
-                      businessStartDateInputRef.current = el;
-                    }}
-                    type="date"
-                  />
-                </FormControl>
-                <FormMessage>{form.formState.errors.businessStartDate?.message}</FormMessage>
-              </FormItem>
-            )}
-          </FormField>
-
           <div className="md:col-span-2">
             <FormField name="address" control={form.control}>
               {({ ref, ...field }) => (
@@ -712,7 +689,7 @@ export default function UnifiedConsultStep() {
             <div className="min-w-0">
               {detailsComplete
                 ? "Ready when you are. Start the consultation to begin."
-                : "Enter your business name, full address, and start date to begin."}
+                : "Enter your business name and full address to begin."}
             </div>
             <Button
               type="button"

@@ -41,7 +41,8 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
         email_address: values.emailAddress,
         phone_number: values.phoneNumber || null,
         how_did_you_hear: values.howDidYouHear || null,
-        business_start_date: values.businessStartDate,
+        business_start_date:
+          String(values.businessStartDate || consultStorage.getBusinessStartDate() || "").trim() || null,
       };
 
       Object.values(serverFieldToFormField).forEach((fieldName) => {

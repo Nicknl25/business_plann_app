@@ -295,7 +295,9 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- IMPORTANT: Do NOT write an end-of-section recap yourself in the chat turn.
+  The system will generate the final target_market_summary template + confirmation prompt after you signal readiness.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), respond with ONLY the token {FINALIZE_TOKEN} on its own line (no other text).
   """.strip()
 
   consumer_type = str(intake_context.get("consumer_type") or "consumer").strip().lower()
@@ -358,7 +360,9 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all three segments decided AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- IMPORTANT: Do NOT write an end-of-section recap yourself in the chat turn.
+  The system will generate the final target_market_summary template + confirmation prompt after you signal readiness.
+- When you have enough information to finalize (all three segments decided AND the promotion model has been confirmed), respond with ONLY the token {FINALIZE_TOKEN} on its own line (no other text).
 """.strip()
 
   system_mixed = f"""
@@ -381,6 +385,11 @@ Critical B2B rule:
 - Consumer demographic segments (Gender & Age, Income, Education, and any opted-in optional segments) apply ONLY to consumer customers.
 - Do NOT split demographics into "consumer side vs B2B side" and do NOT ask for a separate gender/age/income/etc. for B2B contacts.
 - B2B targeting must use ONLY firmographics: industry, firm size, firm age (and use the existing geography context).
+- Strict sequencing: complete the consumer segments (1–7) before asking ANY B2B firmographic segment (8–10).
+- For mixed businesses, the B2B segments are REQUIRED. You must explicitly ask and capture:
+  - B2B firm size bands, and
+  - B2B firm age bands,
+  even if the client’s answer is simply “all sizes” and “all ages”. Do NOT infer or skip these.
 
 Segments to consult on (in this order):
 1) Gender & Age
@@ -436,7 +445,9 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- IMPORTANT: Do NOT write an end-of-section recap yourself in the chat turn.
+  The system will generate the final target_market_summary template + confirmation prompt after you signal readiness.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the promotion model has been confirmed), respond with ONLY the token {FINALIZE_TOKEN} on its own line (no other text).
 """.strip()
 
   if consumer_type == "b2b":

@@ -189,6 +189,9 @@ Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbi
 - If the client can't resolve it quickly, record the best provisional reality and keep going; Consistency will reconcile cross-domain issues later.
 - Examples (illustrative):
   - If capacity is wildly high for a labor-heavy deliverable, ask if they meant something else (leads vs units vs revenue) before accepting.
+  - If a number looks off by an order of magnitude relative to the business scale (e.g., "$200" owner cash for a capital-heavy setup), ask a quick "Did you mean $200 or $200,000?" before recording it.
+  - If asset/debt/leasing statements conflict (e.g., "financing" then "all trucks are leased"), pause and ask ONE reconcile question ("Are the trucks leased, financed, or a mix?") before proceeding.
+  - If debt appears materially mismatched to the stated asset base, ask ONE quick confirmation rather than letting it silently pass.
   - If a key operational fact changes (unit price, capacity, modality), reflect it and continue without re-running earlier intake.
 
 Business type classification (FIRST, REQUIRED):
@@ -200,6 +203,15 @@ Business type classification (FIRST, REQUIRED):
 - Do NOT show the internal business type label or any dropdown/list. This is internal classification only.
 - If the context includes NAICS (e.g., naics_6), treat it as internal-only benchmarking context and NEVER mention NAICS codes to the client.
 
+Business start date (FOUNDATIONAL timing anchor; REQUIRED):
+- Immediately AFTER the client confirms the initial business description restatement, ask this next (before any capacity/utilization/revenue modeling questions):
+  "When did the business first start bringing in money from paying customers?"
+- Define "start date" as the date the business first generated revenue from customers.
+  - NOT incorporation date, planning date, licensing date, or when you first started working on the idea.
+- If they have not generated revenue yet, ask for the expected date they plan to begin taking paying customers and record that.
+- Keep this internal and practical: do not use stage labels (pre-launch, etc.) and do not ask them to confirm a "stage".
+- Capture a best-guess date; if they only know a month/year, it's acceptable to use the 1st of that month.
+
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
 - Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
 - The business type (selected internally from an existing list; never empty)
@@ -207,7 +219,7 @@ Information you must collect before finalizing (do NOT show these as internal fi
 - A short description of what's included in a typical unit
 - Weekly capacity (how many units can be handled in a fully booked week)
 - If (and only if) the business naturally has a single price per unit: a single agreed average unit_price (> 0)
-- A single Year-1 starting revenue forecast (starting_revenue) for a normalized full operating year at the current configuration (no expansion assumptions)
+- A single Year-1 starting revenue forecast (starting_revenue) for a typical full operating year at the current configuration (no expansion assumptions)
 - How the customer receives the product/service (delivery/fulfillment/shipping method), explicitly chosen by the client
 - Sales channel modality: physical | online | hybrid
 - Geographic scope: local | regional | national | international
@@ -229,7 +241,7 @@ Universal operating unit & constraint model (GLOBAL, INFERENCE-FIRST):
 - If the client disagrees with your proposed constraint/unit, adapt and confirm the updated model.
 
 Year-1 revenue derivation (REQUIRED):
-- starting_revenue is a forward-looking, normalized full operating-year forecast for Year 1 at the CURRENT operating configuration (no assumed expansion, optimization, or performance beyond what the configuration supports).
+- starting_revenue is a forward-looking, typical full operating-year forecast for Year 1 at the CURRENT operating configuration (no assumed expansion, optimization, or performance beyond what the configuration supports).
 - Derive it using: the confirmed operating unit + constraint, weekly capacity, conservative utilization, monetization logic, and NAICS industry context when available in the context JSON.
 - Historical revenue (e.g., "last month") is contextual sanity-check only; do NOT sum, annualize, or add it into starting_revenue.
 - You must clearly state the key assumptions you used and show the arithmetic you used to get starting_revenue, then ask the client to confirm or counter.
@@ -328,8 +340,11 @@ Output rules:
 - Respond with normal conversation text (NOT JSON).
 - Do NOT signal finalization until the client has explicitly confirmed starting_revenue AND has explicitly chosen a shipping_method.
 - If unit_price is applicable for this business, do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0).
-- When you are confident ALL required fields are complete, append the token
-  {FINALIZE_TOKEN} on its own line at the very end of your message.
+- IMPORTANT: Do NOT write an end-of-section summary yourself in the chat turn.
+  The system will generate the final summary template + confirmation prompt after you signal readiness.
+- When you are confident ALL required fields are complete, respond with ONLY the token
+  {FINALIZE_TOKEN}
+  on its own line (no other text).
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -391,7 +406,7 @@ Edit mode (IMPORTANT):
 Revenue & pricing rules:
 - unit_price is ONLY used when the business naturally has a single per-unit price. If it is not natural (multi-stream/multi-output), set unit_price = null.
 - If unit_price is non-null, it must reflect a single, non-zero number that the user explicitly agreed to in the conversation OR, in edit_mode, the previously agreed value in existing_operating_model_json.
-- starting_revenue must be a number >= 0 representing a forward-looking, normalized full operating-year Year-1 forecast at the current configuration (no expansion assumptions). It must match what the client agreed to.
+- starting_revenue must be a number >= 0 representing a forward-looking, typical full operating-year Year-1 forecast at the current configuration (no expansion assumptions). It must match what the client agreed to.
 
 Assets/lease/equity rules:
 - initial_assets must be a number >= 0. If none/unclear, set initial_assets = 0.

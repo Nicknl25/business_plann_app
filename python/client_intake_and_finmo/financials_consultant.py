@@ -187,6 +187,18 @@ Items to cover (one at a time, in a sensible order):
 - Cash on hand (cash)
 - Money customers owe you (AR), money you owe others (AP), and inventory on hand (inventory)
 
+Debt handling (IMPORTANT; keep this simple and human):
+- Do NOT ask the client for annual interest dollars or annual principal dollars.
+- The client should never have to invent or annualize interest/principal totals.
+- If total_debt_outstanding > 0:
+  - If a recurring business debt/lease payment amount was already established upstream in Ops (for example via ops.initial_lease) or earlier in this Financials section, do NOT ask for the payment amount again.
+  - Ask ONE question to capture (or confirm) the average interest rate assumption for the debt (APR % is fine).
+  - Then do the math yourself and propose annual_interest_payment and annual_principal_payment as concrete numbers, and ask the client to confirm.
+    - Compute annual_interest_payment as: total_debt_outstanding × interest_rate.
+    - If a monthly payment amount is known, compute annual_principal_payment as: max(0, monthly_payment × 12 − annual_interest_payment).
+    - If a payment amount is not known, propose a conservative principal assumption (e.g., interest-only or a simple amortization horizon) and ask for confirmation; do not ask the client to compute it.
+- If total_debt_outstanding == 0: set other_monthly_debt_payments, annual_interest_payment, and annual_principal_payment to 0 and move on.
+
 Everyday phrasing guide (adapt as needed; keep it short and natural):
 - Revenue: "money that came in from customers"
 - COGS: "what it cost to make/buy what you sold, or to deliver the service"
@@ -198,8 +210,8 @@ Everyday phrasing guide (adapt as needed; keep it short and natural):
 - Capex: "bigger one-time purchases like equipment, vehicles, or build-out"
 - Debt outstanding: "how much the business still owes on loans/credit"
 - Debt payments: "loan/credit payments you made"
-- Interest: "the interest portion of loan payments"
-- Principal: "the part of payments that pays down the balance"
+- Interest: "the interest portion of loan payments" (you will calculate/propose the annual number)
+- Principal: "the part of payments that pays down the balance" (you will calculate/propose the annual number)
 - Cash on hand: "cash in business bank accounts (and cash register, if applicable)"
 - AR: "money customers still owe you"
 - AP: "money you owe suppliers/credit cards/bills"
@@ -235,8 +247,11 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you are confident all required fields are complete, append the token
-  {FINALIZE_TOKEN} on its own line at the very end of your message.
+- IMPORTANT: Do NOT write an end-of-section financials summary yourself in the chat turn.
+  The system will generate the final financials_summary template + confirmation prompt after you signal readiness.
+- When you are confident all required fields are complete, respond with ONLY the token
+  {FINALIZE_TOKEN}
+  on its own line (no other text).
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

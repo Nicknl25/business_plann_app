@@ -26,7 +26,7 @@ export const intakeSchema = z
     emailAddress: z.string().email("Please enter a valid email address."),
     phoneNumber: z.string().optional(),
     howDidYouHear: z.string().optional(),
-    businessStartDate: z.string().min(1, "Business Start Date is required."),
+    businessStartDate: z.string(),
   })
   .superRefine((values, ctx) => {
     const addressParts = [

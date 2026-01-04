@@ -95,7 +95,8 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
   const [planStarted, setPlanStarted] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
-      return window.sessionStorage.getItem("intake_plan_started") === "1";
+      if (window.sessionStorage.getItem("intake_plan_started") === "1") return true;
+      return Boolean(consultStorage.getDraftId());
     } catch {
       return false;
     }

@@ -1,5 +1,6 @@
 import json
 import time
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
@@ -570,6 +571,9 @@ def post_intake_consult_handler(*, app, request):
         baseline_json["business_type_candidates"] = []
 
     naics_6 = _resolve_naics_6(conn=conn, business_type=str((ops_json or {}).get("business_type") or ""))
+    ops_consumer_type = str((ops_json or {}).get("consumer_type") or "").strip().lower()
+    if ops_consumer_type not in ("consumer", "b2b", "mixed"):
+      ops_consumer_type = "consumer"
 
     if starting:
       start_instruction = _start_instruction_for_focus(focus)
@@ -577,9 +581,11 @@ def post_intake_consult_handler(*, app, request):
       intake_context: Dict[str, Any] = {
         "client_id": client_id,
         "draft_id": str(draft_id).strip(),
+        "today_iso": date.today().isoformat(),
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "consumer_type": ops_consumer_type,
         "naics_6": naics_6,
         "shared_context": shared_context,
       }
@@ -929,6 +935,7 @@ def post_intake_consult_handler(*, app, request):
           "address_state": payload.get("address_state"),
           "address_zip": payload.get("address_zip"),
           "address_country": payload.get("address_country"),
+          "consumer_type": ops_consumer_type,
           "naics_6": _resolve_naics_6(
             conn=conn, business_type=str((ops_json or {}).get("business_type") or "")
           ),
@@ -959,7 +966,7 @@ def post_intake_consult_handler(*, app, request):
           )
         elif followup_focus == "consistency":
           if assistant_text:
-            assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I’m going to re-run a brief consistency check to make sure everything still lines up.".strip()
+            assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I'm going to re-run a brief consistency check to make sure everything still lines up.".strip()
           followup_turn = consistency_chat_turn(
             intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
           )
@@ -1009,6 +1016,32 @@ def post_intake_consult_handler(*, app, request):
       )
 
     if action == "confirm_proceed" and confirm_question:
+      # Business start date is a required timing anchor; do not allow Ops to complete without it.
+      if focus == "ops" and not str(business_facts.get("start_date") or "").strip():
+        assistant_text = (
+          "Before we move on, one quick timing anchor: when did the business first start bringing in money from paying customers?\n\n"
+          "If you haven't started yet, what's your best estimate for the date you expect to begin taking paying customers?"
+        )
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          active_focus="ops",
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "ops",
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
+
       confirmations: Dict[str, bool] = {focus: True}
       next_focus = _next_focus(focus)
 
@@ -1018,9 +1051,11 @@ def post_intake_consult_handler(*, app, request):
       intake_context_next: Dict[str, Any] = {
         "client_id": client_id,
         "draft_id": str(draft_id).strip(),
+        "today_iso": date.today().isoformat(),
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "consumer_type": ops_consumer_type,
         "naics_6": naics_6,
         "shared_context": shared_context,
       }
@@ -1046,19 +1081,19 @@ def post_intake_consult_handler(*, app, request):
           intake_context=intake_context_next, conversation_messages=turn_messages
         )["assistant_message"]
       elif next_focus == "done":
-        next_assistant = "Great — you're ready to submit your intake."
+        next_assistant = "Great - you're ready to submit your intake."
       else:
         next_assistant = "Continue."
 
       transition = ""
       if next_focus == "market":
-        transition = "Great — let’s move on to Target Market."
+        transition = "Great - let's move on to Target Market."
       elif next_focus == "people":
-        transition = "Great — let’s move on to Human Resources."
+        transition = "Great - let's move on to Human Resources."
       elif next_focus == "financials":
-        transition = "Great — let’s move on to Financials."
+        transition = "Great - let's move on to Financials."
       elif next_focus == "consistency":
-        transition = "Great — I’m going to do a quick consistency check before submission."
+        transition = "Great - I'm going to do a quick consistency check before submission."
       if transition:
         next_assistant = f"{transition}\n\n{next_assistant}".strip() if next_assistant else transition
 
@@ -1142,6 +1177,7 @@ def post_intake_consult_handler(*, app, request):
     intake_context = {
       "client_id": client_id,
       "draft_id": str(draft_id).strip(),
+      "today_iso": date.today().isoformat(),
       "business_name": business_facts.get("name"),
       "business_start_date": business_facts.get("start_date"),
       "address": business_facts.get("address"),
@@ -1150,6 +1186,7 @@ def post_intake_consult_handler(*, app, request):
       "address_state": payload.get("address_state"),
       "address_zip": payload.get("address_zip"),
       "address_country": payload.get("address_country"),
+      "consumer_type": ops_consumer_type,
       "naics_6": naics_6,
       "shared_context": shared_context,
       "operating_model_json": ops_json,
@@ -1372,6 +1409,54 @@ def post_intake_consult_handler(*, app, request):
         conversation_messages=final_messages,
         mapping_rows=mapping_rows,
       )
+
+      # Deterministic completeness guard for mixed/B2B flows:
+      # In mixed and B2B mode, firmographics must be explicitly captured (not inferred).
+      if consumer_type in ("b2b", "mixed"):
+        b2b_terms = final_obj.get("b2b_industry_terms")
+        b2b_sizes = final_obj.get("b2b_size_bands")
+        b2b_ages = final_obj.get("b2b_age_bands")
+
+        missing_question: str | None = None
+        if not isinstance(b2b_terms, list) or not any(str(t or "").strip() for t in b2b_terms):
+          missing_question = (
+            "For your business (company) customers, what kinds of organizations are your ideal ongoing accounts? "
+            "A short list is fine (e.g., dealerships, repair/body shops, property managers, fleets)."
+          )
+        elif not isinstance(b2b_sizes, list) or not b2b_sizes:
+          missing_question = (
+            "For those business customers, do you care about company size, or are you open to all sizes? "
+            "If you do care, tell me the employee-size range you want (for example: 1–49, 50–499, 500+)."
+          )
+        elif not isinstance(b2b_ages, list) or not b2b_ages:
+          missing_question = (
+            "For those business customers, do you care how long they’ve been in business, or are you open to all ages? "
+            "If you do care, tell me whether you prefer newer companies, established companies, or both."
+          )
+
+        if missing_question:
+          assistant_text = sanitize_fact_template(str(missing_question).strip())
+          assistant_text = _strip_acs_codes(assistant_text)
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+            active_focus=focus,
+            business_facts=business_facts,
+          )
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "active_focus": focus,
+              "awaiting_confirmation": False,
+              "done": False,
+              "action": "continue",
+              "assistant_message": assistant_text,
+            }
+          )
+
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
