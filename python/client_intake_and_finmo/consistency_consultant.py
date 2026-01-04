@@ -6,8 +6,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from turn_outcome import ASK_NEXT, INTAKE_COMPLETE, TurnOutcome
+
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-FINALIZE_TOKEN = "[[CONSISTENCY_PASSED]]"
 
 
 def _load_root_env() -> None:
@@ -87,7 +88,7 @@ def consistency_chat_turn(
   Consistency check conversation turn.
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    { "assistant_message": str, "turn_outcome": TurnOutcome }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -142,7 +143,7 @@ Enforcement (NOT discussion):
 Resolution loop (repeat until fully coherent; one issue at a time):
 1) Identify the single highest-impact inconsistency in the current priority bucket.
 2) Ask ONE narrow clarifying question to resolve it.
-3) Propose the exact fact update(s) you want to record and ask for confirmation.
+3) Propose the exact fact update(s) you want to record and ask for the missing data needed to lock them in (do NOT ask for permission to proceed).
    - Use human labels, not symbols. Do NOT write things like "$0 = 250000" or refer to variables/fields by placeholder names.
    - If you must contrast old vs new, do it explicitly: "Before this correction we had X; now we'll use Y."
 4) After the client agrees, respond with a brief acknowledgment that restates the locked value(s) and gives a forward-progress cue, then immediately ask the next single most important question. No recaps.
@@ -168,9 +169,8 @@ Propagation discipline:
 - Do not output fact-bearing paragraphs that embed numbers directly; always bind to facts so updates propagate automatically.
 
 Completion:
-- Only when all priority buckets are coherent, say:
-  "Consistency check is complete and the facts are now coherent. Please click Submit intake."
-- Then append the token {FINALIZE_TOKEN} on its own line.
+- Only when all priority buckets are coherent, set turn_outcome="INTAKE_COMPLETE" and set assistant_message to:
+  "Consistency check is complete and the facts are now coherent.\n\nClick \"Submit intake\" to finish."
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -189,6 +189,12 @@ Fact-bearing templates (STRICT):
   - market: consumer_type, target_market_summary
   - people: key_people_summary
   - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
+
+Output rules:
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
+- turn_outcome must be "ASK_NEXT" or "INTAKE_COMPLETE".
+- If turn_outcome="ASK_NEXT", assistant_message must ask exactly ONE data-bearing question.
+- If turn_outcome="INTAKE_COMPLETE", assistant_message must be the completion instruction.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -196,6 +202,18 @@ Fact-bearing templates (STRICT):
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema_wrapper = {
+    "name": "intake_consistency_turn",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["ASK_NEXT", "INTAKE_COMPLETE"]},
+      },
+      "required": ["assistant_message", "turn_outcome"],
+    },
+  }
   payload = {
     "model": model,
     "input": [
@@ -203,13 +221,56 @@ Fact-bearing templates (STRICT):
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        parsed = part["json"]
+        assistant_message = str(parsed.get("assistant_message") or "")
+        outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+        outcome: TurnOutcome = ASK_NEXT
+        if outcome_raw in ("ASK_NEXT", "INTAKE_COMPLETE"):
+          outcome = outcome_raw  # type: ignore[assignment]
+        if not assistant_message.strip():
+          assistant_message = (
+            'Quick check: what is the single most important number or fact we should correct so everything lines up?'
+            if outcome == ASK_NEXT
+            else 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
+          )
+        return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = {}
+  if isinstance(parsed, dict):
+    assistant_message = str(parsed.get("assistant_message") or "")
+    outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+    outcome: TurnOutcome = ASK_NEXT
+    if outcome_raw in ("ASK_NEXT", "INTAKE_COMPLETE"):
+      outcome = outcome_raw  # type: ignore[assignment]
+    if not assistant_message.strip():
+      assistant_message = (
+        'Quick check: what is the single most important number or fact we should correct so everything lines up?'
+        if outcome == ASK_NEXT
+        else 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
+      )
+    return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  return {"assistant_message": raw.strip(), "turn_outcome": ASK_NEXT}

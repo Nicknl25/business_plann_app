@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from turn_outcome import ASK_NEXT, SECTION_COMPLETE, TurnOutcome
+
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-FINALIZE_TOKEN = "[[FINALIZE_READY]]"
 
 
 def _load_root_env() -> None:
@@ -87,6 +88,8 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["SECTION_COMPLETE"]},
         "financials_summary": {"type": "string"},
         "current_revenue": {"type": "number"},
         "current_cogs": {"type": "number"},
@@ -107,6 +110,8 @@ def _final_schema() -> Dict[str, Any]:
         "confidence": {"type": "number"},
       },
       "required": [
+        "assistant_message",
+        "turn_outcome",
         "financials_summary",
         "current_revenue",
         "current_cogs",
@@ -130,6 +135,21 @@ def _final_schema() -> Dict[str, Any]:
   }
 
 
+def _turn_schema() -> Dict[str, Any]:
+  return {
+    "name": "intake_financials_turn",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["ASK_NEXT", "SECTION_COMPLETE"]},
+      },
+      "required": ["assistant_message", "turn_outcome"],
+    },
+  }
+
+
 def financials_chat_turn(
   *,
   intake_context: Dict[str, Any],
@@ -139,7 +159,7 @@ def financials_chat_turn(
   Free-text Financials consultant conversation turn (NO schema enforcement).
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    { "assistant_message": str, "turn_outcome": TurnOutcome }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -246,12 +266,11 @@ Fact-bearing templates (STRICT):
   - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
 - IMPORTANT: Do NOT write an end-of-section financials summary yourself in the chat turn.
-  The system will generate the final financials_summary template + confirmation prompt after you signal readiness.
-- When you are confident all required fields are complete, respond with ONLY the token
-  {FINALIZE_TOKEN}
-  on its own line (no other text).
+  The system will generate the final financials_summary template separately.
+- When you have enough info for finalization, set turn_outcome="SECTION_COMPLETE" and set assistant_message="" (empty string).
+- Otherwise, set turn_outcome="ASK_NEXT" and ask exactly ONE clear, data-bearing question in assistant_message.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -259,6 +278,7 @@ Output rules:
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema_wrapper = _turn_schema()
   payload = {
     "model": model,
     "input": [
@@ -266,16 +286,51 @@ Output rules:
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        parsed = part["json"]
+        assistant_message = str(parsed.get("assistant_message") or "")
+        outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+        outcome: TurnOutcome = ASK_NEXT
+        if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+          outcome = outcome_raw  # type: ignore[assignment]
+        if outcome == ASK_NEXT and not assistant_message.strip():
+          assistant_message = "As of last month, about how much revenue did the business bring in?"
+        return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = {}
+  if isinstance(parsed, dict):
+    assistant_message = str(parsed.get("assistant_message") or "")
+    outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+    outcome: TurnOutcome = ASK_NEXT
+    if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+      outcome = outcome_raw  # type: ignore[assignment]
+    if outcome == ASK_NEXT and not assistant_message.strip():
+      assistant_message = "As of last month, about how much revenue did the business bring in?"
+    return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  return {"assistant_message": raw.strip(), "turn_outcome": ASK_NEXT}
 
 
 def financials_finalize(
@@ -293,6 +348,8 @@ def financials_finalize(
 You are a business consultant finalizing the Financials intake.
 
 Return ONLY JSON matching the provided schema. No prose.
+turn_outcome must be "SECTION_COMPLETE".
+assistant_message must be exactly financials_summary.
 
 Rules:
 - Do not invent non-zero values. Use only values explicitly established in the conversation.

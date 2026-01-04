@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from turn_outcome import ASK_NEXT, SECTION_COMPLETE, TurnOutcome
+
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-FINALIZE_TOKEN = "[[FINALIZE_READY]]"
 
 
 def _load_root_env() -> None:
@@ -102,6 +103,8 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["SECTION_COMPLETE"]},
         "consumer_type": {"type": "string", "enum": ["consumer", "b2b", "mixed"]},
         "gender_age_intent": {
           "type": ["array", "null"],
@@ -199,6 +202,8 @@ def _final_schema() -> Dict[str, Any]:
         "confidence": {"type": "number"},
       },
       "required": [
+        "assistant_message",
+        "turn_outcome",
         "consumer_type",
         "gender_age_intent",
         "income_intent",
@@ -214,6 +219,20 @@ def _final_schema() -> Dict[str, Any]:
   }
 
 
+def _turn_schema() -> Dict[str, Any]:
+  return {
+    "name": "intake_target_market_turn",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["ASK_NEXT", "SECTION_COMPLETE"]},
+      },
+      "required": ["assistant_message", "turn_outcome"],
+    },
+  }
+
 def target_market_chat_turn(
   *,
   intake_context: Dict[str, Any],
@@ -223,7 +242,7 @@ def target_market_chat_turn(
   Free-text target market consultant conversation turn (NO schema enforcement).
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    { "assistant_message": str, "turn_outcome": TurnOutcome }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -275,11 +294,11 @@ Rules:
 
 Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
 - After target market segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
-- Present a short proposed statement for confirmation (ONE question only), like:
-  "This is how customers are typically reached - does this sound right?"
-- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated proposed model and confirm again.
+- Present a short proposed statement and ask for corrections as data (ONE question only), like:
+  "I'm going to assume this is how customers are typically reached — what would you change about it?"
+- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated proposed model and move on.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics. Keep it high-level and realistic.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+- Include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -294,10 +313,11 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
 - IMPORTANT: Do NOT write an end-of-section recap yourself in the chat turn.
-  The system will generate the final target_market_summary template + confirmation prompt after you signal readiness.
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), respond with ONLY the token {FINALIZE_TOKEN} on its own line (no other text).
+  The system will generate the final target_market_summary template separately.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped), set turn_outcome="SECTION_COMPLETE" and set assistant_message="" (empty string).
+- Otherwise, set turn_outcome="ASK_NEXT" and ask exactly ONE clear, data-bearing question in assistant_message.
   """.strip()
 
   consumer_type = str(intake_context.get("consumer_type") or "consumer").strip().lower()
@@ -341,10 +361,10 @@ Rules:
 
 Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
 - After the B2B firmographic segments are decided, infer 1-2 primary ways businesses like this typically reach target organizations (e.g., referrals, partnerships, outbound, industry networks).
-- Present a short proposed statement for confirmation (ONE question only).
-- If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
+- Present a short proposed statement and ask for corrections as data (ONE question only).
+- If the client disagrees, ask ONE targeted correction question, then restate your updated proposed model and move on.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+- Include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -359,10 +379,11 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
 - IMPORTANT: Do NOT write an end-of-section recap yourself in the chat turn.
-  The system will generate the final target_market_summary template + confirmation prompt after you signal readiness.
-- When you have enough information to finalize (all three segments decided AND the promotion model has been confirmed), respond with ONLY the token {FINALIZE_TOKEN} on its own line (no other text).
+  The system will generate the final target_market_summary template separately.
+- When you have enough information to finalize (all three segments decided), set turn_outcome="SECTION_COMPLETE" and set assistant_message="" (empty string).
+- Otherwise, set turn_outcome="ASK_NEXT" and ask exactly ONE clear, data-bearing question in assistant_message.
 """.strip()
 
   system_mixed = f"""
@@ -426,10 +447,10 @@ Rules:
 
 Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
 - After both the consumer and B2B target segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
-- Present a short proposed statement for confirmation (ONE question only).
-- If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
+- Present a short proposed statement and ask for corrections as data (ONE question only).
+- If the client disagrees, ask ONE targeted correction question, then restate your updated proposed model and move on.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+- Include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -444,10 +465,11 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
 - IMPORTANT: Do NOT write an end-of-section recap yourself in the chat turn.
-  The system will generate the final target_market_summary template + confirmation prompt after you signal readiness.
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the promotion model has been confirmed), respond with ONLY the token {FINALIZE_TOKEN} on its own line (no other text).
+  The system will generate the final target_market_summary template separately.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided), set turn_outcome="SECTION_COMPLETE" and set assistant_message="" (empty string).
+- Otherwise, set turn_outcome="ASK_NEXT" and ask exactly ONE clear, data-bearing question in assistant_message.
 """.strip()
 
   if consumer_type == "b2b":
@@ -464,6 +486,7 @@ Output rules:
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema_wrapper = _turn_schema()
   payload = {
     "model": model,
     "input": [
@@ -471,18 +494,55 @@ Output rules:
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  if not finalize_ready:
-    text = _trim_after_first_question_block(text)
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        parsed = part["json"]
+        assistant_message = str(parsed.get("assistant_message") or "")
+        outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+        outcome: TurnOutcome = ASK_NEXT
+        if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+          outcome = outcome_raw  # type: ignore[assignment]
+        if outcome == ASK_NEXT:
+          if not assistant_message.strip():
+            assistant_message = "Who is your ideal customer (be as specific as you can)?"
+          assistant_message = _trim_after_first_question_block(assistant_message.strip())
+        return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = {}
+  if isinstance(parsed, dict):
+    assistant_message = str(parsed.get("assistant_message") or "")
+    outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+    outcome: TurnOutcome = ASK_NEXT
+    if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+      outcome = outcome_raw  # type: ignore[assignment]
+    if outcome == ASK_NEXT:
+      if not assistant_message.strip():
+        assistant_message = "Who is your ideal customer (be as specific as you can)?"
+      assistant_message = _trim_after_first_question_block(assistant_message.strip())
+    return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  return {"assistant_message": raw.strip(), "turn_outcome": ASK_NEXT}
 
 
 def target_market_finalize(
@@ -503,6 +563,8 @@ def target_market_finalize(
 You are a business consultant finalizing a Target Market intake.
 
 Return ONLY JSON matching the provided schema. No prose.
+turn_outcome must be "SECTION_COMPLETE".
+assistant_message must be exactly target_market_summary.
 
 Hard requirements:
 - For Gender & Age and Income: DO NOT output ACS codes directly.
@@ -551,6 +613,8 @@ Edit mode (if intake_context.edit_mode is true):
 You are a business consultant finalizing a Target Market intake (B2B firmographics).
 
 Return ONLY JSON matching the provided schema. No prose.
+turn_outcome must be "SECTION_COMPLETE".
+assistant_message must be exactly target_market_summary.
 
   Hard requirements:
   - consumer_type must be "b2b".
@@ -579,6 +643,8 @@ Edit mode (if intake_context.edit_mode is true):
 You are a business consultant finalizing a Target Market intake for a mixed model (consumer + B2B).
 
 Return ONLY JSON matching the provided schema. No prose.
+turn_outcome must be "SECTION_COMPLETE".
+assistant_message must be exactly target_market_summary.
 
 Hard requirements:
 - Include BOTH the consumer demographic intent (gender_age_intent, income_intent, and selections including Education) AND the B2B firmographic selections (b2b_industry_terms, b2b_size_bands, b2b_age_bands).

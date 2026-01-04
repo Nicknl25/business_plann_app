@@ -4,9 +4,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import jsonify
 
 
-TM_CONFIRM_QUESTION = "Does this look right before we move on to People & Capability?"
-
-
 def post_target_market_session_handler(*, app, request):
   """
   Relocated verbatim from python/api.py:post_target_market_session (Phase 1 sweep).
@@ -449,9 +446,6 @@ def post_target_market_consult_handler(*, app, request):
         if starting:
           summary = str(baseline_target_market.get("target_market_summary") or "").strip()
           assistant_message = (summary or "Target market intake complete.").strip()
-          assistant_message = (
-            f"{assistant_message}\n\n{TM_CONFIRM_QUESTION}"
-          ).strip()
           try:
             import re
 
@@ -471,7 +465,7 @@ def post_target_market_consult_handler(*, app, request):
               "draft_id": str(draft_id).strip(),
               "client_id": client_id,
               "done": True,
-              "action": "await_confirmation",
+              "action": "completed",
               "assistant_message": assistant_message,
               "target_market_json": json.dumps(baseline_target_market, ensure_ascii=False)
               if baseline_target_market
@@ -492,25 +486,27 @@ def post_target_market_consult_handler(*, app, request):
         patch = routed.get("patch")
 
         updated_target_market = baseline_target_market
-        if action == "edit_patch":
-          from fact_templates import sanitize_fact_template  # type: ignore
+        from fact_templates import sanitize_fact_template  # type: ignore
 
+        if action == "edit_patch":
           if not isinstance(patch, dict):
             patch = {}
-          updated_target_market = dict(baseline_target_market)
-          updated_target_market.update(patch)
-          updated_target_market = {
-            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
-            for k, v in updated_target_market.items()
-          }
+          if patch:
+            updated_target_market = dict(baseline_target_market)
+            updated_target_market.update(patch)
+            updated_target_market = {
+              k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+              for k, v in updated_target_market.items()
+            }
 
-          summary_for_ui = str(updated_target_market.get("target_market_summary") or "").strip()
-          ack = assistant_message or "Got it."
-          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{TM_CONFIRM_QUESTION}".strip()
-          assistant_message = sanitize_fact_template(assistant_message)
+            summary_for_ui = str(updated_target_market.get("target_market_summary") or "").strip()
+            ack = assistant_message or "Got it."
+            assistant_message = f"{ack}\n\n{summary_for_ui}".strip()
+            assistant_message = sanitize_fact_template(assistant_message)
+          else:
+            action = "answer_readonly"
+            assistant_message = sanitize_fact_template(assistant_message)
         else:
-          from fact_templates import sanitize_fact_template  # type: ignore
-
           assistant_message = sanitize_fact_template(assistant_message)
 
         # Guardrail: never expose raw ACS codes in the UI conversation.
@@ -841,13 +837,9 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_size"] = ",".join([v for v in size_order if v in size_set])
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
-        assistant_message = (
-          str(final_obj.get("target_market_summary") or "").strip()
-          or "Target market intake complete."
+        assistant_message = sanitize_fact_template(str(final_obj.get("assistant_message") or "").strip()) or (
+          str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
         )
-        assistant_message = (
-          f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
-        ).strip()
         try:
           import re
 
@@ -856,9 +848,13 @@ def post_target_market_consult_handler(*, app, request):
           pass
         from fact_templates import sanitize_fact_template  # type: ignore
 
-        for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
+        if not isinstance(final_obj, dict):
+          final_obj = {}
+        for k, v in list(final_obj.items()):
           if isinstance(v, str):
             final_obj[k] = sanitize_fact_template(v)
+        final_obj.pop("assistant_message", None)
+        final_obj.pop("turn_outcome", None)
         assistant_message = sanitize_fact_template(assistant_message)
 
         assistant_msg = {"role": "assistant", "content": assistant_message}
@@ -879,7 +875,7 @@ def post_target_market_consult_handler(*, app, request):
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
             "done": True,
-            "action": "await_confirmation",
+            "action": "completed",
             "assistant_message": assistant_message,
             "target_market_json": json.dumps(final_obj, ensure_ascii=False),
           }
@@ -904,21 +900,24 @@ def post_target_market_consult_handler(*, app, request):
       from fact_templates import sanitize_fact_template  # type: ignore
 
       assistant_text = sanitize_fact_template(assistant_text)
-      finalize_ready = bool(turn.get("finalize_ready", False))
+      turn_outcome = str(turn.get("turn_outcome") or "").strip().upper()
       assistant_msg = {"role": "assistant", "content": assistant_text}
       new_messages = [user_msg, assistant_msg]
 
-      done = False
+      done = turn_outcome == "SECTION_COMPLETE"
       assistant_message = assistant_text
       target_market_json_out: Optional[str] = None
 
-      if finalize_ready:
+      if done:
         mapping_rows: List[Dict[str, Any]] = []
         if consumer_type != "b2b":
           mapping_rows = _fetch_mapping_rows(conn)
         final_obj = target_market_finalize(
           intake_context=context,
-          conversation_messages=[*history, *new_messages],
+          # Do NOT include the chat-turn assistant text in the finalizer context; it may contain
+          # a draft recap with incorrect literals. The strict finalizer should operate on the
+          # conversation + the user's last message only.
+          conversation_messages=[*history, user_msg],
           mapping_rows=mapping_rows,
         )
         if not isinstance(final_obj, dict):
@@ -926,6 +925,11 @@ def post_target_market_consult_handler(*, app, request):
         for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
           if isinstance(v, str):
             final_obj[k] = sanitize_fact_template(v)
+        summary_text = sanitize_fact_template(str(final_obj.get("assistant_message") or "").strip()) or str(
+          final_obj.get("target_market_summary") or ""
+        ).strip()
+        final_obj.pop("assistant_message", None)
+        final_obj.pop("turn_outcome", None)
 
         def _user_requested_all_ages(conversation_messages: List[Dict[str, Any]]) -> bool:
           import re
@@ -1168,13 +1172,9 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
         done = True
-        assistant_message = (
-          str(final_obj.get("target_market_summary") or "").strip()
-          or "Target market intake complete."
+        assistant_message = summary_text or (
+          str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
         )
-        assistant_message = (
-          f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
-        ).strip()
         try:
           import re
 
@@ -1214,7 +1214,7 @@ def post_target_market_consult_handler(*, app, request):
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
           "done": done,
-          "action": "await_confirmation" if done else "continue",
+          "action": "completed" if done else "continue",
           "assistant_message": assistant_message,
           "target_market_json": target_market_json_out,
         }

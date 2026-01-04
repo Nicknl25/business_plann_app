@@ -8,8 +8,9 @@ from typing import Any, Dict, Optional
 
 import requests
 
+from turn_outcome import ASK_NEXT, SECTION_COMPLETE, TurnOutcome
+
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-FINALIZE_TOKEN = "[[FINALIZE_READY]]"
 
 
 def _load_root_env() -> None:
@@ -75,6 +76,8 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["SECTION_COMPLETE"]},
         "consumer_type": {
           "type": "string",
           "enum": ["consumer", "b2b", "mixed"],
@@ -117,6 +120,8 @@ def _final_schema() -> Dict[str, Any]:
         "confidence": {"type": "number"},
       },
       "required": [
+        "assistant_message",
+        "turn_outcome",
         "consumer_type",
         "business_type",
         "business_description_summary",
@@ -144,6 +149,21 @@ def _final_schema() -> Dict[str, Any]:
   }
 
 
+def _turn_schema() -> Dict[str, Any]:
+  return {
+    "name": "intake_operating_model_turn",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["ASK_NEXT", "SECTION_COMPLETE"]},
+      },
+      "required": ["assistant_message", "turn_outcome"],
+    },
+  }
+
+
 def _parse_responses_text(data: Dict[str, Any]) -> str:
   output = data.get("output") or []
   chunks: list[str] = []
@@ -165,7 +185,7 @@ def consultant_chat_turn(
   Free-text consultant conversation turn (NO schema enforcement).
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    { "assistant_message": str, "turn_outcome": TurnOutcome }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -195,11 +215,10 @@ Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbi
   - If a key operational fact changes (unit price, capacity, modality), reflect it and continue without re-running earlier intake.
 
 Business type classification (FIRST, REQUIRED):
-- Before asking any other operational questions, classify the business type using a short professional clarification exchange.
-- Ask the client to describe what the business does in plain language.
-- Then produce a comprehensive 2-3 sentence operational restatement (what it is, how value is delivered, how revenue is generated at a high level, and what it is not) and ask for confirmation.
-- If the client corrects you or if the description is ambiguous, ask ONE clarifying question, then restate again and confirm.
-- Do not proceed to the rest of the operational intake until the client confirms the restatement.
+- Before asking any other operational questions, ask the client to describe what the business does in plain language.
+- Then produce a comprehensive 2-3 sentence operational restatement (what it is, how value is delivered, how revenue is generated at a high level, and what it is not).
+- Do NOT ask for permission to proceed. Immediately continue with the next required intake question.
+- Invite corrections as data (e.g., "What did I miss or get wrong?") but do not block progress on a "yes/no" response.
 - Do NOT show the internal business type label or any dropdown/list. This is internal classification only.
 - If the context includes NAICS (e.g., naics_6), treat it as internal-only benchmarking context and NEVER mention NAICS codes to the client.
 
@@ -337,14 +356,10 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, starting_revenue, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
-- Do NOT signal finalization until the client has explicitly confirmed starting_revenue AND has explicitly chosen a shipping_method.
-- If unit_price is applicable for this business, do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0).
-- IMPORTANT: Do NOT write an end-of-section summary yourself in the chat turn.
-  The system will generate the final summary template + confirmation prompt after you signal readiness.
-- When you are confident ALL required fields are complete, respond with ONLY the token
-  {FINALIZE_TOKEN}
-  on its own line (no other text).
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
+- When ALL required fields are complete, set turn_outcome="SECTION_COMPLETE" and set assistant_message="" (empty string).
+- Otherwise, set turn_outcome="ASK_NEXT" and ask exactly ONE clear, data-bearing question in assistant_message.
+- IMPORTANT: Do NOT write an end-of-section summary in the chat turn. The system will generate the summary separately.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -352,6 +367,7 @@ Output rules:
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema_wrapper = _turn_schema()
   payload = {
     "model": model,
     "input": [
@@ -359,16 +375,51 @@ Output rules:
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        parsed = part["json"]
+        assistant_message = str(parsed.get("assistant_message") or "")
+        outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+        outcome: TurnOutcome = ASK_NEXT
+        if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+          outcome = outcome_raw  # type: ignore[assignment]
+        if outcome == ASK_NEXT and not assistant_message.strip():
+          assistant_message = "What's the next detail you can share about how this business operates?"
+        return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = {}
+  if isinstance(parsed, dict):
+    assistant_message = str(parsed.get("assistant_message") or "")
+    outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+    outcome: TurnOutcome = ASK_NEXT
+    if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+      outcome = outcome_raw  # type: ignore[assignment]
+    if outcome == ASK_NEXT and not assistant_message.strip():
+      assistant_message = "What's the next detail you can share about how this business operates?"
+    return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  return {"assistant_message": raw.strip(), "turn_outcome": ASK_NEXT}
 
 
 def consultant_finalize(
@@ -386,6 +437,8 @@ def consultant_finalize(
 You are a business consultant finalizing an operational intake.
 
 Return ONLY JSON matching the provided schema. No prose.
+turn_outcome must be "SECTION_COMPLETE".
+assistant_message must be exactly business_description_summary.
 Do not estimate or invent values.
 consumer_type must be exactly one of: consumer, b2b, mixed, reflecting whether the business primarily sells to consumers, businesses, or both.
 business_type must be chosen from the business_type_candidates list provided in the current context JSON; choose exactly one and do not invent new categories.

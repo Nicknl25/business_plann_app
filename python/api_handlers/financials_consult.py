@@ -4,9 +4,6 @@ from typing import Any, Dict, List, Optional
 from flask import jsonify
 
 
-FIN_CONFIRM_QUESTION = "Does this look right before we move on to Submit intake?"
-
-
 def _parse_json_dict(raw: Any) -> Dict[str, Any]:
   if raw is None:
     return {}
@@ -217,7 +214,6 @@ def post_financials_consult_handler(*, app, request):
         if starting:
           summary = str(baseline_financials.get("financials_summary") or "").strip()
           assistant_message = (summary or "Financials intake complete.").strip()
-          assistant_message = f"{assistant_message}\n\n{FIN_CONFIRM_QUESTION}".strip()
           from fact_templates import sanitize_fact_template  # type: ignore
 
           assistant_message = sanitize_fact_template(assistant_message)
@@ -227,7 +223,7 @@ def post_financials_consult_handler(*, app, request):
               "draft_id": str(draft_id).strip(),
               "client_id": client_id,
               "done": True,
-              "action": "await_confirmation",
+              "action": "completed",
               "assistant_message": assistant_message,
               "financials_json": json.dumps(baseline_financials, ensure_ascii=False)
               if baseline_financials
@@ -248,25 +244,27 @@ def post_financials_consult_handler(*, app, request):
         patch = routed.get("patch")
 
         updated_financials = baseline_financials
-        if action == "edit_patch":
-          from fact_templates import sanitize_fact_template  # type: ignore
+        from fact_templates import sanitize_fact_template  # type: ignore
 
+        if action == "edit_patch":
           if not isinstance(patch, dict):
             patch = {}
-          updated_financials = dict(baseline_financials)
-          updated_financials.update(patch)
-          updated_financials = {
-            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
-            for k, v in updated_financials.items()
-          }
+          if patch:
+            updated_financials = dict(baseline_financials)
+            updated_financials.update(patch)
+            updated_financials = {
+              k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+              for k, v in updated_financials.items()
+            }
 
-          summary_for_ui = str(updated_financials.get("financials_summary") or "").strip()
-          ack = assistant_message or "Got it."
-          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{FIN_CONFIRM_QUESTION}".strip()
-          assistant_message = sanitize_fact_template(assistant_message)
+            summary_for_ui = str(updated_financials.get("financials_summary") or "").strip()
+            ack = assistant_message or "Got it."
+            assistant_message = f"{ack}\n\n{summary_for_ui}".strip()
+            assistant_message = sanitize_fact_template(assistant_message)
+          else:
+            action = "answer_readonly"
+            assistant_message = sanitize_fact_template(assistant_message)
         else:
-          from fact_templates import sanitize_fact_template  # type: ignore
-
           assistant_message = sanitize_fact_template(assistant_message)
 
         assistant_msg = {"role": "assistant", "content": assistant_message}
@@ -315,9 +313,9 @@ def post_financials_consult_handler(*, app, request):
       from fact_templates import sanitize_fact_template  # type: ignore
 
       assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
-      finalize_ready = bool(turn.get("finalize_ready", False))
+      turn_outcome = str(turn.get("turn_outcome") or "").strip().upper()
 
-      if not finalize_ready:
+      if turn_outcome != "SECTION_COMPLETE":
         assistant_msg = {"role": "assistant", "content": assistant_text}
         append_messages(
           conn,
@@ -339,17 +337,27 @@ def post_financials_consult_handler(*, app, request):
 
       final_obj = financials_finalize(
         intake_context=context,
-        conversation_messages=[*history, user_msg, {"role": "assistant", "content": assistant_text}],
+        # Do NOT include the chat-turn assistant text in the finalizer context; it may contain
+        # a draft recap with incorrect literals. The strict finalizer should operate on the
+        # conversation + the user's last message only.
+        conversation_messages=[*history, user_msg],
       )
       from fact_templates import sanitize_fact_template  # type: ignore
 
-      for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
+      if not isinstance(final_obj, dict):
+        final_obj = {}
+      for k, v in list(final_obj.items()):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      summary_text = sanitize_fact_template(str(final_obj.get("assistant_message") or "").strip()) or str(
+        final_obj.get("financials_summary") or ""
+      ).strip()
+      final_obj.pop("assistant_message", None)
+      final_obj.pop("turn_outcome", None)
       _validate_final(final_obj)
 
-      summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
-      assistant_message = f"{summary_text}\n\n{FIN_CONFIRM_QUESTION}".strip()
+      summary_text = summary_text or "Financials intake complete."
+      assistant_message = summary_text
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}
 
@@ -369,7 +377,7 @@ def post_financials_consult_handler(*, app, request):
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
           "done": True,
-          "action": "await_confirmation",
+          "action": "completed",
           "assistant_message": assistant_message,
           "financials_json": json.dumps(final_obj, ensure_ascii=False),
         }

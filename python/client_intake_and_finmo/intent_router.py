@@ -360,8 +360,6 @@ def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> 
         "action": {
           "type": "string",
           "enum": [
-            "confirm_proceed",
-            "confirm_clarify",
             "edit_patch",
             "answer_readonly",
             "continue_chat",
@@ -489,17 +487,7 @@ def route_intent(
   api_key = _require_openai_key()
   model = _openai_model()
 
-  confirm_questions = {
-    "ops": "Does this look right before we move on to Customers & Positioning?",
-    "target_market": "Does this look right before we move on to People & Capability?",
-    "people": "Does this look right before we move on to Financials?",
-    "financials": "Does this look right before we move on to Submit intake?",
-    "unified": "Does this look right before we move on?",
-  }
-  if confirm_question_override is None:
-    confirm_question = str(confirm_questions[consult_type_norm]).strip()
-  else:
-    confirm_question = str(confirm_question_override).strip()
+  _ = confirm_question_override
 
   allowed_fields = {
     "ops": [
@@ -637,17 +625,21 @@ Your job is to decide what the user meant, like a human consultant would.
 Output ONLY JSON matching the schema.
 
 Actions:
+IMPORTANT: Valid actions are: edit_patch, answer_readonly, continue_chat. Do NOT return confirm_proceed or confirm_clarify.
 1) confirm_proceed
   - Use when the user is clearly agreeing / confirming OR their response does not express disagreement, uncertainty, or a request to change something.
   - Objection-first model: if they are not objecting, proceed.
 2) confirm_clarify
   - Use when the user message is ambiguous/contradictory/uncertain and you cannot confidently infer whether they want changes or want to proceed.
   - assistant_message MUST be a single, brief clarifying question.
+  - The clarifying question MUST match the current focus's framing:
+    - If active_focus is "financials": anchor to "as of last month" and do NOT ask for 12-month/year totals; if a monthly amount is natural, ask for the monthly amount.
+    - If active_focus is "ops", "market", or "people": ask only for the one missing detail needed to proceed, with no bundled questions.
 3) edit_patch
    - Use when the user is requesting a correction/update to ANY already-captured fact in the canonical intake model (even if phrased casually), regardless of what stage the consult is currently in.
    - IMPORTANT: If the last assistant message PROPOSED a specific change to one or more facts (e.g., "Should we update X to 700?")
      and the user clearly agrees (yes/ok/sure/that’s right), you MUST return edit_patch with the proposed patch.
-     In that scenario, do NOT return confirm_proceed.
+     In that scenario, do NOT return continue_chat.
    - DO NOT treat a simple "yes" to an in-section check like "Is that correct?" as an edit_patch unless a concrete new value/change was explicitly proposed.
    - patch MUST be an array of operations. Each operation is an object:
        {{ "field": "<field_name>", "value_json": "<JSON-encoded value>" }}
@@ -669,10 +661,11 @@ Actions:
   - Answer using baseline_json + shared_context (read-only). Do NOT apply any patch (patch=[]).
   - Keep it short and directly answer the user's question. Do not reprint the full baseline summary.
 5) continue_chat
-  - Use when the user is answering the current question and the consult should continue normally (no patch, no confirmation decision).
+  - Use when the user is answering the current question and the consult should continue normally (no patch).
   - patch MUST be [].
 
 Interpretation rules:
+- During active_focus "financials", if the user is answering a financials question by supplying a concrete value that should be recorded as a fact (including "0"/"none" answers that imply 0), prefer edit_patch over continue_chat so the canonical draft stays current and summaries always render the latest locked values.
 - If the user says something like "10000, not 10" after correcting unit price, infer they are correcting the same thing again (do not require keywords).
 - If the user corrects business identity details (name, address, start date) anywhere in the conversation, treat it as an edit_patch to business.name / business.address / business.start_date (unified mode uses scoped fields).
 - For business.start_date, normalize to ISO format YYYY-MM-DD when the user provides a specific date.
@@ -699,7 +692,6 @@ Return JSON only. No prose.
     "shared_context": shared_context,
     "last_assistant_message": last_assistant,
     "user_message": str(user_message or "").strip(),
-    "confirm_question": confirm_question,
   }
   context_blob = json.dumps(context, ensure_ascii=False)
 
@@ -766,55 +758,27 @@ Return JSON only. No prose.
             allowed_types = [str(t) for t in expected_types if isinstance(t, str)]
           ok, value = _coerce_value_json(value_json_raw=value_json_raw, allowed_types=allowed_types)
           if not ok:
-            return {
-              "action": "confirm_clarify",
-              "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-              "patch": None,
-            }
+            return {"action": "continue_chat", "assistant_message": "", "patch": None}
 
           if allowed_types:
             if value is None:
               if "null" not in allowed_types:
-                return {
-                  "action": "confirm_clarify",
-                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-                  "patch": None,
-                }
+                return {"action": "continue_chat", "assistant_message": "", "patch": None}
             elif isinstance(value, bool):
               if "boolean" not in allowed_types:
-                return {
-                  "action": "confirm_clarify",
-                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-                  "patch": None,
-                }
+                return {"action": "continue_chat", "assistant_message": "", "patch": None}
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
               if "number" not in allowed_types:
-                return {
-                  "action": "confirm_clarify",
-                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-                  "patch": None,
-                }
+                return {"action": "continue_chat", "assistant_message": "", "patch": None}
             elif isinstance(value, str):
               if "string" not in allowed_types:
-                return {
-                  "action": "confirm_clarify",
-                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-                  "patch": None,
-                }
+                return {"action": "continue_chat", "assistant_message": "", "patch": None}
             elif isinstance(value, list):
               if "array" not in allowed_types:
-                return {
-                  "action": "confirm_clarify",
-                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-                  "patch": None,
-                }
+                return {"action": "continue_chat", "assistant_message": "", "patch": None}
             elif isinstance(value, dict):
               if "object" not in allowed_types:
-                return {
-                  "action": "confirm_clarify",
-                  "assistant_message": f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value.",
-                  "patch": None,
-                }
+                return {"action": "continue_chat", "assistant_message": "", "patch": None}
 
           patch_dict[field] = value
 
@@ -861,60 +825,46 @@ Return JSON only. No prose.
       allowed_types = [str(t) for t in expected_types if isinstance(t, str)]
     ok, value = _coerce_value_json(value_json_raw=value_json_raw, allowed_types=allowed_types)
     if not ok:
-      parsed["action"] = "confirm_clarify"
-      parsed["assistant_message"] = (
-        f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-      )
+      parsed["action"] = "continue_chat"
+      parsed["assistant_message"] = ""
       parsed["patch"] = None
       return parsed
 
     if allowed_types:
       if value is None:
         if "null" not in allowed_types:
-          parsed["action"] = "confirm_clarify"
-          parsed["assistant_message"] = (
-            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-          )
+          parsed["action"] = "continue_chat"
+          parsed["assistant_message"] = ""
           parsed["patch"] = None
           return parsed
       elif isinstance(value, bool):
         if "boolean" not in allowed_types:
-          parsed["action"] = "confirm_clarify"
-          parsed["assistant_message"] = (
-            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-          )
+          parsed["action"] = "continue_chat"
+          parsed["assistant_message"] = ""
           parsed["patch"] = None
           return parsed
       elif isinstance(value, (int, float)) and not isinstance(value, bool):
         if "number" not in allowed_types:
-          parsed["action"] = "confirm_clarify"
-          parsed["assistant_message"] = (
-            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-          )
+          parsed["action"] = "continue_chat"
+          parsed["assistant_message"] = ""
           parsed["patch"] = None
           return parsed
       elif isinstance(value, str):
         if "string" not in allowed_types:
-          parsed["action"] = "confirm_clarify"
-          parsed["assistant_message"] = (
-            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-          )
+          parsed["action"] = "continue_chat"
+          parsed["assistant_message"] = ""
           parsed["patch"] = None
           return parsed
       elif isinstance(value, list):
         if "array" not in allowed_types:
-          parsed["action"] = "confirm_clarify"
-          parsed["assistant_message"] = (
-            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-          )
+          parsed["action"] = "continue_chat"
+          parsed["assistant_message"] = ""
           parsed["patch"] = None
           return parsed
       elif isinstance(value, dict):
         if "object" not in allowed_types:
-          parsed["action"] = "confirm_clarify"
-          parsed["assistant_message"] = (
-            f"Just to confirm, what should we record for {_humanize_patch_field(field)}? Please give a single number or short value."
-          )
+          parsed["action"] = "continue_chat"
+          parsed["assistant_message"] = ""
           parsed["patch"] = None
           return parsed
 

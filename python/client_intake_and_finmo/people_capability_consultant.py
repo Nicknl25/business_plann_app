@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from turn_outcome import ASK_NEXT, SECTION_COMPLETE, TurnOutcome
+
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-FINALIZE_TOKEN = "[[FINALIZE_READY]]"
 
 
 def _load_root_env() -> None:
@@ -86,6 +87,8 @@ def _final_schema() -> Dict[str, Any]:
       "type": "object",
       "additionalProperties": False,
       "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["SECTION_COMPLETE"]},
         "people": {
           "type": "array",
           "minItems": 1,
@@ -115,7 +118,22 @@ def _final_schema() -> Dict[str, Any]:
         "key_people_summary": {"type": "string"},
         "confidence": {"type": "number"},
       },
-      "required": ["people", "key_people_summary", "confidence"],
+      "required": ["assistant_message", "turn_outcome", "people", "key_people_summary", "confidence"],
+    },
+  }
+
+
+def _turn_schema() -> Dict[str, Any]:
+  return {
+    "name": "intake_people_capability_turn",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "assistant_message": {"type": "string"},
+        "turn_outcome": {"type": "string", "enum": ["ASK_NEXT", "SECTION_COMPLETE"]},
+      },
+      "required": ["assistant_message", "turn_outcome"],
     },
   }
 
@@ -129,7 +147,7 @@ def people_capability_chat_turn(
   Free-text People & Capability consultant conversation turn (NO schema enforcement).
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    { "assistant_message": str, "turn_outcome": TurnOutcome }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -168,19 +186,14 @@ Flow:
    - Title/role
    - Years of relevant experience (numeric only; ask only if missing)
    - Relevant education/credentials (degrees/licenses/certifications). If none, record "none".
-2) Confirmation (NO narrative yet):
-   - Confirm the anchors in plain language (name, role, years, credentials) and ask ONE yes/no question:
-     "Is that correct?"
-   - Do NOT write any paragraph-style narrative or "draft" text during collection.
+2) Integrity check (NO narrative yet):
+   - Restate the anchors (name, role, years, credentials) in plain language.
+   - Do NOT ask for permission to proceed. Invite corrections as data (e.g., "What should I change?") and immediately continue with the next intake question.
 3) Continue (collect ALL people first):
-   - After a person is confirmed, you MUST ask: "Would you like to add another person?"
-   - Do NOT transition to the next consult (e.g., Financials) until the client explicitly says they are done adding people.
-   - If yes, ask only for that person's full name and title/role.
+   - Ask for the next person, if any (e.g., "Who else should we include, if anyone? If nobody, say 'none'.").
 4) Finalize handoff (NO narrative here):
-   - When (and only when) the client explicitly says they are done adding people, respond with ONLY the token
-     {FINALIZE_TOKEN}
-     on its own line.
-   - Do NOT write the consolidated paragraphs in this chat turn; the system will generate the final key_people_summary template and ask the single confirmation gate.
+   - When you have captured all key people and the client indicates there is nobody else to add, set turn_outcome="SECTION_COMPLETE".
+   - Do NOT write the consolidated paragraphs in this chat turn; the system will generate key_people_summary separately.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -196,12 +209,11 @@ Fact-bearing templates (STRICT):
   - people: key_people_summary
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
+- Return ONLY JSON matching the provided schema (no prose outside JSON).
 - IMPORTANT: Do NOT write an end-of-section People summary yourself in the chat turn.
-  The system will generate the final key_people_summary template + confirmation prompt after you signal readiness.
-- Only when the client explicitly says they are done adding people, respond with ONLY the token
-  {FINALIZE_TOKEN}
-  on its own line (no other text).
+  The system will generate the final key_people_summary template separately.
+- When you have enough info for finalization, set turn_outcome="SECTION_COMPLETE" and set assistant_message="" (empty string).
+- Otherwise, set turn_outcome="ASK_NEXT" and ask exactly ONE clear, data-bearing question in assistant_message.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -209,6 +221,7 @@ Output rules:
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema_wrapper = _turn_schema()
   payload = {
     "model": model,
     "input": [
@@ -216,16 +229,51 @@ Output rules:
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        parsed = part["json"]
+        assistant_message = str(parsed.get("assistant_message") or "")
+        outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+        outcome: TurnOutcome = ASK_NEXT
+        if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+          outcome = outcome_raw  # type: ignore[assignment]
+        if outcome == ASK_NEXT and not assistant_message.strip():
+          assistant_message = "Who are the key people involved in running the business (name + role)?"
+        return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = {}
+  if isinstance(parsed, dict):
+    assistant_message = str(parsed.get("assistant_message") or "")
+    outcome_raw = str(parsed.get("turn_outcome") or "").strip().upper()
+    outcome: TurnOutcome = ASK_NEXT
+    if outcome_raw in ("ASK_NEXT", "SECTION_COMPLETE"):
+      outcome = outcome_raw  # type: ignore[assignment]
+    if outcome == ASK_NEXT and not assistant_message.strip():
+      assistant_message = "Who are the key people involved in running the business (name + role)?"
+    return {"assistant_message": assistant_message, "turn_outcome": outcome}
+
+  return {"assistant_message": raw.strip(), "turn_outcome": ASK_NEXT}
 
 
 def people_capability_finalize(
@@ -243,6 +291,8 @@ def people_capability_finalize(
 You are a business consultant finalizing a People & Capability intake.
 
 Return ONLY JSON matching the provided schema. No prose.
+turn_outcome must be "SECTION_COMPLETE".
+assistant_message must be exactly key_people_summary.
 
 Hard requirements:
 - people must contain one object per person included by the client. Do not invent people.
