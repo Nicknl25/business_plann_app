@@ -602,6 +602,18 @@ def post_intake_model_cards_handler(*, app, request):
     draft = get_draft(conn, draft_id=draft_id)
     current_card = _parse_json_dict(draft.get(column))
     now_ms = int(time.time() * 1000)
+    pricing_unit_price_updated = False
+    pricing_unit_price_value: Any = None
+    if model == "pricing":
+      try:
+        for u in (updates or []):
+          if str(u.get("key") or "").strip() == "unit_price":
+            pricing_unit_price_updated = True
+            pricing_unit_price_value = u.get("value")
+            break
+      except Exception:
+        pricing_unit_price_updated = False
+        pricing_unit_price_value = None
     next_card, changes = _apply_updates(
       model=model,
       current_card=current_card,
@@ -716,6 +728,17 @@ def post_intake_model_cards_handler(*, app, request):
     if card_param:
       kwargs[card_param] = next_card
 
+    # Additive sync: Pricing model is sourced from Ops `unit_price`. If the user edits the pricing
+    # driver, keep Ops canonical `unit_price` in lockstep so revenue math updates immediately.
+    if model == "pricing" and pricing_unit_price_updated:
+      ops_json = _parse_json_dict(draft.get("operating_model_json"))
+      # Preserve "not applicable" semantics for multi-stream businesses.
+      if pricing_unit_price_value in (None, "", "null"):
+        ops_json["unit_price"] = None
+      else:
+        ops_json["unit_price"] = pricing_unit_price_value
+      kwargs["operating_model_json"] = ops_json
+
     if year1_marketing_spend is not None:
       kwargs["year1_marketing_spend"] = year1_marketing_spend
     if year1_payroll is not None:
@@ -770,11 +793,18 @@ def post_intake_model_cards_handler(*, app, request):
       continue_instruction = "Continue. Ask exactly ONE next question for the client to answer (do not bundle)."
       start_by_focus = {
         "ops": "Start the operational intake. Ask your first question.",
-        "market": "Continue. Ask exactly ONE question for the client to answer (do not bundle multiple questions).",
+        "market": "Start the target market intake. Ask exactly ONE question for the client to answer (do not bundle multiple questions).",
         "people": "Start the People & Capability intake. Ask your first question.",
         "financials": "Start the financials intake. Ask your first question.",
       }
-      instruction = start_by_focus.get(next_focus, continue_instruction)
+      # When editing model cards mid-stream, never restart a section: continue from current state.
+      instruction = continue_instruction if messages else start_by_focus.get(next_focus, continue_instruction)
+      if pricing_unit_price_updated and next_focus == "ops":
+        instruction = (
+          "A pricing driver was edited (unit price). Recalculate the revenue estimate using the updated unit price "
+          "while keeping the previously agreed capacity/utilization assumptions the same, show the arithmetic, "
+          "and then ask the client the next single data-bearing question (do not bundle)."
+        )
       conversation_messages = [*messages, {"role": "user", "content": instruction}]
 
       turn: Dict[str, Any] = {"assistant_message": ""}
