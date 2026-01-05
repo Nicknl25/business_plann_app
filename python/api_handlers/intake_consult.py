@@ -30,6 +30,18 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
 
 
+def _parse_json_list(raw: Any) -> List[Any]:
+  if raw is None:
+    return []
+  if isinstance(raw, list):
+    return list(raw)
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return []
+  return list(parsed) if isinstance(parsed, list) else []
+
+
 def _strip_acs_codes(text: str) -> str:
   """
   Never expose raw ACS codes in the UI conversation.
@@ -40,6 +52,125 @@ def _strip_acs_codes(text: str) -> str:
     return re.sub(r"\b[A-Z]\d{5}_\d{3}E\b", "[ACS code redacted]", text)
   except Exception:
     return text
+
+
+def _marketing_ready(marketing_model_json: Dict[str, Any]) -> bool:
+  try:
+    if isinstance(marketing_model_json, dict) and isinstance(marketing_model_json.get("lobs"), list):
+      lobs = marketing_model_json.get("lobs") or []
+      if not lobs:
+        return False
+      non_company = [
+        lob
+        for lob in lobs
+        if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+        y1 = derived.get("year1_marketing_spend")
+        ok = isinstance(y1, dict) and bool(str(y1.get("value") or "").strip())
+        if not ok:
+          return False
+      return True
+    derived = marketing_model_json.get("derived") if isinstance(marketing_model_json, dict) else None
+    if isinstance(derived, dict) and "year1_marketing_spend" in derived:
+      val = derived.get("year1_marketing_spend") or {}
+      if isinstance(val, dict) and str(val.get("value") or "").strip():
+        return True
+    drivers = marketing_model_json.get("drivers") if isinstance(marketing_model_json, dict) else None
+    if isinstance(drivers, dict) and "monthly_marketing_budget" in drivers:
+      val = drivers.get("monthly_marketing_budget") or {}
+      if isinstance(val, dict) and str(val.get("value") or "").strip():
+        return True
+  except Exception:
+    return False
+  return False
+
+
+def _slugify_lob_key(name: str) -> str:
+  raw = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(name or ""))
+  raw = "_".join([p for p in raw.split("_") if p])
+  if not raw:
+    return "lob"
+  if raw[0].isdigit():
+    raw = f"lob_{raw}"
+  return raw[:48]
+
+
+def _extract_lobs_from_text(text: str) -> List[Dict[str, str]]:
+  raw = str(text or "")
+  lowered = raw.lower()
+  if "line of business" not in lowered and "lines of business" not in lowered and "lob" not in lowered:
+    return []
+
+  # Heuristic: capture "(1) ... (2) ..." segments.
+  import re
+
+  parts = re.split(r"\(\s*\d+\s*\)\s*", raw)
+  parts = [p.strip(" .;\n\r\t") for p in parts if p and p.strip()]
+  if len(parts) <= 1:
+    return []
+
+  out: List[Dict[str, str]] = []
+  for p in parts[1:6]:
+    # Use the phrase up to the first period/semicolon as the name.
+    name = re.split(r"[.;\n\r]", p, maxsplit=1)[0].strip()
+    if not name:
+      continue
+    key = _slugify_lob_key(name)
+    # Ensure uniqueness.
+    existing = {x["lob_key"] for x in out if isinstance(x, dict) and "lob_key" in x}
+    if key in existing:
+      suffix = 2
+      while f"{key}_{suffix}" in existing:
+        suffix += 1
+      key = f"{key}_{suffix}"
+    out.append({"lob_key": key, "lob_name": name})
+  return out
+
+
+def _ensure_lob_model_card(card: Dict[str, Any], lobs: List[Dict[str, str]]) -> Dict[str, Any]:
+  if not lobs:
+    return card
+  now_ms = int(time.time() * 1000)
+  existing_lobs = card.get("lobs") if isinstance(card, dict) else None
+  if isinstance(existing_lobs, list) and existing_lobs:
+    has_company_total = any(
+      isinstance(l, dict) and str(l.get("lob_key") or "").strip() == "company_total" for l in existing_lobs
+    )
+    if has_company_total:
+      return card
+    return {
+      **card,
+      "lobs": [
+        {"lob_key": "company_total", "lob_name": None, "drivers": {}, "derived": {}},
+        *existing_lobs,
+      ],
+    }
+
+  # Always include system-required company_total first (user-invisible shared-home).
+  deduped: List[Dict[str, str]] = []
+  seen = set()
+  for entry in [{"lob_key": "company_total", "lob_name": ""}, *list(lobs or [])]:
+    key = str(entry.get("lob_key") or "").strip() or "company_total"
+    if key in seen:
+      continue
+    seen.add(key)
+    deduped.append(entry)
+  return {
+    "version": int((card or {}).get("version") or 1),
+    "updated_at_ms": now_ms,
+    "lobs": [
+      {
+        "lob_key": str(l.get("lob_key") or "company_total").strip() or "company_total",
+        "lob_name": str(l.get("lob_name") or "").strip() or None,
+        "drivers": {},
+        "derived": {},
+      }
+      for l in deduped
+    ],
+  }
 
 
 def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
@@ -154,9 +285,9 @@ def _compute_focus(
   *,
   ops_json: Dict[str, Any],
   market_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
   people_json: Dict[str, Any],
   financials_json: Dict[str, Any],
-  consistency_passed: bool,
 ) -> str:
   def _has_nonempty_text(obj: Dict[str, Any], key: str) -> bool:
     try:
@@ -167,7 +298,9 @@ def _compute_focus(
   # IMPORTANT: Section JSON may be partially populated by edit patches.
   # A section is complete once its summary template exists.
   ops_ready = _has_nonempty_text(ops_json, "business_description_summary")
-  market_ready = _has_nonempty_text(market_json, "target_market_summary")
+  market_ready = _has_nonempty_text(market_json, "target_market_summary") and _marketing_ready(
+    marketing_model_json
+  )
   people_ready = _has_nonempty_text(people_json, "key_people_summary")
   financials_ready = _has_nonempty_text(financials_json, "financials_summary")
 
@@ -184,9 +317,6 @@ def _compute_focus(
   if not financials_ready:
     return "financials"
 
-  if not consistency_passed:
-    return "consistency"
-
   return "done"
 def _start_instruction_for_focus(focus: str) -> str:
   focus_norm = str(focus or "").strip().lower()
@@ -198,8 +328,6 @@ def _start_instruction_for_focus(focus: str) -> str:
     return "Start the People & Capability intake. Ask your first question."
   if focus_norm == "financials":
     return "Start the financials intake. Ask your first question."
-  if focus_norm == "consistency":
-    return "Start the consistency check. Review the current intake model and ask your first clarifying question."
   return "Continue."
 
 
@@ -256,6 +384,98 @@ def _apply_scoped_patch(
       next_financials[field] = value
 
   return next_business, next_ops, next_market, next_people, next_financials
+
+
+def _suggest_marketing_budget(*, ops_json: Dict[str, Any]) -> Dict[str, Any]:
+  starting_revenue = None
+  try:
+    starting_revenue = float((ops_json or {}).get("starting_revenue"))  # type: ignore[arg-type]
+  except Exception:
+    starting_revenue = None
+
+  consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+  capacity_driver = str((ops_json or {}).get("capacity_driver") or "").strip().lower()
+
+  # Deterministic starting point: % of Year-1 revenue if we have it, otherwise a small baseline.
+  pct = 0.08
+  if consumer_type == "b2b":
+    pct = 0.06
+  if consumer_type == "mixed":
+    pct = 0.07
+  if capacity_driver == "demand":
+    pct = min(0.12, pct + 0.02)
+
+  annual = 12000.0
+  basis = "It's a conservative baseline while still leaving room for paid acquisition experiments."
+  if starting_revenue and starting_revenue > 0:
+    annual = max(0.0, round((starting_revenue * pct) / 100.0) * 100.0)
+    basis = f"It's about {pct*100:.0f}% of your Year-1 revenue target (a common starting point for a demand-driven ramp)."
+
+  monthly = round((annual / 12.0) / 50.0) * 50.0 if annual > 0 else 0.0
+  annual = monthly * 12.0
+
+  channels = "Website/SEO plus partnerships/referrals"
+  return {
+    "monthly_marketing_budget": monthly,
+    "year1_marketing_spend": annual,
+    "basis": basis,
+    "primary_channels": channels,
+  }
+
+
+def _suggest_marketing_budget_per_lob(*, ops_json: Dict[str, Any], lobs: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+  base = _suggest_marketing_budget(ops_json=ops_json)
+  out: List[Dict[str, Any]] = []
+  for lob in list(lobs or []):
+    lob_key = str(lob.get("lob_key") or "").strip() or "company_total"
+    if lob_key == "company_total":
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip() or None
+    # No allocation logic: treat each LOB independently with a conservative baseline that can be edited.
+    out.append(
+      {
+        "lob_key": lob_key,
+        "lob_name": lob_name,
+        "monthly_marketing_budget": base.get("monthly_marketing_budget"),
+        "year1_marketing_spend": base.get("year1_marketing_spend"),
+        "basis": "Starting point per line of business; edit to reflect your plan (no allocation logic is being applied).",
+        "primary_channels": base.get("primary_channels"),
+      }
+    )
+  return out
+
+
+def _ensure_pricing_model_card(
+  *,
+  ops_json: Dict[str, Any],
+  pricing_model_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  if pricing_model_json and isinstance(pricing_model_json, dict) and pricing_model_json.get("drivers"):
+    return pricing_model_json
+
+  unit_price = (ops_json or {}).get("unit_price")
+  if unit_price in (None, ""):
+    return pricing_model_json or {}
+  try:
+    unit_price_num = float(unit_price)
+  except Exception:
+    unit_price_num = unit_price
+
+  now_ms = int(time.time() * 1000)
+  return {
+    "version": 1,
+    "updated_at_ms": now_ms,
+    "drivers": {
+      "unit_price": {
+        "value": unit_price_num,
+        "unit": "USD",
+        "time_basis": "per_unit",
+        "rationale": "Captured from the operational revenue model as the standard price per unit.",
+        "updated_at_ms": now_ms,
+      }
+    },
+    "derived": {},
+  }
 
 
 def _fetch_target_market_mapping_rows(conn) -> List[Dict[str, Any]]:
@@ -403,6 +623,17 @@ def get_intake_consult_draft_handler(*, app, request):
         "target_market_json": draft.get("target_market_json"),
         "people_json": draft.get("people_json"),
         "financials_json": draft.get("financials_json"),
+        "ops_concept_model_json": draft.get("ops_concept_model_json"),
+        "fulfillment_model_json": draft.get("fulfillment_model_json"),
+        "marketing_model_json": draft.get("marketing_model_json"),
+        "pricing_model_json": draft.get("pricing_model_json"),
+        "headcount_model_json": draft.get("headcount_model_json"),
+        "model_card_proposals_json": draft.get("model_card_proposals_json"),
+        "driver_events_json": draft.get("driver_events_json"),
+        "driver_revision_nonce": draft.get("driver_revision_nonce"),
+        "year1_revenue": draft.get("year1_revenue"),
+        "year1_marketing_spend": draft.get("year1_marketing_spend"),
+        "year1_payroll": draft.get("year1_payroll"),
       }
     )
   finally:
@@ -441,12 +672,12 @@ def post_intake_consult_handler(*, app, request):
 
     from intake_consultant import consultant_chat_turn, consultant_finalize  # type: ignore
     from target_market_consultant import target_market_chat_turn, target_market_finalize  # type: ignore
+    from marketing_consultant import marketing_chat_turn  # type: ignore
     from people_capability_consultant import (  # type: ignore
       people_capability_chat_turn,
       people_capability_finalize,
     )
     from financials_consultant import financials_chat_turn, financials_finalize  # type: ignore
-    from consistency_consultant import consistency_chat_turn  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import unified intake helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
@@ -468,6 +699,10 @@ def post_intake_consult_handler(*, app, request):
     market_json = _parse_json_dict(consult.get("target_market_json"))
     people_json = _parse_json_dict(consult.get("people_json"))
     financials_json = _parse_json_dict(consult.get("financials_json"))
+    marketing_model_json = _parse_json_dict(consult.get("marketing_model_json"))
+    pricing_model_json = _parse_json_dict(consult.get("pricing_model_json"))
+    ops_concept_model_json = _parse_json_dict(consult.get("ops_concept_model_json"))
+    model_card_proposals = _parse_json_list(consult.get("model_card_proposals_json"))
 
     ops_confirmed = bool(consult.get("ops_confirmed"))
     market_confirmed = bool(consult.get("market_confirmed"))
@@ -513,9 +748,9 @@ def post_intake_consult_handler(*, app, request):
     focus = _compute_focus(
       ops_json=ops_json,
       market_json=market_json,
+      marketing_model_json=marketing_model_json,
       people_json=people_json,
       financials_json=financials_json,
-      consistency_passed=consistency_passed,
     )
 
     shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
@@ -543,6 +778,42 @@ def post_intake_consult_handler(*, app, request):
     if ops_consumer_type not in ("consumer", "b2b", "mixed"):
       ops_consumer_type = "consumer"
 
+    # Multi-LOB detection (heuristic): if the user explicitly describes multiple lines of business,
+    # persist scoped LOB entries inside the model-card JSON columns (no additional tables).
+    try:
+      lobs = _extract_lobs_from_text(message) if (not starting and message) else []
+      if lobs and not (isinstance(ops_concept_model_json.get("lobs"), list) and ops_concept_model_json.get("lobs")):
+        ops_concept_model_json = _ensure_lob_model_card(ops_concept_model_json or {}, lobs)
+        # Seed Marketing/Headcount/ Fulfillment cards with the same LOB structure (empty drivers/derived).
+        marketing_model_json = _ensure_lob_model_card(marketing_model_json or {}, lobs)
+        headcount_model_json = _ensure_lob_model_card(headcount_model_json or {}, lobs)
+        fulfillment_model_json = _ensure_lob_model_card(fulfillment_model_json or {}, lobs)
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[],
+          ops_concept_model_json=ops_concept_model_json,
+          marketing_model_json=marketing_model_json,
+          headcount_model_json=headcount_model_json,
+          fulfillment_model_json=fulfillment_model_json,
+        )
+    except Exception:
+      pass
+
+    # Additive: pricing model card is sourced from Ops unit_price (no extra questions).
+    try:
+      next_pricing = _ensure_pricing_model_card(ops_json=ops_json, pricing_model_json=pricing_model_json)
+      if next_pricing and next_pricing != pricing_model_json:
+        pricing_model_json = next_pricing
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[],
+          pricing_model_json=pricing_model_json,
+        )
+    except Exception:
+      pass
+
     if starting:
       start_instruction = _start_instruction_for_focus(focus)
       turn_messages = [*messages, {"role": "user", "content": start_instruction}]
@@ -558,28 +829,8 @@ def post_intake_consult_handler(*, app, request):
         "shared_context": shared_context,
       }
 
-      turn: Dict[str, Any] = {"assistant_message": ""}
-      if focus == "ops":
-        turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
-      elif focus == "market":
-        turn = target_market_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
-      elif focus == "people":
-        turn = people_capability_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
-      elif focus == "financials":
-        turn = financials_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
-      elif focus == "consistency":
-        turn = consistency_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
-      else:
-        turn = {"assistant_message": "Continue.", "turn_outcome": "ASK_NEXT"}
-
-      assistant_text = str(turn.get("assistant_message") or "")
-      turn_outcome = str(turn.get("turn_outcome") or "").strip().upper()
-
-      assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
-      if focus == "market":
-        assistant_text = _strip_acs_codes(assistant_text)
-
-      if focus == "consistency" and turn_outcome == "INTAKE_COMPLETE":
+      if focus == "done":
+        assistant_text = 'All sections are complete.\n\nClick "Submit intake" to finish.'
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
@@ -598,10 +849,122 @@ def post_intake_consult_handler(*, app, request):
             "active_focus": "done",
             "awaiting_confirmation": False,
             "done": True,
-            "action": "consistency_passed",
+            "action": "ready_to_submit",
             "assistant_message": assistant_text,
           }
         )
+
+      turn: Dict[str, Any] = {"assistant_message": "", "turn_outcome": "ASK_NEXT"}
+      if focus == "ops":
+        turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
+      elif focus == "market":
+        if str((market_json or {}).get("target_market_summary") or "").strip() and not _marketing_ready(
+          marketing_model_json
+        ):
+          marketing_lobs = []
+          try:
+            marketing_lobs = marketing_model_json.get("lobs") if isinstance(marketing_model_json, dict) else []
+          except Exception:
+            marketing_lobs = []
+
+          suggestions: List[Dict[str, Any]] = []
+          if isinstance(marketing_lobs, list) and marketing_lobs:
+            lob_list = [
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+              for l in marketing_lobs
+              if isinstance(l, dict)
+            ]
+            suggestions = _suggest_marketing_budget_per_lob(ops_json=ops_json, lobs=lob_list)
+            if not suggestions:
+              suggestions = [_suggest_marketing_budget(ops_json=ops_json)]
+          else:
+            suggestions = [_suggest_marketing_budget(ops_json=ops_json)]
+
+          # Ensure pending proposals exist for UI Accept/Edit.
+          existing_ids = {
+            str(p.get("id") or "").strip()
+            for p in model_card_proposals
+            if isinstance(p, dict) and p.get("model") == "marketing"
+          }
+          needs = []
+          if len(suggestions) == 1 and not existing_ids:
+            needs = suggestions
+          elif len(suggestions) > 1:
+            existing_lobs = {
+              str(p.get("lob_key") or "").strip()
+              for p in model_card_proposals
+              if isinstance(p, dict) and p.get("model") == "marketing"
+            }
+            for s in suggestions:
+              if str(s.get("lob_key") or "").strip() and str(s.get("lob_key") or "").strip() not in existing_lobs:
+                needs.append(s)
+
+          if needs:
+            now_ms = int(time.time() * 1000)
+            for s in needs:
+              proposal_id = f"mk_{now_ms}_{len(model_card_proposals)+1}"
+              model_card_proposals = [
+                *model_card_proposals,
+                {
+                  "id": proposal_id,
+                  "model": "marketing",
+                  "title": "Marketing budget (Year 1)",
+                  "lob_key": s.get("lob_key"),
+                  "lob_name": s.get("lob_name"),
+                  "updates": [
+                    {
+                      "key": "monthly_marketing_budget",
+                      "value": s.get("monthly_marketing_budget"),
+                      "unit": "USD",
+                      "time_basis": "month",
+                      "rationale": s.get("basis"),
+                    },
+                    {
+                      "key": "primary_channels",
+                      "value": s.get("primary_channels"),
+                      "unit": None,
+                      "time_basis": None,
+                      "rationale": "Starting assumption; edit to reflect your actual plan.",
+                    },
+                  ],
+                  "derived": [
+                    {
+                      "key": "year1_marketing_spend",
+                      "value": s.get("year1_marketing_spend"),
+                      "unit": "USD",
+                      "time_basis": "year",
+                      "derivation": "monthly_marketing_budget x 12",
+                    }
+                  ],
+                  "created_at_ms": now_ms,
+                },
+              ]
+            append_messages(
+              conn,
+              draft_id=str(draft_id).strip(),
+              new_messages=[],
+              model_card_proposals=model_card_proposals,
+            )
+
+          turn = marketing_chat_turn(
+            intake_context={**intake_context, "marketing_suggestion": (suggestions[0] if suggestions else {})},
+            conversation_messages=turn_messages,
+          )
+        else:
+          turn = target_market_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
+      elif focus == "people":
+        turn = people_capability_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
+      elif focus == "financials":
+        turn = financials_chat_turn(intake_context=intake_context, conversation_messages=turn_messages)
+      else:
+        turn = {"assistant_message": "Continue.", "turn_outcome": "ASK_NEXT"}
+
+      assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
+      if focus == "market":
+        assistant_text = _strip_acs_codes(assistant_text)
 
       append_messages(
         conn,
@@ -626,6 +989,125 @@ def post_intake_consult_handler(*, app, request):
 
     user_msg = {"role": "user", "content": message}
     recent_messages = messages[-12:] if len(messages) > 12 else list(messages)
+
+    # Market extension: once Target Market is complete, keep Market focus active until Marketing is locked.
+    # While Marketing is pending, we show an Accept/Edit proposal and do not route through the target market consultant.
+    if (
+      str(focus or "").strip().lower() == "market"
+      and str((market_json or {}).get("target_market_summary") or "").strip()
+      and not _marketing_ready(marketing_model_json)
+    ):
+      marketing_lobs = []
+      try:
+        marketing_lobs = marketing_model_json.get("lobs") if isinstance(marketing_model_json, dict) else []
+      except Exception:
+        marketing_lobs = []
+
+      suggestions: List[Dict[str, Any]] = []
+      if isinstance(marketing_lobs, list) and marketing_lobs:
+        lob_list = [
+          {
+            "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+            "lob_name": str(l.get("lob_name") or "").strip(),
+          }
+          for l in marketing_lobs
+          if isinstance(l, dict)
+        ]
+        suggestions = _suggest_marketing_budget_per_lob(ops_json=ops_json, lobs=lob_list)
+        if not suggestions:
+          suggestions = [_suggest_marketing_budget(ops_json=ops_json)]
+      else:
+        suggestions = [_suggest_marketing_budget(ops_json=ops_json)]
+
+      existing_lobs = {
+        str(p.get("lob_key") or "").strip()
+        for p in model_card_proposals
+        if isinstance(p, dict) and p.get("model") == "marketing"
+      }
+      now_ms = int(time.time() * 1000)
+      for s in suggestions:
+        lob_key = str(s.get("lob_key") or "").strip() or ("company_total" if len(suggestions) == 1 else "")
+        if lob_key and lob_key in existing_lobs:
+          continue
+        proposal_id = f"mk_{now_ms}_{len(model_card_proposals)+1}"
+        model_card_proposals = [
+          *model_card_proposals,
+          {
+            "id": proposal_id,
+            "model": "marketing",
+            "title": "Marketing budget (Year 1)",
+            "lob_key": lob_key or None,
+            "lob_name": s.get("lob_name"),
+            "updates": [
+              {
+                "key": "monthly_marketing_budget",
+                "value": s.get("monthly_marketing_budget"),
+                "unit": "USD",
+                "time_basis": "month",
+                "rationale": s.get("basis"),
+              },
+              {
+                "key": "primary_channels",
+                "value": s.get("primary_channels"),
+                "unit": None,
+                "time_basis": None,
+                "rationale": "Starting assumption; edit to reflect your actual plan.",
+              },
+            ],
+            "derived": [
+              {
+                "key": "year1_marketing_spend",
+                "value": s.get("year1_marketing_spend"),
+                "unit": "USD",
+                "time_basis": "year",
+                "derivation": "monthly_marketing_budget x 12",
+              }
+            ],
+            "created_at_ms": now_ms,
+          },
+        ]
+        existing_lobs.add(lob_key)
+
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[],
+        model_card_proposals=model_card_proposals,
+      )
+
+      assistant_text = sanitize_fact_template(
+        str(
+          marketing_chat_turn(
+            intake_context={
+              "client_id": client_id,
+              "draft_id": str(draft_id).strip(),
+              "shared_context": shared_context,
+              "marketing_suggestion": (suggestions[0] if suggestions else {}),
+            },
+            conversation_messages=[*messages, user_msg],
+          ).get("assistant_message")
+          or ""
+        ).strip()
+      )
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        active_focus="market",
+        business_facts=business_facts,
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": "market",
+          "awaiting_confirmation": False,
+          "done": False,
+          "action": "continue",
+          "assistant_message": assistant_text,
+        }
+      )
 
     # Route the user's message through the GPT-only intent router first.
     intent = route_intent(
@@ -905,10 +1387,10 @@ def post_intake_consult_handler(*, app, request):
         pass
 
       # If the draft was already marked complete, edits must reopen it and trigger
-      # a new consistency pass.
+      # a continued consult so the user can keep refining facts.
       if str(draft_status).strip().lower() == "completed" or focus == "done":
         status_out = "in_progress"
-        active_focus_out = "consistency"
+        active_focus_out = (changed_groups[0] if changed_groups else "ops")
 
       # For edit patches, the intent router is used only to interpret intent and
       # produce the deterministic patch. The domain consultant generates the next
@@ -971,18 +1453,11 @@ def post_intake_consult_handler(*, app, request):
           followup_turn = financials_chat_turn(
             intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
           )
-        elif followup_focus == "consistency":
-          if assistant_text:
-            assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I'm going to re-run a brief consistency check to make sure everything still lines up.".strip()
-          followup_turn = consistency_chat_turn(
-            intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
-          )
         else:
           followup_turn = {"assistant_message": ""}
 
         followup_outcome = str(followup_turn.get("turn_outcome") or "").strip().upper()
         followup_section_complete = followup_outcome == "SECTION_COMPLETE"
-        followup_intake_complete = followup_outcome == "INTAKE_COMPLETE"
 
         # If the domain consultant signaled completion, deterministically run the strict
         # finalizer so the user gets the section summary immediately.
@@ -1114,9 +1589,9 @@ def post_intake_consult_handler(*, app, request):
           next_focus_after_final = _compute_focus(
             ops_json=ops_json,
             market_json=market_json,
+            marketing_model_json=marketing_model_json,
             people_json=people_json,
             financials_json=financials_json,
-            consistency_passed=bool(consistency_passed_out),
           )
           transition_after_final = ""
           if next_focus_after_final == "market":
@@ -1125,49 +1600,96 @@ def post_intake_consult_handler(*, app, request):
             transition_after_final = "Great - let's move on to People & Capability."
           elif next_focus_after_final == "financials":
             transition_after_final = "Great - let's move on to Financials."
-          elif next_focus_after_final == "consistency":
-            transition_after_final = "Great - I'm going to do a quick consistency check before submission."
 
-          start_instruction = _start_instruction_for_focus(next_focus_after_final)
-          next_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
-          next_turn: Dict[str, Any] = {"assistant_message": ""}
-          try:
-            if next_focus_after_final == "ops":
-              next_turn = consultant_chat_turn(
-                intake_context=intake_context_followup, conversation_messages=next_messages
-              )
-            elif next_focus_after_final == "market":
-              next_turn = target_market_chat_turn(
-                intake_context=intake_context_followup, conversation_messages=next_messages
-              )
-            elif next_focus_after_final == "people":
-              next_turn = people_capability_chat_turn(
-                intake_context=intake_context_followup, conversation_messages=next_messages
-              )
-            elif next_focus_after_final == "financials":
-              next_turn = financials_chat_turn(
-                intake_context=intake_context_followup, conversation_messages=next_messages
-              )
-            elif next_focus_after_final == "consistency":
-              next_turn = consistency_chat_turn(
-                intake_context=intake_context_followup, conversation_messages=next_messages
-              )
-          except Exception:
-            next_turn = {"assistant_message": ""}
-
-          next_text = sanitize_fact_template(str(next_turn.get("assistant_message") or "").strip())
-          if next_focus_after_final == "market":
-            next_text = _strip_acs_codes(next_text)
-
-          next_outcome = str(next_turn.get("turn_outcome") or "").strip().upper()
-          if next_focus_after_final == "consistency" and next_outcome == "INTAKE_COMPLETE":
-            consistency_passed_out = True
+          if next_focus_after_final == "done":
             completed_out = True
             status_out = "completed"
             active_focus_out = "done"
-            completion_msg = next_text or 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
-            assistant_text = f"{assistant_text}\n\n{transition_after_final}\n\n{completion_msg}".strip() if transition_after_final else f"{assistant_text}\n\n{completion_msg}".strip()
+            completion_msg = 'All sections are complete.\n\nClick "Submit intake" to finish.'
+            assistant_text = (
+              f"{assistant_text}\n\n{transition_after_final}\n\n{completion_msg}".strip()
+              if transition_after_final
+              else f"{assistant_text}\n\n{completion_msg}".strip()
+            )
           else:
+            start_instruction = _start_instruction_for_focus(next_focus_after_final)
+            next_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+            next_turn: Dict[str, Any] = {"assistant_message": ""}
+            try:
+              if next_focus_after_final == "ops":
+                next_turn = consultant_chat_turn(
+                  intake_context=intake_context_followup, conversation_messages=next_messages
+                )
+              elif next_focus_after_final == "market":
+                if str((market_json or {}).get("target_market_summary") or "").strip() and not _marketing_ready(
+                  marketing_model_json
+                ):
+                  suggestion = _suggest_marketing_budget(ops_json=ops_json)
+                  if not any(isinstance(p, dict) and p.get("model") == "marketing" for p in model_card_proposals):
+                    proposal_id = f"mk_{int(time.time()*1000)}"
+                    model_card_proposals = [
+                      *model_card_proposals,
+                      {
+                        "id": proposal_id,
+                        "model": "marketing",
+                        "title": "Marketing budget (Year 1)",
+                        "updates": [
+                          {
+                            "key": "monthly_marketing_budget",
+                            "value": suggestion.get("monthly_marketing_budget"),
+                            "unit": "USD",
+                            "time_basis": "month",
+                            "rationale": suggestion.get("basis"),
+                          },
+                          {
+                            "key": "primary_channels",
+                            "value": suggestion.get("primary_channels"),
+                            "unit": None,
+                            "time_basis": None,
+                            "rationale": "Starting assumption; edit to reflect your actual plan.",
+                          },
+                        ],
+                        "derived": [
+                          {
+                            "key": "year1_marketing_spend",
+                            "value": suggestion.get("year1_marketing_spend"),
+                            "unit": "USD",
+                            "time_basis": "year",
+                            "derivation": "monthly_marketing_budget x 12",
+                          }
+                        ],
+                        "created_at_ms": int(time.time() * 1000),
+                      },
+                    ]
+                    append_messages(
+                      conn,
+                      draft_id=str(draft_id).strip(),
+                      new_messages=[],
+                      model_card_proposals=model_card_proposals,
+                    )
+                  next_turn = marketing_chat_turn(
+                    intake_context={**intake_context_followup, "marketing_suggestion": suggestion},
+                    conversation_messages=next_messages,
+                  )
+                else:
+                  next_turn = target_market_chat_turn(
+                    intake_context=intake_context_followup, conversation_messages=next_messages
+                  )
+              elif next_focus_after_final == "people":
+                next_turn = people_capability_chat_turn(
+                  intake_context=intake_context_followup, conversation_messages=next_messages
+                )
+              elif next_focus_after_final == "financials":
+                next_turn = financials_chat_turn(
+                  intake_context=intake_context_followup, conversation_messages=next_messages
+                )
+            except Exception:
+              next_turn = {"assistant_message": ""}
+
+            next_text = sanitize_fact_template(str(next_turn.get("assistant_message") or "").strip())
+            if next_focus_after_final == "market":
+              next_text = _strip_acs_codes(next_text)
+
             active_focus_out = next_focus_after_final
             if transition_after_final and next_text:
               assistant_text = f"{assistant_text}\n\n{transition_after_final}\n\n{next_text}".strip()
@@ -1175,15 +1697,6 @@ def post_intake_consult_handler(*, app, request):
               assistant_text = f"{assistant_text}\n\n{transition_after_final}".strip()
             elif next_text:
               assistant_text = f"{assistant_text}\n\n{next_text}".strip()
-
-        # Consistency completion should immediately instruct submission and mark the draft complete.
-        if followup_intake_complete and followup_focus == "consistency":
-          consistency_passed_out = True
-          completed_out = True
-          status_out = "completed"
-          active_focus_out = "done"
-          completion_msg = 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
-          assistant_text = f"{assistant_text}\n\n{completion_msg}".strip() if assistant_text else completion_msg
 
         followup_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
         if followup_focus == "market":
@@ -1266,10 +1779,6 @@ def post_intake_consult_handler(*, app, request):
       turn = financials_chat_turn(
         intake_context=intake_context, conversation_messages=[*messages, user_msg]
       )
-    elif focus == "consistency":
-      turn = consistency_chat_turn(
-        intake_context=intake_context, conversation_messages=[*messages, user_msg]
-      )
     else:
       turn = {"assistant_message": "Continue.", "turn_outcome": "ASK_NEXT"}
 
@@ -1278,56 +1787,6 @@ def post_intake_consult_handler(*, app, request):
       assistant_text = _strip_acs_codes(assistant_text)
 
     turn_outcome = str(turn.get("turn_outcome") or "").strip().upper()
-
-    if str(focus or "").strip().lower() == "consistency":
-      if turn_outcome == "INTAKE_COMPLETE":
-        assistant_text = assistant_text or 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
-        if preface:
-          assistant_text = f"{preface}\n\n{assistant_text}".strip()
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          active_focus="done",
-          business_facts=business_facts,
-          consistency_passed=True,
-          status="completed",
-          completed=True,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "done",
-            "awaiting_confirmation": False,
-            "done": True,
-            "action": "consistency_passed",
-            "assistant_message": assistant_text,
-          }
-        )
-
-      if preface:
-        assistant_text = f"{preface}\n\n{assistant_text}".strip()
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        active_focus="consistency",
-        business_facts=business_facts,
-      )
-      return jsonify(
-        {
-          "status": "ok",
-          "draft_id": str(draft_id).strip(),
-          "client_id": client_id,
-          "active_focus": "consistency",
-          "awaiting_confirmation": False,
-          "done": False,
-          "action": "continue",
-          "assistant_message": assistant_text,
-        }
-      )
 
     if turn_outcome != "SECTION_COMPLETE":
       if preface:
@@ -1609,20 +2068,23 @@ def post_intake_consult_handler(*, app, request):
     next_focus = _compute_focus(
       ops_json=ops_json,
       market_json=market_json,
+      marketing_model_json=marketing_model_json,
       people_json=people_json,
       financials_json=financials_json,
-      consistency_passed=False,
     )
 
     transition = ""
     if next_focus == "market":
-      transition = "Great - let's move on to Target Market."
+      if str((market_json or {}).get("target_market_summary") or "").strip() and not _marketing_ready(
+        marketing_model_json
+      ):
+        transition = "Great - let's lock in Marketing assumptions."
+      else:
+        transition = "Great - let's move on to Target Market."
     elif next_focus == "people":
       transition = "Great - let's move on to People & Capability."
     elif next_focus == "financials":
       transition = "Great - let's move on to Financials."
-    elif next_focus == "consistency":
-      transition = "Great - I'm going to do a quick consistency check before submission."
 
     shared_context_live = dict(shared_context or {})
     shared_context_live["operating_model"] = ops_json
@@ -1660,47 +2122,94 @@ def post_intake_consult_handler(*, app, request):
       "financials_json": financials_json,
     }
 
-    next_turn: Dict[str, Any] = {"assistant_message": ""}
-    if next_focus == "ops":
-      next_turn = consultant_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )
-    elif next_focus == "market":
-      next_turn = target_market_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )
-    elif next_focus == "people":
-      next_turn = people_capability_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )
-    elif next_focus == "financials":
-      next_turn = financials_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )
-    elif next_focus == "consistency":
-      next_turn = consistency_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )
-
-    next_text = sanitize_fact_template(str(next_turn.get("assistant_message") or "").strip())
-    if next_focus == "market":
-      next_text = _strip_acs_codes(next_text)
-
-    next_outcome = str(next_turn.get("turn_outcome") or "").strip().upper()
+    next_text = ""
     active_focus_out = next_focus
     status_out: str | None = None
     completed_out = False
     consistency_passed_out = False
     action_out = "continue"
 
-    if next_focus == "consistency" and next_outcome == "INTAKE_COMPLETE":
+    if next_focus == "done":
       active_focus_out = "done"
       status_out = "completed"
       completed_out = True
+      # Legacy field (safe to keep true so older UIs treat the draft as fully complete).
       consistency_passed_out = True
-      action_out = "consistency_passed"
-      if not next_text:
-        next_text = 'Consistency check is complete and the facts are now coherent.\n\nClick "Submit intake" to finish.'
+      action_out = "ready_to_submit"
+      next_text = 'All sections are complete.\n\nClick "Submit intake" to finish.'
+    else:
+      next_turn: Dict[str, Any] = {"assistant_message": ""}
+      if next_focus == "ops":
+        next_turn = consultant_chat_turn(
+          intake_context=intake_context_next, conversation_messages=turn_messages
+        )
+      elif next_focus == "market":
+        if str((market_json or {}).get("target_market_summary") or "").strip() and not _marketing_ready(
+          marketing_model_json
+        ):
+          suggestion = _suggest_marketing_budget(ops_json=ops_json)
+          if not any(isinstance(p, dict) and p.get("model") == "marketing" for p in model_card_proposals):
+            proposal_id = f"mk_{int(time.time()*1000)}"
+            model_card_proposals = [
+              *model_card_proposals,
+              {
+                "id": proposal_id,
+                "model": "marketing",
+                "title": "Marketing budget (Year 1)",
+                "updates": [
+                  {
+                    "key": "monthly_marketing_budget",
+                    "value": suggestion.get("monthly_marketing_budget"),
+                    "unit": "USD",
+                    "time_basis": "month",
+                    "rationale": suggestion.get("basis"),
+                  },
+                  {
+                    "key": "primary_channels",
+                    "value": suggestion.get("primary_channels"),
+                    "unit": None,
+                    "time_basis": None,
+                    "rationale": "Starting assumption; edit to reflect your actual plan.",
+                  },
+                ],
+                "derived": [
+                  {
+                    "key": "year1_marketing_spend",
+                    "value": suggestion.get("year1_marketing_spend"),
+                    "unit": "USD",
+                    "time_basis": "year",
+                    "derivation": "monthly_marketing_budget x 12",
+                  }
+                ],
+                "created_at_ms": int(time.time() * 1000),
+              },
+            ]
+            append_messages(
+              conn,
+              draft_id=str(draft_id).strip(),
+              new_messages=[],
+              model_card_proposals=model_card_proposals,
+            )
+          next_turn = marketing_chat_turn(
+            intake_context={**intake_context_next, "marketing_suggestion": suggestion},
+            conversation_messages=turn_messages,
+          )
+        else:
+          next_turn = target_market_chat_turn(
+            intake_context=intake_context_next, conversation_messages=turn_messages
+          )
+      elif next_focus == "people":
+        next_turn = people_capability_chat_turn(
+          intake_context=intake_context_next, conversation_messages=turn_messages
+        )
+      elif next_focus == "financials":
+        next_turn = financials_chat_turn(
+          intake_context=intake_context_next, conversation_messages=turn_messages
+        )
+
+      next_text = sanitize_fact_template(str(next_turn.get("assistant_message") or "").strip())
+      if next_focus == "market":
+        next_text = _strip_acs_codes(next_text)
 
     assistant_out = "\n\n".join([t for t in (assistant_final, transition, next_text) if str(t or "").strip()]).strip()
     if preface:

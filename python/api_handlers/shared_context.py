@@ -28,6 +28,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   target_market: Dict[str, Any] = {}
   people_capability: Dict[str, Any] = {}
   financials: Dict[str, Any] = {}
+  model_cards: Dict[str, Any] = {}
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -38,12 +39,26 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
+    model_cards = {
+      "ops_concept": _parse_json_maybe(consult.get("ops_concept_model_json")),
+      "fulfillment": _parse_json_maybe(consult.get("fulfillment_model_json")),
+      "marketing": _parse_json_maybe(consult.get("marketing_model_json")),
+      "pricing": _parse_json_maybe(consult.get("pricing_model_json")),
+      "headcount": _parse_json_maybe(consult.get("headcount_model_json")),
+      "year1_rollups": {
+        "year1_revenue": consult.get("year1_revenue"),
+        "year1_marketing_spend": consult.get("year1_marketing_spend"),
+        "year1_payroll": consult.get("year1_payroll"),
+      },
+      "proposals": consult.get("model_card_proposals_json"),
+    }
   except Exception:
     # Fall back to legacy per-consult drafts below.
     operating_model = {}
     target_market = {}
     people_capability = {}
     financials = {}
+    model_cards = {}
 
   try:
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
@@ -87,6 +102,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "target_market": target_market,
     "people_capability": people_capability,
     "financials": financials,
+    "model_cards": model_cards,
   }
 
 

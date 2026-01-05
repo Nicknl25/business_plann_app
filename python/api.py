@@ -135,6 +135,15 @@ def create_app() -> Flask:
 
     return get_intake_consult_draft_handler(app=app, request=request)
 
+  @app.route("/api/intake-consult/model-cards", methods=["POST", "OPTIONS"])
+  def post_intake_model_cards():
+    """
+    Persist model-card driver updates (Accept/Edit) to the unified consult draft immediately.
+    """
+    from api_handlers.intake_model_cards import post_intake_model_cards_handler
+
+    return post_intake_model_cards_handler(app=app, request=request)
+
   @app.route("/api/target-market/session", methods=["POST", "OPTIONS"])
   def post_target_market_session():
     """

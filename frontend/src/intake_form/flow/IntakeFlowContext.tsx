@@ -28,6 +28,7 @@ export type IntakeSharedContext = {
   target_market?: any;
   people_capability?: any;
   financials?: any;
+  model_cards?: any;
 } | null;
 
 type IntakeFlowContextValue = {

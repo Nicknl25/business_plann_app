@@ -24,6 +24,43 @@ type DraftMeta = {
   consistencyPassed: boolean;
 };
 
+type ModelDriverValue = {
+  value?: any;
+  unit?: string | null;
+  time_basis?: string | null;
+  rationale?: string | null;
+};
+
+type ModelCard = {
+  version?: number;
+  updated_at_ms?: number;
+  drivers?: Record<string, ModelDriverValue>;
+  derived?: Record<
+    string,
+    { value?: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }
+  >;
+  lobs?: Array<{
+    lob_key: string;
+    lob_name?: string | null;
+    drivers?: Record<string, ModelDriverValue>;
+    derived?: Record<
+      string,
+      { value?: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }
+    >;
+  }>;
+};
+
+type ModelCardProposal = {
+  id: string;
+  model: string;
+  title?: string;
+  lob_key?: string | null;
+  lob_name?: string | null;
+  updates?: Array<{ key: string; value: any; unit?: string | null; time_basis?: string | null; rationale?: string | null }>;
+  derived?: Array<{ key: string; value: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }>;
+  created_at_ms?: number;
+};
+
 function normalizeDraftMeta(body: any): DraftMeta {
   return {
     status: String(body?.draft_status || ""),
@@ -86,6 +123,25 @@ export default function UnifiedConsultStep() {
   const [draftSyncing, setDraftSyncing] = useState(false);
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const [modelSaving, setModelSaving] = useState(false);
+  const [editingDriver, setEditingDriver] = useState<{
+    model: string;
+    lobKey: string;
+    key: string;
+    value: string;
+    unit: string;
+    timeBasis: string;
+    rationale: string;
+  } | null>(null);
+  const [editingProposal, setEditingProposal] = useState<{
+    proposalId: string;
+    model: string;
+    lobKey: string;
+    lobName: string;
+    monthlyBudget: string;
+    primaryChannels: string;
+    rationale: string;
+  } | null>(null);
 
   const detailsComplete = useMemo(() => {
     const hasAddress =
@@ -546,13 +602,12 @@ export default function UnifiedConsultStep() {
   const activeStep = useMemo(() => {
     if (!draftMeta) return null;
     const focus = String(draftMeta.activeFocus || "").trim().toLowerCase();
-    if (["ops", "market", "people", "financials", "consistency"].includes(focus)) return focus;
+    if (["ops", "market", "people", "financials"].includes(focus)) return focus;
     if (draftMeta.status === "completed") return null;
     if (!draftMeta.opsConfirmed) return "ops";
     if (!draftMeta.marketConfirmed) return "market";
     if (!draftMeta.peopleConfirmed) return "people";
     if (!draftMeta.financialsConfirmed) return "financials";
-    if (!draftMeta.consistencyPassed) return "consistency";
     return null;
   }, [draftMeta]);
 
@@ -562,7 +617,6 @@ export default function UnifiedConsultStep() {
       { key: "market", label: "Target Market", done: Boolean(draftMeta?.marketConfirmed) },
       { key: "people", label: "Human Resources", done: Boolean(draftMeta?.peopleConfirmed) },
       { key: "financials", label: "Financials", done: Boolean(draftMeta?.financialsConfirmed) },
-      { key: "consistency", label: "Consistency", done: Boolean(draftMeta?.consistencyPassed) },
     ],
     [draftMeta]
   );
@@ -571,6 +625,323 @@ export default function UnifiedConsultStep() {
   const syncHasError = Boolean(draftError || sharedContextError);
   const canReconnect = Boolean(planStarted && syncHasError && !syncInProgress);
   const syncLabel = syncInProgress ? "Updating..." : syncHasError ? "Reconnect" : "Up to date";
+
+  const modelCards = useMemo(() => {
+    const cards = sharedContext?.model_cards;
+    if (!cards || typeof cards !== "object") return null;
+    return cards as Record<string, ModelCard>;
+  }, [sharedContext]);
+
+  const modelProposals = useMemo(() => {
+    const raw = (modelCards as any)?.proposals;
+    if (!raw) return [];
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((p) => p && typeof p === "object")
+        .map((p: any) => ({
+          id: String(p.id || "").trim(),
+          model: String(p.model || "").trim(),
+          title: p.title ? String(p.title) : undefined,
+          lob_key: p.lob_key == null ? null : String(p.lob_key || "").trim() || null,
+          lob_name: p.lob_name == null ? null : String(p.lob_name || "").trim() || null,
+          updates: Array.isArray(p.updates) ? p.updates : [],
+          derived: Array.isArray(p.derived) ? p.derived : [],
+          created_at_ms: typeof p.created_at_ms === "number" ? p.created_at_ms : undefined,
+        }))
+        .filter((p: ModelCardProposal) => Boolean(p.id && p.model));
+    } catch {
+      return [];
+    }
+  }, [modelCards]);
+
+  const modelCardEntries = useMemo(() => {
+    if (!modelCards) return [];
+    const order: Array<{ key: string; label: string }> = [
+      { key: "pricing", label: "Pricing" },
+      { key: "marketing", label: "Marketing" },
+      { key: "headcount", label: "Headcount" },
+      { key: "fulfillment", label: "Fulfillment" },
+      { key: "ops_concept", label: "Operating concept" },
+    ];
+
+    const entries: Array<{
+      entryKey: string;
+      modelKey: string;
+      label: string;
+      lobKey: string;
+      drivers: Record<string, ModelDriverValue>;
+      derived: Record<string, { value?: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }>;
+    }> = [];
+
+    const normalizeDrivers = (obj: any) =>
+      obj && typeof obj === "object" ? (obj as Record<string, ModelDriverValue>) : {};
+    const normalizeDerived = (obj: any) =>
+      obj && typeof obj === "object"
+        ? (obj as Record<string, { value?: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }>)
+        : {};
+
+    for (const model of order) {
+      const card = (modelCards as any)[model.key] as ModelCard | undefined;
+      if (!card) continue;
+      const lobs = Array.isArray(card.lobs) ? card.lobs : null;
+      if (lobs && lobs.length) {
+        const nonCompany = lobs.filter((l) => String(l?.lob_key || "") !== "company_total");
+        const company = lobs.find((l) => String(l?.lob_key || "") === "company_total") || null;
+
+        for (const lob of nonCompany) {
+          const lobKey = String(lob?.lob_key || "").trim();
+          if (!lobKey) continue;
+          const drivers = normalizeDrivers((lob as any)?.drivers);
+          const derived = normalizeDerived((lob as any)?.derived);
+          if (!Object.keys(drivers).length && !Object.keys(derived).length) continue;
+          const lobLabel = String((lob as any)?.lob_name || "").trim() || lobKey;
+          entries.push({
+            entryKey: `${model.key}:${lobKey}`,
+            modelKey: model.key,
+            label: `${model.label} (${lobLabel})`,
+            lobKey,
+            drivers,
+            derived,
+          });
+        }
+
+        if (company && !nonCompany.length) {
+          const drivers = normalizeDrivers((company as any)?.drivers);
+          const derived = normalizeDerived((company as any)?.derived);
+          if (Object.keys(drivers).length || Object.keys(derived).length) {
+            entries.push({
+              entryKey: `${model.key}:company_total`,
+              modelKey: model.key,
+              label: model.label,
+              lobKey: "company_total",
+              drivers,
+              derived,
+            });
+          }
+        }
+      } else {
+        const drivers = normalizeDrivers((card as any)?.drivers);
+        const derived = normalizeDerived((card as any)?.derived);
+        if (!Object.keys(drivers).length && !Object.keys(derived).length) continue;
+        entries.push({
+          entryKey: `${model.key}:company_total`,
+          modelKey: model.key,
+          label: model.label,
+          lobKey: "company_total",
+          drivers,
+          derived,
+        });
+      }
+    }
+
+    return entries;
+  }, [modelCards]);
+
+  const openDriverEditor = useCallback((model: string, lobKey: string, key: string, driver: ModelDriverValue) => {
+    setEditingDriver({
+      model,
+      lobKey: lobKey || "company_total",
+      key,
+      value: driver?.value == null ? "" : String(driver.value),
+      unit: driver?.unit ? String(driver.unit) : "",
+      timeBasis: driver?.time_basis ? String(driver.time_basis) : "",
+      rationale: driver?.rationale ? String(driver.rationale) : "",
+    });
+  }, []);
+
+  const cancelDriverEditor = useCallback(() => setEditingDriver(null), []);
+
+  const submitDriverEdit = useCallback(async () => {
+    const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+    if (!effectiveDraftId) {
+      setDraftError("Missing draft id. Reload and start the intake again.");
+      return;
+    }
+    if (!editingDriver) return;
+
+    setModelSaving(true);
+    setDraftError(null);
+    try {
+      const res = await apiClient.post(
+        "/api/intake-consult/model-cards",
+        {
+          draft_id: effectiveDraftId,
+          action: "edit",
+          model: editingDriver.model,
+          lob_key: editingDriver.lobKey,
+          updates: [
+            {
+              key: editingDriver.key,
+              value: editingDriver.value,
+              unit: editingDriver.unit || null,
+              time_basis: editingDriver.timeBasis || null,
+              rationale: editingDriver.rationale || null,
+            },
+          ],
+          derived: [],
+          note: "ui_edit",
+        },
+        { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
+      );
+      if (res.status < 200 || res.status >= 300) {
+        const body: any = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Model update error: ${res.status} ${res.statusText}`
+        );
+      }
+      setEditingDriver(null);
+      await syncNow();
+      window.setTimeout(() => chatInputRef.current?.focus(), 0);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : String(err));
+      await syncNow({ preserveError: true });
+    } finally {
+      setModelSaving(false);
+    }
+  }, [draftId, editingDriver, syncNow]);
+
+  const acceptProposal = useCallback(
+    async (proposal: ModelCardProposal) => {
+      const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+      if (!effectiveDraftId) {
+        setDraftError("Missing draft id. Reload and start the intake again.");
+        return;
+      }
+      setModelSaving(true);
+      setDraftError(null);
+      try {
+        const res = await apiClient.post(
+          "/api/intake-consult/model-cards",
+          {
+            draft_id: effectiveDraftId,
+            action: "accept",
+            model: proposal.model,
+            lob_key: proposal.lob_key || "company_total",
+            lob_name: proposal.lob_name || null,
+            updates: proposal.updates || [],
+            derived: proposal.derived || [],
+            proposal_id: proposal.id,
+            note: "ui_accept",
+          },
+          { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
+        );
+        if (res.status < 200 || res.status >= 300) {
+          const body: any = res.data;
+          throw new Error(
+            body && typeof body === "object" && body.detail
+              ? String(body.detail)
+              : `Model accept error: ${res.status} ${res.statusText}`
+          );
+        }
+        await syncNow();
+        window.setTimeout(() => chatInputRef.current?.focus(), 0);
+      } catch (err) {
+        setDraftError(err instanceof Error ? err.message : String(err));
+        await syncNow({ preserveError: true });
+      } finally {
+        setModelSaving(false);
+      }
+    },
+    [draftId, syncNow]
+  );
+
+  const openProposalEditor = useCallback((proposal: ModelCardProposal) => {
+    const updates = proposal.updates || [];
+    const monthly = updates.find((u) => String(u.key) === "monthly_marketing_budget");
+    const channels = updates.find((u) => String(u.key) === "primary_channels");
+    setEditingProposal({
+      proposalId: proposal.id,
+      model: proposal.model,
+      lobKey: proposal.lob_key || "company_total",
+      lobName: proposal.lob_name ? String(proposal.lob_name) : "",
+      monthlyBudget: monthly?.value == null ? "" : String(monthly.value),
+      primaryChannels: channels?.value == null ? "" : String(channels.value),
+      rationale: monthly?.rationale ? String(monthly.rationale) : "",
+    });
+  }, []);
+
+  const cancelProposalEditor = useCallback(() => setEditingProposal(null), []);
+
+  const submitProposalEdit = useCallback(async () => {
+    const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+    if (!effectiveDraftId) {
+      setDraftError("Missing draft id. Reload and start the intake again.");
+      return;
+    }
+    if (!editingProposal) return;
+
+    const monthlyRaw = String(editingProposal.monthlyBudget || "").trim();
+    const monthly = Number(monthlyRaw.replace(/[$,]/g, ""));
+    if (!Number.isFinite(monthly) || monthly < 0) {
+      setDraftError("Monthly marketing budget must be a valid non-negative number.");
+      return;
+    }
+
+    const annual = monthly * 12;
+
+    setModelSaving(true);
+    setDraftError(null);
+    try {
+      const res = await apiClient.post(
+        "/api/intake-consult/model-cards",
+          {
+            draft_id: effectiveDraftId,
+            action: "accept",
+            model: editingProposal.model,
+            lob_key: editingProposal.lobKey,
+            lob_name: editingProposal.lobName || null,
+            updates: [
+              {
+                key: "monthly_marketing_budget",
+                value: monthly,
+                unit: "USD",
+              time_basis: "month",
+              rationale: editingProposal.rationale || null,
+            },
+            {
+              key: "primary_channels",
+              value: editingProposal.primaryChannels || null,
+              unit: null,
+              time_basis: null,
+              rationale: "Client-edited.",
+            },
+          ],
+          derived: [
+            {
+              key: "year1_marketing_spend",
+              value: annual,
+              unit: "USD",
+              time_basis: "year",
+                derivation: "monthly_marketing_budget x 12",
+            },
+          ],
+          proposal_id: editingProposal.proposalId,
+          note: "ui_edit_accept",
+        },
+        { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
+      );
+      if (res.status < 200 || res.status >= 300) {
+        const body: any = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Model update error: ${res.status} ${res.statusText}`
+        );
+      }
+      setEditingProposal(null);
+      await syncNow();
+      window.setTimeout(() => chatInputRef.current?.focus(), 0);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : String(err));
+      await syncNow({ preserveError: true });
+    } finally {
+      setModelSaving(false);
+    }
+  }, [draftId, editingProposal, syncNow]);
 
   return (
     <Card className="border border-slate-800/80 bg-slate-950/60 shadow-soft" id="intake-section-unified">
@@ -775,6 +1146,246 @@ export default function UnifiedConsultStep() {
             Send
           </Button>
         </div>
+
+        {modelProposals.length || modelCardEntries.length ? (
+          <div className="space-y-2 rounded-md border border-slate-800/80 bg-slate-950/40 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-slate-200">Model cards (drivers)</div>
+              <div className="text-[11px] text-slate-500">
+                {modelSaving ? "Saving..." : "Edit any driver to update the model immediately."}
+              </div>
+            </div>
+
+            {modelProposals.length ? (
+              <div className="space-y-2">
+                <div className="text-[11px] text-slate-400">Pending proposals</div>
+                {modelProposals.map((p) => {
+                  const title = p.title || `${p.model} proposal`;
+                  const lobLabel =
+                    p.lob_name || p.lob_key ? String(p.lob_name || p.lob_key || "").trim() : "";
+                  const monthly = (p.updates || []).find((u) => String(u.key) === "monthly_marketing_budget");
+                  const annual = (p.derived || []).find((d) => String(d.key) === "year1_marketing_spend");
+                  return (
+                    <div key={p.id} className="rounded-md border border-slate-800/70 bg-slate-950/40 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs text-slate-200">
+                            {title}
+                            {lobLabel ? <span className="text-slate-500">{` - ${lobLabel}`}</span> : null}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            {monthly?.value != null ? `Monthly: $${String(monthly.value)}` : null}
+                            {annual?.value != null ? ` | Year 1: $${String(annual.value)}` : null}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={modelSaving}
+                            onClick={() => openProposalEditor(p)}
+                          >
+                            Edit
+                          </Button>
+                          <Button type="button" size="sm" disabled={modelSaving} onClick={() => void acceptProposal(p)}>
+                            Accept
+                          </Button>
+                        </div>
+                      </div>
+
+                      {editingProposal?.proposalId === p.id ? (
+                        <div className="mt-3 grid gap-2 md:grid-cols-3">
+                          <Input
+                            value={editingProposal.monthlyBudget}
+                            onChange={(e) =>
+                              setEditingProposal((prev) =>
+                                prev ? { ...prev, monthlyBudget: e.target.value } : prev
+                              )
+                            }
+                            placeholder="Monthly marketing budget (USD)"
+                            disabled={modelSaving}
+                          />
+                          <Input
+                            value={editingProposal.primaryChannels}
+                            onChange={(e) =>
+                              setEditingProposal((prev) =>
+                                prev ? { ...prev, primaryChannels: e.target.value } : prev
+                              )
+                            }
+                            placeholder="Primary channels"
+                            disabled={modelSaving}
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={modelSaving}
+                              onClick={cancelProposalEditor}
+                            >
+                              Cancel
+                            </Button>
+                            <Button type="button" size="sm" disabled={modelSaving} onClick={() => void submitProposalEdit()}>
+                              Save & Accept
+                            </Button>
+                          </div>
+                          <div className="md:col-span-3">
+                            <Input
+                              value={editingProposal.rationale}
+                              onChange={(e) =>
+                                setEditingProposal((prev) => (prev ? { ...prev, rationale: e.target.value } : prev))
+                              }
+                              placeholder="Rationale (optional)"
+                              disabled={modelSaving}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {modelCardEntries.map((entry) => {
+              const modelKey = entry.modelKey;
+              const lobKey = entry.lobKey;
+              const label = entry.label;
+              const drivers = entry.drivers || {};
+              const derived = entry.derived || {};
+              const driverKeys = Object.keys(drivers);
+              const derivedKeys = Object.keys(derived);
+
+              return (
+                <div
+                  key={entry.entryKey}
+                  className="rounded-md border border-slate-800/70 bg-slate-950/40 px-3 py-2"
+                  data-model-card={modelKey}
+                  data-lob-key={lobKey}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-slate-200">{label}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {driverKeys.length} driver{driverKeys.length === 1 ? "" : "s"}
+                      {derivedKeys.length ? ` | ${derivedKeys.length} derived` : ""}
+                    </div>
+                  </div>
+
+                  <div className="mt-2 space-y-2">
+                    {driverKeys.map((driverKey) => {
+                      const driver = drivers[driverKey] || {};
+                      const displayValue = driver.value == null ? "" : String(driver.value);
+                      const suffix = [driver.unit, driver.time_basis].filter(Boolean).join(" / ");
+                      const isEditing =
+                        Boolean(editingDriver) &&
+                        editingDriver?.model === modelKey &&
+                        editingDriver?.lobKey === lobKey &&
+                        editingDriver?.key === driverKey;
+
+                      return (
+                        <div key={driverKey} className="rounded-md border border-slate-800/60 bg-slate-950/30 p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-[11px] text-slate-400">{driverKey}</div>
+                              <div className="truncate text-xs text-slate-200">
+                                {displayValue || <span className="text-slate-500">(empty)</span>}
+                                {suffix ? <span className="text-slate-500">{"  "}({suffix})</span> : null}
+                              </div>
+                              {driver.rationale ? (
+                                <div className="mt-1 text-[11px] text-slate-400 line-clamp-2">
+                                  {String(driver.rationale)}
+                                </div>
+                              ) : null}
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={modelSaving}
+                              onClick={() => openDriverEditor(modelKey, lobKey, driverKey, driver)}
+                            >
+                              Edit
+                            </Button>
+                          </div>
+
+                          {isEditing ? (
+                            <div className="mt-2 grid gap-2 md:grid-cols-4">
+                              <Input
+                                value={editingDriver?.value ?? ""}
+                                onChange={(e) =>
+                                  setEditingDriver((prev) => (prev ? { ...prev, value: e.target.value } : prev))
+                                }
+                                placeholder="Value"
+                                disabled={modelSaving}
+                              />
+                              <Input
+                                value={editingDriver?.unit ?? ""}
+                                onChange={(e) =>
+                                  setEditingDriver((prev) => (prev ? { ...prev, unit: e.target.value } : prev))
+                                }
+                                placeholder="Unit (optional)"
+                                disabled={modelSaving}
+                              />
+                              <Input
+                                value={editingDriver?.timeBasis ?? ""}
+                                onChange={(e) =>
+                                  setEditingDriver((prev) => (prev ? { ...prev, timeBasis: e.target.value } : prev))
+                                }
+                                placeholder="time_basis (optional)"
+                                disabled={modelSaving}
+                              />
+                              <div className="flex items-center justify-end gap-2 md:col-span-1">
+                                <Button type="button" size="sm" variant="secondary" disabled={modelSaving} onClick={cancelDriverEditor}>
+                                  Cancel
+                                </Button>
+                                <Button type="button" size="sm" disabled={modelSaving} onClick={() => void submitDriverEdit()}>
+                                  Save
+                                </Button>
+                              </div>
+                              <div className="md:col-span-4">
+                                <Input
+                                  value={editingDriver?.rationale ?? ""}
+                                  onChange={(e) =>
+                                    setEditingDriver((prev) => (prev ? { ...prev, rationale: e.target.value } : prev))
+                                  }
+                                  placeholder="Rationale (optional)"
+                                  disabled={modelSaving}
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+
+                    {derivedKeys.length ? (
+                      <div className="rounded-md border border-slate-800/60 bg-slate-950/30 p-2">
+                        <div className="text-[11px] text-slate-400">Derived (read-only)</div>
+                        <div className="mt-1 space-y-1">
+                          {derivedKeys.map((k) => {
+                            const d = derived[k] || {};
+                            const v = d.value == null ? "" : String(d.value);
+                            const suffix = [d.unit, d.time_basis].filter(Boolean).join(" / ");
+                            return (
+                              <div key={k} className="flex items-start justify-between gap-2 text-xs">
+                                <div className="min-w-0 text-slate-400">{k}</div>
+                                <div className="text-slate-200">
+                                  {v || <span className="text-slate-500">(empty)</span>}
+                                  {suffix ? <span className="text-slate-500">{"  "}({suffix})</span> : null}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

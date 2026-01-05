@@ -71,6 +71,17 @@ def ensure_table(conn) -> None:
         target_market_json LONGTEXT NULL,
         people_json LONGTEXT NULL,
         financials_json LONGTEXT NULL,
+        ops_concept_model_json JSON NULL,
+        fulfillment_model_json JSON NULL,
+        marketing_model_json JSON NULL,
+        pricing_model_json JSON NULL,
+        headcount_model_json JSON NULL,
+        model_card_proposals_json JSON NULL,
+        driver_events_json JSON NULL,
+        driver_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        year1_revenue DECIMAL(18,2) NULL,
+        year1_marketing_spend DECIMAL(18,2) NULL,
+        year1_payroll DECIMAL(18,2) NULL,
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         completed_at DATETIME(6) NULL,
@@ -130,6 +141,28 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN people_json LONGTEXT NULL")
   if "financials_json" not in cols:
     alterations.append("ADD COLUMN financials_json LONGTEXT NULL")
+  if "ops_concept_model_json" not in cols:
+    alterations.append("ADD COLUMN ops_concept_model_json JSON NULL")
+  if "fulfillment_model_json" not in cols:
+    alterations.append("ADD COLUMN fulfillment_model_json JSON NULL")
+  if "marketing_model_json" not in cols:
+    alterations.append("ADD COLUMN marketing_model_json JSON NULL")
+  if "pricing_model_json" not in cols:
+    alterations.append("ADD COLUMN pricing_model_json JSON NULL")
+  if "headcount_model_json" not in cols:
+    alterations.append("ADD COLUMN headcount_model_json JSON NULL")
+  if "model_card_proposals_json" not in cols:
+    alterations.append("ADD COLUMN model_card_proposals_json JSON NULL")
+  if "driver_events_json" not in cols:
+    alterations.append("ADD COLUMN driver_events_json JSON NULL")
+  if "driver_revision_nonce" not in cols:
+    alterations.append("ADD COLUMN driver_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0")
+  if "year1_revenue" not in cols:
+    alterations.append("ADD COLUMN year1_revenue DECIMAL(18,2) NULL")
+  if "year1_marketing_spend" not in cols:
+    alterations.append("ADD COLUMN year1_marketing_spend DECIMAL(18,2) NULL")
+  if "year1_payroll" not in cols:
+    alterations.append("ADD COLUMN year1_payroll DECIMAL(18,2) NULL")
 
   if alterations:
     cur2 = conn.cursor()
@@ -217,6 +250,17 @@ def append_messages(
   target_market_json: Optional[Dict[str, Any]] = None,
   people_json: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
+  ops_concept_model_json: Optional[Dict[str, Any]] = None,
+  fulfillment_model_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
+  pricing_model_json: Optional[Dict[str, Any]] = None,
+  headcount_model_json: Optional[Dict[str, Any]] = None,
+  model_card_proposals: Optional[Any] = None,
+  driver_events: Optional[Any] = None,
+  driver_revision_nonce: Optional[int] = None,
+  year1_revenue: Optional[Any] = None,
+  year1_marketing_spend: Optional[Any] = None,
+  year1_payroll: Optional[Any] = None,
   active_focus: Optional[str] = None,
   confirmations: Optional[Dict[str, bool]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -258,6 +302,50 @@ def append_messages(
   if financials_json is not None:
     set_parts.append("financials_json = %s")
     values.append(json.dumps(financials_json, ensure_ascii=False))
+
+  if ops_concept_model_json is not None:
+    set_parts.append("ops_concept_model_json = %s")
+    values.append(json.dumps(ops_concept_model_json, ensure_ascii=False))
+
+  if fulfillment_model_json is not None:
+    set_parts.append("fulfillment_model_json = %s")
+    values.append(json.dumps(fulfillment_model_json, ensure_ascii=False))
+
+  if marketing_model_json is not None:
+    set_parts.append("marketing_model_json = %s")
+    values.append(json.dumps(marketing_model_json, ensure_ascii=False))
+
+  if pricing_model_json is not None:
+    set_parts.append("pricing_model_json = %s")
+    values.append(json.dumps(pricing_model_json, ensure_ascii=False))
+
+  if headcount_model_json is not None:
+    set_parts.append("headcount_model_json = %s")
+    values.append(json.dumps(headcount_model_json, ensure_ascii=False))
+
+  if model_card_proposals is not None:
+    set_parts.append("model_card_proposals_json = %s")
+    values.append(json.dumps(model_card_proposals, ensure_ascii=False))
+
+  if driver_events is not None:
+    set_parts.append("driver_events_json = %s")
+    values.append(json.dumps(driver_events, ensure_ascii=False))
+
+  if driver_revision_nonce is not None:
+    set_parts.append("driver_revision_nonce = %s")
+    values.append(int(driver_revision_nonce))
+
+  if year1_revenue is not None:
+    set_parts.append("year1_revenue = %s")
+    values.append(year1_revenue)
+
+  if year1_marketing_spend is not None:
+    set_parts.append("year1_marketing_spend = %s")
+    values.append(year1_marketing_spend)
+
+  if year1_payroll is not None:
+    set_parts.append("year1_payroll = %s")
+    values.append(year1_payroll)
 
   if active_focus is not None:
     set_parts.append("active_focus = %s")
@@ -338,6 +426,17 @@ def append_messages(
       "target_market_json",
       "people_json",
       "financials_json",
+      "ops_concept_model_json",
+      "fulfillment_model_json",
+      "marketing_model_json",
+      "pricing_model_json",
+      "headcount_model_json",
+      "model_card_proposals_json",
+      "driver_events_json",
+      "driver_revision_nonce",
+      "year1_revenue",
+      "year1_marketing_spend",
+      "year1_payroll",
       "created_at",
       "updated_at",
       "completed_at",

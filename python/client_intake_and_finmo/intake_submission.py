@@ -122,6 +122,8 @@ def insert_intake_submission(
   conn,
   row: Dict[str, Any],
 ) -> Dict[str, Any]:
+  import json
+
   def _table_column_meta(conn, table_name: str) -> Dict[str, Dict[str, Any]]:
     cur = conn.cursor()
     try:
@@ -218,6 +220,16 @@ def insert_intake_submission(
     "initial_lease",
     "initial_equity",
     "operating_model_confidence",
+    "ops_concept_model_json",
+    "fulfillment_model_json",
+    "marketing_model_json",
+    "pricing_model_json",
+    "headcount_model_json",
+    "driver_events_json",
+    "driver_revision_nonce",
+    "year1_revenue",
+    "year1_marketing_spend",
+    "year1_payroll",
   ]
 
   required_in_db = {
@@ -273,7 +285,12 @@ def insert_intake_submission(
       )
 
   columns: List[str] = [c for c in candidate_columns if c in available_columns]
-  values = [row.get(col) for col in columns]
+  values: List[Any] = []
+  for col in columns:
+    val = row.get(col)
+    if isinstance(val, (dict, list)):
+      val = json.dumps(val, ensure_ascii=False)
+    values.append(val)
   placeholders = ",".join(["%s"] * len(columns))
   cols_sql = ",".join(f"`{c}`" for c in columns)
   sql = f"INSERT INTO `intake_submissions` ({cols_sql}) VALUES ({placeholders})"

@@ -244,6 +244,30 @@ def post_financials_handler(*, app, request):
     ):
       payload["business_description_summary"] = rendered_business_description_summary
 
+    # Additive model-card persistence: copy any model driver JSON blobs/events from the consult draft
+    # into the final intake_submissions snapshot (ignored if the destination table lacks columns).
+    for col in (
+      "ops_concept_model_json",
+      "fulfillment_model_json",
+      "marketing_model_json",
+      "pricing_model_json",
+      "headcount_model_json",
+      "driver_events_json",
+      "driver_revision_nonce",
+      "year1_revenue",
+      "year1_marketing_spend",
+      "year1_payroll",
+    ):
+      if col in payload and payload.get(col) not in (None, ""):
+        continue
+      val = draft.get(col)
+      if val is not None:
+        payload[col] = val
+
+    # If year1_revenue isn't explicitly set, default it to starting_revenue for query-friendly rollups.
+    if payload.get("year1_revenue") in (None, ""):
+      payload["year1_revenue"] = payload.get("starting_revenue")
+
     # Hard guard: intake_submissions must never store unresolved fact templates.
     for field in ("business_description_summary", "target_market_summary", "key_people_summary"):
       val = str(payload.get(field) or "")
