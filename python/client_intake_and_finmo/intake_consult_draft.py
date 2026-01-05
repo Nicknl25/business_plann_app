@@ -76,6 +76,7 @@ def ensure_table(conn) -> None:
         marketing_model_json JSON NULL,
         pricing_model_json JSON NULL,
         headcount_model_json JSON NULL,
+        milestones_model_json JSON NULL,
         model_card_proposals_json JSON NULL,
         driver_events_json JSON NULL,
         driver_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -151,6 +152,8 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN pricing_model_json JSON NULL")
   if "headcount_model_json" not in cols:
     alterations.append("ADD COLUMN headcount_model_json JSON NULL")
+  if "milestones_model_json" not in cols:
+    alterations.append("ADD COLUMN milestones_model_json JSON NULL")
   if "model_card_proposals_json" not in cols:
     alterations.append("ADD COLUMN model_card_proposals_json JSON NULL")
   if "driver_events_json" not in cols:
@@ -255,6 +258,7 @@ def append_messages(
   marketing_model_json: Optional[Dict[str, Any]] = None,
   pricing_model_json: Optional[Dict[str, Any]] = None,
   headcount_model_json: Optional[Dict[str, Any]] = None,
+  milestones_model_json: Optional[Dict[str, Any]] = None,
   model_card_proposals: Optional[Any] = None,
   driver_events: Optional[Any] = None,
   driver_revision_nonce: Optional[int] = None,
@@ -322,6 +326,10 @@ def append_messages(
   if headcount_model_json is not None:
     set_parts.append("headcount_model_json = %s")
     values.append(json.dumps(headcount_model_json, ensure_ascii=False))
+
+  if milestones_model_json is not None:
+    set_parts.append("milestones_model_json = %s")
+    values.append(json.dumps(milestones_model_json, ensure_ascii=False))
 
   if model_card_proposals is not None:
     set_parts.append("model_card_proposals_json = %s")
@@ -431,6 +439,7 @@ def append_messages(
       "marketing_model_json",
       "pricing_model_json",
       "headcount_model_json",
+      "milestones_model_json",
       "model_card_proposals_json",
       "driver_events_json",
       "driver_revision_nonce",

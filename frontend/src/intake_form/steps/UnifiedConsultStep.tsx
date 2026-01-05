@@ -58,6 +58,7 @@ type ModelCardProposal = {
   lob_name?: string | null;
   updates?: Array<{ key: string; value: any; unit?: string | null; time_basis?: string | null; rationale?: string | null }>;
   derived?: Array<{ key: string; value: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }>;
+  apply_to_all_lobs?: boolean;
   created_at_ms?: number;
 };
 
@@ -124,6 +125,7 @@ export default function UnifiedConsultStep() {
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
+  const [proposalApplyAll, setProposalApplyAll] = useState<Record<string, boolean>>({});
   const [editingDriver, setEditingDriver] = useState<{
     model: string;
     lobKey: string;
@@ -141,6 +143,21 @@ export default function UnifiedConsultStep() {
     monthlyBudget: string;
     primaryChannels: string;
     rationale: string;
+  } | null>(null);
+  const [editingGenericProposal, setEditingGenericProposal] = useState<{
+    proposalId: string;
+    model: string;
+    lobKey: string;
+    lobName: string;
+    updates: Array<{ key: string; valueText: string; unit?: string | null; time_basis?: string | null; rationale?: string | null }>;
+    derived: Array<{
+      key: string;
+      valueText: string;
+      unit?: string | null;
+      time_basis?: string | null;
+      derivation?: string | null;
+    }>;
+    milestones?: Array<{ title: string; description: string; target_period: string; confidence: number }>;
   } | null>(null);
 
   const detailsComplete = useMemo(() => {
@@ -648,6 +665,7 @@ export default function UnifiedConsultStep() {
           lob_name: p.lob_name == null ? null : String(p.lob_name || "").trim() || null,
           updates: Array.isArray(p.updates) ? p.updates : [],
           derived: Array.isArray(p.derived) ? p.derived : [],
+          apply_to_all_lobs: Boolean(p.apply_to_all_lobs),
           created_at_ms: typeof p.created_at_ms === "number" ? p.created_at_ms : undefined,
         }))
         .filter((p: ModelCardProposal) => Boolean(p.id && p.model));
@@ -655,6 +673,32 @@ export default function UnifiedConsultStep() {
       return [];
     }
   }, [modelCards]);
+
+  const hasMultipleLobsForModel = useCallback(
+    (modelKey: string) => {
+      if (!modelCards) return false;
+      const card = (modelCards as any)[String(modelKey || "").trim()] as any;
+      const lobs = Array.isArray(card?.lobs) ? (card.lobs as any[]) : null;
+      if (!lobs || !lobs.length) return false;
+      const nonCompany = lobs.filter((l) => String(l?.lob_key || "") !== "company_total");
+      return nonCompany.length > 0;
+    },
+    [modelCards]
+  );
+
+  useEffect(() => {
+    if (!modelProposals.length) return;
+    setProposalApplyAll((prev) => {
+      const next = { ...prev };
+      for (const p of modelProposals) {
+        if (!p?.id) continue;
+        if (next[p.id] == null) {
+          next[p.id] = Boolean((p as any).apply_to_all_lobs);
+        }
+      }
+      return next;
+    });
+  }, [modelProposals]);
 
   const modelCardEntries = useMemo(() => {
     if (!modelCards) return [];
@@ -664,6 +708,7 @@ export default function UnifiedConsultStep() {
       { key: "headcount", label: "Headcount" },
       { key: "fulfillment", label: "Fulfillment" },
       { key: "ops_concept", label: "Operating concept" },
+      { key: "milestones", label: "Milestones" },
     ];
 
     const entries: Array<{
@@ -744,7 +789,12 @@ export default function UnifiedConsultStep() {
       model,
       lobKey: lobKey || "company_total",
       key,
-      value: driver?.value == null ? "" : String(driver.value),
+      value:
+        driver?.value == null
+          ? ""
+          : typeof driver.value === "object"
+            ? JSON.stringify(driver.value, null, 2)
+            : String(driver.value),
       unit: driver?.unit ? String(driver.unit) : "",
       timeBasis: driver?.time_basis ? String(driver.time_basis) : "",
       rationale: driver?.rationale ? String(driver.rationale) : "",
@@ -761,6 +811,26 @@ export default function UnifiedConsultStep() {
     }
     if (!editingDriver) return;
 
+    const parseValue = (raw: string) => {
+      const t = String(raw || "").trim();
+      if (!t) return null;
+      if (t.startsWith("{") || t.startsWith("[")) {
+        try {
+          return JSON.parse(t);
+        } catch {
+          return t;
+        }
+      }
+      if (/^-?\d+(\.\d+)?$/.test(t.replace(/,/g, ""))) {
+        const n = Number(t.replace(/,/g, ""));
+        return Number.isFinite(n) ? n : t;
+      }
+      if (t === "true") return true;
+      if (t === "false") return false;
+      if (t === "null") return null;
+      return t;
+    };
+
     setModelSaving(true);
     setDraftError(null);
     try {
@@ -774,7 +844,7 @@ export default function UnifiedConsultStep() {
           updates: [
             {
               key: editingDriver.key,
-              value: editingDriver.value,
+              value: parseValue(editingDriver.value),
               unit: editingDriver.unit || null,
               time_basis: editingDriver.timeBasis || null,
               rationale: editingDriver.rationale || null,
@@ -825,6 +895,7 @@ export default function UnifiedConsultStep() {
             updates: proposal.updates || [],
             derived: proposal.derived || [],
             proposal_id: proposal.id,
+            apply_to_all_lobs: Boolean(proposalApplyAll[String(proposal.id || "").trim()]),
             note: "ui_accept",
           },
           { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
@@ -846,25 +917,83 @@ export default function UnifiedConsultStep() {
         setModelSaving(false);
       }
     },
-    [draftId, syncNow]
+    [draftId, proposalApplyAll, syncNow]
   );
 
   const openProposalEditor = useCallback((proposal: ModelCardProposal) => {
-    const updates = proposal.updates || [];
-    const monthly = updates.find((u) => String(u.key) === "monthly_marketing_budget");
-    const channels = updates.find((u) => String(u.key) === "primary_channels");
-    setEditingProposal({
+    const model = String(proposal.model || "").trim().toLowerCase();
+    if (model === "marketing") {
+      const updates = proposal.updates || [];
+      const monthly = updates.find((u) => String(u.key) === "monthly_marketing_budget");
+      const channels = updates.find((u) => String(u.key) === "primary_channels");
+      setEditingProposal({
+        proposalId: proposal.id,
+        model: proposal.model,
+        lobKey: proposal.lob_key || "company_total",
+        lobName: proposal.lob_name ? String(proposal.lob_name) : "",
+        monthlyBudget: monthly?.value == null ? "" : String(monthly.value),
+        primaryChannels: channels?.value == null ? "" : String(channels.value),
+        rationale: monthly?.rationale ? String(monthly.rationale) : "",
+      });
+      setEditingGenericProposal(null);
+      return;
+    }
+
+    const toText = (v: any) => {
+      if (v == null) return "";
+      if (typeof v === "object") return JSON.stringify(v, null, 2);
+      return String(v);
+    };
+
+    const updates = Array.isArray(proposal.updates) ? proposal.updates : [];
+    const derived = Array.isArray(proposal.derived) ? proposal.derived : [];
+
+    const next: any = {
       proposalId: proposal.id,
       model: proposal.model,
       lobKey: proposal.lob_key || "company_total",
       lobName: proposal.lob_name ? String(proposal.lob_name) : "",
-      monthlyBudget: monthly?.value == null ? "" : String(monthly.value),
-      primaryChannels: channels?.value == null ? "" : String(channels.value),
-      rationale: monthly?.rationale ? String(monthly.rationale) : "",
-    });
+      updates: updates.map((u: any) => ({
+        key: String(u.key || "").trim(),
+        valueText: toText(u.value),
+        unit: u.unit == null ? null : String(u.unit),
+        time_basis: u.time_basis == null ? null : String(u.time_basis),
+        rationale: u.rationale == null ? null : String(u.rationale),
+      })),
+      derived: derived.map((d: any) => ({
+        key: String(d.key || "").trim(),
+        valueText: toText(d.value),
+        unit: d.unit == null ? null : String(d.unit),
+        time_basis: d.time_basis == null ? null : String(d.time_basis),
+        derivation: d.derivation == null ? null : String(d.derivation),
+      })),
+    };
+
+    if (model === "milestones") {
+      const msUpdate = (next.updates || []).find((u: any) => u.key === "milestones");
+      try {
+        const parsed = msUpdate?.valueText ? JSON.parse(msUpdate.valueText) : [];
+        if (Array.isArray(parsed)) {
+          next.milestones = parsed
+            .filter((m) => m && typeof m === "object")
+            .map((m: any) => ({
+              title: String(m.title || ""),
+              description: String(m.description || ""),
+              target_period: String(m.target_period || ""),
+              confidence: typeof m.confidence === "number" ? m.confidence : Number(m.confidence) || 0.6,
+            }));
+        }
+      } catch {
+        next.milestones = [];
+      }
+    }
+
+    setEditingGenericProposal(next);
+    setEditingProposal(null);
   }, []);
 
   const cancelProposalEditor = useCallback(() => setEditingProposal(null), []);
+  const cancelGenericProposalEditor = useCallback(() => setEditingGenericProposal(null), []);
 
   const submitProposalEdit = useCallback(async () => {
     const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
@@ -920,6 +1049,7 @@ export default function UnifiedConsultStep() {
             },
           ],
           proposal_id: editingProposal.proposalId,
+          apply_to_all_lobs: Boolean(proposalApplyAll[String(editingProposal.proposalId || "").trim()]),
           note: "ui_edit_accept",
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
@@ -941,7 +1071,97 @@ export default function UnifiedConsultStep() {
     } finally {
       setModelSaving(false);
     }
-  }, [draftId, editingProposal, syncNow]);
+  }, [draftId, editingProposal, proposalApplyAll, syncNow]);
+
+  const submitGenericProposalEdit = useCallback(async () => {
+    const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+    if (!effectiveDraftId) {
+      setDraftError("Missing draft id. Reload and start the intake again.");
+      return;
+    }
+    if (!editingGenericProposal) return;
+
+    const parseValue = (raw: string) => {
+      const t = String(raw || "").trim();
+      if (!t) return null;
+      if (t.startsWith("{") || t.startsWith("[")) {
+        try {
+          return JSON.parse(t);
+        } catch {
+          return t;
+        }
+      }
+      if (/^-?\d+(\.\d+)?$/.test(t.replace(/,/g, ""))) {
+        const n = Number(t.replace(/,/g, ""));
+        return Number.isFinite(n) ? n : t;
+      }
+      if (t === "true") return true;
+      if (t === "false") return false;
+      if (t === "null") return null;
+      return t;
+    };
+
+    const model = String(editingGenericProposal.model || "").trim().toLowerCase();
+    const updates = (editingGenericProposal.updates || []).filter((u) => u.key);
+    const derived = (editingGenericProposal.derived || []).filter((d) => d.key);
+    const updatesOut =
+      model === "milestones" && editingGenericProposal.milestones
+        ? updates.map((u) =>
+            u.key === "milestones"
+              ? { ...u, valueText: JSON.stringify(editingGenericProposal.milestones, null, 2) }
+              : u
+          )
+        : updates;
+
+    setModelSaving(true);
+    setDraftError(null);
+    try {
+      const res = await apiClient.post(
+        "/api/intake-consult/model-cards",
+        {
+          draft_id: effectiveDraftId,
+          action: "accept",
+          model: editingGenericProposal.model,
+          lob_key: editingGenericProposal.lobKey,
+          lob_name: editingGenericProposal.lobName || null,
+          updates: updatesOut.map((u) => ({
+            key: u.key,
+            value: parseValue(u.valueText),
+            unit: u.unit ?? null,
+            time_basis: u.time_basis ?? null,
+            rationale: u.rationale ?? null,
+          })),
+          derived: derived.map((d) => ({
+            key: d.key,
+            value: parseValue(d.valueText),
+            unit: d.unit ?? null,
+            time_basis: d.time_basis ?? null,
+            derivation: d.derivation ?? null,
+          })),
+          proposal_id: editingGenericProposal.proposalId,
+          apply_to_all_lobs: Boolean(proposalApplyAll[String(editingGenericProposal.proposalId || "").trim()]),
+          note: "ui_generic_edit_accept",
+        },
+        { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
+      );
+      if (res.status < 200 || res.status >= 300) {
+        const body: any = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Model update error: ${res.status} ${res.statusText}`
+        );
+      }
+      setEditingGenericProposal(null);
+      await syncNow();
+      window.setTimeout(() => chatInputRef.current?.focus(), 0);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : String(err));
+      await syncNow({ preserveError: true });
+    } finally {
+      setModelSaving(false);
+    }
+  }, [draftId, editingGenericProposal, proposalApplyAll, syncNow]);
 
   return (
     <Card className="border border-slate-800/80 bg-slate-950/60 shadow-soft" id="intake-section-unified">
@@ -1161,10 +1381,33 @@ export default function UnifiedConsultStep() {
                 <div className="text-[11px] text-slate-400">Pending proposals</div>
                 {modelProposals.map((p) => {
                   const title = p.title || `${p.model} proposal`;
-                  const lobLabel =
-                    p.lob_name || p.lob_key ? String(p.lob_name || p.lob_key || "").trim() : "";
-                  const monthly = (p.updates || []).find((u) => String(u.key) === "monthly_marketing_budget");
-                  const annual = (p.derived || []).find((d) => String(d.key) === "year1_marketing_spend");
+                  const modelKey = String(p.model || "").trim().toLowerCase();
+                  const updates = Array.isArray(p.updates) ? p.updates : [];
+                  const derived = Array.isArray(p.derived) ? p.derived : [];
+                  const isMultiLob = hasMultipleLobsForModel(modelKey);
+                  const lobLabelRaw = p.lob_name || p.lob_key ? String(p.lob_name || p.lob_key || "").trim() : "";
+                  const lobLabel = isMultiLob && String(p.lob_key || "") === "company_total" ? "All LOBs" : lobLabelRaw;
+                  const monthly = updates.find((u) => String(u.key) === "monthly_marketing_budget");
+                  const annual = derived.find((d) => String(d.key) === "year1_marketing_spend");
+                  const y1Payroll = derived.find((d) => String(d.key) === "year1_payroll");
+                  const msUpdate = updates.find((u) => String(u.key) === "milestones");
+                  const milestonesCount = Array.isArray(msUpdate?.value) ? (msUpdate?.value as any[]).length : null;
+                  const canApplyAll = Boolean(isMultiLob && modelKey !== "headcount" && updates.length === 1 && derived.length === 0);
+                  const applyAllChecked = Boolean(proposalApplyAll[p.id]);
+                  const summary =
+                    modelKey === "marketing"
+                      ? `${monthly?.value != null ? `Monthly: $${String(monthly.value)}` : ""}${
+                          annual?.value != null ? `${monthly?.value != null ? " | " : ""}Year 1: $${String(annual.value)}` : ""
+                        }`
+                      : modelKey === "milestones"
+                        ? milestonesCount != null
+                          ? `${milestonesCount} milestone${milestonesCount === 1 ? "" : "s"} proposed`
+                          : `${updates.length} driver${updates.length === 1 ? "" : "s"}`
+                        : y1Payroll?.value != null
+                          ? `Year 1 payroll: $${String(y1Payroll.value)}`
+                          : derived.length
+                            ? `${derived.length} derived`
+                            : `${updates.length} driver${updates.length === 1 ? "" : "s"}`;
                   return (
                     <div key={p.id} className="rounded-md border border-slate-800/70 bg-slate-950/40 p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1173,12 +1416,22 @@ export default function UnifiedConsultStep() {
                             {title}
                             {lobLabel ? <span className="text-slate-500">{` - ${lobLabel}`}</span> : null}
                           </div>
-                          <div className="mt-1 text-[11px] text-slate-400">
-                            {monthly?.value != null ? `Monthly: $${String(monthly.value)}` : null}
-                            {annual?.value != null ? ` | Year 1: $${String(annual.value)}` : null}
-                          </div>
+                          {summary ? <div className="mt-1 text-[11px] text-slate-400">{summary}</div> : null}
                         </div>
                         <div className="flex items-center gap-2">
+                          {canApplyAll ? (
+                            <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                              <input
+                                type="checkbox"
+                                checked={applyAllChecked}
+                                onChange={(e) =>
+                                  setProposalApplyAll((prev) => ({ ...prev, [p.id]: Boolean(e.target.checked) }))
+                                }
+                                disabled={modelSaving}
+                              />
+                              <span>Apply to all LOBs</span>
+                            </label>
+                          ) : null}
                           <Button
                             type="button"
                             size="sm"
@@ -1194,7 +1447,7 @@ export default function UnifiedConsultStep() {
                         </div>
                       </div>
 
-                      {editingProposal?.proposalId === p.id ? (
+                      {modelKey === "marketing" && editingProposal?.proposalId === p.id ? (
                         <div className="mt-3 grid gap-2 md:grid-cols-3">
                           <Input
                             value={editingProposal.monthlyBudget}
@@ -1242,6 +1495,211 @@ export default function UnifiedConsultStep() {
                           </div>
                         </div>
                       ) : null}
+
+                      {modelKey !== "marketing" && editingGenericProposal?.proposalId === p.id ? (
+                        <div className="mt-3 space-y-3">
+                          {modelKey === "milestones" ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-slate-400">Milestones</div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={modelSaving}
+                                  onClick={() =>
+                                    setEditingGenericProposal((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            milestones: [
+                                              ...(prev.milestones || []),
+                                              { title: "", description: "", target_period: "", confidence: 0.6 },
+                                            ],
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                >
+                                  Add
+                                </Button>
+                              </div>
+                              {(editingGenericProposal.milestones || []).map((m, idx) => (
+                                <div key={idx} className="grid gap-2 rounded-md border border-slate-800/70 bg-slate-950/30 p-2 md:grid-cols-3">
+                                  <Input
+                                    value={m.title}
+                                    onChange={(e) =>
+                                      setEditingGenericProposal((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              milestones: (prev.milestones || []).map((x, i) =>
+                                                i === idx ? { ...x, title: e.target.value } : x
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    placeholder="Title"
+                                    disabled={modelSaving}
+                                  />
+                                  <Input
+                                    value={m.target_period}
+                                    onChange={(e) =>
+                                      setEditingGenericProposal((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              milestones: (prev.milestones || []).map((x, i) =>
+                                                i === idx ? { ...x, target_period: e.target.value } : x
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    placeholder="Target period (e.g., within 6 months)"
+                                    disabled={modelSaving}
+                                  />
+                                  <Input
+                                    value={String(m.confidence ?? 0.6)}
+                                    onChange={(e) => {
+                                      const raw = Number(String(e.target.value || "").trim());
+                                      const next = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.6;
+                                      setEditingGenericProposal((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              milestones: (prev.milestones || []).map((x, i) =>
+                                                i === idx ? { ...x, confidence: next } : x
+                                              ),
+                                            }
+                                          : prev
+                                      );
+                                    }}
+                                    placeholder="Confidence (0–1)"
+                                    disabled={modelSaving}
+                                  />
+                                  <textarea
+                                    className="md:col-span-3 w-full resize-none rounded-md border border-slate-800/70 bg-slate-950/40 p-2 text-xs text-slate-100"
+                                    rows={2}
+                                    value={m.description}
+                                    onChange={(e) =>
+                                      setEditingGenericProposal((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              milestones: (prev.milestones || []).map((x, i) =>
+                                                i === idx ? { ...x, description: e.target.value } : x
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    placeholder="Description (optional)"
+                                    disabled={modelSaving}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="text-[11px] text-slate-400">Driver updates</div>
+                              {(editingGenericProposal.updates || []).map((u, idx) => {
+                                const v = String(u.valueText ?? "");
+                                const useTextarea = v.startsWith("{") || v.startsWith("[") || v.length > 80;
+                                return (
+                                  <div key={`${u.key}:${idx}`} className="grid gap-2 md:grid-cols-3">
+                                    <div className="text-[11px] text-slate-500 md:col-span-1">{u.key}</div>
+                                    {useTextarea ? (
+                                      <textarea
+                                        className="md:col-span-2 w-full resize-none rounded-md border border-slate-800/70 bg-slate-950/40 p-2 text-xs text-slate-100"
+                                        rows={3}
+                                        value={v}
+                                        onChange={(e) =>
+                                          setEditingGenericProposal((prev) =>
+                                            prev
+                                              ? {
+                                                  ...prev,
+                                                  updates: (prev.updates || []).map((x, i) =>
+                                                    i === idx ? { ...x, valueText: e.target.value } : x
+                                                  ),
+                                                }
+                                              : prev
+                                          )
+                                        }
+                                        disabled={modelSaving}
+                                      />
+                                    ) : (
+                                      <Input
+                                        className="md:col-span-2"
+                                        value={v}
+                                        onChange={(e) =>
+                                          setEditingGenericProposal((prev) =>
+                                            prev
+                                              ? {
+                                                  ...prev,
+                                                  updates: (prev.updates || []).map((x, i) =>
+                                                    i === idx ? { ...x, valueText: e.target.value } : x
+                                                  ),
+                                                }
+                                              : prev
+                                          )
+                                        }
+                                        disabled={modelSaving}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {(editingGenericProposal.derived || []).length ? (
+                                <div className="pt-1 text-[11px] text-slate-400">Derived (optional)</div>
+                              ) : null}
+                              {(editingGenericProposal.derived || []).map((d, idx) => (
+                                <div key={`${d.key}:${idx}`} className="grid gap-2 md:grid-cols-3">
+                                  <div className="text-[11px] text-slate-500 md:col-span-1">{d.key}</div>
+                                  <Input
+                                    className="md:col-span-2"
+                                    value={String(d.valueText ?? "")}
+                                    onChange={(e) =>
+                                      setEditingGenericProposal((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              derived: (prev.derived || []).map((x, i) =>
+                                                i === idx ? { ...x, valueText: e.target.value } : x
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    disabled={modelSaving}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={modelSaving}
+                              onClick={cancelGenericProposalEditor}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={modelSaving}
+                              onClick={() => void submitGenericProposalEdit()}
+                            >
+                              Save & Accept
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1275,7 +1733,12 @@ export default function UnifiedConsultStep() {
                   <div className="mt-2 space-y-2">
                     {driverKeys.map((driverKey) => {
                       const driver = drivers[driverKey] || {};
-                      const displayValue = driver.value == null ? "" : String(driver.value);
+                      const displayValue =
+                        driver.value == null
+                          ? ""
+                          : typeof driver.value === "object"
+                            ? JSON.stringify(driver.value)
+                            : String(driver.value);
                       const suffix = [driver.unit, driver.time_basis].filter(Boolean).join(" / ");
                       const isEditing =
                         Boolean(editingDriver) &&
@@ -1311,14 +1774,35 @@ export default function UnifiedConsultStep() {
 
                           {isEditing ? (
                             <div className="mt-2 grid gap-2 md:grid-cols-4">
-                              <Input
-                                value={editingDriver?.value ?? ""}
-                                onChange={(e) =>
-                                  setEditingDriver((prev) => (prev ? { ...prev, value: e.target.value } : prev))
+                              {(() => {
+                                const v = String(editingDriver?.value ?? "");
+                                const useTextarea = v.trim().startsWith("{") || v.trim().startsWith("[") || v.length > 80;
+                                if (useTextarea) {
+                                  return (
+                                    <textarea
+                                      className="md:col-span-4 w-full resize-none rounded-md border border-slate-800/70 bg-slate-950/40 p-2 text-xs text-slate-100"
+                                      rows={3}
+                                      value={v}
+                                      onChange={(e) =>
+                                        setEditingDriver((prev) => (prev ? { ...prev, value: e.target.value } : prev))
+                                      }
+                                      placeholder="Value (JSON supported)"
+                                      disabled={modelSaving}
+                                    />
+                                  );
                                 }
-                                placeholder="Value"
-                                disabled={modelSaving}
-                              />
+                                return (
+                                  <Input
+                                    className="md:col-span-4"
+                                    value={v}
+                                    onChange={(e) =>
+                                      setEditingDriver((prev) => (prev ? { ...prev, value: e.target.value } : prev))
+                                    }
+                                    placeholder="Value"
+                                    disabled={modelSaving}
+                                  />
+                                );
+                              })()}
                               <Input
                                 value={editingDriver?.unit ?? ""}
                                 onChange={(e) =>
@@ -1335,7 +1819,7 @@ export default function UnifiedConsultStep() {
                                 placeholder="time_basis (optional)"
                                 disabled={modelSaving}
                               />
-                              <div className="flex items-center justify-end gap-2 md:col-span-1">
+                              <div className="flex items-center justify-end gap-2 md:col-span-2">
                                 <Button type="button" size="sm" variant="secondary" disabled={modelSaving} onClick={cancelDriverEditor}>
                                   Cancel
                                 </Button>

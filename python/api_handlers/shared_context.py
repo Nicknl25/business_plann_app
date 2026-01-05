@@ -45,6 +45,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
       "marketing": _parse_json_maybe(consult.get("marketing_model_json")),
       "pricing": _parse_json_maybe(consult.get("pricing_model_json")),
       "headcount": _parse_json_maybe(consult.get("headcount_model_json")),
+      "milestones": _parse_json_maybe(consult.get("milestones_model_json")),
       "year1_rollups": {
         "year1_revenue": consult.get("year1_revenue"),
         "year1_marketing_spend": consult.get("year1_marketing_spend"),

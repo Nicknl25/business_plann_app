@@ -252,6 +252,7 @@ def post_financials_handler(*, app, request):
       "marketing_model_json",
       "pricing_model_json",
       "headcount_model_json",
+      "milestones_model_json",
       "driver_events_json",
       "driver_revision_nonce",
       "year1_revenue",
@@ -267,6 +268,53 @@ def post_financials_handler(*, app, request):
     # If year1_revenue isn't explicitly set, default it to starting_revenue for query-friendly rollups.
     if payload.get("year1_revenue") in (None, ""):
       payload["year1_revenue"] = payload.get("starting_revenue")
+
+    # Backwards-compatible milestone snapshot: if legacy milestones are missing but a milestones model card exists,
+    # derive a simple [{description, timing}] list so existing pipelines keep working.
+    if payload.get("milestones") in (None, "", []):
+      try:
+        import json as _json
+
+        raw_card = payload.get("milestones_model_json") or draft.get("milestones_model_json")
+        card = raw_card if isinstance(raw_card, dict) else (_json.loads(str(raw_card)) if raw_card else {})
+        lobs = card.get("lobs") if isinstance(card, dict) else None
+        if isinstance(lobs, list):
+          # Prefer company_total; otherwise use all non-company lobs.
+          company = next(
+            (
+              l
+              for l in lobs
+              if isinstance(l, dict) and str(l.get("lob_key") or "").strip() == "company_total"
+            ),
+            None,
+          )
+          selected = [company] if isinstance(company, dict) else [
+            l
+            for l in lobs
+            if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
+          ]
+          out = []
+          for lob in selected:
+            drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+            ms = drivers.get("milestones")
+            if not isinstance(ms, dict):
+              continue
+            items = ms.get("value")
+            if not isinstance(items, list):
+              continue
+            for m in items:
+              if not isinstance(m, dict):
+                continue
+              title = str(m.get("title") or "").strip()
+              timing = str(m.get("target_period") or "").strip()
+              desc = str(m.get("description") or "").strip()
+              if not title or not timing:
+                continue
+              out.append({"description": f"{title}: {desc}".strip(": ").strip(), "timing": timing})
+          if out:
+            payload["milestones"] = out
+      except Exception:
+        pass
 
     # Hard guard: intake_submissions must never store unresolved fact templates.
     for field in ("business_description_summary", "target_market_summary", "key_people_summary"):

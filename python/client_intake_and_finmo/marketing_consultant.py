@@ -20,7 +20,7 @@ def marketing_chat_turn(*, intake_context: Dict[str, Any], conversation_messages
   parts = []
   if annual is not None and monthly is not None:
     parts.append(
-      f"I'm going to propose a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture.\n\n"
+      "I'm going to propose a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture.\n\n"
       f"Proposed marketing budget:\n"
       f"- Year 1: ${annual:,.0f}\n"
       f"- Monthly equivalent: ${monthly:,.0f}\n"

@@ -225,6 +225,7 @@ def insert_intake_submission(
     "marketing_model_json",
     "pricing_model_json",
     "headcount_model_json",
+    "milestones_model_json",
     "driver_events_json",
     "driver_revision_nonce",
     "year1_revenue",

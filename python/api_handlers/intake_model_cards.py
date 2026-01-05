@@ -102,6 +102,7 @@ def _model_column(model: str) -> Optional[str]:
     "marketing": "marketing_model_json",
     "pricing": "pricing_model_json",
     "headcount": "headcount_model_json",
+    "milestones": "milestones_model_json",
   }
   return mapping.get(norm)
 
@@ -112,7 +113,7 @@ def _focus_for_model(model: str) -> Optional[str]:
     return "market"
   if norm in ("headcount",):
     return "people"
-  if norm in ("ops_concept", "fulfillment"):
+  if norm in ("ops_concept", "fulfillment", "milestones"):
     return "ops"
   return None
 
@@ -216,8 +217,31 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
   people = _parse_json_dict(draft.get("people_json"))
   financials = _parse_json_dict(draft.get("financials_json"))
   marketing = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("marketing_model_json"))))
+  milestones = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("milestones_model_json"))))
+  headcount = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("headcount_model_json"))))
 
-  ops_ready = _has_nonempty_text(operating_model, "business_description_summary")
+  def _milestones_ready(card: Dict[str, Any]) -> bool:
+    try:
+      lobs = card.get("lobs")
+      if not isinstance(lobs, list) or not lobs:
+        return False
+      non_company = [
+        lob for lob in lobs if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+        ms = drivers.get("milestones")
+        if not isinstance(ms, dict):
+          return False
+        val = ms.get("value")
+        if not isinstance(val, list) or not any(isinstance(x, dict) and str(x.get("title") or "").strip() for x in val):
+          return False
+      return True
+    except Exception:
+      return False
+
+  ops_ready = _has_nonempty_text(operating_model, "business_description_summary") and _milestones_ready(milestones)
   market_summary_ready = _has_nonempty_text(target_market, "target_market_summary")
   marketing_ready = False
   try:
@@ -238,6 +262,25 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
     marketing_ready = False
   market_ready = market_summary_ready and marketing_ready
   people_ready = _has_nonempty_text(people, "key_people_summary")
+  if people_ready:
+    try:
+      lobs = headcount.get("lobs")
+      if not isinstance(lobs, list) or not lobs:
+        people_ready = False
+      else:
+        non_company = [
+          lob for lob in lobs if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+        ]
+        requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+        for lob in requires:
+          dmap = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+          y1 = dmap.get("year1_payroll")
+          ok = isinstance(y1, dict) and bool(str(y1.get("value") or "").strip())
+          if not ok:
+            people_ready = False
+            break
+    except Exception:
+      people_ready = False
   financials_ready = _has_nonempty_text(financials, "financials_summary")
 
   if not ops_ready:
@@ -306,6 +349,9 @@ def _apply_updates(
       for d in derived:
         key = str(d.get("key") or "").strip()
         if not key:
+          continue
+        # Headcount: ignore client-provided year1_payroll derived; it is computed from roles.
+        if str(model or "").strip().lower() == "headcount" and key == "year1_payroll":
           continue
         old = derived_map.get(key)
         next_val = {
@@ -395,6 +441,99 @@ def _recompute_company_total_derived(card: Dict[str, Any], *, model: str, now_ms
   return normalized
 
 
+def _recompute_headcount_from_roles(
+  *,
+  conn,
+  draft: Dict[str, Any],
+  card: Dict[str, Any],
+  now_ms: int,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+  """
+  Deterministically enrich headcount roles using the IN wages dataset (when available),
+  falling back to GPT-proposed fallback rates when no dataset match exists, then compute year1_payroll.
+  """
+  changes: List[Dict[str, Any]] = []
+  normalized = _ensure_company_total_lob(_normalize_model_card(card))
+  lobs = normalized.get("lobs")
+  if not isinstance(lobs, list) or not lobs:
+    return normalized, changes
+
+  try:
+    from wage_lookup import enrich_headcount_roles, normalize_state_code  # type: ignore
+  except Exception:
+    return normalized, changes
+
+  state_code = normalize_state_code(draft.get("address_state"))
+  naics_6: Optional[str] = None
+  try:
+    ops_json = _parse_json_dict(draft.get("operating_model_json"))
+    naics_6 = _resolve_naics_6(conn=conn, business_type=str((ops_json or {}).get("business_type") or ""))
+  except Exception:
+    naics_6 = None
+
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+    roles_val = drivers.get("roles")
+    if not isinstance(roles_val, dict):
+      continue
+    roles_list = roles_val.get("value")
+    if not isinstance(roles_list, list):
+      continue
+
+    enriched, total = enrich_headcount_roles(
+      conn=conn,
+      roles=roles_list,
+      state_code=state_code,
+      state_name=None,
+      naics_6=naics_6,
+    )
+    incomplete = any(
+      (isinstance(r, dict) and int(r.get("employee_count") or 0) > 0 and r.get("hourly_rate") is None)
+      for r in enriched
+    )
+
+    old_roles = roles_val.get("value")
+    roles_val["value"] = enriched
+    roles_val["updated_at_ms"] = now_ms
+    drivers["roles"] = roles_val
+    lob["drivers"] = drivers
+    changes.append(
+      {
+        "model": "headcount",
+        "lob_key": str(lob.get("lob_key") or "").strip() or "company_total",
+        "path": "drivers.roles.value",
+        "old": old_roles,
+        "new": enriched,
+      }
+    )
+
+    derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+    old_y1 = derived.get("year1_payroll")
+    derived["year1_payroll"] = {
+      "value": (float(total) if (not incomplete) else None),
+      "unit": "USD",
+      "time_basis": "year",
+      "derivation": "sum(employee_count × hourly_rate × hours_per_week × weeks_per_year)",
+      "updated_at_ms": now_ms,
+    }
+    lob["derived"] = derived
+    changes.append(
+      {
+        "model": "headcount",
+        "lob_key": str(lob.get("lob_key") or "").strip() or "company_total",
+        "path": "derived.year1_payroll",
+        "old": old_y1,
+        "new": derived.get("year1_payroll"),
+      }
+    )
+
+  normalized["updated_at_ms"] = now_ms
+  normalized = _recompute_company_total_derived(normalized, model="headcount", now_ms=now_ms)
+  return normalized, changes
+
+
 def post_intake_model_cards_handler(*, app, request):
   """
   Persist model-card driver updates (Accept/Edit) to the consult draft immediately.
@@ -425,7 +564,7 @@ def post_intake_model_cards_handler(*, app, request):
       jsonify(
         {
           "error": "invalid_request",
-          "detail": "model must be one of: ops_concept, fulfillment, marketing, pricing, headcount",
+          "detail": "model must be one of: ops_concept, fulfillment, marketing, pricing, headcount, milestones",
         }
       ),
       400,
@@ -473,6 +612,15 @@ def post_intake_model_cards_handler(*, app, request):
       lob_name=lob_name,
       apply_to_all_lobs=apply_to_all_lobs,
     )
+
+    # Deterministic headcount math: enrich roles (dataset/fallback) + compute year1_payroll.
+    if model == "headcount":
+      touched_roles = any(str(u.get("key") or "").strip() == "roles" for u in updates)
+      if touched_roles:
+        next_card, extra_changes = _recompute_headcount_from_roles(
+          conn=conn, draft=draft, card=next_card, now_ms=now_ms
+        )
+        changes.extend(extra_changes)
 
     try:
       current_nonce = int(draft.get("driver_revision_nonce") or 0)
@@ -562,6 +710,7 @@ def post_intake_model_cards_handler(*, app, request):
       "marketing_model_json": "marketing_model_json",
       "pricing_model_json": "pricing_model_json",
       "headcount_model_json": "headcount_model_json",
+      "milestones_model_json": "milestones_model_json",
     }
     card_param = card_param_by_column.get(column)
     if card_param:
@@ -597,6 +746,8 @@ def post_intake_model_cards_handler(*, app, request):
       from intake_consultant import consultant_chat_turn  # type: ignore
       from target_market_consultant import target_market_chat_turn  # type: ignore
       from marketing_consultant import marketing_chat_turn  # type: ignore
+      from milestones_consultant import milestones_chat_turn  # type: ignore
+      from headcount_consultant import headcount_chat_turn  # type: ignore
       from people_capability_consultant import people_capability_chat_turn  # type: ignore
       from financials_consultant import financials_chat_turn  # type: ignore
 
@@ -628,7 +779,38 @@ def post_intake_model_cards_handler(*, app, request):
 
       turn: Dict[str, Any] = {"assistant_message": ""}
       if next_focus == "ops":
-        turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
+        operating_model = _parse_json_dict(fresh.get("operating_model_json"))
+        milestones_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("milestones_model_json"))))
+        milestones_pending = True
+        try:
+          lobs = milestones_card.get("lobs")
+          if isinstance(lobs, list) and lobs:
+            non_company = [
+              l for l in lobs if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
+            ]
+            requires = non_company if non_company else [l for l in lobs if isinstance(l, dict)]
+            milestones_pending = any(
+              not (
+                isinstance((lob.get("drivers") if isinstance(lob, dict) else None), dict)
+                and isinstance(((lob.get("drivers") or {}).get("milestones")), dict)
+                and isinstance((((lob.get("drivers") or {}).get("milestones") or {}).get("value")), list)
+                and any(
+                  isinstance(x, dict) and bool(str(x.get("title") or "").strip())
+                  for x in (((lob.get("drivers") or {}).get("milestones") or {}).get("value") or [])
+                )
+              )
+              for lob in requires
+            )
+        except Exception:
+          milestones_pending = True
+
+        if _has_nonempty_text(operating_model, "business_description_summary") and milestones_pending:
+          turn = milestones_chat_turn(
+            intake_context={**intake_context, "milestones_suggestions": []},
+            conversation_messages=conversation_messages,
+          )
+        else:
+          turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
       elif next_focus == "market":
         target_market = _parse_json_dict(fresh.get("target_market_json"))
         marketing = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("marketing_model_json"))))
@@ -663,7 +845,116 @@ def post_intake_model_cards_handler(*, app, request):
         else:
           turn = target_market_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
       elif next_focus == "people":
-        turn = people_capability_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
+        people = _parse_json_dict(fresh.get("people_json"))
+        headcount = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("headcount_model_json"))))
+        headcount_pending = True
+        try:
+          lobs = headcount.get("lobs")
+          if isinstance(lobs, list) and lobs:
+            non_company = [
+              l for l in lobs if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
+            ]
+            requires = non_company if non_company else [l for l in lobs if isinstance(l, dict)]
+            headcount_pending = any(
+              not (
+                isinstance((lob.get("derived") if isinstance(lob, dict) else None), dict)
+                and isinstance(((lob.get("derived") or {}).get("year1_payroll")), dict)
+                and bool(str((((lob.get("derived") or {}).get("year1_payroll") or {}).get("value")) or "").strip())
+              )
+              for lob in requires
+            )
+        except Exception:
+          headcount_pending = True
+
+        if _has_nonempty_text(people, "key_people_summary") and headcount_pending:
+          # Ensure at least one headcount proposal exists; propose if missing.
+          proposals_now = _parse_json_list(fresh.get("model_card_proposals_json"))
+          if not any(isinstance(p, dict) and p.get("model") == "headcount" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_headcount_suggestions  # type: ignore
+              from wage_lookup import enrich_headcount_roles, normalize_state_code  # type: ignore
+
+              ops_json = _parse_json_dict(fresh.get("operating_model_json"))
+              naics_6_live = _resolve_naics_6(
+                conn=conn, business_type=str((ops_json or {}).get("business_type") or "")
+              )
+              state_code = normalize_state_code(fresh.get("address_state"))
+              lobs_in = []
+              try:
+                raw_lobs = headcount.get("lobs")
+                if isinstance(raw_lobs, list):
+                  for l in raw_lobs:
+                    if isinstance(l, dict):
+                      lobs_in.append(
+                        {
+                          "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                          "lob_name": str(l.get("lob_name") or "").strip(),
+                        }
+                      )
+              except Exception:
+                lobs_in = []
+              suggested = propose_headcount_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((ops_json or {}).get("business_type") or "").strip(),
+                naics_6=naics_6_live,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=ops_json,
+                people_json=people,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                roles = s.get("roles")
+                if not isinstance(roles, list) or not roles:
+                  continue
+                roles_enriched, total = enrich_headcount_roles(
+                  conn=conn, roles=roles, state_code=state_code, state_name=None, naics_6=naics_6_live
+                )
+                proposal_id = f"hc_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "headcount",
+                    "title": "Headcount (Year 1 payroll)",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": [
+                      {
+                        "key": "roles",
+                        "value": roles_enriched,
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": str(s.get("basis") or "").strip()
+                        or "Proposed Year‑1 staffing plan; edit roles/counts as needed.",
+                      }
+                    ],
+                    "derived": [
+                      {
+                        "key": "year1_payroll",
+                        "value": float(total),
+                        "unit": "USD",
+                        "time_basis": "year",
+                        "derivation": "sum(employee_count × hourly_rate × hours_per_week × weeks_per_year)",
+                      }
+                    ],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+
+          turn = headcount_chat_turn(
+            intake_context={**intake_context, "headcount_suggestions": []},
+            conversation_messages=conversation_messages,
+          )
+        else:
+          turn = people_capability_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
       elif next_focus == "financials":
         turn = financials_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
 
