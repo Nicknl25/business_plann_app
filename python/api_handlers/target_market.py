@@ -192,9 +192,6 @@ def post_target_market_consult_handler(*, app, request):
     return cleaned
 
   def _validate_final(final_obj: Dict[str, Any], mapping_rows: List[Dict[str, Any]], consumer_type: str) -> None:
-    if not str(final_obj.get("target_market_summary") or "").strip():
-      raise RuntimeError("Final target market JSON missing target_market_summary.")
-
     conf = final_obj.get("confidence")
     try:
       conf_val = float(conf)
@@ -378,7 +375,7 @@ def post_target_market_consult_handler(*, app, request):
       return []
 
     # Anchor the requested range to the closest bucket boundaries using min_value/max_value.
-    # For example, if a user says 19–58, choose min=18 (closest <=19) and max=59 (closest >=58),
+    # For example, if a user says 19-58, choose min=18 (closest <=19) and max=59 (closest >=58),
     # then include every bucket overlapping that anchored range.
     lower_min_candidates = [v for v in min_candidates if v <= range_min]
     anchor_min = max(lower_min_candidates) if lower_min_candidates else min(min_candidates)
@@ -444,8 +441,8 @@ def post_target_market_consult_handler(*, app, request):
           history_for_router = []
 
         if starting:
-          summary = str(baseline_target_market.get("target_market_summary") or "").strip()
-          assistant_message = (summary or "Target market intake complete.").strip()
+          # Summaries are deprecated; do not show target_market_summary.
+          assistant_message = "Target market intake complete."
           try:
             import re
 
@@ -498,11 +495,9 @@ def post_target_market_consult_handler(*, app, request):
               k: (sanitize_fact_template(v) if isinstance(v, str) else v)
               for k, v in updated_target_market.items()
             }
-
-            summary_for_ui = str(updated_target_market.get("target_market_summary") or "").strip()
-            ack = assistant_message or "Got it."
-            assistant_message = f"{ack}\n\n{summary_for_ui}".strip()
-            assistant_message = sanitize_fact_template(assistant_message)
+            # Summaries are deprecated; keep the chat response short and rely on structured fields.
+            updated_target_market["target_market_summary"] = None
+            assistant_message = sanitize_fact_template(assistant_message or "Updated target market drivers.")
           else:
             action = "answer_readonly"
             assistant_message = sanitize_fact_template(assistant_message)
@@ -568,7 +563,7 @@ def post_target_market_consult_handler(*, app, request):
         "address_state": payload.get("address_state"),
         "address_zip": payload.get("address_zip"),
         "address_country": payload.get("address_country"),
-        "business_description_summary": operating_model.get("business_description_summary"),
+        "business_description_summary": None,
         "unit_name": operating_model.get("unit_name"),
         "unit_description": operating_model.get("unit_description"),
         "unit_price": operating_model.get("unit_price"),
@@ -627,7 +622,7 @@ def post_target_market_consult_handler(*, app, request):
             if "all ages" in content or "all age" in content:
               last_age_intent = "all"
               continue
-            if re.search(r"\b\d{1,3}\s*(?:-|â€“|to)\s*\d{1,3}\b", content):
+            if re.search(r"\b\d{1,3}\s*(?:-|\\u2013|to)\s*\d{1,3}\b", content):
               last_age_intent = "range"
           return last_age_intent == "all"
 
@@ -837,9 +832,8 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_size"] = ",".join([v for v in size_order if v in size_set])
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
-        assistant_message = sanitize_fact_template(str(final_obj.get("assistant_message") or "").strip()) or (
-          str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
-        )
+        # Summaries are deprecated; do not show or persist target_market_summary.
+        assistant_message = "Target market intake complete."
         try:
           import re
 
@@ -855,6 +849,7 @@ def post_target_market_consult_handler(*, app, request):
             final_obj[k] = sanitize_fact_template(v)
         final_obj.pop("assistant_message", None)
         final_obj.pop("turn_outcome", None)
+        final_obj["target_market_summary"] = None
         assistant_message = sanitize_fact_template(assistant_message)
 
         assistant_msg = {"role": "assistant", "content": assistant_message}
@@ -952,8 +947,8 @@ def post_target_market_consult_handler(*, app, request):
               last_age_intent = "all"
               continue
 
-            # Detect a numeric age range like "18-45", "18–45", "18 to 45", etc.
-            if re.search(r"\b\d{1,3}\s*(?:-|–|to)\s*\d{1,3}\b", content):
+            # Detect a numeric age range like "18-45" or "18 to 45", etc.
+            if re.search(r"\b\d{1,3}\s*(?:-|\u2013|to)\s*\d{1,3}\b", content):
               last_age_intent = "range"
 
           return last_age_intent == "all"
@@ -1172,9 +1167,8 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
         done = True
-        assistant_message = summary_text or (
-          str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
-        )
+        # Summaries are deprecated; do not show or persist target_market_summary.
+        assistant_message = "Target market intake complete."
         try:
           import re
 
@@ -1188,6 +1182,7 @@ def post_target_market_consult_handler(*, app, request):
         from fact_templates import sanitize_fact_template  # type: ignore
 
         assistant_message = sanitize_fact_template(assistant_message)
+        final_obj["target_market_summary"] = None
 
         assistant_msg_final = {"role": "assistant", "content": assistant_message}
         append_messages(

@@ -949,45 +949,57 @@ export default function UnifiedConsultStep() {
     const updates = Array.isArray(proposal.updates) ? proposal.updates : [];
     const derived = Array.isArray(proposal.derived) ? proposal.derived : [];
 
-    const next: any = {
-      proposalId: proposal.id,
-      model: proposal.model,
-      lobKey: proposal.lob_key || "company_total",
-      lobName: proposal.lob_name ? String(proposal.lob_name) : "",
-      updates: updates.map((u: any) => ({
-        key: String(u.key || "").trim(),
-        valueText: toText(u.value),
-        unit: u.unit == null ? null : String(u.unit),
-        time_basis: u.time_basis == null ? null : String(u.time_basis),
-        rationale: u.rationale == null ? null : String(u.rationale),
-      })),
-      derived: derived.map((d: any) => ({
-        key: String(d.key || "").trim(),
-        valueText: toText(d.value),
-        unit: d.unit == null ? null : String(d.unit),
-        time_basis: d.time_basis == null ? null : String(d.time_basis),
-        derivation: d.derivation == null ? null : String(d.derivation),
-      })),
-    };
+      const next: any = {
+        proposalId: proposal.id,
+        model: proposal.model,
+        lobKey: proposal.lob_key || "company_total",
+        lobName: proposal.lob_name ? String(proposal.lob_name) : "",
+        updates: updates.map((u: any) => ({
+          key: String(u.key || "").trim(),
+          value: u.value ?? null,
+          valueText: toText(u.value),
+          unit: u.unit == null ? null : String(u.unit),
+          time_basis: u.time_basis == null ? null : String(u.time_basis),
+          rationale: u.rationale == null ? null : String(u.rationale),
+        })),
+        derived: derived.map((d: any) => ({
+          key: String(d.key || "").trim(),
+          value: d.value ?? null,
+          valueText: toText(d.value),
+          unit: d.unit == null ? null : String(d.unit),
+          time_basis: d.time_basis == null ? null : String(d.time_basis),
+          derivation: d.derivation == null ? null : String(d.derivation),
+        })),
+      };
 
-    if (model === "milestones") {
-      const msUpdate = (next.updates || []).find((u: any) => u.key === "milestones");
-      try {
-        const parsed = msUpdate?.valueText ? JSON.parse(msUpdate.valueText) : [];
-        if (Array.isArray(parsed)) {
-          next.milestones = parsed
-            .filter((m) => m && typeof m === "object")
-            .map((m: any) => ({
-              title: String(m.title || ""),
-              description: String(m.description || ""),
-              target_period: String(m.target_period || ""),
-              confidence: typeof m.confidence === "number" ? m.confidence : Number(m.confidence) || 0.6,
-            }));
+      if (model === "milestones") {
+        const msUpdate = (next.updates || []).find((u: any) => u.key === "milestones");
+        try {
+          const parsedRaw =
+            msUpdate?.valueText && String(msUpdate.valueText).trim()
+              ? JSON.parse(msUpdate.valueText)
+              : Array.isArray(msUpdate?.value) || (msUpdate?.value && typeof msUpdate.value === "object")
+                ? msUpdate.value
+                : [];
+          const parsed = Array.isArray(parsedRaw)
+            ? parsedRaw
+            : typeof parsedRaw === "string" && String(parsedRaw).trim().startsWith("[")
+              ? JSON.parse(parsedRaw)
+              : [];
+          if (Array.isArray(parsed)) {
+            next.milestones = parsed
+              .filter((m) => m && typeof m === "object")
+              .map((m: any) => ({
+                title: String(m.title || ""),
+                description: String(m.description || ""),
+                target_period: String(m.target_period || ""),
+                confidence: typeof m.confidence === "number" ? m.confidence : Number(m.confidence) || 0.6,
+              }));
+          }
+        } catch {
+          next.milestones = [];
         }
-      } catch {
-        next.milestones = [];
       }
-    }
 
     setEditingGenericProposal(next);
     setEditingProposal(null);

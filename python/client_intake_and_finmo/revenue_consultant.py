@@ -64,7 +64,7 @@ def revenue_chat_turn(*, intake_context: Dict[str, Any], conversation_messages: 
 
   parts = [
     "I'm going to propose a simple Year-1 revenue model so we can sanity-check the Year-1 picture.",
-    "You won't need to invent numbers from scratch — you can Accept or Edit the assumptions (edits recompute immediately).",
+    "You won't need to invent numbers from scratch - you can Accept or Edit the assumptions (edits recompute immediately).",
   ]
 
   def _card_has_any_drivers(card: Dict[str, Any]) -> bool:

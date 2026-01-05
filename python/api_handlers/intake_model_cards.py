@@ -620,10 +620,6 @@ def _recompute_headcount_from_roles(
       state_name=None,
       naics_6=naics_6,
     )
-    incomplete = any(
-      (isinstance(r, dict) and int(r.get("employee_count") or 0) > 0 and r.get("hourly_rate") is None)
-      for r in enriched
-    )
 
     old_roles = roles_val.get("value")
     roles_val["value"] = enriched
@@ -643,10 +639,10 @@ def _recompute_headcount_from_roles(
     derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
     old_y1 = derived.get("year1_payroll")
     derived["year1_payroll"] = {
-      "value": (float(total) if (not incomplete) else None),
+      "value": float(total),
       "unit": "USD",
       "time_basis": "year",
-      "derivation": "sum(employee_count × hourly_rate × hours_per_week × weeks_per_year)",
+      "derivation": "sum(employee_count x hourly_rate x hours_per_week x weeks_per_year)",
       "updated_at_ms": now_ms,
     }
     lob["derived"] = derived
@@ -825,6 +821,60 @@ def _recompute_revenue_from_drivers(
   return normalized, ops_json, pricing_card, (float(company_total_y1) if company_total_has else None)
 
 
+def _recompute_marketing_from_drivers(*, marketing_card: Dict[str, Any], now_ms: int) -> Dict[str, Any]:
+  """
+  Deterministically compute year1_marketing_spend from monthly_marketing_budget for each LOB,
+  then (for multi-LOB) keep company_total derived as a simple sum.
+  """
+  normalized = _ensure_company_total_lob(_normalize_model_card(marketing_card))
+  lobs = normalized.get("lobs")
+  if not isinstance(lobs, list) or not lobs:
+    return normalized
+
+  def _get_num(drivers: Dict[str, Any], key: str) -> Optional[float]:
+    dv = drivers.get(key)
+    if not isinstance(dv, dict):
+      return None
+    return _as_number(dv.get("value"))
+
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+    drivers = dict(drivers)
+    derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+    derived = dict(derived)
+
+    monthly = _get_num(drivers, "monthly_marketing_budget")
+    if monthly is None:
+      existing_y1 = derived.get("year1_marketing_spend")
+      y1_num = _as_number(existing_y1.get("value")) if isinstance(existing_y1, dict) else None
+      if y1_num is not None:
+        monthly = float(y1_num) / 12.0
+        drivers["monthly_marketing_budget"] = {
+          "value": max(0.0, float(monthly)),
+          "unit": "USD",
+          "time_basis": "month",
+          "rationale": str((drivers.get("monthly_marketing_budget") or {}).get("rationale") or "").strip() or None,
+          "updated_at_ms": now_ms,
+        }
+
+    y1_val = (max(0.0, float(monthly)) * 12.0) if monthly is not None else None
+    derived["year1_marketing_spend"] = {
+      "value": y1_val,
+      "unit": "USD",
+      "time_basis": "year",
+      "derivation": "monthly_marketing_budget x 12",
+      "updated_at_ms": now_ms,
+    }
+
+    lob["drivers"] = drivers
+    lob["derived"] = derived
+
+  normalized = _recompute_company_total_derived(normalized, model="marketing", now_ms=now_ms)
+  return normalized
+
+
 def post_intake_model_cards_handler(*, app, request):
   """
   Persist model-card driver updates (Accept/Edit) to the consult draft immediately.
@@ -924,6 +974,10 @@ def post_intake_model_cards_handler(*, app, request):
           conn=conn, draft=draft, card=next_card, now_ms=now_ms
         )
         changes.extend(extra_changes)
+
+    # Deterministic marketing math: compute year1_marketing_spend from monthly_marketing_budget.
+    if model == "marketing":
+      next_card = _recompute_marketing_from_drivers(marketing_card=next_card, now_ms=now_ms)
 
     # Deterministic revenue math: compute year1_revenue + keep Ops unit_price/capacity/starting_revenue synced.
     next_ops_json: Optional[Dict[str, Any]] = None
@@ -1700,7 +1754,7 @@ def post_intake_model_cards_handler(*, app, request):
                         "unit": None,
                         "time_basis": None,
                         "rationale": str(s.get("basis") or "").strip()
-                        or "Proposed Year‑1 staffing plan; edit roles/counts as needed.",
+                        or "Proposed Year-1 staffing plan; edit roles/counts as needed.",
                       }
                     ],
                     "derived": [
@@ -1709,7 +1763,7 @@ def post_intake_model_cards_handler(*, app, request):
                         "value": float(total),
                         "unit": "USD",
                         "time_basis": "year",
-                        "derivation": "sum(employee_count × hourly_rate × hours_per_week × weeks_per_year)",
+                        "derivation": "sum(employee_count x hourly_rate x hours_per_week x weeks_per_year)",
                       }
                     ],
                     "created_at_ms": now_ms,

@@ -54,6 +54,39 @@ def _strip_acs_codes(text: str) -> str:
     return text
 
 
+def _is_ack_message(text: str) -> bool:
+  raw = " ".join(str(text or "").strip().lower().split())
+  if not raw:
+    return False
+  acknowledgements = {
+    "ok",
+    "okay",
+    "k",
+    "kk",
+    "yes",
+    "y",
+    "yep",
+    "yeah",
+    "sure",
+    "sounds good",
+    "correct",
+    "right",
+    "got it",
+    "thanks",
+    "thank you",
+  }
+  if raw in acknowledgements:
+    return True
+  try:
+    import re
+
+    return bool(
+      re.fullmatch(r"(ok(ay)?|y(es)?|yep|yeah|sure|correct|right|got it|thanks|thank you)[.!?]*", raw)
+    )
+  except Exception:
+    return False
+
+
 def _marketing_ready(marketing_model_json: Dict[str, Any]) -> bool:
   def _has_value(val: Any) -> bool:
     if val is None:
@@ -1314,6 +1347,35 @@ def post_intake_consult_handler(*, app, request):
     milestones_model_json = _parse_json_dict(consult.get("milestones_model_json"))
     model_card_proposals = _parse_json_list(consult.get("model_card_proposals_json"))
 
+    # One-time safe backfill: older drafts may still carry legacy narrative summaries.
+    # Summaries are deprecated end-to-end and should never reappear in the UI.
+    try:
+      legacy_changed = False
+      if isinstance(ops_json, dict) and ops_json.get("business_description_summary"):
+        ops_json["business_description_summary"] = None
+        legacy_changed = True
+      if isinstance(market_json, dict) and market_json.get("target_market_summary"):
+        market_json["target_market_summary"] = None
+        legacy_changed = True
+      if isinstance(people_json, dict) and people_json.get("key_people_summary"):
+        people_json["key_people_summary"] = None
+        legacy_changed = True
+      if isinstance(financials_json, dict) and financials_json.get("financials_summary"):
+        financials_json["financials_summary"] = None
+        legacy_changed = True
+      if legacy_changed:
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[],
+          operating_model_json=ops_json,
+          target_market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+        )
+    except Exception:
+      pass
+
     ops_confirmed = bool(consult.get("ops_confirmed"))
     market_confirmed = bool(consult.get("market_confirmed"))
     people_confirmed = bool(consult.get("people_confirmed"))
@@ -2192,6 +2254,56 @@ def post_intake_consult_handler(*, app, request):
 
     user_msg = {"role": "user", "content": message}
     recent_messages = messages[-12:] if len(messages) > 12 else list(messages)
+
+    # If a model-card gate is pending, ignore acknowledgement-only chat inputs so we never
+    # spam the conversation with repeated "Use the buttons..." assistant messages.
+    if _is_ack_message(message):
+      pending_gate = False
+      if (
+        str(focus or "").strip().lower() == "people"
+        and _people_data_ready(people_json=people_json)
+        and not _headcount_ready(headcount_model_json)
+      ):
+        pending_gate = True
+      elif (
+        str(focus or "").strip().lower() == "market"
+        and _target_market_data_ready(market_json=market_json, consumer_type=ops_consumer_type)
+        and not _marketing_ready(marketing_model_json)
+      ):
+        pending_gate = True
+      elif str(focus or "").strip().lower() == "ops":
+        ops_has_min_for_models = bool(str((ops_json or {}).get("business_type") or "").strip()) and bool(
+          str((ops_json or {}).get("unit_name") or "").strip()
+        )
+        if ops_has_min_for_models and (
+          (not _revenue_ready(revenue_model_json))
+          or (
+            not _model_has_required_drivers(
+              fulfillment_model_json, ("fulfillment_model", "who_fulfills", "lead_time")
+            )
+          )
+          or (
+            not _model_has_required_drivers(
+              ops_concept_model_json, ("operating_unit", "primary_constraint", "process_overview")
+            )
+          )
+          or (not _milestones_ready(milestones_model_json))
+        ):
+          pending_gate = True
+
+      if pending_gate:
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "noop",
+            "assistant_message": "",
+          }
+        )
 
     # People headcount pending: do not route through the people consultant; return an Accept/Edit prompt.
     if (

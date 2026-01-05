@@ -14,8 +14,8 @@ def milestones_chat_turn(*, intake_context: Dict[str, Any], conversation_message
 
   parts: List[str] = []
   parts.append(
-    "I’m going to propose a small set of concrete milestones so we lock an execution target and keep the Year‑1 picture coherent.\n\n"
-    "Use the buttons to Accept, Edit, or Add milestones. You won’t need to invent anything from scratch."
+    "I'm going to propose a small set of concrete milestones so we lock an execution target and keep the Year-1 picture coherent.\n\n"
+    "Use the buttons to Accept, Edit, or Add milestones. You won't need to invent anything from scratch."
   )
 
   def _fmt_one(m: Dict[str, Any]) -> str:
@@ -29,9 +29,10 @@ def milestones_chat_turn(*, intake_context: Dict[str, Any], conversation_message
       conf_text = f" (confidence {conf_num:.2f})"
     except Exception:
       conf_text = ""
+
     if desc:
-      return f"- {title} — {target}{conf_text}\n  {desc}"
-    return f"- {title} — {target}{conf_text}"
+      return f"- {title} - {target}{conf_text}\n  {desc}"
+    return f"- {title} - {target}{conf_text}"
 
   for s in suggestions:
     if not isinstance(s, dict):

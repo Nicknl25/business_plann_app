@@ -31,9 +31,6 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
 def _validate_final(final_obj: Dict[str, Any]) -> None:
   if not isinstance(final_obj, dict):
     raise RuntimeError("Final financials JSON must be an object.")
-  summary = str(final_obj.get("financials_summary") or "").strip()
-  if not summary:
-    raise RuntimeError("Final financials JSON missing financials_summary.")
   conf = final_obj.get("confidence")
   try:
     conf_val = float(conf)
@@ -212,8 +209,8 @@ def post_financials_consult_handler(*, app, request):
         baseline_financials = _parse_json_dict(fin_draft.get("financials_json"))
 
         if starting:
-          summary = str(baseline_financials.get("financials_summary") or "").strip()
-          assistant_message = (summary or "Financials intake complete.").strip()
+          # Summaries are deprecated; do not show financials_summary.
+          assistant_message = "Financials intake complete."
           from fact_templates import sanitize_fact_template  # type: ignore
 
           assistant_message = sanitize_fact_template(assistant_message)
@@ -256,11 +253,9 @@ def post_financials_consult_handler(*, app, request):
               k: (sanitize_fact_template(v) if isinstance(v, str) else v)
               for k, v in updated_financials.items()
             }
-
-            summary_for_ui = str(updated_financials.get("financials_summary") or "").strip()
-            ack = assistant_message or "Got it."
-            assistant_message = f"{ack}\n\n{summary_for_ui}".strip()
-            assistant_message = sanitize_fact_template(assistant_message)
+            # Summaries are deprecated; keep the chat response short and rely on structured fields.
+            updated_financials["financials_summary"] = None
+            assistant_message = sanitize_fact_template(assistant_message or "Updated financial drivers.")
           else:
             action = "answer_readonly"
             assistant_message = sanitize_fact_template(assistant_message)
@@ -302,7 +297,7 @@ def post_financials_consult_handler(*, app, request):
         "people_capability": shared_context.get("people_capability") or {},
         "unit_name": operating_model.get("unit_name"),
         "unit_price": operating_model.get("unit_price"),
-        "business_description_summary": operating_model.get("business_description_summary"),
+        "business_description_summary": None,
         "consumer_type": operating_model.get("consumer_type"),
       }
 
@@ -349,14 +344,13 @@ def post_financials_consult_handler(*, app, request):
       for k, v in list(final_obj.items()):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
-      summary_text = sanitize_fact_template(str(final_obj.get("assistant_message") or "").strip()) or str(
-        final_obj.get("financials_summary") or ""
-      ).strip()
+      # Summaries are deprecated; do not show or persist financials_summary.
+      summary_text = "Financials intake complete."
       final_obj.pop("assistant_message", None)
       final_obj.pop("turn_outcome", None)
+      final_obj["financials_summary"] = None
       _validate_final(final_obj)
 
-      summary_text = summary_text or "Financials intake complete."
       assistant_message = summary_text
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}

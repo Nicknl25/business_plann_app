@@ -5,6 +5,8 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
+_MIN_TITLE_MATCH_SCORE = 0.55
+
 _STATE_TO_CODE: Dict[str, str] = {
   "alabama": "AL",
   "alaska": "AK",
@@ -227,6 +229,8 @@ def match_wage_for_title(
   if not best:
     return None
   score, r = best
+  if float(score) < _MIN_TITLE_MATCH_SCORE:
+    return None
   return WageMatch(
     occ_title=str(r.get("occ_title") or "").strip(),
     area_title=str(r.get("area_title") or "").strip(),
@@ -234,6 +238,53 @@ def match_wage_for_title(
     h_mean=_as_float(r.get("h_mean")),
     match_score=float(score),
   )
+
+
+def _avg_hourly_wage(
+  *,
+  conn,
+  state_code: Optional[str],
+  state_name: Optional[str],
+  naics_6: Optional[str],
+) -> Optional[float]:
+  sc = str(state_code or "").strip().upper()
+  naics_norm = str(naics_6 or "").strip()
+  cur = conn.cursor()
+  try:
+    params: List[Any] = []
+    where_parts: List[str] = ["h_mean IS NOT NULL"]
+    if sc:
+      where_parts.append("area_title LIKE %s")
+      params.append(f"%{sc}%")
+    elif state_name:
+      where_parts.append("area_title LIKE %s")
+      params.append(f"%{state_name}%")
+    if naics_norm:
+      where_parts.append(
+        "(naics = %s OR LEFT(naics, 4) = LEFT(%s, 4) OR LEFT(naics, 3) = LEFT(%s, 3) OR LEFT(naics, 2) = LEFT(%s, 2))"
+      )
+      params.extend([naics_norm, naics_norm, naics_norm, naics_norm])
+    cur.execute(
+      f"SELECT AVG(h_mean) AS avg_h_mean FROM oews_state_wages WHERE {' AND '.join(where_parts)}",
+      tuple(params),
+    )
+    row = cur.fetchone()
+    if not row:
+      return None
+    try:
+      # mysql connector may return dict or tuple depending on cursor settings
+      if isinstance(row, dict):
+        return _as_float(row.get("avg_h_mean"))
+      return _as_float(row[0] if isinstance(row, (list, tuple)) and row else None)
+    except Exception:
+      return None
+  except Exception:
+    return None
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
 
 
 def enrich_headcount_roles(
@@ -279,8 +330,13 @@ def enrich_headcount_roles(
     override = _as_float(raw.get("hourly_rate_override"))
     fallback_rate = _as_float(raw.get("fallback_hourly_rate"))
     fallback_basis = str(raw.get("fallback_hourly_rate_basis") or "").strip() or None
+    if override is not None and override <= 0 and employee_count > 0:
+      override = None
+    if fallback_rate is not None and fallback_rate <= 0:
+      fallback_rate = None
     hourly_rate: Optional[float] = override
     source: str = "override" if override is not None else "dataset"
+    hourly_rate_basis: Optional[str] = None
 
     match: Optional[WageMatch] = None
     if override is None:
@@ -292,9 +348,42 @@ def enrich_headcount_roles(
         naics_6=naics_6,
       )
       hourly_rate = match.h_mean if match and match.h_mean is not None else None
+      if hourly_rate is not None and match:
+        hourly_rate_basis = f"Matched wage dataset: {match.occ_title} ({match.area_title})"
       if hourly_rate is None and fallback_rate is not None:
         hourly_rate = fallback_rate
         source = "gpt_fallback"
+        hourly_rate_basis = fallback_basis or "Assumption (edit if needed)."
+
+      if hourly_rate is None:
+        # Deterministic dataset fallback: use average wage as a conservative placeholder.
+        avg_naics = _avg_hourly_wage(
+          conn=conn,
+          state_code=state_code,
+          state_name=state_name,
+          naics_6=naics_6,
+        )
+        if avg_naics is not None:
+          hourly_rate = avg_naics
+          source = "dataset_average_naics"
+          hourly_rate_basis = "No strong occupation match; using state/NAICS average hourly wage (edit if needed)."
+        else:
+          avg_state = _avg_hourly_wage(
+            conn=conn,
+            state_code=state_code,
+            state_name=state_name,
+            naics_6=None,
+          )
+          if avg_state is not None:
+            hourly_rate = avg_state
+            source = "dataset_average_state"
+            hourly_rate_basis = "No strong occupation match; using state average hourly wage (edit if needed)."
+
+      if hourly_rate is None and employee_count > 0:
+        # Last-resort to preserve invariant: never leave missing pay.
+        hourly_rate = 25.0
+        source = "default_assumption"
+        hourly_rate_basis = "No wage data match available; using a conservative placeholder (edit if needed)."
 
     annual_hours = float(hours_per_week) * float(weeks_per_year)
     annual_per_employee = (float(hourly_rate) * annual_hours) if hourly_rate is not None else None
@@ -311,6 +400,7 @@ def enrich_headcount_roles(
         "weeks_per_year": weeks_per_year,
         "hourly_rate": hourly_rate,
         "hourly_rate_source": source,
+        "hourly_rate_basis": hourly_rate_basis,
         "fallback_hourly_rate": fallback_rate,
         "fallback_hourly_rate_basis": fallback_basis,
         "annual_hours": annual_hours,

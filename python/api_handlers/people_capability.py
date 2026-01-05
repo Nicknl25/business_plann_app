@@ -195,8 +195,8 @@ def post_people_capability_handler(*, app, request):
         baseline_people = _parse_json_dict(pc_draft.get("people_json"))
 
         if starting:
-          summary = str(baseline_people.get("key_people_summary") or "").strip()
-          assistant_message = (summary or "People & capability intake complete.").strip()
+          # Summaries are deprecated; do not show key_people_summary.
+          assistant_message = "People & capability intake complete."
           from fact_templates import sanitize_fact_template  # type: ignore
 
           assistant_message = sanitize_fact_template(assistant_message)
@@ -237,11 +237,9 @@ def post_people_capability_handler(*, app, request):
               k: (sanitize_fact_template(v) if isinstance(v, str) else v)
               for k, v in updated_people.items()
             }
-
-            summary_for_ui = str(updated_people.get("key_people_summary") or "").strip()
-            ack = assistant_message or "Got it."
-            assistant_message = f"{ack}\n\n{summary_for_ui}".strip()
-            assistant_message = sanitize_fact_template(assistant_message)
+            # Summaries are deprecated; keep the chat response short and rely on structured fields.
+            updated_people["key_people_summary"] = None
+            assistant_message = sanitize_fact_template(assistant_message or "Updated people & capability drivers.")
           else:
             action = "answer_readonly"
             assistant_message = sanitize_fact_template(assistant_message)
@@ -277,7 +275,7 @@ def post_people_capability_handler(*, app, request):
         "shared_context": shared_context,
         "business_name": (str(business_name).strip() if business_name else None),
         "business_type": (str(business_type).strip() if business_type else None),
-        "business_description_summary": operating_model.get("business_description_summary"),
+        "business_description_summary": None,
         "unit_name": operating_model.get("unit_name"),
         "unit_price": operating_model.get("unit_price"),
         "shipping_method": operating_model.get("shipping_method"),
@@ -323,14 +321,13 @@ def post_people_capability_handler(*, app, request):
       for k, v in list(final_obj.items()):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
-      summary_text = sanitize_fact_template(str(final_obj.get("assistant_message") or "").strip()) or str(
-        final_obj.get("key_people_summary") or ""
-      ).strip()
+      # Summaries are deprecated; do not show or persist key_people_summary.
+      summary_text = "People & capability intake complete."
       final_obj.pop("assistant_message", None)
       final_obj.pop("turn_outcome", None)
+      final_obj["key_people_summary"] = None
       _validate_final(final_obj)
 
-      summary_text = summary_text or "People & capability intake complete."
       assistant_message = summary_text
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}
