@@ -153,6 +153,9 @@ def propose_marketing_suggestions(
   system = (
     "You propose numeric model drivers first so the client never has to invent numbers.\n"
     "You MUST infer a reasonable starting point from context (industry/NAICS, stage, timing/ramp) and propose it.\n"
+    "Marketing may legitimately be $0 in Year 1 (for example: contract/offtake driven demand, regulatory/utility buyers, long sales cycles, or the founder is relying purely on relationships).\n"
+    "Use judgment from NAICS + ops context (sales motion, customer type, contracts vs. demand, regulation) to decide whether marketing spend exists at all.\n"
+    "If marketing spend is $0, still propose it explicitly and explain why (basis) and what would change your mind.\n"
     "The client will Accept or Edit; do not ask open-ended 'what is your budget?' questions.\n"
     "Do not use rigid formulas. Use judgment grounded in NAICS + what is already known.\n"
     "If the business start date is in the future or very recent, reflect a ramp (pre-launch, early ramp).\n"
@@ -203,12 +206,25 @@ def propose_marketing_suggestions(
     if lob_key == "company_total":
       # Allowed for single-LOB, but if multi-LOB exists we prefer per-LOB suggestions.
       pass
+
+    def _req_number(field: str) -> float:
+      val = s.get(field)
+      if isinstance(val, (int, float)):
+        return float(val)
+      raw = str(val or "").strip()
+      if not raw:
+        raise RuntimeError(f"Marketing proposer missing required numeric field: {field}")
+      try:
+        return float(raw)
+      except Exception as exc:
+        raise RuntimeError(f"Marketing proposer invalid numeric field {field}: {raw}") from exc
+
     cleaned.append(
       {
         "lob_key": lob_key,
         "lob_name": str(s.get("lob_name") or "").strip() or None,
-        "monthly_marketing_budget": float(s.get("monthly_marketing_budget") or 0.0),
-        "year1_marketing_spend": float(s.get("year1_marketing_spend") or 0.0),
+        "monthly_marketing_budget": _req_number("monthly_marketing_budget"),
+        "year1_marketing_spend": _req_number("year1_marketing_spend"),
         "primary_channels": str(s.get("primary_channels") or "").strip(),
         "basis": str(s.get("basis") or "").strip(),
       }
@@ -554,4 +570,350 @@ def propose_headcount_suggestions(
       }
     )
 
+  return cleaned or []
+
+
+def propose_revenue_suggestions(
+  *,
+  business_name: str,
+  business_type: str,
+  naics_6: Optional[str],
+  today_iso: str,
+  business_start_date: Optional[str],
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  lobs: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+  """
+  GPT-backed proposer for Revenue model drivers (proposal-first).
+
+  Returns a list of suggestion dicts, each with:
+    {lob_key, lob_name?, units_per_week_capacity, avg_units_per_week_year1, operating_weeks_per_year, unit_price, basis}
+  """
+  lob_list = []
+  for lob in list(lobs or []):
+    lk = str(lob.get("lob_key") or "").strip()
+    if not lk or lk == "company_total":
+      continue
+    lob_list.append({"lob_key": lk, "lob_name": str(lob.get("lob_name") or "").strip()})
+  if not lob_list:
+    lob_list = [{"lob_key": "company_total", "lob_name": ""}]
+
+  schema = {
+    "name": "revenue_model_driver_proposer",
+    "strict": True,
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "suggestions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "lob_key": {"type": "string"},
+              "lob_name": {"type": ["string", "null"]},
+              "units_per_week_capacity": {"type": "number"},
+              "avg_units_per_week_year1": {"type": "number"},
+              "operating_weeks_per_year": {"type": "number"},
+              "unit_price": {"type": ["number", "null"]},
+              "basis": {"type": "string"},
+            },
+            "required": [
+              "lob_key",
+              "units_per_week_capacity",
+              "avg_units_per_week_year1",
+              "operating_weeks_per_year",
+              "unit_price",
+              "basis",
+            ],
+          },
+        }
+      },
+      "required": ["suggestions"],
+    },
+  }
+
+  system = (
+    "You propose revenue model assumptions first so the client never has to invent numbers.\n"
+    "Use NAICS/industry context + what is already known + business start date/timing.\n"
+    "If the business is pre-launch or very early, reflect a realistic ramp in Year 1.\n"
+    "Do NOT ask open-ended questions like 'what is your revenue?' or 'what is your utilization?'.\n"
+    "Return conservative, editable assumptions.\n"
+    "If a single natural unit_price is not applicable (multi-stream), set unit_price to null.\n"
+    "Return JSON only per the schema."
+  )
+
+  user = {
+    "business_name": business_name,
+    "business_type": business_type,
+    "naics_6": naics_6,
+    "today_iso": today_iso,
+    "business_start_date": business_start_date,
+    "lobs": lob_list,
+    "ops": ops_json,
+    "shared_context": shared_context,
+  }
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  payload: Dict[str, Any] = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ],
+    "response_format": {"type": "json_schema", "json_schema": schema},
+  }
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 300:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+  data = resp.json()
+  parsed = _extract_output_json(data)
+  suggestions = parsed.get("suggestions")
+  if not isinstance(suggestions, list) or not suggestions:
+    raise RuntimeError("Revenue proposer returned no suggestions.")
+
+  cleaned: List[Dict[str, Any]] = []
+  for s in suggestions:
+    if not isinstance(s, dict):
+      continue
+    cleaned.append(
+      {
+        "lob_key": str(s.get("lob_key") or "").strip() or "company_total",
+        "lob_name": str(s.get("lob_name") or "").strip() or None,
+        "units_per_week_capacity": float(s.get("units_per_week_capacity") or 0.0),
+        "avg_units_per_week_year1": float(s.get("avg_units_per_week_year1") or 0.0),
+        "operating_weeks_per_year": float(s.get("operating_weeks_per_year") or 52.0),
+        "unit_price": (float(s.get("unit_price")) if s.get("unit_price") is not None else None),
+        "basis": str(s.get("basis") or "").strip(),
+      }
+    )
+  return cleaned or []
+
+
+def propose_fulfillment_suggestions(
+  *,
+  business_name: str,
+  business_type: str,
+  naics_6: Optional[str],
+  today_iso: str,
+  business_start_date: Optional[str],
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  lobs: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+  """
+  GPT-backed proposer for Fulfillment model cards.
+
+  Returns: {lob_key, lob_name?, fulfillment_model, who_fulfills, lead_time, basis}
+  """
+  lob_list = []
+  for lob in list(lobs or []):
+    lk = str(lob.get("lob_key") or "").strip()
+    if not lk or lk == "company_total":
+      continue
+    lob_list.append({"lob_key": lk, "lob_name": str(lob.get("lob_name") or "").strip()})
+  if not lob_list:
+    lob_list = [{"lob_key": "company_total", "lob_name": ""}]
+
+  schema = {
+    "name": "fulfillment_model_card_proposer",
+    "strict": True,
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "suggestions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "lob_key": {"type": "string"},
+              "lob_name": {"type": ["string", "null"]},
+              "fulfillment_model": {"type": "string"},
+              "who_fulfills": {"type": "string"},
+              "lead_time": {"type": "string"},
+              "basis": {"type": "string"},
+            },
+            "required": ["lob_key", "fulfillment_model", "who_fulfills", "lead_time", "basis"],
+          },
+        }
+      },
+      "required": ["suggestions"],
+    },
+  }
+
+  system = (
+    "You propose a fulfillment model first so the client never has to invent operations wording.\n"
+    "Use industry/NAICS and the current ops context.\n"
+    "Keep it concrete, short, and editable.\n"
+    "Return JSON only per the schema."
+  )
+
+  user = {
+    "business_name": business_name,
+    "business_type": business_type,
+    "naics_6": naics_6,
+    "today_iso": today_iso,
+    "business_start_date": business_start_date,
+    "lobs": lob_list,
+    "ops": ops_json,
+    "shared_context": shared_context,
+  }
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  payload: Dict[str, Any] = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ],
+    "response_format": {"type": "json_schema", "json_schema": schema},
+  }
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 300:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+  data = resp.json()
+  parsed = _extract_output_json(data)
+  suggestions = parsed.get("suggestions")
+  if not isinstance(suggestions, list) or not suggestions:
+    raise RuntimeError("Fulfillment proposer returned no suggestions.")
+
+  cleaned: List[Dict[str, Any]] = []
+  for s in suggestions:
+    if not isinstance(s, dict):
+      continue
+    cleaned.append(
+      {
+        "lob_key": str(s.get("lob_key") or "").strip() or "company_total",
+        "lob_name": str(s.get("lob_name") or "").strip() or None,
+        "fulfillment_model": str(s.get("fulfillment_model") or "").strip(),
+        "who_fulfills": str(s.get("who_fulfills") or "").strip(),
+        "lead_time": str(s.get("lead_time") or "").strip(),
+        "basis": str(s.get("basis") or "").strip(),
+      }
+    )
+  return cleaned or []
+
+
+def propose_ops_concept_suggestions(
+  *,
+  business_name: str,
+  business_type: str,
+  naics_6: Optional[str],
+  today_iso: str,
+  business_start_date: Optional[str],
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  lobs: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+  """
+  GPT-backed proposer for Ops-concept model cards.
+
+  Returns: {lob_key, lob_name?, operating_unit, primary_constraint, process_overview, basis}
+  """
+  lob_list = []
+  for lob in list(lobs or []):
+    lk = str(lob.get("lob_key") or "").strip()
+    if not lk or lk == "company_total":
+      continue
+    lob_list.append({"lob_key": lk, "lob_name": str(lob.get("lob_name") or "").strip()})
+  if not lob_list:
+    lob_list = [{"lob_key": "company_total", "lob_name": ""}]
+
+  schema = {
+    "name": "ops_concept_model_card_proposer",
+    "strict": True,
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "suggestions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "lob_key": {"type": "string"},
+              "lob_name": {"type": ["string", "null"]},
+              "operating_unit": {"type": "string"},
+              "primary_constraint": {"type": "string"},
+              "process_overview": {"type": "string"},
+              "basis": {"type": "string"},
+            },
+            "required": ["lob_key", "operating_unit", "primary_constraint", "process_overview", "basis"],
+          },
+        }
+      },
+      "required": ["suggestions"],
+    },
+  }
+
+  system = (
+    "You propose an operating concept first so the client does not have to write operations narrative.\n"
+    "Keep it concise and structured: operating_unit, primary_constraint, and a short process_overview.\n"
+    "Use NAICS/industry context + what is already known. Do not invent specific numbers.\n"
+    "Return JSON only per the schema."
+  )
+
+  user = {
+    "business_name": business_name,
+    "business_type": business_type,
+    "naics_6": naics_6,
+    "today_iso": today_iso,
+    "business_start_date": business_start_date,
+    "lobs": lob_list,
+    "ops": ops_json,
+    "shared_context": shared_context,
+  }
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  payload: Dict[str, Any] = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ],
+    "response_format": {"type": "json_schema", "json_schema": schema},
+  }
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 300:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+  data = resp.json()
+  parsed = _extract_output_json(data)
+  suggestions = parsed.get("suggestions")
+  if not isinstance(suggestions, list) or not suggestions:
+    raise RuntimeError("Ops-concept proposer returned no suggestions.")
+
+  cleaned: List[Dict[str, Any]] = []
+  for s in suggestions:
+    if not isinstance(s, dict):
+      continue
+    cleaned.append(
+      {
+        "lob_key": str(s.get("lob_key") or "").strip() or "company_total",
+        "lob_name": str(s.get("lob_name") or "").strip() or None,
+        "operating_unit": str(s.get("operating_unit") or "").strip(),
+        "primary_constraint": str(s.get("primary_constraint") or "").strip(),
+        "process_overview": str(s.get("process_overview") or "").strip(),
+        "basis": str(s.get("basis") or "").strip(),
+      }
+    )
   return cleaned or []

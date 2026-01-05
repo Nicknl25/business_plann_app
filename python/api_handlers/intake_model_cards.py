@@ -101,6 +101,7 @@ def _model_column(model: str) -> Optional[str]:
     "fulfillment": "fulfillment_model_json",
     "marketing": "marketing_model_json",
     "pricing": "pricing_model_json",
+    "revenue": "revenue_model_json",
     "headcount": "headcount_model_json",
     "milestones": "milestones_model_json",
   }
@@ -111,6 +112,8 @@ def _focus_for_model(model: str) -> Optional[str]:
   norm = str(model or "").strip().lower()
   if norm in ("marketing", "pricing"):
     return "market"
+  if norm in ("revenue",):
+    return "ops"
   if norm in ("headcount",):
     return "people"
   if norm in ("ops_concept", "fulfillment", "milestones"):
@@ -216,9 +219,42 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
   target_market = _parse_json_dict(draft.get("target_market_json"))
   people = _parse_json_dict(draft.get("people_json"))
   financials = _parse_json_dict(draft.get("financials_json"))
+  ops_concept = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("ops_concept_model_json"))))
+  fulfillment = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("fulfillment_model_json"))))
   marketing = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("marketing_model_json"))))
+  revenue = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("revenue_model_json"))))
   milestones = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("milestones_model_json"))))
   headcount = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("headcount_model_json"))))
+
+  def _has_value(val: Any) -> bool:
+    if val is None:
+      return False
+    if isinstance(val, str):
+      return bool(val.strip())
+    if isinstance(val, (int, float)):
+      return True
+    if isinstance(val, (list, dict)):
+      return bool(val)
+    return True
+
+  def _model_has_driver(card: Dict[str, Any], *, keys: Tuple[str, ...]) -> bool:
+    try:
+      lobs = card.get("lobs")
+      if not isinstance(lobs, list) or not lobs:
+        return False
+      non_company = [
+        lob for lob in lobs if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+        for k in keys:
+          dv = drivers.get(k)
+          if not (isinstance(dv, dict) and _has_value(dv.get("value"))):
+            return False
+      return True
+    except Exception:
+      return False
 
   def _milestones_ready(card: Dict[str, Any]) -> bool:
     try:
@@ -241,8 +277,68 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
     except Exception:
       return False
 
-  ops_ready = _has_nonempty_text(operating_model, "business_description_summary") and _milestones_ready(milestones)
-  market_summary_ready = _has_nonempty_text(target_market, "target_market_summary")
+  def _revenue_ready(card: Dict[str, Any]) -> bool:
+    try:
+      lobs = card.get("lobs")
+      if not isinstance(lobs, list) or not lobs:
+        return False
+      non_company = [
+        lob for lob in lobs if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        dmap = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+        y1 = dmap.get("year1_revenue")
+        ok = isinstance(y1, dict) and _has_value(y1.get("value"))
+        if not ok:
+          return False
+      return True
+    except Exception:
+      return False
+
+  def _target_market_ready(*, market_obj: Dict[str, Any], consumer_type: str) -> bool:
+    ct = str(consumer_type or "").strip().lower()
+    if ct not in ("consumer", "b2b", "mixed"):
+      ct = "consumer"
+
+    def _nonempty_str(k: str) -> bool:
+      return bool(str((market_obj or {}).get(k) or "").strip())
+
+    if ct in ("consumer", "mixed"):
+      if not _nonempty_str("gender_age_intent"):
+        return False
+      if not _nonempty_str("income_intent"):
+        return False
+      selections = market_obj.get("selections")
+      if not isinstance(selections, list) or not selections:
+        return False
+
+    if ct in ("b2b", "mixed"):
+      terms = market_obj.get("b2b_industry_terms")
+      if not isinstance(terms, list) or not any(str(t or "").strip() for t in terms):
+        return False
+      sizes = market_obj.get("b2b_size_bands")
+      if not isinstance(sizes, list) or not any(str(s or "").strip() for s in sizes):
+        return False
+      ages = market_obj.get("b2b_age_bands")
+      if not isinstance(ages, list) or not any(str(a or "").strip() for a in ages):
+        return False
+
+    return True
+
+  ops_ready = (
+    _has_nonempty_text(operating_model, "business_type")
+    and _has_nonempty_text(operating_model, "unit_name")
+    and _has_nonempty_text(operating_model, "units_per_week_capacity")
+    and _revenue_ready(revenue)
+    and _model_has_driver(fulfillment, keys=("fulfillment_model", "who_fulfills", "lead_time"))
+    and _model_has_driver(ops_concept, keys=("operating_unit", "primary_constraint", "process_overview"))
+    and _milestones_ready(milestones)
+  )
+
+  market_ready_base = _target_market_ready(
+    market_obj=target_market, consumer_type=str((operating_model or {}).get("consumer_type") or "consumer")
+  )
   marketing_ready = False
   try:
     lobs = marketing.get("lobs")
@@ -254,14 +350,22 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
       for lob in requires:
         derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
         y1 = derived.get("year1_marketing_spend")
-        ok = isinstance(y1, dict) and bool(str(y1.get("value") or "").strip())
+        ok = isinstance(y1, dict) and _has_value(y1.get("value"))
         if not ok:
           marketing_ready = False
           break
   except Exception:
     marketing_ready = False
-  market_ready = market_summary_ready and marketing_ready
-  people_ready = _has_nonempty_text(people, "key_people_summary")
+  market_ready = market_ready_base and marketing_ready
+
+  people_ready = False
+  try:
+    items = people.get("people")
+    people_ready = isinstance(items, list) and any(
+      isinstance(p, dict) and str(p.get("full_name") or "").strip() for p in (items or [])
+    )
+  except Exception:
+    people_ready = False
   if people_ready:
     try:
       lobs = headcount.get("lobs")
@@ -275,13 +379,39 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
         for lob in requires:
           dmap = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
           y1 = dmap.get("year1_payroll")
-          ok = isinstance(y1, dict) and bool(str(y1.get("value") or "").strip())
+          ok = isinstance(y1, dict) and _has_value(y1.get("value"))
           if not ok:
             people_ready = False
             break
     except Exception:
       people_ready = False
-  financials_ready = _has_nonempty_text(financials, "financials_summary")
+
+  financials_ready = True
+  try:
+    required = [
+      "current_revenue",
+      "current_cogs",
+      "other_operating_expense",
+      "monthly_rent_expense",
+      "other_monthly_debt_payments",
+      "current_payroll",
+      "current_num_employees",
+      "current_capex",
+      "ar_balance",
+      "ap_balance",
+      "inventory_balance",
+      "total_debt_outstanding",
+      "annual_interest_payment",
+      "annual_principal_payment",
+      "owner_compensation",
+      "cash_on_hand",
+    ]
+    for k in required:
+      if financials.get(k) is None:
+        financials_ready = False
+        break
+  except Exception:
+    financials_ready = False
 
   if not ops_ready:
     return "ops"
@@ -392,6 +522,7 @@ def _recompute_company_total_derived(card: Dict[str, Any], *, model: str, now_ms
   # Only keys we currently use for query rollups.
   sum_keys_by_model = {
     "marketing": ["year1_marketing_spend"],
+    "revenue": ["year1_revenue"],
     "headcount": ["year1_payroll"],
   }
   keys = sum_keys_by_model.get(str(model or "").strip().lower(), [])
@@ -534,6 +665,166 @@ def _recompute_headcount_from_roles(
   return normalized, changes
 
 
+def _recompute_revenue_from_drivers(
+  *,
+  draft: Dict[str, Any],
+  revenue_card: Dict[str, Any],
+  now_ms: int,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Optional[float]]:
+  """
+  Deterministically compute year1_revenue derived values from revenue drivers and keep the
+  canonical Ops fields (unit_price, units_per_week_capacity, starting_revenue) in sync.
+
+  Returns: (next_revenue_card, next_ops_json, next_pricing_card, company_total_year1_revenue)
+  """
+  ops_json = _parse_json_dict(draft.get("operating_model_json"))
+  pricing_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("pricing_model_json"))))
+  normalized = _ensure_company_total_lob(_normalize_model_card(revenue_card))
+
+  lobs = normalized.get("lobs")
+  if not isinstance(lobs, list) or not lobs:
+    return normalized, ops_json, pricing_card, None
+
+  def _get_driver_num(drivers: Dict[str, Any], key: str) -> Optional[float]:
+    v = drivers.get(key)
+    if isinstance(v, dict):
+      return _as_number(v.get("value"))
+    return None
+
+  non_company = [
+    lob for lob in lobs if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+  ]
+  targets = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+
+  company_total_y1 = 0.0
+  company_total_has = False
+  company_total_unit_price: Optional[float] = None
+  company_total_capacity: Optional[float] = None
+
+  for lob in targets:
+    if not isinstance(lob, dict):
+      continue
+    drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+    drivers = dict(drivers)
+
+    capacity = _get_driver_num(drivers, "units_per_week_capacity")
+    if capacity is None:
+      capacity = _as_number((ops_json or {}).get("units_per_week_capacity"))
+    avg_units = _get_driver_num(drivers, "avg_units_per_week_year1")
+    util_driver = _get_driver_num(drivers, "utilization_rate")
+    if util_driver is not None and capacity is not None:
+      avg_units = float(util_driver) * float(capacity)
+      # Keep the two editable drivers in sync.
+      prev = drivers.get("avg_units_per_week_year1")
+      if isinstance(prev, dict):
+        prev = dict(prev)
+      else:
+        prev = {}
+      prev["value"] = avg_units
+      prev["unit"] = prev.get("unit") or str((ops_json or {}).get("unit_name") or "").strip() or "units"
+      prev["time_basis"] = prev.get("time_basis") or "week"
+      prev["updated_at_ms"] = now_ms
+      drivers["avg_units_per_week_year1"] = prev
+    elif avg_units is not None and capacity is not None and float(capacity) > 0:
+      util_driver = float(avg_units) / float(capacity)
+      prevu = drivers.get("utilization_rate")
+      if isinstance(prevu, dict):
+        prevu = dict(prevu)
+      else:
+        prevu = {}
+      prevu["value"] = util_driver
+      prevu["unit"] = None
+      prevu["time_basis"] = None
+      prevu["updated_at_ms"] = now_ms
+      drivers["utilization_rate"] = prevu
+    weeks = _get_driver_num(drivers, "operating_weeks_per_year")
+    if weeks is None:
+      weeks = 52.0
+
+    unit_price = _get_driver_num(drivers, "unit_price")
+    if unit_price is None:
+      unit_price = _as_number((ops_json or {}).get("unit_price"))
+
+    y1_revenue: Optional[float] = None
+    if avg_units is not None and weeks is not None and unit_price is not None:
+      y1_revenue = float(avg_units) * float(unit_price) * float(weeks)
+
+    derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+    derived = dict(derived)
+    derived["year1_revenue"] = {
+      "value": y1_revenue,
+      "unit": "USD",
+      "time_basis": "year",
+      "derivation": "avg_units_per_week_year1 x unit_price x operating_weeks_per_year",
+      "updated_at_ms": now_ms,
+    }
+    if avg_units is not None and unit_price is not None:
+      derived["weekly_revenue"] = {
+        "value": float(avg_units) * float(unit_price),
+        "unit": "USD",
+        "time_basis": "week",
+        "derivation": "avg_units_per_week_year1 x unit_price",
+        "updated_at_ms": now_ms,
+      }
+    if capacity is not None and avg_units is not None and float(capacity) > 0:
+      derived["utilization_rate"] = {
+        "value": float(avg_units) / float(capacity),
+        "unit": None,
+        "time_basis": None,
+        "derivation": "avg_units_per_week_year1 / units_per_week_capacity",
+        "updated_at_ms": now_ms,
+      }
+    lob["drivers"] = drivers
+    lob["derived"] = derived
+
+    if y1_revenue is not None:
+      company_total_y1 += float(y1_revenue)
+      company_total_has = True
+
+    # If there is only one user-visible LOB, treat its unit_price/capacity as company defaults.
+    if len(targets) == 1:
+      company_total_unit_price = unit_price
+      company_total_capacity = capacity
+
+  normalized = _recompute_company_total_derived(normalized, model="revenue", now_ms=now_ms)
+
+  # Sync Ops canonical fields (single-business rollups) from company_total where available.
+  if company_total_has:
+    ops_json = dict(ops_json or {})
+    ops_json["starting_revenue"] = float(company_total_y1)
+  if company_total_unit_price is not None:
+    ops_json = dict(ops_json or {})
+    ops_json["unit_price"] = float(company_total_unit_price)
+  if company_total_capacity is not None:
+    ops_json = dict(ops_json or {})
+    ops_json["units_per_week_capacity"] = float(company_total_capacity)
+
+  # Sync Pricing card unit_price so edits in Revenue and Pricing stay consistent.
+  try:
+    lobs_p = pricing_card.get("lobs")
+    if isinstance(lobs_p, list):
+      company_p = next(
+        (l for l in lobs_p if isinstance(l, dict) and str(l.get("lob_key") or "").strip() == "company_total"),
+        None,
+      )
+      if isinstance(company_p, dict) and company_total_unit_price is not None:
+        drivers_p = company_p.get("drivers") if isinstance(company_p.get("drivers"), dict) else {}
+        drivers_p = dict(drivers_p)
+        drivers_p["unit_price"] = {
+          "value": float(company_total_unit_price),
+          "unit": "USD",
+          "time_basis": "per_unit",
+          "rationale": "Synced from the revenue model drivers.",
+          "updated_at_ms": now_ms,
+        }
+        company_p["drivers"] = drivers_p
+        pricing_card["updated_at_ms"] = now_ms
+  except Exception:
+    pass
+
+  return normalized, ops_json, pricing_card, (float(company_total_y1) if company_total_has else None)
+
+
 def post_intake_model_cards_handler(*, app, request):
   """
   Persist model-card driver updates (Accept/Edit) to the consult draft immediately.
@@ -564,7 +855,7 @@ def post_intake_model_cards_handler(*, app, request):
       jsonify(
         {
           "error": "invalid_request",
-          "detail": "model must be one of: ops_concept, fulfillment, marketing, pricing, headcount, milestones",
+          "detail": "model must be one of: ops_concept, fulfillment, marketing, pricing, revenue, headcount, milestones",
         }
       ),
       400,
@@ -634,6 +925,51 @@ def post_intake_model_cards_handler(*, app, request):
         )
         changes.extend(extra_changes)
 
+    # Deterministic revenue math: compute year1_revenue + keep Ops unit_price/capacity/starting_revenue synced.
+    next_ops_json: Optional[Dict[str, Any]] = None
+    next_pricing_card: Optional[Dict[str, Any]] = None
+    year1_revenue_value: Optional[float] = None
+    if model == "revenue":
+      next_card, next_ops_json, next_pricing_card, year1_revenue_value = _recompute_revenue_from_drivers(
+        draft=draft, revenue_card=next_card, now_ms=now_ms
+      )
+
+    # If the user edits unit_price in Pricing, also update Ops + recompute revenue derived values (if present)
+    # so the visible revenue math stays coherent.
+    if model == "pricing" and pricing_unit_price_updated:
+      ops_json_live = _parse_json_dict(draft.get("operating_model_json"))
+      if pricing_unit_price_value in (None, "", "null"):
+        ops_json_live["unit_price"] = None
+      else:
+        ops_json_live["unit_price"] = pricing_unit_price_value
+      next_ops_json = ops_json_live
+      try:
+        existing_revenue = _parse_json_dict(draft.get("revenue_model_json"))
+        if existing_revenue:
+          recomputed, ops2, pricing2, y1 = _recompute_revenue_from_drivers(
+            draft={**draft, "operating_model_json": ops_json_live, "pricing_model_json": next_card},
+            revenue_card=existing_revenue,
+            now_ms=now_ms,
+          )
+          # Only persist recompute if it changed something meaningful.
+          if recomputed != existing_revenue:
+            next_ops_json = ops2
+            next_pricing_card = pricing2
+            year1_revenue_value = y1
+            # Persist revenue card via kwargs mapping below.
+            draft = {**draft, "revenue_model_json": recomputed}
+            # Ensure the main card update still returns pricing card as next_card.
+            # The revenue card write happens via kwargs below.
+            kwargs_revenue_override = recomputed
+          else:
+            kwargs_revenue_override = None
+        else:
+          kwargs_revenue_override = None
+      except Exception:
+        kwargs_revenue_override = None
+    else:
+      kwargs_revenue_override = None
+
     try:
       current_nonce = int(draft.get("driver_revision_nonce") or 0)
     except Exception:
@@ -672,7 +1008,6 @@ def post_intake_model_cards_handler(*, app, request):
     # Update rollup columns opportunistically (query-friendly), without requiring a fixed driver taxonomy.
     year1_marketing_spend: Any = None
     year1_payroll: Any = None
-    year1_revenue: Any = None
     if model == "marketing":
       # Only set company_total rollup if it exists.
       try:
@@ -721,6 +1056,7 @@ def post_intake_model_cards_handler(*, app, request):
       "fulfillment_model_json": "fulfillment_model_json",
       "marketing_model_json": "marketing_model_json",
       "pricing_model_json": "pricing_model_json",
+      "revenue_model_json": "revenue_model_json",
       "headcount_model_json": "headcount_model_json",
       "milestones_model_json": "milestones_model_json",
     }
@@ -730,21 +1066,19 @@ def post_intake_model_cards_handler(*, app, request):
 
     # Additive sync: Pricing model is sourced from Ops `unit_price`. If the user edits the pricing
     # driver, keep Ops canonical `unit_price` in lockstep so revenue math updates immediately.
-    if model == "pricing" and pricing_unit_price_updated:
-      ops_json = _parse_json_dict(draft.get("operating_model_json"))
-      # Preserve "not applicable" semantics for multi-stream businesses.
-      if pricing_unit_price_value in (None, "", "null"):
-        ops_json["unit_price"] = None
-      else:
-        ops_json["unit_price"] = pricing_unit_price_value
-      kwargs["operating_model_json"] = ops_json
+    if next_ops_json is not None:
+      kwargs["operating_model_json"] = next_ops_json
+    if next_pricing_card is not None:
+      kwargs["pricing_model_json"] = next_pricing_card
+    if kwargs_revenue_override is not None:
+      kwargs["revenue_model_json"] = kwargs_revenue_override
 
     if year1_marketing_spend is not None:
       kwargs["year1_marketing_spend"] = year1_marketing_spend
     if year1_payroll is not None:
       kwargs["year1_payroll"] = year1_payroll
-    if year1_revenue is not None:
-      kwargs["year1_revenue"] = year1_revenue
+    if year1_revenue_value is not None:
+      kwargs["year1_revenue"] = float(year1_revenue_value)
 
     append_messages(conn, **kwargs)
 
@@ -769,6 +1103,9 @@ def post_intake_model_cards_handler(*, app, request):
       from intake_consultant import consultant_chat_turn  # type: ignore
       from target_market_consultant import target_market_chat_turn  # type: ignore
       from marketing_consultant import marketing_chat_turn  # type: ignore
+      from revenue_consultant import revenue_chat_turn  # type: ignore
+      from fulfillment_consultant import fulfillment_chat_turn  # type: ignore
+      from ops_concept_consultant import ops_concept_chat_turn  # type: ignore
       from milestones_consultant import milestones_chat_turn  # type: ignore
       from headcount_consultant import headcount_chat_turn  # type: ignore
       from people_capability_consultant import people_capability_chat_turn  # type: ignore
@@ -799,44 +1136,401 @@ def post_intake_model_cards_handler(*, app, request):
       }
       # When editing model cards mid-stream, never restart a section: continue from current state.
       instruction = continue_instruction if messages else start_by_focus.get(next_focus, continue_instruction)
-      if pricing_unit_price_updated and next_focus == "ops":
-        instruction = (
-          "A pricing driver was edited (unit price). Recalculate the revenue estimate using the updated unit price "
-          "while keeping the previously agreed capacity/utilization assumptions the same, show the arithmetic, "
-          "and then ask the client the next single data-bearing question (do not bundle)."
-        )
       conversation_messages = [*messages, {"role": "user", "content": instruction}]
 
       turn: Dict[str, Any] = {"assistant_message": ""}
       if next_focus == "ops":
         operating_model = _parse_json_dict(fresh.get("operating_model_json"))
+        revenue_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("revenue_model_json"))))
+        fulfillment_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("fulfillment_model_json"))))
+        ops_concept_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("ops_concept_model_json"))))
         milestones_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("milestones_model_json"))))
-        milestones_pending = True
-        try:
-          lobs = milestones_card.get("lobs")
-          if isinstance(lobs, list) and lobs:
+
+        def _has_value(val: Any) -> bool:
+          if val is None:
+            return False
+          if isinstance(val, str):
+            return bool(val.strip())
+          if isinstance(val, (int, float)):
+            return True
+          if isinstance(val, (list, dict)):
+            return bool(val)
+          return True
+
+        def _revenue_pending(card: Dict[str, Any]) -> bool:
+          try:
+            lobs = card.get("lobs")
+            if not isinstance(lobs, list) or not lobs:
+              return True
             non_company = [
               l for l in lobs if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
             ]
             requires = non_company if non_company else [l for l in lobs if isinstance(l, dict)]
-            milestones_pending = any(
-              not (
-                isinstance((lob.get("drivers") if isinstance(lob, dict) else None), dict)
-                and isinstance(((lob.get("drivers") or {}).get("milestones")), dict)
-                and isinstance((((lob.get("drivers") or {}).get("milestones") or {}).get("value")), list)
-                and any(
-                  isinstance(x, dict) and bool(str(x.get("title") or "").strip())
-                  for x in (((lob.get("drivers") or {}).get("milestones") or {}).get("value") or [])
-                )
-              )
-              for lob in requires
-            )
-        except Exception:
-          milestones_pending = True
+            for lob in requires:
+              dmap = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+              y1 = dmap.get("year1_revenue")
+              if not (isinstance(y1, dict) and _has_value(y1.get("value"))):
+                return True
+            return False
+          except Exception:
+            return True
 
-        if _has_nonempty_text(operating_model, "business_description_summary") and milestones_pending:
+        def _model_missing_driver(card: Dict[str, Any], keys: Tuple[str, ...]) -> bool:
+          try:
+            lobs = card.get("lobs")
+            if not isinstance(lobs, list) or not lobs:
+              return True
+            non_company = [
+              l for l in lobs if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
+            ]
+            requires = non_company if non_company else [l for l in lobs if isinstance(l, dict)]
+            for lob in requires:
+              drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+              for k in keys:
+                dv = drivers.get(k)
+                if not (isinstance(dv, dict) and _has_value(dv.get("value"))):
+                  return True
+            return False
+          except Exception:
+            return True
+
+        def _milestones_pending(card: Dict[str, Any]) -> bool:
+          try:
+            lobs = card.get("lobs")
+            if not isinstance(lobs, list) or not lobs:
+              return True
+            non_company = [
+              l for l in lobs if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
+            ]
+            requires = non_company if non_company else [l for l in lobs if isinstance(l, dict)]
+            for lob in requires:
+              drivers = lob.get("drivers") if isinstance(lob.get("drivers"), dict) else {}
+              ms = drivers.get("milestones")
+              if not isinstance(ms, dict):
+                return True
+              val = ms.get("value")
+              if not isinstance(val, list) or not any(isinstance(x, dict) and str(x.get("title") or "").strip() for x in val):
+                return True
+            return False
+          except Exception:
+            return True
+
+        unit_name_live = str((operating_model or {}).get("unit_name") or "").strip()
+        proposals_now = _parse_json_list(fresh.get("model_card_proposals_json"))
+
+        if _revenue_pending(revenue_card):
+          suggestion: Dict[str, Any] = {}
+          if not any(isinstance(p, dict) and p.get("model") == "revenue" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_revenue_suggestions  # type: ignore
+
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = revenue_card.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggested = propose_revenue_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((operating_model or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=operating_model,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              if suggested and isinstance(suggested[0], dict):
+                suggestion = suggested[0]
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                proposal_id = f"rev_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "revenue",
+                    "title": "Revenue (Year 1 model)",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": [
+                      {
+                        "key": "units_per_week_capacity",
+                        "value": s.get("units_per_week_capacity"),
+                        "unit": unit_name_live or "units",
+                        "time_basis": "week",
+                        "rationale": str(s.get("basis") or "").strip() or "Proposed capacity anchor.",
+                      },
+                      {
+                        "key": "avg_units_per_week_year1",
+                        "value": s.get("avg_units_per_week_year1"),
+                        "unit": unit_name_live or "units",
+                        "time_basis": "week",
+                        "rationale": "Proposed Year-1 average volume (accounts for ramp).",
+                      },
+                      {
+                        "key": "utilization_rate",
+                        "value": (
+                          (float(s.get("avg_units_per_week_year1")) / float(s.get("units_per_week_capacity")))
+                          if (s.get("avg_units_per_week_year1") is not None and s.get("units_per_week_capacity"))
+                          else None
+                        ),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "Year-1 average utilization (editable).",
+                      },
+                      {
+                        "key": "operating_weeks_per_year",
+                        "value": s.get("operating_weeks_per_year"),
+                        "unit": "weeks",
+                        "time_basis": "year",
+                        "rationale": "Operating weeks per year (editable).",
+                      },
+                      {
+                        "key": "unit_price",
+                        "value": s.get("unit_price"),
+                        "unit": "USD",
+                        "time_basis": "per_unit",
+                        "rationale": "Average revenue per unit (editable).",
+                      },
+                    ],
+                    "derived": [],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+          turn = revenue_chat_turn(
+            intake_context={
+              **intake_context,
+              "revenue_card": revenue_card,
+              "revenue_suggestion": suggestion,
+              "unit_name": unit_name_live,
+            },
+            conversation_messages=conversation_messages,
+          )
+        elif _model_missing_driver(fulfillment_card, ("fulfillment_model", "who_fulfills", "lead_time")):
+          suggestion = {}
+          if not any(isinstance(p, dict) and p.get("model") == "fulfillment" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_fulfillment_suggestions  # type: ignore
+
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = fulfillment_card.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggested = propose_fulfillment_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((operating_model or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=operating_model,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              if suggested and isinstance(suggested[0], dict):
+                suggestion = suggested[0]
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                proposal_id = f"ful_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "fulfillment",
+                    "title": "Fulfillment model",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": [
+                      {
+                        "key": "fulfillment_model",
+                        "value": s.get("fulfillment_model"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": str(s.get("basis") or "").strip() or "Proposed fulfillment model.",
+                      },
+                      {
+                        "key": "who_fulfills",
+                        "value": s.get("who_fulfills"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "Who fulfills and where work happens.",
+                      },
+                      {
+                        "key": "lead_time",
+                        "value": s.get("lead_time"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "Typical fulfillment lead time.",
+                      },
+                    ],
+                    "derived": [],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+          turn = fulfillment_chat_turn(
+            intake_context={**intake_context, "fulfillment_card": fulfillment_card, "fulfillment_suggestion": suggestion},
+            conversation_messages=conversation_messages,
+          )
+        elif _model_missing_driver(ops_concept_card, ("operating_unit", "primary_constraint", "process_overview")):
+          suggestion = {}
+          if not any(isinstance(p, dict) and p.get("model") == "ops_concept" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_ops_concept_suggestions  # type: ignore
+
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = ops_concept_card.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggested = propose_ops_concept_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((operating_model or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=operating_model,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              if suggested and isinstance(suggested[0], dict):
+                suggestion = suggested[0]
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                proposal_id = f"opc_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "ops_concept",
+                    "title": "Operating concept",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": [
+                      {
+                        "key": "operating_unit",
+                        "value": s.get("operating_unit"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": str(s.get("basis") or "").strip() or "Proposed operating unit.",
+                      },
+                      {
+                        "key": "primary_constraint",
+                        "value": s.get("primary_constraint"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "What most constrains throughput today.",
+                      },
+                      {
+                        "key": "process_overview",
+                        "value": s.get("process_overview"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "Plain-English operating reality (editable).",
+                      },
+                    ],
+                    "derived": [],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+          turn = ops_concept_chat_turn(
+            intake_context={**intake_context, "ops_concept_card": ops_concept_card, "ops_concept_suggestion": suggestion},
+            conversation_messages=conversation_messages,
+          )
+        elif _milestones_pending(milestones_card):
+          suggestions: List[Dict[str, Any]] = []
+          if not any(isinstance(p, dict) and p.get("model") == "milestones" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_milestones_suggestions  # type: ignore
+
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = milestones_card.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggestions = propose_milestones_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((operating_model or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=operating_model,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              now_ms = int(time.time() * 1000)
+              for s in suggestions:
+                if not isinstance(s, dict):
+                  continue
+                proposal_id = f"ms_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "milestones",
+                    "title": "Milestones",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": [
+                      {
+                        "key": "milestones",
+                        "value": s.get("milestones") if isinstance(s.get("milestones"), list) else [],
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "Proposed milestones; edit to reflect your goals and timing.",
+                      }
+                    ],
+                    "derived": [],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
           turn = milestones_chat_turn(
-            intake_context={**intake_context, "milestones_suggestions": []},
+            intake_context={**intake_context, "milestones_suggestions": suggestions},
             conversation_messages=conversation_messages,
           )
         else:
@@ -856,14 +1550,45 @@ def post_intake_model_cards_handler(*, app, request):
               not (
                 isinstance((lob.get("derived") if isinstance(lob, dict) else None), dict)
                 and isinstance(((lob.get("derived") or {}).get("year1_marketing_spend")), dict)
-                and bool(str((((lob.get("derived") or {}).get("year1_marketing_spend") or {}).get("value")) or "").strip())
+                and (
+                  (((lob.get("derived") or {}).get("year1_marketing_spend") or {}).get("value")) is not None
+                  and (
+                    not isinstance(((lob.get("derived") or {}).get("year1_marketing_spend") or {}).get("value"), str)
+                    or bool(
+                      str(
+                        ((lob.get("derived") or {}).get("year1_marketing_spend") or {}).get("value") or ""
+                      ).strip()
+                    )
+                  )
+                )
               )
               for lob in requires
             )
         except Exception:
           marketing_pending = True
 
-        if _has_nonempty_text(target_market, "target_market_summary") and marketing_pending:
+        consumer_type_live = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+        if consumer_type_live not in ("consumer", "b2b", "mixed"):
+          consumer_type_live = "consumer"
+
+        target_market_ready = True
+        try:
+          if consumer_type_live in ("consumer", "mixed"):
+            target_market_ready = target_market_ready and bool(str((target_market or {}).get("gender_age_intent") or "").strip())
+            target_market_ready = target_market_ready and bool(str((target_market or {}).get("income_intent") or "").strip())
+            sels = (target_market or {}).get("selections")
+            target_market_ready = target_market_ready and isinstance(sels, list) and bool(sels)
+          if consumer_type_live in ("b2b", "mixed"):
+            terms = (target_market or {}).get("b2b_industry_terms")
+            sizes = (target_market or {}).get("b2b_size_bands")
+            ages = (target_market or {}).get("b2b_age_bands")
+            target_market_ready = target_market_ready and isinstance(terms, list) and any(str(t or "").strip() for t in (terms or []))
+            target_market_ready = target_market_ready and isinstance(sizes, list) and any(str(s or "").strip() for s in (sizes or []))
+            target_market_ready = target_market_ready and isinstance(ages, list) and any(str(a or "").strip() for a in (ages or []))
+        except Exception:
+          target_market_ready = False
+
+        if target_market_ready and marketing_pending:
           # Marketing pending: do not push target market questions; return a short Accept/Edit prompt.
           suggestion = {
             "monthly_marketing_budget": None,
@@ -889,14 +1614,29 @@ def post_intake_model_cards_handler(*, app, request):
               not (
                 isinstance((lob.get("derived") if isinstance(lob, dict) else None), dict)
                 and isinstance(((lob.get("derived") or {}).get("year1_payroll")), dict)
-                and bool(str((((lob.get("derived") or {}).get("year1_payroll") or {}).get("value")) or "").strip())
+                and (
+                  (((lob.get("derived") or {}).get("year1_payroll") or {}).get("value")) is not None
+                  and (
+                    not isinstance(((lob.get("derived") or {}).get("year1_payroll") or {}).get("value"), str)
+                    or bool(
+                      str(((lob.get("derived") or {}).get("year1_payroll") or {}).get("value") or "").strip()
+                    )
+                  )
+                )
               )
               for lob in requires
             )
         except Exception:
           headcount_pending = True
 
-        if _has_nonempty_text(people, "key_people_summary") and headcount_pending:
+        people_ready = False
+        try:
+          items = (people or {}).get("people")
+          people_ready = isinstance(items, list) and any(isinstance(p, dict) and str(p.get("full_name") or "").strip() for p in (items or []))
+        except Exception:
+          people_ready = False
+
+        if people_ready and headcount_pending:
           # Ensure at least one headcount proposal exists; propose if missing.
           proposals_now = _parse_json_list(fresh.get("model_card_proposals_json"))
           if not any(isinstance(p, dict) and p.get("model") == "headcount" for p in proposals_now):
@@ -989,6 +1729,29 @@ def post_intake_model_cards_handler(*, app, request):
         turn = financials_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
 
       assistant_message = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
+
+      # If a revenue-relevant driver was just edited, always reprint the updated revenue math
+      # (trust surface) before continuing, so the client sees immediate recompute.
+      revenue_updated = bool(
+        model == "revenue"
+        or (model == "pricing" and pricing_unit_price_updated)
+      )
+      if revenue_updated:
+        try:
+          revenue_card_live = _ensure_company_total_lob(
+            _normalize_model_card(_parse_json_dict(fresh.get("revenue_model_json")))
+          )
+          ops_live = _parse_json_dict(fresh.get("operating_model_json"))
+          unit_name_live = str((ops_live or {}).get("unit_name") or "").strip()
+          rev_turn = revenue_chat_turn(
+            intake_context={**intake_context, "revenue_card": revenue_card_live, "unit_name": unit_name_live},
+            conversation_messages=conversation_messages,
+          )
+          rev_text = sanitize_fact_template(str(rev_turn.get("assistant_message") or "").strip())
+          if rev_text and (rev_text not in assistant_message):
+            assistant_message = "\n\n".join([t for t in (rev_text, assistant_message) if str(t or "").strip()]).strip()
+        except Exception:
+          pass
     except Exception:
       assistant_message = ""
 

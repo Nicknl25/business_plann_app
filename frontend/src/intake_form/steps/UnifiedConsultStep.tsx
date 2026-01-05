@@ -704,6 +704,7 @@ export default function UnifiedConsultStep() {
     if (!modelCards) return [];
     const order: Array<{ key: string; label: string }> = [
       { key: "pricing", label: "Pricing" },
+      { key: "revenue", label: "Revenue" },
       { key: "marketing", label: "Marketing" },
       { key: "headcount", label: "Headcount" },
       { key: "fulfillment", label: "Fulfillment" },

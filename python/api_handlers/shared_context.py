@@ -1,7 +1,8 @@
-import json
 from typing import Any, Dict
 
 from flask import jsonify
+
+import json
 
 
 def _parse_json_maybe(raw: Any) -> Dict[str, Any]:
@@ -44,6 +45,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
       "fulfillment": _parse_json_maybe(consult.get("fulfillment_model_json")),
       "marketing": _parse_json_maybe(consult.get("marketing_model_json")),
       "pricing": _parse_json_maybe(consult.get("pricing_model_json")),
+      "revenue": _parse_json_maybe(consult.get("revenue_model_json")),
       "headcount": _parse_json_maybe(consult.get("headcount_model_json")),
       "milestones": _parse_json_maybe(consult.get("milestones_model_json")),
       "year1_rollups": {

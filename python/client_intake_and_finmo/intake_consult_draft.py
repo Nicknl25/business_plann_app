@@ -75,6 +75,7 @@ def ensure_table(conn) -> None:
         fulfillment_model_json JSON NULL,
         marketing_model_json JSON NULL,
         pricing_model_json JSON NULL,
+        revenue_model_json JSON NULL,
         headcount_model_json JSON NULL,
         milestones_model_json JSON NULL,
         model_card_proposals_json JSON NULL,
@@ -150,6 +151,8 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN marketing_model_json JSON NULL")
   if "pricing_model_json" not in cols:
     alterations.append("ADD COLUMN pricing_model_json JSON NULL")
+  if "revenue_model_json" not in cols:
+    alterations.append("ADD COLUMN revenue_model_json JSON NULL")
   if "headcount_model_json" not in cols:
     alterations.append("ADD COLUMN headcount_model_json JSON NULL")
   if "milestones_model_json" not in cols:
@@ -257,6 +260,7 @@ def append_messages(
   fulfillment_model_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   pricing_model_json: Optional[Dict[str, Any]] = None,
+  revenue_model_json: Optional[Dict[str, Any]] = None,
   headcount_model_json: Optional[Dict[str, Any]] = None,
   milestones_model_json: Optional[Dict[str, Any]] = None,
   model_card_proposals: Optional[Any] = None,
@@ -276,7 +280,81 @@ def append_messages(
 ) -> Dict[str, Any]:
   row = get_draft(conn, draft_id=draft_id)
   messages = _parse_messages(row.get("messages_json"))
-  messages.extend(new_messages)
+
+  def _parse_json_list(raw: Any) -> List[Any]:
+    if raw is None:
+      return []
+    if isinstance(raw, list):
+      return list(raw)
+    try:
+      parsed = json.loads(str(raw))
+    except Exception:
+      return []
+    return list(parsed) if isinstance(parsed, list) else []
+
+  def _has_pending_proposals() -> bool:
+    try:
+      proposals = _parse_json_list(row.get("model_card_proposals_json"))
+      return bool(proposals)
+    except Exception:
+      return False
+
+  def _is_ack(text: str) -> bool:
+    raw = " ".join(str(text or "").strip().lower().split())
+    if not raw:
+      return False
+    # Treat short acknowledgements as non-data-bearing (they should not advance the flow).
+    return raw in {
+      "ok",
+      "okay",
+      "k",
+      "kk",
+      "yes",
+      "y",
+      "yep",
+      "yeah",
+      "sure",
+      "sounds good",
+      "got it",
+      "correct",
+    }
+
+  # Avoid spamming duplicate assistant messages when the client types acknowledgements
+  # during model-card gating (Accept/Edit). The UI already shows pending proposals.
+  # We still keep the client message history; we just avoid repeating the same assistant text.
+  if new_messages:
+    last = messages[-1] if messages else None
+    for m in list(new_messages):
+      try:
+        role = str(m.get("role") or "").strip().lower()
+        content = str(m.get("content") or "")
+      except Exception:
+        role = ""
+        content = ""
+      if role == "assistant" and _has_pending_proposals():
+        # Pattern: previous persisted assistant == this assistant AND user just sent an acknowledgement.
+        try:
+          prev = messages[-2] if len(messages) >= 2 else None
+          if (
+            isinstance(prev, dict)
+            and str(prev.get("role") or "").strip().lower() == "assistant"
+            and str(prev.get("content") or "") == content
+            and isinstance(last, dict)
+            and str(last.get("role") or "").strip().lower() == "user"
+            and _is_ack(str(last.get("content") or ""))
+          ):
+            continue
+        except Exception:
+          pass
+      if (
+        role == "assistant"
+        and isinstance(last, dict)
+        and str(last.get("role") or "").strip().lower() == "assistant"
+        and str(last.get("content") or "") == content
+      ):
+        continue
+      messages.append(m)
+      last = m
 
   now = _utc_now_str()
   set_parts = ["messages_json = %s", "updated_at = %s"]
@@ -292,18 +370,38 @@ def append_messages(
       set_parts.append("completed_at = NULL")
 
   if operating_model_json is not None:
+    try:
+      operating_model_json = dict(operating_model_json)
+      operating_model_json.pop("business_description_summary", None)
+    except Exception:
+      pass
     set_parts.append("operating_model_json = %s")
     values.append(json.dumps(operating_model_json, ensure_ascii=False))
 
   if target_market_json is not None:
+    try:
+      target_market_json = dict(target_market_json)
+      target_market_json.pop("target_market_summary", None)
+    except Exception:
+      pass
     set_parts.append("target_market_json = %s")
     values.append(json.dumps(target_market_json, ensure_ascii=False))
 
   if people_json is not None:
+    try:
+      people_json = dict(people_json)
+      people_json.pop("key_people_summary", None)
+    except Exception:
+      pass
     set_parts.append("people_json = %s")
     values.append(json.dumps(people_json, ensure_ascii=False))
 
   if financials_json is not None:
+    try:
+      financials_json = dict(financials_json)
+      financials_json.pop("financials_summary", None)
+    except Exception:
+      pass
     set_parts.append("financials_json = %s")
     values.append(json.dumps(financials_json, ensure_ascii=False))
 
@@ -322,6 +420,10 @@ def append_messages(
   if pricing_model_json is not None:
     set_parts.append("pricing_model_json = %s")
     values.append(json.dumps(pricing_model_json, ensure_ascii=False))
+
+  if revenue_model_json is not None:
+    set_parts.append("revenue_model_json = %s")
+    values.append(json.dumps(revenue_model_json, ensure_ascii=False))
 
   if headcount_model_json is not None:
     set_parts.append("headcount_model_json = %s")
@@ -438,6 +540,7 @@ def append_messages(
       "fulfillment_model_json",
       "marketing_model_json",
       "pricing_model_json",
+      "revenue_model_json",
       "headcount_model_json",
       "milestones_model_json",
       "model_card_proposals_json",

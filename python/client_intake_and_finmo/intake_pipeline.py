@@ -249,8 +249,6 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   required_text_fields = (
     "business_name",
     "business_type",
-    "target_market_summary",
-    "key_people_summary",
     "first_name",
     "last_name",
     "email_address",
@@ -352,7 +350,6 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "primary_growth_lever",
     "legal_entity",
     "starting_revenue",
-    "business_description_summary",
   )
   for key in operating_required:
     if payload.get(key) is None or payload.get(key) == "":

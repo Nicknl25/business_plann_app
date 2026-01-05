@@ -92,11 +92,8 @@ def post_financials_handler(*, app, request):
     if not isinstance(tm_obj, dict):
       raise IntakeValidationError({"draft_id": "target_market_json must be a JSON object."})
 
-    target_market_summary = str(tm_obj.get("target_market_summary") or "").strip()
-    if not target_market_summary:
-      raise IntakeValidationError(
-        {"draft_id": "Target market consult is missing target_market_summary."}
-      )
+    # Summaries are deprecated end-to-end; keep legacy fields NULL in the submission snapshot.
+    target_market_summary = ""
 
     target_market_csv: str = ""
     if consumer_type in ("consumer", "mixed"):
@@ -161,11 +158,8 @@ def post_financials_handler(*, app, request):
     if not isinstance(pc_obj, dict):
       raise IntakeValidationError({"draft_id": "people_json must be a JSON object."})
 
-    key_people_summary = str(pc_obj.get("key_people_summary") or "").strip()
-    if not key_people_summary:
-      raise IntakeValidationError(
-        {"draft_id": "People & Capability consult is missing key_people_summary."}
-      )
+    # Summaries are deprecated end-to-end; keep legacy fields NULL in the submission snapshot.
+    key_people_summary = ""
 
     fin_raw = draft.get("financials_json")
     if not fin_raw:
@@ -174,52 +168,7 @@ def post_financials_handler(*, app, request):
     if not isinstance(fin_obj, dict):
       raise IntakeValidationError({"draft_id": "financials_json must be a JSON object."})
 
-    # Render fact-bearing templates into a frozen submission snapshot.
-    rendered_business_description_summary: str = ""
-    rendered_target_market_summary: str = ""
-    rendered_key_people_summary: str = ""
-    try:
-      from fact_templates import render_fact_template  # type: ignore
-
-      business_facts = {
-        "name": str(payload.get("business_name") or draft.get("business_name") or "").strip(),
-        "address": str(payload.get("address") or draft.get("business_address") or "").strip(),
-        "start_date": str(payload.get("business_start_date") or draft.get("business_start_date") or "").strip(),
-      }
-
-      shared_ctx = shared_context_for_render or {
-        "operating_model": operating_model,
-        "target_market": tm_obj,
-        "people_capability": pc_obj,
-        "financials": fin_obj,
-      }
-
-      rendered_ops_summary = render_fact_template(
-        str(operating_model.get("business_description_summary") or ""),
-        shared_context=shared_ctx,
-        business_facts=business_facts,
-      ).strip()
-      if rendered_ops_summary:
-        rendered_business_description_summary = rendered_ops_summary
-
-      rendered_market_summary = render_fact_template(
-        str(target_market_summary or ""),
-        shared_context=shared_ctx,
-        business_facts=business_facts,
-      ).strip()
-      if rendered_market_summary:
-        rendered_target_market_summary = rendered_market_summary
-
-      rendered_people_summary = render_fact_template(
-        str(key_people_summary or ""),
-        shared_context=shared_ctx,
-        business_facts=business_facts,
-      ).strip()
-      if rendered_people_summary:
-        rendered_key_people_summary = rendered_people_summary
-    except Exception:
-      # Best-effort: if rendering fails, fall back to storing raw strings (may contain placeholders).
-      pass
+    # Summaries are deprecated: do not render or store them in the submission snapshot.
 
     # Ensure the submission is keyed to the consult draft's client_id and model.
     # Merge operating_model as defaults only so it never overwrites client-entered values
@@ -233,16 +182,12 @@ def post_financials_handler(*, app, request):
       if k not in payload or payload.get(k) in (None, ""):
         payload[k] = v
     payload["target_market"] = (target_market_csv or None)
-    payload["target_market_summary"] = rendered_target_market_summary or target_market_summary
+    payload["target_market_summary"] = None
     payload["target_market_b2b_industry"] = (b2b_industry or None)
     payload["target_market_b2b_size"] = (b2b_size or None)
     payload["target_market_b2b_age"] = (b2b_age or None)
-    payload["key_people_summary"] = rendered_key_people_summary or key_people_summary
-    if rendered_business_description_summary and (
-      not str(payload.get("business_description_summary") or "").strip()
-      or "{{fact:" in str(payload.get("business_description_summary") or "")
-    ):
-      payload["business_description_summary"] = rendered_business_description_summary
+    payload["key_people_summary"] = None
+    payload["business_description_summary"] = None
 
     # Additive model-card persistence: copy any model driver JSON blobs/events from the consult draft
     # into the final intake_submissions snapshot (ignored if the destination table lacks columns).
@@ -251,6 +196,7 @@ def post_financials_handler(*, app, request):
       "fulfillment_model_json",
       "marketing_model_json",
       "pricing_model_json",
+      "revenue_model_json",
       "headcount_model_json",
       "milestones_model_json",
       "driver_events_json",
@@ -316,15 +262,7 @@ def post_financials_handler(*, app, request):
       except Exception:
         pass
 
-    # Hard guard: intake_submissions must never store unresolved fact templates.
-    for field in ("business_description_summary", "target_market_summary", "key_people_summary"):
-      val = str(payload.get(field) or "")
-      if "{{fact:" in val:
-        raise IntakeValidationError(
-          {
-            field: "Submission snapshot contains unresolved fact templates; this should never happen.",
-          }
-        )
+    # Summaries are deprecated; no fact-template placeholder guard is required here.
     if "confidence" in payload:
       payload["operating_model_confidence"] = payload.pop("confidence")
 

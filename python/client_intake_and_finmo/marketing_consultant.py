@@ -17,22 +17,52 @@ def marketing_chat_turn(*, intake_context: Dict[str, Any], conversation_messages
   basis = str(suggestion.get("basis") or "").strip()
   channels = str(suggestion.get("primary_channels") or "").strip()
 
+  def _as_number(val: Any) -> float | None:
+    if val is None:
+      return None
+    if isinstance(val, (int, float)):
+      return float(val)
+    raw = str(val).strip()
+    if not raw:
+      return None
+    try:
+      return float(raw)
+    except Exception:
+      return None
+
+  annual_num = _as_number(annual)
+  monthly_num = _as_number(monthly)
+
   parts = []
-  if annual is not None and monthly is not None:
-    parts.append(
-      "I'm going to propose a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture.\n\n"
-      f"Proposed marketing budget:\n"
-      f"- Year 1: ${annual:,.0f}\n"
-      f"- Monthly equivalent: ${monthly:,.0f}\n"
-    )
-  elif annual is not None:
-    parts.append(
-      "I'm going to propose a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture.\n\n"
-      f"Proposed marketing budget for Year 1: ${annual:,.0f}\n"
-    )
+  if annual_num is not None and monthly_num is not None:
+    if annual_num == 0 and monthly_num == 0:
+      parts.append(
+        "I'm going to propose whether marketing spend should exist at all in Year 1, based on your industry (NAICS) and operating reality.\n\n"
+        "Proposed marketing budget:\n"
+        "- Year 1: $0\n"
+        "- Monthly equivalent: $0\n"
+      )
+    else:
+      parts.append(
+        "I'm going to propose a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture.\n\n"
+        "Proposed marketing budget:\n"
+        f"- Year 1: ${annual_num:,.0f}\n"
+        f"- Monthly equivalent: ${monthly_num:,.0f}\n"
+      )
+  elif annual_num is not None:
+    if annual_num == 0:
+      parts.append(
+        "I'm going to propose whether marketing spend should exist at all in Year 1, based on your industry (NAICS) and operating reality.\n\n"
+        "Proposed marketing budget for Year 1: $0\n"
+      )
+    else:
+      parts.append(
+        "I'm going to propose a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture.\n\n"
+        f"Proposed marketing budget for Year 1: ${annual_num:,.0f}\n"
+      )
   else:
     parts.append(
-      "Let's set a simple Year-1 marketing budget so we can ground demand assumptions and sanity-check the Year-1 picture."
+      "I'm going to propose whether marketing spend should exist at all in Year 1, based on your industry (NAICS) and operating reality."
     )
 
   if basis:
