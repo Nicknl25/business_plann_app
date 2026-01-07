@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
+from llm_timing import log_timing, timed_span
 from turn_outcome import ASK_NEXT, SECTION_COMPLETE, TurnOutcome
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -52,15 +53,47 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   timeout = _openai_timeout_seconds()
   last_exc: Optional[Exception] = None
   for attempt in range(3):
+    started = time.perf_counter()
     try:
-      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      log_timing(
+        "openai.http",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="consultant",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        status_code=getattr(resp, "status_code", None),
+      )
+      return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
+      log_timing(
+        "openai.http_timeout",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="consultant",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        exc=type(exc).__name__,
+      )
       if attempt >= 2:
         raise
       time.sleep(0.75 * (2**attempt))
     except requests.exceptions.ConnectionError as exc:
       last_exc = exc
+      log_timing(
+        "openai.http_connection_error",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="consultant",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        exc=type(exc).__name__,
+      )
       if attempt >= 2:
         raise
       time.sleep(0.75 * (2**attempt))
@@ -383,7 +416,8 @@ Output rules:
     },
   }
 
-  resp = _post_openai(url=url, headers=headers, payload=payload)
+  with timed_span("consultant.chat_turn", openai_model=str(model or "")):
+    resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
@@ -504,7 +538,8 @@ Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or s
     },
   }
 
-  resp = _post_openai(url=url, headers=headers, payload=payload)
+  with timed_span("consultant.finalize", openai_model=str(model or "")):
+    resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 

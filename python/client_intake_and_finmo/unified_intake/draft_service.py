@@ -14,6 +14,11 @@ from unified_intake.model_engine import (
   recompute_revenue_company_total,
 )
 
+try:
+  from llm_timing import log_timing  # type: ignore
+except Exception:  # pragma: no cover
+  log_timing = None  # type: ignore
+
 
 def _parse_json_list(raw: Any) -> List[Any]:
   if raw is None:
@@ -186,42 +191,59 @@ def seed_lobs_if_needed(
   cogs_model_json = ensure_lob_model_card(cogs_model_json or {}, lobs)
   gna_model_json = ensure_lob_model_card(gna_model_json or {}, lobs)
 
+  # Lazy concept summaries: do not backfill summaries just because we seeded LOB scaffolding.
+  # Only keep summaries in-sync for cards that already had a summary (i.e., were previously referenced).
+  def _has_summary(card: Dict[str, Any]) -> bool:
+    return bool(str((card or {}).get("concept_summary") or "").strip())
+
   concept_ctx = {"event": "seed_lobs"}
-  ops_concept_model_json, _ = ensure_concept_summary(
-    model="ops_concept",
-    prev_card=prev_ops_concept,
-    card=ops_concept_model_json,
-    now_ms=now_ms,
-    context=concept_ctx,
-  )
-  marketing_model_json, _ = ensure_concept_summary(
-    model="marketing", prev_card=prev_marketing, card=marketing_model_json, now_ms=now_ms, context=concept_ctx
-  )
-  pricing_model_json, _ = ensure_concept_summary(
-    model="pricing", prev_card=prev_pricing, card=pricing_model_json, now_ms=now_ms, context=concept_ctx
-  )
-  revenue_model_json, _ = ensure_concept_summary(
-    model="revenue", prev_card=prev_revenue, card=revenue_model_json, now_ms=now_ms, context=concept_ctx
-  )
-  headcount_model_json, _ = ensure_concept_summary(
-    model="headcount", prev_card=prev_headcount, card=headcount_model_json, now_ms=now_ms, context=concept_ctx
-  )
-  fulfillment_model_json, _ = ensure_concept_summary(
-    model="fulfillment",
-    prev_card=prev_fulfillment,
-    card=fulfillment_model_json,
-    now_ms=now_ms,
-    context=concept_ctx,
-  )
-  milestones_model_json, _ = ensure_concept_summary(
-    model="milestones", prev_card=prev_milestones, card=milestones_model_json, now_ms=now_ms, context=concept_ctx
-  )
-  cogs_model_json, _ = ensure_concept_summary(
-    model="cogs", prev_card=prev_cogs, card=cogs_model_json, now_ms=now_ms, context=concept_ctx
-  )
-  gna_model_json, _ = ensure_concept_summary(
-    model="gna", prev_card=prev_gna, card=gna_model_json, now_ms=now_ms, context=concept_ctx
-  )
+  try:
+    if _has_summary(prev_ops_concept):
+      ops_concept_model_json, _ = ensure_concept_summary(
+        model="ops_concept",
+        prev_card=prev_ops_concept,
+        card=ops_concept_model_json,
+        now_ms=now_ms,
+        context=concept_ctx,
+      )
+    if _has_summary(prev_marketing):
+      marketing_model_json, _ = ensure_concept_summary(
+        model="marketing", prev_card=prev_marketing, card=marketing_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if _has_summary(prev_pricing):
+      pricing_model_json, _ = ensure_concept_summary(
+        model="pricing", prev_card=prev_pricing, card=pricing_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if _has_summary(prev_revenue):
+      revenue_model_json, _ = ensure_concept_summary(
+        model="revenue", prev_card=prev_revenue, card=revenue_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if _has_summary(prev_headcount):
+      headcount_model_json, _ = ensure_concept_summary(
+        model="headcount", prev_card=prev_headcount, card=headcount_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if _has_summary(prev_fulfillment):
+      fulfillment_model_json, _ = ensure_concept_summary(
+        model="fulfillment",
+        prev_card=prev_fulfillment,
+        card=fulfillment_model_json,
+        now_ms=now_ms,
+        context=concept_ctx,
+      )
+    if _has_summary(prev_milestones):
+      milestones_model_json, _ = ensure_concept_summary(
+        model="milestones", prev_card=prev_milestones, card=milestones_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if _has_summary(prev_cogs):
+      cogs_model_json, _ = ensure_concept_summary(
+        model="cogs", prev_card=prev_cogs, card=cogs_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if _has_summary(prev_gna):
+      gna_model_json, _ = ensure_concept_summary(
+        model="gna", prev_card=prev_gna, card=gna_model_json, now_ms=now_ms, context=concept_ctx
+      )
+  except Exception:
+    pass
 
   from intake_consult_draft import append_messages  # type: ignore
 
@@ -271,13 +293,16 @@ def sync_pricing_from_ops_if_needed(
   if not next_pricing or next_pricing == pricing_model_json:
     return pricing_model_json
 
-  next_pricing, _ = ensure_concept_summary(
-    model="pricing",
-    prev_card=prev_pricing,
-    card=next_pricing,
-    now_ms=now_ms,
-    context={"event": "sync_pricing_from_ops"},
-  )
+  # Lazy concept summaries: do not backfill a missing pricing summary during sync.
+  # Only keep it in-sync if it already existed (i.e., pricing was previously referenced).
+  if str(prev_pricing.get("concept_summary") or "").strip():
+    next_pricing, _ = ensure_concept_summary(
+      model="pricing",
+      prev_card=prev_pricing,
+      card=next_pricing,
+      now_ms=now_ms,
+      context={"event": "sync_pricing_from_ops"},
+    )
 
   from intake_consult_draft import append_messages  # type: ignore
 
@@ -624,7 +649,9 @@ def apply_chat_patch_and_persist(
   except Exception:
     pass
 
-  # Concept summaries (authoritative narrative layer for plan writing) must stay in lockstep with drivers/rationales.
+  # Concept summaries are generated lazily:
+  # - DO NOT backfill summaries for untouched models.
+  # - Keep summaries in-sync only for models that were explicitly edited this turn or already have a summary.
   concept_ctx = {
     "business": {
       "name": business_facts.get("name"),
@@ -637,38 +664,91 @@ def apply_chat_patch_and_persist(
       "unit_name": (ops_json or {}).get("unit_name"),
     },
   }
+
+  def _has_summary(card: Dict[str, Any]) -> bool:
+    return bool(str((card or {}).get("concept_summary") or "").strip())
+
+  explicitly_touched = set()
+  for raw_key in (model_patch or {}).keys():
+    try:
+      model, _field = str(raw_key or "").strip().split(".", 1)
+      model = model.strip().lower()
+      if model:
+        explicitly_touched.add(model)
+    except Exception:
+      continue
+  models_to_update = set(explicitly_touched)
+  if _has_summary(prev_marketing):
+    models_to_update.add("marketing")
+  if _has_summary(prev_pricing):
+    models_to_update.add("pricing")
+  if _has_summary(prev_revenue):
+    models_to_update.add("revenue")
+  if _has_summary(prev_headcount):
+    models_to_update.add("headcount")
+  if _has_summary(prev_fulfillment):
+    models_to_update.add("fulfillment")
+  if _has_summary(prev_ops_concept):
+    models_to_update.add("ops_concept")
+  if _has_summary(prev_milestones):
+    models_to_update.add("milestones")
+  if _has_summary(prev_cogs):
+    models_to_update.add("cogs")
+  if _has_summary(prev_gna):
+    models_to_update.add("gna")
+
   try:
-    marketing_model_json, _ = ensure_concept_summary(
-      model="marketing", prev_card=prev_marketing, card=marketing_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    pricing_model_json, _ = ensure_concept_summary(
-      model="pricing", prev_card=prev_pricing, card=pricing_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    revenue_model_json, _ = ensure_concept_summary(
-      model="revenue", prev_card=prev_revenue, card=revenue_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    headcount_model_json, _ = ensure_concept_summary(
-      model="headcount", prev_card=prev_headcount, card=headcount_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    fulfillment_model_json, _ = ensure_concept_summary(
-      model="fulfillment", prev_card=prev_fulfillment, card=fulfillment_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    ops_concept_model_json, _ = ensure_concept_summary(
-      model="ops_concept",
-      prev_card=prev_ops_concept,
-      card=ops_concept_model_json,
-      now_ms=now_ms,
-      context=concept_ctx,
-    )
-    milestones_model_json, _ = ensure_concept_summary(
-      model="milestones", prev_card=prev_milestones, card=milestones_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    cogs_model_json, _ = ensure_concept_summary(
-      model="cogs", prev_card=prev_cogs, card=cogs_model_json, now_ms=now_ms, context=concept_ctx
-    )
-    gna_model_json, _ = ensure_concept_summary(
-      model="gna", prev_card=prev_gna, card=gna_model_json, now_ms=now_ms, context=concept_ctx
-    )
+    if log_timing:
+      log_timing(
+        "concept_summary.lazy_plan",
+        ms=0,
+        explicitly_touched=",".join(sorted(explicitly_touched)) or "-",
+        models_to_update=",".join(sorted(models_to_update)) or "-",
+      )
+  except Exception:
+    pass
+
+  try:
+    if "marketing" in models_to_update:
+      marketing_model_json, _ = ensure_concept_summary(
+        model="marketing", prev_card=prev_marketing, card=marketing_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "pricing" in models_to_update:
+      pricing_model_json, _ = ensure_concept_summary(
+        model="pricing", prev_card=prev_pricing, card=pricing_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "revenue" in models_to_update:
+      revenue_model_json, _ = ensure_concept_summary(
+        model="revenue", prev_card=prev_revenue, card=revenue_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "headcount" in models_to_update:
+      headcount_model_json, _ = ensure_concept_summary(
+        model="headcount", prev_card=prev_headcount, card=headcount_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "fulfillment" in models_to_update:
+      fulfillment_model_json, _ = ensure_concept_summary(
+        model="fulfillment", prev_card=prev_fulfillment, card=fulfillment_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "ops_concept" in models_to_update:
+      ops_concept_model_json, _ = ensure_concept_summary(
+        model="ops_concept",
+        prev_card=prev_ops_concept,
+        card=ops_concept_model_json,
+        now_ms=now_ms,
+        context=concept_ctx,
+      )
+    if "milestones" in models_to_update:
+      milestones_model_json, _ = ensure_concept_summary(
+        model="milestones", prev_card=prev_milestones, card=milestones_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "cogs" in models_to_update:
+      cogs_model_json, _ = ensure_concept_summary(
+        model="cogs", prev_card=prev_cogs, card=cogs_model_json, now_ms=now_ms, context=concept_ctx
+      )
+    if "gna" in models_to_update:
+      gna_model_json, _ = ensure_concept_summary(
+        model="gna", prev_card=prev_gna, card=gna_model_json, now_ms=now_ms, context=concept_ctx
+      )
   except Exception:
     pass
 

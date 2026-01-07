@@ -26,7 +26,7 @@ const resolveApiBaseUrl = (): string => {
   }
 
   if (viteEnvRecord?.DEV) {
-    return "http://localhost:5000";
+    return "http://localhost:5050";
   }
 
   return "";
@@ -35,7 +35,7 @@ const resolveApiBaseUrl = (): string => {
 const resolvedBase = resolveApiBaseUrl();
 const baseURL = resolvedBase
   ? resolvedBase.replace(/\/$/, "")
-  : "http://localhost:5000";
+  : "http://localhost:5050";
 
 const apiClient = axios.create({
   baseURL,

@@ -103,7 +103,8 @@ def _run() -> int:
   if "2000" not in s2:
     raise RuntimeError("marketing_model_json.concept_summary did not reflect the updated budget value (2000).")
 
-  # 2) Ops unit_price -> pricing sync -> concept_summary updates immediately.
+  # 2) Ops unit_price -> pricing sync should update pricing card, but concept_summary is now lazy
+  # (not backfilled unless pricing itself was explicitly edited or already had a summary).
   out3 = apply_chat_patch_and_persist(
     conn=None,
     draft_id="d1",
@@ -125,11 +126,34 @@ def _run() -> int:
     gna_model_json=dict(gna_model_json),
   )
   pr3 = out3.get("pricing_model_json") if isinstance(out3, dict) else {}
-  ps = str((pr3 or {}).get("concept_summary") or "").strip()
-  if not ps:
-    raise RuntimeError("pricing_model_json.concept_summary was not generated after ops.unit_price update.")
-  if "750" not in ps:
-    raise RuntimeError("pricing_model_json.concept_summary did not reflect unit price 750.")
+  if int((pr3 or {}).get("unit_price") or 0) != 750:
+    raise RuntimeError("pricing_model_json.unit_price was not synced after ops.unit_price update.")
+
+  # 3) Explicit pricing driver edit -> concept_summary is generated/updated.
+  out4 = apply_chat_patch_and_persist(
+    conn=None,
+    draft_id="d1",
+    consult_row=consult_row,
+    patch={"pricing.unit_price": 750},
+    business_facts=dict(base_business),
+    ops_json=dict(out3.get("ops_json") or ops_json),
+    market_json=dict(market_json),
+    people_json=dict(people_json),
+    financials_json=dict(financials_json),
+    marketing_model_json=dict(mk2),
+    pricing_model_json=dict(pr3),
+    revenue_model_json=dict(revenue_model_json),
+    headcount_model_json=dict(headcount_model_json),
+    fulfillment_model_json=dict(fulfillment_model_json),
+    ops_concept_model_json=dict(ops_concept_model_json),
+    milestones_model_json=dict(milestones_model_json),
+    cogs_model_json=dict(cogs_model_json),
+    gna_model_json=dict(gna_model_json),
+  )
+  pr4 = out4.get("pricing_model_json") if isinstance(out4, dict) else {}
+  ps = str((pr4 or {}).get("concept_summary") or "").strip()
+  if not ps or "750" not in ps:
+    raise RuntimeError("pricing_model_json.concept_summary was not generated after pricing.unit_price edit.")
 
   return 0
 

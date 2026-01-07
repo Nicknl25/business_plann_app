@@ -241,12 +241,14 @@ app = create_app()
 
 
 if __name__ == "__main__":
-  # Default to port 5000, which plays nicely with a Vite dev server
+  # Default to port 5050 so local dev doesn't collide with other Flask apps
   # on 5173; override via the FLASK_RUN_PORT or PORT environment variable.
-  port_str = os.getenv("FLASK_RUN_PORT") or os.getenv("PORT") or "5000"
+  port_str = os.getenv("FLASK_RUN_PORT") or os.getenv("PORT") or "5050"
   try:
     port = int(port_str)
   except ValueError:
-    port = 5000
+    port = 5050
 
-  app.run(host="0.0.0.0", port=port, debug=True)
+  debug_raw = (os.getenv("FLASK_DEBUG") or os.getenv("DEBUG") or "").strip().lower()
+  debug = debug_raw in ("1", "true", "yes", "y", "on")
+  app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)

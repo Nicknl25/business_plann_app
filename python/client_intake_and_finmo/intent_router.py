@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional, Sequence
 
 import requests
 
+from llm_timing import log_timing
+
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
@@ -37,6 +39,17 @@ def _openai_model() -> str:
   _load_root_env()
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
 
+def _openai_intent_router_model() -> str:
+  _load_root_env()
+  raw = (
+    os.getenv("OPENAI_INTENT_ROUTER_MODEL")
+    or os.getenv("OPENAI_ROUTER_MODEL")
+    or os.getenv("OPENAI_FAST_MODEL")
+    or os.getenv("OPENAI_MODEL")
+    or "gpt-5.1"
+  )
+  return str(raw).strip() or "gpt-5.1"
+
 
 def _openai_timeout_seconds() -> int:
   _load_root_env()
@@ -53,15 +66,47 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   timeout = _openai_timeout_seconds()
   last_exc: Optional[Exception] = None
   for attempt in range(3):
+    started = time.perf_counter()
     try:
-      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      log_timing(
+        "openai.http",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="intent_router",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        status_code=getattr(resp, "status_code", None),
+      )
+      return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
+      log_timing(
+        "openai.http_timeout",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="intent_router",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        exc=type(exc).__name__,
+      )
       if attempt >= 2:
         raise
       time.sleep(0.75 * (2**attempt))
     except requests.exceptions.ConnectionError as exc:
       last_exc = exc
+      log_timing(
+        "openai.http_connection_error",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="intent_router",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        exc=type(exc).__name__,
+      )
       if attempt >= 2:
         raise
       time.sleep(0.75 * (2**attempt))
@@ -543,7 +588,7 @@ def route_intent(
     raise ValueError(f"Unknown consult_type={consult_type!r}")
 
   api_key = _require_openai_key()
-  model = _openai_model()
+  model = _openai_intent_router_model()
 
   _ = confirm_question_override
 

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from flask import jsonify
 
+from llm_timing import timed_span
 from unified_intake.parsing import (
   parse_json_dict as _parse_json_dict,
   parse_messages as _parse_messages,
@@ -263,27 +264,30 @@ def post_intake_consult_handler(*, app, request):
 
   conn = get_mysql_connection()
   try:
-    consult = get_draft(conn, draft_id=str(draft_id).strip())
+    with timed_span("unified_intake.get_draft", draft_id=str(draft_id).strip()):
+      consult = get_draft(conn, draft_id=str(draft_id).strip())
     draft_status = str(consult.get("status") or "").strip().lower()
     if draft_status == "submitted":
       return _reply(assistant_message="", turn_outcome="ERROR_DUPLICATE_SUBMIT", next_focus=None, status_code=409)
 
     client_id = str(consult.get("client_id") or "").strip()
-    messages = _parse_messages(consult.get("messages_json"))
+    with timed_span("unified_intake.parse_messages", draft_id=str(draft_id).strip()):
+      messages = _parse_messages(consult.get("messages_json"))
 
-    ops_json = _parse_json_dict(consult.get("operating_model_json"))
-    market_json = _parse_json_dict(consult.get("target_market_json"))
-    people_json = _parse_json_dict(consult.get("people_json"))
-    financials_json = _parse_json_dict(consult.get("financials_json"))
-    marketing_model_json = _parse_json_dict(consult.get("marketing_model_json"))
-    pricing_model_json = _parse_json_dict(consult.get("pricing_model_json"))
-    revenue_model_json = _parse_json_dict(consult.get("revenue_model_json"))
-    ops_concept_model_json = _parse_json_dict(consult.get("ops_concept_model_json"))
-    fulfillment_model_json = _parse_json_dict(consult.get("fulfillment_model_json"))
-    headcount_model_json = _parse_json_dict(consult.get("headcount_model_json"))
-    milestones_model_json = _parse_json_dict(consult.get("milestones_model_json"))
-    cogs_model_json = _parse_json_dict(consult.get("cogs_model_json"))
-    gna_model_json = _parse_json_dict(consult.get("gna_model_json"))
+    with timed_span("unified_intake.parse_state_json", draft_id=str(draft_id).strip()):
+      ops_json = _parse_json_dict(consult.get("operating_model_json"))
+      market_json = _parse_json_dict(consult.get("target_market_json"))
+      people_json = _parse_json_dict(consult.get("people_json"))
+      financials_json = _parse_json_dict(consult.get("financials_json"))
+      marketing_model_json = _parse_json_dict(consult.get("marketing_model_json"))
+      pricing_model_json = _parse_json_dict(consult.get("pricing_model_json"))
+      revenue_model_json = _parse_json_dict(consult.get("revenue_model_json"))
+      ops_concept_model_json = _parse_json_dict(consult.get("ops_concept_model_json"))
+      fulfillment_model_json = _parse_json_dict(consult.get("fulfillment_model_json"))
+      headcount_model_json = _parse_json_dict(consult.get("headcount_model_json"))
+      milestones_model_json = _parse_json_dict(consult.get("milestones_model_json"))
+      cogs_model_json = _parse_json_dict(consult.get("cogs_model_json"))
+      gna_model_json = _parse_json_dict(consult.get("gna_model_json"))
 
     active_focus = _require_nonempty_str(consult.get("active_focus"))
     if not active_focus:
@@ -391,40 +395,43 @@ def post_intake_consult_handler(*, app, request):
     if active_focus_norm == "done":
       return _reply(assistant_message="", turn_outcome="DONE", next_focus=None, status_code=200)
 
-    shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+    with timed_span("unified_intake.build_shared_context", draft_id=str(draft_id).strip()):
+      shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
 
     if (not starting) and message:
-      (
-        ops_concept_model_json,
-        marketing_model_json,
-        pricing_model_json,
-        revenue_model_json,
-        headcount_model_json,
-        fulfillment_model_json,
-        milestones_model_json,
-        cogs_model_json,
-        gna_model_json,
-      ) = seed_lobs_if_needed(
+      with timed_span("unified_intake.seed_lobs_if_needed", draft_id=str(draft_id).strip()):
+        (
+          ops_concept_model_json,
+          marketing_model_json,
+          pricing_model_json,
+          revenue_model_json,
+          headcount_model_json,
+          fulfillment_model_json,
+          milestones_model_json,
+          cogs_model_json,
+          gna_model_json,
+        ) = seed_lobs_if_needed(
+          conn=conn,
+          draft_id=str(draft_id).strip(),
+          message=message,
+          ops_concept_model_json=ops_concept_model_json,
+          marketing_model_json=marketing_model_json,
+          pricing_model_json=pricing_model_json,
+          revenue_model_json=revenue_model_json,
+          headcount_model_json=headcount_model_json,
+          fulfillment_model_json=fulfillment_model_json,
+          milestones_model_json=milestones_model_json,
+          cogs_model_json=cogs_model_json,
+          gna_model_json=gna_model_json,
+        )
+
+    with timed_span("unified_intake.sync_pricing_from_ops_if_needed", draft_id=str(draft_id).strip()):
+      pricing_model_json = sync_pricing_from_ops_if_needed(
         conn=conn,
         draft_id=str(draft_id).strip(),
-        message=message,
-        ops_concept_model_json=ops_concept_model_json,
-        marketing_model_json=marketing_model_json,
+        ops_json=ops_json,
         pricing_model_json=pricing_model_json,
-        revenue_model_json=revenue_model_json,
-        headcount_model_json=headcount_model_json,
-        fulfillment_model_json=fulfillment_model_json,
-        milestones_model_json=milestones_model_json,
-        cogs_model_json=cogs_model_json,
-        gna_model_json=gna_model_json,
       )
-
-    pricing_model_json = sync_pricing_from_ops_if_needed(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      ops_json=ops_json,
-      pricing_model_json=pricing_model_json,
-    )
 
     # Build baseline for intent routing (internal only).
     baseline_json = {
@@ -465,39 +472,48 @@ def post_intake_consult_handler(*, app, request):
 
     if starting:
       try:
-        turn = section.chat_turn(
-          intake_context=intake_context,
-          conversation_messages=messages,
-          snapshot=snapshot,
-          starting=True,
-        )
+        with timed_span("unified_intake.section.chat_turn", draft_id=str(draft_id).strip(), focus=active_focus_norm, starting=True):
+          turn = section.chat_turn(
+            intake_context=intake_context,
+            conversation_messages=messages,
+            snapshot=snapshot,
+            starting=True,
+          )
       except Exception as exc:
         app.logger.exception("Consultant failed: %s", exc)
         return _reply(assistant_message="", turn_outcome="ERROR_CONSULTANT_FAILED", next_focus=active_focus_norm, status_code=500)
 
       assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
       turn_outcome = str(turn.get("turn_outcome") or "ASK_NEXT").strip().upper() or "ASK_NEXT"
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[{"role": "assistant", "content": assistant_text}],
-        active_focus=active_focus_norm,
-        business_facts=business_facts,
-      )
+      with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, starting=True):
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[{"role": "assistant", "content": assistant_text}],
+          active_focus=active_focus_norm,
+          business_facts=business_facts,
+        )
       return _reply(assistant_message=assistant_text, turn_outcome=turn_outcome, next_focus=active_focus_norm, status_code=200)
 
     # Non-starting: infer patch and persist immediately before consultant runs.
     recent_messages = _clip_recent_messages_for_router(messages)
     try:
-      intent = route_intent(
-        consult_type="unified",
-        user_message=message,
-        baseline_json=baseline_json,
-        shared_context=shared_context,
-        recent_messages=recent_messages,
-        confirm_question_override="",
-        active_focus=active_focus_for_router,
-      )
+      with timed_span(
+        "unified_intake.route_intent",
+        draft_id=str(draft_id).strip(),
+        focus=active_focus_norm,
+        router_focus=active_focus_for_router,
+        recent_messages=len(recent_messages or []),
+      ):
+        intent = route_intent(
+          consult_type="unified",
+          user_message=message,
+          baseline_json=baseline_json,
+          shared_context=shared_context,
+          recent_messages=recent_messages,
+          confirm_question_override="",
+          active_focus=active_focus_for_router,
+        )
     except Exception as exc:
       app.logger.exception("Intent router failed: %s", exc)
       return _reply(assistant_message="", turn_outcome="ERROR_INTENT_ROUTER_FAILED", next_focus=active_focus_norm, status_code=500)
@@ -506,26 +522,27 @@ def post_intake_consult_handler(*, app, request):
     if patch is not None and not isinstance(patch, dict):
       patch = None
     if patch:
-      updated = apply_chat_patch_and_persist(
-        conn=conn,
-        draft_id=str(draft_id).strip(),
-        consult_row=consult,
-        patch=patch,
-        business_facts=business_facts,
-        ops_json=ops_json,
-        market_json=market_json,
-        people_json=people_json,
-        financials_json=financials_json,
-        marketing_model_json=marketing_model_json,
-        pricing_model_json=pricing_model_json,
-        revenue_model_json=revenue_model_json,
-        headcount_model_json=headcount_model_json,
-        fulfillment_model_json=fulfillment_model_json,
-        ops_concept_model_json=ops_concept_model_json,
-        milestones_model_json=milestones_model_json,
-        cogs_model_json=cogs_model_json,
-        gna_model_json=gna_model_json,
-      )
+      with timed_span("unified_intake.apply_chat_patch_and_persist", draft_id=str(draft_id).strip(), focus=active_focus_norm):
+        updated = apply_chat_patch_and_persist(
+          conn=conn,
+          draft_id=str(draft_id).strip(),
+          consult_row=consult,
+          patch=patch,
+          business_facts=business_facts,
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          marketing_model_json=marketing_model_json,
+          pricing_model_json=pricing_model_json,
+          revenue_model_json=revenue_model_json,
+          headcount_model_json=headcount_model_json,
+          fulfillment_model_json=fulfillment_model_json,
+          ops_concept_model_json=ops_concept_model_json,
+          milestones_model_json=milestones_model_json,
+          cogs_model_json=cogs_model_json,
+          gna_model_json=gna_model_json,
+        )
       business_facts = updated.get("business_facts") if isinstance(updated.get("business_facts"), dict) else business_facts
       ops_json = updated.get("ops_json") if isinstance(updated.get("ops_json"), dict) else ops_json
       market_json = updated.get("market_json") if isinstance(updated.get("market_json"), dict) else market_json
@@ -561,12 +578,13 @@ def post_intake_consult_handler(*, app, request):
 
     user_msg = {"role": "user", "content": message}
     try:
-      turn = section.chat_turn(
-        intake_context=intake_context,
-        conversation_messages=[*messages, user_msg],
-        snapshot=snapshot,
-        starting=False,
-      )
+      with timed_span("unified_intake.section.chat_turn", draft_id=str(draft_id).strip(), focus=active_focus_norm, starting=False):
+        turn = section.chat_turn(
+          intake_context=intake_context,
+          conversation_messages=[*messages, user_msg],
+          snapshot=snapshot,
+          starting=False,
+        )
     except Exception as exc:
       app.logger.exception("Consultant failed: %s", exc)
       return _reply(assistant_message="", turn_outcome="ERROR_CONSULTANT_FAILED", next_focus=active_focus_norm, status_code=500)
@@ -575,32 +593,35 @@ def post_intake_consult_handler(*, app, request):
     turn_outcome = str(turn.get("turn_outcome") or "ASK_NEXT").strip().upper() or "ASK_NEXT"
 
     if turn_outcome != "SECTION_COMPLETE":
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        active_focus=active_focus_norm,
-        business_facts=business_facts,
-      )
+      with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, starting=False):
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          active_focus=active_focus_norm,
+          business_facts=business_facts,
+        )
       return _reply(assistant_message=assistant_text, turn_outcome=turn_outcome, next_focus=active_focus_norm, status_code=200)
 
     # SECTION_COMPLETE: persist structured JSON, then advance focus (no same-turn next-section prompt).
     try:
-      final_obj = section.finalize(
-        intake_context=intake_context,
-        conversation_messages=[*messages, user_msg],
-        snapshot=snapshot,
-        conn=conn,
-      )
+      with timed_span("unified_intake.section.finalize", draft_id=str(draft_id).strip(), focus=active_focus_norm):
+        final_obj = section.finalize(
+          intake_context=intake_context,
+          conversation_messages=[*messages, user_msg],
+          snapshot=snapshot,
+          conn=conn,
+        )
     except Exception as exc:
       app.logger.exception("Finalizer failed: %s", exc)
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        active_focus=active_focus_norm,
-        business_facts=business_facts,
-      )
+      with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, note="finalizer_failed"):
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          active_focus=active_focus_norm,
+          business_facts=business_facts,
+        )
       return _reply(assistant_message=assistant_text, turn_outcome="ERROR_FINALIZER_FAILED", next_focus=active_focus_norm, status_code=500)
 
     if active_focus_norm == "ops":
@@ -643,13 +664,14 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         followup = {}
       followup_text = sanitize_fact_template(str((followup or {}).get("assistant_message") or "").strip())
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": (followup_text or assistant_text)}],
-        active_focus=active_focus_norm,
-        business_facts=business_facts,
-      )
+      with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, note="completion_recovery"):
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": (followup_text or assistant_text)}],
+          active_focus=active_focus_norm,
+          business_facts=business_facts,
+        )
       return _reply(
         assistant_message=(followup_text or assistant_text),
         turn_outcome="ASK_NEXT",
@@ -670,21 +692,22 @@ def post_intake_consult_handler(*, app, request):
       completed_out = True
       consistency_passed_out = True
 
-    append_messages(
-      conn,
-      draft_id=str(draft_id).strip(),
-      new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-      operating_model_json=ops_json if active_focus_norm == "ops" else None,
-      target_market_json=market_json if active_focus_norm == "market" else None,
-      people_json=people_json if active_focus_norm == "people" else None,
-      financials_json=financials_json if active_focus_norm == "financials" else None,
-      confirmations={active_focus_norm: True},
-      active_focus=("done" if next_focus == "done" else next_focus),
-      business_facts=business_facts,
-      status=status_out,
-      completed=completed_out,
-      consistency_passed=consistency_passed_out,
-    )
+    with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, note="section_complete"):
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        operating_model_json=ops_json if active_focus_norm == "ops" else None,
+        target_market_json=market_json if active_focus_norm == "market" else None,
+        people_json=people_json if active_focus_norm == "people" else None,
+        financials_json=financials_json if active_focus_norm == "financials" else None,
+        confirmations={active_focus_norm: True},
+        active_focus=("done" if next_focus == "done" else next_focus),
+        business_facts=business_facts,
+        status=status_out,
+        completed=completed_out,
+        consistency_passed=consistency_passed_out,
+      )
 
     return _reply(
       assistant_message=assistant_text,

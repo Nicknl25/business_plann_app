@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from llm_timing import log_timing, timed_span
+
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
 
@@ -41,6 +43,17 @@ def _openai_model() -> str:
   _load_root_env()
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
 
+def _openai_concept_summary_model() -> str:
+  _load_root_env()
+  raw = (
+    os.getenv("OPENAI_CONCEPT_SUMMARY_MODEL")
+    or os.getenv("OPENAI_SUMMARY_MODEL")
+    or os.getenv("OPENAI_FAST_MODEL")
+    or os.getenv("OPENAI_MODEL")
+    or "gpt-5.1"
+  )
+  return str(raw).strip() or "gpt-5.1"
+
 
 def _openai_timeout_seconds() -> int:
   _load_root_env()
@@ -57,15 +70,47 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   timeout = _openai_timeout_seconds()
   last_exc: Optional[Exception] = None
   for attempt in range(3):
+    started = time.perf_counter()
     try:
-      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      log_timing(
+        "openai.http",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="concept_summary",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        status_code=getattr(resp, "status_code", None),
+      )
+      return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
+      log_timing(
+        "openai.http_timeout",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="concept_summary",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        exc=type(exc).__name__,
+      )
       if attempt >= 2:
         raise
       time.sleep(0.75 * (2**attempt))
     except requests.exceptions.ConnectionError as exc:
       last_exc = exc
+      log_timing(
+        "openai.http_connection_error",
+        ms=int((time.perf_counter() - started) * 1000),
+        purpose="concept_summary",
+        url=url,
+        model=str((payload or {}).get("model") or ""),
+        attempt=attempt + 1,
+        timeout_s=timeout,
+        exc=type(exc).__name__,
+      )
       if attempt >= 2:
         raise
       time.sleep(0.75 * (2**attempt))
@@ -368,7 +413,7 @@ def generate_concept_summary(
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
   payload: Dict[str, Any] = {
-    "model": _openai_model(),
+    "model": _openai_concept_summary_model(),
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user_obj, ensure_ascii=False)},
@@ -376,7 +421,8 @@ def generate_concept_summary(
   }
 
   try:
-    resp = _post_openai(url=url, headers=headers, payload=payload)
+    with timed_span("concept_summary.generate", model=model_norm, openai_model=str(payload.get("model") or "")):
+      resp = _post_openai(url=url, headers=headers, payload=payload)
     if resp.status_code >= 300:
       return _deterministic_concept_summary(model=model_norm, card=card_obj)
     raw_text = _extract_output_text(resp.json())
