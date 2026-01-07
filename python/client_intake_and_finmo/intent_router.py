@@ -193,6 +193,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
     add("cogs", "direct_fulfillment_cost_per_unit", {"type": ["number", "null"]})
     add("cogs", "other_variable_cost_per_unit", {"type": ["number", "null"]})
     add("cogs", "cogs_percent_of_revenue", {"type": ["number", "null"]})
+    add("cogs", "production", {"type": ["object", "null"]})
 
     add("gna", "monthly_rent_expense", {"type": ["number", "null"]})
     add("gna", "other_operating_expense", {"type": ["number", "null"]})
@@ -671,6 +672,7 @@ def route_intent(
       "cogs.direct_fulfillment_cost_per_unit",
       "cogs.other_variable_cost_per_unit",
       "cogs.cogs_percent_of_revenue",
+      "cogs.production",
       "gna.monthly_rent_expense",
       "gna.other_operating_expense",
       "gna.other_monthly_debt_payments",

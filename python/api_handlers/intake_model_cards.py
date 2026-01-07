@@ -229,6 +229,8 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
   revenue = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("revenue_model_json"))))
   milestones = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("milestones_model_json"))))
   headcount = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("headcount_model_json"))))
+  cogs = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("cogs_model_json"))))
+  gna = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(draft.get("gna_model_json"))))
 
   def _has_value(val: Any) -> bool:
     if val is None:
@@ -300,6 +302,25 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
     except Exception:
       return False
 
+  def _derived_ready(card: Dict[str, Any], key: str) -> bool:
+    try:
+      lobs = card.get("lobs")
+      if not isinstance(lobs, list) or not lobs:
+        return False
+      non_company = [
+        lob for lob in lobs if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        dmap = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+        derived_val = dmap.get(key)
+        ok = isinstance(derived_val, dict) and _has_value(derived_val.get("value"))
+        if not ok:
+          return False
+      return True
+    except Exception:
+      return False
+
   def _target_market_ready(*, market_obj: Dict[str, Any], consumer_type: str) -> bool:
     ct = str(consumer_type or "").strip().lower()
     if ct not in ("consumer", "b2b", "mixed"):
@@ -338,6 +359,8 @@ def _compute_next_focus_from_draft(*, draft: Dict[str, Any]) -> str:
     and _model_has_driver(fulfillment, keys=("fulfillment_model", "who_fulfills", "lead_time"))
     and _model_has_driver(ops_concept, keys=("operating_unit", "primary_constraint", "process_overview"))
     and _milestones_ready(milestones)
+    and _derived_ready(cogs, "year1_cogs")
+    and _derived_ready(gna, "year1_gna_total")
   )
 
   market_ready_base = _target_market_ready(
@@ -464,6 +487,13 @@ def _apply_updates(
     for u in updates:
       key = str(u.get("key") or "").strip()
       if not key:
+        continue
+      if str(model or "").strip().lower() == "cogs" and key == "production":
+        old = lob.get("production")
+        value = u.get("value")
+        next_val = value if isinstance(value, dict) and value else None
+        lob["production"] = next_val
+        changes.append({"model": model, "lob_key": target_key, "path": "production", "old": old, "new": next_val})
         continue
       old = drivers.get(key)
       next_val = {
@@ -1212,6 +1242,8 @@ def post_intake_model_cards_handler(*, app, request):
       from revenue_consultant import revenue_chat_turn  # type: ignore
       from fulfillment_consultant import fulfillment_chat_turn  # type: ignore
       from ops_concept_consultant import ops_concept_chat_turn  # type: ignore
+      from cogs_consultant import cogs_chat_turn  # type: ignore
+      from gna_consultant import gna_chat_turn  # type: ignore
       from milestones_consultant import milestones_chat_turn  # type: ignore
       from headcount_consultant import headcount_chat_turn  # type: ignore
       from people_capability_consultant import people_capability_chat_turn  # type: ignore
@@ -1251,6 +1283,8 @@ def post_intake_model_cards_handler(*, app, request):
         fulfillment_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("fulfillment_model_json"))))
         ops_concept_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("ops_concept_model_json"))))
         milestones_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("milestones_model_json"))))
+        cogs_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("cogs_model_json"))))
+        gna_card = _ensure_company_total_lob(_normalize_model_card(_parse_json_dict(fresh.get("gna_model_json"))))
 
         def _has_value(val: Any) -> bool:
           if val is None:
@@ -1316,6 +1350,24 @@ def post_intake_model_cards_handler(*, app, request):
                 return True
               val = ms.get("value")
               if not isinstance(val, list) or not any(isinstance(x, dict) and str(x.get("title") or "").strip() for x in val):
+                return True
+            return False
+          except Exception:
+            return True
+
+        def _derived_pending(card: Dict[str, Any], key: str) -> bool:
+          try:
+            lobs = card.get("lobs")
+            if not isinstance(lobs, list) or not lobs:
+              return True
+            non_company = [
+              l for l in lobs if isinstance(l, dict) and str(l.get("lob_key") or "").strip() != "company_total"
+            ]
+            requires = non_company if non_company else [l for l in lobs if isinstance(l, dict)]
+            for lob in requires:
+              dmap = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+              val = dmap.get(key)
+              if not (isinstance(val, dict) and _has_value(val.get("value"))):
                 return True
             return False
           except Exception:
@@ -1639,6 +1691,184 @@ def post_intake_model_cards_handler(*, app, request):
             intake_context={**intake_context, "milestones_suggestions": suggestions},
             conversation_messages=conversation_messages,
           )
+        elif _derived_pending(cogs_card, "year1_cogs"):
+          suggestion = {}
+          if not any(isinstance(p, dict) and p.get("model") == "cogs" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_cogs_suggestions  # type: ignore
+
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = cogs_card.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggested = propose_cogs_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((operating_model or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=operating_model,
+                fulfillment_model_json=fulfillment_card,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              if suggested and isinstance(suggested[0], dict):
+                suggestion = suggested[0]
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                updates: List[Dict[str, Any]] = []
+                for key in (
+                  "materials_cost_per_unit",
+                  "direct_fulfillment_cost_per_unit",
+                  "other_variable_cost_per_unit",
+                ):
+                  if s.get(key) is None:
+                    continue
+                  updates.append(
+                    {
+                      "key": key,
+                      "value": s.get(key),
+                      "unit": "USD",
+                      "time_basis": "per_unit",
+                      "rationale": str(s.get("basis") or "").strip() or "Proposed COGS driver.",
+                    }
+                  )
+                production = s.get("production")
+                if isinstance(production, dict) and production:
+                  updates.append(
+                    {
+                      "key": "production",
+                      "value": production,
+                      "unit": None,
+                      "time_basis": None,
+                      "rationale": "Proposed production flow.",
+                    }
+                  )
+                if not updates:
+                  continue
+                proposal_id = f"cogs_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "cogs",
+                    "title": "COGS (Year 1)",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": updates,
+                    "derived": [],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+          turn = cogs_chat_turn(
+            intake_context={**intake_context, "cogs_card": cogs_card, "cogs_suggestion": suggestion},
+            conversation_messages=conversation_messages,
+          )
+        elif _derived_pending(gna_card, "year1_gna_total"):
+          suggestion = {}
+          if not any(isinstance(p, dict) and p.get("model") == "gna" for p in proposals_now):
+            try:
+              from model_card_proposer import propose_gna_suggestions  # type: ignore
+
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = gna_card.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggested = propose_gna_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((operating_model or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                ops_json=operating_model,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              if suggested and isinstance(suggested[0], dict):
+                suggestion = suggested[0]
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                updates: List[Dict[str, Any]] = []
+                for key in (
+                  "monthly_rent_expense",
+                  "monthly_software_expense",
+                  "monthly_insurance_expense",
+                  "monthly_utilities_expense",
+                  "monthly_admin_expense",
+                  "other_operating_expense",
+                ):
+                  if s.get(key) is None:
+                    continue
+                  updates.append(
+                    {
+                      "key": key,
+                      "value": s.get(key),
+                      "unit": "USD",
+                      "time_basis": "month",
+                      "rationale": str(s.get("basis") or "").strip() or "Proposed G&A baseline.",
+                    }
+                  )
+                if not updates:
+                  continue
+                monthly_total = 0.0
+                for u in updates:
+                  try:
+                    monthly_total += float(u.get("value") or 0.0)
+                  except Exception:
+                    pass
+                derived = [
+                  {
+                    "key": "year1_gna_total",
+                    "value": (monthly_total * 12.0) if monthly_total > 0 else None,
+                    "unit": "USD",
+                    "time_basis": "year",
+                    "derivation": "sum(monthly drivers) x 12",
+                  }
+                ]
+                proposal_id = f"gna_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "gna",
+                    "title": "G&A (Year 1)",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": updates,
+                    "derived": derived,
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+          turn = gna_chat_turn(
+            intake_context={**intake_context, "gna_card": gna_card, "gna_suggestion": suggestion},
+            conversation_messages=conversation_messages,
+          )
         else:
           turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
       elif next_focus == "market":
@@ -1698,52 +1928,97 @@ def post_intake_model_cards_handler(*, app, request):
           # Marketing is pending: generate a proposal so the UI can present Accept/Edit controls.
           proposals_now = _parse_json_list(fresh.get("model_card_proposals_json"))
           if not any(isinstance(p, dict) and p.get("model") == "marketing" for p in proposals_now):
-            now_ms = int(time.time() * 1000)
-            proposals_now = [
-              *proposals_now,
-              {
-                "id": f"mk_{now_ms}_{len(proposals_now)+1}",
-                "model": "marketing",
-                "title": "Marketing budget (Year 1)",
-                "lob_key": "company_total",
-                "lob_name": None,
-                "updates": [
-                  {
-                    "key": "monthly_marketing_budget",
-                    "value": None,
-                    "unit": "USD",
-                    "time_basis": "month",
-                    "rationale": "Default placeholder; edit to match your plan.",
-                  },
-                  {
-                    "key": "primary_channels",
-                    "value": None,
-                    "unit": None,
-                    "time_basis": None,
-                    "rationale": "Default placeholder; edit to match your plan.",
-                  },
-                ],
-                "derived": [
-                  {
-                    "key": "year1_marketing_spend",
-                    "value": fresh.get("year1_marketing_spend"),
-                    "unit": "USD",
-                    "time_basis": "year",
-                    "derivation": "monthly_marketing_budget x 12",
-                  }
-                ],
-                "created_at_ms": now_ms,
-              },
-            ]
-            append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            try:
+              from model_card_proposer import propose_marketing_suggestions  # type: ignore
 
-          suggestion = {
-            "monthly_marketing_budget": None,
-            "year1_marketing_spend": fresh.get("year1_marketing_spend"),
-            "basis": "Lock the budget driver so we can ground demand assumptions.",
-            "primary_channels": None,
-          }
-          turn = marketing_chat_turn(intake_context={**intake_context, "marketing_suggestion": suggestion}, conversation_messages=conversation_messages)
+              lobs_in: List[Dict[str, str]] = []
+              raw_lobs = marketing.get("lobs")
+              if isinstance(raw_lobs, list):
+                for l in raw_lobs:
+                  if not isinstance(l, dict):
+                    continue
+                  lobs_in.append(
+                    {
+                      "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                      "lob_name": str(l.get("lob_name") or "").strip(),
+                    }
+                  )
+              suggested = propose_marketing_suggestions(
+                business_name=str(fresh.get("business_name") or "").strip(),
+                business_type=str((ops_json or {}).get("business_type") or "").strip(),
+                naics_6=naics_6,
+                today_iso=time.strftime("%Y-%m-%d"),
+                business_start_date=str(fresh.get("business_start_date") or "").strip() or None,
+                consumer_type=consumer_type_live,
+                ops_json=ops_json,
+                target_market_json=target_market,
+                shared_context=shared_context,
+                lobs=lobs_in,
+              )
+              now_ms = int(time.time() * 1000)
+              for s in suggested:
+                if not isinstance(s, dict):
+                  continue
+                proposal_id = f"mk_{now_ms}_{len(proposals_now)+1}"
+                proposals_now = [
+                  *proposals_now,
+                  {
+                    "id": proposal_id,
+                    "model": "marketing",
+                    "title": "Marketing budget (Year 1)",
+                    "lob_key": str(s.get("lob_key") or "").strip() or None,
+                    "lob_name": s.get("lob_name"),
+                    "updates": [
+                      {
+                        "key": "monthly_marketing_budget",
+                        "value": s.get("monthly_marketing_budget"),
+                        "unit": "USD",
+                        "time_basis": "month",
+                        "rationale": str(s.get("basis") or "").strip() or "Proposed monthly marketing budget.",
+                      },
+                      {
+                        "key": "primary_channels",
+                        "value": s.get("primary_channels"),
+                        "unit": None,
+                        "time_basis": None,
+                        "rationale": "Proposed primary acquisition channels.",
+                      },
+                    ],
+                    "derived": [
+                      {
+                        "key": "year1_marketing_spend",
+                        "value": s.get("year1_marketing_spend"),
+                        "unit": "USD",
+                        "time_basis": "year",
+                        "derivation": "monthly_marketing_budget x 12",
+                      }
+                    ],
+                    "created_at_ms": now_ms,
+                  },
+                ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+            except Exception:
+              pass
+
+          suggestion: Dict[str, Any] = {}
+          try:
+            for p in proposals_now:
+              if isinstance(p, dict) and p.get("model") == "marketing":
+                updates = p.get("updates") if isinstance(p.get("updates"), list) else []
+                derived = p.get("derived") if isinstance(p.get("derived"), list) else []
+                suggestion = {
+                  "monthly_marketing_budget": next((u.get("value") for u in updates if u.get("key") == "monthly_marketing_budget"), None),
+                  "primary_channels": next((u.get("value") for u in updates if u.get("key") == "primary_channels"), None),
+                  "year1_marketing_spend": next((d.get("value") for d in derived if d.get("key") == "year1_marketing_spend"), None),
+                }
+                break
+          except Exception:
+            suggestion = {}
+
+          turn = marketing_chat_turn(
+            intake_context={**intake_context, "marketing_suggestion": suggestion},
+            conversation_messages=conversation_messages,
+          )
         else:
           turn = target_market_chat_turn(intake_context=intake_context, conversation_messages=conversation_messages)
       elif next_focus == "people":
@@ -1786,6 +2061,7 @@ def post_intake_model_cards_handler(*, app, request):
         if people_ready and headcount_pending:
           # Ensure at least one headcount proposal exists; propose if missing.
           proposals_now = _parse_json_list(fresh.get("model_card_proposals_json"))
+          suggestion: Dict[str, Any] = {}
           if not any(isinstance(p, dict) and p.get("model") == "headcount" for p in proposals_now):
             try:
               from model_card_proposer import propose_headcount_suggestions  # type: ignore
@@ -1821,6 +2097,8 @@ def post_intake_model_cards_handler(*, app, request):
                 shared_context=shared_context,
                 lobs=lobs_in,
               )
+              if suggested and isinstance(suggested[0], dict):
+                suggestion = suggested[0]
               now_ms = int(time.time() * 1000)
               for s in suggested:
                 if not isinstance(s, dict):
@@ -1904,7 +2182,7 @@ def post_intake_model_cards_handler(*, app, request):
             pass
 
           turn = headcount_chat_turn(
-            intake_context={**intake_context, "headcount_suggestions": []},
+            intake_context={**intake_context, "headcount_suggestion": suggestion},
             conversation_messages=conversation_messages,
           )
         else:

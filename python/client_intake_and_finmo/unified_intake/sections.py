@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 from unified_intake.readiness import (
+  cogs_ready,
   financials_data_ready,
+  gna_ready,
   headcount_ready,
   marketing_ready,
   milestones_ready,
@@ -168,6 +170,8 @@ class OpsSection(SectionHandler):
     fulfillment_model_json = snapshot.get("fulfillment_model_json") if isinstance(snapshot.get("fulfillment_model_json"), dict) else {}
     ops_concept_model_json = snapshot.get("ops_concept_model_json") if isinstance(snapshot.get("ops_concept_model_json"), dict) else {}
     milestones_model_json = snapshot.get("milestones_model_json") if isinstance(snapshot.get("milestones_model_json"), dict) else {}
+    cogs_model_json = snapshot.get("cogs_model_json") if isinstance(snapshot.get("cogs_model_json"), dict) else {}
+    gna_model_json = snapshot.get("gna_model_json") if isinstance(snapshot.get("gna_model_json"), dict) else {}
 
     return (
       _has_nonempty(ops_json, "business_type")
@@ -177,6 +181,8 @@ class OpsSection(SectionHandler):
       and model_has_required_drivers(fulfillment_model_json, ("fulfillment_model", "who_fulfills", "lead_time"))
       and model_has_required_drivers(ops_concept_model_json, ("operating_unit", "primary_constraint", "process_overview"))
       and milestones_ready(milestones_model_json)
+      and cogs_ready(cogs_model_json)
+      and gna_ready(gna_model_json)
     )
 
   def chat_turn(
@@ -194,6 +200,8 @@ class OpsSection(SectionHandler):
     fulfillment_model_json = snapshot.get("fulfillment_model_json") if isinstance(snapshot.get("fulfillment_model_json"), dict) else {}
     ops_concept_model_json = snapshot.get("ops_concept_model_json") if isinstance(snapshot.get("ops_concept_model_json"), dict) else {}
     milestones_model_json = snapshot.get("milestones_model_json") if isinstance(snapshot.get("milestones_model_json"), dict) else {}
+    cogs_model_json = snapshot.get("cogs_model_json") if isinstance(snapshot.get("cogs_model_json"), dict) else {}
+    gna_model_json = snapshot.get("gna_model_json") if isinstance(snapshot.get("gna_model_json"), dict) else {}
 
     messages = _start_messages(focus="ops", messages=conversation_messages) if starting else list(conversation_messages or [])
 
@@ -217,6 +225,14 @@ class OpsSection(SectionHandler):
       from milestones_consultant import milestones_chat_turn  # type: ignore
     except Exception:
       milestones_chat_turn = None  # type: ignore
+    try:
+      from cogs_consultant import cogs_chat_turn  # type: ignore
+    except Exception:
+      cogs_chat_turn = None  # type: ignore
+    try:
+      from gna_consultant import gna_chat_turn  # type: ignore
+    except Exception:
+      gna_chat_turn = None  # type: ignore
 
     out: Dict[str, Any]
     if ops_has_min_for_models and (not revenue_ready(revenue_model_json)) and revenue_chat_turn:
@@ -237,6 +253,71 @@ class OpsSection(SectionHandler):
       out = ops_concept_chat_turn(intake_context=intake_context, conversation_messages=messages)
     elif ops_has_min_for_models and revenue_ready(revenue_model_json) and (not milestones_ready(milestones_model_json)) and milestones_chat_turn:
       out = milestones_chat_turn(intake_context=intake_context, conversation_messages=messages)
+    elif ops_has_min_for_models and revenue_ready(revenue_model_json) and (not cogs_ready(cogs_model_json)) and cogs_chat_turn:
+      suggestion = {}
+      try:
+        from model_card_proposer import propose_cogs_suggestions  # type: ignore
+
+        raw_lobs = cogs_model_json.get("lobs") if isinstance(cogs_model_json, dict) else None
+        lobs_in: List[Dict[str, str]] = []
+        if isinstance(raw_lobs, list):
+          for l in raw_lobs:
+            if not isinstance(l, dict):
+              continue
+            lobs_in.append(
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+            )
+        suggested = propose_cogs_suggestions(
+          business_name=str((intake_context or {}).get("business_name") or "").strip(),
+          business_type=str((ops_json or {}).get("business_type") or "").strip(),
+          naics_6=(intake_context or {}).get("naics_6"),
+          today_iso=str((intake_context or {}).get("today_iso") or "").strip(),
+          business_start_date=str((intake_context or {}).get("business_start_date") or "").strip() or None,
+          ops_json=ops_json,
+          fulfillment_model_json=fulfillment_model_json,
+          shared_context=(intake_context or {}).get("shared_context") or {},
+          lobs=lobs_in,
+        )
+        if suggested and isinstance(suggested[0], dict):
+          suggestion = suggested[0]
+      except Exception:
+        suggestion = {}
+      out = cogs_chat_turn(intake_context={**intake_context, "cogs_suggestion": suggestion}, conversation_messages=messages)
+    elif ops_has_min_for_models and revenue_ready(revenue_model_json) and (not gna_ready(gna_model_json)) and gna_chat_turn:
+      suggestion = {}
+      try:
+        from model_card_proposer import propose_gna_suggestions  # type: ignore
+
+        raw_lobs = gna_model_json.get("lobs") if isinstance(gna_model_json, dict) else None
+        lobs_in: List[Dict[str, str]] = []
+        if isinstance(raw_lobs, list):
+          for l in raw_lobs:
+            if not isinstance(l, dict):
+              continue
+            lobs_in.append(
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+            )
+        suggested = propose_gna_suggestions(
+          business_name=str((intake_context or {}).get("business_name") or "").strip(),
+          business_type=str((ops_json or {}).get("business_type") or "").strip(),
+          naics_6=(intake_context or {}).get("naics_6"),
+          today_iso=str((intake_context or {}).get("today_iso") or "").strip(),
+          business_start_date=str((intake_context or {}).get("business_start_date") or "").strip() or None,
+          ops_json=ops_json,
+          shared_context=(intake_context or {}).get("shared_context") or {},
+          lobs=lobs_in,
+        )
+        if suggested and isinstance(suggested[0], dict):
+          suggestion = suggested[0]
+      except Exception:
+        suggestion = {}
+      out = gna_chat_turn(intake_context={**intake_context, "gna_suggestion": suggestion}, conversation_messages=messages)
     else:
       out = consultant_chat_turn(intake_context=intake_context, conversation_messages=messages)
 
@@ -495,4 +576,3 @@ def _fetch_target_market_mapping_rows(conn) -> List[Dict[str, Any]]:
   if not cleaned:
     raise RuntimeError("target_market_mapping table is empty; load it before running the target market consult.")
   return cleaned
-

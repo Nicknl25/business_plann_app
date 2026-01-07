@@ -1429,22 +1429,36 @@ def post_intake_consult_handler(*, app, request):
                 model_changed = True
                 driver_changes.append({"model": "milestones", "lob_key": "company_total", "path": f"drivers.{field}", "new": value})
             elif group == "cogs":
-              if field.endswith("_cost_per_unit") or field == "cost_per_unit":
-                unit, time_basis = "USD", "per_unit"
-              elif field == "cogs_percent_of_revenue":
-                unit, time_basis = "%", None
-              cogs_model_json, changed = _set_company_driver(
-                cogs_model_json,
-                key=field,
-                value=value,
-                unit=unit,
-                time_basis=time_basis,
-                rationale="Captured from chat.",
-                now_ms=now_ms,
-              )
-              if changed:
-                model_changed = True
-                driver_changes.append({"model": "cogs", "lob_key": "company_total", "path": f"drivers.{field}", "new": value})
+              if field == "production":
+                normalized = _normalize_model_card_for_write(cogs_model_json or {}, now_ms=now_ms)
+                lob = _get_company_total_lob(normalized)
+                next_val = value if isinstance(value, dict) and value else None
+                prev_val = lob.get("production") if isinstance(lob, dict) else None
+                if isinstance(lob, dict) and prev_val != next_val:
+                  lob["production"] = next_val
+                  normalized["updated_at_ms"] = int(now_ms)
+                  cogs_model_json = normalized
+                  model_changed = True
+                  driver_changes.append(
+                    {"model": "cogs", "lob_key": "company_total", "path": "production", "new": next_val}
+                  )
+              else:
+                if field.endswith("_cost_per_unit") or field == "cost_per_unit":
+                  unit, time_basis = "USD", "per_unit"
+                elif field == "cogs_percent_of_revenue":
+                  unit, time_basis = "%", None
+                cogs_model_json, changed = _set_company_driver(
+                  cogs_model_json,
+                  key=field,
+                  value=value,
+                  unit=unit,
+                  time_basis=time_basis,
+                  rationale="Captured from chat.",
+                  now_ms=now_ms,
+                )
+                if changed:
+                  model_changed = True
+                  driver_changes.append({"model": "cogs", "lob_key": "company_total", "path": f"drivers.{field}", "new": value})
             elif group == "gna":
               unit, time_basis = "USD", "month"
               gna_model_json, changed = _set_company_driver(

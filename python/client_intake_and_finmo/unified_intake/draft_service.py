@@ -550,6 +550,32 @@ def apply_chat_patch_and_persist(
       if changed:
         driver_changes.append({"model": "milestones", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
     elif model == "cogs":
+      if field == "production":
+        try:
+          from unified_intake.model_engine import normalize_model_card_for_write, get_lob  # type: ignore
+        except Exception:
+          normalize_model_card_for_write = None  # type: ignore
+          get_lob = None  # type: ignore
+        if normalize_model_card_for_write and get_lob:
+          normalized = normalize_model_card_for_write(cogs_model_json or {}, now_ms=now_ms)
+          lob_key_norm = str(lob_key or "").strip() or "company_total"
+          lob = get_lob(normalized, lob_key=lob_key_norm)
+          if not lob:
+            normalized["lobs"] = [
+              *(normalized.get("lobs") if isinstance(normalized.get("lobs"), list) else []),
+              {"lob_key": lob_key_norm, "lob_name": None, "drivers": {}, "derived": {}},
+            ]
+            lob = get_lob(normalized, lob_key=lob_key_norm)
+          prev = lob.get("production") if isinstance(lob, dict) else None
+          next_val = driver_value if isinstance(driver_value, dict) and driver_value else None
+          if isinstance(lob, dict) and prev != next_val:
+            lob["production"] = next_val
+            normalized["updated_at_ms"] = int(now_ms)
+            cogs_model_json = normalized
+            driver_changes.append(
+              {"model": "cogs", "lob_key": lob_key_norm, "path": "production", "new": next_val}
+            )
+        continue
       cogs_model_json, ops_json, changed = apply_company_driver_patch(
         model=model,
         field=field,

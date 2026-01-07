@@ -917,3 +917,313 @@ def propose_ops_concept_suggestions(
       }
     )
   return cleaned or []
+
+
+def propose_cogs_suggestions(
+  *,
+  business_name: str,
+  business_type: str,
+  naics_6: Optional[str],
+  today_iso: str,
+  business_start_date: Optional[str],
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  lobs: List[Dict[str, str]],
+  fulfillment_model_json: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+  """
+  GPT-backed proposer for COGS model cards.
+
+  Returns: {
+    lob_key, lob_name?,
+    materials_cost_per_unit?, direct_fulfillment_cost_per_unit?, other_variable_cost_per_unit?,
+    production?, basis
+  }
+  """
+  lob_list = []
+  for lob in list(lobs or []):
+    lk = str(lob.get("lob_key") or "").strip()
+    if not lk or lk == "company_total":
+      continue
+    lob_list.append({"lob_key": lk, "lob_name": str(lob.get("lob_name") or "").strip()})
+  if not lob_list:
+    lob_list = [{"lob_key": "company_total", "lob_name": ""}]
+
+  schema = {
+    "name": "cogs_model_card_proposer",
+    "strict": True,
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "suggestions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "lob_key": {"type": "string"},
+              "lob_name": {"type": ["string", "null"]},
+              "materials_cost_per_unit": {"type": ["number", "null"]},
+              "direct_fulfillment_cost_per_unit": {"type": ["number", "null"]},
+              "other_variable_cost_per_unit": {"type": ["number", "null"]},
+              "production": {
+                "type": ["object", "null"],
+                "additionalProperties": False,
+                "properties": {
+                  "stages": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                  "primary_bottleneck": {"type": "string"},
+                  "unit_throughput_basis": {"type": "string"},
+                  "yield_assumption": {"type": ["string", "null"]},
+                },
+                "required": ["stages", "primary_bottleneck", "unit_throughput_basis", "yield_assumption"],
+              },
+              "basis": {"type": "string"},
+            },
+            "required": [
+              "lob_key",
+              "materials_cost_per_unit",
+              "direct_fulfillment_cost_per_unit",
+              "other_variable_cost_per_unit",
+              "basis",
+            ],
+          },
+        }
+      },
+      "required": ["suggestions"],
+    },
+  }
+
+  system = (
+    "You propose COGS drivers first so the client never has to invent numbers.\n"
+    "Use NAICS/industry + operating unit + fulfillment context. Keep numbers realistic and conservative.\n"
+    "Propose only the applicable per-unit cost components; set non-applicable ones to null.\n"
+    "Do NOT use cost_per_unit or percent-of-revenue. Use component costs only.\n"
+    "If a production flow is relevant (manufacturing/physical goods), include a production object.\n"
+    "If production is not relevant (service/SaaS/pure labor), set production to null.\n"
+    "Return JSON only per the schema."
+  )
+
+  user = {
+    "business_name": business_name,
+    "business_type": business_type,
+    "naics_6": naics_6,
+    "today_iso": today_iso,
+    "business_start_date": business_start_date,
+    "lobs": lob_list,
+    "ops": ops_json,
+    "fulfillment": fulfillment_model_json or {},
+    "shared_context": shared_context,
+  }
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  payload: Dict[str, Any] = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ],
+    "response_format": {"type": "json_schema", "json_schema": schema},
+  }
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 300:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+  data = resp.json()
+  parsed = _extract_output_json(data)
+  suggestions = parsed.get("suggestions")
+  if not isinstance(suggestions, list) or not suggestions:
+    raise RuntimeError("COGS proposer returned no suggestions.")
+
+  cleaned: List[Dict[str, Any]] = []
+  for s in suggestions:
+    if not isinstance(s, dict):
+      continue
+    materials = s.get("materials_cost_per_unit")
+    direct = s.get("direct_fulfillment_cost_per_unit")
+    other = s.get("other_variable_cost_per_unit")
+
+    def _num_or_none(val: Any) -> Optional[float]:
+      if val is None:
+        return None
+      if isinstance(val, (int, float)):
+        return max(0.0, float(val))
+      raw = str(val or "").strip()
+      if not raw:
+        return None
+      try:
+        return max(0.0, float(raw))
+      except Exception:
+        return None
+
+    materials_num = _num_or_none(materials)
+    direct_num = _num_or_none(direct)
+    other_num = _num_or_none(other)
+    if materials_num is None and direct_num is None and other_num is None:
+      continue
+
+    production_raw = s.get("production")
+    production_out: Optional[Dict[str, Any]] = None
+    if isinstance(production_raw, dict):
+      stages_raw = production_raw.get("stages")
+      stages = []
+      if isinstance(stages_raw, list):
+        stages = [str(x).strip() for x in stages_raw if str(x or "").strip()]
+      primary_bottleneck = str(production_raw.get("primary_bottleneck") or "").strip()
+      throughput_basis = str(production_raw.get("unit_throughput_basis") or "").strip()
+      yield_assumption = production_raw.get("yield_assumption")
+      yield_str = str(yield_assumption).strip() if yield_assumption not in (None, "") else None
+      if stages and primary_bottleneck and throughput_basis:
+        production_out = {
+          "stages": stages,
+          "primary_bottleneck": primary_bottleneck,
+          "unit_throughput_basis": throughput_basis,
+          "yield_assumption": yield_str,
+        }
+    cleaned.append(
+      {
+        "lob_key": str(s.get("lob_key") or "").strip() or "company_total",
+        "lob_name": str(s.get("lob_name") or "").strip() or None,
+        "materials_cost_per_unit": materials_num,
+        "direct_fulfillment_cost_per_unit": direct_num,
+        "other_variable_cost_per_unit": other_num,
+        "production": production_out,
+        "basis": str(s.get("basis") or "").strip(),
+      }
+    )
+  return cleaned or []
+
+
+def propose_gna_suggestions(
+  *,
+  business_name: str,
+  business_type: str,
+  naics_6: Optional[str],
+  today_iso: str,
+  business_start_date: Optional[str],
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  lobs: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+  """
+  GPT-backed proposer for G&A model cards.
+
+  Returns: {lob_key, lob_name?, monthly_* fields, basis}
+  """
+  lob_list = []
+  for lob in list(lobs or []):
+    lk = str(lob.get("lob_key") or "").strip()
+    if not lk or lk == "company_total":
+      continue
+    lob_list.append({"lob_key": lk, "lob_name": str(lob.get("lob_name") or "").strip()})
+  if not lob_list:
+    lob_list = [{"lob_key": "company_total", "lob_name": ""}]
+
+  schema = {
+    "name": "gna_model_card_proposer",
+    "strict": True,
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "suggestions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "lob_key": {"type": "string"},
+              "lob_name": {"type": ["string", "null"]},
+              "monthly_rent_expense": {"type": ["number", "null"]},
+              "monthly_software_expense": {"type": ["number", "null"]},
+              "monthly_insurance_expense": {"type": ["number", "null"]},
+              "monthly_utilities_expense": {"type": ["number", "null"]},
+              "monthly_admin_expense": {"type": ["number", "null"]},
+              "other_operating_expense": {"type": ["number", "null"]},
+              "basis": {"type": "string"},
+            },
+            "required": [
+              "lob_key",
+              "monthly_rent_expense",
+              "monthly_software_expense",
+              "monthly_insurance_expense",
+              "monthly_utilities_expense",
+              "monthly_admin_expense",
+              "other_operating_expense",
+              "basis",
+            ],
+          },
+        }
+      },
+      "required": ["suggestions"],
+    },
+  }
+
+  system = (
+    "You propose a small, realistic monthly G&A baseline so the client never has to invent numbers.\n"
+    "Provide 2-5 non-null monthly costs; leave non-applicable fields null.\n"
+    "Use NAICS/industry + ops context (sales modality, geography, start date) to size values.\n"
+    "Keep numbers conservative and simple.\n"
+    "Return JSON only per the schema."
+  )
+
+  user = {
+    "business_name": business_name,
+    "business_type": business_type,
+    "naics_6": naics_6,
+    "today_iso": today_iso,
+    "business_start_date": business_start_date,
+    "lobs": lob_list,
+    "ops": ops_json,
+    "shared_context": shared_context,
+  }
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  payload: Dict[str, Any] = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ],
+    "response_format": {"type": "json_schema", "json_schema": schema},
+  }
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 300:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+  data = resp.json()
+  parsed = _extract_output_json(data)
+  suggestions = parsed.get("suggestions")
+  if not isinstance(suggestions, list) or not suggestions:
+    raise RuntimeError("G&A proposer returned no suggestions.")
+
+  cleaned: List[Dict[str, Any]] = []
+  keys = (
+    "monthly_rent_expense",
+    "monthly_software_expense",
+    "monthly_insurance_expense",
+    "monthly_utilities_expense",
+    "monthly_admin_expense",
+    "other_operating_expense",
+  )
+  for s in suggestions:
+    if not isinstance(s, dict):
+      continue
+    cleaned_entry: Dict[str, Any] = {
+      "lob_key": str(s.get("lob_key") or "").strip() or "company_total",
+      "lob_name": str(s.get("lob_name") or "").strip() or None,
+      "basis": str(s.get("basis") or "").strip(),
+    }
+    for key in keys:
+      val = s.get(key)
+      cleaned_entry[key] = (float(val) if val is not None else None)
+    cleaned.append(cleaned_entry)
+  return cleaned or []

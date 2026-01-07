@@ -134,6 +134,116 @@ def _strip_inline_markdown(s: str) -> str:
     return str(s or "")
 
 
+def _format_money(value: Any) -> str:
+  try:
+    num = float(value)
+  except Exception:
+    return str(value).strip()
+  if abs(num - round(num)) < 0.005:
+    return f"${num:,.0f}"
+  return f"${num:,.2f}"
+
+
+def _format_percent(value: Any) -> str:
+  try:
+    num = float(value)
+  except Exception:
+    return str(value).strip()
+  if abs(num - round(num)) < 0.005:
+    return f"{num:.0f}%"
+  return f"{num:.1f}%"
+
+
+def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) -> str:
+  kind_norm = str(kind or "").strip().lower()
+  suggestion_key = {
+    "fulfillment": "fulfillment_suggestion",
+    "marketing": "marketing_suggestion",
+    "cogs": "cogs_suggestion",
+    "gna": "gna_suggestion",
+  }.get(kind_norm)
+  if not suggestion_key:
+    return ""
+  suggestion = intake_context.get(suggestion_key) if isinstance(intake_context, dict) else None
+  if not isinstance(suggestion, dict):
+    return ""
+
+  bullets: List[str] = []
+
+  if kind_norm == "fulfillment":
+    fm = str(suggestion.get("fulfillment_model") or "").strip()
+    who = str(suggestion.get("who_fulfills") or "").strip()
+    lead = str(suggestion.get("lead_time") or "").strip()
+    if fm:
+      bullets.append(f"- Assume fulfillment model: {fm}.")
+    if who:
+      bullets.append(f"- Assume fulfillment handled by: {who}.")
+    if lead:
+      bullets.append(f"- Assume typical lead time: {lead}.")
+  elif kind_norm == "marketing":
+    budget = suggestion.get("monthly_marketing_budget")
+    channels = str(suggestion.get("primary_channels") or "").strip()
+    if budget is not None:
+      bullets.append(f"- Assume monthly marketing budget: {_format_money(budget)}.")
+    if channels:
+      bullets.append(f"- Assume primary channels: {channels}.")
+  elif kind_norm == "cogs":
+    materials = suggestion.get("materials_cost_per_unit")
+    direct = suggestion.get("direct_fulfillment_cost_per_unit")
+    other = suggestion.get("other_variable_cost_per_unit")
+    cost_bits: List[str] = []
+    if materials is not None:
+      cost_bits.append(f"materials {_format_money(materials)}")
+    if direct is not None:
+      cost_bits.append(f"direct fulfillment {_format_money(direct)}")
+    if other is not None:
+      cost_bits.append(f"other variable {_format_money(other)}")
+    if cost_bits:
+      bullets.append(f"- Assume per-unit COGS: {'; '.join(cost_bits)}.")
+
+    prod = suggestion.get("production")
+    if isinstance(prod, dict):
+      stages = prod.get("stages")
+      stages_out = []
+      if isinstance(stages, list):
+        stages_out = [str(s).strip() for s in stages if str(s or "").strip()]
+      bottleneck = str(prod.get("primary_bottleneck") or "").strip()
+      basis = str(prod.get("unit_throughput_basis") or "").strip()
+      yield_assumption = str(prod.get("yield_assumption") or "").strip()
+      prod_bits: List[str] = []
+      if stages_out:
+        joined = " -> ".join(stages_out[:4])
+        prod_bits.append(f"stages {joined}")
+      if bottleneck:
+        prod_bits.append(f"bottleneck {bottleneck}")
+      if basis:
+        prod_bits.append(f"basis {basis}")
+      if yield_assumption:
+        prod_bits.append(f"yield {yield_assumption}")
+      if prod_bits:
+        bullets.append(f"- Assume production: {'; '.join(prod_bits)}.")
+  elif kind_norm == "gna":
+    def _add_money(label: str, value: Any) -> None:
+      if value is None:
+        return
+      if value == 0 and bullets:
+        return
+      bullets.append(f"- Assume {label}: {_format_money(value)} per month.")
+
+    _add_money("rent/space", suggestion.get("monthly_rent_expense"))
+    _add_money("software/tools", suggestion.get("monthly_software_expense"))
+    _add_money("insurance", suggestion.get("monthly_insurance_expense"))
+    _add_money("utilities", suggestion.get("monthly_utilities_expense"))
+    _add_money("admin/overhead", suggestion.get("monthly_admin_expense"))
+    _add_money("professional services", suggestion.get("other_operating_expense"))
+
+  if not bullets:
+    return ""
+
+  question = "Confirm these assumptions?"
+  return "\n".join([*bullets, question]).strip()
+
+
 def _postprocess_client_text(*, kind: str, text: str) -> str:
   """
   Keep output human-readable without truncating or sentence-limiting the LLM.
@@ -265,6 +375,14 @@ def render_client_message(*, kind: str, context: Dict[str, Any]) -> str:
   api_key = _require_openai_key()
   model = _openai_model()
 
+  try:
+    intake_context = (context or {}).get("intake_context") if isinstance(context, dict) else {}
+    compact = _compact_assumption_message(kind=kind_norm, intake_context=intake_context or {})
+    if compact:
+      return compact
+  except Exception:
+    pass
+
   if kind_norm.startswith("checkpoint"):
     out = _render_checkpoint_message(api_key=api_key, model=model, context=context or {})
     return _postprocess_client_text(kind=kind, text=out)
@@ -288,6 +406,21 @@ def render_client_message(*, kind: str, context: Dict[str, Any]) -> str:
     "- If you ask a question, ask exactly one short question at the end.\n"
     "- Use the provided context, but do not dump it back verbatim.\n"
   )
+  if kind_norm in ("fulfillment", "marketing", "cogs", "gna"):
+    system = (
+      "You are a senior business consultant running a paid intake.\n"
+      "Write only what the client should see in the chat.\n"
+      "Output format:\n"
+      "- 2-4 short bullet lines (start each line with '- '), each an assumption-first statement.\n"
+      "- Then ONE short confirmation question.\n"
+      "Rules:\n"
+      "- Be assertive and compact; do not teach or explain.\n"
+      "- Avoid narrative phrases like 'how this works', 'in practice', or 'this means'.\n"
+      "- Do NOT restate prior context; only state the proposed assumptions.\n"
+      "- Do NOT mention cards, panels, Accept/Edit, JSON, schemas, drivers, derived fields, formulas, or databases.\n"
+      "- Do NOT show equations or multi-step calculations.\n"
+      "- Ask exactly one short question at the end.\n"
+    )
 
   user_obj = {"kind": str(kind or "").strip(), "context": context or {}}
 

@@ -17,6 +17,56 @@ def _load_env() -> None:
   load_dotenv(os.path.join(root, ".env"))
 
 
+def _mysql_env() -> Tuple[str, int, str, str, str]:
+  host = (os.getenv("MYSQL_HOST") or "").strip()
+  port_raw = (os.getenv("MYSQL_PORT") or "3306").strip()
+  user = (os.getenv("MYSQL_USER") or "").strip()
+  password = os.getenv("MYSQL_PASSWORD") or ""
+  database = (
+    os.getenv("MYSQL_DB") or os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME") or ""
+  ).strip()
+  if not host or not user or not database:
+    raise RuntimeError("Missing MYSQL_HOST/MYSQL_USER/MYSQL_DB configuration.")
+  try:
+    port = int(port_raw)
+  except ValueError:
+    port = 3306
+  return host, port, user, password, database
+
+
+def _get_db_connection():
+  host, port, user, password, database = _mysql_env()
+  try:
+    import mysql.connector  # type: ignore
+  except Exception:
+    mysql_connector = None
+  else:
+    mysql_connector = mysql.connector  # type: ignore
+
+  if mysql_connector is not None:
+    return mysql_connector.connect(
+      host=host,
+      port=port,
+      user=user,
+      password=password,
+      database=database,
+    )
+
+  try:
+    import pymysql  # type: ignore
+  except Exception as exc:
+    raise RuntimeError("mysql-connector-python or pymysql is required to run this script.") from exc
+
+  return pymysql.connect(
+    host=host,
+    port=port,
+    user=user,
+    password=password,
+    database=database,
+    cursorclass=pymysql.cursors.DictCursor,
+  )
+
+
 def _json_load_maybe(raw: Any) -> Any:
   if raw is None:
     return None
@@ -103,11 +153,6 @@ def main() -> int:
   sys.path.insert(0, os.path.join(repo_root, "python"))
   from api import create_app  # type: ignore
 
-  try:
-    from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
-  except Exception:
-    from intake_submission import get_mysql_connection  # type: ignore
-
   app = create_app()
   client = app.test_client()
 
@@ -185,16 +230,34 @@ def main() -> int:
       card_checks=(("revenue", "drivers.operating_weeks_per_year.value", 52),),
     ),
     Step(
-      name="COGS model: cost_per_unit + derived year1_cogs",
-      message="COGS is $10 per unit.",
+      name="COGS model: component drivers + derived year1_cogs",
+      message="Materials cost is $4 per unit, direct fulfillment cost is $5 per unit, other variable cost is $1 per unit.",
       db_checks=(
-        ("cogs_model_json", "$.lobs[0].drivers.cost_per_unit.value", 10),
+        ("cogs_model_json", "$.lobs[0].drivers.materials_cost_per_unit.value", 4),
+        ("cogs_model_json", "$.lobs[0].drivers.direct_fulfillment_cost_per_unit.value", 5),
+        ("cogs_model_json", "$.lobs[0].drivers.other_variable_cost_per_unit.value", 1),
         ("cogs_model_json", "$.lobs[0].derived.year1_cogs.value", 10400),
         ("year1_cogs", "", 10400),
       ),
       card_checks=(
-        ("cogs", "drivers.cost_per_unit.value", 10),
+        ("cogs", "drivers.materials_cost_per_unit.value", 4),
+        ("cogs", "drivers.direct_fulfillment_cost_per_unit.value", 5),
+        ("cogs", "drivers.other_variable_cost_per_unit.value", 1),
         ("cogs", "derived.year1_cogs.value", 10400),
+      ),
+    ),
+    Step(
+      name="COGS production: stages + bottleneck",
+      message="Production stages are material prep, assembly, inspection, packaging. Bottleneck is assembly. Throughput basis is units per day. Yield is about 95%.",
+      db_checks=(
+        ("cogs_model_json", "$.lobs[0].production.primary_bottleneck", "assembly"),
+        ("cogs_model_json", "$.lobs[0].production.unit_throughput_basis", ("units per day", "units/day")),
+        ("cogs_model_json", "$.lobs[0].production.stages[0]", ("material prep", "materials prep")),
+      ),
+      card_checks=(
+        ("cogs", "production.primary_bottleneck", "assembly"),
+        ("cogs", "production.unit_throughput_basis", ("units per day", "units/day")),
+        ("cogs", "production.stages[0]", ("material prep", "materials prep")),
       ),
     ),
     Step(
@@ -252,10 +315,25 @@ def main() -> int:
   )
 
   # Helper to query the draft row each time.
-  def fetch_draft_row() -> Dict[str, Any]:
-    conn = get_mysql_connection()
+  def _fetchone_dict(cur) -> Dict[str, Any]:
+    row = cur.fetchone()
+    if row is None:
+      return {}
+    if isinstance(row, dict):
+      return dict(row)
     try:
-      cur = conn.cursor(dictionary=True)
+      columns = [desc[0] for desc in (cur.description or [])]
+    except Exception:
+      return {}
+    return dict(zip(columns, row))
+
+  def fetch_draft_row() -> Dict[str, Any]:
+    conn = _get_db_connection()
+    try:
+      try:
+        cur = conn.cursor(dictionary=True)
+      except TypeError:
+        cur = conn.cursor()
       try:
         cur.execute(
           """
@@ -280,7 +358,7 @@ def main() -> int:
           """,
           (draft_id,),
         )
-        row = cur.fetchone() or {}
+        row = _fetchone_dict(cur)
       finally:
         cur.close()
     finally:

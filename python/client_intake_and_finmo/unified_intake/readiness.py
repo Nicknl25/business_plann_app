@@ -140,6 +140,64 @@ def revenue_ready(revenue_model_json: Dict[str, Any]) -> bool:
   return False
 
 
+def cogs_ready(cogs_model_json: Dict[str, Any]) -> bool:
+  try:
+    if isinstance(cogs_model_json, dict) and isinstance(cogs_model_json.get("lobs"), list):
+      lobs = cogs_model_json.get("lobs") or []
+      if not lobs:
+        return False
+      non_company = [
+        lob
+        for lob in lobs
+        if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+        y1 = derived.get("year1_cogs")
+        ok = isinstance(y1, dict) and _has_value(y1.get("value"))
+        if not ok:
+          return False
+      return True
+    derived = cogs_model_json.get("derived") if isinstance(cogs_model_json, dict) else None
+    if isinstance(derived, dict) and "year1_cogs" in derived:
+      val = derived.get("year1_cogs") or {}
+      if isinstance(val, dict) and _has_value(val.get("value")):
+        return True
+  except Exception:
+    return False
+  return False
+
+
+def gna_ready(gna_model_json: Dict[str, Any]) -> bool:
+  try:
+    if isinstance(gna_model_json, dict) and isinstance(gna_model_json.get("lobs"), list):
+      lobs = gna_model_json.get("lobs") or []
+      if not lobs:
+        return False
+      non_company = [
+        lob
+        for lob in lobs
+        if isinstance(lob, dict) and str(lob.get("lob_key") or "").strip() != "company_total"
+      ]
+      requires = non_company if non_company else [lob for lob in lobs if isinstance(lob, dict)]
+      for lob in requires:
+        derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
+        y1 = derived.get("year1_gna_total")
+        ok = isinstance(y1, dict) and _has_value(y1.get("value"))
+        if not ok:
+          return False
+      return True
+    derived = gna_model_json.get("derived") if isinstance(gna_model_json, dict) else None
+    if isinstance(derived, dict) and "year1_gna_total" in derived:
+      val = derived.get("year1_gna_total") or {}
+      if isinstance(val, dict) and _has_value(val.get("value")):
+        return True
+  except Exception:
+    return False
+  return False
+
+
 def model_has_required_drivers(model_json: Dict[str, Any], required_keys: Tuple[str, ...]) -> bool:
   try:
     if isinstance(model_json, dict) and isinstance(model_json.get("lobs"), list):
@@ -232,4 +290,3 @@ def financials_data_ready(*, financials_json: Dict[str, Any]) -> bool:
     if (financials_json or {}).get(k) is None:
       return False
   return True
-
