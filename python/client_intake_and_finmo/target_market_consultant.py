@@ -256,7 +256,8 @@ The context JSON may include shared_context with outputs from other consults; tr
 Goal:
 - Determine who the business serves (target market) in a defensible, realistic way.
 - Work segment by segment and narrow ambiguity with the client.
-- You may suggest likely targets based on context, but the client must make the decision.
+- Default behavior is propose -> confirm/counter: suggest likely targets based on context, then let the client correct or confirm.
+- Do not ask the client to forecast, choose scenarios, or pick between alternative plans; propose one default and invite a correction.
 
 Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbitrator):
 - Throughout Target Market, do quick reality checks against the known business context (pricing, delivery model, geography, and offer).
@@ -287,8 +288,8 @@ Rules:
 - For Income language, avoid socioeconomic labels ("lower class", "middle class", etc.). State the numeric range plainly.
 - If the user says they serve "everyone" or "all incomes", propose a broad range starting at $0 (or the lowest practical bracket) and a high upper bound that clearly covers everyone, then move on once the user accepts.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
-  - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
-  - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
+  - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (grounded in the business context).
+  - Then propose a default (skip all three, or include only the single most relevant one) and ask for a simple confirm/correction.
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 
@@ -437,8 +438,8 @@ Rules:
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
 - For Income language, avoid socioeconomic labels ("lower class", "middle class", etc.). State the numeric range plainly.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
-  - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
-  - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
+  - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (grounded in the business context).
+  - Then propose a default (skip all three, or include only the single most relevant one) and ask for a simple confirm/correction.
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 - For B2B size, use only these employee bands (pick one or more): 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+.
@@ -522,7 +523,7 @@ Output rules:
         if outcome == ASK_NEXT:
           if not assistant_message.strip():
             assistant_message = "Who is your ideal customer (be as specific as you can)?"
-          assistant_message = _trim_after_first_question_block(assistant_message.strip())
+          assistant_message = assistant_message.strip()
         return {"assistant_message": assistant_message, "turn_outcome": outcome}
 
   raw = _parse_responses_text(data)
@@ -539,7 +540,7 @@ Output rules:
     if outcome == ASK_NEXT:
       if not assistant_message.strip():
         assistant_message = "Who is your ideal customer (be as specific as you can)?"
-      assistant_message = _trim_after_first_question_block(assistant_message.strip())
+      assistant_message = assistant_message.strip()
     return {"assistant_message": assistant_message, "turn_outcome": outcome}
 
   return {"assistant_message": raw.strip(), "turn_outcome": ASK_NEXT}

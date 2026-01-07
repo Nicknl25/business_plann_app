@@ -104,6 +104,8 @@ def _model_column(model: str) -> Optional[str]:
     "revenue": "revenue_model_json",
     "headcount": "headcount_model_json",
     "milestones": "milestones_model_json",
+    "cogs": "cogs_model_json",
+    "gna": "gna_model_json",
   }
   return mapping.get(norm)
 
@@ -113,6 +115,8 @@ def _focus_for_model(model: str) -> Optional[str]:
   if norm in ("marketing", "pricing"):
     return "market"
   if norm in ("revenue",):
+    return "ops"
+  if norm in ("cogs", "gna"):
     return "ops"
   if norm in ("headcount",):
     return "people"
@@ -883,7 +887,7 @@ def post_intake_model_cards_handler(*, app, request):
   {
     "draft_id": "...",
     "action": "accept" | "edit",
-    "model": "marketing" | "headcount" | "pricing" | "fulfillment" | "ops_concept",
+    "model": "marketing" | "headcount" | "pricing" | "fulfillment" | "ops_concept" | "cogs" | "gna",
     "updates": [{ "key": "...", "value": ..., "unit": "...", "time_basis": "...", "rationale": "..." }],
     "derived": [{ "key": "...", "value": ..., "unit": "...", "time_basis": "...", "derivation": "..." }],
     "proposal_id": "...?",
@@ -905,7 +909,7 @@ def post_intake_model_cards_handler(*, app, request):
       jsonify(
         {
           "error": "invalid_request",
-          "detail": "model must be one of: ops_concept, fulfillment, marketing, pricing, revenue, headcount, milestones",
+          "detail": "model must be one of: ops_concept, fulfillment, marketing, pricing, revenue, headcount, milestones, cogs, gna",
         }
       ),
       400,
@@ -978,6 +982,27 @@ def post_intake_model_cards_handler(*, app, request):
     # Deterministic marketing math: compute year1_marketing_spend from monthly_marketing_budget.
     if model == "marketing":
       next_card = _recompute_marketing_from_drivers(marketing_card=next_card, now_ms=now_ms)
+
+    # Deterministic COGS / G&A math (company_total rollups).
+    year1_cogs_value: Optional[float] = None
+    year1_gna_total_value: Optional[float] = None
+    if model in ("cogs", "gna"):
+      try:
+        from unified_intake.model_engine import (  # type: ignore
+          recompute_cogs_company_total,
+          recompute_gna_company_total,
+        )
+      except Exception:
+        recompute_cogs_company_total = None  # type: ignore
+        recompute_gna_company_total = None  # type: ignore
+
+      if model == "cogs" and recompute_cogs_company_total:
+        revenue_live = _parse_json_dict(draft.get("revenue_model_json"))
+        next_card, year1_cogs_value = recompute_cogs_company_total(
+          next_card, revenue_card=revenue_live, now_ms=now_ms
+        )
+      if model == "gna" and recompute_gna_company_total:
+        next_card, year1_gna_total_value = recompute_gna_company_total(next_card, now_ms=now_ms)
 
     # Deterministic revenue math: compute year1_revenue + keep Ops unit_price/capacity/starting_revenue synced.
     next_ops_json: Optional[Dict[str, Any]] = None
@@ -1062,6 +1087,8 @@ def post_intake_model_cards_handler(*, app, request):
     # Update rollup columns opportunistically (query-friendly), without requiring a fixed driver taxonomy.
     year1_marketing_spend: Any = None
     year1_payroll: Any = None
+    year1_cogs: Any = None
+    year1_gna_total: Any = None
     if model == "marketing":
       # Only set company_total rollup if it exists.
       try:
@@ -1089,6 +1116,10 @@ def post_intake_model_cards_handler(*, app, request):
             year1_payroll = _as_number(y1.get("value"))
       except Exception:
         year1_payroll = None
+    if model == "cogs":
+      year1_cogs = year1_cogs_value
+    if model == "gna":
+      year1_gna_total = year1_gna_total_value
     if model in ("ops_concept", "fulfillment", "pricing"):
       pass
     if model == "pricing":
@@ -1102,6 +1133,8 @@ def post_intake_model_cards_handler(*, app, request):
       "driver_events": events,
       "driver_revision_nonce": next_nonce,
       "model_card_proposals": proposals,
+      # Always keep text chat enabled; model cards are internal-only.
+      "interaction_mode": "chat",
     }
 
     # Map column -> append_messages argument name.
@@ -1113,6 +1146,8 @@ def post_intake_model_cards_handler(*, app, request):
       "revenue_model_json": "revenue_model_json",
       "headcount_model_json": "headcount_model_json",
       "milestones_model_json": "milestones_model_json",
+      "cogs_model_json": "cogs_model_json",
+      "gna_model_json": "gna_model_json",
     }
     card_param = card_param_by_column.get(column)
     if card_param:
@@ -1133,8 +1168,25 @@ def post_intake_model_cards_handler(*, app, request):
       kwargs["year1_payroll"] = year1_payroll
     if year1_revenue_value is not None:
       kwargs["year1_revenue"] = float(year1_revenue_value)
+    if year1_cogs is not None:
+      kwargs["year1_cogs"] = float(year1_cogs)
+    if year1_gna_total is not None:
+      kwargs["year1_gna_total"] = float(year1_gna_total)
 
     append_messages(conn, **kwargs)
+
+    # UX: model-card edits are internal-only state updates; they must not create new chat turns.
+    return jsonify(
+      {
+        "status": "ok",
+        "draft_id": draft_id,
+        "client_id": str(draft.get("client_id") or "").strip(),
+        "model": model,
+        "driver_revision_nonce": next_nonce,
+        "interaction_mode": "chat",
+        "model_card": next_card,
+      }
+    )
 
     # Ask the next question by delegating to the existing consult flow (no UI "wait" state).
     fresh = get_draft(conn, draft_id=draft_id)
@@ -1643,7 +1695,48 @@ def post_intake_model_cards_handler(*, app, request):
           target_market_ready = False
 
         if target_market_ready and marketing_pending:
-          # Marketing pending: do not push target market questions; return a short Accept/Edit prompt.
+          # Marketing is pending: generate a proposal so the UI can present Accept/Edit controls.
+          proposals_now = _parse_json_list(fresh.get("model_card_proposals_json"))
+          if not any(isinstance(p, dict) and p.get("model") == "marketing" for p in proposals_now):
+            now_ms = int(time.time() * 1000)
+            proposals_now = [
+              *proposals_now,
+              {
+                "id": f"mk_{now_ms}_{len(proposals_now)+1}",
+                "model": "marketing",
+                "title": "Marketing budget (Year 1)",
+                "lob_key": "company_total",
+                "lob_name": None,
+                "updates": [
+                  {
+                    "key": "monthly_marketing_budget",
+                    "value": None,
+                    "unit": "USD",
+                    "time_basis": "month",
+                    "rationale": "Default placeholder; edit to match your plan.",
+                  },
+                  {
+                    "key": "primary_channels",
+                    "value": None,
+                    "unit": None,
+                    "time_basis": None,
+                    "rationale": "Default placeholder; edit to match your plan.",
+                  },
+                ],
+                "derived": [
+                  {
+                    "key": "year1_marketing_spend",
+                    "value": fresh.get("year1_marketing_spend"),
+                    "unit": "USD",
+                    "time_basis": "year",
+                    "derivation": "monthly_marketing_budget x 12",
+                  }
+                ],
+                "created_at_ms": now_ms,
+              },
+            ]
+            append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+
           suggestion = {
             "monthly_marketing_budget": None,
             "year1_marketing_spend": fresh.get("year1_marketing_spend"),
@@ -1773,6 +1866,43 @@ def post_intake_model_cards_handler(*, app, request):
             except Exception:
               pass
 
+          # Hard fallback: ensure at least one proposal exists for button-only interaction.
+          try:
+            if not any(isinstance(p, dict) and p.get("model") == "headcount" for p in proposals_now):
+              now_ms = int(time.time() * 1000)
+              proposals_now = [
+                *proposals_now,
+                {
+                  "id": f"hc_{now_ms}_{len(proposals_now)+1}",
+                  "model": "headcount",
+                  "title": "Headcount (Year 1 payroll)",
+                  "lob_key": "company_total",
+                  "lob_name": None,
+                  "updates": [
+                    {
+                      "key": "roles",
+                      "value": [],
+                      "unit": None,
+                      "time_basis": None,
+                      "rationale": "Proposed Year-1 staffing plan; edit roles/counts as needed.",
+                    }
+                  ],
+                  "derived": [
+                    {
+                      "key": "year1_payroll",
+                      "value": fresh.get("year1_payroll"),
+                      "unit": "USD",
+                      "time_basis": "year",
+                      "derivation": "sum(employee_count x hourly_rate x hours_per_week x weeks_per_year)",
+                    }
+                  ],
+                  "created_at_ms": now_ms,
+                },
+              ]
+              append_messages(conn, draft_id=draft_id, new_messages=[], model_card_proposals=proposals_now)
+          except Exception:
+            pass
+
           turn = headcount_chat_turn(
             intake_context={**intake_context, "headcount_suggestions": []},
             conversation_messages=conversation_messages,
@@ -1809,6 +1939,9 @@ def post_intake_model_cards_handler(*, app, request):
     except Exception:
       assistant_message = ""
 
+    state_after = get_draft(conn, draft_id=draft_id)
+    interaction_mode_out = "button_only" if _parse_json_list(state_after.get("model_card_proposals_json")) else "chat"
+
     if assistant_message:
       append_messages(
         conn,
@@ -1816,10 +1949,11 @@ def post_intake_model_cards_handler(*, app, request):
         new_messages=[{"role": "assistant", "content": assistant_message}],
         active_focus=next_focus,
         status="in_progress",
+        interaction_mode=interaction_mode_out,
       )
     else:
       if next_focus == "done":
-        assistant_message = 'All sections are complete.\n\nClick "Submit intake" to finish.'
+        assistant_message = "All sections are complete."
         append_messages(
           conn,
           draft_id=draft_id,
@@ -1828,6 +1962,7 @@ def post_intake_model_cards_handler(*, app, request):
           status="completed",
           completed=True,
           consistency_passed=True,
+          interaction_mode="chat",
         )
 
     return jsonify(
@@ -1838,6 +1973,7 @@ def post_intake_model_cards_handler(*, app, request):
         "model": model,
         "driver_revision_nonce": next_nonce,
         "active_focus": next_focus,
+        "interaction_mode": interaction_mode_out,
         "assistant_message": assistant_message,
         "model_card": next_card,
       }

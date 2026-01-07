@@ -4,6 +4,8 @@ import json
 import os
 import re
 import time
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
@@ -68,6 +70,23 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   raise RuntimeError("OpenAI request failed unexpectedly.")
 
 
+def _json_default(obj: Any) -> Any:
+  """
+  Make context JSON-serializable (MySQL connector returns Decimals).
+  """
+  if isinstance(obj, Decimal):
+    try:
+      return float(obj)
+    except Exception:
+      return str(obj)
+  if isinstance(obj, (datetime, date)):
+    try:
+      return obj.isoformat()
+    except Exception:
+      return str(obj)
+  return str(obj)
+
+
 def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
   consult_type_norm = str(consult_type or "").strip().lower()
   if consult_type_norm == "unified":
@@ -98,6 +117,45 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
     # financials
     for k, v in _value_schema_by_consult_field(consult_type="financials").items():
       add("financials", k, v)
+
+    # model cards (stored on the unified consult draft)
+    add("pricing", "unit_price", {"type": ["number", "null"]})
+
+    add("revenue", "units_per_week_capacity", {"type": "number"})
+    add("revenue", "avg_units_per_week_year1", {"type": ["number", "null"]})
+    add("revenue", "utilization_rate", {"type": ["number", "null"]})
+    add("revenue", "operating_weeks_per_year", {"type": "number"})
+    add("revenue", "unit_price", {"type": ["number", "null"]})
+
+    add("marketing", "monthly_marketing_budget", {"type": ["number", "null"]})
+    add("marketing", "primary_channels", {"type": ["string", "null"]})
+
+    add("headcount", "roles", {"type": "array", "items": {"type": "object"}})
+
+    add("fulfillment", "fulfillment_model", {"type": ["string", "null"]})
+    add("fulfillment", "who_fulfills", {"type": ["string", "null"]})
+    add("fulfillment", "lead_time", {"type": ["string", "null"]})
+
+    add("ops_concept", "operating_unit", {"type": ["string", "null"]})
+    add("ops_concept", "primary_constraint", {"type": ["string", "null"]})
+    add("ops_concept", "process_overview", {"type": ["string", "null"]})
+
+    add("milestones", "milestones", {"type": "array", "items": {"type": "object"}})
+
+    # Operating expense models (stored on the unified consult draft)
+    add("cogs", "cost_per_unit", {"type": ["number", "null"]})
+    add("cogs", "materials_cost_per_unit", {"type": ["number", "null"]})
+    add("cogs", "direct_fulfillment_cost_per_unit", {"type": ["number", "null"]})
+    add("cogs", "other_variable_cost_per_unit", {"type": ["number", "null"]})
+    add("cogs", "cogs_percent_of_revenue", {"type": ["number", "null"]})
+
+    add("gna", "monthly_rent_expense", {"type": ["number", "null"]})
+    add("gna", "other_operating_expense", {"type": ["number", "null"]})
+    add("gna", "other_monthly_debt_payments", {"type": ["number", "null"]})
+    add("gna", "monthly_software_expense", {"type": ["number", "null"]})
+    add("gna", "monthly_insurance_expense", {"type": ["number", "null"]})
+    add("gna", "monthly_utilities_expense", {"type": ["number", "null"]})
+    add("gna", "monthly_admin_expense", {"type": ["number", "null"]})
 
     return schemas
 
@@ -547,6 +605,34 @@ def route_intent(
       "business.name",
       "business.address",
       "business.start_date",
+      "pricing.unit_price",
+      "revenue.units_per_week_capacity",
+      "revenue.avg_units_per_week_year1",
+      "revenue.utilization_rate",
+      "revenue.operating_weeks_per_year",
+      "revenue.unit_price",
+      "marketing.monthly_marketing_budget",
+      "marketing.primary_channels",
+      "headcount.roles",
+      "fulfillment.fulfillment_model",
+      "fulfillment.who_fulfills",
+      "fulfillment.lead_time",
+      "ops_concept.operating_unit",
+      "ops_concept.primary_constraint",
+      "ops_concept.process_overview",
+      "milestones.milestones",
+      "cogs.cost_per_unit",
+      "cogs.materials_cost_per_unit",
+      "cogs.direct_fulfillment_cost_per_unit",
+      "cogs.other_variable_cost_per_unit",
+      "cogs.cogs_percent_of_revenue",
+      "gna.monthly_rent_expense",
+      "gna.other_operating_expense",
+      "gna.other_monthly_debt_payments",
+      "gna.monthly_software_expense",
+      "gna.monthly_insurance_expense",
+      "gna.monthly_utilities_expense",
+      "gna.monthly_admin_expense",
       *[f"ops.{f}" for f in _value_schema_by_consult_field(consult_type="ops").keys() if f in {
         "consumer_type",
         "business_type",
@@ -636,7 +722,7 @@ IMPORTANT: Valid actions are: edit_patch, answer_readonly, continue_chat. Do NOT
     - If active_focus is "financials": anchor to "as of last month" and do NOT ask for 12-month/year totals; if a monthly amount is natural, ask for the monthly amount.
     - If active_focus is "ops", "market", or "people": ask only for the one missing detail needed to proceed, with no bundled questions.
 3) edit_patch
-   - Use when the user is requesting a correction/update to ANY already-captured fact in the canonical intake model (even if phrased casually), regardless of what stage the consult is currently in.
+   - Use when the user is providing OR correcting one or more canonical facts that should be recorded in the draft (including normal answers to intake questions), regardless of what stage the consult is currently in.
    - IMPORTANT: If the last assistant message PROPOSED a specific change to one or more facts (e.g., "Should we update X to 700?")
      and the user clearly agrees (yes/ok/sure/that’s right), you MUST return edit_patch with the proposed patch.
      In that scenario, do NOT return continue_chat.
@@ -661,11 +747,16 @@ IMPORTANT: Valid actions are: edit_patch, answer_readonly, continue_chat. Do NOT
   - Answer using baseline_json + shared_context (read-only). Do NOT apply any patch (patch=[]).
   - Keep it short and directly answer the user's question. Do not reprint the full baseline summary.
 5) continue_chat
-  - Use when the user is answering the current question and the consult should continue normally (no patch).
+  - Use when the user message does NOT supply any canonical fact that should be recorded (no patch).
   - patch MUST be [].
 
 Interpretation rules:
-- During active_focus "financials", if the user is answering a financials question by supplying a concrete value that should be recorded as a fact (including "0"/"none" answers that imply 0), prefer edit_patch over continue_chat so the canonical draft stays current and summaries always render the latest locked values.
+- In unified mode, ALWAYS capture canonical facts the user provides, even if they belong to a different section than active_focus.
+  Example: if active_focus is "ops" but the user says "Monthly rent is 1500", return edit_patch for financials.monthly_rent_expense.
+- Revenue timing disambiguation:
+  - ops.starting_revenue is a forward-looking Year-1 operating-year forecast (e.g., "Year 1 revenue", "projected first-year revenue", "starting revenue after launch").
+  - financials.current_revenue is revenue today / recent run-rate (e.g., "current annual revenue", "last 12 months revenue", "revenue so far").
+- During active_focus "ops", "market", "people", or "financials", if the user is answering the current question by supplying a concrete value/detail that should be recorded as a canonical fact (including "0"/"none" answers that imply 0), prefer edit_patch over continue_chat so the draft stays current and downstream projections (including cards) reflect the latest values immediately.
 - If the user says something like "10000, not 10" after correcting unit price, infer they are correcting the same thing again (do not require keywords).
 - If the user corrects business identity details (name, address, start date) anywhere in the conversation, treat it as an edit_patch to business.name / business.address / business.start_date (unified mode uses scoped fields).
 - For business.start_date, normalize to ISO format YYYY-MM-DD when the user provides a specific date.
@@ -681,6 +772,15 @@ Interpretation rules:
 Unified mode:
 - If consult_type is "unified", patch fields must be scoped as "<group>.<field>" (e.g., "ops.unit_price", "financials.current_revenue", "business.name").
 - Only patch the specific intended facts; do not rewrite summaries.
+- Unified mode also supports model-card driver updates (stored on the unified draft):
+  - pricing.unit_price
+  - revenue.* drivers (units_per_week_capacity, avg_units_per_week_year1, utilization_rate, operating_weeks_per_year, unit_price)
+  - marketing.* drivers (monthly_marketing_budget, primary_channels)
+  - headcount.roles (array of role objects; prefer fields like role_title, employee_count, hours_per_week, weeks_per_year, hourly_rate_override when the user provides them)
+    - IMPORTANT: staffing/headcount/hiring plans belong in headcount.roles. Do NOT store them in people.people (key individuals) and do NOT store Year-1 staffing plans in financials.current_payroll/current_num_employees unless the user explicitly says those are current/today values.
+  - fulfillment.* drivers (fulfillment_model, who_fulfills, lead_time)
+  - ops_concept.* drivers (operating_unit, primary_constraint, process_overview)
+  - milestones.milestones (array of milestone objects; include at least a human title and a target period/date when possible)
 
 Return JSON only. No prose.
 """.strip()
@@ -693,7 +793,7 @@ Return JSON only. No prose.
     "last_assistant_message": last_assistant,
     "user_message": str(user_message or "").strip(),
   }
-  context_blob = json.dumps(context, ensure_ascii=False)
+  context_blob = json.dumps(context, ensure_ascii=False, default=_json_default)
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

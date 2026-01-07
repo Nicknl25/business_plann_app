@@ -17,6 +17,7 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 type DraftMeta = {
   status: string;
   activeFocus: string;
+  interactionMode: string;
   opsConfirmed: boolean;
   marketConfirmed: boolean;
   peopleConfirmed: boolean;
@@ -62,10 +63,103 @@ type ModelCardProposal = {
   created_at_ms?: number;
 };
 
+const MODEL_LABELS: Record<string, string> = {
+  pricing: "Pricing",
+  revenue: "Revenue",
+  marketing: "Marketing",
+  headcount: "Staffing",
+  fulfillment: "Delivery",
+  ops_concept: "Operations approach",
+  milestones: "Milestones",
+  cogs: "Cost of goods sold",
+  gna: "Overhead",
+};
+
+const DRIVER_LABELS: Record<string, Record<string, string>> = {
+  pricing: { unit_price: "Price per package" },
+  revenue: {
+    units_per_week_capacity: "Weekly capacity",
+    avg_units_per_week_year1: "Average weekly volume (Year 1)",
+    utilization_rate: "Utilization (Year 1)",
+    operating_weeks_per_year: "Working weeks per year",
+    unit_price: "Average price per package",
+  },
+  marketing: {
+    monthly_marketing_budget: "Monthly marketing budget",
+    primary_channels: "Primary acquisition channels",
+  },
+  headcount: { roles: "Team plan (roles)" },
+  fulfillment: {
+    fulfillment_model: "How delivery happens",
+    who_fulfills: "Who delivers the work",
+    lead_time: "Typical turnaround time",
+  },
+  ops_concept: {
+    operating_unit: "What counts as one unit",
+    primary_constraint: "Main constraint",
+    process_overview: "How the work happens",
+  },
+  milestones: { milestones: "Milestones" },
+  cogs: {
+    cost_per_unit: "Cost per package",
+    cogs_percent_of_revenue: "COGS as % of revenue",
+  },
+  gna: {
+    monthly_rent_expense: "Monthly rent",
+    other_operating_expense: "Other monthly overhead",
+    other_monthly_debt_payments: "Monthly operating debt payments",
+  },
+};
+
+const DERIVED_LABELS: Record<string, Record<string, string>> = {
+  revenue: { year1_revenue: "Estimated Year 1 revenue", weekly_revenue: "Estimated weekly revenue" },
+  marketing: { year1_marketing_spend: "Estimated Year 1 marketing spend" },
+  headcount: { year1_payroll: "Estimated Year 1 payroll" },
+  cogs: { year1_cogs: "Estimated Year 1 COGS" },
+  gna: { year1_gna_total: "Estimated Year 1 overhead" },
+};
+
+function humanizeKey(raw: string): string {
+  const key = String(raw || "").trim();
+  if (!key) return "";
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/\byear1\b/gi, "Year 1")
+    .replace(/\bavg\b/gi, "Average")
+    .replace(/\s+/g, " ")
+    .replace(/^\w/, (m) => m.toUpperCase());
+}
+
+function labelForDriver(modelKey: string, key: string): string {
+  const mk = String(modelKey || "").trim().toLowerCase();
+  const k = String(key || "").trim();
+  return DRIVER_LABELS[mk]?.[k] || humanizeKey(k);
+}
+
+function labelForDerived(modelKey: string, key: string): string {
+  const mk = String(modelKey || "").trim().toLowerCase();
+  const k = String(key || "").trim();
+  return DERIVED_LABELS[mk]?.[k] || humanizeKey(k);
+}
+
+function summarizeValue(value: any): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    if (!value.length) return "";
+    if (value.every((v) => typeof v === "string")) return value.join(", ");
+    return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  }
+  if (typeof value === "object") return "Details captured";
+  return String(value);
+}
+
 function normalizeDraftMeta(body: any): DraftMeta {
   return {
     status: String(body?.draft_status || ""),
     activeFocus: String(body?.active_focus || ""),
+    interactionMode: String(body?.interaction_mode || "chat"),
     opsConfirmed: Boolean(body?.ops_confirmed),
     marketConfirmed: Boolean(body?.market_confirmed),
     peopleConfirmed: Boolean(body?.people_confirmed),
@@ -125,6 +219,7 @@ export default function UnifiedConsultStep() {
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
+  const [showAssumptions, setShowAssumptions] = useState(false);
   const [proposalApplyAll, setProposalApplyAll] = useState<Record<string, boolean>>({});
   const [editingDriver, setEditingDriver] = useState<{
     model: string;
@@ -673,6 +768,16 @@ export default function UnifiedConsultStep() {
       return [];
     }
   }, [modelCards]);
+
+  const interactionMode = String(draftMeta?.interactionMode || (sharedContext as any)?.interaction_mode || "chat")
+    .trim()
+    .toLowerCase();
+  const buttonOnly = interactionMode === "button_only";
+
+  useEffect(() => {
+    if (!buttonOnly) return;
+    setInputValue("");
+  }, [buttonOnly]);
 
   const hasMultipleLobsForModel = useCallback(
     (modelKey: string) => {
@@ -1351,29 +1456,40 @@ export default function UnifiedConsultStep() {
           )}
         </div>
 
+        {buttonOnly ? (
+          <div className="rounded-md border border-slate-800/80 bg-slate-950/40 p-2 text-xs text-slate-300">
+            A few suggested assumptions need your review before we continue.
+          </div>
+        ) : null}
+
         <div className="flex gap-2">
           <Input
             ref={chatInputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId}
+            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId || buttonOnly}
             placeholder={
               !detailsCompleteForChat
                 ? "Complete business details to begin..."
                 : messages.length === 0
                   ? "Start the consultation first..."
-                  : "Reply..."
+                  : buttonOnly
+                    ? "Review the suggested assumptions below to continue..."
+                    : "Reply..."
             }
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
+                if (buttonOnly) return;
                 void sendMessage(inputValue);
               }
             }}
           />
           <Button
             type="button"
-            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId || !inputValue.trim()}
+            disabled={
+              !planStarted || sending || loading || !detailsCompleteForChat || !draftId || buttonOnly || !inputValue.trim()
+            }
             onClick={() => void sendMessage(inputValue)}
           >
             Send
@@ -1382,16 +1498,25 @@ export default function UnifiedConsultStep() {
 
         {modelProposals.length || modelCardEntries.length ? (
           <div className="space-y-2 rounded-md border border-slate-800/80 bg-slate-950/40 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-slate-200">Model cards (drivers)</div>
-              <div className="text-[11px] text-slate-500">
-                {modelSaving ? "Saving..." : "Edit any driver to update the model immediately."}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs text-slate-200">Assumptions</div>
+              <div className="flex items-center gap-2">
+                {modelSaving ? <div className="text-[11px] text-slate-500">Saving…</div> : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={modelSaving}
+                  onClick={() => setShowAssumptions((v) => !v)}
+                >
+                  {showAssumptions ? "Hide" : "Show"}
+                </Button>
               </div>
             </div>
 
-            {modelProposals.length ? (
+            {showAssumptions && buttonOnly && modelProposals.length ? (
               <div className="space-y-2">
-                <div className="text-[11px] text-slate-400">Pending proposals</div>
+                <div className="text-[11px] text-slate-400">Suggested assumptions</div>
                 {modelProposals.map((p) => {
                   const title = p.title || `${p.model} proposal`;
                   const modelKey = String(p.model || "").trim().toLowerCase();
@@ -1399,7 +1524,7 @@ export default function UnifiedConsultStep() {
                   const derived = Array.isArray(p.derived) ? p.derived : [];
                   const isMultiLob = hasMultipleLobsForModel(modelKey);
                   const lobLabelRaw = p.lob_name || p.lob_key ? String(p.lob_name || p.lob_key || "").trim() : "";
-                  const lobLabel = isMultiLob && String(p.lob_key || "") === "company_total" ? "All LOBs" : lobLabelRaw;
+                  const lobLabel = isMultiLob && String(p.lob_key || "") === "company_total" ? "All areas" : lobLabelRaw;
                   const monthly = updates.find((u) => String(u.key) === "monthly_marketing_budget");
                   const annual = derived.find((d) => String(d.key) === "year1_marketing_spend");
                   const y1Payroll = derived.find((d) => String(d.key) === "year1_payroll");
@@ -1415,12 +1540,12 @@ export default function UnifiedConsultStep() {
                       : modelKey === "milestones"
                         ? milestonesCount != null
                           ? `${milestonesCount} milestone${milestonesCount === 1 ? "" : "s"} proposed`
-                          : `${updates.length} driver${updates.length === 1 ? "" : "s"}`
+                          : `${updates.length} item${updates.length === 1 ? "" : "s"}`
                         : y1Payroll?.value != null
                           ? `Year 1 payroll: $${String(y1Payroll.value)}`
                           : derived.length
-                            ? `${derived.length} derived`
-                            : `${updates.length} driver${updates.length === 1 ? "" : "s"}`;
+                            ? `${derived.length} estimate${derived.length === 1 ? "" : "s"}`
+                            : `${updates.length} item${updates.length === 1 ? "" : "s"}`;
                   return (
                     <div key={p.id} className="rounded-md border border-slate-800/70 bg-slate-950/40 p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1442,7 +1567,7 @@ export default function UnifiedConsultStep() {
                                 }
                                 disabled={modelSaving}
                               />
-                              <span>Apply to all LOBs</span>
+                              <span>Use for all areas</span>
                             </label>
                           ) : null}
                           <Button
@@ -1452,10 +1577,10 @@ export default function UnifiedConsultStep() {
                             disabled={modelSaving}
                             onClick={() => openProposalEditor(p)}
                           >
-                            Edit
+                            Adjust
                           </Button>
                           <Button type="button" size="sm" disabled={modelSaving} onClick={() => void acceptProposal(p)}>
-                            Accept
+                            Use
                           </Button>
                         </div>
                       </div>
@@ -1493,7 +1618,7 @@ export default function UnifiedConsultStep() {
                               Cancel
                             </Button>
                             <Button type="button" size="sm" disabled={modelSaving} onClick={() => void submitProposalEdit()}>
-                              Save & Accept
+                              Save & Use
                             </Button>
                           </div>
                           <div className="md:col-span-3">
@@ -1502,7 +1627,7 @@ export default function UnifiedConsultStep() {
                               onChange={(e) =>
                                 setEditingProposal((prev) => (prev ? { ...prev, rationale: e.target.value } : prev))
                               }
-                              placeholder="Rationale (optional)"
+                              placeholder="Notes (optional)"
                               disabled={modelSaving}
                             />
                           </div>
@@ -1665,7 +1790,7 @@ export default function UnifiedConsultStep() {
                                 );
                               })}
                               {(editingGenericProposal.derived || []).length ? (
-                                <div className="pt-1 text-[11px] text-slate-400">Derived (optional)</div>
+                                <div className="pt-1 text-[11px] text-slate-400">Estimates (optional)</div>
                               ) : null}
                               {(editingGenericProposal.derived || []).map((d, idx) => (
                                 <div key={`${d.key}:${idx}`} className="grid gap-2 md:grid-cols-3">
@@ -1708,7 +1833,7 @@ export default function UnifiedConsultStep() {
                               disabled={modelSaving}
                               onClick={() => void submitGenericProposalEdit()}
                             >
-                              Save & Accept
+                              Save & Use
                             </Button>
                           </div>
                         </div>
@@ -1717,12 +1842,16 @@ export default function UnifiedConsultStep() {
                   );
                 })}
               </div>
+            ) : showAssumptions && buttonOnly ? (
+              <div className="rounded-md border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-100">
+                Chat is paused but no suggested assumptions are available. Refresh; if it persists, this is a server error.
+              </div>
             ) : null}
 
-            {modelCardEntries.map((entry) => {
+            {showAssumptions ? modelCardEntries.map((entry) => {
               const modelKey = entry.modelKey;
               const lobKey = entry.lobKey;
-              const label = entry.label;
+              const label = entry.label || MODEL_LABELS[modelKey] || humanizeKey(modelKey);
               const drivers = entry.drivers || {};
               const derived = entry.derived || {};
               const driverKeys = Object.keys(drivers);
@@ -1737,21 +1866,12 @@ export default function UnifiedConsultStep() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-xs text-slate-200">{label}</div>
-                    <div className="text-[11px] text-slate-500">
-                      {driverKeys.length} driver{driverKeys.length === 1 ? "" : "s"}
-                      {derivedKeys.length ? ` | ${derivedKeys.length} derived` : ""}
-                    </div>
                   </div>
 
                   <div className="mt-2 space-y-2">
                     {driverKeys.map((driverKey) => {
                       const driver = drivers[driverKey] || {};
-                      const displayValue =
-                        driver.value == null
-                          ? ""
-                          : typeof driver.value === "object"
-                            ? JSON.stringify(driver.value)
-                            : String(driver.value);
+                      const displayValue = summarizeValue(driver.value);
                       const suffix = [driver.unit, driver.time_basis].filter(Boolean).join(" / ");
                       const isEditing =
                         Boolean(editingDriver) &&
@@ -1763,16 +1883,11 @@ export default function UnifiedConsultStep() {
                         <div key={driverKey} className="rounded-md border border-slate-800/60 bg-slate-950/30 p-2">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="truncate text-[11px] text-slate-400">{driverKey}</div>
+                              <div className="truncate text-[11px] text-slate-400">{labelForDriver(modelKey, driverKey)}</div>
                               <div className="truncate text-xs text-slate-200">
                                 {displayValue || <span className="text-slate-500">(empty)</span>}
                                 {suffix ? <span className="text-slate-500">{"  "}({suffix})</span> : null}
                               </div>
-                              {driver.rationale ? (
-                                <div className="mt-1 text-[11px] text-slate-400 line-clamp-2">
-                                  {String(driver.rationale)}
-                                </div>
-                              ) : null}
                             </div>
                             <Button
                               type="button"
@@ -1781,7 +1896,7 @@ export default function UnifiedConsultStep() {
                               disabled={modelSaving}
                               onClick={() => openDriverEditor(modelKey, lobKey, driverKey, driver)}
                             >
-                              Edit
+                              Adjust
                             </Button>
                           </div>
 
@@ -1799,7 +1914,7 @@ export default function UnifiedConsultStep() {
                                       onChange={(e) =>
                                         setEditingDriver((prev) => (prev ? { ...prev, value: e.target.value } : prev))
                                       }
-                                      placeholder="Value (JSON supported)"
+                                      placeholder="Value"
                                       disabled={modelSaving}
                                     />
                                   );
@@ -1816,22 +1931,6 @@ export default function UnifiedConsultStep() {
                                   />
                                 );
                               })()}
-                              <Input
-                                value={editingDriver?.unit ?? ""}
-                                onChange={(e) =>
-                                  setEditingDriver((prev) => (prev ? { ...prev, unit: e.target.value } : prev))
-                                }
-                                placeholder="Unit (optional)"
-                                disabled={modelSaving}
-                              />
-                              <Input
-                                value={editingDriver?.timeBasis ?? ""}
-                                onChange={(e) =>
-                                  setEditingDriver((prev) => (prev ? { ...prev, timeBasis: e.target.value } : prev))
-                                }
-                                placeholder="time_basis (optional)"
-                                disabled={modelSaving}
-                              />
                               <div className="flex items-center justify-end gap-2 md:col-span-2">
                                 <Button type="button" size="sm" variant="secondary" disabled={modelSaving} onClick={cancelDriverEditor}>
                                   Cancel
@@ -1839,16 +1938,6 @@ export default function UnifiedConsultStep() {
                                 <Button type="button" size="sm" disabled={modelSaving} onClick={() => void submitDriverEdit()}>
                                   Save
                                 </Button>
-                              </div>
-                              <div className="md:col-span-4">
-                                <Input
-                                  value={editingDriver?.rationale ?? ""}
-                                  onChange={(e) =>
-                                    setEditingDriver((prev) => (prev ? { ...prev, rationale: e.target.value } : prev))
-                                  }
-                                  placeholder="Rationale (optional)"
-                                  disabled={modelSaving}
-                                />
                               </div>
                             </div>
                           ) : null}
@@ -1858,7 +1947,7 @@ export default function UnifiedConsultStep() {
 
                     {derivedKeys.length ? (
                       <div className="rounded-md border border-slate-800/60 bg-slate-950/30 p-2">
-                        <div className="text-[11px] text-slate-400">Derived (read-only)</div>
+                        <div className="text-[11px] text-slate-400">Estimates</div>
                         <div className="mt-1 space-y-1">
                           {derivedKeys.map((k) => {
                             const d = derived[k] || {};
@@ -1866,7 +1955,7 @@ export default function UnifiedConsultStep() {
                             const suffix = [d.unit, d.time_basis].filter(Boolean).join(" / ");
                             return (
                               <div key={k} className="flex items-start justify-between gap-2 text-xs">
-                                <div className="min-w-0 text-slate-400">{k}</div>
+                                <div className="min-w-0 text-slate-400">{labelForDerived(modelKey, k)}</div>
                                 <div className="text-slate-200">
                                   {v || <span className="text-slate-500">(empty)</span>}
                                   {suffix ? <span className="text-slate-500">{"  "}({suffix})</span> : null}
@@ -1880,7 +1969,7 @@ export default function UnifiedConsultStep() {
                   </div>
                 </div>
               );
-            })}
+            }) : null}
           </div>
         ) : null}
       </CardContent>

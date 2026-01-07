@@ -3,6 +3,8 @@ from typing import Any, Dict
 from flask import jsonify
 
 import json
+from datetime import date, datetime
+from decimal import Decimal
 
 
 def _parse_json_maybe(raw: Any) -> Dict[str, Any]:
@@ -15,6 +17,28 @@ def _parse_json_maybe(raw: Any) -> Dict[str, Any]:
   except Exception:
     return {}
   return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_safe(value: Any) -> Any:
+  """
+  Ensure shared_context is JSON-serializable for downstream OpenAI calls.
+  (MySQL connector returns Decimal for DECIMAL columns.)
+  """
+  if isinstance(value, Decimal):
+    try:
+      return float(value)
+    except Exception:
+      return str(value)
+  if isinstance(value, (datetime, date)):
+    try:
+      return value.isoformat()
+    except Exception:
+      return str(value)
+  if isinstance(value, dict):
+    return {k: _json_safe(v) for k, v in value.items()}
+  if isinstance(value, list):
+    return [_json_safe(v) for v in value]
+  return value
 
 
 def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
@@ -30,6 +54,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   people_capability: Dict[str, Any] = {}
   financials: Dict[str, Any] = {}
   model_cards: Dict[str, Any] = {}
+  interaction_mode: str = "chat"
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -40,6 +65,9 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
+    interaction_mode = str(consult.get("interaction_mode") or "chat").strip().lower()
+    if interaction_mode not in ("chat", "button_only"):
+      interaction_mode = "chat"
     model_cards = {
       "ops_concept": _parse_json_maybe(consult.get("ops_concept_model_json")),
       "fulfillment": _parse_json_maybe(consult.get("fulfillment_model_json")),
@@ -48,10 +76,14 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
       "revenue": _parse_json_maybe(consult.get("revenue_model_json")),
       "headcount": _parse_json_maybe(consult.get("headcount_model_json")),
       "milestones": _parse_json_maybe(consult.get("milestones_model_json")),
+      "cogs": _parse_json_maybe(consult.get("cogs_model_json")),
+      "gna": _parse_json_maybe(consult.get("gna_model_json")),
       "year1_rollups": {
         "year1_revenue": consult.get("year1_revenue"),
         "year1_marketing_spend": consult.get("year1_marketing_spend"),
         "year1_payroll": consult.get("year1_payroll"),
+        "year1_cogs": consult.get("year1_cogs"),
+        "year1_gna_total": consult.get("year1_gna_total"),
       },
       "proposals": consult.get("model_card_proposals_json"),
     }
@@ -71,7 +103,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     if not operating_model:
       operating_model = _parse_json_maybe(consult.get("operating_model_json"))
   except Exception:
-    operating_model = {}
+    if not operating_model:
+      operating_model = {}
 
   try:
     from target_market_draft import get_draft as get_tm_draft  # type: ignore
@@ -80,7 +113,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     if not target_market:
       target_market = _parse_json_maybe(tm.get("target_market_json"))
   except Exception:
-    target_market = {}
+    if not target_market:
+      target_market = {}
 
   try:
     from people_capability_draft import get_draft as get_pc_draft  # type: ignore
@@ -89,7 +123,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     if not people_capability:
       people_capability = _parse_json_maybe(pc.get("people_json"))
   except Exception:
-    people_capability = {}
+    if not people_capability:
+      people_capability = {}
 
   try:
     from financials_consult_draft import get_draft as get_fin_draft  # type: ignore
@@ -98,15 +133,23 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     if not financials:
       financials = _parse_json_maybe(fin.get("financials_json"))
   except Exception:
-    financials = {}
+    if not financials:
+      financials = {}
 
-  return {
-    "operating_model": operating_model,
-    "target_market": target_market,
-    "people_capability": people_capability,
-    "financials": financials,
-    "model_cards": model_cards,
-  }
+  return _json_safe(
+    {
+      "interaction_mode": interaction_mode,
+      "operating_model": operating_model,
+      "target_market": target_market,
+      "people_capability": people_capability,
+      "financials": financials,
+      "model_cards": model_cards,
+    }
+  )
+
+
+def _build_shared_context_response(conn, *, draft_id: str) -> Dict[str, Any]:
+  return _json_safe(build_shared_context(conn, draft_id=str(draft_id).strip()))
 
 
 def get_shared_context_handler(*, app, request):
@@ -128,7 +171,7 @@ def get_shared_context_handler(*, app, request):
 
   conn = get_mysql_connection()
   try:
-    shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+    shared_context = _build_shared_context_response(conn, draft_id=str(draft_id).strip())
     return jsonify(
       {
         "status": "ok",

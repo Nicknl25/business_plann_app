@@ -13,7 +13,7 @@ function Header() {
   const location = useLocation();
 
   return (
-    <header className="fixed inset-x-0 top-0 z-40 border-b border-white/5 bg-slate-950/70 backdrop-blur-xl">
+    <header className="fixed inset-x-0 top-0 z-[100] border-b border-white/5 bg-slate-950/70 backdrop-blur-xl">
       <div className="container flex h-[var(--header-height)] items-center justify-between gap-6">
         <NavLink
           to="/"

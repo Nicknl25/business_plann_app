@@ -116,7 +116,7 @@ def create_app() -> Flask:
     Request shape:
       { "client_id": "...", "message": "..." }
     """
-    from api_handlers.intake_consult import post_intake_consult_handler
+    from unified_intake.controller import post_intake_consult_handler  # type: ignore
 
     return post_intake_consult_handler(app=app, request=request)
 
@@ -125,13 +125,13 @@ def create_app() -> Flask:
     """
     Create a new durable pre-submit consultant draft and return {draft_id, client_id}.
     """
-    from api_handlers.intake_consult import post_intake_consult_session_handler
+    from unified_intake.controller import post_intake_consult_session_handler  # type: ignore
 
     return post_intake_consult_session_handler(app=app, request=request)
 
   @app.route("/api/intake-consult/draft", methods=["GET", "OPTIONS"])
   def get_intake_consult_draft():
-    from api_handlers.intake_consult import get_intake_consult_draft_handler
+    from unified_intake.controller import get_intake_consult_draft_handler  # type: ignore
 
     return get_intake_consult_draft_handler(app=app, request=request)
 
@@ -140,7 +140,7 @@ def create_app() -> Flask:
     """
     Persist model-card driver updates (Accept/Edit) to the unified consult draft immediately.
     """
-    from api_handlers.intake_model_cards import post_intake_model_cards_handler
+    from unified_intake.model_cards import post_intake_model_cards_handler  # type: ignore
 
     return post_intake_model_cards_handler(app=app, request=request)
 

@@ -51,6 +51,7 @@ def ensure_table(conn) -> None:
         client_id CHAR(20) NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
         active_focus VARCHAR(20) NOT NULL DEFAULT 'ops',
+        interaction_mode VARCHAR(20) NOT NULL DEFAULT 'chat',
         ops_confirmed TINYINT(1) NOT NULL DEFAULT 0,
         market_confirmed TINYINT(1) NOT NULL DEFAULT 0,
         people_confirmed TINYINT(1) NOT NULL DEFAULT 0,
@@ -78,12 +79,16 @@ def ensure_table(conn) -> None:
         revenue_model_json JSON NULL,
         headcount_model_json JSON NULL,
         milestones_model_json JSON NULL,
+        cogs_model_json JSON NULL,
+        gna_model_json JSON NULL,
         model_card_proposals_json JSON NULL,
         driver_events_json JSON NULL,
         driver_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0,
         year1_revenue DECIMAL(18,2) NULL,
         year1_marketing_spend DECIMAL(18,2) NULL,
         year1_payroll DECIMAL(18,2) NULL,
+        year1_cogs DECIMAL(18,2) NULL,
+        year1_gna_total DECIMAL(18,2) NULL,
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         completed_at DATETIME(6) NULL,
@@ -92,6 +97,7 @@ def ensure_table(conn) -> None:
         UNIQUE KEY uniq_client_id (client_id),
         KEY idx_status (status),
         KEY idx_active_focus (active_focus),
+        KEY idx_interaction_mode (interaction_mode),
         KEY idx_updated_at (updated_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       """
@@ -107,6 +113,8 @@ def ensure_table(conn) -> None:
   alterations: list[str] = []
   if "active_focus" not in cols:
     alterations.append("ADD COLUMN active_focus VARCHAR(20) NOT NULL DEFAULT 'ops'")
+  if "interaction_mode" not in cols:
+    alterations.append("ADD COLUMN interaction_mode VARCHAR(20) NOT NULL DEFAULT 'chat'")
   if "ops_confirmed" not in cols:
     alterations.append("ADD COLUMN ops_confirmed TINYINT(1) NOT NULL DEFAULT 0")
   if "market_confirmed" not in cols:
@@ -157,6 +165,10 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN headcount_model_json JSON NULL")
   if "milestones_model_json" not in cols:
     alterations.append("ADD COLUMN milestones_model_json JSON NULL")
+  if "cogs_model_json" not in cols:
+    alterations.append("ADD COLUMN cogs_model_json JSON NULL")
+  if "gna_model_json" not in cols:
+    alterations.append("ADD COLUMN gna_model_json JSON NULL")
   if "model_card_proposals_json" not in cols:
     alterations.append("ADD COLUMN model_card_proposals_json JSON NULL")
   if "driver_events_json" not in cols:
@@ -169,6 +181,10 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN year1_marketing_spend DECIMAL(18,2) NULL")
   if "year1_payroll" not in cols:
     alterations.append("ADD COLUMN year1_payroll DECIMAL(18,2) NULL")
+  if "year1_cogs" not in cols:
+    alterations.append("ADD COLUMN year1_cogs DECIMAL(18,2) NULL")
+  if "year1_gna_total" not in cols:
+    alterations.append("ADD COLUMN year1_gna_total DECIMAL(18,2) NULL")
 
   if alterations:
     cur2 = conn.cursor()
@@ -263,13 +279,18 @@ def append_messages(
   revenue_model_json: Optional[Dict[str, Any]] = None,
   headcount_model_json: Optional[Dict[str, Any]] = None,
   milestones_model_json: Optional[Dict[str, Any]] = None,
+  cogs_model_json: Optional[Dict[str, Any]] = None,
+  gna_model_json: Optional[Dict[str, Any]] = None,
   model_card_proposals: Optional[Any] = None,
   driver_events: Optional[Any] = None,
   driver_revision_nonce: Optional[int] = None,
   year1_revenue: Optional[Any] = None,
   year1_marketing_spend: Optional[Any] = None,
   year1_payroll: Optional[Any] = None,
+  year1_cogs: Optional[Any] = None,
+  year1_gna_total: Optional[Any] = None,
   active_focus: Optional[str] = None,
+  interaction_mode: Optional[str] = None,
   confirmations: Optional[Dict[str, bool]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
   consistency_passed: Optional[bool] = None,
@@ -292,36 +313,7 @@ def append_messages(
       return []
     return list(parsed) if isinstance(parsed, list) else []
 
-  def _has_pending_proposals() -> bool:
-    try:
-      proposals = _parse_json_list(row.get("model_card_proposals_json"))
-      return bool(proposals)
-    except Exception:
-      return False
-
-  def _is_ack(text: str) -> bool:
-    raw = " ".join(str(text or "").strip().lower().split())
-    if not raw:
-      return False
-    # Treat short acknowledgements as non-data-bearing (they should not advance the flow).
-    return raw in {
-      "ok",
-      "okay",
-      "k",
-      "kk",
-      "yes",
-      "y",
-      "yep",
-      "yeah",
-      "sure",
-      "sounds good",
-      "got it",
-      "correct",
-    }
-
-  # Avoid spamming duplicate assistant messages when the client types acknowledgements
-  # during model-card gating (Accept/Edit). The UI already shows pending proposals.
-  # We still keep the client message history; we just avoid repeating the same assistant text.
+  # Avoid spamming exact duplicate assistant messages.
   if new_messages:
     last = messages[-1] if messages else None
     for m in list(new_messages):
@@ -331,21 +323,6 @@ def append_messages(
       except Exception:
         role = ""
         content = ""
-      if role == "assistant" and _has_pending_proposals():
-        # Pattern: previous persisted assistant == this assistant AND user just sent an acknowledgement.
-        try:
-          prev = messages[-2] if len(messages) >= 2 else None
-          if (
-            isinstance(prev, dict)
-            and str(prev.get("role") or "").strip().lower() == "assistant"
-            and str(prev.get("content") or "") == content
-            and isinstance(last, dict)
-            and str(last.get("role") or "").strip().lower() == "user"
-            and _is_ack(str(last.get("content") or ""))
-          ):
-            continue
-        except Exception:
-          pass
       if (
         role == "assistant"
         and isinstance(last, dict)
@@ -359,6 +336,13 @@ def append_messages(
   now = _utc_now_str()
   set_parts = ["messages_json = %s", "updated_at = %s"]
   values: List[Any] = [json.dumps(messages, ensure_ascii=False), now]
+
+  if interaction_mode is not None:
+    mode = str(interaction_mode or "").strip().lower()
+    if mode not in ("chat", "button_only"):
+      mode = "chat"
+    set_parts.append("interaction_mode = %s")
+    values.append(mode)
 
   if status:
     set_parts.append("status = %s")
@@ -433,6 +417,14 @@ def append_messages(
     set_parts.append("milestones_model_json = %s")
     values.append(json.dumps(milestones_model_json, ensure_ascii=False))
 
+  if cogs_model_json is not None:
+    set_parts.append("cogs_model_json = %s")
+    values.append(json.dumps(cogs_model_json, ensure_ascii=False))
+
+  if gna_model_json is not None:
+    set_parts.append("gna_model_json = %s")
+    values.append(json.dumps(gna_model_json, ensure_ascii=False))
+
   if model_card_proposals is not None:
     set_parts.append("model_card_proposals_json = %s")
     values.append(json.dumps(model_card_proposals, ensure_ascii=False))
@@ -456,6 +448,14 @@ def append_messages(
   if year1_payroll is not None:
     set_parts.append("year1_payroll = %s")
     values.append(year1_payroll)
+
+  if year1_cogs is not None:
+    set_parts.append("year1_cogs = %s")
+    values.append(year1_cogs)
+
+  if year1_gna_total is not None:
+    set_parts.append("year1_gna_total = %s")
+    values.append(year1_gna_total)
 
   if active_focus is not None:
     set_parts.append("active_focus = %s")
@@ -543,12 +543,16 @@ def append_messages(
       "revenue_model_json",
       "headcount_model_json",
       "milestones_model_json",
+      "cogs_model_json",
+      "gna_model_json",
       "model_card_proposals_json",
       "driver_events_json",
       "driver_revision_nonce",
       "year1_revenue",
       "year1_marketing_spend",
       "year1_payroll",
+      "year1_cogs",
+      "year1_gna_total",
       "created_at",
       "updated_at",
       "completed_at",
