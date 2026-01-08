@@ -154,11 +154,38 @@ def _format_percent(value: Any) -> str:
   return f"{num:.1f}%"
 
 
+def _format_quantity(value: Any) -> str:
+  try:
+    num = float(value)
+  except Exception:
+    return str(value).strip()
+  if abs(num - round(num)) < 0.005:
+    return f"{int(round(num))}"
+  return f"{num:.2f}"
+
+
+def _get_unit_price(intake_context: Dict[str, Any]) -> Optional[float]:
+  for key in ("operating_model_json", "ops_json", "ops"):
+    obj = intake_context.get(key) if isinstance(intake_context, dict) else None
+    if isinstance(obj, dict):
+      raw = obj.get("unit_price")
+      try:
+        val = float(raw)
+      except Exception:
+        val = None
+      if val is not None and val > 0:
+        return val
+  return None
+
+
 def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) -> str:
   kind_norm = str(kind or "").strip().lower()
   suggestion_key = {
     "fulfillment": "fulfillment_suggestion",
     "marketing": "marketing_suggestion",
+    "revenue": "revenue_suggestion",
+    "ops_concept": "ops_concept_suggestion",
+    "milestones": "milestones_suggestion",
     "cogs": "cogs_suggestion",
     "gna": "gna_suggestion",
   }.get(kind_norm)
@@ -166,9 +193,12 @@ def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) ->
     return ""
   suggestion = intake_context.get(suggestion_key) if isinstance(intake_context, dict) else None
   if not isinstance(suggestion, dict):
-    return ""
+    if kind_norm != "cogs":
+      return ""
+    suggestion = {}
 
   bullets: List[str] = []
+  question = "Confirm these assumptions?"
 
   if kind_norm == "fulfillment":
     fm = str(suggestion.get("fulfillment_model") or "").strip()
@@ -187,6 +217,29 @@ def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) ->
       bullets.append(f"- Assume monthly marketing budget: {_format_money(budget)}.")
     if channels:
       bullets.append(f"- Assume primary channels: {channels}.")
+  elif kind_norm == "revenue":
+    units_cap = suggestion.get("units_per_week_capacity")
+    avg_units = suggestion.get("avg_units_per_week_year1")
+    weeks = suggestion.get("operating_weeks_per_year")
+    unit_price = suggestion.get("unit_price")
+    if units_cap is not None:
+      bullets.append(f"- Assume weekly capacity: {_format_quantity(units_cap)} units.")
+    if avg_units is not None:
+      bullets.append(f"- Assume Year 1 average: {_format_quantity(avg_units)} units per week.")
+    if weeks is not None:
+      bullets.append(f"- Assume operating weeks per year: {_format_quantity(weeks)}.")
+    if unit_price is not None:
+      bullets.append(f"- Assume unit price: {_format_money(unit_price)}.")
+  elif kind_norm == "ops_concept":
+    operating_unit = str(suggestion.get("operating_unit") or "").strip()
+    primary_constraint = str(suggestion.get("primary_constraint") or "").strip()
+    process_overview = str(suggestion.get("process_overview") or "").strip()
+    if operating_unit:
+      bullets.append(f"- Assume operating unit: {operating_unit}.")
+    if primary_constraint:
+      bullets.append(f"- Assume primary constraint: {primary_constraint}.")
+    if process_overview:
+      bullets.append(f"- Assume process overview: {process_overview}.")
   elif kind_norm == "cogs":
     materials = suggestion.get("materials_cost_per_unit")
     direct = suggestion.get("direct_fulfillment_cost_per_unit")
@@ -200,6 +253,16 @@ def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) ->
       cost_bits.append(f"other variable {_format_money(other)}")
     if cost_bits:
       bullets.append(f"- Assume per-unit COGS: {'; '.join(cost_bits)}.")
+    else:
+      unit_price = _get_unit_price(intake_context or {})
+      if unit_price is not None:
+        default_pct = 0.6
+        default_cost = max(0.0, unit_price * default_pct)
+        bullets.append(f"- Assume per-unit direct costs around {_format_money(default_cost)}.")
+        question = "Does that sound right, or should we use a different number?"
+      else:
+        bullets.append("- Assume direct costs run about 60% of what you charge per unit.")
+        question = "Does that sound right, or should we use a different percentage?"
 
     prod = suggestion.get("production")
     if isinstance(prod, dict):
@@ -220,8 +283,27 @@ def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) ->
         prod_bits.append(f"basis {basis}")
       if yield_assumption:
         prod_bits.append(f"yield {yield_assumption}")
-      if prod_bits:
-        bullets.append(f"- Assume production: {'; '.join(prod_bits)}.")
+    if prod_bits:
+      bullets.append(f"- Assume production: {'; '.join(prod_bits)}.")
+  elif kind_norm == "milestones":
+    raw_milestones = suggestion.get("milestones")
+    if isinstance(raw_milestones, list):
+      for m in raw_milestones:
+        if not isinstance(m, dict):
+          continue
+        title = str(m.get("title") or "").strip()
+        target_period = str(m.get("target_period") or "").strip()
+        if not title or not target_period:
+          continue
+        description = str(m.get("description") or "").strip()
+        if description:
+          bullets.append(f"- Proposed milestone: {title} - {description} ({target_period}).")
+        else:
+          bullets.append(f"- Proposed milestone: {title} ({target_period}).")
+        if len(bullets) >= 2:
+          break
+    if bullets:
+      question = "Does this milestone look right, or should we adjust it?"
   elif kind_norm == "gna":
     def _add_money(label: str, value: Any) -> None:
       if value is None:
@@ -240,7 +322,6 @@ def _compact_assumption_message(*, kind: str, intake_context: Dict[str, Any]) ->
   if not bullets:
     return ""
 
-  question = "Confirm these assumptions?"
   return "\n".join([*bullets, question]).strip()
 
 
@@ -406,7 +487,7 @@ def render_client_message(*, kind: str, context: Dict[str, Any]) -> str:
     "- If you ask a question, ask exactly one short question at the end.\n"
     "- Use the provided context, but do not dump it back verbatim.\n"
   )
-  if kind_norm in ("fulfillment", "marketing", "cogs", "gna"):
+  if kind_norm in ("fulfillment", "marketing", "cogs", "gna", "milestones", "revenue", "ops_concept"):
     system = (
       "You are a senior business consultant running a paid intake.\n"
       "Write only what the client should see in the chat.\n"

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import date
+import json
+import time
 from typing import Any, Dict, List, Optional
 
 from flask import jsonify
 
 from llm_timing import timed_span
+from unified_intake.debug_log import debug_log
 from unified_intake.parsing import (
   parse_json_dict as _parse_json_dict,
   parse_messages as _parse_messages,
@@ -34,6 +37,110 @@ def _reply(*, assistant_message: str, turn_outcome: str, next_focus: Optional[st
 def _require_nonempty_str(value: Any) -> Optional[str]:
   v = str(value or "").strip()
   return v if v else None
+
+
+def _parse_json_list(raw: Any) -> List[Any]:
+  if raw is None:
+    return []
+  if isinstance(raw, list):
+    return list(raw)
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return []
+  return list(parsed) if isinstance(parsed, list) else []
+
+
+def _is_affirmative(message: str) -> bool:
+  msg_raw = " ".join(str(message or "").strip().lower().split())
+  if not msg_raw or len(msg_raw) > 48:
+    return False
+  if "?" in msg_raw:
+    return False
+  msg = msg_raw.strip(" .!?,")
+  if not msg:
+    return False
+  if any(ch.isdigit() for ch in msg):
+    return False
+
+  negatives = {
+    "no",
+    "nope",
+    "nah",
+    "not",
+    "never",
+    "dont",
+    "don't",
+    "idk",
+    "unsure",
+    "maybe",
+    "depends",
+    "later",
+    "skip",
+    "pass",
+    "wait",
+    "hold",
+  }
+  if any(token in msg for token in negatives):
+    return False
+
+  tokens = msg.split()
+  if len(tokens) > 4:
+    return False
+
+  if tokens and tokens[0] in {
+    "ok",
+    "okay",
+    "k",
+    "kk",
+    "sure",
+    "good",
+    "great",
+    "fine",
+    "agree",
+    "agreed",
+    "correct",
+    "right",
+    "works",
+    "alright",
+  }:
+    return True
+
+  if tokens and tokens[0].startswith(("ye", "ya", "yu")) and len(tokens[0]) <= 8:
+    return True
+
+  if len(tokens) >= 2 and tokens[0] == "sounds" and tokens[1] in {"good", "great", "fine", "ok", "okay", "right"}:
+    return True
+
+  if msg in {"all right", "sounds good", "sounds great", "sounds fine", "sounds ok", "sounds okay"}:
+    return True
+
+  return False
+
+
+def _proposal_patch_from_list(proposals: List[Any]) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+  for item in reversed(list(proposals or [])):
+    if not isinstance(item, dict):
+      continue
+    if item.get("pending") is False:
+      continue
+    patch = item.get("patch")
+    if isinstance(patch, dict) and patch:
+      pid = str(item.get("id") or "").strip() or None
+      return patch, pid
+  return None, None
+
+
+def _build_model_proposal(*, model: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+  now_ms = int(time.time() * 1000)
+  model_norm = str(model or "").strip().lower() or "unknown"
+  return {
+    "id": f"{model_norm}_{now_ms}",
+    "model": model_norm,
+    "patch": dict(patch),
+    "pending": True,
+    "created_at_ms": now_ms,
+  }
 
 
 def _clip_recent_messages_for_router(
@@ -289,6 +396,9 @@ def post_intake_consult_handler(*, app, request):
       cogs_model_json = _parse_json_dict(consult.get("cogs_model_json"))
       gna_model_json = _parse_json_dict(consult.get("gna_model_json"))
 
+    model_card_proposals = _parse_json_list(consult.get("model_card_proposals_json"))
+    proposals_dirty = False
+
     active_focus = _require_nonempty_str(consult.get("active_focus"))
     if not active_focus:
       return _reply(assistant_message="", turn_outcome="ERROR_INVALID_STATE", next_focus=None, status_code=500)
@@ -312,6 +422,15 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         pass
       interaction_mode = "chat"
+
+    debug_log(
+      "request_start",
+      draft_id=draft_id,
+      active_focus=active_focus_norm,
+      interaction_mode=interaction_mode,
+      starting=starting,
+      message_len=len(message) if message else 0,
+    )
 
     business_facts: Dict[str, Any] = {
       "name": consult.get("business_name"),
@@ -376,6 +495,7 @@ def post_intake_consult_handler(*, app, request):
     expected_focus_norm = str(expected_focus).strip().lower()
     active_focus_for_router = active_focus_norm
     if active_focus_norm != expected_focus_norm:
+      debug_log("focus_corrected", from_focus=active_focus_norm, to_focus=expected_focus_norm)
       # Self-heal inconsistent drafts (legacy/partial writes) by snapping focus to the fixed-order expectation,
       # but DO NOT drop the user's message. Proceed in the same request under the corrected focus.
       try:
@@ -393,6 +513,7 @@ def post_intake_consult_handler(*, app, request):
       active_focus_for_router = expected_focus_norm
 
     if active_focus_norm == "done":
+      debug_log("request_done", draft_id=draft_id)
       return _reply(assistant_message="", turn_outcome="DONE", next_focus=None, status_code=200)
 
     with timed_span("unified_intake.build_shared_context", draft_id=str(draft_id).strip()):
@@ -463,6 +584,8 @@ def post_intake_consult_handler(*, app, request):
       "naics_6": None,
       "shared_context": shared_context,
       "operating_model_json": ops_json,
+      "fulfillment_model_json": fulfillment_model_json,
+      "ops_concept_model_json": ops_concept_model_json,
       "target_market_json": market_json,
       "people_json": people_json,
       "financials_json": financials_json,
@@ -485,12 +608,31 @@ def post_intake_consult_handler(*, app, request):
 
       assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
       turn_outcome = str(turn.get("turn_outcome") or "ASK_NEXT").strip().upper() or "ASK_NEXT"
+      proposal_patch = turn.get("_proposal_patch") if isinstance(turn, dict) else None
+      proposal_model = str((turn or {}).get("_proposal_model") or "").strip().lower() if isinstance(turn, dict) else ""
+      if isinstance(proposal_patch, dict) and proposal_patch:
+        model_card_proposals = [_build_model_proposal(model=proposal_model, patch=proposal_patch)]
+        proposals_dirty = True
+        debug_log(
+          "proposal_stored",
+          focus=active_focus_norm,
+          model=proposal_model,
+          patch_keys=sorted(proposal_patch.keys()),
+        )
+      debug_log(
+        "section_turn",
+        focus=active_focus_norm,
+        outcome=turn_outcome,
+        assistant_len=len(assistant_text),
+        starting=True,
+      )
       with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, starting=True):
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
           new_messages=[{"role": "assistant", "content": assistant_text}],
           active_focus=active_focus_norm,
+          model_card_proposals=(model_card_proposals if proposals_dirty else None),
           business_facts=business_facts,
         )
       return _reply(assistant_message=assistant_text, turn_outcome=turn_outcome, next_focus=active_focus_norm, status_code=200)
@@ -521,6 +663,26 @@ def post_intake_consult_handler(*, app, request):
     patch = intent.get("patch") if isinstance(intent, dict) else None
     if patch is not None and not isinstance(patch, dict):
       patch = None
+    debug_log(
+      "intent_patch",
+      focus=active_focus_norm,
+      has_patch=bool(patch),
+      patch_keys=sorted(patch.keys()) if isinstance(patch, dict) else [],
+    )
+    if (not patch) and _is_affirmative(message):
+      auto_patch, proposal_id = _proposal_patch_from_list(model_card_proposals)
+      if isinstance(auto_patch, dict) and auto_patch:
+        patch = auto_patch
+        proposals_dirty = True
+        if proposal_id:
+          model_card_proposals = [
+            p for p in model_card_proposals if not (isinstance(p, dict) and str(p.get("id") or "") == proposal_id)
+          ]
+        debug_log(
+          "auto_patch",
+          focus=active_focus_norm,
+          patch_keys=sorted(patch.keys()) if isinstance(patch, dict) else [],
+        )
     if patch:
       with timed_span("unified_intake.apply_chat_patch_and_persist", draft_id=str(draft_id).strip(), focus=active_focus_norm):
         updated = apply_chat_patch_and_persist(
@@ -591,6 +753,24 @@ def post_intake_consult_handler(*, app, request):
 
     assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
     turn_outcome = str(turn.get("turn_outcome") or "ASK_NEXT").strip().upper() or "ASK_NEXT"
+    proposal_patch = turn.get("_proposal_patch") if isinstance(turn, dict) else None
+    proposal_model = str((turn or {}).get("_proposal_model") or "").strip().lower() if isinstance(turn, dict) else ""
+    if isinstance(proposal_patch, dict) and proposal_patch:
+      model_card_proposals = [_build_model_proposal(model=proposal_model, patch=proposal_patch)]
+      proposals_dirty = True
+      debug_log(
+        "proposal_stored",
+        focus=active_focus_norm,
+        model=proposal_model,
+        patch_keys=sorted(proposal_patch.keys()),
+      )
+    debug_log(
+      "section_turn",
+      focus=active_focus_norm,
+      outcome=turn_outcome,
+      assistant_len=len(assistant_text),
+      starting=False,
+    )
 
     if turn_outcome != "SECTION_COMPLETE":
       with timed_span("unified_intake.append_messages", draft_id=str(draft_id).strip(), focus=active_focus_norm, starting=False):
@@ -599,6 +779,7 @@ def post_intake_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           active_focus=active_focus_norm,
+          model_card_proposals=(model_card_proposals if proposals_dirty else None),
           business_facts=business_facts,
         )
       return _reply(assistant_message=assistant_text, turn_outcome=turn_outcome, next_focus=active_focus_norm, status_code=200)
@@ -651,9 +832,12 @@ def post_intake_consult_handler(*, app, request):
       gna_model_json=gna_model_json,
     )
 
-    if not section.is_complete(snapshot):
+    section_complete = section.is_complete(snapshot)
+    debug_log("section_finalize", focus=active_focus_norm, complete=section_complete)
+    if not section_complete:
       # Safety recovery: if a consultant signals completion but the section is still incomplete,
       # keep the user moving (no 409s, no retyping, no dead ends).
+      debug_log("completion_recovery", focus=active_focus_norm)
       try:
         followup = section.chat_turn(
           intake_context=intake_context,
@@ -669,6 +853,11 @@ def post_intake_consult_handler(*, app, request):
           conn,
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": (followup_text or assistant_text)}],
+          operating_model_json=ops_json if active_focus_norm == "ops" else None,
+          target_market_json=market_json if active_focus_norm == "market" else None,
+          people_json=people_json if active_focus_norm == "people" else None,
+          financials_json=financials_json if active_focus_norm == "financials" else None,
+          model_card_proposals=(model_card_proposals if proposals_dirty else None),
           active_focus=active_focus_norm,
           business_facts=business_facts,
         )
@@ -701,6 +890,7 @@ def post_intake_consult_handler(*, app, request):
         target_market_json=market_json if active_focus_norm == "market" else None,
         people_json=people_json if active_focus_norm == "people" else None,
         financials_json=financials_json if active_focus_norm == "financials" else None,
+        model_card_proposals=(model_card_proposals if proposals_dirty else None),
         confirmations={active_focus_norm: True},
         active_focus=("done" if next_focus == "done" else next_focus),
         business_facts=business_facts,
@@ -709,6 +899,7 @@ def post_intake_consult_handler(*, app, request):
         consistency_passed=consistency_passed_out,
       )
 
+    debug_log("section_advanced", focus=active_focus_norm, next_focus=next_focus)
     return _reply(
       assistant_message=assistant_text,
       turn_outcome="SECTION_COMPLETE",

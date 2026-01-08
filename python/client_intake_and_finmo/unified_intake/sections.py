@@ -16,6 +16,7 @@ from unified_intake.readiness import (
   target_market_data_ready,
 )
 from unified_intake.redaction import strip_acs_codes
+from unified_intake.debug_log import debug_log
 
 
 @dataclass(frozen=True)
@@ -173,17 +174,41 @@ class OpsSection(SectionHandler):
     cogs_model_json = snapshot.get("cogs_model_json") if isinstance(snapshot.get("cogs_model_json"), dict) else {}
     gna_model_json = snapshot.get("gna_model_json") if isinstance(snapshot.get("gna_model_json"), dict) else {}
 
-    return (
-      _has_nonempty(ops_json, "business_type")
-      and _has_nonempty(ops_json, "unit_name")
-      and _has_nonempty(ops_json, "units_per_week_capacity")
-      and revenue_ready(revenue_model_json)
-      and model_has_required_drivers(fulfillment_model_json, ("fulfillment_model", "who_fulfills", "lead_time"))
-      and model_has_required_drivers(ops_concept_model_json, ("operating_unit", "primary_constraint", "process_overview"))
-      and milestones_ready(milestones_model_json)
-      and cogs_ready(cogs_model_json)
-      and gna_ready(gna_model_json)
+    business_type_ready = _has_nonempty(ops_json, "business_type")
+    unit_name_ready = _has_nonempty(ops_json, "unit_name")
+    capacity_ready = _has_nonempty(ops_json, "units_per_week_capacity")
+    revenue_ready_now = revenue_ready(revenue_model_json)
+    fulfillment_ready_now = model_has_required_drivers(fulfillment_model_json, ("fulfillment_model", "who_fulfills", "lead_time"))
+    ops_concept_ready_now = model_has_required_drivers(ops_concept_model_json, ("operating_unit", "primary_constraint", "process_overview"))
+    milestones_ready_now = milestones_ready(milestones_model_json)
+    cogs_ready_now = cogs_ready(cogs_model_json)
+    gna_ready_now = gna_ready(gna_model_json)
+
+    complete = (
+      business_type_ready
+      and unit_name_ready
+      and capacity_ready
+      and revenue_ready_now
+      and fulfillment_ready_now
+      and ops_concept_ready_now
+      and milestones_ready_now
+      and cogs_ready_now
+      and gna_ready_now
     )
+    debug_log(
+      "ops_is_complete",
+      business_type=business_type_ready,
+      unit_name=unit_name_ready,
+      units_per_week_capacity=capacity_ready,
+      revenue=revenue_ready_now,
+      fulfillment=fulfillment_ready_now,
+      ops_concept=ops_concept_ready_now,
+      milestones=milestones_ready_now,
+      cogs=cogs_ready_now,
+      gna=gna_ready_now,
+      complete=complete,
+    )
+    return complete
 
   def chat_turn(
     self,
@@ -207,6 +232,23 @@ class OpsSection(SectionHandler):
 
     ops_has_min_for_models = bool(str((ops_json or {}).get("business_type") or "").strip()) and bool(
       str((ops_json or {}).get("unit_name") or "").strip()
+    )
+    revenue_ready_now = revenue_ready(revenue_model_json)
+    fulfillment_ready_now = model_has_required_drivers(fulfillment_model_json, ("fulfillment_model", "who_fulfills", "lead_time"))
+    ops_concept_ready_now = model_has_required_drivers(ops_concept_model_json, ("operating_unit", "primary_constraint", "process_overview"))
+    milestones_ready_now = milestones_ready(milestones_model_json)
+    cogs_ready_now = cogs_ready(cogs_model_json)
+    gna_ready_now = gna_ready(gna_model_json)
+    debug_log(
+      "ops_chat_state",
+      starting=starting,
+      ops_has_min_for_models=ops_has_min_for_models,
+      revenue_ready=revenue_ready_now,
+      fulfillment_ready=fulfillment_ready_now,
+      ops_concept_ready=ops_concept_ready_now,
+      milestones_ready=milestones_ready_now,
+      cogs_ready=cogs_ready_now,
+      gna_ready=gna_ready_now,
     )
 
     try:
@@ -235,25 +277,240 @@ class OpsSection(SectionHandler):
       gna_chat_turn = None  # type: ignore
 
     out: Dict[str, Any]
-    if ops_has_min_for_models and (not revenue_ready(revenue_model_json)) and revenue_chat_turn:
-      out = revenue_chat_turn(intake_context=intake_context, conversation_messages=messages)
+    route = "ops"
+    proposal_patch: Dict[str, Any] = {}
+    proposal_model = ""
+    if ops_has_min_for_models and (not revenue_ready_now) and revenue_chat_turn:
+      route = "revenue"
+      suggestion = {}
+      try:
+        from model_card_proposer import propose_revenue_suggestions  # type: ignore
+
+        raw_lobs = revenue_model_json.get("lobs") if isinstance(revenue_model_json, dict) else None
+        lobs_in: List[Dict[str, str]] = []
+        if isinstance(raw_lobs, list):
+          for l in raw_lobs:
+            if not isinstance(l, dict):
+              continue
+            lobs_in.append(
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+            )
+        suggested = propose_revenue_suggestions(
+          business_name=str((intake_context or {}).get("business_name") or "").strip(),
+          business_type=str((ops_json or {}).get("business_type") or "").strip(),
+          naics_6=(intake_context or {}).get("naics_6"),
+          today_iso=str((intake_context or {}).get("today_iso") or "").strip(),
+          business_start_date=str((intake_context or {}).get("business_start_date") or "").strip() or None,
+          ops_json=ops_json,
+          shared_context=(intake_context or {}).get("shared_context") or {},
+          lobs=lobs_in,
+        )
+        if suggested and isinstance(suggested[0], dict):
+          suggestion = suggested[0]
+      except Exception:
+        suggestion = {}
+      if isinstance(suggestion, dict) and suggestion:
+        units_cap = suggestion.get("units_per_week_capacity")
+        avg_units = suggestion.get("avg_units_per_week_year1")
+        weeks = suggestion.get("operating_weeks_per_year")
+        unit_price = suggestion.get("unit_price")
+        if units_cap is not None:
+          proposal_patch["revenue.units_per_week_capacity"] = {
+            "lob_key": "company_total",
+            "value": units_cap,
+            "unit": "units",
+            "time_basis": "week",
+          }
+        if avg_units is not None:
+          proposal_patch["revenue.avg_units_per_week_year1"] = {
+            "lob_key": "company_total",
+            "value": avg_units,
+            "unit": "units",
+            "time_basis": "week",
+          }
+        if weeks is not None:
+          proposal_patch["revenue.operating_weeks_per_year"] = {
+            "lob_key": "company_total",
+            "value": weeks,
+            "unit": "weeks",
+            "time_basis": "year",
+          }
+        if unit_price is not None:
+          proposal_patch["revenue.unit_price"] = {
+            "lob_key": "company_total",
+            "value": unit_price,
+            "unit": "USD",
+            "time_basis": "per_unit",
+          }
+        if proposal_patch:
+          proposal_model = "revenue"
+      out = revenue_chat_turn(intake_context={**intake_context, "revenue_suggestion": suggestion}, conversation_messages=messages)
     elif (
       ops_has_min_for_models
-      and revenue_ready(revenue_model_json)
-      and (not model_has_required_drivers(fulfillment_model_json, ("fulfillment_model", "who_fulfills", "lead_time")))
+      and revenue_ready_now
+      and (not fulfillment_ready_now)
       and fulfillment_chat_turn
     ):
-      out = fulfillment_chat_turn(intake_context=intake_context, conversation_messages=messages)
+      route = "fulfillment"
+      suggestion = {}
+      try:
+        from model_card_proposer import propose_fulfillment_suggestions  # type: ignore
+
+        raw_lobs = fulfillment_model_json.get("lobs") if isinstance(fulfillment_model_json, dict) else None
+        lobs_in: List[Dict[str, str]] = []
+        if isinstance(raw_lobs, list):
+          for l in raw_lobs:
+            if not isinstance(l, dict):
+              continue
+            lobs_in.append(
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+            )
+        suggested = propose_fulfillment_suggestions(
+          business_name=str((intake_context or {}).get("business_name") or "").strip(),
+          business_type=str((ops_json or {}).get("business_type") or "").strip(),
+          naics_6=(intake_context or {}).get("naics_6"),
+          today_iso=str((intake_context or {}).get("today_iso") or "").strip(),
+          business_start_date=str((intake_context or {}).get("business_start_date") or "").strip() or None,
+          ops_json=ops_json,
+          shared_context=(intake_context or {}).get("shared_context") or {},
+          lobs=lobs_in,
+        )
+        if suggested and isinstance(suggested[0], dict):
+          suggestion = suggested[0]
+      except Exception:
+        suggestion = {}
+      if isinstance(suggestion, dict) and suggestion:
+        fulfillment_model = str(suggestion.get("fulfillment_model") or "").strip()
+        who_fulfills = str(suggestion.get("who_fulfills") or "").strip()
+        lead_time = str(suggestion.get("lead_time") or "").strip()
+        if fulfillment_model:
+          proposal_patch["fulfillment.fulfillment_model"] = {
+            "lob_key": "company_total",
+            "value": fulfillment_model,
+          }
+        if who_fulfills:
+          proposal_patch["fulfillment.who_fulfills"] = {
+            "lob_key": "company_total",
+            "value": who_fulfills,
+          }
+        if lead_time:
+          proposal_patch["fulfillment.lead_time"] = {
+            "lob_key": "company_total",
+            "value": lead_time,
+          }
+        if proposal_patch:
+          proposal_model = "fulfillment"
+      out = fulfillment_chat_turn(intake_context={**intake_context, "fulfillment_suggestion": suggestion}, conversation_messages=messages)
     elif (
       ops_has_min_for_models
-      and revenue_ready(revenue_model_json)
-      and (not model_has_required_drivers(ops_concept_model_json, ("operating_unit", "primary_constraint", "process_overview")))
+      and revenue_ready_now
+      and (not ops_concept_ready_now)
       and ops_concept_chat_turn
     ):
-      out = ops_concept_chat_turn(intake_context=intake_context, conversation_messages=messages)
-    elif ops_has_min_for_models and revenue_ready(revenue_model_json) and (not milestones_ready(milestones_model_json)) and milestones_chat_turn:
-      out = milestones_chat_turn(intake_context=intake_context, conversation_messages=messages)
-    elif ops_has_min_for_models and revenue_ready(revenue_model_json) and (not cogs_ready(cogs_model_json)) and cogs_chat_turn:
+      route = "ops_concept"
+      suggestion = {}
+      try:
+        from model_card_proposer import propose_ops_concept_suggestions  # type: ignore
+
+        raw_lobs = ops_concept_model_json.get("lobs") if isinstance(ops_concept_model_json, dict) else None
+        lobs_in: List[Dict[str, str]] = []
+        if isinstance(raw_lobs, list):
+          for l in raw_lobs:
+            if not isinstance(l, dict):
+              continue
+            lobs_in.append(
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+            )
+        suggested = propose_ops_concept_suggestions(
+          business_name=str((intake_context or {}).get("business_name") or "").strip(),
+          business_type=str((ops_json or {}).get("business_type") or "").strip(),
+          naics_6=(intake_context or {}).get("naics_6"),
+          today_iso=str((intake_context or {}).get("today_iso") or "").strip(),
+          business_start_date=str((intake_context or {}).get("business_start_date") or "").strip() or None,
+          ops_json=ops_json,
+          shared_context=(intake_context or {}).get("shared_context") or {},
+          lobs=lobs_in,
+        )
+        if suggested and isinstance(suggested[0], dict):
+          suggestion = suggested[0]
+      except Exception:
+        suggestion = {}
+      if isinstance(suggestion, dict) and suggestion:
+        operating_unit = str(suggestion.get("operating_unit") or "").strip()
+        primary_constraint = str(suggestion.get("primary_constraint") or "").strip()
+        process_overview = str(suggestion.get("process_overview") or "").strip()
+        if operating_unit:
+          proposal_patch["ops_concept.operating_unit"] = {
+            "lob_key": "company_total",
+            "value": operating_unit,
+          }
+        if primary_constraint:
+          proposal_patch["ops_concept.primary_constraint"] = {
+            "lob_key": "company_total",
+            "value": primary_constraint,
+          }
+        if process_overview:
+          proposal_patch["ops_concept.process_overview"] = {
+            "lob_key": "company_total",
+            "value": process_overview,
+          }
+        if proposal_patch:
+          proposal_model = "ops_concept"
+      out = ops_concept_chat_turn(intake_context={**intake_context, "ops_concept_suggestion": suggestion}, conversation_messages=messages)
+    elif ops_has_min_for_models and revenue_ready_now and (not milestones_ready_now) and milestones_chat_turn:
+      route = "milestones"
+      suggestion = {}
+      try:
+        from model_card_proposer import propose_milestones_suggestions  # type: ignore
+
+        raw_lobs = milestones_model_json.get("lobs") if isinstance(milestones_model_json, dict) else None
+        lobs_in: List[Dict[str, str]] = []
+        if isinstance(raw_lobs, list):
+          for l in raw_lobs:
+            if not isinstance(l, dict):
+              continue
+            lobs_in.append(
+              {
+                "lob_key": str(l.get("lob_key") or "").strip() or "company_total",
+                "lob_name": str(l.get("lob_name") or "").strip(),
+              }
+            )
+        suggested = propose_milestones_suggestions(
+          business_name=str((intake_context or {}).get("business_name") or "").strip(),
+          business_type=str((ops_json or {}).get("business_type") or "").strip(),
+          naics_6=(intake_context or {}).get("naics_6"),
+          today_iso=str((intake_context or {}).get("today_iso") or "").strip(),
+          business_start_date=str((intake_context or {}).get("business_start_date") or "").strip() or None,
+          ops_json=ops_json,
+          shared_context=(intake_context or {}).get("shared_context") or {},
+          lobs=lobs_in,
+        )
+        if suggested and isinstance(suggested[0], dict):
+          suggestion = suggested[0]
+      except Exception:
+        suggestion = {}
+      milestones_list = suggestion.get("milestones") if isinstance(suggestion, dict) else None
+      if isinstance(milestones_list, list) and milestones_list:
+        proposal_patch["milestones.milestones"] = {
+          "lob_key": "company_total",
+          "value": milestones_list,
+        }
+        proposal_model = "milestones"
+      out = milestones_chat_turn(
+        intake_context={**intake_context, "milestones_suggestion": suggestion},
+        conversation_messages=messages,
+      )
+    elif ops_has_min_for_models and revenue_ready_now and (not cogs_ready_now) and cogs_chat_turn:
+      route = "cogs"
       suggestion = {}
       try:
         from model_card_proposer import propose_cogs_suggestions  # type: ignore
@@ -285,8 +542,57 @@ class OpsSection(SectionHandler):
           suggestion = suggested[0]
       except Exception:
         suggestion = {}
+      if isinstance(suggestion, dict):
+        if suggestion.get("materials_cost_per_unit") is not None:
+          proposal_patch["cogs.materials_cost_per_unit"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("materials_cost_per_unit"),
+            "unit": "USD",
+            "time_basis": "per_unit",
+          }
+        if suggestion.get("direct_fulfillment_cost_per_unit") is not None:
+          proposal_patch["cogs.direct_fulfillment_cost_per_unit"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("direct_fulfillment_cost_per_unit"),
+            "unit": "USD",
+            "time_basis": "per_unit",
+          }
+        if suggestion.get("other_variable_cost_per_unit") is not None:
+          proposal_patch["cogs.other_variable_cost_per_unit"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("other_variable_cost_per_unit"),
+            "unit": "USD",
+            "time_basis": "per_unit",
+          }
+        if suggestion.get("cogs_percent_of_revenue") is not None:
+          proposal_patch["cogs.cogs_percent_of_revenue"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("cogs_percent_of_revenue"),
+            "unit": None,
+            "time_basis": None,
+          }
+        if suggestion.get("production") is not None:
+          proposal_patch["cogs.production"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("production"),
+          }
+      if not proposal_patch:
+        try:
+          unit_price = float((ops_json or {}).get("unit_price") or 0)
+        except Exception:
+          unit_price = 0.0
+        if unit_price > 0:
+          proposal_patch["cogs.cost_per_unit"] = {
+            "lob_key": "company_total",
+            "value": unit_price * 0.6,
+            "unit": "USD",
+            "time_basis": "per_unit",
+          }
+      if proposal_patch:
+        proposal_model = "cogs"
       out = cogs_chat_turn(intake_context={**intake_context, "cogs_suggestion": suggestion}, conversation_messages=messages)
-    elif ops_has_min_for_models and revenue_ready(revenue_model_json) and (not gna_ready(gna_model_json)) and gna_chat_turn:
+    elif ops_has_min_for_models and revenue_ready_now and (not gna_ready_now) and gna_chat_turn:
+      route = "gna"
       suggestion = {}
       try:
         from model_card_proposer import propose_gna_suggestions  # type: ignore
@@ -317,10 +623,68 @@ class OpsSection(SectionHandler):
           suggestion = suggested[0]
       except Exception:
         suggestion = {}
+      if isinstance(suggestion, dict):
+        if suggestion.get("monthly_rent_expense") is not None:
+          proposal_patch["gna.monthly_rent_expense"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("monthly_rent_expense"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+        if suggestion.get("monthly_software_expense") is not None:
+          proposal_patch["gna.monthly_software_expense"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("monthly_software_expense"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+        if suggestion.get("monthly_insurance_expense") is not None:
+          proposal_patch["gna.monthly_insurance_expense"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("monthly_insurance_expense"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+        if suggestion.get("monthly_utilities_expense") is not None:
+          proposal_patch["gna.monthly_utilities_expense"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("monthly_utilities_expense"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+        if suggestion.get("monthly_admin_expense") is not None:
+          proposal_patch["gna.monthly_admin_expense"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("monthly_admin_expense"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+        if suggestion.get("other_operating_expense") is not None:
+          proposal_patch["gna.other_operating_expense"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("other_operating_expense"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+        if suggestion.get("other_monthly_debt_payments") is not None:
+          proposal_patch["gna.other_monthly_debt_payments"] = {
+            "lob_key": "company_total",
+            "value": suggestion.get("other_monthly_debt_payments"),
+            "unit": "USD",
+            "time_basis": "month",
+          }
+      if proposal_patch:
+        proposal_model = "gna"
       out = gna_chat_turn(intake_context={**intake_context, "gna_suggestion": suggestion}, conversation_messages=messages)
     else:
       out = consultant_chat_turn(intake_context=intake_context, conversation_messages=messages)
 
+    if proposal_patch and isinstance(out, dict):
+      out = dict(out)
+      out["_proposal_patch"] = proposal_patch
+      out["_proposal_model"] = proposal_model
+
+    debug_log("ops_chat_route", route=route)
     return _maybe_inject_checkpoint(out=out, section_key="ops", snapshot=snapshot, section_complete=self.is_complete(snapshot))
 
   def finalize(

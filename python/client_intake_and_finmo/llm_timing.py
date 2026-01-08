@@ -10,6 +10,8 @@ _CONFIGURED = False
 
 
 def timing_enabled() -> bool:
+  if (os.getenv("INTAKE_DEBUG_LOGS") or "").strip().lower() in ("1", "true", "yes", "y", "on"):
+    return False
   raw = (os.getenv("LLM_TIMING") or os.getenv("INTAKE_TIMING") or "").strip().lower()
   return raw in ("1", "true", "yes", "y", "on")
 

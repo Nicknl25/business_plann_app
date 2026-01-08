@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -39,6 +40,27 @@ def create_app() -> Flask:
 
   app = Flask(__name__)
 
+  def _maybe_silence_request_logs() -> None:
+    raw = (os.getenv("ENABLE_FLASK_REQUEST_LOGS") or "").strip().lower()
+    if raw in ("1", "true", "yes", "y", "on"):
+      return
+    for name in ("werkzeug", "werkzeug.serving"):
+      werk_logger = logging.getLogger(name)
+      werk_logger.setLevel(logging.ERROR)
+      werk_logger.propagate = False
+      werk_logger.disabled = True
+
+  def _maybe_silence_server_banner() -> None:
+    raw = (os.getenv("ENABLE_FLASK_STARTUP_LOGS") or "").strip().lower()
+    if raw in ("1", "true", "yes", "y", "on"):
+      return
+    try:
+      from flask import cli as flask_cli
+
+      flask_cli.show_server_banner = lambda *args, **kwargs: None
+    except Exception:
+      pass
+
   # Allow importing local helper modules
   root_path = Path(__file__).resolve().parent
   sys.path.append(str(root_path / "client_intake_and_finmo"))
@@ -46,6 +68,9 @@ def create_app() -> Flask:
   if CORS is not None:
     # Enable CORS for all routes to support the separate frontend dev server.
     CORS(app)
+
+  _maybe_silence_request_logs()
+  _maybe_silence_server_banner()
 
   @app.after_request
   def add_cors_headers(response):
