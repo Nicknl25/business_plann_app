@@ -218,6 +218,7 @@ export default function UnifiedConsultStep() {
   const [draftSyncing, setDraftSyncing] = useState(false);
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const [manualEditMode, setManualEditMode] = useState(false);
   const [modelSaving, setModelSaving] = useState(false);
   const [showAssumptions, setShowAssumptions] = useState(false);
   const [proposalApplyAll, setProposalApplyAll] = useState<Record<string, boolean>>({});
@@ -701,6 +702,57 @@ export default function UnifiedConsultStep() {
         );
       }
       setInputValue("");
+      setManualEditMode(false);
+      await syncNow();
+      window.setTimeout(() => chatInputRef.current?.focus(), 0);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : String(err));
+      await syncNow({ preserveError: true });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendResponseIntent(intent: "accept" | "reject") {
+    const effectiveDraftId = String(draftId || consultStorage.getDraftId() || "").trim();
+    if (!effectiveDraftId) {
+      setDraftError("Missing draft id. Reload and start the intake again.");
+      return;
+    }
+    setSending(true);
+    setDraftError(null);
+    try {
+      const startDatePayload = String(businessStartDate || consultStorage.getBusinessStartDate() || "").trim();
+      const proposalId = modelProposals.length ? modelProposals[0].id : null;
+      const res = await apiClient.post(
+        "/api/intake-consult",
+        {
+          draft_id: effectiveDraftId,
+          client_id: clientId || undefined,
+          message: "",
+          response_intent: intent,
+          proposal_id: proposalId || undefined,
+          business_name: String(businessName || "").trim(),
+          address: String(address || "").trim(),
+          business_start_date: startDatePayload || undefined,
+          address_street: String(addressStreet || "").trim(),
+          address_city: String(addressCity || "").trim(),
+          address_state: String(addressState || "").trim(),
+          address_zip: String(addressZip || "").trim(),
+          address_country: String(addressCountry || "").trim(),
+        },
+        { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
+      );
+      if (res.status < 200 || res.status >= 300) {
+        const body: any = res.data;
+        throw new Error(
+          body && typeof body === "object" && body.detail
+            ? String(body.detail)
+            : `Consult error: ${res.status} ${res.statusText}`
+        );
+      }
+      setInputValue("");
+      setManualEditMode(false);
       await syncNow();
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
     } catch (err) {
@@ -769,6 +821,9 @@ export default function UnifiedConsultStep() {
     }
   }, [modelCards]);
 
+  const hasPendingProposal = Boolean(buttonOnly && modelProposals.length);
+  const allowTextInput = Boolean(!buttonOnly || manualEditMode || !modelProposals.length);
+
   const interactionMode = String(draftMeta?.interactionMode || (sharedContext as any)?.interaction_mode || "chat")
     .trim()
     .toLowerCase();
@@ -777,6 +832,11 @@ export default function UnifiedConsultStep() {
   useEffect(() => {
     if (!buttonOnly) return;
     setInputValue("");
+  }, [buttonOnly]);
+
+  useEffect(() => {
+    if (buttonOnly) return;
+    setManualEditMode(false);
   }, [buttonOnly]);
 
   const hasMultipleLobsForModel = useCallback(
@@ -1456,45 +1516,82 @@ export default function UnifiedConsultStep() {
           )}
         </div>
 
-        {buttonOnly ? (
+        {hasPendingProposal && !manualEditMode ? (
           <div className="rounded-md border border-slate-800/80 bg-slate-950/40 p-2 text-xs text-slate-300">
             A few suggested assumptions need your review before we continue.
           </div>
         ) : null}
 
-        <div className="flex gap-2">
-          <Input
-            ref={chatInputRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId || buttonOnly}
-            placeholder={
-              !detailsCompleteForChat
-                ? "Complete business details to begin..."
-                : messages.length === 0
-                  ? "Start the consultation first..."
-                  : buttonOnly
-                    ? "Review the suggested assumptions below to continue..."
-                    : "Reply..."
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (buttonOnly) return;
-                void sendMessage(inputValue);
+        {hasPendingProposal && !manualEditMode ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId}
+              onClick={() => void sendResponseIntent("accept")}
+            >
+              Yes
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId}
+              onClick={() => void sendResponseIntent("reject")}
+            >
+              No
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId}
+              onClick={() => {
+                setManualEditMode(true);
+                window.setTimeout(() => chatInputRef.current?.focus(), 0);
+              }}
+            >
+              Edit
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Input
+              ref={chatInputRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId || !allowTextInput}
+              placeholder={
+                !detailsCompleteForChat
+                  ? "Complete business details to begin..."
+                  : messages.length === 0
+                    ? "Start the consultation first..."
+                    : !allowTextInput
+                      ? "Review the suggested assumptions below to continue..."
+                      : "Reply..."
               }
-            }}
-          />
-          <Button
-            type="button"
-            disabled={
-              !planStarted || sending || loading || !detailsCompleteForChat || !draftId || buttonOnly || !inputValue.trim()
-            }
-            onClick={() => void sendMessage(inputValue)}
-          >
-            Send
-          </Button>
-        </div>
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!allowTextInput) return;
+                  void sendMessage(inputValue);
+                }
+              }}
+            />
+            <Button
+              type="button"
+              disabled={
+                !planStarted ||
+                sending ||
+                loading ||
+                !detailsCompleteForChat ||
+                !draftId ||
+                !allowTextInput ||
+                !inputValue.trim()
+              }
+              onClick={() => void sendMessage(inputValue)}
+            >
+              Send
+            </Button>
+          </div>
+        )}
 
         {modelProposals.length || modelCardEntries.length ? (
           <div className="space-y-2 rounded-md border border-slate-800/80 bg-slate-950/40 p-3">

@@ -118,8 +118,18 @@ def _is_affirmative(message: str) -> bool:
   return False
 
 
-def _proposal_patch_from_list(proposals: List[Any]) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
-  for item in reversed(list(proposals or [])):
+def _proposal_patch_from_list(
+  proposals: List[Any],
+  proposal_id: Optional[str] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+  items = list(proposals or [])
+  if proposal_id:
+    items = [
+      item
+      for item in items
+      if isinstance(item, dict) and str(item.get("id") or "").strip() == str(proposal_id).strip()
+    ]
+  for item in reversed(items):
     if not isinstance(item, dict):
       continue
     if item.get("pending") is False:
@@ -128,15 +138,79 @@ def _proposal_patch_from_list(proposals: List[Any]) -> tuple[Optional[Dict[str, 
     if isinstance(patch, dict) and patch:
       pid = str(item.get("id") or "").strip() or None
       return patch, pid
+    model = str(item.get("model") or "").strip().lower()
+    updates = item.get("updates")
+    if model and isinstance(updates, list) and updates:
+      patch_out: Dict[str, Any] = {}
+      lob_key = str(item.get("lob_key") or "").strip() or "company_total"
+      for u in updates:
+        if not isinstance(u, dict):
+          continue
+        key = str(u.get("key") or "").strip()
+        if not key:
+          continue
+        entry = {
+          "lob_key": lob_key,
+          "value": u.get("value"),
+          "unit": u.get("unit"),
+          "time_basis": u.get("time_basis"),
+          "rationale": u.get("rationale"),
+        }
+        patch_out[f"{model}.{key}"] = entry
+      if patch_out:
+        pid = str(item.get("id") or "").strip() or None
+        return patch_out, pid
   return None, None
 
 
 def _build_model_proposal(*, model: str, patch: Dict[str, Any]) -> Dict[str, Any]:
   now_ms = int(time.time() * 1000)
   model_norm = str(model or "").strip().lower() or "unknown"
+  updates: List[Dict[str, Any]] = []
+  lob_key = "company_total"
+  for raw_key, val in (patch or {}).items():
+    key = str(raw_key or "").strip()
+    if key.count(".") != 1:
+      continue
+    model_key, field = key.split(".", 1)
+    if str(model_key or "").strip().lower() != model_norm:
+      continue
+    value = val
+    unit = None
+    time_basis = None
+    rationale = None
+    if isinstance(val, dict):
+      if val.get("lob_key"):
+        lob_key = str(val.get("lob_key") or "").strip() or lob_key
+      if "value" in val:
+        value = val.get("value")
+      unit = val.get("unit")
+      time_basis = val.get("time_basis")
+      rationale = val.get("rationale")
+    updates.append(
+      {
+        "key": field,
+        "value": value,
+        "unit": unit,
+        "time_basis": time_basis,
+        "rationale": rationale,
+      }
+    )
   return {
     "id": f"{model_norm}_{now_ms}",
     "model": model_norm,
+    "title": {
+      "revenue": "Revenue (Year 1 model)",
+      "fulfillment": "Fulfillment model",
+      "ops_concept": "Operating concept",
+      "milestones": "Milestones",
+      "cogs": "Direct costs (COGS)",
+      "gna": "Overhead (G&A)",
+    }.get(model_norm, model_norm),
+    "lob_key": lob_key,
+    "lob_name": None,
+    "updates": updates,
+    "derived": [],
     "patch": dict(patch),
     "pending": True,
     "created_at_ms": now_ms,
@@ -357,7 +431,11 @@ def post_intake_consult_handler(*, app, request):
 
   raw_message = payload.get("message")
   message = str(raw_message or "").strip()
-  starting = raw_message is None or not message
+  response_intent = str(payload.get("response_intent") or "").strip().lower()
+  if response_intent not in ("accept", "reject", "edit"):
+    response_intent = ""
+  proposal_id = str(payload.get("proposal_id") or "").strip() or None
+  starting = (raw_message is None or not message) and not response_intent
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
@@ -430,6 +508,8 @@ def post_intake_consult_handler(*, app, request):
       interaction_mode=interaction_mode,
       starting=starting,
       message_len=len(message) if message else 0,
+      response_intent=response_intent or None,
+      proposal_id=proposal_id,
     )
 
     business_facts: Dict[str, Any] = {
@@ -472,6 +552,7 @@ def post_intake_consult_handler(*, app, request):
       "people": bool(consult.get("people_confirmed")),
       "financials": bool(consult.get("financials_confirmed")),
     }
+    interaction_mode_override: Optional[str] = None
 
     snapshot = _build_snapshot(
       confirmations=confirmations,
@@ -613,6 +694,7 @@ def post_intake_consult_handler(*, app, request):
       if isinstance(proposal_patch, dict) and proposal_patch:
         model_card_proposals = [_build_model_proposal(model=proposal_model, patch=proposal_patch)]
         proposals_dirty = True
+        interaction_mode_override = "button_only"
         debug_log(
           "proposal_stored",
           focus=active_focus_norm,
@@ -633,56 +715,87 @@ def post_intake_consult_handler(*, app, request):
           new_messages=[{"role": "assistant", "content": assistant_text}],
           active_focus=active_focus_norm,
           model_card_proposals=(model_card_proposals if proposals_dirty else None),
+          interaction_mode=interaction_mode_override,
           business_facts=business_facts,
         )
       return _reply(assistant_message=assistant_text, turn_outcome=turn_outcome, next_focus=active_focus_norm, status_code=200)
 
     # Non-starting: infer patch and persist immediately before consultant runs.
-    recent_messages = _clip_recent_messages_for_router(messages)
-    try:
-      with timed_span(
-        "unified_intake.route_intent",
-        draft_id=str(draft_id).strip(),
-        focus=active_focus_norm,
-        router_focus=active_focus_for_router,
-        recent_messages=len(recent_messages or []),
-      ):
-        intent = route_intent(
-          consult_type="unified",
-          user_message=message,
-          baseline_json=baseline_json,
-          shared_context=shared_context,
-          recent_messages=recent_messages,
-          confirm_question_override="",
-          active_focus=active_focus_for_router,
-        )
-    except Exception as exc:
-      app.logger.exception("Intent router failed: %s", exc)
-      return _reply(assistant_message="", turn_outcome="ERROR_INTENT_ROUTER_FAILED", next_focus=active_focus_norm, status_code=500)
-
-    patch = intent.get("patch") if isinstance(intent, dict) else None
-    if patch is not None and not isinstance(patch, dict):
-      patch = None
-    debug_log(
-      "intent_patch",
-      focus=active_focus_norm,
-      has_patch=bool(patch),
-      patch_keys=sorted(patch.keys()) if isinstance(patch, dict) else [],
-    )
-    if (not patch) and _is_affirmative(message):
-      auto_patch, proposal_id = _proposal_patch_from_list(model_card_proposals)
-      if isinstance(auto_patch, dict) and auto_patch:
-        patch = auto_patch
-        proposals_dirty = True
-        if proposal_id:
+    patch: Optional[Dict[str, Any]] = None
+    if response_intent:
+      if not message:
+        message = {"accept": "yes", "reject": "no", "edit": "edit"}.get(response_intent, "")
+      if response_intent == "accept":
+        patch, resolved_id = _proposal_patch_from_list(model_card_proposals, proposal_id)
+        if patch:
+          proposals_dirty = True
+        if proposal_id or resolved_id:
+          match_id = str(proposal_id or resolved_id or "")
           model_card_proposals = [
-            p for p in model_card_proposals if not (isinstance(p, dict) and str(p.get("id") or "") == proposal_id)
+            p for p in model_card_proposals if not (isinstance(p, dict) and str(p.get("id") or "") == match_id)
           ]
-        debug_log(
-          "auto_patch",
+        else:
+          model_card_proposals = []
+        proposals_dirty = proposals_dirty or bool(response_intent)
+        interaction_mode_override = "chat"
+      elif response_intent == "reject":
+        if model_card_proposals:
+          proposals_dirty = True
+        model_card_proposals = []
+        interaction_mode_override = "chat"
+      elif response_intent == "edit":
+        interaction_mode_override = "chat"
+      debug_log("response_intent", focus=active_focus_norm, intent=response_intent)
+    else:
+      recent_messages = _clip_recent_messages_for_router(messages)
+      try:
+        with timed_span(
+          "unified_intake.route_intent",
+          draft_id=str(draft_id).strip(),
           focus=active_focus_norm,
-          patch_keys=sorted(patch.keys()) if isinstance(patch, dict) else [],
-        )
+          router_focus=active_focus_for_router,
+          recent_messages=len(recent_messages or []),
+        ):
+          intent = route_intent(
+            consult_type="unified",
+            user_message=message,
+            baseline_json=baseline_json,
+            shared_context=shared_context,
+            recent_messages=recent_messages,
+            confirm_question_override="",
+            active_focus=active_focus_for_router,
+          )
+      except Exception as exc:
+        app.logger.exception("Intent router failed: %s", exc)
+        return _reply(assistant_message="", turn_outcome="ERROR_INTENT_ROUTER_FAILED", next_focus=active_focus_norm, status_code=500)
+
+      patch = intent.get("patch") if isinstance(intent, dict) else None
+      if patch is not None and not isinstance(patch, dict):
+        patch = None
+      debug_log(
+        "intent_patch",
+        focus=active_focus_norm,
+        has_patch=bool(patch),
+        patch_keys=sorted(patch.keys()) if isinstance(patch, dict) else [],
+      )
+      if (not patch) and _is_affirmative(message):
+        auto_patch, auto_proposal_id = _proposal_patch_from_list(model_card_proposals)
+        if isinstance(auto_patch, dict) and auto_patch:
+          patch = auto_patch
+          proposals_dirty = True
+          if auto_proposal_id:
+            model_card_proposals = [
+              p
+              for p in model_card_proposals
+              if not (isinstance(p, dict) and str(p.get("id") or "") == auto_proposal_id)
+            ]
+          if not model_card_proposals:
+            interaction_mode_override = "chat"
+          debug_log(
+            "auto_patch",
+            focus=active_focus_norm,
+            patch_keys=sorted(patch.keys()) if isinstance(patch, dict) else [],
+          )
     if patch:
       with timed_span("unified_intake.apply_chat_patch_and_persist", draft_id=str(draft_id).strip(), focus=active_focus_norm):
         updated = apply_chat_patch_and_persist(
@@ -758,6 +871,7 @@ def post_intake_consult_handler(*, app, request):
     if isinstance(proposal_patch, dict) and proposal_patch:
       model_card_proposals = [_build_model_proposal(model=proposal_model, patch=proposal_patch)]
       proposals_dirty = True
+      interaction_mode_override = "button_only"
       debug_log(
         "proposal_stored",
         focus=active_focus_norm,
@@ -780,6 +894,7 @@ def post_intake_consult_handler(*, app, request):
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           active_focus=active_focus_norm,
           model_card_proposals=(model_card_proposals if proposals_dirty else None),
+          interaction_mode=interaction_mode_override,
           business_facts=business_facts,
         )
       return _reply(assistant_message=assistant_text, turn_outcome=turn_outcome, next_focus=active_focus_norm, status_code=200)
@@ -801,6 +916,7 @@ def post_intake_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           active_focus=active_focus_norm,
+          interaction_mode=interaction_mode_override,
           business_facts=business_facts,
         )
       return _reply(assistant_message=assistant_text, turn_outcome="ERROR_FINALIZER_FAILED", next_focus=active_focus_norm, status_code=500)
@@ -858,6 +974,7 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json if active_focus_norm == "people" else None,
           financials_json=financials_json if active_focus_norm == "financials" else None,
           model_card_proposals=(model_card_proposals if proposals_dirty else None),
+          interaction_mode=interaction_mode_override,
           active_focus=active_focus_norm,
           business_facts=business_facts,
         )
@@ -891,6 +1008,7 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json if active_focus_norm == "people" else None,
         financials_json=financials_json if active_focus_norm == "financials" else None,
         model_card_proposals=(model_card_proposals if proposals_dirty else None),
+        interaction_mode=interaction_mode_override,
         confirmations={active_focus_norm: True},
         active_focus=("done" if next_focus == "done" else next_focus),
         business_facts=business_facts,
