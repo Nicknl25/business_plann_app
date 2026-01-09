@@ -91,6 +91,132 @@ def _has_nonempty(obj: Dict[str, Any], key: str) -> bool:
     return False
 
 
+_OPS_CARD_CONTENT_MARKERS: Dict[str, Tuple[str, ...]] = {
+  "revenue": (
+    "utilization",
+    "operating weeks",
+    "avg units",
+    "average units",
+    "year 1 average",
+    "weekly average",
+    "average per week",
+  ),
+  "fulfillment": (
+    "fulfillment",
+    "lead time",
+    "who fulfills",
+    "fulfill orders",
+    "fulfills",
+  ),
+  "ops_concept": (
+    "operating unit",
+    "primary constraint",
+    "process overview",
+  ),
+  "milestones": (
+    "milestone",
+    "milestones",
+  ),
+  "cogs": (
+    "cogs",
+    "direct costs",
+    "direct cost",
+    "cost per unit",
+    "materials",
+    "subcontractors",
+    "variable cost",
+  ),
+  "gna": (
+    "overhead",
+    "g&a",
+    "rent expense",
+    "software expense",
+    "insurance expense",
+    "utilities expense",
+    "admin expense",
+    "debt payments",
+  ),
+  "marketing": (
+    "marketing budget",
+    "primary channels",
+    "marketing spend",
+  ),
+  "headcount": (
+    "headcount",
+    "staffing",
+    "payroll",
+    "roles",
+    "employees",
+    "hiring",
+  ),
+}
+
+_OPS_COMMIT_MARKERS: Tuple[str, ...] = (
+  "assume",
+  "assumption",
+  "we'll",
+  "we will",
+  "i'll",
+  "i will",
+  "we'll use",
+  "we will use",
+  "we'll treat",
+  "we will treat",
+  "i'll treat",
+  "i will treat",
+  "we'll set",
+  "we will set",
+  "we'll go with",
+  "we will go with",
+  "i'll go with",
+  "i will go with",
+  "we'll record",
+  "we will record",
+  "confirm",
+  "does that sound",
+  "is that correct",
+  "is that accurate",
+  "is that all accurate",
+  "should i keep using",
+  "should we keep using",
+  "should i keep",
+  "should we keep",
+  "lock in",
+  "locked",
+)
+
+
+def _detect_ops_card_content(message: str) -> Optional[Tuple[str, str]]:
+  text = " ".join(str(message or "").strip().lower().split())
+  if not text:
+    return None
+  if not any(marker in text for marker in _OPS_COMMIT_MARKERS):
+    return None
+  for card, markers in _OPS_CARD_CONTENT_MARKERS.items():
+    for marker in markers:
+      if marker and marker in text:
+        return card, marker
+  return None
+
+
+class ProposalRequiredError(RuntimeError):
+  def __init__(self, route: str) -> None:
+    super().__init__(f"Proposal required for {route}; no proposal could be generated.")
+    self.route = route
+
+
+def _require_proposal(*, route: str, suggestion: Dict[str, Any], proposal_patch: Dict[str, Any]) -> None:
+  if isinstance(suggestion, dict) and suggestion and isinstance(proposal_patch, dict) and proposal_patch:
+    return
+  debug_log(
+    "proposal_required_missing",
+    route=route,
+    has_suggestion=bool(suggestion),
+    has_patch=bool(proposal_patch),
+  )
+  raise ProposalRequiredError(route)
+
+
 def _start_messages(*, focus: str, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
   focus_norm = str(focus or "").strip().lower()
   if focus_norm == "ops":
@@ -114,7 +240,7 @@ def _checkpoint_context_for_section(*, section_key: str, snapshot: Dict[str, Any
     consumer_type = ""
 
   topics_by_section: Dict[str, List[str]] = {
-    "ops": ["what you sell", "how delivery works", "how fulfillment happens"],
+    "ops": ["what you sell", "how delivery works"],
     "market": ["who you're selling to", "how you'll reach them"],
     "people": ["the key people and responsibilities"],
     "financials": ["the current financial picture and baseline operating costs"],
@@ -280,8 +406,10 @@ class OpsSection(SectionHandler):
     route = "ops"
     proposal_patch: Dict[str, Any] = {}
     proposal_model = ""
-    if ops_has_min_for_models and (not revenue_ready_now) and revenue_chat_turn:
+    if ops_has_min_for_models and (not revenue_ready_now):
       route = "revenue"
+      if not revenue_chat_turn:
+        raise ProposalRequiredError(route)
       suggestion = {}
       try:
         from model_card_proposer import propose_revenue_suggestions  # type: ignore
@@ -310,8 +438,8 @@ class OpsSection(SectionHandler):
         )
         if suggested and isinstance(suggested[0], dict):
           suggestion = suggested[0]
-      except Exception:
-        suggestion = {}
+      except Exception as exc:
+        raise ProposalRequiredError(route) from exc
       if isinstance(suggestion, dict) and suggestion:
         units_cap = suggestion.get("units_per_week_capacity")
         avg_units = suggestion.get("avg_units_per_week_year1")
@@ -347,14 +475,12 @@ class OpsSection(SectionHandler):
           }
         if proposal_patch:
           proposal_model = "revenue"
+      _require_proposal(route=route, suggestion=suggestion if isinstance(suggestion, dict) else {}, proposal_patch=proposal_patch)
       out = revenue_chat_turn(intake_context={**intake_context, "revenue_suggestion": suggestion}, conversation_messages=messages)
-    elif (
-      ops_has_min_for_models
-      and revenue_ready_now
-      and (not fulfillment_ready_now)
-      and fulfillment_chat_turn
-    ):
+    elif ops_has_min_for_models and revenue_ready_now and (not fulfillment_ready_now):
       route = "fulfillment"
+      if not fulfillment_chat_turn:
+        raise ProposalRequiredError(route)
       suggestion = {}
       try:
         from model_card_proposer import propose_fulfillment_suggestions  # type: ignore
@@ -383,8 +509,8 @@ class OpsSection(SectionHandler):
         )
         if suggested and isinstance(suggested[0], dict):
           suggestion = suggested[0]
-      except Exception:
-        suggestion = {}
+      except Exception as exc:
+        raise ProposalRequiredError(route) from exc
       if isinstance(suggestion, dict) and suggestion:
         fulfillment_model = str(suggestion.get("fulfillment_model") or "").strip()
         who_fulfills = str(suggestion.get("who_fulfills") or "").strip()
@@ -406,14 +532,12 @@ class OpsSection(SectionHandler):
           }
         if proposal_patch:
           proposal_model = "fulfillment"
+      _require_proposal(route=route, suggestion=suggestion if isinstance(suggestion, dict) else {}, proposal_patch=proposal_patch)
       out = fulfillment_chat_turn(intake_context={**intake_context, "fulfillment_suggestion": suggestion}, conversation_messages=messages)
-    elif (
-      ops_has_min_for_models
-      and revenue_ready_now
-      and (not ops_concept_ready_now)
-      and ops_concept_chat_turn
-    ):
+    elif ops_has_min_for_models and revenue_ready_now and (not ops_concept_ready_now):
       route = "ops_concept"
+      if not ops_concept_chat_turn:
+        raise ProposalRequiredError(route)
       suggestion = {}
       try:
         from model_card_proposer import propose_ops_concept_suggestions  # type: ignore
@@ -442,8 +566,8 @@ class OpsSection(SectionHandler):
         )
         if suggested and isinstance(suggested[0], dict):
           suggestion = suggested[0]
-      except Exception:
-        suggestion = {}
+      except Exception as exc:
+        raise ProposalRequiredError(route) from exc
       if isinstance(suggestion, dict) and suggestion:
         operating_unit = str(suggestion.get("operating_unit") or "").strip()
         primary_constraint = str(suggestion.get("primary_constraint") or "").strip()
@@ -465,9 +589,12 @@ class OpsSection(SectionHandler):
           }
         if proposal_patch:
           proposal_model = "ops_concept"
+      _require_proposal(route=route, suggestion=suggestion if isinstance(suggestion, dict) else {}, proposal_patch=proposal_patch)
       out = ops_concept_chat_turn(intake_context={**intake_context, "ops_concept_suggestion": suggestion}, conversation_messages=messages)
-    elif ops_has_min_for_models and revenue_ready_now and (not milestones_ready_now) and milestones_chat_turn:
+    elif ops_has_min_for_models and revenue_ready_now and (not milestones_ready_now):
       route = "milestones"
+      if not milestones_chat_turn:
+        raise ProposalRequiredError(route)
       suggestion = {}
       try:
         from model_card_proposer import propose_milestones_suggestions  # type: ignore
@@ -496,8 +623,8 @@ class OpsSection(SectionHandler):
         )
         if suggested and isinstance(suggested[0], dict):
           suggestion = suggested[0]
-      except Exception:
-        suggestion = {}
+      except Exception as exc:
+        raise ProposalRequiredError(route) from exc
       milestones_list = suggestion.get("milestones") if isinstance(suggestion, dict) else None
       if isinstance(milestones_list, list) and milestones_list:
         proposal_patch["milestones.milestones"] = {
@@ -505,12 +632,15 @@ class OpsSection(SectionHandler):
           "value": milestones_list,
         }
         proposal_model = "milestones"
+      _require_proposal(route=route, suggestion=suggestion if isinstance(suggestion, dict) else {}, proposal_patch=proposal_patch)
       out = milestones_chat_turn(
         intake_context={**intake_context, "milestones_suggestion": suggestion},
         conversation_messages=messages,
       )
-    elif ops_has_min_for_models and revenue_ready_now and (not cogs_ready_now) and cogs_chat_turn:
+    elif ops_has_min_for_models and revenue_ready_now and (not cogs_ready_now):
       route = "cogs"
+      if not cogs_chat_turn:
+        raise ProposalRequiredError(route)
       suggestion = {}
       try:
         from model_card_proposer import propose_cogs_suggestions  # type: ignore
@@ -540,8 +670,8 @@ class OpsSection(SectionHandler):
         )
         if suggested and isinstance(suggested[0], dict):
           suggestion = suggested[0]
-      except Exception:
-        suggestion = {}
+      except Exception as exc:
+        raise ProposalRequiredError(route) from exc
       if isinstance(suggestion, dict):
         if suggestion.get("materials_cost_per_unit") is not None:
           proposal_patch["cogs.materials_cost_per_unit"] = {
@@ -576,23 +706,14 @@ class OpsSection(SectionHandler):
             "lob_key": "company_total",
             "value": suggestion.get("production"),
           }
-      if not proposal_patch:
-        try:
-          unit_price = float((ops_json or {}).get("unit_price") or 0)
-        except Exception:
-          unit_price = 0.0
-        if unit_price > 0:
-          proposal_patch["cogs.cost_per_unit"] = {
-            "lob_key": "company_total",
-            "value": unit_price * 0.6,
-            "unit": "USD",
-            "time_basis": "per_unit",
-          }
       if proposal_patch:
         proposal_model = "cogs"
+      _require_proposal(route=route, suggestion=suggestion if isinstance(suggestion, dict) else {}, proposal_patch=proposal_patch)
       out = cogs_chat_turn(intake_context={**intake_context, "cogs_suggestion": suggestion}, conversation_messages=messages)
-    elif ops_has_min_for_models and revenue_ready_now and (not gna_ready_now) and gna_chat_turn:
+    elif ops_has_min_for_models and revenue_ready_now and (not gna_ready_now):
       route = "gna"
+      if not gna_chat_turn:
+        raise ProposalRequiredError(route)
       suggestion = {}
       try:
         from model_card_proposer import propose_gna_suggestions  # type: ignore
@@ -621,8 +742,8 @@ class OpsSection(SectionHandler):
         )
         if suggested and isinstance(suggested[0], dict):
           suggestion = suggested[0]
-      except Exception:
-        suggestion = {}
+      except Exception as exc:
+        raise ProposalRequiredError(route) from exc
       if isinstance(suggestion, dict):
         if suggestion.get("monthly_rent_expense") is not None:
           proposal_patch["gna.monthly_rent_expense"] = {
@@ -675,9 +796,17 @@ class OpsSection(SectionHandler):
           }
       if proposal_patch:
         proposal_model = "gna"
+      _require_proposal(route=route, suggestion=suggestion if isinstance(suggestion, dict) else {}, proposal_patch=proposal_patch)
       out = gna_chat_turn(intake_context={**intake_context, "gna_suggestion": suggestion}, conversation_messages=messages)
     else:
       out = consultant_chat_turn(intake_context=intake_context, conversation_messages=messages)
+      if isinstance(out, dict):
+        assistant_message = str(out.get("assistant_message") or "")
+        violation = _detect_ops_card_content(assistant_message)
+        if violation:
+          card, marker = violation
+          debug_log("ops_card_content_violation", card=card, marker=marker)
+          raise ProposalRequiredError(card)
 
     if proposal_patch and isinstance(out, dict):
       out = dict(out)

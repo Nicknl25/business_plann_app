@@ -57,6 +57,7 @@ type ModelCardProposal = {
   title?: string;
   lob_key?: string | null;
   lob_name?: string | null;
+  proposal_hash?: string | null;
   updates?: Array<{ key: string; value: any; unit?: string | null; time_basis?: string | null; rationale?: string | null }>;
   derived?: Array<{ key: string; value: any; unit?: string | null; time_basis?: string | null; derivation?: string | null }>;
   apply_to_all_lobs?: boolean;
@@ -724,6 +725,7 @@ export default function UnifiedConsultStep() {
     try {
       const startDatePayload = String(businessStartDate || consultStorage.getBusinessStartDate() || "").trim();
       const proposalId = modelProposals.length ? modelProposals[0].id : null;
+      const proposalHash = modelProposals.length ? modelProposals[0].proposal_hash : null;
       const res = await apiClient.post(
         "/api/intake-consult",
         {
@@ -732,6 +734,7 @@ export default function UnifiedConsultStep() {
           message: "",
           response_intent: intent,
           proposal_id: proposalId || undefined,
+          proposal_hash: proposalHash || undefined,
           business_name: String(businessName || "").trim(),
           address: String(address || "").trim(),
           business_start_date: startDatePayload || undefined,
@@ -810,6 +813,7 @@ export default function UnifiedConsultStep() {
           title: p.title ? String(p.title) : undefined,
           lob_key: p.lob_key == null ? null : String(p.lob_key || "").trim() || null,
           lob_name: p.lob_name == null ? null : String(p.lob_name || "").trim() || null,
+          proposal_hash: p.proposal_hash == null ? null : String(p.proposal_hash || "").trim() || null,
           updates: Array.isArray(p.updates) ? p.updates : [],
           derived: Array.isArray(p.derived) ? p.derived : [],
           apply_to_all_lobs: Boolean(p.apply_to_all_lobs),
@@ -821,13 +825,12 @@ export default function UnifiedConsultStep() {
     }
   }, [modelCards]);
 
-  const hasPendingProposal = Boolean(buttonOnly && modelProposals.length);
-  const allowTextInput = Boolean(!buttonOnly || manualEditMode || !modelProposals.length);
-
   const interactionMode = String(draftMeta?.interactionMode || (sharedContext as any)?.interaction_mode || "chat")
     .trim()
     .toLowerCase();
   const buttonOnly = interactionMode === "button_only";
+  const hasPendingProposal = Boolean(buttonOnly && modelProposals.length);
+  const allowTextInput = Boolean(!buttonOnly || manualEditMode || !modelProposals.length);
 
   useEffect(() => {
     if (!buttonOnly) return;
@@ -1061,6 +1064,7 @@ export default function UnifiedConsultStep() {
             updates: proposal.updates || [],
             derived: proposal.derived || [],
             proposal_id: proposal.id,
+            proposal_hash: proposal.proposal_hash || undefined,
             apply_to_all_lobs: Boolean(proposalApplyAll[String(proposal.id || "").trim()]),
             note: "ui_accept",
           },
@@ -1195,17 +1199,17 @@ export default function UnifiedConsultStep() {
     try {
       const res = await apiClient.post(
         "/api/intake-consult/model-cards",
-          {
-            draft_id: effectiveDraftId,
-            action: "accept",
-            model: editingProposal.model,
-            lob_key: editingProposal.lobKey,
-            lob_name: editingProposal.lobName || null,
-            updates: [
-              {
-                key: "monthly_marketing_budget",
-                value: monthly,
-                unit: "USD",
+        {
+          draft_id: effectiveDraftId,
+          action: "edit",
+          model: editingProposal.model,
+          lob_key: editingProposal.lobKey,
+          lob_name: editingProposal.lobName || null,
+          updates: [
+            {
+              key: "monthly_marketing_budget",
+              value: monthly,
+              unit: "USD",
               time_basis: "month",
               rationale: editingProposal.rationale || null,
             },
@@ -1223,12 +1227,12 @@ export default function UnifiedConsultStep() {
               value: annual,
               unit: "USD",
               time_basis: "year",
-                derivation: "monthly_marketing_budget x 12",
+              derivation: "monthly_marketing_budget x 12",
             },
           ],
           proposal_id: editingProposal.proposalId,
           apply_to_all_lobs: Boolean(proposalApplyAll[String(editingProposal.proposalId || "").trim()]),
-          note: "ui_edit_accept",
+          note: "ui_edit",
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
@@ -1298,7 +1302,7 @@ export default function UnifiedConsultStep() {
         "/api/intake-consult/model-cards",
         {
           draft_id: effectiveDraftId,
-          action: "accept",
+          action: "edit",
           model: editingGenericProposal.model,
           lob_key: editingGenericProposal.lobKey,
           lob_name: editingGenericProposal.lobName || null,
@@ -1318,7 +1322,7 @@ export default function UnifiedConsultStep() {
           })),
           proposal_id: editingGenericProposal.proposalId,
           apply_to_all_lobs: Boolean(proposalApplyAll[String(editingGenericProposal.proposalId || "").trim()]),
-          note: "ui_generic_edit_accept",
+          note: "ui_generic_edit",
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
@@ -1715,7 +1719,7 @@ export default function UnifiedConsultStep() {
                               Cancel
                             </Button>
                             <Button type="button" size="sm" disabled={modelSaving} onClick={() => void submitProposalEdit()}>
-                              Save & Use
+                              Update proposal
                             </Button>
                           </div>
                           <div className="md:col-span-3">
@@ -1930,7 +1934,7 @@ export default function UnifiedConsultStep() {
                               disabled={modelSaving}
                               onClick={() => void submitGenericProposalEdit()}
                             >
-                              Save & Use
+                              Update proposal
                             </Button>
                           </div>
                         </div>

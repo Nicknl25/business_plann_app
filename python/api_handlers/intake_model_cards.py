@@ -29,6 +29,26 @@ def _parse_json_list(raw: Any) -> List[Any]:
   return list(parsed) if isinstance(parsed, list) else []
 
 
+def _merge_pending_patch(pending_patch: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+  merged = dict(pending_patch or {})
+  for raw_key, value in (patch or {}).items():
+    key = str(raw_key or "").strip()
+    if not key:
+      continue
+    merged[key] = value
+  return merged
+
+
+def _remove_pending_patch_keys(pending_patch: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+  updated = dict(pending_patch or {})
+  for raw_key in (patch or {}).keys():
+    key = str(raw_key or "").strip()
+    if not key:
+      continue
+    updated.pop(key, None)
+  return updated
+
+
 def _as_number(value: Any) -> Optional[float]:
   if value is None:
     return None

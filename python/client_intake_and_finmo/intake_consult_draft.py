@@ -81,9 +81,12 @@ def ensure_table(conn) -> None:
         milestones_model_json JSON NULL,
         cogs_model_json JSON NULL,
         gna_model_json JSON NULL,
+        draft_patch_json JSON NULL,
         model_card_proposals_json JSON NULL,
+        proposal_events_json JSON NULL,
         driver_events_json JSON NULL,
         driver_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        proposal_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0,
         year1_revenue DECIMAL(18,2) NULL,
         year1_marketing_spend DECIMAL(18,2) NULL,
         year1_payroll DECIMAL(18,2) NULL,
@@ -169,12 +172,18 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN cogs_model_json JSON NULL")
   if "gna_model_json" not in cols:
     alterations.append("ADD COLUMN gna_model_json JSON NULL")
+  if "draft_patch_json" not in cols:
+    alterations.append("ADD COLUMN draft_patch_json JSON NULL")
   if "model_card_proposals_json" not in cols:
     alterations.append("ADD COLUMN model_card_proposals_json JSON NULL")
+  if "proposal_events_json" not in cols:
+    alterations.append("ADD COLUMN proposal_events_json JSON NULL")
   if "driver_events_json" not in cols:
     alterations.append("ADD COLUMN driver_events_json JSON NULL")
   if "driver_revision_nonce" not in cols:
     alterations.append("ADD COLUMN driver_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0")
+  if "proposal_revision_nonce" not in cols:
+    alterations.append("ADD COLUMN proposal_revision_nonce BIGINT UNSIGNED NOT NULL DEFAULT 0")
   if "year1_revenue" not in cols:
     alterations.append("ADD COLUMN year1_revenue DECIMAL(18,2) NULL")
   if "year1_marketing_spend" not in cols:
@@ -282,8 +291,11 @@ def append_messages(
   cogs_model_json: Optional[Dict[str, Any]] = None,
   gna_model_json: Optional[Dict[str, Any]] = None,
   model_card_proposals: Optional[Any] = None,
+  draft_patch: Optional[Any] = None,
+  proposal_events: Optional[Any] = None,
   driver_events: Optional[Any] = None,
   driver_revision_nonce: Optional[int] = None,
+  proposal_revision_nonce: Optional[int] = None,
   year1_revenue: Optional[Any] = None,
   year1_marketing_spend: Optional[Any] = None,
   year1_payroll: Optional[Any] = None,
@@ -425,9 +437,17 @@ def append_messages(
     set_parts.append("gna_model_json = %s")
     values.append(json.dumps(gna_model_json, ensure_ascii=False))
 
+  if draft_patch is not None:
+    set_parts.append("draft_patch_json = %s")
+    values.append(json.dumps(draft_patch, ensure_ascii=False))
+
   if model_card_proposals is not None:
     set_parts.append("model_card_proposals_json = %s")
     values.append(json.dumps(model_card_proposals, ensure_ascii=False))
+
+  if proposal_events is not None:
+    set_parts.append("proposal_events_json = %s")
+    values.append(json.dumps(proposal_events, ensure_ascii=False))
 
   if driver_events is not None:
     set_parts.append("driver_events_json = %s")
@@ -436,6 +456,10 @@ def append_messages(
   if driver_revision_nonce is not None:
     set_parts.append("driver_revision_nonce = %s")
     values.append(int(driver_revision_nonce))
+
+  if proposal_revision_nonce is not None:
+    set_parts.append("proposal_revision_nonce = %s")
+    values.append(int(proposal_revision_nonce))
 
   if year1_revenue is not None:
     set_parts.append("year1_revenue = %s")
@@ -545,9 +569,12 @@ def append_messages(
       "milestones_model_json",
       "cogs_model_json",
       "gna_model_json",
+      "draft_patch_json",
       "model_card_proposals_json",
+      "proposal_events_json",
       "driver_events_json",
       "driver_revision_nonce",
+      "proposal_revision_nonce",
       "year1_revenue",
       "year1_marketing_spend",
       "year1_payroll",

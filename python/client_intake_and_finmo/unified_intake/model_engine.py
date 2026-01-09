@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from typing import Any, Dict, Optional, Tuple
 
@@ -11,6 +13,14 @@ def as_float_maybe(value: Any) -> Optional[float]:
     return float(value)
   except Exception:
     return None
+
+
+def _hash_inputs(inputs: Dict[str, Any]) -> str:
+  try:
+    raw = json.dumps(inputs, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+  except Exception:
+    raw = str(inputs)
+  return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def normalize_model_card_for_write(card: Dict[str, Any], *, now_ms: int) -> Dict[str, Any]:
@@ -257,6 +267,8 @@ def set_company_derived(
   time_basis: Optional[str],
   derivation: Optional[str],
   now_ms: int,
+  inputs_hash: Optional[str] = None,
+  computed_at_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
   normalized = normalize_model_card_for_write(card or {}, now_ms=now_ms)
   lob = get_company_total_lob(normalized)
@@ -264,13 +276,19 @@ def set_company_derived(
     return normalized
   derived = lob.get("derived") if isinstance(lob.get("derived"), dict) else {}
   derived = dict(derived)
-  derived[key] = {
+  entry = {
     "value": value,
     "unit": unit,
     "time_basis": time_basis,
     "derivation": derivation,
     "updated_at_ms": int(now_ms),
+    "version": int(normalized.get("version") or 1),
   }
+  if inputs_hash:
+    entry["inputs_hash"] = inputs_hash
+  if computed_at_ms is not None:
+    entry["computed_at_ms"] = int(computed_at_ms)
+  derived[key] = entry
   lob["derived"] = derived
   normalized["updated_at_ms"] = int(now_ms)
   return normalized
@@ -341,6 +359,7 @@ def recompute_marketing_company_total(
   dv = drivers.get("monthly_marketing_budget")
   if isinstance(dv, dict):
     monthly_val = as_float_maybe(dv.get("value"))
+  inputs_hash = _hash_inputs({"monthly_marketing_budget": monthly_val})
   year1 = (max(0.0, float(monthly_val)) * 12.0) if monthly_val is not None else None
   normalized = set_company_derived(
     normalized,
@@ -350,6 +369,8 @@ def recompute_marketing_company_total(
     time_basis="year",
     derivation="monthly_marketing_budget x 12",
     now_ms=now_ms,
+    inputs_hash=inputs_hash,
+    computed_at_ms=now_ms,
   )
   return normalized, year1
 
@@ -366,6 +387,7 @@ def recompute_headcount_company_total(
   roles_driver = drivers.get("roles")
   if isinstance(roles_driver, dict):
     roles = roles_driver.get("value")
+  inputs_hash = _hash_inputs({"roles": roles})
   total = 0.0
   has_any = False
   if isinstance(roles, list):
@@ -398,6 +420,8 @@ def recompute_headcount_company_total(
     time_basis="year",
     derivation="sum(employee_count x hourly_rate x hours_per_week x weeks_per_year)",
     now_ms=now_ms,
+    inputs_hash=inputs_hash,
+    computed_at_ms=now_ms,
   )
   return normalized, year1
 
@@ -525,6 +549,14 @@ def recompute_revenue_company_total(
     time_basis="year",
     derivation="avg_units_per_week_year1 x unit_price x operating_weeks_per_year",
     now_ms=now_ms,
+    inputs_hash=_hash_inputs(
+      {
+        "avg_units_per_week_year1": avg_units,
+        "unit_price": unit_price,
+        "operating_weeks_per_year": weeks,
+      }
+    ),
+    computed_at_ms=now_ms,
   )
   if weekly_revenue is not None:
     normalized = set_company_derived(
@@ -535,6 +567,13 @@ def recompute_revenue_company_total(
       time_basis="week",
       derivation="avg_units_per_week_year1 x unit_price",
       now_ms=now_ms,
+      inputs_hash=_hash_inputs(
+        {
+          "avg_units_per_week_year1": avg_units,
+          "unit_price": unit_price,
+        }
+      ),
+      computed_at_ms=now_ms,
     )
 
   ops_out = dict(ops_json or {})
@@ -633,6 +672,16 @@ def recompute_cogs_company_total(
     time_basis="year",
     derivation=derivation,
     now_ms=now_ms,
+    inputs_hash=_hash_inputs(
+      {
+        "cost_per_unit": cost_per_unit,
+        "cogs_percent_of_revenue": pct,
+        "avg_units_per_week_year1": avg_units,
+        "operating_weeks_per_year": weeks,
+        "year1_revenue": year1_rev,
+      }
+    ),
+    computed_at_ms=now_ms,
   )
   return normalized, year1_cogs
 
@@ -662,6 +711,7 @@ def recompute_gna_company_total(
   monthly_sum = 0.0
   has_any = False
   used_parts: list[str] = []
+  inputs_for_hash: Dict[str, Any] = {}
   for key in monthly_keys:
     dv = drivers.get(key)
     val = as_float_maybe(dv.get("value")) if isinstance(dv, dict) else None
@@ -670,6 +720,7 @@ def recompute_gna_company_total(
     has_any = True
     monthly_sum += max(0.0, float(val))
     used_parts.append(f"{key}")
+    inputs_for_hash[key] = val
 
   # Include any additional explicitly-monthly drivers so the model is extensible without schema churn.
   try:
@@ -686,6 +737,7 @@ def recompute_gna_company_total(
       has_any = True
       monthly_sum += max(0.0, float(val))
       used_parts.append(str(k))
+      inputs_for_hash[str(k)] = val
   except Exception:
     pass
 
@@ -702,5 +754,7 @@ def recompute_gna_company_total(
     time_basis="year",
     derivation=derivation,
     now_ms=now_ms,
+    inputs_hash=_hash_inputs(inputs_for_hash),
+    computed_at_ms=now_ms,
   )
   return normalized, year1

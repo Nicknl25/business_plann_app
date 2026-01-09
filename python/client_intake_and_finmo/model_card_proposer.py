@@ -86,6 +86,15 @@ def _extract_output_json(data: Dict[str, Any]) -> Dict[str, Any]:
   return parsed
 
 
+def _schema_format(schema: Dict[str, Any]) -> Dict[str, Any]:
+  name = str(schema.get("name") or "schema")
+  raw_schema = schema.get("schema")
+  if not isinstance(raw_schema, dict):
+    raw_schema = {}
+  strict = bool(schema.get("strict", True))
+  return {"type": "json_schema", "name": name, "schema": raw_schema, "strict": strict}
+
+
 def propose_marketing_suggestions(
   *,
   business_name: str,
@@ -138,6 +147,7 @@ def propose_marketing_suggestions(
             },
             "required": [
               "lob_key",
+              "lob_name",
               "monthly_marketing_budget",
               "year1_marketing_spend",
               "primary_channels",
@@ -186,7 +196,7 @@ def propose_marketing_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -291,7 +301,7 @@ def propose_milestones_suggestions(
                 },
               },
             },
-            "required": ["lob_key", "milestones"],
+            "required": ["lob_key", "lob_name", "milestones"],
           },
         }
       },
@@ -330,7 +340,7 @@ def propose_milestones_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -466,7 +476,7 @@ def propose_headcount_suggestions(
                 },
               },
             },
-            "required": ["lob_key", "basis", "roles"],
+            "required": ["lob_key", "lob_name", "basis", "roles"],
           },
         }
       },
@@ -506,7 +516,7 @@ def propose_headcount_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -623,6 +633,7 @@ def propose_revenue_suggestions(
             },
             "required": [
               "lob_key",
+              "lob_name",
               "units_per_week_capacity",
               "avg_units_per_week_year1",
               "operating_weeks_per_year",
@@ -667,7 +678,7 @@ def propose_revenue_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -743,7 +754,7 @@ def propose_fulfillment_suggestions(
               "lead_time": {"type": "string"},
               "basis": {"type": "string"},
             },
-            "required": ["lob_key", "fulfillment_model", "who_fulfills", "lead_time", "basis"],
+            "required": ["lob_key", "lob_name", "fulfillment_model", "who_fulfills", "lead_time", "basis"],
           },
         }
       },
@@ -779,7 +790,7 @@ def propose_fulfillment_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -854,7 +865,7 @@ def propose_ops_concept_suggestions(
               "process_overview": {"type": "string"},
               "basis": {"type": "string"},
             },
-            "required": ["lob_key", "operating_unit", "primary_constraint", "process_overview", "basis"],
+            "required": ["lob_key", "lob_name", "operating_unit", "primary_constraint", "process_overview", "basis"],
           },
         }
       },
@@ -890,7 +901,7 @@ def propose_ops_concept_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -983,9 +994,11 @@ def propose_cogs_suggestions(
             },
             "required": [
               "lob_key",
+              "lob_name",
               "materials_cost_per_unit",
               "direct_fulfillment_cost_per_unit",
               "other_variable_cost_per_unit",
+              "production",
               "basis",
             ],
           },
@@ -1027,7 +1040,7 @@ def propose_cogs_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
@@ -1149,6 +1162,7 @@ def propose_gna_suggestions(
             },
             "required": [
               "lob_key",
+              "lob_name",
               "monthly_rent_expense",
               "monthly_software_expense",
               "monthly_insurance_expense",
@@ -1193,7 +1207,7 @@ def propose_gna_suggestions(
       {"role": "system", "content": system},
       {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ],
-    "response_format": {"type": "json_schema", "json_schema": schema},
+    "text": {"format": _schema_format(schema)},
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)

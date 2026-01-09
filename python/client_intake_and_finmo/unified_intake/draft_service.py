@@ -310,6 +310,389 @@ def sync_pricing_from_ops_if_needed(
   return next_pricing
 
 
+
+
+def apply_chat_patch(
+  *,
+  patch: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  pricing_model_json: Dict[str, Any],
+  revenue_model_json: Dict[str, Any],
+  headcount_model_json: Dict[str, Any],
+  fulfillment_model_json: Dict[str, Any],
+  ops_concept_model_json: Dict[str, Any],
+  milestones_model_json: Dict[str, Any],
+  cogs_model_json: Dict[str, Any],
+  gna_model_json: Dict[str, Any],
+  now_ms: Optional[int] = None,
+) -> Dict[str, Any]:
+  """
+  Apply a chat-driven patch to in-memory state without persisting.
+  Returns updated state + change metadata for proposals.
+  """
+  now_ms = int(now_ms or int(time.time() * 1000))
+
+  prev_state = {
+    "business": dict(business_facts or {}),
+    "ops": dict(ops_json or {}),
+    "market": dict(market_json or {}),
+    "people": dict(people_json or {}),
+    "financials": dict(financials_json or {}),
+  }
+
+  prev_marketing = dict(marketing_model_json or {})
+  prev_pricing = dict(pricing_model_json or {})
+  prev_revenue = dict(revenue_model_json or {})
+  prev_headcount = dict(headcount_model_json or {})
+  prev_fulfillment = dict(fulfillment_model_json or {})
+  prev_ops_concept = dict(ops_concept_model_json or {})
+  prev_milestones = dict(milestones_model_json or {})
+  prev_cogs = dict(cogs_model_json or {})
+  prev_gna = dict(gna_model_json or {})
+
+  fact_patch: Dict[str, Any] = {}
+  model_patch: Dict[str, Any] = {}
+  for raw_key, val in (patch or {}).items():
+    key = str(raw_key or "").strip()
+    if key.count(".") != 1:
+      continue
+    group, field = key.split(".", 1)
+    group = group.strip().lower()
+    field = field.strip()
+    if not group or not field:
+      continue
+    if group in ("business", "ops", "market", "people", "financials"):
+      if group == "people" and field == "people":
+        try:
+          maybe_roles = val
+          if isinstance(maybe_roles, list) and any(
+            isinstance(r, dict)
+            and any(
+              k in r
+              for k in (
+                "employee_count",
+                "count",
+                "hours_per_week",
+                "weeks_per_year",
+                "hourly_rate_override",
+                "hourly_rate",
+              )
+            )
+            for r in maybe_roles
+          ):
+            model_patch["headcount.roles"] = maybe_roles
+            continue
+        except Exception:
+          pass
+      fact_patch[key] = val
+    else:
+      model_patch[key] = val
+
+  for raw_key, value in (fact_patch or {}).items():
+    group, field = raw_key.split(".", 1)
+    group = group.strip().lower()
+    field = field.strip()
+    if group == "business":
+      business_facts[field] = value
+      if field == "address":
+        for part_key in ("address_street", "address_city", "address_state", "address_zip", "address_country"):
+          business_facts[part_key] = None
+    elif group == "ops":
+      ops_json[field] = value
+    elif group == "market":
+      market_json[field] = value
+    elif group == "people":
+      people_json[field] = value
+    elif group == "financials":
+      financials_json[field] = value
+
+  driver_changes: List[Dict[str, Any]] = []
+  for raw_key, value in (model_patch or {}).items():
+    key = str(raw_key or "").strip()
+    if key.count(".") != 1:
+      continue
+    model, field = key.split(".", 1)
+    model = model.strip().lower()
+    field = field.strip()
+    if not model or not field:
+      continue
+
+    driver_value = value
+    lob_key = "company_total"
+    rationale_override: Optional[str] = None
+    unit_override: Optional[str] = None
+    time_basis_override: Optional[str] = None
+    if isinstance(value, dict):
+      if "lob_key" in value:
+        lob_key = str(value.get("lob_key") or "").strip() or "company_total"
+      if "value" in value:
+        driver_value = value.get("value")
+      if value.get("rationale") is not None:
+        rationale_override = str(value.get("rationale") or "").strip() or None
+      if value.get("unit") is not None:
+        unit_override = str(value.get("unit") or "").strip() or None
+      if value.get("time_basis") is not None:
+        time_basis_override = str(value.get("time_basis") or "").strip() or None
+
+    if model == "marketing":
+      marketing_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=marketing_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "marketing", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "pricing":
+      pricing_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=pricing_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "pricing", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "revenue":
+      revenue_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=revenue_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "revenue", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "headcount":
+      headcount_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=headcount_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "headcount", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "fulfillment":
+      fulfillment_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=fulfillment_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "fulfillment", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "ops_concept":
+      ops_concept_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=ops_concept_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "ops_concept", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "milestones":
+      milestones_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=milestones_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "milestones", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "cogs":
+      if field == "production":
+        try:
+          from unified_intake.model_engine import normalize_model_card_for_write, get_lob  # type: ignore
+        except Exception:
+          normalize_model_card_for_write = None  # type: ignore
+          get_lob = None  # type: ignore
+        if normalize_model_card_for_write and get_lob:
+          normalized = normalize_model_card_for_write(cogs_model_json or {}, now_ms=now_ms)
+          lob_key_norm = str(lob_key or "").strip() or "company_total"
+          lob = get_lob(normalized, lob_key=lob_key_norm)
+          if not lob:
+            normalized["lobs"] = [
+              *(normalized.get("lobs") if isinstance(normalized.get("lobs"), list) else []),
+              {"lob_key": lob_key_norm, "lob_name": None, "drivers": {}, "derived": {}},
+            ]
+            lob = get_lob(normalized, lob_key=lob_key_norm)
+          prev = lob.get("production") if isinstance(lob, dict) else None
+          next_val = driver_value if isinstance(driver_value, dict) and driver_value else None
+          if isinstance(lob, dict) and prev != next_val:
+            lob["production"] = next_val
+            normalized["updated_at_ms"] = int(now_ms)
+            cogs_model_json = normalized
+            driver_changes.append(
+              {"model": "cogs", "lob_key": lob_key_norm, "path": "production", "new": next_val}
+            )
+        continue
+      cogs_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=cogs_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "cogs", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+    elif model == "gna":
+      gna_model_json, ops_json, changed = apply_company_driver_patch(
+        model=model,
+        field=field,
+        value=driver_value,
+        card=gna_model_json,
+        ops_json=ops_json,
+        now_ms=now_ms,
+        rationale=rationale_override,
+        unit_override=unit_override,
+        time_basis_override=time_basis_override,
+        lob_key=lob_key,
+      )
+      if changed:
+        driver_changes.append({"model": "gna", "lob_key": lob_key, "path": f"drivers.{field}", "new": driver_value})
+
+  year1_marketing_spend_out: Any = None
+  year1_payroll_out: Any = None
+  year1_revenue_out: Any = None
+  year1_cogs_out: Any = None
+  year1_gna_total_out: Any = None
+
+  try:
+    if marketing_model_json != prev_marketing:
+      marketing_model_json, year1_marketing_spend_out = recompute_marketing_company_total(
+        marketing_model_json, now_ms=now_ms
+      )
+    if headcount_model_json != prev_headcount:
+      headcount_model_json, year1_payroll_out = recompute_headcount_company_total(
+        headcount_model_json, now_ms=now_ms
+      )
+
+    ops_prev = prev_state.get("ops") if isinstance(prev_state.get("ops"), dict) else {}
+    revenue_inputs_changed = (
+      revenue_model_json != prev_revenue
+      or any(k.startswith("revenue.") for k in (model_patch or {}).keys())
+      or any(
+        (ops_prev.get(k) != ops_json.get(k))
+        for k in ("units_per_week_capacity", "unit_price", "unit_name", "starting_revenue")
+      )
+    )
+    if revenue_inputs_changed:
+      revenue_model_json, ops_json, year1_revenue_out = recompute_revenue_company_total(
+        revenue_model_json, ops_json=ops_json, now_ms=now_ms
+      )
+
+    try:
+      from unified_intake.model_engine import ensure_pricing_from_ops  # type: ignore
+    except Exception:
+      ensure_pricing_from_ops = None  # type: ignore
+    if ensure_pricing_from_ops:
+      try:
+        synced_pricing = ensure_pricing_from_ops(ops_json=ops_json, pricing_model_json=pricing_model_json)
+      except Exception:
+        synced_pricing = None
+      if isinstance(synced_pricing, dict) and synced_pricing and synced_pricing != pricing_model_json:
+        pricing_model_json = synced_pricing
+        try:
+          driver_changes.append(
+            {
+              "model": "pricing",
+              "lob_key": "company_total",
+              "path": "drivers.unit_price",
+              "new": synced_pricing.get("unit_price"),
+            }
+          )
+        except Exception:
+          pass
+
+    if cogs_model_json != prev_cogs or revenue_inputs_changed:
+      from unified_intake.model_engine import recompute_cogs_company_total  # type: ignore
+
+      cogs_model_json, year1_cogs_out = recompute_cogs_company_total(
+        cogs_model_json, revenue_card=revenue_model_json, now_ms=now_ms
+      )
+    if gna_model_json != prev_gna:
+      from unified_intake.model_engine import recompute_gna_company_total  # type: ignore
+
+      gna_model_json, year1_gna_total_out = recompute_gna_company_total(gna_model_json, now_ms=now_ms)
+  except Exception:
+    pass
+
+  return {
+    "business_facts": business_facts,
+    "ops_json": ops_json,
+    "market_json": market_json,
+    "people_json": people_json,
+    "financials_json": financials_json,
+    "marketing_model_json": marketing_model_json,
+    "pricing_model_json": pricing_model_json,
+    "revenue_model_json": revenue_model_json,
+    "headcount_model_json": headcount_model_json,
+    "fulfillment_model_json": fulfillment_model_json,
+    "ops_concept_model_json": ops_concept_model_json,
+    "milestones_model_json": milestones_model_json,
+    "cogs_model_json": cogs_model_json,
+    "gna_model_json": gna_model_json,
+    "fact_patch": fact_patch,
+    "model_patch": model_patch,
+    "driver_changes": driver_changes,
+    "year1_marketing_spend": year1_marketing_spend_out,
+    "year1_payroll": year1_payroll_out,
+    "year1_revenue": year1_revenue_out,
+    "year1_cogs": year1_cogs_out,
+    "year1_gna_total": year1_gna_total_out,
+    "now_ms": now_ms,
+  }
+
 def apply_chat_patch_and_persist(
   *,
   conn,
