@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+
+_BUSINESS_TYPE_TO_NAICS_6_CACHE: Dict[str, str] | None = None
 
 
 def build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
@@ -37,6 +40,8 @@ def build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> L
       content = str(msg.get("content") or "").strip()
       if not content:
         continue
+      if "Start the operational intake." in content:
+        continue
       user_texts.append(content)
       if len(user_texts) >= 6:
         break
@@ -56,3 +61,50 @@ def build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> L
   except Exception:
     return []
 
+
+def _ensure_business_type_to_naics_cache(*, conn) -> Dict[str, str]:
+  global _BUSINESS_TYPE_TO_NAICS_6_CACHE
+  if _BUSINESS_TYPE_TO_NAICS_6_CACHE is not None:
+    return _BUSINESS_TYPE_TO_NAICS_6_CACHE
+
+  mapping: Dict[str, str] = {}
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      "SELECT business_types, naics_6 FROM naics_master WHERE business_types IS NOT NULL AND naics_6 IS NOT NULL"
+    )
+    rows = cur.fetchall() or []
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+  for row in rows:
+    try:
+      business_types_raw, naics_6 = row
+    except Exception:
+      continue
+    if not business_types_raw or not naics_6:
+      continue
+    naics_6_str = str(naics_6).strip()
+    if not naics_6_str:
+      continue
+    for part in str(business_types_raw).split(","):
+      token = str(part).strip()
+      if token and token not in mapping:
+        mapping[token] = naics_6_str
+
+  _BUSINESS_TYPE_TO_NAICS_6_CACHE = mapping
+  return mapping
+
+
+def resolve_naics_6(*, conn, business_type: str) -> Optional[str]:
+  bt = str(business_type or "").strip()
+  if not bt:
+    return None
+  try:
+    mapping = _ensure_business_type_to_naics_cache(conn=conn)
+  except Exception:
+    return None
+  return mapping.get(bt)

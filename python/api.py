@@ -72,6 +72,14 @@ def create_app() -> Flask:
   _maybe_silence_request_logs()
   _maybe_silence_server_banner()
 
+  def _legacy_endpoint_gone(detail: str):
+    if request.method == "OPTIONS":
+      return ("", 204)
+    return (
+      jsonify({"error": "gone", "detail": detail}),
+      410,
+    )
+
   @app.after_request
   def add_cors_headers(response):
     """
@@ -174,24 +182,18 @@ def create_app() -> Flask:
     """
     Ensure a durable target market draft exists for an existing intake draft_id.
     """
-    from api_handlers.target_market import post_target_market_session_handler
-
-    return post_target_market_session_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy target market consult endpoints are removed.")
 
   @app.route("/api/people-capability/session", methods=["POST", "OPTIONS"])
   def post_people_capability_session():
     """
     Ensure a durable People & Capability draft exists for an existing intake draft_id.
     """
-    from api_handlers.people_capability import post_people_capability_session_handler
-
-    return post_people_capability_session_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy people capability consult endpoints are removed.")
 
   @app.route("/api/people-capability/draft", methods=["GET", "OPTIONS"])
   def get_people_capability_draft():
-    from api_handlers.people_capability import get_people_capability_draft_handler
-
-    return get_people_capability_draft_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy people capability consult endpoints are removed.")
 
   @app.route("/api/people-capability", methods=["POST", "OPTIONS"])
   def post_people_capability():
@@ -200,15 +202,11 @@ def create_app() -> Flask:
 
     Request: { draft_id, message?, business_name?, business_type? }
     """
-    from api_handlers.people_capability import post_people_capability_handler
-
-    return post_people_capability_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy people capability consult endpoints are removed.")
 
   @app.route("/api/target-market/draft", methods=["GET", "OPTIONS"])
   def get_target_market_draft():
-    from api_handlers.target_market import get_target_market_draft_handler
-
-    return get_target_market_draft_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy target market consult endpoints are removed.")
 
   @app.route("/api/target-market", methods=["POST", "OPTIONS"])
   def post_target_market_consult():
@@ -220,33 +218,25 @@ def create_app() -> Flask:
       - target_market_summary paragraph
       - confidence score
     """
-    from api_handlers.target_market import post_target_market_consult_handler
-
-    return post_target_market_consult_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy target market consult endpoints are removed.")
 
   @app.route("/api/financials-consult/session", methods=["POST", "OPTIONS"])
   def post_financials_consult_session():
     """
     Ensure a durable Financials draft exists for an existing intake draft_id.
     """
-    from api_handlers.financials_consult import post_financials_consult_session_handler
-
-    return post_financials_consult_session_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy financials consult endpoints are removed.")
 
   @app.route("/api/financials-consult/draft", methods=["GET", "OPTIONS"])
   def get_financials_consult_draft():
-    from api_handlers.financials_consult import get_financials_consult_draft_handler
-
-    return get_financials_consult_draft_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy financials consult endpoints are removed.")
 
   @app.route("/api/financials-consult", methods=["POST", "OPTIONS"])
   def post_financials_consult():
     """
     GPT-led financials intake consult (iterative).
     """
-    from api_handlers.financials_consult import post_financials_consult_handler
-
-    return post_financials_consult_handler(app=app, request=request)
+    return _legacy_endpoint_gone("Legacy financials consult endpoints are removed.")
 
   @app.route("/api/shared-context", methods=["GET", "OPTIONS"])
   def get_shared_context():

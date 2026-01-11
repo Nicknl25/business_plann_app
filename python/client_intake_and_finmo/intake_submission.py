@@ -434,20 +434,36 @@ def update_intake_operating_model_fields(
 
 
 def get_mysql_connection():
+  mysql_connector = None
   try:
     import mysql.connector  # type: ignore
-  except Exception as exc:
-    raise RuntimeError(
-      "mysql-connector-python is not installed."
-    ) from exc
+  except Exception:
+    mysql_connector = None
+  else:
+    mysql_connector = mysql.connector  # type: ignore
 
   host, port, user, password, database = _mysql_env()
-  return mysql.connector.connect(
+  if mysql_connector is not None:
+    return mysql_connector.connect(
+      host=host,
+      port=port,
+      user=user,
+      password=password,
+      database=database,
+    )
+
+  try:
+    import pymysql  # type: ignore
+  except Exception as exc:
+    raise RuntimeError("mysql-connector-python or pymysql is required.") from exc
+
+  return pymysql.connect(
     host=host,
     port=port,
     user=user,
     password=password,
     database=database,
+    cursorclass=pymysql.cursors.DictCursor,
   )
 
 

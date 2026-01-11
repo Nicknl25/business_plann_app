@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask import jsonify
 
@@ -55,6 +55,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   financials: Dict[str, Any] = {}
   model_cards: Dict[str, Any] = {}
   interaction_mode: str = "chat"
+  business_type: Optional[str] = None
+  naics_6: Optional[str] = None
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -65,6 +67,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
+    business_type = str(consult.get("business_type") or "").strip() or None
+    naics_6 = str(consult.get("naics_6") or "").strip() or None
     interaction_mode = str(consult.get("interaction_mode") or "chat").strip().lower()
     if interaction_mode not in ("chat", "button_only"):
       interaction_mode = "chat"
@@ -102,6 +106,10 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     # Legacy fallback: operating_model_json is still stored in intake_consult_drafts.
     if not operating_model:
       operating_model = _parse_json_maybe(consult.get("operating_model_json"))
+    if not business_type:
+      business_type = str(consult.get("business_type") or "").strip() or None
+    if not naics_6:
+      naics_6 = str(consult.get("naics_6") or "").strip() or None
   except Exception:
     if not operating_model:
       operating_model = {}
@@ -139,6 +147,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   return _json_safe(
     {
       "interaction_mode": interaction_mode,
+      "business_type": business_type or str((operating_model or {}).get("business_type") or "").strip() or None,
+      "naics_6": naics_6,
       "operating_model": operating_model,
       "target_market": target_market,
       "people_capability": people_capability,
