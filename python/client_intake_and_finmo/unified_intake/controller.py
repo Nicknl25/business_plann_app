@@ -386,6 +386,8 @@ def _normalize_answer_text(raw: str) -> str:
   if not text:
     return ""
   text = re.sub(r"^\s*no\b[\s,.-]*(just\b[\s,.-]*)?", "", text, flags=re.IGNORECASE).strip()
+  text = text.strip(" \t\r\n\"'`.,!?;:")
+  text = re.sub(r"\s+", " ", text).strip()
   if not text:
     return ""
   lowered = text.lower()
@@ -885,6 +887,16 @@ def _looks_like_confirmation(text: str) -> bool:
     "am i hearing",
     "just to be sure",
     "just to be safe",
+    "is that ok",
+    "is that okay",
+    "is this ok",
+    "is this okay",
+    "does that work",
+    "does this work",
+    "would that work",
+    "would this work",
+    "sound right",
+    "sound correct",
     "is this the",
     "is that the",
     "is this correct",
@@ -898,15 +910,27 @@ def _looks_like_confirmation(text: str) -> bool:
     "confirm this",
     "confirm it",
   )
-  return any(phrase in segment for phrase in phrases)
+  if any(phrase in segment for phrase in phrases):
+    return True
+  return segment.endswith(("right", "correct", "ok", "okay"))
 
 
 def _violates_single_question(text: str) -> bool:
   raw = str(text or "")
+  if "?" not in raw:
+    return False
   if raw.count("?") > 1:
     return True
   lowered = raw.lower()
-  if "for example" in lowered or "for instance" in lowered or "such as" in lowered or "e.g." in lowered:
+  if (
+    "for example" in lowered
+    or "for instance" in lowered
+    or "such as" in lowered
+    or "e.g." in lowered
+    or " like " in lowered
+  ):
+    return True
+  if " or " in lowered or " either " in lowered or " whether " in lowered or " which of " in lowered:
     return True
   return False
 
@@ -918,7 +942,13 @@ def _sanitize_single_question(text: str) -> str:
   if "?" in raw:
     raw = raw[: raw.find("?") + 1].strip()
   lowered = raw.lower()
-  for marker in ("for example", "for instance", "such as", "e.g."):
+  for marker in (" or ", " either ", " whether ", " which of "):
+    idx = lowered.find(marker)
+    if idx != -1:
+      raw = raw[:idx].strip().rstrip(",")
+      break
+  lowered = raw.lower()
+  for marker in ("for example", "for instance", "such as", "e.g.", " like "):
     idx = lowered.find(marker)
     if idx != -1:
       raw = raw[:idx].strip().rstrip(",")
@@ -1005,7 +1035,28 @@ def _question_mentions_current_field(text: str, support_data: Dict[str, Any]) ->
   lowered = str(text or "").lower()
   label_tokens = [tok for tok in field_key.replace("_", " ").split() if len(tok) >= 4]
   prompt_tokens = [tok for tok in field_prompt.lower().split() if len(tok) >= 4]
-  stopwords = {"business", "company", "your", "primary", "main"}
+  stopwords = {
+    "business",
+    "company",
+    "your",
+    "primary",
+    "main",
+    "monthly",
+    "expense",
+    "planned",
+    "expected",
+    "typical",
+    "per",
+    "year",
+    "years",
+    "week",
+    "weeks",
+    "unit",
+    "units",
+    "operating",
+    "number",
+    "total",
+  }
   tokens = {
     tok.strip(".,!?;:\"'()[]{}")
     for tok in (label_tokens + prompt_tokens)
@@ -1278,6 +1329,8 @@ def post_intake_consult_handler(*, app, request):
     support_data["current_field_key"] = current_field_key
     support_data["current_field_prompt"] = current_field_prompt
     support_data["current_field_requires_confirmation"] = requires_confirmation
+    if current_field_def:
+      support_data["no_confirmation"] = not requires_confirmation
 
     parsed_answer_value: Optional[Any] = None
     if (
@@ -1293,7 +1346,7 @@ def post_intake_consult_handler(*, app, request):
     require_question = False
     require_confirmation = False
 
-    if current_field_key and requires_confirmation and _is_affirmative(user_message):
+    if current_field_key and (requires_confirmation or (pending_question_kind == "confirm" and pending_question_key == current_field_key)) and _is_affirmative(user_message):
       force_patch_only = True
       force_patch_reason = current_field_key
     elif not current_field_key:
@@ -1615,6 +1668,8 @@ def post_intake_consult_handler(*, app, request):
       support_data_continuation["current_field_key"] = next_field_key
       support_data_continuation["current_field_prompt"] = next_field_prompt
       support_data_continuation["current_field_requires_confirmation"] = next_requires_confirmation
+      if next_field_def:
+        support_data_continuation["no_confirmation"] = not next_requires_confirmation
       support_data_continuation["conversation_only"] = True
       support_data_continuation["no_classification_exposure"] = True
       if next_field_key:
@@ -1726,15 +1781,23 @@ def post_intake_consult_handler(*, app, request):
         attempts += 1
       needs_question = bool(chat_support_data.get("require_question") or _requires_question(draft_state))
       needs_question = needs_question and "?" not in assistant_content_for_chat
+      violates_single = _violates_single_question(assistant_content_for_chat)
       if (
-        _violates_single_question(assistant_content_for_chat)
+        violates_single
         or _violates_answered_fields(assistant_content_for_chat, draft_state)
         or _violates_recent_answer(assistant_content_for_chat, pending_question_key, user_message)
         or _violates_missing_summary(assistant_content_for_chat, user_message, chat_support_data)
         or _violates_no_confirmation(assistant_content_for_chat, chat_support_data)
         or needs_question
       ):
-        assistant_content_for_chat = _sanitize_single_question(assistant_content_for_chat)
+        if violates_single:
+          fallback_prompt = str(chat_support_data.get("current_field_prompt") or "").strip()
+          if fallback_prompt:
+            assistant_content_for_chat = f"{fallback_prompt.rstrip('?')}?"
+          else:
+            assistant_content_for_chat = _sanitize_single_question(assistant_content_for_chat)
+        else:
+          assistant_content_for_chat = _sanitize_single_question(assistant_content_for_chat)
       if chat_support_data.get("no_confirmation") and _violates_no_confirmation(
         assistant_content_for_chat, chat_support_data
       ):
