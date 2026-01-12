@@ -780,6 +780,21 @@ def _fallback_value_for_field(field_def: Dict[str, Any], user_message: str) -> O
   return raw
 
 
+def _fallback_business_type_patch(support_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
+  candidates = support_data.get("business_type_candidates")
+  mapping = support_data.get("business_type_to_naics_6")
+  if not isinstance(candidates, list) or not candidates:
+    return None
+  if not isinstance(mapping, dict) or not mapping:
+    return None
+  for bt in candidates:
+    if bt in mapping:
+      naics = mapping.get(bt)
+      if naics:
+        return {"business_type": str(bt), "naics_6": str(naics)}
+  return None
+
+
 def _is_affirmative(text: str) -> bool:
   raw = str(text or "").strip().lower()
   if not raw:
@@ -853,8 +868,15 @@ def _looks_like_confirmation(text: str) -> bool:
     "is that right",
     "is that accurate",
     "is that an accurate",
+    "is that a good summary",
+    "is this accurate",
     "does that capture",
     "does this capture",
+    "does that mean",
+    "does that describe",
+    "does that fit",
+    "does that sum",
+    "does that fully describe",
     "does that reflect",
     "does this reflect",
     "does that align",
@@ -983,7 +1005,12 @@ def _question_mentions_current_field(text: str, support_data: Dict[str, Any]) ->
   lowered = str(text or "").lower()
   label_tokens = [tok for tok in field_key.replace("_", " ").split() if len(tok) >= 4]
   prompt_tokens = [tok for tok in field_prompt.lower().split() if len(tok) >= 4]
-  tokens = {tok.strip(".,!?;:\"'()[]{}") for tok in (label_tokens + prompt_tokens) if tok}
+  stopwords = {"business", "company", "your", "primary", "main"}
+  tokens = {
+    tok.strip(".,!?;:\"'()[]{}")
+    for tok in (label_tokens + prompt_tokens)
+    if tok and tok.strip(".,!?;:\"'()[]{}") not in stopwords
+  }
   if not tokens:
     return True
   return any(tok in lowered for tok in tokens)
@@ -1252,13 +1279,24 @@ def post_intake_consult_handler(*, app, request):
     support_data["current_field_prompt"] = current_field_prompt
     support_data["current_field_requires_confirmation"] = requires_confirmation
 
+    parsed_answer_value: Optional[Any] = None
+    if (
+      user_message.strip()
+      and current_field_def
+      and str(current_field_def.get("special") or "").strip() != "business_type"
+    ):
+      parsed_answer_value = _fallback_value_for_field(current_field_def, user_message)
+
     force_patch_only = False
     force_patch_reason = ""
     conversation_only = False
     require_question = False
     require_confirmation = False
 
-    if not current_field_key:
+    if current_field_key and requires_confirmation and _is_affirmative(user_message):
+      force_patch_only = True
+      force_patch_reason = current_field_key
+    elif not current_field_key:
       conversation_only = True
       support_data["intake_complete"] = True
     elif pending_question_kind == "confirm" and pending_question_key == current_field_key:
@@ -1276,8 +1314,12 @@ def post_intake_consult_handler(*, app, request):
         if current_field_def.get("special") == "business_type":
           support_data["force_business_summary"] = True
       else:
-        force_patch_only = True
-        force_patch_reason = current_field_key
+        if parsed_answer_value is None:
+          conversation_only = True
+          require_question = True
+        else:
+          force_patch_only = True
+          force_patch_reason = current_field_key
     else:
       conversation_only = True
       require_question = True
@@ -1296,23 +1338,46 @@ def post_intake_consult_handler(*, app, request):
     support_data["no_classification_exposure"] = bool(conversation_only)
     chat_support_data = dict(support_data)
 
-    _log_event(app, event="llm_call_start", draft_id=draft_id, phase="initial")
-    llm_started = time.time()
-    try:
-      assistant_content = _call_llm(
-        messages_json=messages_json,
-        draft_state=draft_state,
-        user_message=user_message,
-        support_data=support_data,
-      )
-    finally:
-      duration_ms = int((time.time() - llm_started) * 1000)
-      _log_event(app, event="llm_call_end", draft_id=draft_id, duration_ms=duration_ms, phase="initial")
-    chat_support_data = dict(support_data)
-
+    assistant_content = ""
     patch_target: Optional[str] = None
     patch_payload: Optional[Dict[str, Any]] = None
     patch_key_logged: Optional[str] = None
+    auto_persisted = False
+
+    if (
+      user_message.strip()
+      and current_field_def
+      and str(current_field_def.get("special") or "").strip() != "business_type"
+    ):
+      candidate_value = parsed_answer_value
+      if candidate_value is not None:
+        candidate_payload = {current_field_key: candidate_value}
+        valid, _ = _validate_patch_for_field(
+          patch_target=current_model_key,
+          patch_payload=candidate_payload,
+          model_key=current_model_key,
+          field_def=current_field_def,
+          support_data=support_data,
+        )
+        if valid:
+          patch_target = current_model_key
+          patch_payload = candidate_payload
+          auto_persisted = True
+
+    if not auto_persisted:
+      _log_event(app, event="llm_call_start", draft_id=draft_id, phase="initial")
+      llm_started = time.time()
+      try:
+        assistant_content = _call_llm(
+          messages_json=messages_json,
+          draft_state=draft_state,
+          user_message=user_message,
+          support_data=support_data,
+        )
+      finally:
+        duration_ms = int((time.time() - llm_started) * 1000)
+        _log_event(app, event="llm_call_end", draft_id=draft_id, duration_ms=duration_ms, phase="initial")
+      chat_support_data = dict(support_data)
 
     def _parse_patch(content: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[str]]:
       text = str(content or "").strip()
@@ -1335,7 +1400,8 @@ def post_intake_consult_handler(*, app, request):
         return None, None, key if key in MODEL_COLUMNS else None
       return None, None, None
 
-    patch_target, patch_payload, patch_key_logged = _parse_patch(assistant_content)
+    if not auto_persisted:
+      patch_target, patch_payload, patch_key_logged = _parse_patch(assistant_content)
     if patch_key_logged is not None:
       _log_event(app, event="patch_received", draft_id=draft_id, target_key=patch_key_logged or "")
 
@@ -1449,6 +1515,22 @@ def post_intake_consult_handler(*, app, request):
           last_invalid_reason = patch_invalid_reason
         attempts += 1
 
+    if force_patch_only and not patch_target and force_patch_reason == "business_type":
+      fallback_patch = _fallback_business_type_patch(support_data)
+      if fallback_patch and current_field_def:
+        patch_target = current_model_key
+        patch_payload = fallback_patch
+        patch_valid, patch_invalid_reason = _validate_patch_for_field(
+          patch_target=patch_target,
+          patch_payload=patch_payload,
+          model_key=current_model_key,
+          field_def=current_field_def,
+          support_data=support_data,
+        )
+        if not patch_valid:
+          patch_target = None
+          patch_payload = None
+
     if patch_target and isinstance(patch_payload, dict):
       focus_value = _focus_token(patch_target)
       merged_payload = patch_payload
@@ -1537,7 +1619,6 @@ def post_intake_consult_handler(*, app, request):
       support_data_continuation["no_classification_exposure"] = True
       if next_field_key:
         support_data_continuation["require_question"] = True
-        support_data_continuation["no_confirmation"] = True
       else:
         support_data_continuation["intake_complete"] = True
       _log_event(app, event="llm_call_start", draft_id=draft_id, phase="continuation")
@@ -1706,10 +1787,13 @@ def post_intake_consult_handler(*, app, request):
     if new_messages:
       append_messages(conn, draft_id=draft_id, new_messages=new_messages)
 
+    effective_field_key = str(chat_support_data.get("current_field_key") or current_field_key).strip()
     if assistant_content_for_chat.strip() and not _is_valid_patch_message(assistant_content_for_chat):
-      if "?" in assistant_content_for_chat and current_field_key:
-        pending_key = current_field_key
-        pending_kind = "confirm" if (chat_support_data.get("require_confirmation") or _looks_like_confirmation(assistant_content_for_chat)) else "ask"
+      if "?" in assistant_content_for_chat and effective_field_key:
+        pending_key = effective_field_key
+        pending_kind = "confirm" if (
+          chat_support_data.get("require_confirmation") or _looks_like_confirmation(assistant_content_for_chat)
+        ) else "ask"
       else:
         pending_key = None
         pending_kind = None
