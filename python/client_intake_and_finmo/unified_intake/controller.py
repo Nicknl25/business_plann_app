@@ -785,16 +785,60 @@ def _fallback_value_for_field(field_def: Dict[str, Any], user_message: str) -> O
 def _fallback_business_type_patch(support_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
   candidates = support_data.get("business_type_candidates")
   mapping = support_data.get("business_type_to_naics_6")
+  hinted_business_type = str(support_data.get("business_type_hint") or "").strip()
+  hinted_naics = str(support_data.get("naics_6_hint") or "").strip()
   if not isinstance(candidates, list) or not candidates:
     return None
   if not isinstance(mapping, dict) or not mapping:
     return None
+  if hinted_business_type:
+    naics_value = hinted_naics or mapping.get(hinted_business_type)
+    if naics_value:
+      return {"business_type": hinted_business_type, "naics_6": str(naics_value)}
   for bt in candidates:
     if bt in mapping:
       naics = mapping.get(bt)
       if naics:
         return {"business_type": str(bt), "naics_6": str(naics)}
   return None
+
+
+def _select_business_type_hint(
+  candidates: Any,
+  mapping: Any,
+  user_text: str,
+) -> Optional[Tuple[str, str]]:
+  if not isinstance(candidates, list) or not candidates:
+    return None
+  if not isinstance(mapping, dict) or not mapping:
+    return None
+  base = " ".join(str(user_text or "").lower().split())
+  if not base:
+    return None
+  try:
+    from difflib import SequenceMatcher
+  except Exception:
+    SequenceMatcher = None  # type: ignore
+
+  tokens = {t for t in base.replace("/", " ").replace("-", " ").split() if len(t) >= 3}
+  best_bt = None
+  best_score = (-1, -1.0, 0)
+  for bt in candidates:
+    if bt not in mapping:
+      continue
+    btl = str(bt or "").lower()
+    token_score = sum(1 for t in tokens if t in btl) if tokens else 0
+    ratio = SequenceMatcher(None, base, btl).ratio() if SequenceMatcher else 0.0
+    score = (token_score, ratio, -len(btl))
+    if score > best_score:
+      best_score = score
+      best_bt = bt
+  if not best_bt:
+    return None
+  naics = mapping.get(best_bt)
+  if not naics:
+    return None
+  return str(best_bt), str(naics)
 
 
 def _is_affirmative(text: str) -> bool:
@@ -921,7 +965,10 @@ def _violates_single_question(text: str) -> bool:
     return False
   if raw.count("?") > 1:
     return True
-  lowered = raw.lower()
+  segment = raw.rsplit("?", 1)[0]
+  segment = segment.split(".")[-1]
+  segment = segment.split("\n")[-1]
+  lowered = segment.lower()
   if (
     "for example" in lowered
     or "for instance" in lowered
@@ -1028,8 +1075,12 @@ def _question_mentions_current_field(text: str, support_data: Dict[str, Any]) ->
     return False
   if support_data.get("require_confirmation"):
     return True
+  if support_data.get("force_business_summary"):
+    return True
   field_key = str(support_data.get("current_field_key") or "").strip()
   field_prompt = str(support_data.get("current_field_prompt") or "").strip()
+  if field_key == "business_type":
+    return True
   if not field_key or not field_prompt:
     return True
   lowered = str(text or "").lower()
@@ -1077,8 +1128,12 @@ def _violates_missing_summary(text: str, user_message: str, support_data: Dict[s
   lowered = str(text or "").lower()
   if not lowered:
     return True
+  if str(support_data.get("current_field_key") or "") == "business_type":
+    if "describe what your business does" in lowered or "what your business does day to day" in lowered:
+      return True
   raw_tokens = [tok.strip(".,!?;:\"'()[]{}") for tok in str(user_message or "").lower().split()]
-  tokens = [tok for tok in raw_tokens if len(tok) >= 4]
+  min_len = 3 if str(support_data.get("current_field_key") or "") == "business_type" else 4
+  tokens = [tok for tok in raw_tokens if len(tok) >= min_len]
   if not tokens:
     return False
   return not any(tok in lowered for tok in tokens)
@@ -1161,7 +1216,33 @@ def _call_llm(
     "user_message": user_message,
     "support_data": support_data or {},
   }
+  flag_lines = []
+  try:
+    if isinstance(support_data, dict):
+      for key in ("current_field_key", "current_field_prompt"):
+        value = str(support_data.get(key) or "").strip()
+        if value:
+          flag_lines.append(f"{key}={value}")
+      for key in ("force_business_summary", "require_confirmation", "require_question"):
+        if support_data.get(key):
+          flag_lines.append(f"{key}=true")
+      hint = str(support_data.get("business_description_hint") or "").strip()
+      if hint:
+        flag_lines.append(f"business_description_hint={hint}")
+      hint_bt = str(support_data.get("business_type_hint") or "").strip()
+      hint_naics = str(support_data.get("naics_6_hint") or "").strip()
+      if hint_bt and hint_naics:
+        flag_lines.append(f"business_type_hint={hint_bt}")
+        flag_lines.append(f"naics_6_hint={hint_naics}")
+    biz_name = str((draft_state or {}).get("business_name") or "").strip()
+    if biz_name:
+      flag_lines.append(f"business_name={biz_name}")
+  except Exception:
+    flag_lines = []
+
   user_content = json.dumps(payload, ensure_ascii=True)
+  if flag_lines:
+    user_content = "IMPORTANT FLAGS:\n" + "\n".join(flag_lines) + "\n\n" + user_content
 
   response = client.chat.completions.create(
     model=model,
@@ -1331,6 +1412,22 @@ def post_intake_consult_handler(*, app, request):
     support_data["current_field_requires_confirmation"] = requires_confirmation
     if current_field_def:
       support_data["no_confirmation"] = not requires_confirmation
+      if str(current_field_def.get("special") or "").strip() == "business_type":
+        hint_text = _normalize_answer_text(user_message) or _last_substantive_user_message(messages_json)
+        if hint_text:
+          hint = _select_business_type_hint(
+            support_data.get("business_type_candidates"),
+            support_data.get("business_type_to_naics_6"),
+            hint_text,
+          )
+        else:
+          hint = None
+        if hint:
+          support_data["business_type_hint"] = hint[0]
+          support_data["naics_6_hint"] = hint[1]
+        last_business_description = hint_text
+        if last_business_description:
+          support_data["business_description_hint"] = last_business_description
 
     parsed_answer_value: Optional[Any] = None
     if (
@@ -1376,6 +1473,18 @@ def post_intake_consult_handler(*, app, request):
     else:
       conversation_only = True
       require_question = True
+    if (
+      current_field_def
+      and str(current_field_def.get("special") or "").strip() == "business_type"
+      and user_message.strip()
+      and not _is_acknowledgment(user_message)
+      and not _is_affirmative(user_message)
+      and not force_patch_only
+    ):
+      conversation_only = True
+      require_question = True
+      require_confirmation = True
+      support_data["force_business_summary"] = True
 
     if force_patch_only:
       support_data["force_patch_only"] = True
@@ -1416,6 +1525,18 @@ def post_intake_consult_handler(*, app, request):
           patch_target = current_model_key
           patch_payload = candidate_payload
           auto_persisted = True
+    if (
+      not auto_persisted
+      and current_field_def
+      and str(current_field_def.get("special") or "").strip() == "business_type"
+      and force_patch_only
+      and force_patch_reason == "business_type"
+    ):
+      candidate_payload = _fallback_business_type_patch(support_data)
+      if candidate_payload is not None:
+        patch_target = current_model_key
+        patch_payload = candidate_payload
+        auto_persisted = True
 
     if not auto_persisted:
       _log_event(app, event="llm_call_start", draft_id=draft_id, phase="initial")
@@ -1766,6 +1887,8 @@ def post_intake_consult_handler(*, app, request):
           retry_support_data["no_classification_exposure"] = True
           if patch_target or _requires_question(draft_state):
             retry_support_data["require_question"] = True
+          if chat_support_data.get("force_business_summary"):
+            retry_support_data["validation_error"] = "missing_business_summary"
           assistant_content_for_chat = _call_llm(
             messages_json=messages_json,
             draft_state=draft_state,
@@ -1790,7 +1913,7 @@ def post_intake_consult_handler(*, app, request):
         or _violates_no_confirmation(assistant_content_for_chat, chat_support_data)
         or needs_question
       ):
-        if violates_single:
+        if violates_single and not chat_support_data.get("force_business_summary"):
           fallback_prompt = str(chat_support_data.get("current_field_prompt") or "").strip()
           if fallback_prompt:
             assistant_content_for_chat = f"{fallback_prompt.rstrip('?')}?"
