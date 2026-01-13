@@ -99,6 +99,10 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
     for k, v in _value_schema_by_consult_field(consult_type="financials").items():
       add("financials", k, v)
 
+    # fulfillment
+    for k, v in _value_schema_by_consult_field(consult_type="fulfillment").items():
+      add("fulfillment", k, v)
+
     return schemas
 
   if consult_type_norm == "ops":
@@ -136,6 +140,12 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "total_debt_outstanding": {"type": "number"},
       "legal_entity": {"type": "string"},
       "confidence": {"type": "number"},
+    }
+
+  if consult_type_norm == "fulfillment":
+    return {
+      "time": {"type": "string"},
+      "personnel": {"type": "string"},
     }
 
   if consult_type_norm == "target_market":
@@ -601,6 +611,10 @@ def route_intent(
         "owner_compensation",
         "cash_on_hand",
       }],
+      *[f"fulfillment.{f}" for f in _value_schema_by_consult_field(consult_type="fulfillment").keys() if f in {
+        "time",
+        "personnel",
+      }],
     ],
   }[consult_type_norm]
 
@@ -667,10 +681,14 @@ Interpretation rules:
 - If the user's intent is clear, proceed confidently; do not re-ask for confirmation.
 - If the user disagrees or requests changes, treat it as edit_patch.
 - If the user is agreeing to a proposed fact update from the last assistant message, treat it as edit_patch and apply that update.
+- If the last assistant message described the fulfillment model (who performs it + typical timing) and the user agrees, set fulfillment.personnel and fulfillment.time accordingly.
 
 Unified mode:
 - If consult_type is "unified", patch fields must be scoped as "<group>.<field>" (e.g., "ops.unit_price", "financials.current_revenue", "business.name").
 - Only patch the specific intended facts; do not rewrite summaries.
+- Field hints:
+  - fulfillment.personnel = who performs the work (owner, staff, contractors, platform, etc.).
+  - fulfillment.time = typical timing/lead time (e.g., same-day, weekly cadence, 2-4 weeks).
 
 Return JSON only. No prose.
 """.strip()

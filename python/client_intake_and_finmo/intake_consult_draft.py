@@ -69,6 +69,7 @@ def ensure_table(conn) -> None:
         target_market_json LONGTEXT NULL,
         people_json LONGTEXT NULL,
         financials_json LONGTEXT NULL,
+        fulfillment_json JSON NULL,
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         completed_at DATETIME(6) NULL,
@@ -124,6 +125,8 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN people_json LONGTEXT NULL")
   if "financials_json" not in cols:
     alterations.append("ADD COLUMN financials_json LONGTEXT NULL")
+  if "fulfillment_json" not in cols:
+    alterations.append("ADD COLUMN fulfillment_json JSON NULL")
 
   if alterations:
     cur2 = conn.cursor()
@@ -211,6 +214,7 @@ def append_messages(
   target_market_json: Optional[Dict[str, Any]] = None,
   people_json: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
+  fulfillment_json: Optional[Dict[str, Any]] = None,
   active_focus: Optional[str] = None,
   confirmations: Optional[Dict[str, bool]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -250,6 +254,10 @@ def append_messages(
   if financials_json is not None:
     set_parts.append("financials_json = %s")
     values.append(json.dumps(financials_json, ensure_ascii=False))
+
+  if fulfillment_json is not None:
+    set_parts.append("fulfillment_json = %s")
+    values.append(json.dumps(fulfillment_json, ensure_ascii=False))
 
   if active_focus is not None:
     set_parts.append("active_focus = %s")
@@ -320,6 +328,7 @@ def append_messages(
       "target_market_json",
       "people_json",
       "financials_json",
+      "fulfillment_json",
       "created_at",
       "updated_at",
       "completed_at",

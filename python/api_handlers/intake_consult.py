@@ -186,7 +186,8 @@ def _apply_scoped_patch(
   market_json: Dict[str, Any],
   people_json: Dict[str, Any],
   financials_json: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  fulfillment_json: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   """
   Apply patch keys scoped as "<group>.<field>" into the canonical section objects.
   """
@@ -195,6 +196,7 @@ def _apply_scoped_patch(
   next_market = dict(market_json)
   next_people = dict(people_json)
   next_financials = dict(financials_json)
+  next_fulfillment = dict(fulfillment_json)
 
   for raw_key, value in (patch or {}).items():
     key = str(raw_key or "").strip()
@@ -229,8 +231,10 @@ def _apply_scoped_patch(
       next_people[field] = value
     elif group == "financials":
       next_financials[field] = value
+    elif group == "fulfillment":
+      next_fulfillment[field] = value
 
-  return next_business, next_ops, next_market, next_people, next_financials
+  return next_business, next_ops, next_market, next_people, next_financials, next_fulfillment
 
 
 def _fetch_target_market_mapping_rows(conn) -> List[Dict[str, Any]]:
@@ -378,6 +382,7 @@ def get_intake_consult_draft_handler(*, app, request):
         "target_market_json": draft.get("target_market_json"),
         "people_json": draft.get("people_json"),
         "financials_json": draft.get("financials_json"),
+        "fulfillment_json": draft.get("fulfillment_json"),
       }
     )
   finally:
@@ -443,6 +448,7 @@ def post_intake_consult_handler(*, app, request):
     market_json = _parse_json_dict(consult.get("target_market_json"))
     people_json = _parse_json_dict(consult.get("people_json"))
     financials_json = _parse_json_dict(consult.get("financials_json"))
+    fulfillment_json = _parse_json_dict(consult.get("fulfillment_json"))
 
     ops_confirmed = bool(consult.get("ops_confirmed"))
     market_confirmed = bool(consult.get("market_confirmed"))
@@ -505,6 +511,7 @@ def post_intake_consult_handler(*, app, request):
       "market": market_json,
       "people": people_json,
       "financials": financials_json,
+      "fulfillment": fulfillment_json,
     }
 
     if starting:
@@ -517,6 +524,7 @@ def post_intake_consult_handler(*, app, request):
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
         "shared_context": shared_context,
+        "fulfillment_json": fulfillment_json,
       }
 
       if focus == "ops":
@@ -616,13 +624,14 @@ def post_intake_consult_handler(*, app, request):
       )
 
     if action == "edit_patch" and patch:
-      business_facts, ops_json, market_json, people_json, financials_json = _apply_scoped_patch(
+      business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
         ops_json=ops_json,
         market_json=market_json,
         people_json=people_json,
         financials_json=financials_json,
+        fulfillment_json=fulfillment_json,
       )
       active_focus_out = focus
       status_out: str | None = None
@@ -767,6 +776,7 @@ def post_intake_consult_handler(*, app, request):
           "target_market_json": market_json,
           "people_json": people_json,
           "financials_json": financials_json,
+          "fulfillment_json": fulfillment_json,
         }
 
         followup_focus = active_focus_out if active_focus_out != "done" else focus
@@ -817,6 +827,7 @@ def post_intake_consult_handler(*, app, request):
         target_market_json=market_json,
         people_json=people_json,
         financials_json=financials_json,
+        fulfillment_json=fulfillment_json,
         active_focus=active_focus_out,
         business_facts=business_facts,
         consistency_passed=False,
@@ -980,6 +991,7 @@ def post_intake_consult_handler(*, app, request):
       "target_market_json": market_json,
       "people_json": people_json,
       "financials_json": financials_json,
+      "fulfillment_json": fulfillment_json,
     }
 
     if focus == "ops":
