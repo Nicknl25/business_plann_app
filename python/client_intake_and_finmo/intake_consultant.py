@@ -81,10 +81,43 @@ def _final_schema() -> Dict[str, Any]:
         },
         "business_type": {"type": "string"},
         "business_description_summary": {"type": "string"},
-        "unit_name": {"type": "string"},
-        "unit_description": {"type": "string"},
-        "units_per_week_capacity": {"type": "number"},
-        "unit_price": {"type": "number"},
+        "lob_models": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "lob_name": {"type": "string"},
+              "products": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": False,
+                  "properties": {
+                    "product_name": {"type": "string"},
+                    "unit_name": {"type": "string"},
+                    "unit_description": {"type": "string"},
+                    "units_per_week_capacity": {"type": "number"},
+                    "unit_price": {"type": "number"},
+                  },
+                  "required": [
+                    "product_name",
+                    "unit_name",
+                    "unit_description",
+                    "units_per_week_capacity",
+                    "unit_price",
+                  ],
+                },
+              },
+            },
+            "required": ["lob_name", "products"],
+          },
+        },
+        "unit_name": {"type": ["string", "null"]},
+        "unit_description": {"type": ["string", "null"]},
+        "units_per_week_capacity": {"type": ["number", "null"]},
+        "unit_price": {"type": ["number", "null"]},
         "shipping_method": {"type": "string"},
         "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
         "geographic_scope": {
@@ -119,6 +152,7 @@ def _final_schema() -> Dict[str, Any]:
         "consumer_type",
         "business_type",
         "business_description_summary",
+        "lob_models",
         "unit_name",
         "unit_description",
         "units_per_week_capacity",
@@ -171,7 +205,7 @@ def consultant_chat_turn(
   system = f"""
 You are a business consultant running an operational intake conversation.
 
-Goal: infer how the business works operationally and capture a single, agreed unit price.
+Goal: infer how the business works operationally and capture agreed unit pricing per product (single or multi-product).
 Early in the conversation, determine whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed).
 
 Forbidden topics (DO NOT ask about these): total revenue, employees, payroll, funding, marketing copy, or writing business-plan prose.
@@ -196,13 +230,21 @@ Business type classification (FIRST, REQUIRED):
 - Do not proceed to the rest of the operational intake until the client confirms the restatement.
 - Do NOT show the internal business type label or any dropdown/list. This is internal classification only.
 
+Multiple lines of business (LOB) and products (EARLY, REVENUE-DRIVEN):
+- A LOB means distinct operations. Listen for this in the first "what does the business do?" answer.
+- If multiple distinct operations are described or clearly implied, propose splitting them into separate LOBs and confirm in one short question before proceeding.
+- If the client prefers to keep them combined, treat it as a single LOB.
+- When defining the unit, if the client mentions more than one distinct unit/product, propose tracking multiple products and confirm.
+- If multiple LOBs/products are confirmed, capture unit_name, unit_description, unit_price, and units_per_week_capacity for each product, one product at a time.
+- Do NOT ask the client to choose a "primary" product when multiple are confirmed.
+
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
 - Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
 - The business type (selected internally from an existing list; never empty)
-- A clear definition of the unit (what is delivered and paid for once)
-- A short description of what's included in a typical unit
-- Weekly capacity (how many units can be handled in a fully booked week)
-- A single agreed average price per unit (> 0)
+- A clear definition of the unit for each product (what is delivered and paid for once)
+- A short description of what's included in a typical unit (per product)
+- Weekly capacity (how many units can be handled in a fully booked week, per product)
+- A single agreed average price per unit (> 0) for each product
 - How the customer receives the product/service (delivery/fulfillment/shipping method), explicitly chosen by the client
 - Sales channel modality: physical | online | hybrid
 - Geographic scope: local | regional | national | international
@@ -231,7 +273,7 @@ Existing assets, leased equipment, and value already put into the business (NEW 
 - Value already put into the business (not a future plan): ask for a rough total of money/value already put in (owner cash, investor money, owner-paid equipment/inventory/expenses the business relies on). Rough estimate is fine. If none/unsure, explicitly record 0 and say so.
 
 Unit price rules (STRICT):
-- The final unit_price must be explicitly agreed to by the client; you may not unilaterally assign it.
+- The final unit_price for each product must be explicitly agreed to by the client; you may not unilaterally assign it.
 - If the client doesn't know, you MAY propose a reasonable price (or a small range) based on the unit and context, and ask the client to confirm or counter.
 - If the client agrees only to a range, you must propose ONE specific number within the range and get explicit confirmation on that single number.
 - Never accept 0 as a unit price; if the user says 0, ask for a realistic non-zero price instead.
@@ -303,7 +345,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- Do NOT signal finalization until the client has explicitly agreed to a single unit_price number (>0) AND has explicitly chosen a shipping_method.
+- Do NOT signal finalization until the client has explicitly agreed to unit_price(s) for all products in scope AND has explicitly chosen a shipping_method.
 - When you are confident ALL required fields are complete, append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
@@ -381,6 +423,11 @@ Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or s
 - business_description_summary MUST use placeholders (not literal values) for any already-known ops facts it mentions, especially:
   {{fact:business.name}}, {{fact:ops.unit_name}}, {{fact:ops.unit_price}}, {{fact:ops.units_per_week_capacity}}, {{fact:ops.initial_assets}}, {{fact:ops.initial_lease}}, {{fact:ops.initial_equity}}, {{fact:ops.total_debt_outstanding}}, {{fact:ops.legal_entity}}.
 - Do NOT leave "blank" factual slots (e.g., "about  worth"). If a value is unknown or zero, still include the correct placeholder so the UI renders $0/none.
+Multi-LOB/products:
+- If the conversation confirms multiple LOBs and/or multiple products, populate lob_models accordingly.
+- For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_price, and units_per_week_capacity.
+- When multiple LOBs or multiple products are confirmed, set top-level unit_name, unit_description, unit_price, and units_per_week_capacity to null.
+- When only one LOB with one product is confirmed, set top-level unit fields to that single product.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

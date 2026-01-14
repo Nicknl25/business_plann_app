@@ -213,6 +213,7 @@ def insert_intake_submission(
     "initial_lease",
     "initial_equity",
     "operating_model_confidence",
+    "lob_models",
   ]
 
   required_in_db = {

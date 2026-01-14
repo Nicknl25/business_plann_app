@@ -139,6 +139,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "initial_equity": {"type": "number"},
       "total_debt_outstanding": {"type": "number"},
       "legal_entity": {"type": "string"},
+      "lob_models": {"type": ["array", "null"]},
       "confidence": {"type": "number"},
     }
 
@@ -524,6 +525,7 @@ def route_intent(
       "initial_equity",
       "total_debt_outstanding",
       "legal_entity",
+      "lob_models",
     ],
     "target_market": [
       "consumer_type",
@@ -581,6 +583,7 @@ def route_intent(
         "initial_equity",
         "total_debt_outstanding",
         "legal_entity",
+        "lob_models",
       }],
       *[f"market.{f}" for f in _value_schema_by_consult_field(consult_type="target_market").keys() if f in {
         "consumer_type",

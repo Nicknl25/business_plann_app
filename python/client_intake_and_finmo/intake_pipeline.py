@@ -242,6 +242,24 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   if not business_type or not str(business_type).strip():
     errors["business_type"] = "business_type is required"
 
+  lob_models = payload.get("lob_models")
+  if isinstance(lob_models, str):
+    try:
+      lob_models = json.loads(lob_models)
+    except Exception:
+      lob_models = None
+  is_multi_lob = False
+  if isinstance(lob_models, list) and lob_models:
+    if len(lob_models) > 1:
+      is_multi_lob = True
+    else:
+      try:
+        products = lob_models[0].get("products") if isinstance(lob_models[0], dict) else None
+        if isinstance(products, list) and len(products) > 1:
+          is_multi_lob = True
+      except Exception:
+        pass
+
   revenue_value = _parse_float(payload.get("current_revenue"))
   if revenue_value is None:
     errors["current_revenue"] = "current_revenue must be a number"
@@ -337,12 +355,8 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     row["founder_background"] = ""
 
   # Operating model (from GPT consultant finalization)
-  operating_required = (
+  operating_required = [
     "consumer_type",
-    "unit_name",
-    "unit_description",
-    "units_per_week_capacity",
-    "unit_price",
     "shipping_method",
     "sales_modality",
     "geographic_scope",
@@ -353,7 +367,16 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     "primary_growth_lever",
     "legal_entity",
     "business_description_summary",
-  )
+  ]
+  if not is_multi_lob:
+    operating_required.extend(
+      [
+        "unit_name",
+        "unit_description",
+        "units_per_week_capacity",
+        "unit_price",
+      ]
+    )
   for key in operating_required:
     if payload.get(key) is None or payload.get(key) == "":
       errors[key] = f"{key} is required"
@@ -404,19 +427,25 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     row["geographic_coverage"] = geo_cov
 
   # Validate numeric capacity
-  try:
-    row["units_per_week_capacity"] = float(payload.get("units_per_week_capacity"))
-  except Exception:
+  if payload.get("units_per_week_capacity") not in (None, ""):
+    try:
+      row["units_per_week_capacity"] = float(payload.get("units_per_week_capacity"))
+    except Exception:
+      errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
+  elif not is_multi_lob:
     errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
 
   # Validate numeric unit price
-  try:
-    row["unit_price"] = float(payload.get("unit_price"))
-  except Exception:
+  if payload.get("unit_price") not in (None, ""):
+    try:
+      row["unit_price"] = float(payload.get("unit_price"))
+    except Exception:
+      errors["unit_price"] = "unit_price must be a number"
+    else:
+      if row["unit_price"] <= 0:
+        errors["unit_price"] = "unit_price must be greater than 0"
+  elif not is_multi_lob:
     errors["unit_price"] = "unit_price must be a number"
-  else:
-    if row["unit_price"] <= 0:
-      errors["unit_price"] = "unit_price must be greater than 0"
 
   # Operating assets / leases (captured conversationally; default to non-null values).
   assets_raw = payload.get("initial_assets")
