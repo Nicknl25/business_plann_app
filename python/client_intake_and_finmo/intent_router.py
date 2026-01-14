@@ -241,6 +241,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
         },
       },
       "target_market_summary": {"type": "string"},
+      "marketing_plan_summary": {"type": "string"},
       "confidence": {"type": "number"},
     }
 
@@ -533,6 +534,7 @@ def route_intent(
       "b2b_naics_6",
       "b2b_size_bands",
       "b2b_age_bands",
+      "marketing_plan_summary",
     ],
     "people": [
       "people",
@@ -589,6 +591,7 @@ def route_intent(
         "b2b_naics_6",
         "b2b_size_bands",
         "b2b_age_bands",
+        "marketing_plan_summary",
       }],
       *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys() if f in {
         "people",

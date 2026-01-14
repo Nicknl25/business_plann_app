@@ -196,6 +196,7 @@ def _final_schema() -> Dict[str, Any]:
           },
         },
         "target_market_summary": {"type": "string"},
+        "marketing_plan_summary": {"type": "string"},
         "confidence": {"type": "number"},
       },
       "required": [
@@ -208,6 +209,7 @@ def _final_schema() -> Dict[str, Any]:
         "b2b_size_bands",
         "b2b_age_bands",
         "target_market_summary",
+        "marketing_plan_summary",
         "confidence",
       ],
     },
@@ -272,13 +274,12 @@ Rules:
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 
-Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
-- After target market segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
-- Present a short proposed statement for confirmation (ONE question only), like:
-  "This is how customers are typically reached - does this sound right?"
-- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated proposed model and confirm again.
+Marketing plan (INFER THEN CONFIRM):
+- After target market segments are decided, infer a short marketing plan (1-2 primary channels + acquisition approach) based on the confirmed target market and business context.
+- Present a brief proposed statement and ask ONE question for confirmation or tweaks (no rigid yes/no).
+- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated plan and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics. Keep it high-level and realistic.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+- Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -294,7 +295,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the marketing plan has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
   """.strip()
 
   consumer_type = str(intake_context.get("consumer_type") or "consumer").strip().lower()
@@ -336,12 +337,12 @@ Rules:
 - Firm age must use these bands (the client may pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 
-Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
-- After the B2B firmographic segments are decided, infer 1-2 primary ways businesses like this typically reach target organizations (e.g., referrals, partnerships, outbound, industry networks).
-- Present a short proposed statement for confirmation (ONE question only).
+Marketing plan (INFER THEN CONFIRM):
+- After the B2B firmographic segments are decided, infer a short marketing plan (1-2 primary channels + acquisition approach) based on the confirmed target market and business context.
+- Present a brief proposed statement and ask ONE question for confirmation or tweaks (no rigid yes/no).
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+- Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -357,7 +358,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all three segments decided AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all three segments decided AND the marketing plan has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   system_mixed = f"""
@@ -413,12 +414,12 @@ Rules:
 - For B2B age, use only these bands (pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For B2B industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 
-Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
-- After both the consumer and B2B target segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
-- Present a short proposed statement for confirmation (ONE question only).
+Marketing plan (INFER THEN CONFIRM):
+- After both the consumer and B2B target segments are decided, infer a short marketing plan (1-2 primary channels + acquisition approach) based on the confirmed target market and business context.
+- Present a brief proposed statement and ask ONE question for confirmation or tweaks (no rigid yes/no).
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+- Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -434,7 +435,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the marketing plan has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   if consumer_type == "b2b":
@@ -510,7 +511,8 @@ Field rules by mode:
 - If consumer_type is b2b: set gender_age_intent, income_intent, selections to null and populate b2b_industry_terms, b2b_naics_6, b2b_size_bands, b2b_age_bands.
 - If consumer_type is mixed: populate all consumer demographic fields AND all B2B fields.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across segments.
-- Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
+- marketing_plan_summary must be a short, practical plan (1-2 primary channels + acquisition approach) based on what the client confirmed. Keep it high-level; no budgets, platforms, or tactics.
+- Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 - The mapping table includes min_value and max_value (numeric) for some rows (notably Gender & Age and Income). Use them to be precise:
   - When the client specifies a numeric range (e.g., age 19-58 or income $40k-$120k), select ALL mapping rows whose [min_value, max_value] overlaps that intended range.
@@ -549,7 +551,8 @@ Return ONLY JSON matching the provided schema. No prose.
     - b2b_age_bands: one or more firm-age bands from the allowed list only. If the client says "all ages" / "all firm ages", include every allowed age band.
 - Do not invent new bands. Do not include any values outside the allowed enums.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across the B2B segments.
-- Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
+- marketing_plan_summary must be a short, practical plan (1-2 primary channels + acquisition approach) based on what the client confirmed. Keep it high-level; no budgets, platforms, or tactics.
+- Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
 Edit mode (if intake_context.edit_mode is true):
@@ -579,7 +582,8 @@ Hard requirements:
   - b2b_size_bands and b2b_age_bands must use allowed values only (no inventions). If the client indicates "all sizes" or "all ages", include all allowed bands for that dimension.
   - Businesses are not people: do NOT add any people-based demographic targeting for B2B.
 - target_market_summary must be one comprehensive paragraph that reflects BOTH the consumer and B2B targeting (without listing raw codes).
-- Include a brief promotion/acquisition model in target_market_summary (1-2 primary channels) based on what the client confirmed in the consult. Keep it high-level; no budgets, platforms, or tactics.
+- marketing_plan_summary must be a short, practical plan (1-2 primary channels + acquisition approach) based on what the client confirmed. Keep it high-level; no budgets, platforms, or tactics.
+- Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
 Edit mode (if intake_context.edit_mode is true):
