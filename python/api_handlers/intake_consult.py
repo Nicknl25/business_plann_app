@@ -526,6 +526,11 @@ def post_intake_consult_handler(*, app, request):
         "shared_context": shared_context,
         "fulfillment_json": fulfillment_json,
       }
+      if focus == "market":
+        consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+        if consumer_type not in ("consumer", "b2b", "mixed"):
+          consumer_type = "consumer"
+        intake_context["consumer_type"] = consumer_type
 
       if focus == "ops":
         assistant_text = consultant_chat_turn(
@@ -782,6 +787,11 @@ def post_intake_consult_handler(*, app, request):
         }
 
         followup_focus = active_focus_out if active_focus_out != "done" else focus
+        if followup_focus == "market":
+          consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+          if consumer_type not in ("consumer", "b2b", "mixed"):
+            consumer_type = "consumer"
+          intake_context_followup["consumer_type"] = consumer_type
 
         if followup_focus == "ops":
           followup_turn = consultant_chat_turn(
@@ -1005,6 +1015,11 @@ def post_intake_consult_handler(*, app, request):
       "financials_json": financials_json,
       "fulfillment_json": fulfillment_json,
     }
+    if focus == "market":
+      consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+      if consumer_type not in ("consumer", "b2b", "mixed"):
+        consumer_type = "consumer"
+      intake_context["consumer_type"] = consumer_type
 
     if focus == "ops":
       turn = consultant_chat_turn(
