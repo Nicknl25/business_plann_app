@@ -683,6 +683,15 @@ Interpretation rules:
 - If the user is agreeing to a proposed fact update from the last assistant message, treat it as edit_patch and apply that update.
 - If the last assistant message described the fulfillment model (who performs it + typical timing) and the user agrees, set fulfillment.personnel and fulfillment.time accordingly.
 
+Consistency inference (active_focus == "consistency"):
+- If the last assistant message offered reconciliation choices (A/B/C or similar) and the user picks one
+  (letter, short phrase, or a clear paraphrase), return edit_patch and apply the implied update.
+- Use baseline_json values for amounts when available (especially financials.other_operating_expense).
+- A / personal funds / owner funding -> increase ops.initial_equity by that amount (add to existing ops.initial_equity if numeric).
+- B / card / loan / debt / payable -> set financials.ap_balance to that amount (use financials.total_debt_outstanding only if the user explicitly says loan/debt).
+- C / not spent / change expenses to 0 -> set financials.other_operating_expense to 0.
+- Do NOT ask for confirmation in this case; acknowledge and apply.
+
 Unified mode:
 - If consult_type is "unified", patch fields must be scoped as "<group>.<field>" (e.g., "ops.unit_price", "financials.current_revenue", "business.name").
 - Only patch the specific intended facts; do not rewrite summaries.

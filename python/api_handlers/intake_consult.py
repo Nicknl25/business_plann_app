@@ -635,6 +635,8 @@ def post_intake_consult_handler(*, app, request):
       )
       active_focus_out = focus
       status_out: str | None = None
+      consistency_passed_out = False
+      completed_out = False
 
       # Always echo the latest relevant summary templates after an edit so the user
       # doesn't have to scroll to see the updated current-state narrative.
@@ -803,6 +805,11 @@ def post_intake_consult_handler(*, app, request):
           followup_turn = consistency_chat_turn(
             intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
           )
+          if bool(followup_turn.get("finalize_ready", False)):
+            consistency_passed_out = True
+            completed_out = True
+            active_focus_out = "done"
+            status_out = "completed"
         else:
           followup_turn = {"assistant_message": ""}
 
@@ -814,6 +821,9 @@ def post_intake_consult_handler(*, app, request):
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
           else:
             assistant_text = followup_text
+        if consistency_passed_out:
+          if 'Click "Submit intake"' not in assistant_text:
+            assistant_text = f'{assistant_text}\n\nClick "Submit intake" to finish.'.strip()
 
       assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
       if focus == "market":
@@ -830,10 +840,12 @@ def post_intake_consult_handler(*, app, request):
         fulfillment_json=fulfillment_json,
         active_focus=active_focus_out,
         business_facts=business_facts,
-        consistency_passed=False,
+        consistency_passed=consistency_passed_out,
         status=status_out,
+        completed=completed_out,
       )
 
+      action_out = "consistency_passed" if active_focus_out == "done" else "edit_patch"
       return jsonify(
         {
           "status": "ok",
@@ -841,8 +853,8 @@ def post_intake_consult_handler(*, app, request):
           "client_id": client_id,
           "active_focus": active_focus_out,
           "awaiting_confirmation": bool(confirm_question),
-          "done": False,
-          "action": "edit_patch",
+          "done": bool(active_focus_out == "done"),
+          "action": action_out,
           "assistant_message": assistant_text,
         }
       )
