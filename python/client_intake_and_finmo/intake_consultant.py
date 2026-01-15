@@ -80,6 +80,7 @@ def _final_schema() -> Dict[str, Any]:
           "enum": ["consumer", "b2b", "mixed"],
         },
         "business_type": {"type": "string"},
+        "business_stage": {"type": ["string", "null"]},
         "business_description_summary": {"type": "string"},
         "lob_models": {
           "type": ["array", "null"],
@@ -151,6 +152,7 @@ def _final_schema() -> Dict[str, Any]:
       "required": [
         "consumer_type",
         "business_type",
+        "business_stage",
         "business_description_summary",
         "lob_models",
         "unit_name",
@@ -230,6 +232,19 @@ Business type classification (FIRST, REQUIRED):
 - Do not proceed to the rest of the operational intake until the client confirms the restatement.
 - Do NOT show the internal business type label or any dropdown/list. This is internal classification only.
 
+Business stage inference (RIGHT AFTER BUSINESS TYPE CONFIRMATION):
+- If business_stage_hint is provided in context, use it directly.
+- Otherwise, use the business_start_date provided in context (the date the client entered) to infer stage.
+- Use current_date provided in context to judge timing.
+- Stage rules:
+  - If business_start_date is in the future -> pre-revenue.
+  - If business_start_date is within the last 12 months -> early-stage.
+  - If business_start_date is more than 12 months ago -> operating.
+- After the business type restatement is confirmed and BEFORE asking who they serve, state a short assumption using this format:
+  "Based on the start date you provided, I'm treating this as <stage> for planning context."
+  Add: "If that's off, tell me and I'll adjust."
+- Do not ask the client to supply any extra cues about stage.
+
 Multiple lines of business (LOB) and products (EARLY, REVENUE-DRIVEN):
 - A LOB means distinct operations. Listen for this in the first "what does the business do?" answer.
 - If multiple distinct operations are described or clearly implied, propose splitting them into separate LOBs and confirm in one short question before proceeding.
@@ -241,6 +256,7 @@ Multiple lines of business (LOB) and products (EARLY, REVENUE-DRIVEN):
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
 - Whether the business primarily sells to consumers, businesses, or both (consumer | b2b | mixed)
 - The business type (selected internally from an existing list; never empty)
+- Business stage inferred from the provided start date (pre-revenue | early-stage | operating), or null if no start date
 - A clear definition of the unit for each product (what is delivered and paid for once)
 - A short description of what's included in a typical unit (per product)
 - Weekly capacity (how many units can be handled in a fully booked week, per product)
@@ -392,6 +408,13 @@ Return ONLY JSON matching the provided schema. No prose.
 Do not estimate or invent values.
 consumer_type must be exactly one of: consumer, b2b, mixed, reflecting whether the business primarily sells to consumers, businesses, or both.
 business_type must be chosen from the business_type_candidates list provided in the current context JSON; choose exactly one and do not invent new categories.
+business_stage rules:
+- If business_stage_hint is provided in context, use it directly.
+- Otherwise, use business_start_date (from context) and current_date (from context) to infer stage:
+  - future start date -> pre-revenue
+  - within last 12 months -> early-stage
+  - more than 12 months ago -> operating
+- If business_start_date or current_date is missing/invalid, set business_stage = null.
 For legal_entity, use a short label only (Sole proprietor, LLC, LLP, S-corp, C-corp, Partnership). If the client is unsure, default to "Sole proprietor".
 
 Edit mode (IMPORTANT):

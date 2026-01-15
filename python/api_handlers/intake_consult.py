@@ -1,4 +1,5 @@
 import json
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
@@ -43,6 +44,41 @@ def _strip_acs_codes(text: str) -> str:
     return re.sub(r"\b[A-Z]\d{5}_\d{3}E\b", "[ACS code redacted]", text)
   except Exception:
     return text
+
+
+def _parse_date(value: Any) -> Optional[date]:
+  if value is None:
+    return None
+  if isinstance(value, datetime):
+    return value.date()
+  if isinstance(value, date):
+    return value
+  raw = str(value).strip()
+  if not raw:
+    return None
+  try:
+    return datetime.fromisoformat(raw).date()
+  except ValueError:
+    pass
+  for fmt in ("%m/%d/%Y", "%m-%d-%Y"):
+    try:
+      return datetime.strptime(raw, fmt).date()
+    except ValueError:
+      continue
+  return None
+
+
+def _infer_business_stage(start_date_raw: Any, current_date: Optional[date] = None) -> Optional[str]:
+  start_date = _parse_date(start_date_raw)
+  if start_date is None:
+    return None
+  today = current_date or datetime.utcnow().date()
+  if start_date > today:
+    return "pre-revenue"
+  delta_days = (today - start_date).days
+  if delta_days <= 365:
+    return "early-stage"
+  return "operating"
 
 
 def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
@@ -491,6 +527,10 @@ def post_intake_consult_handler(*, app, request):
       if val:
         business_facts[key] = val
 
+    current_date = datetime.utcnow().date()
+    current_date_iso = current_date.isoformat()
+    business_stage_hint = _infer_business_stage(business_facts.get("start_date"), current_date)
+
     focus, confirm_question = _compute_focus_and_confirm_question(
       ops_json=ops_json,
       market_json=market_json,
@@ -523,6 +563,8 @@ def post_intake_consult_handler(*, app, request):
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "current_date": current_date_iso,
+        "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
         "fulfillment_json": fulfillment_json,
       }
@@ -778,6 +820,8 @@ def post_intake_consult_handler(*, app, request):
           "address_state": payload.get("address_state"),
           "address_zip": payload.get("address_zip"),
           "address_country": payload.get("address_country"),
+          "current_date": current_date_iso,
+          "business_stage_hint": business_stage_hint,
           "shared_context": shared_context_live,
           "operating_model_json": ops_json,
           "target_market_json": market_json,
@@ -811,7 +855,7 @@ def post_intake_consult_handler(*, app, request):
           )
         elif followup_focus == "consistency":
           if assistant_text:
-            assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I’m going to re-run a brief consistency check to make sure everything still lines up.".strip()
+            assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I'm going to re-run a brief consistency check to make sure everything still lines up.".strip()
           followup_turn = consistency_chat_turn(
             intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
           )
@@ -882,6 +926,8 @@ def post_intake_consult_handler(*, app, request):
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "current_date": current_date_iso,
+        "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
       }
 
@@ -906,19 +952,19 @@ def post_intake_consult_handler(*, app, request):
           intake_context=intake_context_next, conversation_messages=turn_messages
         )["assistant_message"]
       elif next_focus == "done":
-        next_assistant = "Great — you're ready to submit your intake."
+        next_assistant = "Great, you're ready to submit your intake."
       else:
         next_assistant = "Continue."
 
       transition = ""
       if next_focus == "market":
-        transition = "Great — let’s move on to Target Market."
+        transition = "Great, let's move on to Target Market."
       elif next_focus == "people":
-        transition = "Great — let’s move on to Human Resources."
+        transition = "Great, let's move on to Human Resources."
       elif next_focus == "financials":
-        transition = "Great — let’s move on to Financials."
+        transition = "Great, let's move on to Financials."
       elif next_focus == "consistency":
-        transition = "Great — I’m going to do a quick consistency check before submission."
+        transition = "Great, I'm going to do a quick consistency check before submission."
       if transition:
         next_assistant = f"{transition}\n\n{next_assistant}".strip() if next_assistant else transition
 
@@ -1008,6 +1054,8 @@ def post_intake_consult_handler(*, app, request):
       "address_state": payload.get("address_state"),
       "address_zip": payload.get("address_zip"),
       "address_country": payload.get("address_country"),
+      "current_date": current_date_iso,
+      "business_stage_hint": business_stage_hint,
       "shared_context": shared_context,
       "operating_model_json": ops_json,
       "target_market_json": market_json,
