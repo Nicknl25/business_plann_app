@@ -275,6 +275,23 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
         },
       },
       "key_people_summary": {"type": "string"},
+      "inferred_roles": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "role_title": {"type": "string"},
+            "annual_wage": {"type": ["number", "null"]},
+            "wage_source": {"type": "string"},
+            "notes": {"type": "string"},
+          },
+          "required": ["role_title", "annual_wage", "wage_source", "notes"],
+        },
+      },
+      "inferred_roles_summary": {"type": "string"},
+      "business_naics_6": {"type": ["string", "null"]},
       "confidence": {"type": "number"},
     }
 

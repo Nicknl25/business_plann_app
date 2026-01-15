@@ -95,6 +95,40 @@ def _trim_after_first_question_block(text: str) -> str:
   return text[: match.start()].rstrip()
 
 
+_MAX_RESPONSE_CHARS = 1600
+
+
+def _split_long_response(text: str) -> str:
+  trimmed = text.strip()
+  if len(trimmed) <= _MAX_RESPONSE_CHARS:
+    return trimmed
+  if trimmed.endswith("Continue?"):
+    return trimmed
+
+  snippet = trimmed[:_MAX_RESPONSE_CHARS]
+  matches = list(re.finditer(r"[.!?](?:\\s|$)", snippet))
+  boundary = None
+  if matches:
+    for match in reversed(matches):
+      if snippet[match.start()] in ".!":
+        boundary = match.end()
+        break
+    if boundary is None:
+      boundary = matches[-1].end()
+  if boundary:
+    cut = snippet[:boundary].rstrip()
+  else:
+    cut = snippet.rsplit("\n", 1)[0].rstrip()
+
+  lines = cut.splitlines()
+  while lines and lines[-1].strip().endswith("?"):
+    lines.pop()
+  cut = "\n".join(lines).rstrip()
+  if not cut:
+    cut = snippet.rstrip()
+  return f"{cut}\n\nContinue?"
+
+
 def _final_schema() -> Dict[str, Any]:
   return {
     "name": "intake_target_market_final",
@@ -280,6 +314,9 @@ Marketing plan (INFER THEN CONFIRM):
 - If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated plan and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics. Keep it high-level and realistic.
 - Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
+- If the marketing plan response would be long (more than 2 short paragraphs or ~10 bullets), split it into two parts:
+  - Part 1 ends with "Continue?" and MUST NOT include the confirmation question.
+  - After the user continues, provide Part 2 and include the confirmation question.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -343,6 +380,9 @@ Marketing plan (INFER THEN CONFIRM):
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
 - Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
+- If the marketing plan response would be long (more than 2 short paragraphs or ~10 bullets), split it into two parts:
+  - Part 1 ends with "Continue?" and MUST NOT include the confirmation question.
+  - After the user continues, provide Part 2 and include the confirmation question.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -420,6 +460,9 @@ Marketing plan (INFER THEN CONFIRM):
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
 - Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
+- If the marketing plan response would be long (more than 2 short paragraphs or ~10 bullets), split it into two parts:
+  - Part 1 ends with "Continue?" and MUST NOT include the confirmation question.
+  - After the user continues, provide Part 2 and include the confirmation question.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -470,6 +513,7 @@ Output rules:
   text = text.replace(FINALIZE_TOKEN, "").strip()
   if not finalize_ready:
     text = _trim_after_first_question_block(text)
+    text = _split_long_response(text)
   return {"assistant_message": text, "finalize_ready": finalize_ready}
 
 

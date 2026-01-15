@@ -687,10 +687,14 @@ def post_intake_consult_handler(*, app, request):
 
       # Always echo the latest relevant summary templates after an edit so the user
       # doesn't have to scroll to see the updated current-state narrative.
+      people_summary = str((people_json or {}).get("key_people_summary") or "").strip()
+      roles_summary = str((people_json or {}).get("inferred_roles_summary") or "").strip()
+      if roles_summary:
+        people_summary = f"{people_summary}\n\n{roles_summary}".strip()
       summary_by_group: Dict[str, str] = {
         "ops": str((ops_json or {}).get("business_description_summary") or "").strip(),
         "market": str((market_json or {}).get("target_market_summary") or "").strip(),
-        "people": str((people_json or {}).get("key_people_summary") or "").strip(),
+        "people": people_summary,
         "financials": str((financials_json or {}).get("financials_summary") or "").strip(),
       }
       changed_groups: List[str] = []
@@ -1096,6 +1100,47 @@ def post_intake_consult_handler(*, app, request):
     if focus == "market":
       assistant_text = _strip_acs_codes(assistant_text)
 
+    if focus == "people" and bool(turn.get("review_ready", False)):
+      try:
+        from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+        from intake_business_types import get_naics_from_business_type  # type: ignore
+
+        preview_obj = people_capability_finalize(
+          intake_context=intake_context,
+          conversation_messages=[*messages, user_msg, {"role": "assistant", "content": assistant_text}],
+        )
+        roles = preview_obj.get("inferred_roles") if isinstance(preview_obj, dict) else None
+        roles = roles if isinstance(roles, list) else []
+        enriched_roles = apply_oews_wages(
+          conn,
+          roles=roles,
+          business_type=ops_json.get("business_type"),
+          business_stage=ops_json.get("business_stage"),
+          address_state=business_facts.get("address_state"),
+          address=business_facts.get("address"),
+        )
+        try:
+          preview_obj["business_naics_6"] = get_naics_from_business_type(conn, ops_json.get("business_type"))
+        except Exception:
+          preview_obj["business_naics_6"] = None
+        base_text = assistant_text
+        base_lines = base_text.splitlines()
+        cut_idx = None
+        for i in range(len(base_lines) - 1, -1, -1):
+          if "?" in base_lines[i]:
+            cut_idx = i
+            break
+        if cut_idx is not None:
+          base_lines = base_lines[:cut_idx]
+        base_text = "\n".join(base_lines).strip()
+        roles_summary = format_roles_summary(enriched_roles)
+        if roles_summary:
+          base_text = f"{base_text}\n\n{roles_summary}".strip()
+        assistant_text = f"{base_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+        assistant_text = sanitize_fact_template(assistant_text)
+      except Exception:
+        pass
+
     finalize_ready = bool(turn.get("finalize_ready", False))
 
     # Safety: avoid dead-end assistant replies with no next question.
@@ -1278,9 +1323,40 @@ def post_intake_consult_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      try:
+        from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+        from intake_business_types import get_naics_from_business_type  # type: ignore
+
+        roles = final_obj.get("inferred_roles") if isinstance(final_obj, dict) else None
+        roles = roles if isinstance(roles, list) else []
+        enriched_roles = apply_oews_wages(
+          conn,
+          roles=roles,
+          business_type=ops_json.get("business_type"),
+          business_stage=ops_json.get("business_stage"),
+          address_state=business_facts.get("address_state"),
+          address=business_facts.get("address"),
+        )
+        try:
+          final_obj["business_naics_6"] = get_naics_from_business_type(conn, ops_json.get("business_type"))
+        except Exception:
+          if "business_naics_6" not in final_obj:
+            final_obj["business_naics_6"] = None
+        final_obj["inferred_roles"] = enriched_roles
+        final_obj["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+      except Exception:
+        if "inferred_roles" not in final_obj:
+          final_obj["inferred_roles"] = []
+        if "inferred_roles_summary" not in final_obj:
+          final_obj["inferred_roles_summary"] = ""
+        if "business_naics_6" not in final_obj:
+          final_obj["business_naics_6"] = None
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
       summary_text = _upgrade_summary_if_needed("people", summary_text)
       final_obj["key_people_summary"] = summary_text
+      roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
+      if roles_summary:
+        summary_text = f"{summary_text}\n\n{roles_summary}".strip()
       assistant_final = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
       people_json = final_obj
       people_json_out = final_obj
@@ -1295,7 +1371,9 @@ def post_intake_consult_handler(*, app, request):
       summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
       summary_text = _upgrade_summary_if_needed("financials", summary_text)
       final_obj["financials_summary"] = summary_text
-      assistant_final = f"{summary_text}\n\n{FIN_CONFIRM_QUESTION}".strip()
+      assistant_final = str(assistant_text or "").strip()
+      if not assistant_final:
+        assistant_final = summary_text
       financials_json = final_obj
       financials_json_out = final_obj
       market_json_out = None

@@ -46,6 +46,15 @@ def _validate_final(final_obj: Dict[str, Any]) -> None:
       raise RuntimeError("people.role_title is required.")
     if not str(p.get("paragraph") or "").strip():
       raise RuntimeError("people.paragraph is required.")
+  inferred_roles = final_obj.get("inferred_roles")
+  if inferred_roles is not None:
+    if not isinstance(inferred_roles, list):
+      raise RuntimeError("inferred_roles must be an array.")
+    for r in inferred_roles:
+      if not isinstance(r, dict):
+        raise RuntimeError("inferred_roles items must be objects.")
+      if not str(r.get("role_title") or "").strip():
+        raise RuntimeError("inferred_roles.role_title is required.")
 
 
 def post_people_capability_session_handler(*, app, request):
@@ -241,6 +250,9 @@ def post_people_capability_handler(*, app, request):
           }
 
           summary_for_ui = str(updated_people.get("key_people_summary") or "").strip()
+          roles_summary = str(updated_people.get("inferred_roles_summary") or "").strip()
+          if roles_summary:
+            summary_for_ui = f"{summary_for_ui}\n\n{roles_summary}".strip()
           ack = assistant_message or "Got it."
           assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
           assistant_message = sanitize_fact_template(assistant_message)
@@ -278,6 +290,7 @@ def post_people_capability_handler(*, app, request):
         "shared_context": shared_context,
         "business_name": (str(business_name).strip() if business_name else None),
         "business_type": (str(business_type).strip() if business_type else None),
+        "business_stage": operating_model.get("business_stage"),
         "business_description_summary": operating_model.get("business_description_summary"),
         "unit_name": operating_model.get("unit_name"),
         "unit_price": operating_model.get("unit_price"),
@@ -292,6 +305,44 @@ def post_people_capability_handler(*, app, request):
 
       assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
       finalize_ready = bool(turn.get("finalize_ready", False))
+      review_ready = bool(turn.get("review_ready", False))
+
+      if review_ready and not finalize_ready:
+        try:
+          from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+          from intake_business_types import get_naics_from_business_type  # type: ignore
+
+          preview_obj = people_capability_finalize(
+            intake_context=context,
+            conversation_messages=[*history, user_msg, {"role": "assistant", "content": assistant_text}],
+          )
+          roles = preview_obj.get("inferred_roles") if isinstance(preview_obj, dict) else None
+          roles = roles if isinstance(roles, list) else []
+          enriched_roles = apply_oews_wages(
+            conn,
+            roles=roles,
+            business_type=(operating_model.get("business_type") or business_type),
+            business_stage=operating_model.get("business_stage"),
+            address_state=consult.get("address_state"),
+            address=consult.get("address"),
+          )
+          base_text = assistant_text
+          base_lines = base_text.splitlines()
+          cut_idx = None
+          for i in range(len(base_lines) - 1, -1, -1):
+            if "?" in base_lines[i]:
+              cut_idx = i
+              break
+          if cut_idx is not None:
+            base_lines = base_lines[:cut_idx]
+          base_text = "\n".join(base_lines).strip()
+          roles_summary = format_roles_summary(enriched_roles)
+          if roles_summary:
+            base_text = f"{base_text}\n\n{roles_summary}".strip()
+          assistant_text = f"{base_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+          assistant_text = sanitize_fact_template(assistant_text)
+        except Exception:
+          pass
 
       if not finalize_ready:
         assistant_msg = {"role": "assistant", "content": assistant_text}
@@ -319,9 +370,42 @@ def post_people_capability_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      try:
+        from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+        from intake_business_types import get_naics_from_business_type  # type: ignore
+
+        roles = final_obj.get("inferred_roles") if isinstance(final_obj, dict) else None
+        roles = roles if isinstance(roles, list) else []
+        enriched_roles = apply_oews_wages(
+          conn,
+          roles=roles,
+          business_type=(operating_model.get("business_type") or business_type),
+          business_stage=operating_model.get("business_stage"),
+          address_state=consult.get("address_state"),
+          address=consult.get("address"),
+        )
+        try:
+          final_obj["business_naics_6"] = get_naics_from_business_type(
+            conn, operating_model.get("business_type") or business_type
+          )
+        except Exception:
+          if "business_naics_6" not in final_obj:
+            final_obj["business_naics_6"] = None
+        final_obj["inferred_roles"] = enriched_roles
+        final_obj["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+      except Exception:
+        if "inferred_roles" not in final_obj:
+          final_obj["inferred_roles"] = []
+        if "inferred_roles_summary" not in final_obj:
+          final_obj["inferred_roles_summary"] = ""
+        if "business_naics_6" not in final_obj:
+          final_obj["business_naics_6"] = None
       _validate_final(final_obj)
 
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
+      roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
+      if roles_summary:
+        summary_text = f"{summary_text}\n\n{roles_summary}".strip()
       assistant_message = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}

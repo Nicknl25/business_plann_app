@@ -10,6 +10,7 @@ import requests
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 FINALIZE_TOKEN = "[[FINALIZE_READY]]"
+REVIEW_TOKEN = "[[PEOPLE_REVIEW]]"
 
 
 def _load_root_env() -> None:
@@ -113,9 +114,33 @@ def _final_schema() -> Dict[str, Any]:
           },
         },
         "key_people_summary": {"type": "string"},
+        "inferred_roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "role_title": {"type": "string"},
+              "annual_wage": {"type": ["number", "null"]},
+              "wage_source": {"type": "string"},
+              "notes": {"type": "string"},
+            },
+            "required": ["role_title", "annual_wage", "wage_source", "notes"],
+          },
+        },
+        "inferred_roles_summary": {"type": "string"},
+        "business_naics_6": {"type": ["string", "null"]},
         "confidence": {"type": "number"},
       },
-      "required": ["people", "key_people_summary", "confidence"],
+      "required": [
+        "people",
+        "key_people_summary",
+        "inferred_roles",
+        "inferred_roles_summary",
+        "business_naics_6",
+        "confidence",
+      ],
     },
   }
 
@@ -175,6 +200,11 @@ Flow:
 4) Final review (single confirmation step):
    - When the client says they are done adding people, present ALL final paragraphs together (no duplicates).
    - Ask for edits across the full set. Only finalize once they approve the full set.
+5) Role coverage (after key people are approved):
+   - Infer a short list of additional roles typically needed for the operating model, LOBs/products, capacity, and stage.
+   - Do NOT ask the client for salaries.
+   - Present roles with brief reasons and note that estimated wages will be included for confirmation.
+   - Ask for tweaks at a high level (add/remove/rename roles), then proceed.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -191,6 +221,8 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
+- When you present the full review for confirmation (before final approval), append the token
+  {REVIEW_TOKEN} on its own line at the very end of your message.
 - Only when the client explicitly approves the full set of drafted paragraph(s), append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
@@ -215,8 +247,9 @@ Output rules:
 
   text = _parse_responses_text(resp.json())
   finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  review_ready = REVIEW_TOKEN in text
+  text = text.replace(FINALIZE_TOKEN, "").replace(REVIEW_TOKEN, "").strip()
+  return {"assistant_message": text, "finalize_ready": finalize_ready, "review_ready": review_ready}
 
 
 def people_capability_finalize(
@@ -239,6 +272,13 @@ Hard requirements:
 - people must contain one object per person included by the client. Do not invent people.
 - paragraph must be professional, credibility-focused, and tie the person to execution capability.
 - key_people_summary must be a concatenation of the per-person paragraphs in a clear order (separated by blank lines).
+- inferred_roles must be a short list (1-4) of additional roles likely needed in year 1 based on the operating model, LOBs/products, capacity, and stage.
+  - Do NOT include the already-listed key people in inferred_roles.
+  - Each role must include a short "notes" explanation of why it is needed (plain language, 1 sentence).
+  - annual_wage can be null if unknown; if you estimate a number, set wage_source to "gpt_estimate".
+  - If you cannot estimate, set annual_wage to null and wage_source to "unknown".
+- inferred_roles_summary must be a short paragraph summarizing the proposed roles (no wages).
+- business_naics_6 can be null; do NOT guess it.
 - Do NOT include meta phrases like "professional way to say this" or "I'll clean up wording" in the paragraph text.
 - Do not refer to the output as a "section" and do not say it will appear verbatim in a plan; treat it as narrative source material.
 - Fact-bearing template rule: if you mention the business name, use {{fact:business.name}} (do not print the literal name).

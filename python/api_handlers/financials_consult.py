@@ -217,7 +217,6 @@ def post_financials_consult_handler(*, app, request):
         if starting:
           summary = str(baseline_financials.get("financials_summary") or "").strip()
           assistant_message = (summary or "Financials intake complete.").strip()
-          assistant_message = f"{assistant_message}\n\n{FIN_CONFIRM_QUESTION}".strip()
           from fact_templates import sanitize_fact_template  # type: ignore
 
           assistant_message = sanitize_fact_template(assistant_message)
@@ -261,8 +260,7 @@ def post_financials_consult_handler(*, app, request):
           }
 
           summary_for_ui = str(updated_financials.get("financials_summary") or "").strip()
-          ack = assistant_message or "Got it."
-          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{FIN_CONFIRM_QUESTION}".strip()
+          assistant_message = summary_for_ui or (assistant_message or "Got it.").strip()
           assistant_message = sanitize_fact_template(assistant_message)
         else:
           from fact_templates import sanitize_fact_template  # type: ignore
@@ -349,7 +347,9 @@ def post_financials_consult_handler(*, app, request):
       _validate_final(final_obj)
 
       summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
-      assistant_message = f"{summary_text}\n\n{FIN_CONFIRM_QUESTION}".strip()
+      assistant_message = str(assistant_text or "").strip()
+      if not assistant_message:
+        assistant_message = summary_text
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}
 
