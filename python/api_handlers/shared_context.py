@@ -82,6 +82,13 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   except Exception:
     financials = {}
 
+  # Backward-compatible bridge: if financials lacks asset/equity fields but ops has them,
+  # expose them in financials so templates render correctly.
+  if isinstance(operating_model, dict) and isinstance(financials, dict):
+    for key in ("initial_assets", "initial_lease", "initial_equity", "total_debt_outstanding"):
+      if financials.get(key) in (None, "") and key in operating_model:
+        financials[key] = operating_model.get(key)
+
   return {
     "operating_model": operating_model,
     "target_market": target_market,

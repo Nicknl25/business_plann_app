@@ -101,6 +101,8 @@ def _final_schema() -> Dict[str, Any]:
               "experience_years": {"type": "string"},
               "why_strengthens_business": {"type": "string"},
               "paragraph": {"type": "string"},
+              "annual_wage": {"type": ["number", "null"]},
+              "wage_source": {"type": "string"},
             },
             "required": [
               "full_name",

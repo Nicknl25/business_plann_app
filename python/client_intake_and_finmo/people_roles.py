@@ -416,6 +416,87 @@ def apply_oews_wages(
   return updated
 
 
+def apply_oews_wages_to_people(
+  conn,
+  *,
+  people: List[Dict[str, Any]],
+  business_type: Any,
+  business_stage: Any,
+  address_state: Any = None,
+  address: Any = None,
+) -> List[Dict[str, Any]]:
+  if not people:
+    return []
+
+  roles: List[Dict[str, Any]] = []
+  for person in people:
+    if not isinstance(person, dict):
+      continue
+    role_title = str(person.get("role_title") or "").strip()
+    notes = str(
+      person.get("primary_responsibilities")
+      or person.get("paragraph")
+      or person.get("relevant_background")
+      or ""
+    ).strip()
+    roles.append(
+      {
+        "role_title": role_title,
+        "notes": notes,
+        "annual_wage": person.get("annual_wage"),
+        "wage_source": person.get("wage_source"),
+      }
+    )
+
+  enriched_roles = apply_oews_wages(
+    conn,
+    roles=roles,
+    business_type=business_type,
+    business_stage=business_stage,
+    address_state=address_state,
+    address=address,
+  )
+
+  updated: List[Dict[str, Any]] = []
+  for idx, person in enumerate(people):
+    if not isinstance(person, dict):
+      continue
+    enriched = enriched_roles[idx] if idx < len(enriched_roles) else {}
+    wage = enriched.get("annual_wage")
+    wage_source = str(enriched.get("wage_source") or "").strip() or "gpt_estimate"
+    updated_person = dict(person)
+    updated_person["annual_wage"] = wage
+    updated_person["wage_source"] = wage_source
+    updated.append(updated_person)
+
+  return updated
+
+
+def format_people_wage_summary(people: List[Dict[str, Any]]) -> str:
+  if not people:
+    return ""
+  lines = ["Estimated year-1 wages for key people:"]
+  for person in people:
+    if not isinstance(person, dict):
+      continue
+    name = str(person.get("full_name") or "").strip()
+    title = str(person.get("role_title") or "").strip()
+    if not name and not title:
+      continue
+    label = name or title
+    if name and title:
+      label = f"{name} ({title})"
+    wage = person.get("annual_wage")
+    wage_str = "TBD"
+    try:
+      if wage is not None:
+        wage_str = f"${float(wage):,.0f}/year"
+    except Exception:
+      wage_str = "TBD"
+    lines.append(f"- {label}: {wage_str}")
+  return "\n".join(lines).strip()
+
+
 def format_roles_summary(roles: List[Dict[str, Any]]) -> str:
   if not roles:
     return ""

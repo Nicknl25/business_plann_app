@@ -447,7 +447,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   elif not is_multi_lob:
     errors["unit_price"] = "unit_price must be a number"
 
-  # Operating assets / leases (captured conversationally; default to non-null values).
+  # Assets / leases (captured in Financials; default to non-null values).
   assets_raw = payload.get("initial_assets")
   assets_val = _parse_float(assets_raw)
   if assets_val is None or assets_val < 0:

@@ -208,6 +208,18 @@ def post_people_capability_handler(*, app, request):
 
         if starting:
           summary = str(baseline_people.get("key_people_summary") or "").strip()
+          people_wage_summary = ""
+          roles_summary = str(baseline_people.get("inferred_roles_summary") or "").strip()
+          try:
+            from people_roles import format_people_wage_summary  # type: ignore
+
+            people_wage_summary = format_people_wage_summary(baseline_people.get("people") or [])
+          except Exception:
+            people_wage_summary = ""
+          if people_wage_summary:
+            summary = f"{summary}\n\n{people_wage_summary}".strip()
+          if roles_summary:
+            summary = f"{summary}\n\n{roles_summary}".strip()
           assistant_message = f"{(summary or 'People & capability intake complete.').strip()}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
           from fact_templates import sanitize_fact_template  # type: ignore
 
@@ -248,9 +260,47 @@ def post_people_capability_handler(*, app, request):
             k: (sanitize_fact_template(v) if isinstance(v, str) else v)
             for k, v in updated_people.items()
           }
+          people_wage_summary = ""
+          try:
+            from people_roles import (  # type: ignore
+              apply_oews_wages,
+              apply_oews_wages_to_people,
+              format_people_wage_summary,
+              format_roles_summary,
+            )
+
+            people = updated_people.get("people") if isinstance(updated_people, dict) else None
+            people = people if isinstance(people, list) else []
+            enriched_people = apply_oews_wages_to_people(
+              conn,
+              people=people,
+              business_type=(operating_model.get("business_type") or business_type),
+              business_stage=operating_model.get("business_stage"),
+              address_state=consult.get("address_state"),
+              address=consult.get("address"),
+            )
+            updated_people["people"] = enriched_people
+            people_wage_summary = format_people_wage_summary(enriched_people)
+
+            roles = updated_people.get("inferred_roles") if isinstance(updated_people, dict) else None
+            roles = roles if isinstance(roles, list) else []
+            enriched_roles = apply_oews_wages(
+              conn,
+              roles=roles,
+              business_type=(operating_model.get("business_type") or business_type),
+              business_stage=operating_model.get("business_stage"),
+              address_state=consult.get("address_state"),
+              address=consult.get("address"),
+            )
+            updated_people["inferred_roles"] = enriched_roles
+            updated_people["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+          except Exception:
+            people_wage_summary = ""
 
           summary_for_ui = str(updated_people.get("key_people_summary") or "").strip()
           roles_summary = str(updated_people.get("inferred_roles_summary") or "").strip()
+          if people_wage_summary:
+            summary_for_ui = f"{summary_for_ui}\n\n{people_wage_summary}".strip()
           if roles_summary:
             summary_for_ui = f"{summary_for_ui}\n\n{roles_summary}".strip()
           ack = assistant_message or "Got it."
@@ -309,7 +359,12 @@ def post_people_capability_handler(*, app, request):
 
       if review_ready and not finalize_ready:
         try:
-          from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+          from people_roles import (  # type: ignore
+            apply_oews_wages,
+            apply_oews_wages_to_people,
+            format_people_wage_summary,
+            format_roles_summary,
+          )
           from intake_business_types import get_naics_from_business_type  # type: ignore
 
           preview_obj = people_capability_finalize(
@@ -318,6 +373,16 @@ def post_people_capability_handler(*, app, request):
           )
           roles = preview_obj.get("inferred_roles") if isinstance(preview_obj, dict) else None
           roles = roles if isinstance(roles, list) else []
+          people = preview_obj.get("people") if isinstance(preview_obj, dict) else None
+          people = people if isinstance(people, list) else []
+          enriched_people = apply_oews_wages_to_people(
+            conn,
+            people=people,
+            business_type=(operating_model.get("business_type") or business_type),
+            business_stage=operating_model.get("business_stage"),
+            address_state=consult.get("address_state"),
+            address=consult.get("address"),
+          )
           enriched_roles = apply_oews_wages(
             conn,
             roles=roles,
@@ -336,7 +401,10 @@ def post_people_capability_handler(*, app, request):
           if cut_idx is not None:
             base_lines = base_lines[:cut_idx]
           base_text = "\n".join(base_lines).strip()
+          people_wage_summary = format_people_wage_summary(enriched_people)
           roles_summary = format_roles_summary(enriched_roles)
+          if people_wage_summary:
+            base_text = f"{base_text}\n\n{people_wage_summary}".strip()
           if roles_summary:
             base_text = f"{base_text}\n\n{roles_summary}".strip()
           assistant_text = f"{base_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
@@ -371,11 +439,26 @@ def post_people_capability_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       try:
-        from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+        from people_roles import (  # type: ignore
+          apply_oews_wages,
+          apply_oews_wages_to_people,
+          format_people_wage_summary,
+          format_roles_summary,
+        )
         from intake_business_types import get_naics_from_business_type  # type: ignore
 
         roles = final_obj.get("inferred_roles") if isinstance(final_obj, dict) else None
         roles = roles if isinstance(roles, list) else []
+        people = final_obj.get("people") if isinstance(final_obj, dict) else None
+        people = people if isinstance(people, list) else []
+        enriched_people = apply_oews_wages_to_people(
+          conn,
+          people=people,
+          business_type=(operating_model.get("business_type") or business_type),
+          business_stage=operating_model.get("business_stage"),
+          address_state=consult.get("address_state"),
+          address=consult.get("address"),
+        )
         enriched_roles = apply_oews_wages(
           conn,
           roles=roles,
@@ -391,6 +474,7 @@ def post_people_capability_handler(*, app, request):
         except Exception:
           if "business_naics_6" not in final_obj:
             final_obj["business_naics_6"] = None
+        final_obj["people"] = enriched_people
         final_obj["inferred_roles"] = enriched_roles
         final_obj["inferred_roles_summary"] = format_roles_summary(enriched_roles)
       except Exception:
@@ -403,6 +487,13 @@ def post_people_capability_handler(*, app, request):
       _validate_final(final_obj)
 
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
+      people_wage_summary = ""
+      try:
+        people_wage_summary = format_people_wage_summary(final_obj.get("people") or [])
+      except Exception:
+        people_wage_summary = ""
+      if people_wage_summary:
+        summary_text = f"{summary_text}\n\n{people_wage_summary}".strip()
       roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
       if roles_summary:
         summary_text = f"{summary_text}\n\n{roles_summary}".strip()

@@ -57,6 +57,8 @@ def _validate_final(final_obj: Dict[str, Any]) -> None:
     "ar_balance",
     "ap_balance",
     "inventory_balance",
+    "initial_assets",
+    "initial_equity",
     "total_debt_outstanding",
     "annual_interest_payment",
     "annual_principal_payment",
@@ -82,6 +84,10 @@ def _validate_final(final_obj: Dict[str, Any]) -> None:
       raise RuntimeError(
         "annual_interest_payment and annual_principal_payment must be 0 when total_debt_outstanding is 0."
       )
+
+  lease_raw = final_obj.get("initial_lease")
+  if not isinstance(lease_raw, str) or not lease_raw.strip():
+    raise RuntimeError("initial_lease must be a non-empty string.")
 
 
 def post_financials_consult_session_handler(*, app, request):

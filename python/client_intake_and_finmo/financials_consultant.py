@@ -99,6 +99,9 @@ def _final_schema() -> Dict[str, Any]:
         "ar_balance": {"type": "number"},
         "ap_balance": {"type": "number"},
         "inventory_balance": {"type": "number"},
+        "initial_assets": {"type": "number"},
+        "initial_lease": {"type": "string"},
+        "initial_equity": {"type": "number"},
         "total_debt_outstanding": {"type": "number"},
         "annual_interest_payment": {"type": "number"},
         "annual_principal_payment": {"type": "number"},
@@ -119,6 +122,9 @@ def _final_schema() -> Dict[str, Any]:
         "ar_balance",
         "ap_balance",
         "inventory_balance",
+        "initial_assets",
+        "initial_lease",
+        "initial_equity",
         "total_debt_outstanding",
         "annual_interest_payment",
         "annual_principal_payment",
@@ -182,6 +188,9 @@ Items to cover (one at a time, in a sensible order):
 - Payroll for employees (payroll) and headcount (employees)
 - Owner pay or owner's draws (owner compensation)
 - Larger one-time equipment/investment spend (capex)
+- Assets the business already uses to operate (rough total value as of last month)
+- Leased/rented equipment payments (if any)
+- Money/value already put into the business so far (owner/investor funding to date)
 - Debt (how much is owed) and required payments; if there is no debt, do not ask about interest or principal and record them as 0
 - Cash on hand (cash)
 - Money customers owe you (AR), money you owe others (AP), and inventory on hand (inventory)
@@ -195,6 +204,9 @@ Everyday phrasing guide (adapt as needed; keep it short and natural):
 - Employees: "how many people were on payroll"
 - Owner compensation: "money you paid yourself from the business (wages/draws)"
 - Capex: "bigger one-time purchases like equipment, vehicles, or build-out"
+- Assets used to operate: "the main equipment/tools/fixtures you already use to run the business and their rough total value"
+- Leased equipment: "equipment or space you pay to use but don't own"
+- Money invested so far: "money or value already put into the business so far (owner cash, investor money, paid-for gear)"
 - Debt outstanding: "how much the business still owes on loans/credit"
 - Debt payments: "loan/credit payments you made"
 - Interest: "the interest portion of loan payments"
@@ -211,6 +223,13 @@ Relationship reasoning (keep it light):
 - Defaulting to 0 is a last resort: if context strongly suggests an item likely exists (e.g., inventory business with inventory=0, founder working but no pay, revenue with no cash), pause and ask a quick sanity-check question before recording 0.
 - Use judgment, not a checklist: reconcile obvious reality with the minimum clarifying questions, then move on.
 
+Assets/lease/equity capture (lightweight):
+- Explain in plain everyday language before asking for numbers. Assume no accounting knowledge.
+- Assets used to operate (as of last month): if the business type makes likely assets obvious, propose 1-2 examples and ask for a simple confirmation, then ask for one rough total value. If none/unsure after one clarification, record 0.
+- Leased/rented equipment (as of last month): ask if they pay to use equipment or space they don't own. If yes, capture payment amount and how often it is paid (store as "amount,period"). If none, record "0,none".
+- Money already put into the business so far: ask for a rough total of owner/investor money or value already put in. If none/unsure, record 0.
+- If funding came from loans/financing and total debt isn't captured yet, ask one quick follow-up for rough debt outstanding and record it.
+
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
 - For any value that already exists in the provided context JSON (including shared_context and any already-recorded financial fields), do NOT print the literal value.
@@ -222,15 +241,18 @@ Fact-bearing templates (STRICT):
   - customers owe you (AR): {{fact:financials.ar_balance}}
   - you owe others (AP): {{fact:financials.ap_balance}}
   - inventory on hand: {{fact:financials.inventory_balance}}
+  - operating assets: {{fact:financials.initial_assets}}
+  - lease commitments: {{fact:financials.initial_lease}}
+  - money invested so far: {{fact:financials.initial_equity}}
   - total debt outstanding: {{fact:financials.total_debt_outstanding}}
   - other regular operating bills: {{fact:financials.other_operating_expense}}
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
-  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, initial_assets, initial_lease, initial_equity, total_debt_outstanding, legal_entity
+  - ops: consumer_type, business_type, unit_name, unit_description, units_per_week_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, legal_entity
   - market: consumer_type, target_market_summary
   - people: key_people_summary
-  - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
+  - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -285,6 +307,11 @@ Rules:
 - No nulls: every numeric field must be a number (0 is allowed).
 - All values must be >= 0.
 - If total_debt_outstanding is 0, annual_interest_payment and annual_principal_payment must be 0.
+- initial_assets must be a number >= 0 representing the rough total value of operating assets as of last month. If none/unclear, set initial_assets = 0.
+- initial_lease must be a comma-separated string "payment_amount,period" (examples: "0,none", "500,monthly", "200,weekly").
+  - If none/unclear, set initial_lease = "0,none".
+  - If amount is unclear but lease exists, use 0 for the payment amount and best-known period (or "unknown" if not known).
+- initial_equity must be a number >= 0 representing a rough total of money/value already put into the business so far. If none/unclear, set initial_equity = 0.
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:
@@ -298,7 +325,7 @@ Unit conventions (do not mention these in the summary):
   - If the conversation only establishes a "last month" amount, annualize it by multiplying by 12.
   - If the client clearly stated a yearly total, use it as-is.
 - Treat these as last-month amounts: monthly_rent_expense, other_monthly_debt_payments.
-- Treat these as end-of-last-month balances: ar_balance, ap_balance, inventory_balance, total_debt_outstanding, cash_on_hand.
+- Treat these as end-of-last-month balances: ar_balance, ap_balance, inventory_balance, total_debt_outstanding, cash_on_hand, initial_assets, initial_equity.
 - current_num_employees is a count; round to a whole number if needed.
 
 financials_summary should be a short, plain-language recap anchored to "as of last month" (1 paragraph).
@@ -306,7 +333,9 @@ financials_summary should be a short, plain-language recap anchored to "as of la
 - Include the key numeric facts using placeholders so nothing renders blank, even when values are 0:
   - revenue, cogs, other operating expense, rent, payroll and headcount, owner compensation
   - cash on hand, AR, AP, inventory
+  - operating assets, lease commitments, owner/investor funding to date
   - total debt outstanding and monthly debt payments (and interest/principal if applicable)
+  - Use {{fact:financials.initial_assets}}, {{fact:financials.initial_lease}}, and {{fact:financials.initial_equity}} when describing assets/leases/funding.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

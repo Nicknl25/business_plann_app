@@ -31,6 +31,8 @@ const FIN_MONEY_FIELDS = new Set([
   "ar_balance",
   "ap_balance",
   "inventory_balance",
+  "initial_assets",
+  "initial_equity",
   "total_debt_outstanding",
   "annual_interest_payment",
   "annual_principal_payment",

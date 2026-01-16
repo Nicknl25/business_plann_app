@@ -686,6 +686,37 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      try:
+        from people_roles import apply_oews_wages, apply_oews_wages_to_people, format_roles_summary  # type: ignore
+
+        people_list = people_json.get("people") if isinstance(people_json, dict) else None
+        people_list = people_list if isinstance(people_list, list) else []
+        if people_list:
+          enriched_people = apply_oews_wages_to_people(
+            conn,
+            people=people_list,
+            business_type=ops_json.get("business_type"),
+            business_stage=ops_json.get("business_stage"),
+            address_state=business_facts.get("address_state"),
+            address=business_facts.get("address"),
+          )
+          people_json["people"] = enriched_people
+
+        roles = people_json.get("inferred_roles") if isinstance(people_json, dict) else None
+        roles = roles if isinstance(roles, list) else []
+        if roles:
+          enriched_roles = apply_oews_wages(
+            conn,
+            roles=roles,
+            business_type=ops_json.get("business_type"),
+            business_stage=ops_json.get("business_stage"),
+            address_state=business_facts.get("address_state"),
+            address=business_facts.get("address"),
+          )
+          people_json["inferred_roles"] = enriched_roles
+          people_json["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+      except Exception:
+        pass
       active_focus_out = focus
       status_out: str | None = None
       consistency_passed_out = False
@@ -694,6 +725,14 @@ def post_intake_consult_handler(*, app, request):
       # Always echo the latest relevant summary templates after an edit so the user
       # doesn't have to scroll to see the updated current-state narrative.
       people_summary = str((people_json or {}).get("key_people_summary") or "").strip()
+      try:
+        from people_roles import format_people_wage_summary  # type: ignore
+
+        people_wage_summary = format_people_wage_summary((people_json or {}).get("people") or [])
+      except Exception:
+        people_wage_summary = ""
+      if people_wage_summary:
+        people_summary = f"{people_summary}\n\n{people_wage_summary}".strip()
       roles_summary = str((people_json or {}).get("inferred_roles_summary") or "").strip()
       if roles_summary:
         people_summary = f"{people_summary}\n\n{roles_summary}".strip()
@@ -1334,11 +1373,26 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       try:
-        from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+        from people_roles import (  # type: ignore
+          apply_oews_wages,
+          apply_oews_wages_to_people,
+          format_people_wage_summary,
+          format_roles_summary,
+        )
         from intake_business_types import get_naics_from_business_type  # type: ignore
 
         roles = final_obj.get("inferred_roles") if isinstance(final_obj, dict) else None
         roles = roles if isinstance(roles, list) else []
+        people_list = final_obj.get("people") if isinstance(final_obj, dict) else None
+        people_list = people_list if isinstance(people_list, list) else []
+        enriched_people = apply_oews_wages_to_people(
+          conn,
+          people=people_list,
+          business_type=ops_json.get("business_type"),
+          business_stage=ops_json.get("business_stage"),
+          address_state=business_facts.get("address_state"),
+          address=business_facts.get("address"),
+        )
         enriched_roles = apply_oews_wages(
           conn,
           roles=roles,
@@ -1352,6 +1406,7 @@ def post_intake_consult_handler(*, app, request):
         except Exception:
           if "business_naics_6" not in final_obj:
             final_obj["business_naics_6"] = None
+        final_obj["people"] = enriched_people
         final_obj["inferred_roles"] = enriched_roles
         final_obj["inferred_roles_summary"] = format_roles_summary(enriched_roles)
       except Exception:
@@ -1364,6 +1419,13 @@ def post_intake_consult_handler(*, app, request):
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
       summary_text = _upgrade_summary_if_needed("people", summary_text)
       final_obj["key_people_summary"] = summary_text
+      people_wage_summary = ""
+      try:
+        people_wage_summary = format_people_wage_summary(final_obj.get("people") or [])
+      except Exception:
+        people_wage_summary = ""
+      if people_wage_summary:
+        summary_text = f"{summary_text}\n\n{people_wage_summary}".strip()
       roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
       if roles_summary:
         summary_text = f"{summary_text}\n\n{roles_summary}".strip()

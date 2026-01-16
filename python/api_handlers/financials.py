@@ -223,12 +223,23 @@ def post_financials_handler(*, app, request):
     # (especially Financials fields like total_debt_outstanding).
     payload = dict(payload)
     payload["client_id"] = str(draft.get("client_id") or "").strip()
+    financials_override_fields = {
+      "initial_assets",
+      "initial_lease",
+      "initial_equity",
+      "total_debt_outstanding",
+    }
     for k, v in operating_model.items():
+      if k in financials_override_fields:
+        continue
       if k not in payload or payload.get(k) in (None, ""):
         payload[k] = v
     for k, v in fin_obj.items():
       if k not in payload or payload.get(k) in (None, ""):
         payload[k] = v
+    for k in financials_override_fields:
+      if fin_obj.get(k) not in (None, ""):
+        payload[k] = fin_obj.get(k)
     payload["target_market"] = (target_market_csv or None)
     payload["target_market_summary"] = target_market_summary
     payload["target_market_b2b_industry"] = (b2b_industry or None)
