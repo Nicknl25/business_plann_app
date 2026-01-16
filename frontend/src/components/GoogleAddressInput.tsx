@@ -11,7 +11,7 @@ const GoogleAddressInput = React.forwardRef<
   GoogleAddressInputProps
 >((props, forwardedRef) => {
   const { name, id, value, onChange, onBlur, ...rest } = props;
-  const { setValue } = useFormContext<any>();
+  const { setValue, trigger } = useFormContext<any>();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const autocompleteRef = useRef<any>(null);
 
@@ -72,16 +72,9 @@ const GoogleAddressInput = React.forwardRef<
             ? location.lng()
             : undefined;
 
-        if (name) {
-          setValue(name, formatted, {
-            shouldValidate: true,
-            shouldDirty: true,
-          });
-        }
-
         const setDerived = (fieldName: string, fieldValue: any) => {
           setValue(fieldName, fieldValue, {
-            shouldValidate: true,
+            shouldValidate: false,
             shouldDirty: true,
           });
         };
@@ -100,6 +93,25 @@ const GoogleAddressInput = React.forwardRef<
         }
         if (typeof lng === "number") {
           setDerived("addressLng", lng);
+        }
+
+        if (name) {
+          setValue(name, formatted, {
+            shouldValidate: false,
+            shouldDirty: true,
+          });
+        }
+
+        const fieldsToValidate = [
+          name,
+          "addressStreet",
+          "addressCity",
+          "addressState",
+          "addressZip",
+          "addressCountry",
+        ].filter(Boolean) as string[];
+        if (fieldsToValidate.length) {
+          void trigger(fieldsToValidate);
         }
 
         if (onChange) {

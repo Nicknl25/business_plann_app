@@ -333,6 +333,7 @@ Conversation rules:
 - Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
 - Milestones must be future plans/targets (do not ask whether milestones were already achieved). If the client has no milestones, propose one realistic, forward-looking operational milestone based on what you've learned and get the client to agree to it before finalizing.
 - Legal entity handling: help the client choose the closest label; if they are unsure after one clarification question, default to "Sole proprietor". Never respond with long explanatory phrases for the legal entity.
+- Final confirmation summary MUST be a single paragraph with no bullets, no headings, and no preamble.
 - Geography rules:
   - Use the provided business address context (street/city/state/ZIP/country) to avoid asking basic location questions like "which country are you operating in?" when it is already known.
   - After agreeing on the high-level geographic scope (local/regional/national/international), you MUST capture geographic coverage as a concrete set of areas that matches the scope:
@@ -362,8 +363,9 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Respond with normal conversation text (NOT JSON).
 - Do NOT signal finalization until the client has explicitly agreed to unit_price(s) for all products in scope AND has explicitly chosen a shipping_method.
-- When you are confident ALL required fields are complete, append the token
-  {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you are confident ALL required fields are complete, respond with EXACTLY one paragraph operational summary and a single-sentence confirmation question.
+- Do NOT include bullets, lists, headings, or extra restatements in that final message.
+- Append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

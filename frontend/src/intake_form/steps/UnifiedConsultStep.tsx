@@ -457,6 +457,25 @@ export default function UnifiedConsultStep() {
     if (!detailsCompleteForChat) return;
     if (messages.length > 0) return;
 
+    const draftValues = form.getValues();
+    const payloadBusinessName = String(draftValues.businessName || "").trim();
+    const payloadAddress = String(draftValues.address || "").trim();
+    const payloadStartDate = String(draftValues.businessStartDate || "").trim();
+    const payloadStreet = String(draftValues.addressStreet || "").trim();
+    const payloadCity = String(draftValues.addressCity || "").trim();
+    const payloadState = String(draftValues.addressState || "").trim();
+    const payloadZip = String(draftValues.addressZip || "").trim();
+    const payloadCountry = String(draftValues.addressCountry || "").trim();
+    const hasAllParts = Boolean(
+      payloadStreet && payloadCity && payloadState && payloadZip && payloadCountry
+    );
+    if (payloadAddress && !hasAllParts) {
+      setDraftError(
+        "Please select a full address from suggestions (street, city, state, ZIP, country)."
+      );
+      return;
+    }
+
     setSending(true);
     setDraftError(null);
     try {
@@ -466,14 +485,14 @@ export default function UnifiedConsultStep() {
           draft_id: effectiveDraftId,
           client_id: clientId || undefined,
           message: "",
-          business_name: String(businessName || "").trim(),
-          address: String(address || "").trim(),
-          business_start_date: String(businessStartDate || "").trim(),
-          address_street: String(addressStreet || "").trim(),
-          address_city: String(addressCity || "").trim(),
-          address_state: String(addressState || "").trim(),
-          address_zip: String(addressZip || "").trim(),
-          address_country: String(addressCountry || "").trim(),
+          business_name: payloadBusinessName,
+          address: payloadAddress,
+          business_start_date: payloadStartDate,
+          address_street: payloadStreet,
+          address_city: payloadCity,
+          address_state: payloadState,
+          address_zip: payloadZip,
+          address_country: payloadCountry,
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
@@ -504,6 +523,25 @@ export default function UnifiedConsultStep() {
     const msg = String(raw || "").trim();
     if (!msg) return;
 
+    const draftValues = form.getValues();
+    const payloadBusinessName = String(draftValues.businessName || "").trim();
+    const payloadAddress = String(draftValues.address || "").trim();
+    const payloadStartDate = String(draftValues.businessStartDate || "").trim();
+    const payloadStreet = String(draftValues.addressStreet || "").trim();
+    const payloadCity = String(draftValues.addressCity || "").trim();
+    const payloadState = String(draftValues.addressState || "").trim();
+    const payloadZip = String(draftValues.addressZip || "").trim();
+    const payloadCountry = String(draftValues.addressCountry || "").trim();
+    const hasAllParts = Boolean(
+      payloadStreet && payloadCity && payloadState && payloadZip && payloadCountry
+    );
+    if (payloadAddress && !hasAllParts) {
+      setDraftError(
+        "Please select a full address from suggestions (street, city, state, ZIP, country)."
+      );
+      return;
+    }
+
     setSending(true);
     setDraftError(null);
     try {
@@ -513,14 +551,14 @@ export default function UnifiedConsultStep() {
           draft_id: effectiveDraftId,
           client_id: clientId || undefined,
           message: msg,
-          business_name: String(businessName || "").trim(),
-          address: String(address || "").trim(),
-          business_start_date: String(businessStartDate || "").trim(),
-          address_street: String(addressStreet || "").trim(),
-          address_city: String(addressCity || "").trim(),
-          address_state: String(addressState || "").trim(),
-          address_zip: String(addressZip || "").trim(),
-          address_country: String(addressCountry || "").trim(),
+          business_name: payloadBusinessName,
+          address: payloadAddress,
+          business_start_date: payloadStartDate,
+          address_street: payloadStreet,
+          address_city: payloadCity,
+          address_state: payloadState,
+          address_zip: payloadZip,
+          address_country: payloadCountry,
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );

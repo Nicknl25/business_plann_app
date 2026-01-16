@@ -508,9 +508,17 @@ def post_intake_consult_handler(*, app, request):
       name_raw = str(payload.get("business_name") or "").strip()
       if name_raw:
         business_facts["name"] = name_raw
+    address_keys = ("address_street", "address_city", "address_state", "address_zip", "address_country")
+    payload_parts: Dict[str, str] = {}
+    for key in address_keys:
+      if payload.get(key) is None:
+        payload_parts[key] = ""
+        continue
+      payload_parts[key] = str(payload.get(key) or "").strip()
+    has_all_parts = all(payload_parts.values())
     if payload.get("address") is not None:
       addr_raw = str(payload.get("address") or "").strip()
-      if addr_raw:
+      if addr_raw and has_all_parts:
         business_facts["address"] = addr_raw
     start_date_raw = payload.get("business_start_date")
     if start_date_raw is None:
@@ -520,12 +528,10 @@ def post_intake_consult_handler(*, app, request):
       if sd_raw:
         business_facts["start_date"] = sd_raw
 
-    for key in ("address_street", "address_city", "address_state", "address_zip", "address_country"):
-      if payload.get(key) is None:
-        continue
-      val = str(payload.get(key) or "").strip()
-      if val:
-        business_facts[key] = val
+    if has_all_parts:
+      for key, val in payload_parts.items():
+        if val:
+          business_facts[key] = val
 
     current_date = datetime.utcnow().date()
     current_date_iso = current_date.isoformat()
@@ -1290,7 +1296,11 @@ def post_intake_consult_handler(*, app, request):
       summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
       summary_text = _upgrade_summary_if_needed("ops", summary_text)
       final_obj["business_description_summary"] = summary_text
-      assistant_final = f"{summary_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
+      summary_for_ui = str(assistant_text or "").strip() or summary_text
+      ops_json = final_obj
+
+      assistant_final = summary_for_ui
+
       ops_json = final_obj
       market_json_out = None
       people_json_out = None
