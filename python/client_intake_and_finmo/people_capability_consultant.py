@@ -112,6 +112,8 @@ def _final_schema() -> Dict[str, Any]:
               "experience_years",
               "why_strengthens_business",
               "paragraph",
+              "annual_wage",
+              "wage_source",
             ],
           },
         },
@@ -205,6 +207,8 @@ Flow:
 5) Role coverage (after key people are approved):
    - Infer a short list of additional roles typically needed for the operating model, LOBs/products, capacity, and stage.
    - Do NOT ask the client for salaries.
+   - Do NOT ask the client to choose a priority area (e.g., "which area do you need most help with").
+     Infer a likely first support area from context and bake that into the proposed roles.
    - Present roles with brief reasons and note that estimated wages will be included for confirmation.
    - Ask for tweaks at a high level (add/remove/rename roles), then proceed.
 
@@ -225,6 +229,8 @@ Output rules:
 - Respond with normal conversation text (NOT JSON).
 - When you present the full review for confirmation (before final approval), append the token
   {REVIEW_TOKEN} on its own line at the very end of your message.
+- If you present any key-people narratives or the inferred-roles list, you MUST be in the review step
+  and MUST append {REVIEW_TOKEN}.
 - Only when the client explicitly approves the full set of drafted paragraph(s), append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()

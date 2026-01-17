@@ -34,6 +34,7 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
 
 
+
 def _strip_acs_codes(text: str) -> str:
   """
   Never expose raw ACS codes in the UI conversation.
@@ -687,7 +688,12 @@ def post_intake_consult_handler(*, app, request):
         fulfillment_json=fulfillment_json,
       )
       try:
-        from people_roles import apply_oews_wages, apply_oews_wages_to_people, format_roles_summary  # type: ignore
+        from people_roles import (  # type: ignore
+          apply_oews_wages,
+          apply_oews_wages_to_people,
+          format_people_wage_summary,
+          format_roles_summary,
+        )
 
         people_list = people_json.get("people") if isinstance(people_json, dict) else None
         people_list = people_list if isinstance(people_list, list) else []
@@ -726,8 +732,6 @@ def post_intake_consult_handler(*, app, request):
       # doesn't have to scroll to see the updated current-state narrative.
       people_summary = str((people_json or {}).get("key_people_summary") or "").strip()
       try:
-        from people_roles import format_people_wage_summary  # type: ignore
-
         people_wage_summary = format_people_wage_summary((people_json or {}).get("people") or [])
       except Exception:
         people_wage_summary = ""
@@ -1147,7 +1151,12 @@ def post_intake_consult_handler(*, app, request):
 
     if focus == "people" and bool(turn.get("review_ready", False)):
       try:
-        from people_roles import apply_oews_wages, format_roles_summary  # type: ignore
+        from people_roles import (  # type: ignore
+          apply_oews_wages,
+          apply_oews_wages_to_people,
+          format_people_wage_summary,
+          format_roles_summary,
+        )
         from intake_business_types import get_naics_from_business_type  # type: ignore
 
         preview_obj = people_capability_finalize(
@@ -1156,6 +1165,16 @@ def post_intake_consult_handler(*, app, request):
         )
         roles = preview_obj.get("inferred_roles") if isinstance(preview_obj, dict) else None
         roles = roles if isinstance(roles, list) else []
+        people_list = preview_obj.get("people") if isinstance(preview_obj, dict) else None
+        people_list = people_list if isinstance(people_list, list) else []
+        enriched_people = apply_oews_wages_to_people(
+          conn,
+          people=people_list,
+          business_type=ops_json.get("business_type"),
+          business_stage=ops_json.get("business_stage"),
+          address_state=business_facts.get("address_state"),
+          address=business_facts.get("address"),
+        )
         enriched_roles = apply_oews_wages(
           conn,
           roles=roles,
@@ -1178,7 +1197,10 @@ def post_intake_consult_handler(*, app, request):
         if cut_idx is not None:
           base_lines = base_lines[:cut_idx]
         base_text = "\n".join(base_lines).strip()
+        people_wage_summary = format_people_wage_summary(enriched_people)
         roles_summary = format_roles_summary(enriched_roles)
+        if people_wage_summary:
+          base_text = f"{base_text}\n\n{people_wage_summary}".strip()
         if roles_summary:
           base_text = f"{base_text}\n\n{roles_summary}".strip()
         assistant_text = f"{base_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
@@ -1335,11 +1357,7 @@ def post_intake_consult_handler(*, app, request):
       summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
       summary_text = _upgrade_summary_if_needed("ops", summary_text)
       final_obj["business_description_summary"] = summary_text
-      summary_for_ui = str(assistant_text or "").strip() or summary_text
-      ops_json = final_obj
-
-      assistant_final = summary_for_ui
-
+      assistant_final = f"{summary_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
       ops_json = final_obj
       market_json_out = None
       people_json_out = None

@@ -308,15 +308,13 @@ Rules:
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 
-Marketing plan (INFER THEN CONFIRM):
-- After target market segments are decided, infer a short marketing plan (1-2 primary channels + acquisition approach) based on the confirmed target market and business context.
-- Present a brief proposed statement and ask ONE question for confirmation or tweaks (no rigid yes/no).
-- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated plan and confirm again.
+Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
+- After target market segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
+- Present a short proposed statement for confirmation (ONE question only), like:
+  "This is how customers are typically reached - does this sound right?"
+- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated proposed model and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics. Keep it high-level and realistic.
-- Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
-- If the marketing plan response would be long (more than 2 short paragraphs or ~10 bullets), split it into two parts:
-  - Part 1 ends with "Continue?" and MUST NOT include the confirmation question.
-  - After the user continues, provide Part 2 and include the confirmation question.
+- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -332,7 +330,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the marketing plan has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
   """.strip()
 
   consumer_type = str(intake_context.get("consumer_type") or "consumer").strip().lower()
@@ -374,15 +372,12 @@ Rules:
 - Firm age must use these bands (the client may pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 
-Marketing plan (INFER THEN CONFIRM):
-- After the B2B firmographic segments are decided, infer a short marketing plan (1-2 primary channels + acquisition approach) based on the confirmed target market and business context.
-- Present a brief proposed statement and ask ONE question for confirmation or tweaks (no rigid yes/no).
+Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
+- After the B2B firmographic segments are decided, infer 1-2 primary ways businesses like this typically reach target organizations (e.g., referrals, partnerships, outbound, industry networks).
+- Present a short proposed statement for confirmation (ONE question only).
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
-- If the marketing plan response would be long (more than 2 short paragraphs or ~10 bullets), split it into two parts:
-  - Part 1 ends with "Continue?" and MUST NOT include the confirmation question.
-  - After the user continues, provide Part 2 and include the confirmation question.
+- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -398,7 +393,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all three segments decided AND the marketing plan has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all three segments decided AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   system_mixed = f"""
@@ -454,15 +449,12 @@ Rules:
 - For B2B age, use only these bands (pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For B2B industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 
-Marketing plan (INFER THEN CONFIRM):
-- After both the consumer and B2B target segments are decided, infer a short marketing plan (1-2 primary channels + acquisition approach) based on the confirmed target market and business context.
-- Present a brief proposed statement and ask ONE question for confirmation or tweaks (no rigid yes/no).
+Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
+- After both the consumer and B2B target segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
+- Present a short proposed statement for confirmation (ONE question only).
 - If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
 - Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include the plan in the final recap AND ensure it can be written as marketing_plan_summary in the final JSON.
-- If the marketing plan response would be long (more than 2 short paragraphs or ~10 bullets), split it into two parts:
-  - Part 1 ends with "Continue?" and MUST NOT include the confirmation question.
-  - After the user continues, provide Part 2 and include the confirmation question.
+- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -478,7 +470,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the marketing plan has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   if consumer_type == "b2b":
