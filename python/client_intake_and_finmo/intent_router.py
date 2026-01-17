@@ -665,9 +665,11 @@ Actions:
 1) confirm_proceed
   - Use when the user is clearly agreeing / confirming OR their response does not express disagreement, uncertainty, or a request to change something.
   - Objection-first model: if they are not objecting, proceed.
+  - If confirm_question is present and the user response is a brief acknowledgement with no new facts or correction request, return confirm_proceed.
 2) confirm_clarify
   - Use when the user message is ambiguous/contradictory/uncertain and you cannot confidently infer whether they want changes or want to proceed.
   - assistant_message MUST be a single, brief clarifying question.
+  - Do NOT repeat, paraphrase, or re-summarize any prior summary content.
 3) edit_patch
   - Use when the user is requesting a correction/update to ANY already-captured fact in the canonical intake model (even if phrased casually), regardless of what stage the consult is currently in.
   - IMPORTANT: If the last assistant message PROPOSED a specific change to one or more facts (e.g., "Should we update X to 700?")
@@ -703,6 +705,7 @@ Interpretation rules:
 - If the user's intent is clear, proceed confidently; do not re-ask for confirmation.
 - If the user disagrees or requests changes, treat it as edit_patch.
 - If the user is agreeing to a proposed fact update from the last assistant message, treat it as edit_patch and apply that update.
+- If confirm_question is present and the user response is a brief acknowledgement with no corrections or new facts, you MUST return confirm_proceed (do not restate the summary).
 - If the last assistant message described the fulfillment model (who performs it + typical timing) and the user agrees, set fulfillment.personnel and fulfillment.time accordingly.
 
 Consistency inference (active_focus == "consistency"):

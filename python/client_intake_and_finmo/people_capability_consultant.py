@@ -200,6 +200,10 @@ Flow:
 3) Continue:
    - After the client provides details for a person, ask if they want to add another person before moving on.
    - Do NOT transition to the next consult (e.g., Financials) until the client explicitly says they are done adding people.
+   - If the client indicates they are done adding people (for example: "no", "none", "just one", "done"), immediately present the full review and append {REVIEW_TOKEN}. Do not ask any other questions first.
+   - Do not ask repeated approval questions for the same write-up once the client has approved.
+4) Final review (single confirmation step):
+   - When the client approves the full review (e.g., "yes", "approved", "looks good"), respond with a short acknowledgement and append {FINALIZE_TOKEN}. Do not ask any new questions.
    - If yes, ask only for that person's full name, title/role, years, and education/credentials (single combined question).
 4) Final review (single confirmation step):
    - When the client says they are done adding people, present ALL final paragraphs together (no duplicates).

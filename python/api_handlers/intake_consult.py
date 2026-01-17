@@ -688,6 +688,19 @@ def post_intake_consult_handler(*, app, request):
         fulfillment_json=fulfillment_json,
       )
       try:
+        try:
+          from intake_business_types import get_naics_from_business_type  # type: ignore
+        except Exception:
+          from client_intake_and_finmo.intake_business_types import (  # type: ignore
+            get_naics_from_business_type,
+          )
+        if ops_json.get("business_type") and not ops_json.get("business_naics_6"):
+          ops_json["business_naics_6"] = get_naics_from_business_type(
+            conn, ops_json.get("business_type")
+          )
+      except Exception:
+        pass
+      try:
         from people_roles import (  # type: ignore
           apply_oews_wages,
           apply_oews_wages_to_people,
@@ -705,6 +718,7 @@ def post_intake_consult_handler(*, app, request):
             business_stage=ops_json.get("business_stage"),
             address_state=business_facts.get("address_state"),
             address=business_facts.get("address"),
+            business_naics_6=ops_json.get("business_naics_6"),
           )
           people_json["people"] = enriched_people
 
@@ -718,6 +732,7 @@ def post_intake_consult_handler(*, app, request):
             business_stage=ops_json.get("business_stage"),
             address_state=business_facts.get("address_state"),
             address=business_facts.get("address"),
+            business_naics_6=ops_json.get("business_naics_6"),
           )
           people_json["inferred_roles"] = enriched_roles
           people_json["inferred_roles_summary"] = format_roles_summary(enriched_roles)
@@ -839,19 +854,9 @@ def post_intake_consult_handler(*, app, request):
       # Exception: if the edit re-opens a completed intake into Consistency, keep the
       # router acknowledgement so the user clearly sees the update before the audit.
       assistant_text = router_msg if (confirm_question or active_focus_out != focus) else ""
-
-      # If we're awaiting a section-final confirmation, edits should re-ask the same confirm question.
+      # If we're awaiting a section-final confirmation, re-ask the confirm question
+      # without reprinting the full summary (avoid duplicate summaries).
       if confirm_question:
-        echo_groups: List[str] = []
-        if focus in summary_by_group and summary_by_group.get(focus):
-          echo_groups.append(focus)
-        for g in changed_groups:
-          if g == focus:
-            continue
-          if g in summary_by_group and summary_by_group.get(g):
-            echo_groups.append(g)
-        for g in echo_groups:
-          assistant_text = f"{assistant_text}\n\n{summary_by_group[g]}".strip() if assistant_text else summary_by_group[g]
         assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
       else:
         # Otherwise, keep the intake moving: acknowledge the edit and then continue
@@ -979,6 +984,7 @@ def post_intake_consult_handler(*, app, request):
         "business_name": business_facts.get("name"),
         "business_start_date": business_facts.get("start_date"),
         "address": business_facts.get("address"),
+        "consumer_type": (ops_json or {}).get("consumer_type"),
         "current_date": current_date_iso,
         "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
@@ -1149,65 +1155,6 @@ def post_intake_consult_handler(*, app, request):
     if focus == "market":
       assistant_text = _strip_acs_codes(assistant_text)
 
-    if focus == "people" and bool(turn.get("review_ready", False)):
-      try:
-        from people_roles import (  # type: ignore
-          apply_oews_wages,
-          apply_oews_wages_to_people,
-          format_people_wage_summary,
-          format_roles_summary,
-        )
-        from intake_business_types import get_naics_from_business_type  # type: ignore
-
-        preview_obj = people_capability_finalize(
-          intake_context=intake_context,
-          conversation_messages=[*messages, user_msg, {"role": "assistant", "content": assistant_text}],
-        )
-        roles = preview_obj.get("inferred_roles") if isinstance(preview_obj, dict) else None
-        roles = roles if isinstance(roles, list) else []
-        people_list = preview_obj.get("people") if isinstance(preview_obj, dict) else None
-        people_list = people_list if isinstance(people_list, list) else []
-        enriched_people = apply_oews_wages_to_people(
-          conn,
-          people=people_list,
-          business_type=ops_json.get("business_type"),
-          business_stage=ops_json.get("business_stage"),
-          address_state=business_facts.get("address_state"),
-          address=business_facts.get("address"),
-        )
-        enriched_roles = apply_oews_wages(
-          conn,
-          roles=roles,
-          business_type=ops_json.get("business_type"),
-          business_stage=ops_json.get("business_stage"),
-          address_state=business_facts.get("address_state"),
-          address=business_facts.get("address"),
-        )
-        try:
-          preview_obj["business_naics_6"] = get_naics_from_business_type(conn, ops_json.get("business_type"))
-        except Exception:
-          preview_obj["business_naics_6"] = None
-        base_text = assistant_text
-        base_lines = base_text.splitlines()
-        cut_idx = None
-        for i in range(len(base_lines) - 1, -1, -1):
-          if "?" in base_lines[i]:
-            cut_idx = i
-            break
-        if cut_idx is not None:
-          base_lines = base_lines[:cut_idx]
-        base_text = "\n".join(base_lines).strip()
-        people_wage_summary = format_people_wage_summary(enriched_people)
-        roles_summary = format_roles_summary(enriched_roles)
-        if people_wage_summary:
-          base_text = f"{base_text}\n\n{people_wage_summary}".strip()
-        if roles_summary:
-          base_text = f"{base_text}\n\n{roles_summary}".strip()
-        assistant_text = f"{base_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
-        assistant_text = sanitize_fact_template(assistant_text)
-      except Exception:
-        pass
-
     finalize_ready = bool(turn.get("finalize_ready", False))
 
     # Safety: avoid dead-end assistant replies with no next question.
@@ -1354,6 +1301,21 @@ def post_intake_consult_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      try:
+        try:
+          from intake_business_types import get_naics_from_business_type  # type: ignore
+        except Exception:
+          from client_intake_and_finmo.intake_business_types import (  # type: ignore
+            get_naics_from_business_type,
+          )
+
+        if final_obj.get("business_type"):
+          final_obj["business_naics_6"] = get_naics_from_business_type(
+            conn, final_obj.get("business_type")
+          )
+      except Exception:
+        if "business_naics_6" not in final_obj:
+          final_obj["business_naics_6"] = None
       summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
       summary_text = _upgrade_summary_if_needed("ops", summary_text)
       final_obj["business_description_summary"] = summary_text
@@ -1397,7 +1359,6 @@ def post_intake_consult_handler(*, app, request):
           format_people_wage_summary,
           format_roles_summary,
         )
-        from intake_business_types import get_naics_from_business_type  # type: ignore
 
         roles = final_obj.get("inferred_roles") if isinstance(final_obj, dict) else None
         roles = roles if isinstance(roles, list) else []
@@ -1410,6 +1371,7 @@ def post_intake_consult_handler(*, app, request):
           business_stage=ops_json.get("business_stage"),
           address_state=business_facts.get("address_state"),
           address=business_facts.get("address"),
+          business_naics_6=ops_json.get("business_naics_6"),
         )
         enriched_roles = apply_oews_wages(
           conn,
@@ -1418,12 +1380,9 @@ def post_intake_consult_handler(*, app, request):
           business_stage=ops_json.get("business_stage"),
           address_state=business_facts.get("address_state"),
           address=business_facts.get("address"),
+          business_naics_6=ops_json.get("business_naics_6"),
         )
-        try:
-          final_obj["business_naics_6"] = get_naics_from_business_type(conn, ops_json.get("business_type"))
-        except Exception:
-          if "business_naics_6" not in final_obj:
-            final_obj["business_naics_6"] = None
+        final_obj["business_naics_6"] = ops_json.get("business_naics_6")
         final_obj["people"] = enriched_people
         final_obj["inferred_roles"] = enriched_roles
         final_obj["inferred_roles_summary"] = format_roles_summary(enriched_roles)

@@ -239,6 +239,59 @@ def _match_occ_title_with_gpt(
   return occ or None
 
 
+def _estimate_wage_with_gpt(
+  *,
+  role_title: str,
+  notes: str,
+  business_type: str,
+) -> Optional[float]:
+  if not role_title:
+    return None
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+
+  system = (
+    "You estimate a realistic US annual wage for a role in a small business.\n"
+    "Return a single number only (no symbols, commas, or prose).\n"
+    "If you cannot estimate, return an empty string."
+  )
+  user = (
+    "Role title:\n"
+    f"{role_title}\n\n"
+    "Business type:\n"
+    f"{business_type}\n\n"
+    "Role notes:\n"
+    f"{notes}\n"
+  )
+
+  payload = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": user},
+    ],
+    "text": {"format": {"type": "text"}},
+  }
+
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:300]}")
+
+  raw = _parse_responses_text(resp.json())
+  try:
+    val = float(str(raw).strip().replace(",", ""))
+  except Exception:
+    return None
+  if val <= 0:
+    return None
+  return val
+
+
 def _select_wage(row: Dict[str, Any], prefer_pct10: bool) -> Tuple[Optional[float], Optional[str]]:
   pct10 = row.get("a_pct10")
   median = row.get("a_median")
@@ -288,6 +341,21 @@ def _fetch_oews_rows_exact(conn, *, state_abbrev: str, naics_6: str) -> List[Dic
     except Exception:
       pass
   return rows
+
+
+def _fetch_oews_rows_with_fallback(conn, *, state_abbrev: str, naics_value: str) -> List[Dict[str, Any]]:
+  if not naics_value:
+    return []
+  naics_str = str(naics_value).strip()
+  prefixes: List[str] = []
+  for length in (4, 3, 2):
+    if len(naics_str) >= length:
+      prefixes.append(naics_str[:length])
+  for prefix in prefixes:
+    rows = _fetch_oews_rows_prefix(conn, state_abbrev=state_abbrev, naics_prefix=prefix)
+    if rows:
+      return rows
+  return []
 
 
 def _fetch_oews_rows_prefix(conn, *, state_abbrev: str, naics_prefix: str) -> List[Dict[str, Any]]:
@@ -340,17 +408,22 @@ def apply_oews_wages(
   business_stage: Any,
   address_state: Any = None,
   address: Any = None,
+  business_naics_6: Any = None,
 ) -> List[Dict[str, Any]]:
   prefer_pct10 = False
 
-  naics_6 = _get_naics_from_business_type(conn, business_type)
+  naics_6 = None
+  if business_naics_6 is not None:
+    naics_6 = str(business_naics_6).strip() or None
+  if not naics_6:
+    naics_6 = _get_naics_from_business_type(conn, business_type)
   state_abbrev = _normalize_state_abbrev(address_state, address)
 
   naics_prefix = str(naics_6 or "")[:4] if naics_6 else ""
 
   us_rows: List[Dict[str, Any]] = []
-  if naics_prefix:
-    us_rows = _fetch_oews_rows_prefix(conn, state_abbrev="US", naics_prefix=naics_prefix)
+  if naics_6:
+    us_rows = _fetch_oews_rows_with_fallback(conn, state_abbrev="US", naics_value=str(naics_6))
 
   updated: List[Dict[str, Any]] = []
   for role in roles or []:
@@ -403,6 +476,20 @@ def apply_oews_wages(
 
     if wage_val is None and gpt_wage_val is not None:
       wage_val = gpt_wage_val
+      wage_source = wage_source or "gpt_estimate"
+
+    if wage_val is None:
+      try:
+        estimated = _estimate_wage_with_gpt(
+          role_title=role_title,
+          notes=notes,
+          business_type=str(business_type or ""),
+        )
+      except Exception:
+        estimated = None
+      if estimated is not None:
+        wage_val = estimated
+        wage_source = "gpt_estimate"
 
     updated.append(
       {
@@ -424,6 +511,7 @@ def apply_oews_wages_to_people(
   business_stage: Any,
   address_state: Any = None,
   address: Any = None,
+  business_naics_6: Any = None,
 ) -> List[Dict[str, Any]]:
   if not people:
     return []
@@ -455,6 +543,7 @@ def apply_oews_wages_to_people(
     business_stage=business_stage,
     address_state=address_state,
     address=address,
+    business_naics_6=business_naics_6,
   )
 
   updated: List[Dict[str, Any]] = []
@@ -515,6 +604,6 @@ def format_roles_summary(roles: List[Dict[str, Any]]) -> str:
     notes = str(role.get("notes") or "").strip()
     line = f"- {title}: {wage_str}"
     if notes:
-      line = f"{line} — {notes}"
+      line = f"{line} - {notes}"
     lines.append(line)
   return "\n".join(lines).strip()

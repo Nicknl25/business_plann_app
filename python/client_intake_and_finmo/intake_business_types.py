@@ -36,11 +36,19 @@ def get_conn():
 # LOOKUPS
 # ============================================================
 
+def _normalize_business_type(value: str) -> str:
+    cleaned = value.strip()
+    for ch in ("–", "—", "‑", "−"):
+        cleaned = cleaned.replace(ch, "-")
+    cleaned = " ".join(cleaned.split())
+    return cleaned.lower()
+
+
 def get_naics_from_business_type(conn, business_type):
     """
     Resolve client-selected business_type -> 6-digit NAICS
     """
-    bt_clean = business_type.strip()
+    bt_clean = _normalize_business_type(str(business_type or ""))
     cur = conn.cursor(dictionary=True)
     cur.execute("SELECT business_types, naics_6 FROM naics_master")
     rows = cur.fetchall()
@@ -50,7 +58,7 @@ def get_naics_from_business_type(conn, business_type):
         bt_field = row.get("business_types") or ""
         tokens = [tok.strip() for tok in str(bt_field).split(",") if tok.strip()]
         for tok in tokens:
-            if tok == bt_clean:
+            if _normalize_business_type(tok) == bt_clean:
                 return row["naics_6"]
 
     raise ValueError(f"No NAICS mapping found for business_type: {business_type}")
