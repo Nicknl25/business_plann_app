@@ -611,6 +611,7 @@ def route_intent(
       }],
       *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys() if f in {
         "people",
+        "inferred_roles",
       }],
       *[f"financials.{f}" for f in _value_schema_by_consult_field(consult_type="financials").keys() if f in {
         "current_revenue",

@@ -435,6 +435,18 @@ def apply_oews_wages(
     except Exception:
       gpt_wage_val = None
     wage_source = str(role.get("wage_source") or "").strip() or "gpt_estimate"
+    override_source = wage_source.strip().lower()
+    if override_source in ("client_override", "user_override", "manual_override"):
+      if gpt_wage_val is not None:
+        updated.append(
+          {
+            "role_title": role_title,
+            "annual_wage": gpt_wage_val,
+            "wage_source": "client_override",
+            "notes": notes,
+          }
+        )
+        continue
 
     wage_val = None
     rows_to_use = us_rows

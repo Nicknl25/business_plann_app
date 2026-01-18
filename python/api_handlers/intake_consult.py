@@ -678,6 +678,7 @@ def post_intake_consult_handler(*, app, request):
       )
 
     if action == "edit_patch" and patch:
+      baseline_people_json = json.loads(json.dumps(people_json)) if people_json else {}
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
         business_facts=business_facts,
@@ -687,6 +688,71 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      def _coerce_wage(value: Any) -> Optional[float]:
+        try:
+          return float(value)
+        except Exception:
+          return None
+
+      def _people_key(item: Dict[str, Any]) -> str:
+        name = str(item.get("full_name") or "").strip().lower()
+        title = str(item.get("role_title") or "").strip().lower()
+        if name or title:
+          return f"{name}::{title}".strip(":")
+        return ""
+
+      def _role_key(item: Dict[str, Any]) -> str:
+        return str(item.get("role_title") or "").strip().lower()
+
+      def _build_wage_map(items: List[Dict[str, Any]], key_fn) -> Dict[str, Optional[float]]:
+        mapping: Dict[str, Optional[float]] = {}
+        for it in items:
+          if not isinstance(it, dict):
+            continue
+          key = key_fn(it)
+          if not key:
+            continue
+          mapping[key] = _coerce_wage(it.get("annual_wage"))
+        return mapping
+
+      def _mark_client_overrides(
+        updated_items: List[Dict[str, Any]],
+        baseline_map: Dict[str, Optional[float]],
+        key_fn,
+      ) -> None:
+        for it in updated_items:
+          if not isinstance(it, dict):
+            continue
+          key = key_fn(it)
+          if not key:
+            continue
+          new_wage = _coerce_wage(it.get("annual_wage"))
+          if new_wage is None:
+            continue
+          old_wage = baseline_map.get(key)
+          if old_wage is None or abs(new_wage - old_wage) > 0.01:
+            it["wage_source"] = "client_override"
+
+      try:
+        baseline_people_list = (
+          baseline_people_json.get("people") if isinstance(baseline_people_json, dict) else []
+        )
+        baseline_roles_list = (
+          baseline_people_json.get("inferred_roles") if isinstance(baseline_people_json, dict) else []
+        )
+        if isinstance(people_json, dict):
+          updated_people_list = people_json.get("people")
+          updated_roles_list = people_json.get("inferred_roles")
+          if isinstance(updated_people_list, list) and isinstance(baseline_people_list, list):
+            _mark_client_overrides(
+              updated_people_list, _build_wage_map(baseline_people_list, _people_key), _people_key
+            )
+          if isinstance(updated_roles_list, list) and isinstance(baseline_roles_list, list):
+            _mark_client_overrides(
+              updated_roles_list, _build_wage_map(baseline_roles_list, _role_key), _role_key
+            )
+      except Exception:
+        pass
       try:
         try:
           from intake_business_types import get_naics_from_business_type  # type: ignore
