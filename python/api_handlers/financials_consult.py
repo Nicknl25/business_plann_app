@@ -7,6 +7,39 @@ from flask import jsonify
 FIN_CONFIRM_QUESTION = "Does this look right before we move on to Submit intake?"
 
 
+def _last_assistant_message(messages: List[Dict[str, str]]) -> str:
+  for msg in reversed(messages or []):
+    if str(msg.get("role") or "").strip().lower() != "assistant":
+      continue
+    text = str(msg.get("content") or "").strip()
+    if text:
+      return text
+  return ""
+
+
+def _should_check_revenue_patch(last_assistant: str, user_message: str) -> bool:
+  assistant = str(last_assistant or "").lower()
+  if "year 1 revenue" in assistant or "year-1 revenue" in assistant:
+    return True
+  if "revenue math" in assistant:
+    return True
+  msg = str(user_message or "").lower()
+  keywords = [
+    "unit price",
+    "price per",
+    "units per week",
+    "units/week",
+    "weeks per year",
+    "weeks/year",
+    "utilization",
+    "capacity",
+    "product",
+    "line of business",
+    "lob",
+  ]
+  return any(k in msg for k in keywords)
+
+
 def _parse_json_dict(raw: Any) -> Dict[str, Any]:
   if raw is None:
     return {}
@@ -29,6 +62,36 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   except Exception:
     return []
   return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
+
+
+def _constraints_snippet_already_sent(messages: List[Dict[str, str]]) -> bool:
+  for msg in messages or []:
+    if str(msg.get("role") or "").strip().lower() != "assistant":
+      continue
+    content = str(msg.get("content") or "")
+    if "operational constraints:" in content.lower():
+      return True
+  return False
+
+
+def _append_constraints_snippet(
+  assistant_text: str,
+  snippet: str,
+  messages: List[Dict[str, str]],
+  *,
+  force: bool = False,
+) -> str:
+  if not snippet:
+    return assistant_text
+  if "operational constraints:" in str(assistant_text or "").lower():
+    return assistant_text
+  if _constraints_snippet_already_sent(messages):
+    return assistant_text
+  if not force:
+    return assistant_text
+  if not assistant_text:
+    return snippet
+  return f"{assistant_text}\n\n{snippet}".strip()
 
 
 def _validate_final(final_obj: Dict[str, Any]) -> None:
@@ -154,6 +217,7 @@ def get_financials_consult_draft_handler(*, app, request):
         "draft_status": draft.get("status"),
         "messages_json": draft.get("messages_json"),
         "financials_json": draft.get("financials_json"),
+        "financials_year1_json": draft.get("financials_year1_json"),
       }
     )
   except Exception as exc:
@@ -191,6 +255,12 @@ def post_financials_consult_handler(*, app, request):
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
     from financials_consult_draft import append_messages, create_draft, get_draft as get_fin_draft  # type: ignore
     from financials_consultant import financials_chat_turn, financials_finalize  # type: ignore
+    from financials_year1 import (  # type: ignore
+      assemble_financials_year1,
+      apply_revenue_driver_patch,
+      build_revenue_math_line,
+      build_revenue_constraints_snippet,
+    )
     from api_handlers.shared_context import build_shared_context
     from intent_router import route_intent  # type: ignore
   except Exception as exc:
@@ -205,6 +275,10 @@ def post_financials_consult_handler(*, app, request):
 
       shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
       operating_model = shared_context.get("operating_model") or {}
+      raw_start_date = payload.get("business_start_date")
+      if raw_start_date is None:
+        raw_start_date = payload.get("businessStartDate") or payload.get("business_startDate")
+      business_start_date = str(raw_start_date or consult.get("business_start_date") or "").strip() or None
 
       try:
         fin_draft = get_fin_draft(conn, draft_id=str(draft_id).strip())
@@ -219,6 +293,17 @@ def post_financials_consult_handler(*, app, request):
       # Completed: route all user messages through GPT intent router.
       if fin_status == "completed":
         baseline_financials = _parse_json_dict(fin_draft.get("financials_json"))
+        existing_year1 = _parse_json_dict(fin_draft.get("financials_year1_json"))
+        financials_year1_json = assemble_financials_year1(shared_context, existing_year1)
+        revenue_math_line = build_revenue_math_line(
+          financials_year1_json,
+          unit_name=str((operating_model or {}).get("unit_name") or "").strip() or None,
+        )
+        revenue_constraints_snippet = build_revenue_constraints_snippet(
+          shared_context,
+          financials_year1_json,
+          business_start_date=business_start_date,
+        )
 
         if starting:
           summary = str(baseline_financials.get("financials_summary") or "").strip()
@@ -237,8 +322,70 @@ def post_financials_consult_handler(*, app, request):
               "financials_json": json.dumps(baseline_financials, ensure_ascii=False)
               if baseline_financials
               else None,
+              "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
+              if financials_year1_json
+              else None,
             }
           )
+
+        last_assistant = _last_assistant_message(history)
+        if _should_check_revenue_patch(last_assistant, str(message)):
+          revenue_intent = route_intent(
+            consult_type="financials_year1",
+            user_message=str(message).strip(),
+            baseline_json=financials_year1_json,
+            shared_context=shared_context,
+            recent_messages=history[-30:] if history else [],
+            active_focus="financials",
+          )
+          if str(revenue_intent.get("action") or "").strip() == "edit_patch":
+            patch = revenue_intent.get("patch")
+            if isinstance(patch, dict) and patch:
+              financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
+              revenue_math_line = build_revenue_math_line(
+                financials_year1_json,
+                unit_name=str((operating_model or {}).get("unit_name") or "").strip() or None,
+              )
+              revenue_constraints_snippet = build_revenue_constraints_snippet(
+                shared_context,
+                financials_year1_json,
+                business_start_date=business_start_date,
+              )
+              assistant_message = (
+                "Updated the revenue drivers. Year 1 revenue:\n"
+                f"{revenue_math_line}\n\n"
+                "Does this look right, or which driver should change?"
+              )
+              assistant_message = _append_constraints_snippet(
+                assistant_message,
+                revenue_constraints_snippet,
+                history,
+                force=True,
+              )
+              append_messages(
+                conn,
+                draft_id=str(draft_id).strip(),
+                new_messages=[user_msg, {"role": "assistant", "content": assistant_message}],
+                status="completed",
+                financials_year1_json=financials_year1_json,
+                completed=True,
+              )
+              return jsonify(
+                {
+                  "status": "ok",
+                  "draft_id": str(draft_id).strip(),
+                  "client_id": client_id,
+                  "done": True,
+                  "action": "edit_patch",
+                  "assistant_message": assistant_message,
+                  "financials_json": json.dumps(baseline_financials, ensure_ascii=False)
+                  if baseline_financials
+                  else None,
+                  "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
+                  if financials_year1_json
+                  else None,
+                }
+              )
 
         routed = route_intent(
           consult_type="financials",
@@ -280,6 +427,7 @@ def post_financials_consult_handler(*, app, request):
           new_messages=[user_msg, assistant_msg],
           status="completed",
           financials_json=updated_financials if action == "edit_patch" else None,
+          financials_year1_json=financials_year1_json,
           flat_fields=updated_financials if action == "edit_patch" else None,
           completed=bool(action == "edit_patch"),
         )
@@ -295,13 +443,51 @@ def post_financials_consult_handler(*, app, request):
             "financials_json": json.dumps(updated_financials, ensure_ascii=False)
             if updated_financials
             else None,
+            "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
+            if financials_year1_json
+            else None,
           }
         )
+
+      existing_year1 = _parse_json_dict(fin_draft.get("financials_year1_json"))
+      financials_year1_json = assemble_financials_year1(shared_context, existing_year1)
+      revenue_constraints_snippet = build_revenue_constraints_snippet(
+        shared_context,
+        financials_year1_json,
+        business_start_date=business_start_date,
+      )
+      revenue_driver_patch = None
+      if not starting:
+        last_assistant = _last_assistant_message(history)
+        if _should_check_revenue_patch(last_assistant, str(message)):
+          revenue_intent = route_intent(
+            consult_type="financials_year1",
+            user_message=str(message).strip(),
+            baseline_json=financials_year1_json,
+            shared_context=shared_context,
+            recent_messages=history[-30:] if history else [],
+            active_focus="financials",
+          )
+          if str(revenue_intent.get("action") or "").strip() == "edit_patch":
+            patch = revenue_intent.get("patch")
+            if isinstance(patch, dict) and patch:
+              revenue_driver_patch = patch
+              financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
+              revenue_constraints_snippet = build_revenue_constraints_snippet(
+                shared_context,
+                financials_year1_json,
+                business_start_date=business_start_date,
+              )
+
+      revenue_math_line = build_revenue_math_line(
+        financials_year1_json,
+        unit_name=str((operating_model or {}).get("unit_name") or "").strip() or None,
+      )
 
       context = {
         "client_id": client_id,
         "business_name": payload.get("business_name"),
-        "business_start_date": payload.get("business_start_date"),
+        "business_start_date": business_start_date,
         "shared_context": shared_context,
         "operating_model": operating_model,
         "target_market": shared_context.get("target_market") or {},
@@ -310,6 +496,10 @@ def post_financials_consult_handler(*, app, request):
         "unit_price": operating_model.get("unit_price"),
         "business_description_summary": operating_model.get("business_description_summary"),
         "consumer_type": operating_model.get("consumer_type"),
+        "financials_year1_json": financials_year1_json,
+        "revenue_math_line": revenue_math_line,
+        "revenue_constraints_snippet": revenue_constraints_snippet,
+        "revenue_driver_patch": revenue_driver_patch,
       }
 
       turn = financials_chat_turn(
@@ -319,6 +509,18 @@ def post_financials_consult_handler(*, app, request):
       from fact_templates import sanitize_fact_template  # type: ignore
 
       assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
+      should_append_constraints = (
+        starting
+        or bool(revenue_driver_patch)
+        or ("year 1 revenue" in assistant_text.lower() or "year-1 revenue" in assistant_text.lower())
+        or (revenue_math_line and revenue_math_line in assistant_text)
+      )
+      assistant_text = _append_constraints_snippet(
+        assistant_text,
+        revenue_constraints_snippet,
+        history,
+        force=should_append_constraints,
+      )
       finalize_ready = bool(turn.get("finalize_ready", False))
 
       if not finalize_ready:
@@ -328,6 +530,7 @@ def post_financials_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, assistant_msg],
           status="in_progress",
+          financials_year1_json=financials_year1_json,
         )
         return jsonify(
           {
@@ -338,6 +541,9 @@ def post_financials_consult_handler(*, app, request):
             "action": "continue",
             "assistant_message": assistant_text,
             "financials_json": None,
+            "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
+            if financials_year1_json
+            else None,
           }
         )
 
@@ -365,6 +571,7 @@ def post_financials_consult_handler(*, app, request):
         new_messages=[user_msg, assistant_msg],
         status="completed",
         financials_json=final_obj,
+        financials_year1_json=financials_year1_json,
         flat_fields=final_obj,
         completed=True,
       )
@@ -378,6 +585,9 @@ def post_financials_consult_handler(*, app, request):
           "action": "await_confirmation",
           "assistant_message": assistant_message,
           "financials_json": json.dumps(final_obj, ensure_ascii=False),
+          "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
+          if financials_year1_json
+          else None,
         }
       )
     finally:

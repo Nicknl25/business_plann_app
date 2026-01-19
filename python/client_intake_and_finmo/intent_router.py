@@ -304,6 +304,16 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "confidence": {"type": "number"},
     }
 
+  if consult_type_norm == "financials_year1":
+    return {
+      "unit_price": {"type": "number"},
+      "units_per_week_capacity": {"type": "number"},
+      "avg_units_per_week_year1": {"type": "number"},
+      "operating_weeks_per_year": {"type": "number"},
+      "utilization_rate": {"type": "number"},
+      "product_overrides": {"type": "object"},
+    }
+
   if consult_type_norm == "financials":
     return {
       "financials_summary": {"type": "string"},
@@ -515,7 +525,7 @@ def route_intent(
     { action, assistant_message, patch }
   """
   consult_type_norm = str(consult_type or "").strip().lower()
-  if consult_type_norm not in ("ops", "target_market", "people", "financials", "unified"):
+  if consult_type_norm not in ("ops", "target_market", "people", "financials", "financials_year1", "unified"):
     raise ValueError(f"Unknown consult_type={consult_type!r}")
 
   api_key = _require_openai_key()
@@ -526,6 +536,7 @@ def route_intent(
     "target_market": "Does this look right before we move on to People & Capability?",
     "people": "Does this look right before we move on to Financials?",
     "financials": "Does this look right before we move on to Submit intake?",
+    "financials_year1": "Does this look right before we move on?",
     "unified": "Does this look right before we move on?",
   }
   if confirm_question_override is None:
@@ -586,6 +597,14 @@ def route_intent(
       "annual_principal_payment",
       "owner_compensation",
       "cash_on_hand",
+    ],
+    "financials_year1": [
+      "unit_price",
+      "units_per_week_capacity",
+      "avg_units_per_week_year1",
+      "operating_weeks_per_year",
+      "utilization_rate",
+      "product_overrides",
     ],
     "unified": [
       "business.name",
@@ -655,6 +674,16 @@ def route_intent(
   recent_messages_list = list(recent_messages or [])
   last_assistant = _last_assistant_message(recent_messages_list)
 
+  extra_instructions = ""
+  if consult_type_norm == "financials_year1":
+    extra_instructions = (
+      "Financials Year 1 revenue edits:\n"
+      "- If the user references a specific product name, return patch field "
+      "\"product_overrides\" with an object mapping that product name to its updated driver values.\n"
+      "- If the user does not specify a product, apply the update to the global driver field "
+      "(unit_price, units_per_week_capacity, avg_units_per_week_year1, operating_weeks_per_year, utilization_rate).\n"
+    )
+
   system = f"""
 You are the intent router for a multi-step business intake app.
 
@@ -719,6 +748,8 @@ Interpretation rules:
 - If the user is agreeing to a proposed fact update from the last assistant message, treat it as edit_patch and apply that update.
 - If confirm_question is present and the user response is a brief acknowledgement with no corrections or new facts, you MUST return confirm_proceed (do not restate the summary).
 - If the last assistant message described the fulfillment model (who performs it + typical timing) and the user agrees, set fulfillment.personnel and fulfillment.time accordingly.
+
+{extra_instructions}
 
 Consistency inference (active_focus == "consistency"):
 - If the last assistant message offered reconciliation choices (A/B/C or similar) and the user picks one

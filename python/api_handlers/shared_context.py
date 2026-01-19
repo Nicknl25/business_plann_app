@@ -28,6 +28,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   target_market: Dict[str, Any] = {}
   people_capability: Dict[str, Any] = {}
   financials: Dict[str, Any] = {}
+  financials_year1_json: Dict[str, Any] = {}
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -38,6 +39,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
+    financials_year1_json = _parse_json_maybe(consult.get("financials_year1_json"))
   except Exception:
     # Fall back to legacy per-consult drafts below.
     operating_model = {}
@@ -79,6 +81,8 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     fin = get_fin_draft(conn, draft_id=str(draft_id).strip())
     if not financials:
       financials = _parse_json_maybe(fin.get("financials_json"))
+    if not financials_year1_json:
+      financials_year1_json = _parse_json_maybe(fin.get("financials_year1_json"))
   except Exception:
     financials = {}
 
@@ -94,6 +98,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "target_market": target_market,
     "people_capability": people_capability,
     "financials": financials,
+    "financials_year1_json": financials_year1_json,
   }
 
 

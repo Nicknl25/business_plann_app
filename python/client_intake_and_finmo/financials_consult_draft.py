@@ -51,6 +51,7 @@ def ensure_table(conn) -> None:
         status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
         messages_json LONGTEXT NULL,
         financials_json LONGTEXT NULL,
+        financials_year1_json LONGTEXT NULL,
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         completed_at DATETIME(6) NULL,
@@ -64,6 +65,28 @@ def ensure_table(conn) -> None:
       cur.close()
     except Exception:
       pass
+
+  cols = _table_columns(conn, "intake_financials_drafts")
+  alterations: list[str] = []
+  if "financials_year1_json" not in cols:
+    alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
+
+  if alterations:
+    cur2 = conn.cursor()
+    try:
+      for alter in alterations:
+        cur2.execute(f"ALTER TABLE intake_financials_drafts {alter}")
+      conn.commit()
+    except Exception:
+      try:
+        conn.rollback()
+      except Exception:
+        pass
+    finally:
+      try:
+        cur2.close()
+      except Exception:
+        pass
 
 
 def create_draft(conn, *, draft_id: str, client_id: str) -> Dict[str, Any]:
@@ -131,6 +154,7 @@ def append_messages(
   new_messages: List[Dict[str, str]],
   status: Optional[str] = None,
   financials_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
   flat_fields: Optional[Dict[str, Any]] = None,
   completed: bool = False,
 ) -> Dict[str, Any]:
@@ -150,6 +174,10 @@ def append_messages(
     set_parts.append("financials_json = %s")
     values.append(json.dumps(financials_json, ensure_ascii=False))
 
+  if financials_year1_json is not None:
+    set_parts.append("financials_year1_json = %s")
+    values.append(json.dumps(financials_year1_json, ensure_ascii=False))
+
   if flat_fields:
     reserved = {
       "draft_id",
@@ -157,6 +185,7 @@ def append_messages(
       "status",
       "messages_json",
       "financials_json",
+      "financials_year1_json",
       "created_at",
       "updated_at",
       "completed_at",

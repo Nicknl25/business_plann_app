@@ -38,6 +38,36 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
 
 
+def _constraints_snippet_already_sent(messages: List[Dict[str, str]]) -> bool:
+  for msg in messages or []:
+    if str(msg.get("role") or "").strip().lower() != "assistant":
+      continue
+    content = str(msg.get("content") or "")
+    if "operational constraints:" in content.lower():
+      return True
+  return False
+
+
+def _append_constraints_snippet(
+  assistant_text: str,
+  snippet: str,
+  messages: List[Dict[str, str]],
+  *,
+  force: bool = False,
+) -> str:
+  if not snippet:
+    return assistant_text
+  if "operational constraints:" in str(assistant_text or "").lower():
+    return assistant_text
+  if _constraints_snippet_already_sent(messages):
+    return assistant_text
+  if not force:
+    return assistant_text
+  if not assistant_text:
+    return snippet
+  return f"{assistant_text}\n\n{snippet}".strip()
+
+
 
 def _strip_acs_codes(text: str) -> str:
   """
@@ -548,6 +578,7 @@ def get_intake_consult_draft_handler(*, app, request):
         "target_market_json": draft.get("target_market_json"),
         "people_json": draft.get("people_json"),
         "financials_json": draft.get("financials_json"),
+        "financials_year1_json": draft.get("financials_year1_json"),
         "fulfillment_json": draft.get("fulfillment_json"),
       }
     )
@@ -592,6 +623,11 @@ def post_intake_consult_handler(*, app, request):
       people_capability_finalize,
     )
     from financials_consultant import financials_chat_turn, financials_finalize  # type: ignore
+    from financials_year1 import (  # type: ignore
+      assemble_financials_year1,
+      build_revenue_constraints_snippet,
+      build_revenue_math_line,
+    )
     from consistency_consultant import consistency_chat_turn  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import unified intake helpers: %s", exc)
@@ -614,6 +650,7 @@ def post_intake_consult_handler(*, app, request):
     market_json = _parse_json_dict(consult.get("target_market_json"))
     people_json = _parse_json_dict(consult.get("people_json"))
     financials_json = _parse_json_dict(consult.get("financials_json"))
+    financials_year1_json = _parse_json_dict(consult.get("financials_year1_json"))
     fulfillment_json = _parse_json_dict(consult.get("fulfillment_json"))
 
     ops_confirmed = bool(consult.get("ops_confirmed"))
@@ -680,6 +717,16 @@ def post_intake_consult_handler(*, app, request):
     )
 
     shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+    financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+    revenue_math_line = build_revenue_math_line(
+      financials_year1_json,
+      unit_name=str((ops_json or {}).get("unit_name") or "").strip() or None,
+    )
+    revenue_constraints_snippet = build_revenue_constraints_snippet(
+      shared_context,
+      financials_year1_json,
+      business_start_date=str(business_facts.get("start_date") or "").strip() or None,
+    )
 
     baseline_json = {
       "business": business_facts,
@@ -709,6 +756,10 @@ def post_intake_consult_handler(*, app, request):
         if consumer_type not in ("consumer", "b2b", "mixed"):
           consumer_type = "consumer"
         intake_context["consumer_type"] = consumer_type
+      intake_context["financials_year1_json"] = financials_year1_json
+      intake_context["revenue_math_line"] = revenue_math_line
+      intake_context["revenue_constraints_snippet"] = revenue_constraints_snippet
+      intake_context["revenue_driver_patch"] = None
 
       if focus == "ops":
         assistant_text = consultant_chat_turn(
@@ -736,6 +787,13 @@ def post_intake_consult_handler(*, app, request):
       assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
       if focus == "market":
         assistant_text = _strip_acs_codes(assistant_text)
+      if focus == "financials":
+        assistant_text = _append_constraints_snippet(
+          assistant_text,
+          revenue_constraints_snippet,
+          messages,
+          force=True,
+        )
 
       append_messages(
         conn,
@@ -1093,6 +1151,10 @@ def post_intake_consult_handler(*, app, request):
           "financials_json": financials_json,
           "fulfillment_json": fulfillment_json,
         }
+        intake_context_followup["financials_year1_json"] = financials_year1_json
+        intake_context_followup["revenue_math_line"] = revenue_math_line
+        intake_context_followup["revenue_constraints_snippet"] = revenue_constraints_snippet
+        intake_context_followup["revenue_driver_patch"] = None
 
         followup_focus = active_focus_out if active_focus_out != "done" else focus
         if followup_focus == "market":
@@ -1134,6 +1196,13 @@ def post_intake_consult_handler(*, app, request):
         followup_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
         if focus == "market":
           followup_text = _strip_acs_codes(followup_text)
+        if followup_focus == "financials":
+          followup_text = _append_constraints_snippet(
+            followup_text,
+            revenue_constraints_snippet,
+            messages,
+            force=True,
+          )
         if followup_text:
           if assistant_text:
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
@@ -1155,6 +1224,7 @@ def post_intake_consult_handler(*, app, request):
         target_market_json=market_json,
         people_json=people_json,
         financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
         fulfillment_json=fulfillment_json,
         active_focus=active_focus_out,
         business_facts=business_facts,
@@ -1195,6 +1265,10 @@ def post_intake_consult_handler(*, app, request):
         "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
       }
+      intake_context_next["financials_year1_json"] = financials_year1_json
+      intake_context_next["revenue_math_line"] = revenue_math_line
+      intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
+      intake_context_next["revenue_driver_patch"] = None
 
       if next_focus == "ops":
         next_assistant = consultant_chat_turn(
@@ -1236,6 +1310,13 @@ def post_intake_consult_handler(*, app, request):
       next_assistant = sanitize_fact_template(str(next_assistant or "").strip())
       if next_focus == "market":
         next_assistant = _strip_acs_codes(next_assistant)
+      if next_focus == "financials":
+        next_assistant = _append_constraints_snippet(
+          next_assistant,
+          revenue_constraints_snippet,
+          messages,
+          force=True,
+        )
 
       append_messages(
         conn,
@@ -1328,6 +1409,10 @@ def post_intake_consult_handler(*, app, request):
       "financials_json": financials_json,
       "fulfillment_json": fulfillment_json,
     }
+    intake_context["financials_year1_json"] = financials_year1_json
+    intake_context["revenue_math_line"] = revenue_math_line
+    intake_context["revenue_constraints_snippet"] = revenue_constraints_snippet
+    intake_context["revenue_driver_patch"] = None
     if focus == "market":
       consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
       if consumer_type not in ("consumer", "b2b", "mixed"):
@@ -1360,6 +1445,13 @@ def post_intake_consult_handler(*, app, request):
     assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
     if focus == "market":
       assistant_text = _strip_acs_codes(assistant_text)
+    if focus == "financials":
+      assistant_text = _append_constraints_snippet(
+        assistant_text,
+        revenue_constraints_snippet,
+        messages,
+        force=True,
+      )
 
     finalize_ready = bool(turn.get("finalize_ready", False))
 
@@ -1402,6 +1494,13 @@ def post_intake_consult_handler(*, app, request):
         followup_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
         if focus == "market":
           followup_text = _strip_acs_codes(followup_text)
+        if focus == "financials":
+          followup_text = _append_constraints_snippet(
+            followup_text,
+            revenue_constraints_snippet,
+            messages,
+            force=True,
+          )
         if followup_text:
           assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
       except Exception:
@@ -1439,6 +1538,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         active_focus=focus,
         business_facts=business_facts,
+        financials_year1_json=financials_year1_json if focus == "financials" else None,
       )
       return jsonify(
         {
@@ -1657,6 +1757,7 @@ def post_intake_consult_handler(*, app, request):
       target_market_json=market_json if focus == "market" else None,
       people_json=people_json if focus == "people" else None,
       financials_json=financials_json if focus == "financials" else None,
+      financials_year1_json=financials_year1_json if focus == "financials" else None,
       active_focus=focus,
       business_facts=business_facts,
       consistency_passed=False,
