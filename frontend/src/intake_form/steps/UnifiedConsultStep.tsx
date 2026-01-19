@@ -12,7 +12,10 @@ import { consultStorage } from "../flow/consultStorage";
 import { renderFactTemplate } from "../flow/renderFactTemplate";
 import type { IntakeValues } from "../schema";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 type DraftMeta = {
   status: string;
@@ -23,6 +26,15 @@ type DraftMeta = {
   financialsConfirmed: boolean;
   consistencyPassed: boolean;
 };
+
+const STAGE_HINT_PREFIX =
+  "Based on the start date you provided, I'm treating this as";
+
+function stripStageHint(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const filtered = lines.filter((line) => !line.trim().startsWith(STAGE_HINT_PREFIX));
+  return filtered.join("\n").trim();
+}
 
 function normalizeDraftMeta(body: any): DraftMeta {
   return {
@@ -86,6 +98,22 @@ export default function UnifiedConsultStep() {
   const [draftSyncing, setDraftSyncing] = useState(false);
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState("");
+
+  const visibleMessages = useMemo(() => {
+    const next: ChatMessage[] = [];
+    for (const message of messages) {
+      if (message.role === "assistant") {
+        const cleaned = stripStageHint(message.content);
+        if (!cleaned) {
+          continue;
+        }
+        next.push({ ...message, content: cleaned });
+        continue;
+      }
+      next.push(message);
+    }
+    return next;
+  }, [messages]);
 
   const detailsComplete = useMemo(() => {
     const hasAddress =
@@ -762,17 +790,17 @@ export default function UnifiedConsultStep() {
           ref={chatContainerRef}
           className="max-h-80 space-y-2 overflow-auto rounded-md border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-200"
         >
-          {messages.length === 0 ? (
-            <div className="text-slate-400">
-              {sending ? "Starting consultation..." : "Conversation will appear here."}
-            </div>
-          ) : (
-            <>
-              {messages.map((m, idx) => (
-                <div
-                  key={idx}
-                  className={`whitespace-pre-wrap rounded-md border px-3 py-2 leading-relaxed ${
-                    m.role === "assistant"
+        {visibleMessages.length === 0 ? (
+          <div className="text-slate-400">
+            {sending ? "Starting consultation..." : "Conversation will appear here."}
+          </div>
+        ) : (
+          <>
+            {visibleMessages.map((m, idx) => (
+              <div
+                key={idx}
+                className={`whitespace-pre-wrap rounded-md border px-3 py-2 leading-relaxed ${
+                  m.role === "assistant"
                       ? "border-slate-700/60 bg-slate-900/40"
                       : "border-slate-800/70 bg-slate-950/30"
                   }`}

@@ -10,6 +10,7 @@ import requests
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 FINALIZE_TOKEN = "[[FINALIZE_READY]]"
+_RETRYABLE_STATUS = {429, 502, 503, 504}
 
 
 def _load_root_env() -> None:
@@ -47,12 +48,22 @@ def _openai_timeout_seconds() -> int:
   return 180
 
 
+def _format_openai_error(resp: requests.Response) -> str:
+  if resp.status_code in _RETRYABLE_STATUS:
+    return "We're having trouble reaching our AI service right now. Please try again in a minute."
+  return f"OpenAI API error {resp.status_code}: {resp.text[:500]}"
+
+
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
   timeout = _openai_timeout_seconds()
   last_exc: Optional[Exception] = None
   for attempt in range(3):
     try:
-      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      if resp.status_code in _RETRYABLE_STATUS and attempt < 2:
+        time.sleep(0.75 * (2**attempt))
+        continue
+      return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
       if attempt >= 2:
@@ -307,7 +318,9 @@ Conversation rules:
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
 - Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
 - Milestones must be future plans/targets (do not ask whether milestones were already achieved). If the client has no milestones, propose one realistic, forward-looking operational milestone based on what you've learned and get the client to agree to it before finalizing.
+- Milestone confirmation (REQUIRED): you must propose a specific milestone and get explicit client agreement or a counter before finalizing. Do NOT assume or auto-infer a milestone without client confirmation.
 - Legal entity handling: help the client choose the closest label; if they are unsure after one clarification question, default to "Sole proprietor". Never respond with long explanatory phrases for the legal entity.
+- Legal entity confirmation (REQUIRED): you must explicitly ask and confirm the legal structure with the client before the final summary. Do NOT assume a legal entity unless the client explicitly says they are unsure; only then may you default to "Sole proprietor".
 - Final confirmation summary MUST be a single paragraph with no bullets, no headings, and no preamble.
 - Geography rules:
   - Use the provided business address context (street/city/state/ZIP/country) to avoid asking basic location questions like "which country are you operating in?" when it is already known.
@@ -359,7 +372,7 @@ Output rules:
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
-    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+    raise RuntimeError(_format_openai_error(resp))
 
   text = _parse_responses_text(resp.json())
   finalize_ready = FINALIZE_TOKEN in text
@@ -451,7 +464,7 @@ Multi-LOB/products:
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
-    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+    raise RuntimeError(_format_openai_error(resp))
 
   data = resp.json()
   output = data.get("output") or []

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Sequence
 import requests
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+_RETRYABLE_STATUS = {429, 502, 503, 504}
 
 
 def _load_root_env() -> None:
@@ -47,12 +48,22 @@ def _openai_timeout_seconds() -> int:
   return 180
 
 
+def _format_openai_error(resp: requests.Response) -> str:
+  if resp.status_code in _RETRYABLE_STATUS:
+    return "We're having trouble reaching our AI service right now. Please try again in a minute."
+  return f"OpenAI API error {resp.status_code}: {resp.text[:500]}"
+
+
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
   timeout = _openai_timeout_seconds()
   last_exc: Optional[Exception] = None
   for attempt in range(3):
     try:
-      return requests.post(url, headers=headers, json=payload, timeout=timeout)
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      if resp.status_code in _RETRYABLE_STATUS and attempt < 2:
+        time.sleep(0.75 * (2**attempt))
+        continue
+      return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
       if attempt >= 2:
@@ -760,7 +771,7 @@ Return JSON only. No prose.
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
-    raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
+    raise RuntimeError(_format_openai_error(resp))
 
   data = resp.json()
   output = data.get("output") or []

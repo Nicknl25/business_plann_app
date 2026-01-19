@@ -1,13 +1,17 @@
 import json
+import os
+import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
+import requests
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 MARKET_CONFIRM_QUESTION = "Does this look right before we move on to Human Resources?"
 PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?"
 FIN_CONFIRM_QUESTION = "Does this look right before we move on to Submit intake?"
+_RETRYABLE_STATUS = {429, 502, 503, 504}
 
 
 def _parse_json_dict(raw: Any) -> Dict[str, Any]:
@@ -80,6 +84,131 @@ def _infer_business_stage(start_date_raw: Any, current_date: Optional[date] = No
   if delta_days <= 365:
     return "early-stage"
   return "operating"
+
+
+def _openai_key() -> Optional[str]:
+  key = (os.getenv("OPENAI_API_KEY") or "").strip()
+  return key or None
+
+
+def _openai_model() -> str:
+  return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
+
+
+def _openai_timeout_seconds() -> int:
+  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
+  if raw:
+    try:
+      return max(30, int(raw))
+    except Exception:
+      return 180
+  return 180
+
+
+def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
+  timeout = _openai_timeout_seconds()
+  last_exc: Optional[Exception] = None
+  for attempt in range(3):
+    try:
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      if resp.status_code in _RETRYABLE_STATUS and attempt < 2:
+        time.sleep(0.75 * (2**attempt))
+        continue
+      return resp
+    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+    except requests.exceptions.ConnectionError as exc:
+      last_exc = exc
+      if attempt >= 2:
+        raise
+      time.sleep(0.75 * (2**attempt))
+  if last_exc:
+    raise last_exc
+  raise RuntimeError("OpenAI request failed unexpectedly.")
+
+
+def _parse_responses_text(data: Dict[str, Any]) -> str:
+  output = data.get("output") or []
+  chunks: List[str] = []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_text" and part.get("text"):
+        chunks.append(str(part["text"]))
+  if not chunks:
+    raise RuntimeError("OpenAI response contained no output_text.")
+  return "\n".join(chunks).strip()
+
+
+def _timing_months_max_via_openai(timing_text: str, reference_date: Optional[date]) -> Optional[int]:
+  key = _openai_key()
+  if not key:
+    return None
+  timing = str(timing_text or "").strip()
+  if not timing:
+    return None
+  ref_date = reference_date.isoformat() if isinstance(reference_date, date) else None
+  system = (
+    "You convert milestone timing text into a single integer: the MAX number of months. "
+    "If the text contains a range, return the upper bound in months. "
+    "If the text references quarters or years, convert to months. "
+    "If you cannot determine a number of months, return null. "
+    "Return ONLY valid JSON: {\"months_max\": <integer or null>}."
+  )
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps({"timing": timing, "reference_date": ref_date})},
+    ],
+  }
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    return None
+  data = resp.json()
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = None
+  if isinstance(parsed, dict):
+    value = parsed.get("months_max")
+  else:
+    value = raw.strip()
+  if value is None:
+    return None
+  if isinstance(value, (int, float)):
+    return int(round(float(value)))
+  try:
+    return int(round(float(str(value).strip())))
+  except Exception:
+    return None
+
+
+def _enrich_milestones_timing(ops_json: Dict[str, Any], reference_date: Optional[date]) -> None:
+  milestones = ops_json.get("milestones")
+  if isinstance(milestones, str):
+    try:
+      milestones = json.loads(milestones)
+    except Exception:
+      milestones = None
+  if not isinstance(milestones, list):
+    return
+  for milestone in milestones:
+    if not isinstance(milestone, dict):
+      continue
+    if milestone.get("timing_months_max") is not None:
+      continue
+    months = _timing_months_max_via_openai(str(milestone.get("timing") or "").strip(), reference_date)
+    if months is None:
+      continue
+    milestone["timing_months_max"] = months
 
 
 def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
@@ -767,6 +896,10 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         pass
       try:
+        _enrich_milestones_timing(ops_json, reference_date=current_date)
+      except Exception:
+        pass
+      try:
         from people_roles import (  # type: ignore
           apply_oews_wages,
           apply_oews_wages_to_people,
@@ -921,9 +1054,16 @@ def post_intake_consult_handler(*, app, request):
       # router acknowledgement so the user clearly sees the update before the audit.
       assistant_text = router_msg if (confirm_question or active_focus_out != focus) else ""
       # If we're awaiting a section-final confirmation, re-ask the confirm question
-      # without reprinting the full summary (avoid duplicate summaries).
+      # with the updated summary shown for ops edits.
       if confirm_question:
-        assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
+        if str(focus).strip().lower() == "ops":
+          updated_summary = str(ops_json.get("business_description_summary") or "").strip()
+          if updated_summary:
+            assistant_text = f"{assistant_text}\n\n{updated_summary}\n\n{confirm_question}".strip()
+          else:
+            assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
+        else:
+          assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
       else:
         # Otherwise, keep the intake moving: acknowledge the edit and then continue
         # with the next question for the current focus (no standstills).
@@ -1385,6 +1525,10 @@ def post_intake_consult_handler(*, app, request):
       summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
       summary_text = _upgrade_summary_if_needed("ops", summary_text)
       final_obj["business_description_summary"] = summary_text
+      try:
+        _enrich_milestones_timing(final_obj, reference_date=current_date)
+      except Exception:
+        pass
       assistant_final = f"{summary_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
       ops_json = final_obj
       market_json_out = None
@@ -1503,10 +1647,12 @@ def post_intake_consult_handler(*, app, request):
 
     assistant_final = sanitize_fact_template(str(assistant_final or "").strip())
 
+    assistant_payload: Dict[str, Any] = {"role": "assistant", "content": assistant_final}
+
     append_messages(
       conn,
       draft_id=str(draft_id).strip(),
-      new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
+      new_messages=[user_msg, assistant_payload],
       operating_model_json=ops_json if focus == "ops" else None,
       target_market_json=market_json if focus == "market" else None,
       people_json=people_json if focus == "people" else None,
