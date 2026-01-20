@@ -334,7 +334,7 @@ Conversation rules:
     - If the client describes coverage as a radius, translate it into ZIPs/counties/metros/states: propose a practical set first (based on the address and scope) and ask for simple confirmation or a correction.
   - As a general rule, infer and propose first; the client then agrees or counters. Keep this frictionless.
   - geographic_coverage must not be left blank.
-- When producing business_description_summary, include the unit, pricing, the confirmed fulfillment model (who fulfills + typical timing) and shipping_method, sales modality, geographic scope and geographic coverage, capacity and constraint, growth lever, at least one future milestone, and a short licensing/permits note framed as assumption-first narrative (e.g., standard licensing/permits/insurance considerations for this business type are assumed factored in and vary by jurisdiction) in plain language in one paragraph.
+- When producing business_description_summary, include the unit, pricing, the confirmed fulfillment model (who fulfills + typical timing) and shipping_method, sales modality, geographic scope and geographic coverage, capacity/constraint in product-aware or neutral phrasing (do not reference a top-level capacity number), growth lever, at least one future milestone, and a short licensing/permits note framed as assumption-first narrative (e.g., standard licensing/permits/insurance considerations for this business type are assumed factored in and vary by jurisdiction) in plain language in one paragraph.
 - For capacity_driver, you must use exactly ONE of: labor, system, demand (single word only).
 
 Fact-bearing templates (STRICT):
@@ -426,7 +426,8 @@ If a full business address is present in the context (including country), use it
 Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or states (not a distance/radius). A radius may be mentioned in the summary paragraph, but do NOT store a radius phrase in geographic_coverage.
 - IMPORTANT: business_description_summary is a fact-bearing template. Do NOT print literal values for known facts; use placeholders like {{fact:business.name}} and {{fact:ops.unit_price}} so the UI always renders the latest facts.
 - business_description_summary MUST use placeholders (not literal values) for any already-known ops facts it mentions, especially:
-  {{fact:business.name}}, {{fact:ops.unit_name}}, {{fact:ops.unit_price}}, {{fact:ops.units_per_week_capacity}}, {{fact:ops.legal_entity}}.
+  {{fact:business.name}}, {{fact:ops.unit_name}}, {{fact:ops.unit_price}}, {{fact:ops.legal_entity}}.
+- Do not use {{fact:ops.units_per_week_capacity}} in business_description_summary; capacity should be referenced in product-aware or neutral phrasing only.
 - Do NOT leave "blank" factual slots (e.g., "about  worth"). If a value is unknown or zero, still include the correct placeholder so the UI renders $0/none.
 Multi-LOB/products:
 - If the conversation confirms multiple LOBs and/or multiple products, populate lob_models accordingly.

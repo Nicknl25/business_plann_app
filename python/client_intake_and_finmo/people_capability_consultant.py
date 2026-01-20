@@ -247,6 +247,7 @@ Output rules:
   {REVIEW_TOKEN} on its own line at the very end of your message.
 - If you present any key-people narratives or the inferred-roles list, you MUST be in the review step
   and MUST append {REVIEW_TOKEN}.
+- The review message must end with a single explicit question sentence containing a "?" (e.g., "Are you happy with these as written, or what would you like changed?") so it is syntactically a question.
 - Only when the client explicitly approves the full set of drafted paragraph(s), append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
