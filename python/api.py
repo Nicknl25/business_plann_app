@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -38,6 +39,8 @@ def create_app() -> Flask:
       pass
 
   app = Flask(__name__)
+  # Silence Werkzeug's per-request logs in dev.
+  logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
   # Allow importing local helper modules
   root_path = Path(__file__).resolve().parent

@@ -140,9 +140,10 @@ def _final_schema() -> Dict[str, Any]:
               "role_title": {"type": "string"},
               "annual_wage": {"type": ["number", "null"]},
               "wage_source": {"type": "string"},
+              "months_until_hire": {"type": ["number", "null"]},
               "notes": {"type": "string"},
             },
-            "required": ["role_title", "annual_wage", "wage_source", "notes"],
+            "required": ["role_title", "annual_wage", "wage_source", "months_until_hire", "notes"],
           },
         },
         "inferred_roles_summary": {"type": "string"},
@@ -226,6 +227,8 @@ Flow:
    - Do NOT ask the client to choose a priority area (e.g., "which area do you need most help with").
      Infer a likely first support area from context and bake that into the proposed roles.
    - Present roles with brief reasons and note that estimated wages will be included for confirmation.
+   - For each proposed role, also propose a timing in months for when it would come online (e.g., "in ~6 months").
+   - Ask the client to accept or adjust the role list and the proposed months timing. If they counter, update and confirm.
    - Ask for tweaks at a high level (add/remove/rename roles), then proceed.
 
 Fact-bearing templates (STRICT):
@@ -247,6 +250,7 @@ Output rules:
   {REVIEW_TOKEN} on its own line at the very end of your message.
 - If you present any key-people narratives or the inferred-roles list, you MUST be in the review step
   and MUST append {REVIEW_TOKEN}.
+- When presenting inferred roles, include the proposed months-until-hire timing for each role.
 - The review message must end with a single explicit question sentence containing a "?" (e.g., "Are you happy with these as written, or what would you like changed?") so it is syntactically a question.
 - Only when the client explicitly approves the full set of drafted paragraph(s), append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
@@ -300,6 +304,7 @@ Hard requirements:
 - inferred_roles must be a short list (1-4) of additional roles likely needed in year 1 based on the operating model, LOBs/products, capacity, and stage.
   - Do NOT include the already-listed key people in inferred_roles.
   - Each role must include a short "notes" explanation of why it is needed (plain language, 1 sentence).
+  - Each role must include months_until_hire (number of months from now when the role would come online).
   - annual_wage can be null if unknown; if you estimate a number, set wage_source to "gpt_estimate".
   - If you cannot estimate, set annual_wage to null and wage_source to "unknown".
 - inferred_roles_summary must be a short paragraph summarizing the proposed roles (no wages).

@@ -454,6 +454,7 @@ def apply_oews_wages(
             "role_title": role_title,
             "annual_wage": gpt_wage_val,
             "wage_source": "client_override",
+            "months_until_hire": role.get("months_until_hire"),
             "notes": notes,
           }
         )
@@ -519,6 +520,7 @@ def apply_oews_wages(
         "role_title": role_title,
         "annual_wage": wage_val,
         "wage_source": wage_source or "gpt_estimate",
+        "months_until_hire": role.get("months_until_hire"),
         "notes": notes,
       }
     )
@@ -624,8 +626,19 @@ def format_roles_summary(roles: List[Dict[str, Any]]) -> str:
         wage_str = f"${float(wage):,.0f}/year"
     except Exception:
       wage_str = "TBD"
+    months = role.get("months_until_hire")
+    months_str = ""
+    try:
+      if months is not None:
+        months_val = float(months)
+        if abs(months_val - round(months_val)) < 1e-6:
+          months_str = f" (in ~{int(round(months_val))} months)"
+        else:
+          months_str = f" (in ~{months_val:.1f} months)"
+    except Exception:
+      months_str = ""
     notes = str(role.get("notes") or "").strip()
-    line = f"- {title}: {wage_str}"
+    line = f"- {title}: {wage_str}{months_str}"
     if notes:
       line = f"{line} - {notes}"
     lines.append(line)
