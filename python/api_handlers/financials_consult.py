@@ -49,6 +49,35 @@ def _should_check_revenue_patch(last_assistant: str, user_message: str) -> bool:
   return any(k in msg for k in keywords)
 
 
+def _extract_revenue_proposal_patch(
+  *,
+  last_assistant: str,
+  route_intent,
+  financials_year1_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  text = str(last_assistant or "").strip()
+  if not text:
+    return None
+  try:
+    proposal_intent = route_intent(
+      consult_type="financials_year1",
+      user_message=text,
+      baseline_json=financials_year1_json,
+      shared_context=shared_context,
+      recent_messages=[],
+      active_focus="financials",
+    )
+  except Exception:
+    return None
+  if str(proposal_intent.get("action") or "").strip() != "edit_patch":
+    return None
+  patch = proposal_intent.get("patch")
+  if not isinstance(patch, dict) or not patch:
+    return None
+  return patch
+
+
 def _is_guardrail_acknowledgement(message: str) -> bool:
   text = str(message or "").strip().lower()
   if not text:
@@ -388,87 +417,96 @@ def post_financials_consult_handler(*, app, request):
             recent_messages=history[-30:] if history else [],
             active_focus="financials",
           )
-          if str(revenue_intent.get("action") or "").strip() == "edit_patch":
+          action = str(revenue_intent.get("action") or "").strip()
+          patch = None
+          if action == "edit_patch":
             patch = revenue_intent.get("patch")
-            if isinstance(patch, dict) and patch:
-              before_year1 = json.loads(json.dumps(financials_year1_json, ensure_ascii=False))
-              financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
-              updated_consults, propagated = propagate_shared_facts(
-                source_consult_type="financials_year1",
-                before_json=before_year1,
-                after_json=financials_year1_json,
-                consult_jsons={
-                  "ops": operating_model,
-                  "target_market": target_market,
-                  "people": people_capability,
-                  "financials": financials_context,
-                  "financials_year1": financials_year1_json,
-                },
-              )
-              operating_model = updated_consults.get("ops") or operating_model
-              target_market = updated_consults.get("target_market") or target_market
-              people_capability = updated_consults.get("people") or people_capability
-              financials_context = updated_consults.get("financials") or financials_context
-              financials_year1_json = updated_consults.get("financials_year1") or financials_year1_json
-              if propagated:
-                shared_context["operating_model"] = operating_model
-                shared_context["target_market"] = target_market
-                shared_context["people_capability"] = people_capability
-                shared_context["financials"] = financials_context
-                append_intake_messages(
-                  conn,
-                  draft_id=str(draft_id).strip(),
-                  new_messages=[],
-                  operating_model_json=operating_model,
-                  target_market_json=target_market,
-                  people_json=people_capability,
-                  financials_json=financials_context,
-                  financials_year1_json=financials_year1_json,
-                )
-              revenue_math_line = build_revenue_math_line(
-                financials_year1_json,
-                unit_name=str((operating_model or {}).get("unit_name") or "").strip() or None,
-              )
-              revenue_constraints_snippet = build_revenue_constraints_snippet(
-                shared_context,
-                financials_year1_json,
-                business_start_date=business_start_date,
-              )
-              assistant_message = (
-                "Updated the revenue drivers. Year 1 revenue:\n"
-                f"{revenue_math_line}\n\n"
-                "Does this look right, or which driver should change?"
-              )
-              assistant_message = _append_constraints_snippet(
-                assistant_message,
-                revenue_constraints_snippet,
-                history,
-                force=True,
-              )
-              append_messages(
+          elif action == "confirm_proceed":
+            patch = _extract_revenue_proposal_patch(
+              last_assistant=last_assistant,
+              route_intent=route_intent,
+              financials_year1_json=financials_year1_json,
+              shared_context=shared_context,
+            )
+          if isinstance(patch, dict) and patch:
+            before_year1 = json.loads(json.dumps(financials_year1_json, ensure_ascii=False))
+            financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
+            updated_consults, propagated = propagate_shared_facts(
+              source_consult_type="financials_year1",
+              before_json=before_year1,
+              after_json=financials_year1_json,
+              consult_jsons={
+                "ops": operating_model,
+                "target_market": target_market,
+                "people": people_capability,
+                "financials": financials_context,
+                "financials_year1": financials_year1_json,
+              },
+            )
+            operating_model = updated_consults.get("ops") or operating_model
+            target_market = updated_consults.get("target_market") or target_market
+            people_capability = updated_consults.get("people") or people_capability
+            financials_context = updated_consults.get("financials") or financials_context
+            financials_year1_json = updated_consults.get("financials_year1") or financials_year1_json
+            if propagated:
+              shared_context["operating_model"] = operating_model
+              shared_context["target_market"] = target_market
+              shared_context["people_capability"] = people_capability
+              shared_context["financials"] = financials_context
+              append_intake_messages(
                 conn,
                 draft_id=str(draft_id).strip(),
-                new_messages=[user_msg, {"role": "assistant", "content": assistant_message}],
-                status="completed",
+                new_messages=[],
+                operating_model_json=operating_model,
+                target_market_json=target_market,
+                people_json=people_capability,
+                financials_json=financials_context,
                 financials_year1_json=financials_year1_json,
-                completed=True,
               )
-              return jsonify(
-                {
-                  "status": "ok",
-                  "draft_id": str(draft_id).strip(),
-                  "client_id": client_id,
-                  "done": True,
-                  "action": "edit_patch",
-                  "assistant_message": assistant_message,
-                  "financials_json": json.dumps(baseline_financials, ensure_ascii=False)
-                  if baseline_financials
-                  else None,
-                  "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
-                  if financials_year1_json
-                  else None,
-                }
-              )
+            revenue_math_line = build_revenue_math_line(
+              financials_year1_json,
+              unit_name=str((operating_model or {}).get("unit_name") or "").strip() or None,
+            )
+            revenue_constraints_snippet = build_revenue_constraints_snippet(
+              shared_context,
+              financials_year1_json,
+              business_start_date=business_start_date,
+            )
+            assistant_message = (
+              "Updated the revenue drivers. Year 1 revenue:\n"
+              f"{revenue_math_line}\n\n"
+              "Does this look right, or which driver should change?"
+            )
+            assistant_message = _append_constraints_snippet(
+              assistant_message,
+              revenue_constraints_snippet,
+              history,
+              force=True,
+            )
+            append_messages(
+              conn,
+              draft_id=str(draft_id).strip(),
+              new_messages=[user_msg, {"role": "assistant", "content": assistant_message}],
+              status="completed",
+              financials_year1_json=financials_year1_json,
+              completed=True,
+            )
+            return jsonify(
+              {
+                "status": "ok",
+                "draft_id": str(draft_id).strip(),
+                "client_id": client_id,
+                "done": True,
+                "action": "edit_patch",
+                "assistant_message": assistant_message,
+                "financials_json": json.dumps(baseline_financials, ensure_ascii=False)
+                if baseline_financials
+                else None,
+                "financials_year1_json": json.dumps(financials_year1_json, ensure_ascii=False)
+                if financials_year1_json
+                else None,
+              }
+            )
 
         routed = route_intent(
           consult_type="financials",
@@ -548,7 +586,6 @@ def post_financials_consult_handler(*, app, request):
       driver_signature = build_revenue_driver_signature(financials_year1_json)
       guardrail_acknowledged = get_acknowledged_signature(str(draft_id).strip()) == driver_signature
       guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
-      guardrail_triggered_pre = guardrail_triggered
       if not starting:
         last_assistant = _last_assistant_message(history)
         should_check_revenue = _should_check_revenue_patch(last_assistant, str(message)) or guardrail_triggered
@@ -561,62 +598,71 @@ def post_financials_consult_handler(*, app, request):
             recent_messages=history[-30:] if history else [],
             active_focus="financials",
           )
-          if str(revenue_intent.get("action") or "").strip() == "edit_patch":
+          action = str(revenue_intent.get("action") or "").strip()
+          patch = None
+          if action == "edit_patch":
             patch = revenue_intent.get("patch")
-            if isinstance(patch, dict) and patch:
-              before_year1 = json.loads(json.dumps(financials_year1_json, ensure_ascii=False))
-              revenue_driver_patch = patch
-              financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
-              updated_consults, propagated = propagate_shared_facts(
-                source_consult_type="financials_year1",
-                before_json=before_year1,
-                after_json=financials_year1_json,
-                consult_jsons={
-                  "ops": operating_model,
-                  "target_market": target_market,
-                  "people": people_capability,
-                  "financials": financials_context,
-                  "financials_year1": financials_year1_json,
-                },
+          elif action == "confirm_proceed":
+            patch = _extract_revenue_proposal_patch(
+              last_assistant=last_assistant,
+              route_intent=route_intent,
+              financials_year1_json=financials_year1_json,
+              shared_context=shared_context,
+            )
+          if isinstance(patch, dict) and patch:
+            before_year1 = json.loads(json.dumps(financials_year1_json, ensure_ascii=False))
+            revenue_driver_patch = patch
+            financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
+            updated_consults, propagated = propagate_shared_facts(
+              source_consult_type="financials_year1",
+              before_json=before_year1,
+              after_json=financials_year1_json,
+              consult_jsons={
+                "ops": operating_model,
+                "target_market": target_market,
+                "people": people_capability,
+                "financials": financials_context,
+                "financials_year1": financials_year1_json,
+              },
+            )
+            operating_model = updated_consults.get("ops") or operating_model
+            target_market = updated_consults.get("target_market") or target_market
+            people_capability = updated_consults.get("people") or people_capability
+            financials_context = updated_consults.get("financials") or financials_context
+            financials_year1_json = updated_consults.get("financials_year1") or financials_year1_json
+            if propagated:
+              shared_context["operating_model"] = operating_model
+              shared_context["target_market"] = target_market
+              shared_context["people_capability"] = people_capability
+              shared_context["financials"] = financials_context
+              append_intake_messages(
+                conn,
+                draft_id=str(draft_id).strip(),
+                new_messages=[],
+                operating_model_json=operating_model,
+                target_market_json=target_market,
+                people_json=people_capability,
+                financials_json=financials_context,
+                financials_year1_json=financials_year1_json,
               )
-              operating_model = updated_consults.get("ops") or operating_model
-              target_market = updated_consults.get("target_market") or target_market
-              people_capability = updated_consults.get("people") or people_capability
-              financials_context = updated_consults.get("financials") or financials_context
-              financials_year1_json = updated_consults.get("financials_year1") or financials_year1_json
-              if propagated:
-                shared_context["operating_model"] = operating_model
-                shared_context["target_market"] = target_market
-                shared_context["people_capability"] = people_capability
-                shared_context["financials"] = financials_context
-                append_intake_messages(
-                  conn,
-                  draft_id=str(draft_id).strip(),
-                  new_messages=[],
-                  operating_model_json=operating_model,
-                  target_market_json=target_market,
-                  people_json=people_capability,
-                  financials_json=financials_context,
-                  financials_year1_json=financials_year1_json,
-                )
-              revenue_constraints_snippet = build_revenue_constraints_snippet(
-                shared_context,
-                financials_year1_json,
-                business_start_date=business_start_date,
-              )
-              guardrail_signals = build_revenue_guardrail_signals(
-                shared_context,
-                financials_year1_json,
-                business_start_date=business_start_date,
-              )
-              driver_signature = build_revenue_driver_signature(financials_year1_json)
-              guardrail_acknowledged = (
-                get_acknowledged_signature(str(draft_id).strip()) == driver_signature
-              )
-              guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
-              if guardrail_triggered_pre:
-                acknowledge_signature(str(draft_id).strip(), driver_signature)
-                guardrail_triggered = False
+            revenue_constraints_snippet = build_revenue_constraints_snippet(
+              shared_context,
+              financials_year1_json,
+              business_start_date=business_start_date,
+            )
+            guardrail_signals = build_revenue_guardrail_signals(
+              shared_context,
+              financials_year1_json,
+              business_start_date=business_start_date,
+            )
+            driver_signature = build_revenue_driver_signature(financials_year1_json)
+            guardrail_acknowledged = (
+              get_acknowledged_signature(str(draft_id).strip()) == driver_signature
+            )
+            guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
+            if guardrail_triggered:
+              acknowledge_signature(str(draft_id).strip(), driver_signature)
+              guardrail_triggered = False
 
       if (
         guardrail_triggered

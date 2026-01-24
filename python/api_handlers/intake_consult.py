@@ -80,6 +80,35 @@ def _should_check_revenue_patch(last_assistant: str, user_message: str) -> bool:
   return any(k in msg for k in keywords)
 
 
+def _extract_revenue_proposal_patch(
+  *,
+  last_assistant: str,
+  route_intent,
+  financials_year1_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  text = str(last_assistant or "").strip()
+  if not text:
+    return None
+  try:
+    proposal_intent = route_intent(
+      consult_type="financials_year1",
+      user_message=text,
+      baseline_json=financials_year1_json,
+      shared_context=shared_context,
+      recent_messages=[],
+      active_focus="financials",
+    )
+  except Exception:
+    return None
+  if str(proposal_intent.get("action") or "").strip() != "edit_patch":
+    return None
+  patch = proposal_intent.get("patch")
+  if not isinstance(patch, dict) or not patch:
+    return None
+  return patch
+
+
 def _is_guardrail_acknowledgement(message: str) -> bool:
   text = str(message or "").strip().lower()
   if not text:
@@ -253,6 +282,8 @@ def _timing_months_max_via_openai(timing_text: str, reference_date: Optional[dat
   if not key:
     return None
   timing = str(timing_text or "").strip()
+  if timing:
+    timing = timing.replace("\u2013", "-").replace("\u2014", "-")
   if not timing:
     return None
   ref_date = reference_date.isoformat() if isinstance(reference_date, date) else None
@@ -306,16 +337,190 @@ def _enrich_milestones_timing(ops_json: Dict[str, Any], reference_date: Optional
       milestones = None
   if not isinstance(milestones, list):
     return
+  def _coerce_positive_int(value: Any) -> Optional[int]:
+    if value is None:
+      return None
+    if isinstance(value, bool):
+      return None
+    if isinstance(value, (int, float)):
+      if float(value) <= 0:
+        return None
+      return int(round(float(value)))
+    try:
+      parsed = int(round(float(str(value).strip())))
+    except Exception:
+      return None
+    return parsed if parsed > 0 else None
+
   for milestone in milestones:
     if not isinstance(milestone, dict):
       continue
-    if milestone.get("timing_months_max") is not None:
+    existing = _coerce_positive_int(milestone.get("timing_months_max"))
+    if existing is not None:
+      milestone["timing_months_max"] = existing
       continue
     months = _timing_months_max_via_openai(str(milestone.get("timing") or "").strip(), reference_date)
     if months is None:
       continue
     milestone["timing_months_max"] = months
 
+
+def _parse_milestones(raw: Any) -> List[Dict[str, Any]]:
+  if raw is None:
+    return []
+  if isinstance(raw, str):
+    try:
+      parsed = json.loads(raw)
+    except Exception:
+      return []
+    raw = parsed
+  if not isinstance(raw, list):
+    return []
+  return [m for m in raw if isinstance(m, dict)]
+
+
+def _has_confirmed_milestone(ops_json: Dict[str, Any]) -> bool:
+  for milestone in _parse_milestones((ops_json or {}).get("milestones")):
+    desc = str(milestone.get("description") or "").strip()
+    timing = str(milestone.get("timing") or "").strip()
+    if desc and timing:
+      return True
+  return False
+
+
+def _ensure_ops_business_naics(conn, ops_json: Dict[str, Any]) -> None:
+  if not isinstance(ops_json, dict):
+    return
+  if not ops_json.get("business_type"):
+    return
+  if ops_json.get("business_naics_6"):
+    return
+  try:
+    try:
+      from intake_business_types import get_naics_from_business_type  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.intake_business_types import (  # type: ignore
+        get_naics_from_business_type,
+      )
+    ops_json["business_naics_6"] = get_naics_from_business_type(
+      conn, ops_json.get("business_type")
+    )
+  except Exception:
+    ops_json.setdefault("business_naics_6", None)
+
+
+def _extract_ops_pending_milestone(
+  *,
+  text: str,
+  route_intent,
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+) -> Optional[List[Dict[str, Any]]]:
+  try:
+    milestone_intent = route_intent(
+      consult_type="ops",
+      user_message=str(text or "").strip(),
+      baseline_json=ops_json,
+      shared_context=shared_context,
+      recent_messages=[],
+      active_focus="ops",
+    )
+  except Exception:
+    return None
+  if str(milestone_intent.get("action") or "").strip() != "edit_patch":
+    return None
+  patch = milestone_intent.get("patch")
+  if not isinstance(patch, dict) or not patch:
+    return None
+  milestones_val = patch.get("milestones")
+  if not milestones_val:
+    return None
+  if isinstance(milestones_val, str):
+    try:
+      milestones_val = json.loads(milestones_val)
+    except Exception:
+      return None
+  if not isinstance(milestones_val, list):
+    return None
+  return [m for m in milestones_val if isinstance(m, dict)]
+
+
+def _propose_ops_milestone_via_openai(
+  *,
+  intake_context: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+  key = _openai_key()
+  if not key:
+    return (
+      "Before we finalize operations, we need one forward-looking milestone with timing. "
+      "What milestone should we use and by when?",
+      None,
+    )
+  system = (
+    "You are a business consultant. Propose exactly ONE forward-looking milestone for the "
+    "operations plan. Respond ONLY with valid JSON in this schema:\n"
+    "{\n"
+    "  \"assistant_message\": \"...\",\n"
+    "  \"milestone\": {\"description\": \"...\", \"timing\": \"...\"}\n"
+    "}\n"
+    "Rules:\n"
+    "- assistant_message must be a stand-alone milestone proposal with a single confirmation "
+    "question and nothing else.\n"
+    "- Do not include the ops summary or any other questions.\n"
+    "- milestone.description and milestone.timing must be plain text (no JSON or lists).\n"
+  )
+  context_payload = {
+    "business": {
+      "name": business_facts.get("name"),
+      "start_date": business_facts.get("start_date"),
+      "address": business_facts.get("address"),
+    },
+    "ops": ops_json,
+    "shared_context": intake_context.get("shared_context") or {},
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(context_payload)},
+    ],
+  }
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    return (
+      "Before we finalize operations, we need one forward-looking milestone with timing. "
+      "What milestone should we use and by when?",
+      None,
+    )
+  data = resp.json()
+  raw = _parse_responses_text(data)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    parsed = None
+  if not isinstance(parsed, dict):
+    return (
+      "Before we finalize operations, we need one forward-looking milestone with timing. "
+      "What milestone should we use and by when?",
+      None,
+    )
+  assistant_message = str(parsed.get("assistant_message") or "").strip()
+  milestone = parsed.get("milestone") if isinstance(parsed.get("milestone"), dict) else None
+  desc = str((milestone or {}).get("description") or "").strip()
+  timing = str((milestone or {}).get("timing") or "").strip()
+  if not assistant_message or not desc or not timing:
+    return (
+      "Before we finalize operations, we need one forward-looking milestone with timing. "
+      "What milestone should we use and by when?",
+      None,
+    )
+  return assistant_message, {"description": desc, "timing": timing}
 
 def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
   """
@@ -403,6 +608,8 @@ def _compute_focus_and_confirm_question(
   if not ops_ready:
     return ("ops", None)
   if not ops_confirmed:
+    if not _has_confirmed_milestone(ops_json):
+      return ("ops", None)
     return ("ops", OPS_CONFIRM_QUESTION)
 
   if not market_ready:
@@ -733,6 +940,9 @@ def post_intake_consult_handler(*, app, request):
     financials_json = _parse_json_dict(consult.get("financials_json"))
     financials_year1_json = _parse_json_dict(consult.get("financials_year1_json"))
     fulfillment_json = _parse_json_dict(consult.get("fulfillment_json"))
+    pending_ops_milestone = _parse_milestones(consult.get("pending_ops_milestone_json"))
+
+    _ensure_ops_business_naics(conn, ops_json)
 
     ops_confirmed = bool(consult.get("ops_confirmed"))
     market_confirmed = bool(consult.get("market_confirmed"))
@@ -819,7 +1029,6 @@ def post_intake_consult_handler(*, app, request):
       get_acknowledged_signature(str(draft_id).strip()) == driver_signature
     )
     guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
-    guardrail_triggered_pre = guardrail_triggered
 
     if starting:
       start_instruction = _start_instruction_for_focus(focus)
@@ -905,10 +1114,10 @@ def post_intake_consult_handler(*, app, request):
 
     user_msg = {"role": "user", "content": message}
     recent_messages = messages[-12:] if len(messages) > 12 else list(messages)
+    last_assistant = _last_assistant_message(messages)
     revenue_driver_patch = None
 
     if not starting:
-      last_assistant = _last_assistant_message(messages)
       should_check_revenue = _should_check_revenue_patch(last_assistant, message) or guardrail_triggered
       if should_check_revenue:
         revenue_intent = route_intent(
@@ -919,57 +1128,66 @@ def post_intake_consult_handler(*, app, request):
           recent_messages=recent_messages,
           active_focus="financials",
         )
-        if str(revenue_intent.get("action") or "").strip() == "edit_patch":
+        action = str(revenue_intent.get("action") or "").strip()
+        patch = None
+        if action == "edit_patch":
           patch = revenue_intent.get("patch")
-          if isinstance(patch, dict) and patch:
-            before_year1 = json.loads(json.dumps(financials_year1_json, ensure_ascii=False))
-            revenue_driver_patch = patch
-            financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
-            updated_consults, propagated = propagate_shared_facts(
-              source_consult_type="financials_year1",
-              before_json=before_year1,
-              after_json=financials_year1_json,
-              consult_jsons={
-                "ops": ops_json,
-                "target_market": market_json,
-                "people": people_json,
-                "financials": financials_json,
-                "financials_year1": financials_year1_json,
-              },
-            )
-            ops_json = updated_consults.get("ops") or ops_json
-            market_json = updated_consults.get("target_market") or market_json
-            people_json = updated_consults.get("people") or people_json
-            financials_json = updated_consults.get("financials") or financials_json
-            financials_year1_json = (
-              updated_consults.get("financials_year1") or financials_year1_json
-            )
-            if propagated:
-              shared_context["operating_model"] = ops_json
-              shared_context["target_market"] = market_json
-              shared_context["people_capability"] = people_json
-              shared_context["financials"] = financials_json
-              shared_context["financials_year1"] = financials_year1_json
+        elif action == "confirm_proceed":
+          patch = _extract_revenue_proposal_patch(
+            last_assistant=last_assistant,
+            route_intent=route_intent,
+            financials_year1_json=financials_year1_json,
+            shared_context=shared_context,
+          )
+        if isinstance(patch, dict) and patch:
+          before_year1 = json.loads(json.dumps(financials_year1_json, ensure_ascii=False))
+          revenue_driver_patch = patch
+          financials_year1_json = apply_revenue_driver_patch(financials_year1_json, patch)
+          updated_consults, propagated = propagate_shared_facts(
+            source_consult_type="financials_year1",
+            before_json=before_year1,
+            after_json=financials_year1_json,
+            consult_jsons={
+              "ops": ops_json,
+              "target_market": market_json,
+              "people": people_json,
+              "financials": financials_json,
+              "financials_year1": financials_year1_json,
+            },
+          )
+          ops_json = updated_consults.get("ops") or ops_json
+          market_json = updated_consults.get("target_market") or market_json
+          people_json = updated_consults.get("people") or people_json
+          financials_json = updated_consults.get("financials") or financials_json
+          financials_year1_json = (
+            updated_consults.get("financials_year1") or financials_year1_json
+          )
+          if propagated:
+            shared_context["operating_model"] = ops_json
+            shared_context["target_market"] = market_json
+            shared_context["people_capability"] = people_json
+            shared_context["financials"] = financials_json
+            shared_context["financials_year1"] = financials_year1_json
 
-            revenue_constraints_snippet = build_revenue_constraints_snippet(
-              shared_context,
-              financials_year1_json,
-              business_start_date=str(business_facts.get("start_date") or "").strip() or None,
-            )
-            guardrail_signals = build_revenue_guardrail_signals(
-              shared_context,
-              financials_year1_json,
-              business_start_date=str(business_facts.get("start_date") or "").strip() or None,
-              fulfillment_context=fulfillment_json,
-            )
-            driver_signature = build_revenue_driver_signature(financials_year1_json)
-            guardrail_acknowledged = (
-              get_acknowledged_signature(str(draft_id).strip()) == driver_signature
-            )
-            guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
-            if guardrail_triggered_pre:
-              acknowledge_signature(str(draft_id).strip(), driver_signature)
-              guardrail_triggered = False
+          revenue_constraints_snippet = build_revenue_constraints_snippet(
+            shared_context,
+            financials_year1_json,
+            business_start_date=str(business_facts.get("start_date") or "").strip() or None,
+          )
+          guardrail_signals = build_revenue_guardrail_signals(
+            shared_context,
+            financials_year1_json,
+            business_start_date=str(business_facts.get("start_date") or "").strip() or None,
+            fulfillment_context=fulfillment_json,
+          )
+          driver_signature = build_revenue_driver_signature(financials_year1_json)
+          guardrail_acknowledged = (
+            get_acknowledged_signature(str(draft_id).strip()) == driver_signature
+          )
+          guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
+          if guardrail_triggered:
+            acknowledge_signature(str(draft_id).strip(), driver_signature)
+            guardrail_triggered = False
 
     if (
       guardrail_triggered
@@ -1011,6 +1229,129 @@ def post_intake_consult_handler(*, app, request):
     action = str(intent.get("action") or "").strip()
     router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
     patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
+
+    milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
+    if action == "edit_patch" and isinstance(patch, dict):
+      candidate = patch.get("milestones")
+      if isinstance(candidate, str):
+        try:
+          candidate = json.loads(candidate)
+        except Exception:
+          candidate = None
+      if isinstance(candidate, list):
+        milestone_patch_from_user = [m for m in candidate if isinstance(m, dict)]
+
+    if str(focus).strip().lower() == "ops" and not _has_confirmed_milestone(ops_json):
+      milestones_val: Optional[List[Dict[str, Any]]] = None
+      if pending_ops_milestone and action == "confirm_proceed":
+        milestones_val = list(pending_ops_milestone)
+      elif milestone_patch_from_user:
+        milestones_val = milestone_patch_from_user
+
+      if milestones_val:
+        ops_json["milestones"] = milestones_val
+        _enrich_milestones_timing(ops_json, reference_date=current_date)
+        shared_context["operating_model"] = ops_json
+        pending_ops_milestone = []
+
+        intake_context_followup = {
+          "client_id": client_id,
+          "draft_id": str(draft_id).strip(),
+          "business_name": business_facts.get("name"),
+          "business_start_date": business_facts.get("start_date"),
+          "address": business_facts.get("address"),
+          "address_street": payload.get("address_street"),
+          "address_city": payload.get("address_city"),
+          "address_state": payload.get("address_state"),
+          "address_zip": payload.get("address_zip"),
+          "address_country": payload.get("address_country"),
+          "current_date": current_date_iso,
+          "business_stage_hint": business_stage_hint,
+          "shared_context": shared_context,
+          "operating_model_json": ops_json,
+          "target_market_json": market_json,
+          "people_json": people_json,
+          "financials_json": financials_json,
+          "fulfillment_json": fulfillment_json,
+          "financials_year1_json": financials_year1_json,
+          "revenue_math_line": revenue_math_line,
+          "revenue_constraints_snippet": revenue_constraints_snippet,
+          "revenue_driver_patch": revenue_driver_patch,
+          "revenue_guardrail_triggered": guardrail_triggered,
+          "revenue_guardrail_context_signals": guardrail_signals.get("context_signals") or [],
+          "revenue_guardrail_product_signals": guardrail_signals.get("product_signals") or [],
+        }
+
+        summary_instruction = (
+          "Provide the final operational summary and ask the confirmation question only."
+        )
+        followup_turn = consultant_chat_turn(
+          intake_context=intake_context_followup,
+          conversation_messages=[*messages, user_msg, {"role": "user", "content": summary_instruction}],
+        )
+        assistant_text = sanitize_fact_template(
+          str(followup_turn.get("assistant_message") or "").strip()
+        )
+        if OPS_CONFIRM_QUESTION not in assistant_text:
+          assistant_text = f"{assistant_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
+
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          operating_model_json=ops_json,
+          target_market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          pending_ops_milestone_json=pending_ops_milestone,
+          fulfillment_json=fulfillment_json,
+          active_focus="ops",
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "ops",
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "edit_patch",
+            "assistant_message": assistant_text,
+          }
+        )
+
+      if pending_ops_milestone:
+        pending = pending_ops_milestone[0]
+        desc = str(pending.get("description") or "").strip()
+        timing = str(pending.get("timing") or "").strip()
+        milestone_line = desc
+        if timing:
+          milestone_line = f"{desc} ({timing})"
+        assistant_text = (
+          f"Proposed milestone: {milestone_line}. Does this work, or what should we change?"
+        )
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          pending_ops_milestone_json=pending_ops_milestone,
+          active_focus="ops",
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "ops",
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
 
     # If we're not awaiting a confirmation prompt, treat confirm_* actions as normal chat flow.
     if confirm_question is None and action in ("confirm_proceed", "confirm_clarify"):
@@ -1641,6 +1982,35 @@ def post_intake_consult_handler(*, app, request):
     if str(focus).strip().lower() == "financials" and guardrail_triggered:
       finalize_ready = False
 
+    if str(focus).strip().lower() == "ops" and assistant_text:
+      question_count = assistant_text.count("?")
+      if question_count > 1:
+        first_part = assistant_text.split("?", 1)[0].strip()
+        if first_part:
+          assistant_text = f"{first_part}?"
+        finalize_ready = False
+
+    if (
+      str(focus).strip().lower() == "ops"
+      and finalize_ready
+      and not _has_confirmed_milestone(ops_json)
+    ):
+      try:
+        milestone_message, milestone_payload = _propose_ops_milestone_via_openai(
+          intake_context=intake_context,
+          ops_json=ops_json,
+          business_facts=business_facts,
+        )
+        assistant_text = sanitize_fact_template(str(milestone_message or "").strip())
+        pending_ops_milestone = [milestone_payload] if milestone_payload else []
+      except Exception:
+        assistant_text = (
+          "Before we finalize operations, we need one forward-looking milestone with timing. "
+          "What milestone should we use and by when?"
+        )
+        pending_ops_milestone = []
+      finalize_ready = False
+
     # Safety: avoid dead-end assistant replies with no next question.
     # If GPT responded with an acknowledgement only (no question) and we're not finalizing,
     # immediately ask for the next single question so the user isn't forced to type "ok".
@@ -1725,6 +2095,7 @@ def post_intake_consult_handler(*, app, request):
         active_focus=focus,
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
+        pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
       )
       return jsonify(
         {
@@ -1799,10 +2170,31 @@ def post_intake_consult_handler(*, app, request):
           products = lob_models[0].get("products") if isinstance(lob_models[0], dict) else None
           if isinstance(products, list) and len(products) == 1 and isinstance(products[0], dict):
             product = products[0]
-            if product.get("unit_name") is not None:
-              final_obj["unit_name"] = product.get("unit_name")
-            if product.get("unit_price") is not None:
-              final_obj["unit_price"] = product.get("unit_price")
+
+            def _is_missing_number(value: Any) -> bool:
+              if value is None:
+                return True
+              if isinstance(value, bool):
+                return True
+              try:
+                return float(value) <= 0
+              except Exception:
+                return True
+
+            def _maybe_set_text(field: str) -> None:
+              if not final_obj.get(field) and product.get(field) is not None:
+                final_obj[field] = product.get(field)
+
+            def _maybe_set_number(field: str) -> None:
+              if _is_missing_number(final_obj.get(field)) and product.get(field) is not None:
+                final_obj[field] = product.get(field)
+
+            _maybe_set_text("unit_name")
+            _maybe_set_text("unit_description")
+            _maybe_set_text("unit_cadence")
+            _maybe_set_number("unit_price")
+            _maybe_set_number("units_per_week_capacity")
+            _maybe_set_number("units_per_period_capacity")
       try:
         try:
           from intake_business_types import get_naics_from_business_type  # type: ignore
