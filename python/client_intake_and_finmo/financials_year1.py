@@ -210,6 +210,32 @@ def _existing_drivers_are_zeroed(
 ) -> bool:
   existing_lobs = existing_year1.get("lobs")
   if not isinstance(existing_lobs, list):
+    # Handle legacy/global-only payloads with zeroed drivers (no lobs).
+    global_positive = False
+    for key in (
+      "unit_price",
+      "units_per_period_capacity",
+      "units_per_week_capacity",
+      "avg_units_per_period_year1",
+      "avg_units_per_week_year1",
+    ):
+      value = _nonnegative(_to_float(existing_year1.get(key)))
+      if value is not None and value > 0:
+        global_positive = True
+        break
+    if global_positive:
+      return False
+    for lob in base_lobs:
+      if not isinstance(lob, dict):
+        continue
+      products = lob.get("products")
+      if not isinstance(products, list):
+        continue
+      for product in products:
+        if not isinstance(product, dict):
+          continue
+        if _product_has_positive_driver(product):
+          return True
     return False
   saw_existing_product = False
   for lob in existing_lobs:
