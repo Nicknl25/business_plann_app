@@ -36,6 +36,15 @@ function stripStageHint(content: string): string {
   return filtered.join("\n").trim();
 }
 
+function formatDollars(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).replace(/,/g, "").trim();
+  if (!raw) return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return `$${Math.round(num).toLocaleString("en-US")}`;
+}
+
 function normalizeDraftMeta(body: any): DraftMeta {
   return {
     status: String(body?.draft_status || ""),
@@ -830,6 +839,62 @@ export default function UnifiedConsultStep() {
             </>
           )}
         </div>
+
+        {(() => {
+          const peopleCap = (sharedContext as any)?.people_capability;
+          const people = Array.isArray(peopleCap?.people) ? peopleCap.people : [];
+          const roles = Array.isArray(peopleCap?.inferred_roles) ? peopleCap.inferred_roles : [];
+          if (people.length === 0 && roles.length === 0) return null;
+          return (
+            <div className="rounded-md border border-slate-800/80 bg-slate-950/40 p-3 text-xs text-slate-200">
+              <div className="mb-2 text-slate-300">People summary (from saved data)</div>
+              {people.length > 0 ? (
+                <div className="space-y-2">
+                  {people.map((person: any, idx: number) => {
+                    const name = String(person?.full_name || "").trim();
+                    const title = String(person?.role_title || "").trim();
+                    const wage = formatDollars(person?.annual_wage);
+                    if (!name && !title && !wage) return null;
+                    const headerParts = [name, title].filter(Boolean).join(" — ");
+                    return (
+                      <div key={`person-${idx}`} className="space-y-1">
+                        <div>{headerParts || "Key person"}</div>
+                        {wage ? (
+                          <div className="text-slate-400">Estimated annual compensation: {wage}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {roles.length > 0 ? (
+                <div className={people.length > 0 ? "mt-3 space-y-2" : "space-y-2"}>
+                  {roles.map((role: any, idx: number) => {
+                    const title = String(role?.role_title || "").trim();
+                    const wage = formatDollars(role?.annual_wage);
+                    const timingRaw = role?.months_until_hire;
+                    const timingNum =
+                      timingRaw === null || timingRaw === undefined || Number.isNaN(Number(timingRaw))
+                        ? null
+                        : Number(timingRaw);
+                    if (!title && !wage && timingNum === null) return null;
+                    return (
+                      <div key={`role-${idx}`} className="space-y-1">
+                        <div>{title || "Future role"}</div>
+                        {wage ? (
+                          <div className="text-slate-400">Est. wage: {wage} / year</div>
+                        ) : null}
+                        {timingNum !== null ? (
+                          <div className="text-slate-400">Timing: ~{timingNum} months</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
 
         <div className="flex gap-2">
           <Input

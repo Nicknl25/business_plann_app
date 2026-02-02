@@ -132,9 +132,56 @@ function formatFact(group: string, field: string, value: unknown): string {
 
 export function renderFactTemplate(text: string, ctx: FactRenderContext): string {
   if (!text) return text;
+  const shared = ctx.sharedContext || {};
+  const ops = (shared as any).operating_model || {};
+  const lobModels = Array.isArray(ops?.lob_models) ? ops.lob_models : [];
+
+  const productFieldValues = new Map<string, unknown[]>();
+  if (lobModels.length > 0) {
+    const fields = [
+      "unit_name",
+      "unit_description",
+      "unit_cadence",
+      "units_per_week_capacity",
+      "units_per_period_capacity",
+      "unit_price",
+    ];
+    const products: any[] = [];
+    for (const lob of lobModels) {
+      const lobProducts = Array.isArray(lob?.products) ? lob.products : [];
+      for (const product of lobProducts) {
+        if (product && typeof product === "object") {
+          products.push(product);
+        }
+      }
+    }
+    for (const field of fields) {
+      productFieldValues.set(
+        field,
+        products.map((product) => (product as any)?.[field])
+      );
+    }
+  }
+
+  const fieldCounters = new Map<string, number>();
+
   return String(text).replace(FACT_PATTERN, (_match, key: string) => {
     const resolved = resolveFactValue(key, ctx);
     if (!resolved) return "";
+
+    if (resolved.group === "ops" && productFieldValues.has(resolved.field)) {
+      const raw = resolved.value;
+      const rawStr = raw === null || raw === undefined ? "" : String(raw).trim();
+      if (!rawStr) {
+        const values = productFieldValues.get(resolved.field) || [];
+        const idx = fieldCounters.get(resolved.field) || 0;
+        if (idx < values.length) {
+          fieldCounters.set(resolved.field, idx + 1);
+          return formatFact(resolved.group, resolved.field, values[idx]);
+        }
+      }
+    }
+
     return formatFact(resolved.group, resolved.field, resolved.value);
   });
 }

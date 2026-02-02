@@ -72,6 +72,10 @@ def ensure_table(conn) -> None:
         financials_year1_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
+        ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
+        market_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
+        people_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
+        financials_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         completed_at DATETIME(6) NULL,
@@ -133,6 +137,14 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
     alterations.append("ADD COLUMN fulfillment_json JSON NULL")
+  if "ops_finalize_proposed" not in cols:
+    alterations.append("ADD COLUMN ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
+  if "market_finalize_proposed" not in cols:
+    alterations.append("ADD COLUMN market_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
+  if "people_finalize_proposed" not in cols:
+    alterations.append("ADD COLUMN people_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
+  if "financials_finalize_proposed" not in cols:
+    alterations.append("ADD COLUMN financials_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
 
   if alterations:
     cur2 = conn.cursor()

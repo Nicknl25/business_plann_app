@@ -172,7 +172,10 @@ def post_people_capability_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+    from intake_consult_draft import (  # type: ignore
+      append_messages as append_consult_messages,
+      get_draft as get_consult_draft,
+    )
     from people_capability_draft import append_messages, create_draft, get_draft as get_pc_draft  # type: ignore
     from people_capability_consultant import (  # type: ignore
       people_capability_chat_turn,
@@ -208,19 +211,7 @@ def post_people_capability_handler(*, app, request):
         baseline_people = _parse_json_dict(pc_draft.get("people_json"))
 
         if starting:
-          summary = str(baseline_people.get("key_people_summary") or "").strip()
-          roles_summary = str(baseline_people.get("inferred_roles_summary") or "").strip()
-          try:
-            from people_roles import format_people_wage_summary  # type: ignore
-
-            people_wage_summary = format_people_wage_summary(baseline_people.get("people") or [])
-            if people_wage_summary:
-              summary = f"{summary}\n\n{people_wage_summary}".strip()
-          except Exception:
-            pass
-          if roles_summary:
-            summary = f"{summary}\n\n{roles_summary}".strip()
-          assistant_message = f"{(summary or 'People & capability intake complete.').strip()}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+          assistant_message = f"People & capability intake complete.\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
           from fact_templates import sanitize_fact_template  # type: ignore
 
           assistant_message = sanitize_fact_template(assistant_message)
@@ -264,7 +255,6 @@ def post_people_capability_handler(*, app, request):
             from people_roles import (  # type: ignore
               apply_oews_wages,
               apply_oews_wages_to_people,
-              format_people_wage_summary,
               format_roles_summary,
             )
 
@@ -280,7 +270,6 @@ def post_people_capability_handler(*, app, request):
               business_naics_6=operating_model.get("business_naics_6"),
             )
             updated_people["people"] = enriched_people
-            people_wage_summary = format_people_wage_summary(enriched_people)
 
             roles = updated_people.get("inferred_roles") if isinstance(updated_people, dict) else None
             roles = roles if isinstance(roles, list) else []
@@ -296,16 +285,10 @@ def post_people_capability_handler(*, app, request):
             updated_people["inferred_roles"] = enriched_roles
             updated_people["inferred_roles_summary"] = format_roles_summary(enriched_roles)
           except Exception:
-            people_wage_summary = ""
+            pass
 
-          summary_for_ui = str(updated_people.get("key_people_summary") or "").strip()
-          roles_summary = str(updated_people.get("inferred_roles_summary") or "").strip()
-          if people_wage_summary:
-            summary_for_ui = f"{summary_for_ui}\n\n{people_wage_summary}".strip()
-          if roles_summary:
-            summary_for_ui = f"{summary_for_ui}\n\n{roles_summary}".strip()
           ack = assistant_message or "Got it."
-          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+          assistant_message = f"{ack}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
           assistant_message = sanitize_fact_template(assistant_message)
         else:
           from fact_templates import sanitize_fact_template  # type: ignore
@@ -322,6 +305,14 @@ def post_people_capability_handler(*, app, request):
           flat_fields=updated_people if action == "edit_patch" else None,
           completed=bool(action == "edit_patch"),
         )
+        if action == "edit_patch":
+          append_consult_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[],
+            people_json=updated_people,
+            flat_fields=updated_people,
+          )
 
         return jsonify(
           {
@@ -335,6 +326,83 @@ def post_people_capability_handler(*, app, request):
           }
         )
 
+      baseline_people = _parse_json_dict(pc_draft.get("people_json"))
+      updated_people = baseline_people
+      applied_patch = False
+      if not starting:
+        routed = route_intent(
+          consult_type="people",
+          user_message=str(message).strip(),
+          baseline_json=baseline_people,
+          shared_context=shared_context,
+          recent_messages=history[-30:] if history else [],
+          active_focus="people",
+        )
+        patch = routed.get("patch")
+        if str(routed.get("action") or "").strip() == "edit_patch":
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          if not isinstance(patch, dict):
+            patch = {}
+          updated_people = dict(baseline_people)
+          updated_people.update(patch)
+          updated_people = {
+            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+            for k, v in updated_people.items()
+          }
+          applied_patch = True
+
+      if applied_patch:
+        try:
+          from people_roles import (  # type: ignore
+            apply_oews_wages,
+            apply_oews_wages_to_people,
+            format_roles_summary,
+          )
+
+          people_list = updated_people.get("people") if isinstance(updated_people, dict) else None
+          people_list = people_list if isinstance(people_list, list) else []
+          if people_list:
+            enriched_people = apply_oews_wages_to_people(
+              conn,
+              people=people_list,
+              business_type=(operating_model.get("business_type") or business_type),
+              business_stage=operating_model.get("business_stage"),
+              address_state=consult.get("address_state"),
+              address=consult.get("address"),
+              business_naics_6=operating_model.get("business_naics_6"),
+            )
+            updated_people["people"] = enriched_people
+
+          roles = updated_people.get("inferred_roles") if isinstance(updated_people, dict) else None
+          roles = roles if isinstance(roles, list) else []
+          if roles:
+            enriched_roles = apply_oews_wages(
+              conn,
+              roles=roles,
+              business_type=(operating_model.get("business_type") or business_type),
+              business_stage=operating_model.get("business_stage"),
+              address_state=consult.get("address_state"),
+              address=consult.get("address"),
+              business_naics_6=operating_model.get("business_naics_6"),
+            )
+            updated_people["inferred_roles"] = enriched_roles
+            updated_people["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+
+          if "business_naics_6" not in updated_people:
+            updated_people["business_naics_6"] = operating_model.get("business_naics_6")
+        except Exception:
+          pass
+        shared_context = dict(shared_context or {})
+        shared_context["people_capability"] = updated_people
+        append_consult_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[],
+          people_json=updated_people,
+          flat_fields=updated_people,
+        )
+
       # In-progress: normal chat turns until finalize-ready.
       context = {
         "client_id": client_id,
@@ -342,7 +410,6 @@ def post_people_capability_handler(*, app, request):
         "business_name": (str(business_name).strip() if business_name else None),
         "business_type": (str(business_type).strip() if business_type else None),
         "business_stage": operating_model.get("business_stage"),
-        "business_description_summary": operating_model.get("business_description_summary"),
         "unit_name": operating_model.get("unit_name"),
         "unit_price": operating_model.get("unit_price"),
         "shipping_method": operating_model.get("shipping_method"),
@@ -357,14 +424,68 @@ def post_people_capability_handler(*, app, request):
       assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
       finalize_ready = bool(turn.get("finalize_ready", False))
       review_ready = bool(turn.get("review_ready", False))
+      if review_ready and not finalize_ready:
+        finalize_ready = True
 
       if not finalize_ready:
+        review_people = None
+        if review_ready:
+          review_people = people_capability_finalize(
+            intake_context=context,
+            conversation_messages=[*history, user_msg, {"role": "assistant", "content": assistant_text}],
+          )
+          for k, v in list(review_people.items() if isinstance(review_people, dict) else []):
+            if isinstance(v, str):
+              review_people[k] = sanitize_fact_template(v)
+          try:
+            from people_roles import (  # type: ignore
+              apply_oews_wages,
+              apply_oews_wages_to_people,
+              format_roles_summary,
+            )
+
+            roles = review_people.get("inferred_roles") if isinstance(review_people, dict) else None
+            roles = roles if isinstance(roles, list) else []
+            people = review_people.get("people") if isinstance(review_people, dict) else None
+            people = people if isinstance(people, list) else []
+            enriched_people = apply_oews_wages_to_people(
+              conn,
+              people=people,
+              business_type=(operating_model.get("business_type") or business_type),
+              business_stage=operating_model.get("business_stage"),
+              address_state=consult.get("address_state"),
+              address=consult.get("address"),
+              business_naics_6=operating_model.get("business_naics_6"),
+            )
+            enriched_roles = apply_oews_wages(
+              conn,
+              roles=roles,
+              business_type=(operating_model.get("business_type") or business_type),
+              business_stage=operating_model.get("business_stage"),
+              address_state=consult.get("address_state"),
+              address=consult.get("address"),
+              business_naics_6=operating_model.get("business_naics_6"),
+            )
+            review_people["business_naics_6"] = operating_model.get("business_naics_6")
+            review_people["people"] = enriched_people
+            review_people["inferred_roles"] = enriched_roles
+            review_people["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+          except Exception:
+            if isinstance(review_people, dict):
+              if "inferred_roles" not in review_people:
+                review_people["inferred_roles"] = []
+              if "inferred_roles_summary" not in review_people:
+                review_people["inferred_roles_summary"] = ""
+              if "business_naics_6" not in review_people:
+                review_people["business_naics_6"] = None
         assistant_msg = {"role": "assistant", "content": assistant_text}
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, assistant_msg],
           status="in_progress",
+          people_json=review_people if review_ready else (updated_people if applied_patch else None),
+          flat_fields=review_people if review_ready else (updated_people if applied_patch else None),
         )
         return jsonify(
           {
@@ -388,7 +509,6 @@ def post_people_capability_handler(*, app, request):
         from people_roles import (  # type: ignore
           apply_oews_wages,
           apply_oews_wages_to_people,
-          format_people_wage_summary,
           format_roles_summary,
         )
 
@@ -427,18 +547,7 @@ def post_people_capability_handler(*, app, request):
           final_obj["business_naics_6"] = None
       _validate_final(final_obj)
 
-      summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
-      people_wage_summary = ""
-      try:
-        people_wage_summary = format_people_wage_summary(final_obj.get("people") or [])
-      except Exception:
-        people_wage_summary = ""
-      if people_wage_summary:
-        summary_text = f"{summary_text}\n\n{people_wage_summary}".strip()
-      roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
-      if roles_summary:
-        summary_text = f"{summary_text}\n\n{roles_summary}".strip()
-      assistant_message = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+      assistant_message = f"People & capability intake complete.\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}
 
@@ -450,6 +559,13 @@ def post_people_capability_handler(*, app, request):
         people_json=final_obj,
         flat_fields=final_obj,
         completed=True,
+      )
+      append_consult_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[],
+        people_json=final_obj,
+        flat_fields=final_obj,
       )
 
       return jsonify(

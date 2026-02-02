@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import calendar
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,6 +12,8 @@ OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?
 MARKET_CONFIRM_QUESTION = "Does this look right before we move on to Human Resources?"
 PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?"
 FIN_CONFIRM_QUESTION = "Does this look right before we move on to Submit intake?"
+COMPETITIVE_ADVANTAGE_PREFIX = "Proposed competitive advantage:"
+COMPETITIVE_ADVANTAGE_QUESTION = "Does this accurately reflect what truly sets the business apart?"
 _RETRYABLE_STATUS = {429, 502, 503, 504}
 
 
@@ -142,6 +145,204 @@ def _is_guardrail_acknowledgement(message: str) -> bool:
   except Exception:
     return False
 
+
+def _detect_confirm_question(last_assistant: str) -> Optional[str]:
+  text = str(last_assistant or "").strip().lower()
+  if not text:
+    return None
+  for question in (
+    OPS_CONFIRM_QUESTION,
+    MARKET_CONFIRM_QUESTION,
+    PEOPLE_CONFIRM_QUESTION,
+    FIN_CONFIRM_QUESTION,
+  ):
+    if question and question.lower() in text:
+      return question
+  return None
+
+
+def _extract_competitive_advantage_prompt(last_assistant: str) -> Optional[str]:
+  text = str(last_assistant or "").strip()
+  if not text:
+    return None
+  for line in text.splitlines():
+    line_stripped = line.strip()
+    if not line_stripped:
+      continue
+    if line_stripped.lower().startswith(COMPETITIVE_ADVANTAGE_PREFIX.lower()):
+      _, _, rest = line_stripped.partition(":")
+      value = rest.strip()
+      return value or None
+  return None
+
+
+def _finalize_flag_field(focus: str, value: bool) -> Optional[Dict[str, Any]]:
+  focus_norm = str(focus or "").strip().lower()
+  mapping = {
+    "ops": "ops_finalize_proposed",
+    "market": "market_finalize_proposed",
+    "people": "people_finalize_proposed",
+    "financials": "financials_finalize_proposed",
+  }
+  key = mapping.get(focus_norm)
+  if not key:
+    return None
+  return {key: bool(value)}
+
+
+def _year1_driver_map(year1_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+  out: Dict[str, Dict[str, Any]] = {}
+  if not isinstance(year1_json, dict):
+    return out
+  lobs = year1_json.get("lobs")
+  if not isinstance(lobs, list):
+    return out
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip().lower()
+    products = lob.get("products")
+    if not isinstance(products, list):
+      continue
+    for product in products:
+      if not isinstance(product, dict):
+        continue
+      product_name = str(product.get("product_name") or "").strip().lower()
+      if not product_name:
+        continue
+      key = f"{lob_name}::{product_name}"
+      out[key] = {
+        "unit_cadence": str(product.get("unit_cadence") or "").strip().lower(),
+        "unit_price": product.get("unit_price"),
+        "units_per_period_capacity": product.get("units_per_period_capacity"),
+      }
+  return out
+
+
+def _year1_drivers_conflict(existing_year1: Optional[Dict[str, Any]], base_year1: Dict[str, Any]) -> bool:
+  if not isinstance(existing_year1, dict) or not existing_year1:
+    return False
+  existing_map = _year1_driver_map(existing_year1)
+  base_map = _year1_driver_map(base_year1)
+  if not existing_map or not base_map:
+    return False
+
+  def _num(value: Any) -> Optional[float]:
+    try:
+      return float(value)
+    except Exception:
+      return None
+
+  for key, base_driver in base_map.items():
+    existing_driver = existing_map.get(key)
+    if not existing_driver:
+      continue
+    base_cadence = str(base_driver.get("unit_cadence") or "").strip().lower()
+    existing_cadence = str(existing_driver.get("unit_cadence") or "").strip().lower()
+    if base_cadence and existing_cadence and base_cadence != existing_cadence:
+      return True
+    base_price = _num(base_driver.get("unit_price"))
+    existing_price = _num(existing_driver.get("unit_price"))
+    if base_price is not None and existing_price is not None and abs(base_price - existing_price) > 0.01:
+      return True
+    base_capacity = _num(base_driver.get("units_per_period_capacity"))
+    existing_capacity = _num(existing_driver.get("units_per_period_capacity"))
+    if base_capacity is not None and existing_capacity is not None and abs(base_capacity - existing_capacity) > 0.01:
+      return True
+  return False
+
+
+def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str, Any]:
+  focus_norm = str(focus or "").strip().lower()
+  if not isinstance(patch, dict) or not patch:
+    return patch
+  field_sets = {
+    "ops": {
+      "consumer_type",
+      "business_type",
+      "business_stage",
+      "business_naics_6",
+      "unit_name",
+      "unit_description",
+      "unit_cadence",
+      "units_per_week_capacity",
+      "units_per_period_capacity",
+      "unit_price",
+      "shipping_method",
+      "sales_modality",
+      "geographic_scope",
+      "geographic_coverage",
+      "countries",
+      "milestones",
+      "competitive_advantage",
+      "capacity_driver",
+      "primary_growth_lever",
+      "legal_entity",
+      "lob_models",
+      "confidence",
+    },
+    "market": {
+      "consumer_type",
+      "gender_age_intent",
+      "income_intent",
+      "selections",
+      "b2b_industry_terms",
+      "b2b_naics_6",
+      "b2b_size_bands",
+      "b2b_age_bands",
+      "marketing_plan_summary",
+      "confidence",
+    },
+    "people": {
+      "people",
+      "inferred_roles",
+      "inferred_roles_summary",
+      "business_naics_6",
+      "confidence",
+    },
+    "financials": {
+      "current_revenue",
+      "current_cogs",
+      "other_operating_expense",
+      "monthly_rent_expense",
+      "other_monthly_debt_payments",
+      "current_payroll",
+      "current_num_employees",
+      "current_capex",
+      "ar_balance",
+      "ap_balance",
+      "inventory_balance",
+      "initial_assets",
+      "initial_lease",
+      "initial_equity",
+      "total_debt_outstanding",
+      "annual_interest_payment",
+      "annual_principal_payment",
+      "owner_compensation",
+      "cash_on_hand",
+      "confidence",
+    },
+    "fulfillment": {
+      "time",
+      "personnel",
+    },
+  }
+  allowed = field_sets.get(focus_norm, set())
+  if not allowed:
+    return patch
+  normalized: Dict[str, Any] = {}
+  for raw_key, value in patch.items():
+    key = str(raw_key or "").strip()
+    if not key:
+      continue
+    if "." in key:
+      normalized[key] = value
+      continue
+    if key in allowed:
+      normalized[f"{focus_norm}.{key}"] = value
+    else:
+      normalized[key] = value
+  return normalized
 
 def _constraints_snippet_already_sent(messages: List[Dict[str, str]]) -> bool:
   for msg in messages or []:
@@ -277,6 +478,90 @@ def _parse_responses_text(data: Dict[str, Any]) -> str:
   return "\n".join(chunks).strip()
 
 
+def _months_until(target: date, reference_date: Optional[date]) -> int:
+  ref = reference_date or datetime.utcnow().date()
+  months = (target.year - ref.year) * 12 + (target.month - ref.month)
+  if target.day > ref.day:
+    months += 1
+  if months < 0:
+    return 0
+  return months
+
+
+def _timing_months_max_deterministic(timing_text: str, reference_date: Optional[date]) -> Optional[int]:
+  text = str(timing_text or "").strip().lower()
+  if not text:
+    return None
+  try:
+    import re
+
+    months_match = re.search(r"\b(\d+)\s*(months?|mos?)\b", text)
+    if months_match:
+      return int(months_match.group(1))
+    years_match = re.search(r"\b(\d+)\s*(years?|yrs?)\b", text)
+    if years_match:
+      return int(years_match.group(1)) * 12
+
+    quarter_match = re.search(r"\bq([1-4])\s*([12]\d{3})\b", text)
+    if quarter_match:
+      q = int(quarter_match.group(1))
+      year = int(quarter_match.group(2))
+      month = q * 3
+      last_day = calendar.monthrange(year, month)[1]
+      return _months_until(date(year, month, last_day), reference_date)
+    quarter_match = re.search(r"\b([12]\d{3})\s*q([1-4])\b", text)
+    if quarter_match:
+      year = int(quarter_match.group(1))
+      q = int(quarter_match.group(2))
+      month = q * 3
+      last_day = calendar.monthrange(year, month)[1]
+      return _months_until(date(year, month, last_day), reference_date)
+
+    month_map = {
+      "jan": 1,
+      "january": 1,
+      "feb": 2,
+      "february": 2,
+      "mar": 3,
+      "march": 3,
+      "apr": 4,
+      "april": 4,
+      "may": 5,
+      "jun": 6,
+      "june": 6,
+      "jul": 7,
+      "july": 7,
+      "aug": 8,
+      "august": 8,
+      "sep": 9,
+      "sept": 9,
+      "september": 9,
+      "oct": 10,
+      "october": 10,
+      "nov": 11,
+      "november": 11,
+      "dec": 12,
+      "december": 12,
+    }
+    month_regex = r"\b(" + "|".join(month_map.keys()) + r")\b"
+    month_match = re.search(month_regex + r".*?\b([12]\d{3})\b", text)
+    if month_match:
+      month_name = month_match.group(1)
+      year = int(month_match.group(2))
+      month = month_map.get(month_name)
+      if month:
+        last_day = calendar.monthrange(year, month)[1]
+        return _months_until(date(year, month, last_day), reference_date)
+
+    year_end_match = re.search(r"(end of|by end of)\s*([12]\d{3})\b", text)
+    if year_end_match:
+      year = int(year_end_match.group(2))
+      return _months_until(date(year, 12, 31), reference_date)
+  except Exception:
+    return None
+  return None
+
+
 def _timing_months_max_via_openai(timing_text: str, reference_date: Optional[date]) -> Optional[int]:
   key = _openai_key()
   if not key:
@@ -359,7 +644,9 @@ def _enrich_milestones_timing(ops_json: Dict[str, Any], reference_date: Optional
     if existing is not None:
       milestone["timing_months_max"] = existing
       continue
-    months = _timing_months_max_via_openai(str(milestone.get("timing") or "").strip(), reference_date)
+    months = _timing_months_max_deterministic(str(milestone.get("timing") or "").strip(), reference_date)
+    if months is None:
+      months = _timing_months_max_via_openai(str(milestone.get("timing") or "").strip(), reference_date)
     if months is None:
       continue
     milestone["timing_months_max"] = months
@@ -444,32 +731,44 @@ def _extract_ops_pending_milestone(
     return None
   return [m for m in milestones_val if isinstance(m, dict)]
 
-
-def _propose_ops_milestone_via_openai(
+def _propose_ops_competitive_advantage(
   *,
-  intake_context: Dict[str, Any],
   ops_json: Dict[str, Any],
   business_facts: Dict[str, Any],
-) -> Tuple[str, Optional[Dict[str, Any]]]:
+  shared_context: Dict[str, Any],
+) -> str:
   key = _openai_key()
   if not key:
-    return (
-      "Before we finalize operations, we need one forward-looking milestone with timing. "
-      "What milestone should we use and by when?",
-      None,
-    )
+    raise RuntimeError("OPENAI_API_KEY is not configured.")
   system = (
-    "You are a business consultant. Propose exactly ONE forward-looking milestone for the "
-    "operations plan. Respond ONLY with valid JSON in this schema:\n"
-    "{\n"
-    "  \"assistant_message\": \"...\",\n"
-    "  \"milestone\": {\"description\": \"...\", \"timing\": \"...\"}\n"
-    "}\n"
-    "Rules:\n"
-    "- assistant_message must be a stand-alone milestone proposal with a single confirmation "
-    "question and nothing else.\n"
-    "- Do not include the ops summary or any other questions.\n"
-    "- milestone.description and milestone.timing must be plain text (no JSON or lists).\n"
+    "You are a senior business consultant defining a company’s competitive advantage.\n\n"
+    "This is NOT marketing language.\n"
+    "This is an execution-based advantage grounded in how the business actually operates.\n\n"
+    "Context:\n"
+    "You are given the full operating model, including:\n"
+    "- business type and stage\n"
+    "- unit definition and pricing\n"
+    "- capacity driver (labor / system / demand)\n"
+    "- fulfillment and delivery model\n"
+    "- geographic scope and coverage\n"
+    "- target customer type (consumer / B2B / mixed)\n\n"
+    "Your task:\n"
+    "Propose ONE concise competitive advantage that clearly explains:\n"
+    "1) What this business does meaningfully differently from typical competitors\n"
+    "2) Why that difference exists operationally (process, structure, constraints, choices)\n"
+    "3) Why it matters economically or experientially to the customer\n"
+    "4) Why it is not trivial for competitors to replicate\n\n"
+    "Hard rules:\n"
+    "- Do NOT use generic phrases (e.g., “high quality,” “great service,” “customer-focused,” “fast,” “personalized”) unless you explain *how* they are structurally enabled.\n"
+    "- Do NOT describe multiple advantages — pick the single most defensible one.\n"
+    "- Do NOT restate the business description.\n"
+    "- Tie the advantage to at least ONE concrete operational choice (e.g., menu design, staffing model, throughput discipline, geographic focus, fulfillment cadence).\n"
+    "- Keep it to 2–3 sentences total.\n\n"
+    "After proposing the advantage, ask ONE confirmation question:\n"
+    "“Does this accurately reflect what truly sets the business apart?”\n\n"
+    "If the client disagrees:\n"
+    "- Ask ONE targeted clarification question.\n"
+    "- Revise the advantage once and ask for confirmation again."
   )
   context_payload = {
     "business": {
@@ -478,7 +777,7 @@ def _propose_ops_milestone_via_openai(
       "address": business_facts.get("address"),
     },
     "ops": ops_json,
-    "shared_context": intake_context.get("shared_context") or {},
+    "shared_context": shared_context or {},
   }
   payload = {
     "model": _openai_model(),
@@ -493,34 +792,22 @@ def _propose_ops_milestone_via_openai(
     payload=payload,
   )
   if resp.status_code >= 400:
-    return (
-      "Before we finalize operations, we need one forward-looking milestone with timing. "
-      "What milestone should we use and by when?",
-      None,
-    )
+    raise RuntimeError(_format_openai_error(resp))
   data = resp.json()
   raw = _parse_responses_text(data)
-  try:
-    parsed = json.loads(raw)
-  except Exception:
-    parsed = None
-  if not isinstance(parsed, dict):
-    return (
-      "Before we finalize operations, we need one forward-looking milestone with timing. "
-      "What milestone should we use and by when?",
-      None,
-    )
-  assistant_message = str(parsed.get("assistant_message") or "").strip()
-  milestone = parsed.get("milestone") if isinstance(parsed.get("milestone"), dict) else None
-  desc = str((milestone or {}).get("description") or "").strip()
-  timing = str((milestone or {}).get("timing") or "").strip()
-  if not assistant_message or not desc or not timing:
-    return (
-      "Before we finalize operations, we need one forward-looking milestone with timing. "
-      "What milestone should we use and by when?",
-      None,
-    )
-  return assistant_message, {"description": desc, "timing": timing}
+  cleaned = " ".join(str(raw or "").split()).strip().strip('"')
+  if not cleaned:
+    raise RuntimeError("Failed to generate competitive advantage.")
+  question = COMPETITIVE_ADVANTAGE_QUESTION
+  lower = cleaned.lower()
+  q_lower = question.lower()
+  if q_lower in lower:
+    idx = lower.rfind(q_lower)
+    cleaned = cleaned[:idx].strip()
+  if not cleaned:
+    raise RuntimeError("Failed to generate competitive advantage.")
+  return cleaned
+
 
 def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
   """
@@ -579,6 +866,38 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
     return []
 
 
+def _normalize_business_type_from_candidates(
+  raw_value: Any, candidates: List[str]
+) -> Any:
+  """
+  Normalize a business_type value to the closest candidate label (case-insensitive).
+  Falls back to the raw value if no candidates are available.
+  """
+  raw = str(raw_value or "").strip()
+  if not raw or not candidates:
+    return raw_value
+  raw_lower = raw.lower()
+  for candidate in candidates:
+    if str(candidate or "").strip().lower() == raw_lower:
+      return candidate
+  try:
+    from difflib import SequenceMatcher
+
+    best = None
+    best_score = 0.0
+    for candidate in candidates:
+      cand = str(candidate or "").strip()
+      if not cand:
+        continue
+      score = SequenceMatcher(None, raw_lower, cand.lower()).ratio()
+      if score > best_score:
+        best_score = score
+        best = cand
+    return best if best else raw_value
+  except Exception:
+    return raw_value
+
+
 def _compute_focus_and_confirm_question(
   *,
   ops_json: Dict[str, Any],
@@ -591,45 +910,17 @@ def _compute_focus_and_confirm_question(
   financials_confirmed: bool,
   consistency_passed: bool,
 ) -> Tuple[str, Optional[str]]:
-  def _has_nonempty_text(obj: Dict[str, Any], key: str) -> bool:
-    try:
-      return bool(str((obj or {}).get(key) or "").strip())
-    except Exception:
-      return False
-
-  # IMPORTANT: Section JSON may be partially populated by edit patches.
-  # A section is only "awaiting confirmation" after its summary template exists.
-  ops_ready = _has_nonempty_text(ops_json, "business_description_summary")
-  market_ready = _has_nonempty_text(market_json, "target_market_summary")
-  people_ready = _has_nonempty_text(people_json, "key_people_summary")
-  financials_ready = _has_nonempty_text(financials_json, "financials_summary")
-
-  # Strict sequencing for progress; edits are allowed anytime, but advancement follows this order.
-  if not ops_ready:
-    return ("ops", None)
+  # No realtime missing-fields gating; progression follows confirmations in order.
   if not ops_confirmed:
-    if not _has_confirmed_milestone(ops_json):
-      return ("ops", None)
-    return ("ops", OPS_CONFIRM_QUESTION)
-
-  if not market_ready:
-    return ("market", None)
+    return ("ops", None)
   if not market_confirmed:
-    return ("market", MARKET_CONFIRM_QUESTION)
-
-  if not people_ready:
-    return ("people", None)
+    return ("market", None)
   if not people_confirmed:
-    return ("people", PEOPLE_CONFIRM_QUESTION)
-
-  if not financials_ready:
-    return ("financials", None)
+    return ("people", None)
   if not financials_confirmed:
-    return ("financials", FIN_CONFIRM_QUESTION)
-
+    return ("financials", None)
   if not consistency_passed:
     return ("consistency", None)
-
   return ("done", None)
 
 
@@ -895,9 +1186,8 @@ def post_intake_consult_handler(*, app, request):
     from intake_submission import get_mysql_connection  # type: ignore
     from intake_consult_draft import append_messages, get_draft  # type: ignore
     from api_handlers.shared_context import build_shared_context  # type: ignore
-    from fact_templates import FACT_GROUPS, sanitize_fact_template  # type: ignore
+    from fact_templates import sanitize_fact_template  # type: ignore
     from intent_router import route_intent  # type: ignore
-    from template_rewriter import rewrite_summary_as_fact_template  # type: ignore
 
     from intake_consultant import consultant_chat_turn, consultant_finalize  # type: ignore
     from target_market_consultant import target_market_chat_turn, target_market_finalize  # type: ignore
@@ -949,6 +1239,10 @@ def post_intake_consult_handler(*, app, request):
     people_confirmed = bool(consult.get("people_confirmed"))
     financials_confirmed = bool(consult.get("financials_confirmed"))
     consistency_passed = bool(consult.get("consistency_passed"))
+    ops_finalize_proposed = bool(consult.get("ops_finalize_proposed"))
+    market_finalize_proposed = bool(consult.get("market_finalize_proposed"))
+    people_finalize_proposed = bool(consult.get("people_finalize_proposed"))
+    financials_finalize_proposed = bool(consult.get("financials_finalize_proposed"))
 
     business_facts: Dict[str, Any] = {
       "name": consult.get("business_name"),
@@ -1008,7 +1302,18 @@ def post_intake_consult_handler(*, app, request):
     )
 
     shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
-    financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+    shared_context = dict(shared_context or {})
+    shared_context["operating_model"] = ops_json
+    shared_context["target_market"] = market_json
+    shared_context["people_capability"] = people_json
+    shared_context["financials"] = financials_json
+    base_year1 = assemble_financials_year1(shared_context, None)
+    if _year1_drivers_conflict(financials_year1_json, base_year1):
+      financials_year1_json = base_year1
+    else:
+      financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+    if isinstance(financials_year1_json, dict) and financials_year1_json:
+      shared_context["financials_year1_json"] = financials_year1_json
     revenue_math_line = build_revenue_math_line(
       financials_year1_json,
       unit_name=str((ops_json or {}).get("unit_name") or "").strip() or None,
@@ -1116,6 +1421,62 @@ def post_intake_consult_handler(*, app, request):
     recent_messages = messages[-12:] if len(messages) > 12 else list(messages)
     last_assistant = _last_assistant_message(messages)
     revenue_driver_patch = None
+    pending_competitive_advantage = _extract_competitive_advantage_prompt(last_assistant)
+    competitive_intent_override: Optional[Dict[str, Any]] = None
+    if (
+      pending_competitive_advantage
+      and str(focus).strip().lower() == "ops"
+      and not str((ops_json or {}).get("competitive_advantage") or "").strip()
+    ):
+      competitive_intent = route_intent(
+        consult_type="ops",
+        user_message=message,
+        baseline_json=ops_json,
+        shared_context=shared_context,
+        recent_messages=recent_messages,
+        confirm_question_override=COMPETITIVE_ADVANTAGE_QUESTION,
+        active_focus="ops",
+      )
+      comp_action = str(competitive_intent.get("action") or "").strip()
+      comp_router_msg = sanitize_fact_template(
+        str(competitive_intent.get("assistant_message") or "").strip()
+      )
+      comp_patch = competitive_intent.get("patch") if isinstance(competitive_intent.get("patch"), dict) else None
+      if comp_action == "confirm_clarify":
+        assistant_text = comp_router_msg
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          active_focus=focus,
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "confirm_clarify",
+            "assistant_message": assistant_text,
+          }
+        )
+      if comp_action == "confirm_proceed":
+        comp_action = "edit_patch"
+        comp_patch = {
+          "competitive_advantage": sanitize_fact_template(
+            str(pending_competitive_advantage or "").strip()
+          )
+        }
+      if comp_action != "edit_patch":
+        raise RuntimeError("Unexpected intent action for competitive advantage.")
+      competitive_intent_override = {
+        "action": comp_action,
+        "router_msg": comp_router_msg,
+        "patch": comp_patch,
+      }
 
     if not starting:
       should_check_revenue = _should_check_revenue_patch(last_assistant, message) or guardrail_triggered
@@ -1203,6 +1564,18 @@ def post_intake_consult_handler(*, app, request):
       unit_name=str((ops_json or {}).get("unit_name") or "").strip() or None,
     )
 
+    focus, confirm_question = _compute_focus_and_confirm_question(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      ops_confirmed=ops_confirmed,
+      market_confirmed=market_confirmed,
+      people_confirmed=people_confirmed,
+      financials_confirmed=financials_confirmed,
+      consistency_passed=consistency_passed,
+    )
+
     baseline_json = {
       "business": business_facts,
       "ops": ops_json,
@@ -1211,28 +1584,47 @@ def post_intake_consult_handler(*, app, request):
       "financials": financials_json,
       "fulfillment": fulfillment_json,
     }
-
+    shared_context_for_router = shared_context
+    try:
+      router_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
+      if router_candidates:
+        shared_context_for_router = dict(shared_context or {})
+        shared_context_for_router["business_type_candidates"] = router_candidates
+    except Exception:
+      shared_context_for_router = shared_context
     # Route the user's message through the GPT-only intent router first.
-    confirm_override = (
-      str(confirm_question).strip() if confirm_question is not None else ""
-    )
-    intent = route_intent(
-      consult_type="unified",
-      user_message=message,
-      baseline_json=baseline_json,
-      shared_context=shared_context,
-      recent_messages=recent_messages,
-      confirm_question_override=confirm_override,
-      active_focus=focus,
-    )
+    confirm_override = str(
+      confirm_question or _detect_confirm_question(last_assistant) or ""
+    ).strip()
+    if competitive_intent_override:
+      action = str(competitive_intent_override.get("action") or "").strip()
+      router_msg = sanitize_fact_template(str(competitive_intent_override.get("router_msg") or "").strip())
+      patch = (
+        competitive_intent_override.get("patch")
+        if isinstance(competitive_intent_override.get("patch"), dict)
+        else None
+      )
+    else:
+      intent = route_intent(
+        consult_type="unified",
+        user_message=message,
+        baseline_json=baseline_json,
+        shared_context=shared_context_for_router,
+        recent_messages=recent_messages,
+        confirm_question_override=confirm_override,
+        active_focus=focus,
+      )
 
-    action = str(intent.get("action") or "").strip()
-    router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
-    patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
+      action = str(intent.get("action") or "").strip()
+      router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
+      patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
 
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
+      patch = _normalize_unscoped_patch(patch, focus=focus)
       candidate = patch.get("milestones")
+      if candidate is None:
+        candidate = patch.get("ops.milestones")
       if isinstance(candidate, str):
         try:
           candidate = json.loads(candidate)
@@ -1240,6 +1632,18 @@ def post_intake_consult_handler(*, app, request):
           candidate = None
       if isinstance(candidate, list):
         milestone_patch_from_user = [m for m in candidate if isinstance(m, dict)]
+    if not milestone_patch_from_user and pending_ops_milestone:
+      try:
+        extracted = _extract_ops_pending_milestone(
+          text=message,
+          route_intent=route_intent,
+          ops_json=ops_json,
+          shared_context=shared_context,
+        )
+        if extracted:
+          milestone_patch_from_user = extracted
+      except Exception:
+        milestone_patch_from_user = None
 
     if str(focus).strip().lower() == "ops" and not _has_confirmed_milestone(ops_json):
       milestones_val: Optional[List[Dict[str, Any]]] = None
@@ -1249,6 +1653,18 @@ def post_intake_consult_handler(*, app, request):
         milestones_val = milestone_patch_from_user
 
       if milestones_val:
+        if pending_ops_milestone:
+          pending_item = pending_ops_milestone[0] if isinstance(pending_ops_milestone, list) else None
+        else:
+          pending_item = None
+        if isinstance(pending_item, dict):
+          for item in milestones_val:
+            if not isinstance(item, dict):
+              continue
+            if not str(item.get("description") or "").strip():
+              item["description"] = pending_item.get("description")
+            if not str(item.get("timing") or "").strip():
+              item["timing"] = pending_item.get("timing")
         ops_json["milestones"] = milestones_val
         _enrich_milestones_timing(ops_json, reference_date=current_date)
         shared_context["operating_model"] = ops_json
@@ -1260,11 +1676,6 @@ def post_intake_consult_handler(*, app, request):
           "business_name": business_facts.get("name"),
           "business_start_date": business_facts.get("start_date"),
           "address": business_facts.get("address"),
-          "address_street": payload.get("address_street"),
-          "address_city": payload.get("address_city"),
-          "address_state": payload.get("address_state"),
-          "address_zip": payload.get("address_zip"),
-          "address_country": payload.get("address_country"),
           "current_date": current_date_iso,
           "business_stage_hint": business_stage_hint,
           "shared_context": shared_context,
@@ -1273,28 +1684,11 @@ def post_intake_consult_handler(*, app, request):
           "people_json": people_json,
           "financials_json": financials_json,
           "fulfillment_json": fulfillment_json,
-          "financials_year1_json": financials_year1_json,
-          "revenue_math_line": revenue_math_line,
-          "revenue_constraints_snippet": revenue_constraints_snippet,
-          "revenue_driver_patch": revenue_driver_patch,
-          "revenue_guardrail_triggered": guardrail_triggered,
-          "revenue_guardrail_context_signals": guardrail_signals.get("context_signals") or [],
-          "revenue_guardrail_product_signals": guardrail_signals.get("product_signals") or [],
         }
-
-        summary_instruction = (
-          "Provide the final operational summary and ask the confirmation question only."
-        )
         followup_turn = consultant_chat_turn(
-          intake_context=intake_context_followup,
-          conversation_messages=[*messages, user_msg, {"role": "user", "content": summary_instruction}],
+          intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
         )
-        assistant_text = sanitize_fact_template(
-          str(followup_turn.get("assistant_message") or "").strip()
-        )
-        if OPS_CONFIRM_QUESTION not in assistant_text:
-          assistant_text = f"{assistant_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
-
+        assistant_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
@@ -1315,7 +1709,7 @@ def post_intake_consult_handler(*, app, request):
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
             "active_focus": "ops",
-            "awaiting_confirmation": True,
+            "awaiting_confirmation": False,
             "done": False,
             "action": "edit_patch",
             "assistant_message": assistant_text,
@@ -1353,8 +1747,14 @@ def post_intake_consult_handler(*, app, request):
           }
         )
 
-    # If we're not awaiting a confirmation prompt, treat confirm_* actions as normal chat flow.
-    if confirm_question is None and action in ("confirm_proceed", "confirm_clarify"):
+    # Sections can only advance after the explicit final confirmation has been proposed.
+    finalize_flags = {
+      "ops": ops_finalize_proposed,
+      "market": market_finalize_proposed,
+      "people": people_finalize_proposed,
+      "financials": financials_finalize_proposed,
+    }
+    if action == "confirm_proceed" and focus in finalize_flags and not finalize_flags.get(focus):
       action = "continue_chat"
 
     # If the intake is fully complete, "continue" should guide the user to submission.
@@ -1381,6 +1781,11 @@ def post_intake_consult_handler(*, app, request):
       )
 
     if action == "edit_patch" and patch:
+      patch = _normalize_unscoped_patch(patch, focus=focus)
+      people_patch_applied = bool(
+        str(focus or "").strip().lower() == "people"
+        or any(str(k).strip().lower().startswith("people.") for k in patch.keys())
+      )
       baseline_people_json = json.loads(json.dumps(people_json)) if people_json else {}
       business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
         patch,
@@ -1391,6 +1796,41 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      try:
+        shared_context = dict(shared_context or {})
+        shared_context["operating_model"] = ops_json
+        shared_context["target_market"] = market_json
+        shared_context["people_capability"] = people_json
+        shared_context["financials"] = financials_json
+        base_year1 = assemble_financials_year1(shared_context, None)
+        if _year1_drivers_conflict(financials_year1_json, base_year1):
+          financials_year1_json = base_year1
+        else:
+          financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+        if isinstance(financials_year1_json, dict) and financials_year1_json:
+          shared_context["financials_year1_json"] = financials_year1_json
+        revenue_math_line = build_revenue_math_line(
+          financials_year1_json,
+          unit_name=str((ops_json or {}).get("unit_name") or "").strip() or None,
+        )
+        revenue_constraints_snippet = build_revenue_constraints_snippet(
+          shared_context,
+          financials_year1_json,
+          business_start_date=str(business_facts.get("start_date") or "").strip() or None,
+        )
+        guardrail_signals = build_revenue_guardrail_signals(
+          shared_context,
+          financials_year1_json,
+          business_start_date=str(business_facts.get("start_date") or "").strip() or None,
+          fulfillment_context=fulfillment_json,
+        )
+        driver_signature = build_revenue_driver_signature(financials_year1_json)
+        guardrail_acknowledged = (
+          get_acknowledged_signature(str(draft_id).strip()) == driver_signature
+        )
+        guardrail_triggered = bool(guardrail_signals.get("triggered")) and not guardrail_acknowledged
+      except Exception:
+        pass
       def _coerce_wage(value: Any) -> Optional[float]:
         try:
           return float(value)
@@ -1456,6 +1896,9 @@ def post_intake_consult_handler(*, app, request):
             )
       except Exception:
         pass
+      business_type_touched = False
+      if isinstance(patch, dict):
+        business_type_touched = "ops.business_type" in patch
       try:
         try:
           from intake_business_types import get_naics_from_business_type  # type: ignore
@@ -1463,12 +1906,37 @@ def post_intake_consult_handler(*, app, request):
           from client_intake_and_finmo.intake_business_types import (  # type: ignore
             get_naics_from_business_type,
           )
-        if ops_json.get("business_type") and not ops_json.get("business_naics_6"):
+        if business_type_touched:
+          try:
+            bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
+          except Exception:
+            bt_candidates = []
+          ops_json["business_type"] = _normalize_business_type_from_candidates(
+            ops_json.get("business_type"),
+            bt_candidates,
+          )
+        if business_type_touched:
+          if ops_json.get("business_type"):
+            ops_json["business_naics_6"] = get_naics_from_business_type(
+              conn, ops_json.get("business_type")
+            )
+          else:
+            ops_json["business_naics_6"] = None
+        elif ops_json.get("business_type") and not ops_json.get("business_naics_6"):
+          try:
+            bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
+          except Exception:
+            bt_candidates = []
+          ops_json["business_type"] = _normalize_business_type_from_candidates(
+            ops_json.get("business_type"),
+            bt_candidates,
+          )
           ops_json["business_naics_6"] = get_naics_from_business_type(
             conn, ops_json.get("business_type")
           )
       except Exception:
-        pass
+        if business_type_touched and "business_naics_6" not in ops_json:
+          ops_json["business_naics_6"] = None
       try:
         _enrich_milestones_timing(ops_json, reference_date=current_date)
       except Exception:
@@ -1477,7 +1945,6 @@ def post_intake_consult_handler(*, app, request):
         from people_roles import (  # type: ignore
           apply_oews_wages,
           apply_oews_wages_to_people,
-          format_people_wage_summary,
           format_roles_summary,
         )
 
@@ -1515,103 +1982,7 @@ def post_intake_consult_handler(*, app, request):
       status_out: str | None = None
       consistency_passed_out = False
       completed_out = False
-
-      # Always echo the latest relevant summary templates after an edit so the user
-      # doesn't have to scroll to see the updated current-state narrative.
-      people_summary = str((people_json or {}).get("key_people_summary") or "").strip()
-      try:
-        people_wage_summary = format_people_wage_summary((people_json or {}).get("people") or [])
-      except Exception:
-        people_wage_summary = ""
-      if people_wage_summary:
-        people_summary = f"{people_summary}\n\n{people_wage_summary}".strip()
-      roles_summary = str((people_json or {}).get("inferred_roles_summary") or "").strip()
-      if roles_summary:
-        people_summary = f"{people_summary}\n\n{roles_summary}".strip()
-      summary_by_group: Dict[str, str] = {
-        "ops": str((ops_json or {}).get("business_description_summary") or "").strip(),
-        "market": str((market_json or {}).get("target_market_summary") or "").strip(),
-        "people": people_summary,
-        "financials": str((financials_json or {}).get("financials_summary") or "").strip(),
-      }
-      changed_groups: List[str] = []
-      try:
-        for raw_key in (patch or {}).keys():
-          key = str(raw_key or "").strip()
-          if key.count(".") != 1:
-            continue
-          group, _field = key.split(".", 1)
-          group = group.strip().lower()
-          if group and group not in changed_groups:
-            changed_groups.append(group)
-      except Exception:
-        changed_groups = []
-
-      # One-time upgrade path: older drafts may contain literal summaries that do not
-      # use {{fact:...}} placeholders, which prevents fact propagation after edits.
-      try:
-        allowed_fact_keys: List[str] = []
-        for g, fields in (FACT_GROUPS or {}).items():
-          for f in list(fields or []):
-            allowed_fact_keys.append(f"{g}.{f}")
-
-        required_by_group: Dict[str, List[str]] = {
-          "ops": ["business.name", "ops.unit_name", "ops.unit_price", "ops.units_per_week_capacity"],
-          "market": ["business.name", "ops.unit_price"],
-          "people": ["business.name"],
-          "financials": ["business.name", "financials.current_revenue", "financials.cash_on_hand"],
-        }
-
-        def _needs_upgrade(group: str, text: str) -> bool:
-          raw = str(text or "")
-          if "{{fact:" not in raw:
-            return True
-          for k in required_by_group.get(group, []):
-            if f"{{{{fact:{k}}}}}" not in raw:
-              return True
-          return False
-
-        def _upgrade(group: str, text: str) -> str:
-          if not text:
-            return ""
-          if not _needs_upgrade(group, text):
-            return text
-          return rewrite_summary_as_fact_template(
-            text=text,
-            shared_context={
-              "operating_model": ops_json,
-              "target_market": market_json,
-              "people_capability": people_json,
-              "financials": financials_json,
-            },
-            business_facts=business_facts,
-            required_fact_keys=required_by_group.get(group, []),
-            allowed_fact_keys=allowed_fact_keys,
-          )
-
-        upgrade_targets = [str(focus or "").strip().lower(), *changed_groups]
-        for g in upgrade_targets:
-          if g not in summary_by_group:
-            continue
-          current = summary_by_group.get(g) or ""
-          if not current:
-            continue
-          try:
-            upgraded = _upgrade(g, current)
-          except Exception:
-            upgraded = current
-          if upgraded and upgraded != current:
-            summary_by_group[g] = upgraded
-            if g == "ops":
-              ops_json["business_description_summary"] = upgraded
-            elif g == "market":
-              market_json["target_market_summary"] = upgraded
-            elif g == "people":
-              people_json["key_people_summary"] = upgraded
-            elif g == "financials":
-              financials_json["financials_summary"] = upgraded
-      except Exception:
-        pass
+      confirm_question_live = _detect_confirm_question(last_assistant)
 
       # If the draft was already marked complete, edits must reopen it and trigger
       # a new consistency pass.
@@ -1626,18 +1997,10 @@ def post_intake_consult_handler(*, app, request):
       #
       # Exception: if the edit re-opens a completed intake into Consistency, keep the
       # router acknowledgement so the user clearly sees the update before the audit.
-      assistant_text = router_msg if (confirm_question or active_focus_out != focus) else ""
+      assistant_text = router_msg if (confirm_question_live or active_focus_out != focus) else ""
       # If we're awaiting a section-final confirmation, re-ask the confirm question
-      # with the updated summary shown for ops edits.
-      if confirm_question:
-        if str(focus).strip().lower() == "ops":
-          updated_summary = str(ops_json.get("business_description_summary") or "").strip()
-          if updated_summary:
-            assistant_text = f"{assistant_text}\n\n{updated_summary}\n\n{confirm_question}".strip()
-          else:
-            assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
-        else:
-          assistant_text = f"{assistant_text}\n\n{confirm_question}".strip()
+      if confirm_question_live:
+        assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()
       else:
         # Otherwise, keep the intake moving: acknowledge the edit and then continue
         # with the next question for the current focus (no standstills).
@@ -1741,7 +2104,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         operating_model_json=ops_json,
         target_market_json=market_json,
-        people_json=people_json,
+        people_json=people_json if people_patch_applied else None,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
         fulfillment_json=fulfillment_json,
@@ -1750,6 +2113,7 @@ def post_intake_consult_handler(*, app, request):
         consistency_passed=consistency_passed_out,
         status=status_out,
         completed=completed_out,
+        flat_fields=_finalize_flag_field(focus, False),
       )
 
       action_out = "consistency_passed" if active_focus_out == "done" else "edit_patch"
@@ -1759,14 +2123,14 @@ def post_intake_consult_handler(*, app, request):
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
           "active_focus": active_focus_out,
-          "awaiting_confirmation": bool(confirm_question),
+          "awaiting_confirmation": bool(confirm_question_live),
           "done": bool(active_focus_out == "done"),
           "action": action_out,
           "assistant_message": assistant_text,
         }
       )
 
-    if action == "confirm_proceed" and confirm_question:
+    if action == "confirm_proceed":
       confirmations: Dict[str, bool] = {focus: True}
       next_focus = _next_focus(focus)
 
@@ -1847,6 +2211,7 @@ def post_intake_consult_handler(*, app, request):
         confirmations=confirmations,
         active_focus=next_focus,
         business_facts=business_facts,
+        flat_fields=_finalize_flag_field(focus, False),
       )
 
       return jsonify(
@@ -1872,6 +2237,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         active_focus=focus,
         business_facts=business_facts,
+        flat_fields=_finalize_flag_field(focus, False),
       )
       return jsonify(
         {
@@ -1896,6 +2262,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         active_focus=focus,
         business_facts=business_facts,
+        flat_fields=_finalize_flag_field(focus, False),
       )
       return jsonify(
         {
@@ -1943,7 +2310,6 @@ def post_intake_consult_handler(*, app, request):
       if consumer_type not in ("consumer", "b2b", "mixed"):
         consumer_type = "consumer"
       intake_context["consumer_type"] = consumer_type
-
     if focus == "ops":
       turn = consultant_chat_turn(
         intake_context=intake_context, conversation_messages=[*messages, user_msg]
@@ -1979,6 +2345,9 @@ def post_intake_consult_handler(*, app, request):
       )
 
     finalize_ready = bool(turn.get("finalize_ready", False))
+    review_ready = bool(turn.get("review_ready", False))
+    if str(focus).strip().lower() == "people" and review_ready and not finalize_ready:
+      finalize_ready = True
     if str(focus).strip().lower() == "financials" and guardrail_triggered:
       finalize_ready = False
 
@@ -1993,23 +2362,20 @@ def post_intake_consult_handler(*, app, request):
     if (
       str(focus).strip().lower() == "ops"
       and finalize_ready
-      and not _has_confirmed_milestone(ops_json)
+      and not str((ops_json or {}).get("competitive_advantage") or "").strip()
     ):
-      try:
-        milestone_message, milestone_payload = _propose_ops_milestone_via_openai(
-          intake_context=intake_context,
-          ops_json=ops_json,
-          business_facts=business_facts,
-        )
-        assistant_text = sanitize_fact_template(str(milestone_message or "").strip())
-        pending_ops_milestone = [milestone_payload] if milestone_payload else []
-      except Exception:
+      proposed_advantage = _propose_ops_competitive_advantage(
+        ops_json=ops_json,
+        business_facts=business_facts,
+        shared_context=shared_context,
+      )
+      proposed_advantage = sanitize_fact_template(str(proposed_advantage or "").strip())
+      if proposed_advantage:
         assistant_text = (
-          "Before we finalize operations, we need one forward-looking milestone with timing. "
-          "What milestone should we use and by when?"
+          f"{COMPETITIVE_ADVANTAGE_PREFIX} {proposed_advantage}\n\n"
+          f"{COMPETITIVE_ADVANTAGE_QUESTION}"
         )
-        pending_ops_milestone = []
-      finalize_ready = False
+        finalize_ready = False
 
     # Safety: avoid dead-end assistant replies with no next question.
     # If GPT responded with an acknowledgement only (no question) and we're not finalizing,
@@ -2088,6 +2454,56 @@ def post_intake_consult_handler(*, app, request):
         }
       )
     if not finalize_ready:
+      review_people = None
+      if str(focus).strip().lower() == "people" and review_ready:
+        review_people = people_capability_finalize(
+          intake_context=intake_context,
+          conversation_messages=[*messages, user_msg, {"role": "assistant", "content": assistant_text}],
+        )
+        for k, v in list(review_people.items() if isinstance(review_people, dict) else []):
+          if isinstance(v, str):
+            review_people[k] = sanitize_fact_template(v)
+        try:
+          from people_roles import (  # type: ignore
+            apply_oews_wages,
+            apply_oews_wages_to_people,
+            format_roles_summary,
+          )
+
+          roles = review_people.get("inferred_roles") if isinstance(review_people, dict) else None
+          roles = roles if isinstance(roles, list) else []
+          people = review_people.get("people") if isinstance(review_people, dict) else None
+          people = people if isinstance(people, list) else []
+          enriched_people = apply_oews_wages_to_people(
+            conn,
+            people=people,
+            business_type=ops_json.get("business_type"),
+            business_stage=ops_json.get("business_stage"),
+            address_state=business_facts.get("address_state"),
+            address=business_facts.get("address"),
+            business_naics_6=ops_json.get("business_naics_6"),
+          )
+          enriched_roles = apply_oews_wages(
+            conn,
+            roles=roles,
+            business_type=ops_json.get("business_type"),
+            business_stage=ops_json.get("business_stage"),
+            address_state=business_facts.get("address_state"),
+            address=business_facts.get("address"),
+            business_naics_6=ops_json.get("business_naics_6"),
+          )
+          review_people["business_naics_6"] = ops_json.get("business_naics_6")
+          review_people["people"] = enriched_people
+          review_people["inferred_roles"] = enriched_roles
+          review_people["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+        except Exception:
+          if isinstance(review_people, dict):
+            if "inferred_roles" not in review_people:
+              review_people["inferred_roles"] = []
+            if "inferred_roles_summary" not in review_people:
+              review_people["inferred_roles_summary"] = ""
+            if "business_naics_6" not in review_people:
+              review_people["business_naics_6"] = None
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -2096,6 +2512,8 @@ def post_intake_consult_handler(*, app, request):
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
         pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
+        flat_fields=_finalize_flag_field(focus, False),
+        people_json=review_people if review_ready else None,
       )
       return jsonify(
         {
@@ -2113,50 +2531,6 @@ def post_intake_consult_handler(*, app, request):
     # Finalize the current focus into structured JSON, then ask for confirmation.
     final_messages = [*messages, user_msg, {"role": "assistant", "content": assistant_text}]
 
-    # Ensure fact-bearing summaries are stored as templates (no stale embedded literals).
-    allowed_fact_keys_for_rewrite: List[str] = []
-    try:
-      for g, fields in (FACT_GROUPS or {}).items():
-        for f in list(fields or []):
-          allowed_fact_keys_for_rewrite.append(f"{g}.{f}")
-    except Exception:
-      allowed_fact_keys_for_rewrite = []
-
-    required_placeholders_by_group: Dict[str, List[str]] = {
-      "ops": ["business.name", "ops.unit_name", "ops.unit_price", "ops.units_per_week_capacity"],
-      "market": ["business.name", "ops.unit_price"],
-      "people": ["business.name"],
-      "financials": ["business.name", "financials.current_revenue", "financials.cash_on_hand"],
-    }
-
-    def _upgrade_summary_if_needed(group: str, summary: str) -> str:
-      raw = str(summary or "").strip()
-      if not raw:
-        return raw
-      if "{{fact:" not in raw:
-        needs = True
-      else:
-        needs = any(
-          f"{{{{fact:{k}}}}}" not in raw for k in required_placeholders_by_group.get(group, [])
-        )
-      if not needs:
-        return raw
-      try:
-        return rewrite_summary_as_fact_template(
-          text=raw,
-          shared_context={
-            "operating_model": ops_json,
-            "target_market": market_json,
-            "people_capability": people_json,
-            "financials": financials_json,
-          },
-          business_facts=business_facts,
-          required_fact_keys=required_placeholders_by_group.get(group, []),
-          allowed_fact_keys=allowed_fact_keys_for_rewrite,
-        )
-      except Exception:
-        return raw
-
     if focus == "ops":
       business_type_candidates = _build_business_type_candidates(conn=conn, messages=final_messages)
       intake_context["business_type_candidates"] = business_type_candidates
@@ -2164,6 +2538,13 @@ def post_intake_consult_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      existing_advantage = str((ops_json or {}).get("competitive_advantage") or "").strip()
+      if (
+        existing_advantage
+        and isinstance(final_obj, dict)
+        and not str(final_obj.get("competitive_advantage") or "").strip()
+      ):
+        final_obj["competitive_advantage"] = existing_advantage
       if isinstance(final_obj, dict):
         lob_models = final_obj.get("lob_models")
         if isinstance(lob_models, list) and len(lob_models) == 1:
@@ -2210,13 +2591,13 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         if "business_naics_6" not in final_obj:
           final_obj["business_naics_6"] = None
-      summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
-      summary_text = _upgrade_summary_if_needed("ops", summary_text)
-      final_obj["business_description_summary"] = summary_text
       try:
         _enrich_milestones_timing(final_obj, reference_date=current_date)
       except Exception:
         pass
+      summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
+      if isinstance(final_obj, dict):
+        final_obj.pop("business_description_summary", None)
       assistant_final = f"{summary_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
       ops_json = final_obj
       market_json_out = None
@@ -2236,8 +2617,8 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       summary_text = str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
-      summary_text = _upgrade_summary_if_needed("market", summary_text)
-      final_obj["target_market_summary"] = summary_text
+      if isinstance(final_obj, dict):
+        final_obj.pop("target_market_summary", None)
       assistant_final = f"{summary_text}\n\n{MARKET_CONFIRM_QUESTION}".strip()
       assistant_final = _strip_acs_codes(assistant_final)
       market_json = final_obj
@@ -2254,7 +2635,6 @@ def post_intake_consult_handler(*, app, request):
         from people_roles import (  # type: ignore
           apply_oews_wages,
           apply_oews_wages_to_people,
-          format_people_wage_summary,
           format_roles_summary,
         )
 
@@ -2292,15 +2672,8 @@ def post_intake_consult_handler(*, app, request):
         if "business_naics_6" not in final_obj:
           final_obj["business_naics_6"] = None
       summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
-      summary_text = _upgrade_summary_if_needed("people", summary_text)
-      final_obj["key_people_summary"] = summary_text
-      people_wage_summary = ""
-      try:
-        people_wage_summary = format_people_wage_summary(final_obj.get("people") or [])
-      except Exception:
-        people_wage_summary = ""
-      if people_wage_summary:
-        summary_text = f"{summary_text}\n\n{people_wage_summary}".strip()
+      if isinstance(final_obj, dict):
+        final_obj.pop("key_people_summary", None)
       roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
       if roles_summary:
         summary_text = f"{summary_text}\n\n{roles_summary}".strip()
@@ -2316,11 +2689,9 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
       summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
-      summary_text = _upgrade_summary_if_needed("financials", summary_text)
-      final_obj["financials_summary"] = summary_text
-      assistant_final = str(assistant_text or "").strip()
-      if not assistant_final:
-        assistant_final = summary_text
+      if isinstance(final_obj, dict):
+        final_obj.pop("financials_summary", None)
+      assistant_final = f"{summary_text}\n\n{FIN_CONFIRM_QUESTION}".strip()
       financials_json = final_obj
       financials_json_out = final_obj
       market_json_out = None
@@ -2349,6 +2720,7 @@ def post_intake_consult_handler(*, app, request):
       active_focus=focus,
       business_facts=business_facts,
       consistency_passed=False,
+      flat_fields=_finalize_flag_field(focus, True),
     )
 
     return jsonify(

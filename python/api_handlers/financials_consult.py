@@ -135,6 +135,68 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
 
 
+def _year1_driver_map(year1_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+  out: Dict[str, Dict[str, Any]] = {}
+  if not isinstance(year1_json, dict):
+    return out
+  lobs = year1_json.get("lobs")
+  if not isinstance(lobs, list):
+    return out
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip().lower()
+    products = lob.get("products")
+    if not isinstance(products, list):
+      continue
+    for product in products:
+      if not isinstance(product, dict):
+        continue
+      product_name = str(product.get("product_name") or "").strip().lower()
+      if not product_name:
+        continue
+      key = f"{lob_name}::{product_name}"
+      out[key] = {
+        "unit_cadence": str(product.get("unit_cadence") or "").strip().lower(),
+        "unit_price": product.get("unit_price"),
+        "units_per_period_capacity": product.get("units_per_period_capacity"),
+      }
+  return out
+
+
+def _year1_drivers_conflict(existing_year1: Dict[str, Any], base_year1: Dict[str, Any]) -> bool:
+  if not isinstance(existing_year1, dict) or not existing_year1:
+    return False
+  existing_map = _year1_driver_map(existing_year1)
+  base_map = _year1_driver_map(base_year1)
+  if not existing_map or not base_map:
+    return False
+
+  def _num(value: Any) -> Optional[float]:
+    try:
+      return float(value)
+    except Exception:
+      return None
+
+  for key, base_driver in base_map.items():
+    existing_driver = existing_map.get(key)
+    if not existing_driver:
+      continue
+    base_cadence = str(base_driver.get("unit_cadence") or "").strip().lower()
+    existing_cadence = str(existing_driver.get("unit_cadence") or "").strip().lower()
+    if base_cadence and existing_cadence and base_cadence != existing_cadence:
+      return True
+    base_price = _num(base_driver.get("unit_price"))
+    existing_price = _num(existing_driver.get("unit_price"))
+    if base_price is not None and existing_price is not None and abs(base_price - existing_price) > 0.01:
+      return True
+    base_capacity = _num(base_driver.get("units_per_period_capacity"))
+    existing_capacity = _num(existing_driver.get("units_per_period_capacity"))
+    if base_capacity is not None and existing_capacity is not None and abs(base_capacity - existing_capacity) > 0.01:
+      return True
+  return False
+
+
 def _constraints_snippet_already_sent(messages: List[Dict[str, str]]) -> bool:
   for msg in messages or []:
     if str(msg.get("role") or "").strip().lower() != "assistant":
@@ -168,9 +230,6 @@ def _append_constraints_snippet(
 def _validate_final(final_obj: Dict[str, Any]) -> None:
   if not isinstance(final_obj, dict):
     raise RuntimeError("Final financials JSON must be an object.")
-  summary = str(final_obj.get("financials_summary") or "").strip()
-  if not summary:
-    raise RuntimeError("Final financials JSON missing financials_summary.")
   conf = final_obj.get("confidence")
   try:
     conf_val = float(conf)
@@ -373,7 +432,12 @@ def post_financials_consult_handler(*, app, request):
       if fin_status == "completed":
         baseline_financials = _parse_json_dict(fin_draft.get("financials_json"))
         existing_year1 = _parse_json_dict(fin_draft.get("financials_year1_json"))
-        financials_year1_json = assemble_financials_year1(shared_context, existing_year1)
+        base_year1 = assemble_financials_year1(shared_context, None)
+        if _year1_drivers_conflict(existing_year1, base_year1):
+          financials_year1_json = base_year1
+        else:
+          financials_year1_json = assemble_financials_year1(shared_context, existing_year1)
+        shared_context["financials_year1_json"] = financials_year1_json
         revenue_math_line = build_revenue_math_line(
           financials_year1_json,
           unit_name=str((operating_model or {}).get("unit_name") or "").strip() or None,
@@ -385,8 +449,7 @@ def post_financials_consult_handler(*, app, request):
         )
 
         if starting:
-          summary = str(baseline_financials.get("financials_summary") or "").strip()
-          assistant_message = (summary or "Financials intake complete.").strip()
+          assistant_message = "Financials intake complete."
           from fact_templates import sanitize_fact_template  # type: ignore
 
           assistant_message = sanitize_fact_template(assistant_message)
@@ -533,8 +596,7 @@ def post_financials_consult_handler(*, app, request):
             for k, v in updated_financials.items()
           }
 
-          summary_for_ui = str(updated_financials.get("financials_summary") or "").strip()
-          assistant_message = summary_for_ui or (assistant_message or "Got it.").strip()
+          assistant_message = (assistant_message or "Got it.").strip()
           assistant_message = sanitize_fact_template(assistant_message)
         else:
           from fact_templates import sanitize_fact_template  # type: ignore
@@ -570,8 +632,39 @@ def post_financials_consult_handler(*, app, request):
           }
         )
 
+      baseline_financials = _parse_json_dict(fin_draft.get("financials_json"))
+      updated_financials = baseline_financials
+      applied_patch = False
+      if not starting:
+        routed = route_intent(
+          consult_type="financials",
+          user_message=str(message).strip(),
+          baseline_json=baseline_financials,
+          shared_context=shared_context,
+          recent_messages=history[-30:] if history else [],
+          active_focus="financials",
+        )
+        if str(routed.get("action") or "").strip() == "edit_patch":
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          patch = routed.get("patch")
+          if not isinstance(patch, dict):
+            patch = {}
+          updated_financials = dict(baseline_financials)
+          updated_financials.update(patch)
+          updated_financials = {
+            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+            for k, v in updated_financials.items()
+          }
+          applied_patch = True
+
       existing_year1 = _parse_json_dict(fin_draft.get("financials_year1_json"))
-      financials_year1_json = assemble_financials_year1(shared_context, existing_year1)
+      base_year1 = assemble_financials_year1(shared_context, None)
+      if _year1_drivers_conflict(existing_year1, base_year1):
+        financials_year1_json = base_year1
+      else:
+        financials_year1_json = assemble_financials_year1(shared_context, existing_year1)
+      shared_context["financials_year1_json"] = financials_year1_json
       revenue_constraints_snippet = build_revenue_constraints_snippet(
         shared_context,
         financials_year1_json,
@@ -688,7 +781,6 @@ def post_financials_consult_handler(*, app, request):
         "people_capability": shared_context.get("people_capability") or {},
         "unit_name": operating_model.get("unit_name"),
         "unit_price": operating_model.get("unit_price"),
-        "business_description_summary": operating_model.get("business_description_summary"),
         "consumer_type": operating_model.get("consumer_type"),
         "financials_year1_json": financials_year1_json,
         "revenue_math_line": revenue_math_line,
@@ -729,6 +821,8 @@ def post_financials_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, assistant_msg],
           status="in_progress",
+          financials_json=updated_financials if applied_patch else None,
+          flat_fields=updated_financials if applied_patch else None,
           financials_year1_json=financials_year1_json,
         )
         return jsonify(
@@ -757,10 +851,7 @@ def post_financials_consult_handler(*, app, request):
           final_obj[k] = sanitize_fact_template(v)
       _validate_final(final_obj)
 
-      summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
-      assistant_message = str(assistant_text or "").strip()
-      if not assistant_message:
-        assistant_message = summary_text
+      assistant_message = str(assistant_text or "").strip() or "Financials intake complete."
       assistant_message = sanitize_fact_template(assistant_message)
       assistant_msg = {"role": "assistant", "content": assistant_message}
 

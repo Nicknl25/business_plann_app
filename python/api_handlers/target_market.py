@@ -7,6 +7,16 @@ from flask import jsonify
 TM_CONFIRM_QUESTION = "Does this look right before we move on to People & Capability?"
 
 
+def _last_assistant_message(messages: List[Dict[str, str]]) -> str:
+  for msg in reversed(messages or []):
+    if str(msg.get("role") or "").strip().lower() != "assistant":
+      continue
+    text = str(msg.get("content") or "").strip()
+    if text:
+      return text
+  return ""
+
+
 def post_target_market_session_handler(*, app, request):
   """
   Relocated verbatim from python/api.py:post_target_market_session (Phase 1 sweep).
@@ -195,9 +205,6 @@ def post_target_market_consult_handler(*, app, request):
     return cleaned
 
   def _validate_final(final_obj: Dict[str, Any], mapping_rows: List[Dict[str, Any]], consumer_type: str) -> None:
-    if not str(final_obj.get("target_market_summary") or "").strip():
-      raise RuntimeError("Final target market JSON missing target_market_summary.")
-
     conf = final_obj.get("confidence")
     try:
       conf_val = float(conf)
@@ -446,12 +453,10 @@ def post_target_market_consult_handler(*, app, request):
         except Exception:
           history_for_router = []
 
+        last_assistant = _last_assistant_message(history_for_router)
+
         if starting:
-          summary = str(baseline_target_market.get("target_market_summary") or "").strip()
-          assistant_message = (summary or "Target market intake complete.").strip()
-          assistant_message = (
-            f"{assistant_message}\n\n{TM_CONFIRM_QUESTION}"
-          ).strip()
+          assistant_message = f"Target market intake complete.\n\n{TM_CONFIRM_QUESTION}".strip()
           try:
             import re
 
@@ -504,9 +509,8 @@ def post_target_market_consult_handler(*, app, request):
             for k, v in updated_target_market.items()
           }
 
-          summary_for_ui = str(updated_target_market.get("target_market_summary") or "").strip()
           ack = assistant_message or "Got it."
-          assistant_message = f"{ack}\n\n{summary_for_ui}\n\n{TM_CONFIRM_QUESTION}".strip()
+          assistant_message = f"{ack}\n\n{TM_CONFIRM_QUESTION}".strip()
           assistant_message = sanitize_fact_template(assistant_message)
         else:
           from fact_templates import sanitize_fact_template  # type: ignore
@@ -560,6 +564,47 @@ def post_target_market_consult_handler(*, app, request):
       except Exception:
         history = []
 
+      baseline_target_market: Dict[str, Any] = {}
+      try:
+        raw_existing = tm_draft.get("target_market_json")
+        if isinstance(raw_existing, dict):
+          baseline_target_market = raw_existing
+        elif raw_existing:
+          parsed_existing = json.loads(str(raw_existing))
+          if isinstance(parsed_existing, dict):
+            baseline_target_market = parsed_existing
+      except Exception:
+        baseline_target_market = {}
+
+      updated_target_market = baseline_target_market
+      applied_patch = False
+      if not starting and not edit_finalize:
+        routed = route_intent(
+          consult_type="target_market",
+          user_message=str(message).strip(),
+          baseline_json=baseline_target_market,
+          shared_context=shared_context,
+          recent_messages=history[-30:] if history else [],
+          active_focus="market",
+        )
+        if str(routed.get("action") or "").strip() == "edit_patch":
+          from fact_templates import sanitize_fact_template  # type: ignore
+
+          patch = routed.get("patch")
+          if not isinstance(patch, dict):
+            patch = {}
+          updated_target_market = dict(baseline_target_market)
+          updated_target_market.update(patch)
+          updated_target_market = {
+            k: (sanitize_fact_template(v) if isinstance(v, str) else v)
+            for k, v in updated_target_market.items()
+          }
+          applied_patch = True
+
+      if applied_patch:
+        shared_context = dict(shared_context or {})
+        shared_context["target_market"] = updated_target_market
+
       context = {
         "client_id": client_id,
         "shared_context": shared_context,
@@ -572,7 +617,6 @@ def post_target_market_consult_handler(*, app, request):
         "address_state": payload.get("address_state"),
         "address_zip": payload.get("address_zip"),
         "address_country": payload.get("address_country"),
-        "business_description_summary": operating_model.get("business_description_summary"),
         "unit_name": operating_model.get("unit_name"),
         "unit_description": operating_model.get("unit_description"),
         "unit_price": operating_model.get("unit_price"),
@@ -728,15 +772,6 @@ def post_target_market_consult_handler(*, app, request):
             *cleaned_selections,
           ]
 
-          try:
-            import re
-
-            summary_raw = str(final_obj.get("target_market_summary") or "")
-            summary_clean = re.sub(r"\b[A-Z]\d{5}_\d{3}E\b", "", summary_raw)
-            final_obj["target_market_summary"] = " ".join(summary_clean.split()).strip()
-          except Exception:
-            pass
-
         if consumer_type in ("b2b", "mixed"):
           import re
 
@@ -842,11 +877,7 @@ def post_target_market_consult_handler(*, app, request):
           final_obj["target_market_b2b_age"] = ",".join([v for v in age_order if v in age_set])
 
         assistant_message = (
-          str(final_obj.get("target_market_summary") or "").strip()
-          or "Target market intake complete."
-        )
-        assistant_message = (
-          f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
+          f"Target market intake complete.\n\nDoes this look right before we move on to People & Capability?"
         ).strip()
         try:
           import re
@@ -1049,16 +1080,6 @@ def post_target_market_consult_handler(*, app, request):
             *cleaned_selections,
           ]
 
-          # Guardrail: never expose raw ACS codes in stored summary or UI.
-          try:
-            import re
-
-            summary_raw = str(final_obj.get("target_market_summary") or "")
-            summary_clean = re.sub(r"\b[A-Z]\d{5}_\d{3}E\b", "", summary_raw)
-            final_obj["target_market_summary"] = " ".join(summary_clean.split()).strip()
-          except Exception:
-            pass
-
         if consumer_type in ("b2b", "mixed"):
           import re
 
@@ -1169,11 +1190,7 @@ def post_target_market_consult_handler(*, app, request):
 
         done = True
         assistant_message = (
-          str(final_obj.get("target_market_summary") or "").strip()
-          or "Target market intake complete."
-        )
-        assistant_message = (
-          f"{assistant_message}\n\nDoes this look right before we move on to People & Capability?"
+          f"Target market intake complete.\n\nDoes this look right before we move on to People & Capability?"
         ).strip()
         try:
           import re
@@ -1206,6 +1223,8 @@ def post_target_market_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=new_messages,
           status="in_progress",
+          target_market_json=updated_target_market if applied_patch else None,
+          flat_fields=updated_target_market if applied_patch else None,
         )
 
       return jsonify(
