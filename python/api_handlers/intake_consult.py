@@ -216,6 +216,7 @@ def _classify_restatement_response(*, restatement: str, user_reply: str) -> Opti
   system = (
     "You are classifying a user's reply to a proposed restatement.\n"
     "Return exactly one of: ACCEPT, REJECT, CLARIFY.\n"
+    "If the assistant text is not a restatement asking for confirmation, return CLARIFY.\n"
     "- ACCEPT: user affirms the restatement without changes.\n"
     "- REJECT: user disagrees or provides corrections.\n"
     "- CLARIFY: user is unsure, ambiguous, or asks for clarification.\n"
@@ -926,7 +927,12 @@ def _propose_ops_competitive_advantage(
   return cleaned
 
 
-def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
+def _build_business_type_candidates(
+  *,
+  conn,
+  messages: List[Dict[str, str]],
+  restatement_text: Optional[str] = None,
+) -> List[str]:
   """
   Select a single best-matching business_type token from naics_master.business_types,
   using the latest confirmed restatement as the primary signal.
@@ -951,7 +957,8 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
       except Exception:
         pass
 
-    restatement_text = _extract_confirmed_restatement(messages)
+    if restatement_text is None:
+      restatement_text = _extract_confirmed_restatement(messages)
     if not restatement_text or not all_business_types:
       return []
 
@@ -989,18 +996,106 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
         return None
       return idx if 1 <= idx <= len(options) else None
 
-    pick_idx = _pick_index(restatement_text, all_business_types)
-    if pick_idx is None:
-      pick_idx = _pick_index(restatement_text, all_business_types)
-    if pick_idx is None:
-      logger.warning(
-        "business_type_index_pick_failed restatement=%r total=%d",
-        restatement_text,
-        len(all_business_types),
+    def _pick_ranked_indices(
+      restatement: str,
+      options: List[str],
+      k_expected: int,
+    ) -> Optional[List[int]]:
+      key = _openai_key()
+      if not key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+      system = (
+        "You are selecting the best-matching business types from a fixed list.\n"
+        f"Return EXACTLY {k_expected} integer indices, ranked best-to-worst.\n"
+        "Return a comma-separated list of integers and nothing else."
       )
-      raise RuntimeError("Failed to select valid business_type index.")
+      numbered = [f"{idx}. {val}" for idx, val in enumerate(options, start=1)]
+      payload = {
+        "model": _openai_model(),
+        "input": [
+          {"role": "system", "content": system},
+          {"role": "user", "content": f"Restatement:\n{restatement}"},
+          {"role": "user", "content": "Business types:\n" + "\n".join(numbered)},
+        ],
+      }
+      resp = _post_openai(
+        url="https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        payload=payload,
+      )
+      if resp.status_code >= 400:
+        raise RuntimeError(_format_openai_error(resp))
+      raw = _parse_responses_text(resp.json())
+      raw_text = str(raw or "").strip().strip('"')
+      try:
+        import re
 
-    return [all_business_types[pick_idx - 1]]
+        parts = [int(x) for x in re.findall(r"\d+", raw_text)]
+      except Exception:
+        return None
+      if len(parts) != k_expected:
+        return None
+      if len(set(parts)) != len(parts):
+        return None
+      if any(p < 1 or p > len(options) for p in parts):
+        return None
+      return parts
+
+    batch_size = 300
+    k = 3
+    winners: List[str] = []
+    for i in range(0, len(all_business_types), batch_size):
+      batch = all_business_types[i : i + batch_size]
+      if not batch:
+        continue
+      k_expected = min(k, len(batch))
+      picks = _pick_ranked_indices(restatement_text, batch, k_expected)
+      if picks is None:
+        picks = _pick_ranked_indices(restatement_text, batch, k_expected)
+      if picks is None:
+        logger.warning(
+          "business_type_ranked_pick_failed restatement=%r batch_index=%d",
+          restatement_text,
+          i // batch_size,
+        )
+        raise RuntimeError("Failed to select ranked business_type indices.")
+      for idx in picks:
+        winners.append(batch[idx - 1])
+
+    if not winners:
+      raise RuntimeError("No business_type candidates selected.")
+
+    # Deduplicate while preserving order.
+    reduced: List[str] = []
+    seen = set()
+    for bt in winners:
+      if bt in seen:
+        continue
+      seen.add(bt)
+      reduced.append(bt)
+
+    if len(reduced) == 1:
+      logger.warning("business_type_reduced_candidates=%s", reduced)
+      return [reduced[0]]
+
+    final_idx = _pick_index(restatement_text, reduced)
+    if final_idx is None:
+      final_idx = _pick_index(restatement_text, reduced)
+    if final_idx is None:
+      logger.warning(
+        "business_type_final_pick_failed restatement=%r total=%d",
+        restatement_text,
+        len(reduced),
+      )
+      raise RuntimeError("Failed to select final business_type index.")
+
+    logger.warning("business_type_reduced_candidates=%s", reduced)
+    logger.warning(
+      "business_type_final_pick index=%d value=%r",
+      final_idx,
+      reduced[final_idx - 1],
+    )
+    return [reduced[final_idx - 1]]
   except RuntimeError:
     raise
   except Exception:
@@ -1580,7 +1675,11 @@ def post_intake_consult_handler(*, app, request):
       has_candidates = isinstance(existing_candidates, list) and bool(existing_candidates)
       if not already_locked and not has_candidates:
         try:
-          bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
+          bt_candidates = _build_business_type_candidates(
+            conn=conn,
+            messages=[*messages, user_msg],
+            restatement_text=last_assistant,
+          )
         except Exception as exc:
           logger.exception("business_type_selection_failed: %s", exc)
           return (jsonify({"error": "business_type_selection_failed"}), 500)
