@@ -2,10 +2,13 @@ import json
 import os
 import time
 import calendar
+import logging
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
+
+logger = logging.getLogger(__name__)
 import requests
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
@@ -173,6 +176,29 @@ def _extract_competitive_advantage_prompt(last_assistant: str) -> Optional[str]:
       _, _, rest = line_stripped.partition(":")
       value = rest.strip()
       return value or None
+  return None
+
+
+def _extract_confirmed_restatement(messages: List[Dict[str, str]]) -> Optional[str]:
+  for idx in range(len(messages) - 2, -1, -1):
+    assistant_msg = messages[idx]
+    user_msg = messages[idx + 1]
+    if str(assistant_msg.get("role") or "") != "assistant":
+      continue
+    if str(user_msg.get("role") or "") != "user":
+      continue
+    assistant_text = str(assistant_msg.get("content") or "").strip()
+    user_text = str(user_msg.get("content") or "").strip()
+    if not assistant_text or not user_text:
+      continue
+    if not _is_guardrail_acknowledgement(user_text):
+      continue
+    if not assistant_text.endswith("?"):
+      continue
+    sentence_marks = sum(1 for ch in assistant_text if ch in ".!?")
+    if sentence_marks < 2:
+      continue
+    return assistant_text
   return None
 
 
@@ -736,6 +762,7 @@ def _propose_ops_competitive_advantage(
   ops_json: Dict[str, Any],
   business_facts: Dict[str, Any],
   shared_context: Dict[str, Any],
+  confirmed_restatement: Optional[str],
 ) -> str:
   key = _openai_key()
   if not key:
@@ -770,14 +797,12 @@ def _propose_ops_competitive_advantage(
     "- Ask ONE targeted clarification question.\n"
     "- Revise the advantage once and ask for confirmation again."
   )
+  ops_payload = dict(ops_json or {})
+  ops_payload["business_type"] = (ops_json or {}).get("business_type")
+  ops_payload["business_naics_6"] = (ops_json or {}).get("business_naics_6")
   context_payload = {
-    "business": {
-      "name": business_facts.get("name"),
-      "start_date": business_facts.get("start_date"),
-      "address": business_facts.get("address"),
-    },
-    "ops": ops_json,
-    "shared_context": shared_context or {},
+    "confirmed_restatement": confirmed_restatement,
+    "ops": ops_payload,
   }
   payload = {
     "model": _openai_model(),
@@ -811,12 +836,10 @@ def _propose_ops_competitive_advantage(
 
 def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> List[str]:
   """
-  Build a small, relevant business_type candidate list by scoring known values against
-  early user messages. This keeps finalization deterministic while avoiding a huge list.
+  Select a single best-matching business_type token from naics_master.business_types,
+  using the latest confirmed restatement as the primary signal.
   """
   try:
-    from difflib import SequenceMatcher
-
     cur = conn.cursor()
     try:
       cur.execute("SELECT business_types FROM naics_master WHERE business_types IS NOT NULL")
@@ -836,32 +859,63 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
       except Exception:
         pass
 
-    user_texts: List[str] = []
-    for msg in messages:
-      if str(msg.get("role") or "") != "user":
-        continue
-      content = str(msg.get("content") or "").strip()
-      if not content:
-        continue
-      # Ignore internal-start markers if present.
-      if "Start the operational intake." in content:
-        continue
-      user_texts.append(content)
-      if len(user_texts) >= 6:
-        break
+    restatement_text = _extract_confirmed_restatement(messages)
+    if not restatement_text or not all_business_types:
+      return []
 
-    base = " ".join(user_texts).strip().lower()
-    base = " ".join(base.split())
-    tokens = {t for t in base.replace("/", " ").replace("-", " ").split() if len(t) >= 3}
+    def _pick_from_batch(restatement: str, batch: List[str]) -> Optional[str]:
+      key = _openai_key()
+      if not key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+      system = (
+        "You are selecting the single best-matching business type from a fixed list.\n"
+        "Return EXACTLY ONE string from the provided list. Do not paraphrase.\n"
+        "If multiple are close, pick the closest operationally.\n"
+        "Return only the chosen string and nothing else."
+      )
+      payload = {
+        "model": _openai_model(),
+        "input": [
+          {"role": "system", "content": system},
+          {"role": "user", "content": f"Restatement:\n{restatement}"},
+          {"role": "user", "content": "Business types:\n" + "\n".join(batch)},
+        ],
+      }
+      resp = _post_openai(
+        url="https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        payload=payload,
+      )
+      if resp.status_code >= 400:
+        raise RuntimeError(_format_openai_error(resp))
+      raw = _parse_responses_text(resp.json())
+      choice = str(raw or "").strip().strip('"')
+      return choice if choice in batch else None
 
-    scored = []
-    for bt in all_business_types:
-      btl = bt.lower()
-      token_score = sum(1 for t in tokens if t in btl) if tokens else 0
-      ratio = SequenceMatcher(None, base, btl).ratio() if base else 0.0
-      scored.append((token_score, ratio, bt))
-    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
-    return [bt for _, _, bt in scored[:80]] or (all_business_types[:80] if all_business_types else [])
+    batch_size = 300
+    contenders = list(all_business_types)
+    while len(contenders) > 1:
+      winners: List[str] = []
+      for i in range(0, len(contenders), batch_size):
+        batch = contenders[i : i + batch_size]
+        if not batch:
+          continue
+        pick = _pick_from_batch(restatement_text, batch)
+        if pick is None:
+          pick = _pick_from_batch(restatement_text, batch)
+        if pick is None:
+          logger.warning(
+            "business_type_batch_pick_failed restatement=%r batch_index=%d",
+            restatement_text,
+            i // batch_size,
+          )
+          return []
+        winners.append(pick)
+      if not winners:
+        return []
+      contenders = winners
+
+    return [contenders[0]] if contenders else []
   except Exception:
     return []
 
@@ -1420,6 +1474,57 @@ def post_intake_consult_handler(*, app, request):
     user_msg = {"role": "user", "content": message}
     recent_messages = messages[-12:] if len(messages) > 12 else list(messages)
     last_assistant = _last_assistant_message(messages)
+    restatement_confirmed_this_turn = False
+    if (
+      str(focus).strip().lower() == "ops"
+      and _is_guardrail_acknowledgement(message)
+      and last_assistant
+    ):
+      confirmed_restatement = _extract_confirmed_restatement([*messages, user_msg])
+      if confirmed_restatement and confirmed_restatement == last_assistant:
+        restatement_confirmed_this_turn = True
+
+    if restatement_confirmed_this_turn:
+      already_locked = bool(ops_json.get("business_type_candidates_locked"))
+      existing_candidates = ops_json.get("business_type_candidates")
+      has_candidates = isinstance(existing_candidates, list) and bool(existing_candidates)
+      if not already_locked and not has_candidates:
+        try:
+          bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
+        except Exception:
+          bt_candidates = []
+        ops_json["business_type_candidates"] = bt_candidates
+        ops_json["business_type_candidates_locked"] = True
+        if bt_candidates:
+          ops_json["business_type"] = bt_candidates[0]
+        try:
+          try:
+            from intake_business_types import get_naics_from_business_type  # type: ignore
+          except Exception:
+            from client_intake_and_finmo.intake_business_types import (  # type: ignore
+              get_naics_from_business_type,
+            )
+          if ops_json.get("business_type"):
+            ops_json["business_naics_6"] = get_naics_from_business_type(
+              conn, ops_json.get("business_type")
+            )
+          else:
+            ops_json["business_naics_6"] = None
+        except Exception:
+          ops_json["business_naics_6"] = None
+        lines = []
+        for idx, bt in enumerate(bt_candidates[:80], start=1):
+          lines.append(f"{idx}. {bt}")
+        if lines:
+          logger.warning(
+            "BUSINESS TYPE CANDIDATES (ranked):\n%s",
+            "\n".join(lines),
+          )
+        logger.warning(
+          "business_type_persisted business_type=%r business_naics_6=%r",
+          ops_json.get("business_type"),
+          ops_json.get("business_naics_6"),
+        )
     revenue_driver_patch = None
     pending_competitive_advantage = _extract_competitive_advantage_prompt(last_assistant)
     competitive_intent_override: Optional[Dict[str, Any]] = None
@@ -1586,8 +1691,8 @@ def post_intake_consult_handler(*, app, request):
     }
     shared_context_for_router = shared_context
     try:
-      router_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
-      if router_candidates:
+      router_candidates = ops_json.get("business_type_candidates")
+      if isinstance(router_candidates, list) and router_candidates:
         shared_context_for_router = dict(shared_context or {})
         shared_context_for_router["business_type_candidates"] = router_candidates
     except Exception:
@@ -1907,9 +2012,8 @@ def post_intake_consult_handler(*, app, request):
             get_naics_from_business_type,
           )
         if business_type_touched:
-          try:
-            bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
-          except Exception:
+          bt_candidates = ops_json.get("business_type_candidates")
+          if not isinstance(bt_candidates, list):
             bt_candidates = []
           ops_json["business_type"] = _normalize_business_type_from_candidates(
             ops_json.get("business_type"),
@@ -1922,10 +2026,14 @@ def post_intake_consult_handler(*, app, request):
             )
           else:
             ops_json["business_naics_6"] = None
+          logger.warning(
+            "business_type_persisted business_type=%r business_naics_6=%r",
+            ops_json.get("business_type"),
+            ops_json.get("business_naics_6"),
+          )
         elif ops_json.get("business_type") and not ops_json.get("business_naics_6"):
-          try:
-            bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
-          except Exception:
+          bt_candidates = ops_json.get("business_type_candidates")
+          if not isinstance(bt_candidates, list):
             bt_candidates = []
           ops_json["business_type"] = _normalize_business_type_from_candidates(
             ops_json.get("business_type"),
@@ -2364,10 +2472,12 @@ def post_intake_consult_handler(*, app, request):
       and finalize_ready
       and not str((ops_json or {}).get("competitive_advantage") or "").strip()
     ):
+      confirmed_restatement = _extract_confirmed_restatement(messages)
       proposed_advantage = _propose_ops_competitive_advantage(
         ops_json=ops_json,
         business_facts=business_facts,
         shared_context=shared_context,
+        confirmed_restatement=confirmed_restatement,
       )
       proposed_advantage = sanitize_fact_template(str(proposed_advantage or "").strip())
       if proposed_advantage:
@@ -2532,7 +2642,9 @@ def post_intake_consult_handler(*, app, request):
     final_messages = [*messages, user_msg, {"role": "assistant", "content": assistant_text}]
 
     if focus == "ops":
-      business_type_candidates = _build_business_type_candidates(conn=conn, messages=final_messages)
+      business_type_candidates = ops_json.get("business_type_candidates")
+      if not isinstance(business_type_candidates, list):
+        business_type_candidates = []
       intake_context["business_type_candidates"] = business_type_candidates
       final_obj = consultant_finalize(intake_context=intake_context, conversation_messages=final_messages)
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
