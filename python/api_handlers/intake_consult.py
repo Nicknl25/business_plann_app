@@ -149,6 +149,98 @@ def _is_guardrail_acknowledgement(message: str) -> bool:
     return False
 
 
+def _is_restatement_acceptance(message: str) -> bool:
+  """
+  Semantic acceptance for restatement confirmations.
+  Default to accept unless the user expresses disagreement, correction, or uncertainty.
+  """
+  text = str(message or "").strip().lower()
+  if not text:
+    return False
+  try:
+    import re
+
+    reject_patterns = [
+      r"\bno\b",
+      r"\bnope\b",
+      r"\bnot\b",
+      r"\bincorrect\b",
+      r"\bwrong\b",
+      r"\bnot really\b",
+      r"\bnot exactly\b",
+      r"\bdoesn'?t\b",
+      r"\bdoes not\b",
+      r"\bthat'?s not\b",
+      r"\bnot (quite|really)\b",
+      r"\bexcept\b",
+      r"\bbut\b",
+      r"\bhowever\b",
+      r"\binstead\b",
+      r"\bactually\b",
+      r"\bwe (don'?t|do not)\b",
+      r"\bi (don'?t|do not)\b",
+      r"\bnot sure\b",
+      r"\bunsure\b",
+      r"\bkind of\b",
+      r"\bsort of\b",
+      r"\bmaybe\b",
+      r"\bdepends\b",
+      r"\bpartly\b",
+      r"\bpartially\b",
+      r"\bnot fully\b",
+      r"\bnot (completely|entirely)\b",
+      r"\bquestion\b",
+      r"\bconfused\b",
+      r"\bchange\b",
+      r"\bcorrect\b",
+      r"\bclarify\b",
+      r"\bupdate\b",
+      r"\brevise\b",
+    ]
+    if any(re.search(pat, text) for pat in reject_patterns):
+      return False
+  except Exception:
+    return False
+
+  return True
+
+
+def _classify_restatement_response(*, restatement: str, user_reply: str) -> Optional[str]:
+  """
+  Use GPT to classify the user's reply to a restatement as ACCEPT, REJECT, or CLARIFY.
+  Returns one of those strings, or None if classification fails.
+  """
+  key = _openai_key()
+  if not key:
+    return None
+  system = (
+    "You are classifying a user's reply to a proposed restatement.\n"
+    "Return exactly one of: ACCEPT, REJECT, CLARIFY.\n"
+    "- ACCEPT: user affirms the restatement without changes.\n"
+    "- REJECT: user disagrees or provides corrections.\n"
+    "- CLARIFY: user is unsure, ambiguous, or asks for clarification.\n"
+    "Return only the label."
+  )
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": f"Restatement:\n{restatement}"},
+      {"role": "user", "content": f"User reply:\n{user_reply}"},
+    ],
+  }
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    return None
+  raw = _parse_responses_text(resp.json())
+  label = str(raw or "").strip().upper()
+  return label if label in ("ACCEPT", "REJECT", "CLARIFY") else None
+
+
 def _detect_confirm_question(last_assistant: str) -> Optional[str]:
   text = str(last_assistant or "").strip().lower()
   if not text:
@@ -863,22 +955,23 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
     if not restatement_text or not all_business_types:
       return []
 
-    def _pick_from_batch(restatement: str, batch: List[str]) -> Optional[str]:
+    def _pick_index(restatement: str, options: List[str]) -> Optional[int]:
       key = _openai_key()
       if not key:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
       system = (
         "You are selecting the single best-matching business type from a fixed list.\n"
-        "Return EXACTLY ONE string from the provided list. Do not paraphrase.\n"
+        "Return EXACTLY ONE integer index from the provided list. Do not add any text.\n"
         "If multiple are close, pick the closest operationally.\n"
-        "Return only the chosen string and nothing else."
+        "Return only the index and nothing else."
       )
+      numbered = [f"{idx}. {val}" for idx, val in enumerate(options, start=1)]
       payload = {
         "model": _openai_model(),
         "input": [
           {"role": "system", "content": system},
           {"role": "user", "content": f"Restatement:\n{restatement}"},
-          {"role": "user", "content": "Business types:\n" + "\n".join(batch)},
+          {"role": "user", "content": "Business types:\n" + "\n".join(numbered)},
         ],
       }
       resp = _post_openai(
@@ -889,33 +982,27 @@ def _build_business_type_candidates(*, conn, messages: List[Dict[str, str]]) -> 
       if resp.status_code >= 400:
         raise RuntimeError(_format_openai_error(resp))
       raw = _parse_responses_text(resp.json())
-      choice = str(raw or "").strip().strip('"')
-      return choice if choice in batch else None
+      raw_text = str(raw or "").strip().strip('"')
+      try:
+        idx = int(raw_text)
+      except Exception:
+        return None
+      return idx if 1 <= idx <= len(options) else None
 
-    batch_size = 300
-    contenders = list(all_business_types)
-    while len(contenders) > 1:
-      winners: List[str] = []
-      for i in range(0, len(contenders), batch_size):
-        batch = contenders[i : i + batch_size]
-        if not batch:
-          continue
-        pick = _pick_from_batch(restatement_text, batch)
-        if pick is None:
-          pick = _pick_from_batch(restatement_text, batch)
-        if pick is None:
-          logger.warning(
-            "business_type_batch_pick_failed restatement=%r batch_index=%d",
-            restatement_text,
-            i // batch_size,
-          )
-          return []
-        winners.append(pick)
-      if not winners:
-        return []
-      contenders = winners
+    pick_idx = _pick_index(restatement_text, all_business_types)
+    if pick_idx is None:
+      pick_idx = _pick_index(restatement_text, all_business_types)
+    if pick_idx is None:
+      logger.warning(
+        "business_type_index_pick_failed restatement=%r total=%d",
+        restatement_text,
+        len(all_business_types),
+      )
+      raise RuntimeError("Failed to select valid business_type index.")
 
-    return [contenders[0]] if contenders else []
+    return [all_business_types[pick_idx - 1]]
+  except RuntimeError:
+    raise
   except Exception:
     return []
 
@@ -1475,13 +1562,16 @@ def post_intake_consult_handler(*, app, request):
     recent_messages = messages[-12:] if len(messages) > 12 else list(messages)
     last_assistant = _last_assistant_message(messages)
     restatement_confirmed_this_turn = False
+    persist_ops_from_restatement = False
     if (
       str(focus).strip().lower() == "ops"
-      and _is_guardrail_acknowledgement(message)
       and last_assistant
     ):
-      confirmed_restatement = _extract_confirmed_restatement([*messages, user_msg])
-      if confirmed_restatement and confirmed_restatement == last_assistant:
+      classification = _classify_restatement_response(
+        restatement=last_assistant,
+        user_reply=message,
+      )
+      if classification == "ACCEPT":
         restatement_confirmed_this_turn = True
 
     if restatement_confirmed_this_turn:
@@ -1491,12 +1581,15 @@ def post_intake_consult_handler(*, app, request):
       if not already_locked and not has_candidates:
         try:
           bt_candidates = _build_business_type_candidates(conn=conn, messages=[*messages, user_msg])
-        except Exception:
-          bt_candidates = []
+        except Exception as exc:
+          logger.exception("business_type_selection_failed: %s", exc)
+          return (jsonify({"error": "business_type_selection_failed"}), 500)
+        if not bt_candidates:
+          logger.warning("business_type_selection_empty restatement=%r", last_assistant)
+          return (jsonify({"error": "business_type_selection_failed"}), 500)
         ops_json["business_type_candidates"] = bt_candidates
         ops_json["business_type_candidates_locked"] = True
-        if bt_candidates:
-          ops_json["business_type"] = bt_candidates[0]
+        ops_json["business_type"] = bt_candidates[0]
         try:
           try:
             from intake_business_types import get_naics_from_business_type  # type: ignore
@@ -1525,9 +1618,17 @@ def post_intake_consult_handler(*, app, request):
           ops_json.get("business_type"),
           ops_json.get("business_naics_6"),
         )
+        persist_ops_from_restatement = True
     revenue_driver_patch = None
     pending_competitive_advantage = _extract_competitive_advantage_prompt(last_assistant)
     competitive_intent_override: Optional[Dict[str, Any]] = None
+    if (
+      pending_competitive_advantage
+      and str(focus).strip().lower() == "ops"
+      and not ops_confirmed
+    ):
+      pending_competitive_advantage = None
+
     if (
       pending_competitive_advantage
       and str(focus).strip().lower() == "ops"
@@ -1709,6 +1810,10 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(competitive_intent_override.get("patch"), dict)
         else None
       )
+    elif str(focus).strip().lower() == "ops" and not ops_confirmed:
+      action = "continue_chat"
+      router_msg = ""
+      patch = None
     else:
       intent = route_intent(
         consult_type="unified",
@@ -2618,6 +2723,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        operating_model_json=ops_json if persist_ops_from_restatement else None,
         active_focus=focus,
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
