@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 import requests
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
+OPS_MILESTONE_QUESTION = (
+  "Looking ahead, what is one concrete goal you want to hit in about the next 12 months "
+  "(for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?"
+)
 MARKET_CONFIRM_QUESTION = "Does this look right before we move on to Human Resources?"
 PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?"
 FIN_CONFIRM_QUESTION = "Does this look right before we move on to Submit intake?"
@@ -42,6 +46,24 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   except Exception:
     return []
   return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
+
+
+def _parse_pending_bool(raw: Any) -> bool:
+  # Treat any non-null-ish, truthy value as pending.
+  if raw is None:
+    return False
+  if raw is False:
+    return False
+  if raw == 0:
+    return False
+  if isinstance(raw, str):
+    val = raw.strip().lower()
+    if not val or val in ("0", "false", "null", "none", "[]", "{}"):
+      return False
+    return True
+  if isinstance(raw, (list, dict)):
+    return bool(raw)
+  return bool(raw)
 
 
 def _last_assistant_message(messages: List[Dict[str, str]]) -> str:
@@ -1466,9 +1488,10 @@ def post_intake_consult_handler(*, app, request):
     financials_json = _parse_json_dict(consult.get("financials_json"))
     financials_year1_json = _parse_json_dict(consult.get("financials_year1_json"))
     fulfillment_json = _parse_json_dict(consult.get("fulfillment_json"))
-    pending_ops_milestone = _parse_milestones(consult.get("pending_ops_milestone_json"))
+    pending_ops_milestone = _parse_pending_bool(consult.get("pending_ops_milestone_json"))
 
     _ensure_ops_business_naics(conn, ops_json)
+    restatement_locked_prior = bool(ops_json.get("business_type_candidates_locked"))
 
     ops_confirmed = bool(consult.get("ops_confirmed"))
     market_confirmed = bool(consult.get("market_confirmed"))
@@ -1724,7 +1747,7 @@ def post_intake_consult_handler(*, app, request):
     if (
       pending_competitive_advantage
       and str(focus).strip().lower() == "ops"
-      and not ops_confirmed
+      and not restatement_locked_prior
     ):
       pending_competitive_advantage = None
 
@@ -1769,11 +1792,19 @@ def post_intake_consult_handler(*, app, request):
           }
         )
       if comp_action == "confirm_proceed":
+        # Commit the confirmed competitive advantage immediately so subsequent Ops logic
+        # in this turn cannot re-trigger the proposal injection.
+        confirmed_advantage = sanitize_fact_template(
+          str(pending_competitive_advantage or "").strip()
+        )
+        ops_json["competitive_advantage"] = confirmed_advantage
+        try:
+          shared_context["operating_model"] = ops_json
+        except Exception:
+          pass
         comp_action = "edit_patch"
         comp_patch = {
-          "competitive_advantage": sanitize_fact_template(
-            str(pending_competitive_advantage or "").strip()
-          )
+          "ops.competitive_advantage": confirmed_advantage
         }
       if comp_action != "edit_patch":
         raise RuntimeError("Unexpected intent action for competitive advantage.")
@@ -1901,6 +1932,44 @@ def post_intake_consult_handler(*, app, request):
     confirm_override = str(
       confirm_question or _detect_confirm_question(last_assistant) or ""
     ).strip()
+    milestone_intent_override: Optional[Dict[str, Any]] = None
+    if (
+      str(focus).strip().lower() == "ops"
+      and pending_ops_milestone
+      and not _has_confirmed_milestone(ops_json)
+    ):
+      try:
+        milestone_intent = route_intent(
+          consult_type="ops",
+          user_message=message,
+          baseline_json=ops_json,
+          shared_context=shared_context_for_router,
+          recent_messages=recent_messages,
+          active_focus="ops",
+        )
+        m_action = str(milestone_intent.get("action") or "").strip()
+        m_router_msg = sanitize_fact_template(str(milestone_intent.get("assistant_message") or "").strip())
+        m_patch = (
+          milestone_intent.get("patch") if isinstance(milestone_intent.get("patch"), dict) else None
+        )
+        # Only override routing when the router actually produced a milestones patch.
+        if m_action == "edit_patch" and isinstance(m_patch, dict) and (
+          "milestones" in m_patch or "ops.milestones" in m_patch
+        ):
+          milestone_intent_override = {
+            "action": m_action,
+            "router_msg": m_router_msg,
+            "patch": m_patch,
+          }
+        elif m_action == "confirm_clarify" and m_router_msg:
+          milestone_intent_override = {
+            "action": m_action,
+            "router_msg": m_router_msg,
+            "patch": None,
+          }
+      except Exception:
+        milestone_intent_override = None
+
     if competitive_intent_override:
       action = str(competitive_intent_override.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(competitive_intent_override.get("router_msg") or "").strip())
@@ -1909,7 +1978,15 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(competitive_intent_override.get("patch"), dict)
         else None
       )
-    elif str(focus).strip().lower() == "ops" and not ops_confirmed:
+    elif milestone_intent_override:
+      action = str(milestone_intent_override.get("action") or "").strip()
+      router_msg = sanitize_fact_template(str(milestone_intent_override.get("router_msg") or "").strip())
+      patch = (
+        milestone_intent_override.get("patch")
+        if isinstance(milestone_intent_override.get("patch"), dict)
+        else None
+      )
+    elif str(focus).strip().lower() == "ops" and not restatement_locked_prior:
       action = "continue_chat"
       router_msg = ""
       patch = None
@@ -1941,120 +2018,18 @@ def post_intake_consult_handler(*, app, request):
           candidate = None
       if isinstance(candidate, list):
         milestone_patch_from_user = [m for m in candidate if isinstance(m, dict)]
-    if not milestone_patch_from_user and pending_ops_milestone:
-      try:
-        extracted = _extract_ops_pending_milestone(
-          text=message,
-          route_intent=route_intent,
-          ops_json=ops_json,
-          shared_context=shared_context,
-        )
-        if extracted:
-          milestone_patch_from_user = extracted
-      except Exception:
+
+    if milestone_patch_from_user:
+      existing_milestones = _parse_milestones((ops_json or {}).get("milestones"))
+      if existing_milestones:
         milestone_patch_from_user = None
 
     if str(focus).strip().lower() == "ops" and not _has_confirmed_milestone(ops_json):
-      milestones_val: Optional[List[Dict[str, Any]]] = None
-      if pending_ops_milestone and action == "confirm_proceed":
-        milestones_val = list(pending_ops_milestone)
-      elif milestone_patch_from_user:
-        milestones_val = milestone_patch_from_user
-
-      if milestones_val:
-        if pending_ops_milestone:
-          pending_item = pending_ops_milestone[0] if isinstance(pending_ops_milestone, list) else None
-        else:
-          pending_item = None
-        if isinstance(pending_item, dict):
-          for item in milestones_val:
-            if not isinstance(item, dict):
-              continue
-            if not str(item.get("description") or "").strip():
-              item["description"] = pending_item.get("description")
-            if not str(item.get("timing") or "").strip():
-              item["timing"] = pending_item.get("timing")
-        ops_json["milestones"] = milestones_val
+      if milestone_patch_from_user:
+        ops_json["milestones"] = milestone_patch_from_user
         _enrich_milestones_timing(ops_json, reference_date=current_date)
         shared_context["operating_model"] = ops_json
-        pending_ops_milestone = []
-
-        intake_context_followup = {
-          "client_id": client_id,
-          "draft_id": str(draft_id).strip(),
-          "business_name": business_facts.get("name"),
-          "business_start_date": business_facts.get("start_date"),
-          "address": business_facts.get("address"),
-          "current_date": current_date_iso,
-          "business_stage_hint": business_stage_hint,
-          "shared_context": shared_context,
-          "operating_model_json": ops_json,
-          "target_market_json": market_json,
-          "people_json": people_json,
-          "financials_json": financials_json,
-          "fulfillment_json": fulfillment_json,
-        }
-        followup_turn = consultant_chat_turn(
-          intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
-        )
-        assistant_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          operating_model_json=ops_json,
-          target_market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          pending_ops_milestone_json=pending_ops_milestone,
-          fulfillment_json=fulfillment_json,
-          active_focus="ops",
-          business_facts=business_facts,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "ops",
-            "awaiting_confirmation": False,
-            "done": False,
-            "action": "edit_patch",
-            "assistant_message": assistant_text,
-          }
-        )
-
-      if pending_ops_milestone:
-        pending = pending_ops_milestone[0]
-        desc = str(pending.get("description") or "").strip()
-        timing = str(pending.get("timing") or "").strip()
-        milestone_line = desc
-        if timing:
-          milestone_line = f"{desc} ({timing})"
-        assistant_text = (
-          f"Proposed milestone: {milestone_line}. Does this work, or what should we change?"
-        )
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          pending_ops_milestone_json=pending_ops_milestone,
-          active_focus="ops",
-          business_facts=business_facts,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "ops",
-            "awaiting_confirmation": False,
-            "done": False,
-            "action": "continue",
-            "assistant_message": assistant_text,
-          }
-        )
+        pending_ops_milestone = False
 
     # Sections can only advance after the explicit final confirmation has been proposed.
     finalize_flags = {
@@ -2397,6 +2372,176 @@ def post_intake_consult_handler(*, app, request):
             messages,
             force=True,
           )
+        if followup_focus == "ops":
+          followup_finalize_ready = bool(followup_turn.get("finalize_ready", False))
+          followup_attempts_finalize = (
+            followup_finalize_ready
+            or (OPS_CONFIRM_QUESTION.lower() in str(followup_text or "").lower())
+          )
+          if followup_attempts_finalize:
+            if not str((ops_json or {}).get("competitive_advantage") or "").strip():
+              confirmed_restatement = _extract_confirmed_restatement(messages)
+              proposed_advantage = _propose_ops_competitive_advantage(
+                ops_json=ops_json,
+                business_facts=business_facts,
+                shared_context=shared_context,
+                confirmed_restatement=confirmed_restatement,
+              )
+              proposed_advantage = sanitize_fact_template(str(proposed_advantage or "").strip())
+              assistant_text = (
+                f"{COMPETITIVE_ADVANTAGE_PREFIX} {proposed_advantage}\n\n"
+                f"{COMPETITIVE_ADVANTAGE_QUESTION}"
+              ).strip()
+              append_messages(
+                conn,
+                draft_id=str(draft_id).strip(),
+                new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+                operating_model_json=ops_json,
+                active_focus="ops",
+                business_facts=business_facts,
+                pending_ops_milestone_json=pending_ops_milestone,
+                flat_fields=_finalize_flag_field("ops", False),
+              )
+              return jsonify(
+                {
+                  "status": "ok",
+                  "draft_id": str(draft_id).strip(),
+                  "client_id": client_id,
+                  "active_focus": "ops",
+                  "awaiting_confirmation": True,
+                  "done": False,
+                  "action": "continue",
+                  "assistant_message": assistant_text,
+                }
+              )
+
+            if (
+              str((ops_json or {}).get("competitive_advantage") or "").strip()
+              and not _has_confirmed_milestone(ops_json)
+              and not pending_ops_milestone
+            ):
+              assistant_text = OPS_MILESTONE_QUESTION
+              pending_ops_milestone = True
+              append_messages(
+                conn,
+                draft_id=str(draft_id).strip(),
+                new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+                operating_model_json=ops_json,
+                active_focus="ops",
+                business_facts=business_facts,
+                pending_ops_milestone_json=True,
+                flat_fields=_finalize_flag_field("ops", False),
+              )
+              return jsonify(
+                {
+                  "status": "ok",
+                  "draft_id": str(draft_id).strip(),
+                  "client_id": client_id,
+                  "active_focus": "ops",
+                  "awaiting_confirmation": False,
+                  "done": False,
+                  "action": "continue",
+                  "assistant_message": assistant_text,
+                }
+              )
+
+            business_type_candidates = ops_json.get("business_type_candidates")
+            if not isinstance(business_type_candidates, list):
+              business_type_candidates = []
+            intake_context_followup["business_type_candidates"] = business_type_candidates
+            final_messages = [*messages, user_msg, {"role": "assistant", "content": followup_text}]
+            final_obj = consultant_finalize(
+              intake_context=intake_context_followup, conversation_messages=final_messages
+            )
+            for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
+              if isinstance(v, str):
+                final_obj[k] = sanitize_fact_template(v)
+            existing_advantage = str((ops_json or {}).get("competitive_advantage") or "").strip()
+            if (
+              existing_advantage
+              and isinstance(final_obj, dict)
+              and not str(final_obj.get("competitive_advantage") or "").strip()
+            ):
+              final_obj["competitive_advantage"] = existing_advantage
+            try:
+              try:
+                from intake_business_types import get_naics_from_business_type  # type: ignore
+              except Exception:
+                from client_intake_and_finmo.intake_business_types import (  # type: ignore
+                  get_naics_from_business_type,
+                )
+              if final_obj.get("business_type"):
+                final_obj["business_naics_6"] = get_naics_from_business_type(
+                  conn, final_obj.get("business_type")
+                )
+            except Exception:
+              if "business_naics_6" not in final_obj:
+                final_obj["business_naics_6"] = None
+            try:
+              _enrich_milestones_timing(final_obj, reference_date=current_date)
+            except Exception:
+              pass
+
+            ops_json = final_obj
+            try:
+              shared_context = dict(shared_context or {})
+              shared_context["operating_model"] = ops_json
+              shared_context["target_market"] = market_json
+              shared_context["people_capability"] = people_json
+              shared_context["financials"] = financials_json
+            except Exception:
+              pass
+
+            next_focus = "market"
+            start_instruction = _start_instruction_for_focus(next_focus)
+            turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+            intake_context_next: Dict[str, Any] = {
+              "client_id": client_id,
+              "draft_id": str(draft_id).strip(),
+              "business_name": business_facts.get("name"),
+              "business_start_date": business_facts.get("start_date"),
+              "address": business_facts.get("address"),
+              "current_date": current_date_iso,
+              "business_stage_hint": business_stage_hint,
+              "shared_context": shared_context,
+              "operating_model_json": ops_json,
+              "target_market_json": market_json,
+              "people_json": people_json,
+              "financials_json": financials_json,
+              "fulfillment_json": fulfillment_json,
+            }
+            consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+            if consumer_type not in ("consumer", "b2b", "mixed"):
+              consumer_type = "consumer"
+            intake_context_next["consumer_type"] = consumer_type
+            next_assistant = target_market_chat_turn(
+              intake_context=intake_context_next, conversation_messages=turn_messages
+            )["assistant_message"]
+            assistant_text = f"Great, let's move on to Target Market.\n\n{next_assistant}".strip()
+            assistant_text = _strip_acs_codes(sanitize_fact_template(str(assistant_text or "").strip()))
+
+            append_messages(
+              conn,
+              draft_id=str(draft_id).strip(),
+              new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+              operating_model_json=ops_json,
+              active_focus=next_focus,
+              confirmations={"ops": True},
+              business_facts=business_facts,
+              flat_fields=_finalize_flag_field("ops", True),
+            )
+            return jsonify(
+              {
+                "status": "ok",
+                "draft_id": str(draft_id).strip(),
+                "client_id": client_id,
+                "active_focus": next_focus,
+                "awaiting_confirmation": False,
+                "done": False,
+                "action": "confirm_proceed",
+                "assistant_message": assistant_text,
+              }
+            )
         if followup_text:
           if assistant_text:
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
@@ -2425,6 +2570,9 @@ def post_intake_consult_handler(*, app, request):
         consistency_passed=consistency_passed_out,
         status=status_out,
         completed=completed_out,
+        pending_ops_milestone_json=pending_ops_milestone
+        if str(active_focus_out).strip().lower() == "ops"
+        else None,
         flat_fields=_finalize_flag_field(focus, False),
       )
 
@@ -2549,6 +2697,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         active_focus=focus,
         business_facts=business_facts,
+        pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
         flat_fields=_finalize_flag_field(focus, False),
       )
       return jsonify(
@@ -2574,6 +2723,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         active_focus=focus,
         business_facts=business_facts,
+        pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
         flat_fields=_finalize_flag_field(focus, False),
       )
       return jsonify(
@@ -2670,6 +2820,10 @@ def post_intake_consult_handler(*, app, request):
         if first_part:
           assistant_text = f"{first_part}?"
         finalize_ready = False
+      # If the Ops consultant produced the section-final confirm question in normal chat,
+      # treat it as a finalize attempt so we can enforce milestone-first and then auto-advance.
+      if OPS_CONFIRM_QUESTION.lower() in assistant_text.lower():
+        finalize_ready = True
 
     if (
       str(focus).strip().lower() == "ops"
@@ -2690,6 +2844,19 @@ def post_intake_consult_handler(*, app, request):
           f"{COMPETITIVE_ADVANTAGE_QUESTION}"
         )
         finalize_ready = False
+
+    if (
+      str(focus).strip().lower() == "ops"
+      and finalize_ready
+      and str((ops_json or {}).get("competitive_advantage") or "").strip()
+      and not _has_confirmed_milestone(ops_json)
+      and not pending_ops_milestone
+    ):
+      # Ask for milestone once, after competitive advantage is set; use a pending flag so
+      # the next user reply is interpreted as an ops.milestones patch.
+      assistant_text = OPS_MILESTONE_QUESTION
+      finalize_ready = False
+      pending_ops_milestone = True
 
     # Safety: avoid dead-end assistant replies with no next question.
     # If GPT responded with an acknowledgement only (no question) and we're not finalizing,
@@ -2912,14 +3079,104 @@ def post_intake_consult_handler(*, app, request):
         _enrich_milestones_timing(final_obj, reference_date=current_date)
       except Exception:
         pass
-      summary_text = str(final_obj.get("business_description_summary") or "").strip() or "Operational intake complete."
-      if isinstance(final_obj, dict):
-        final_obj.pop("business_description_summary", None)
-      assistant_final = f"{summary_text}\n\n{OPS_CONFIRM_QUESTION}".strip()
+      # Do not show the Ops summary for confirmation. Assume affirmative and
+      # advance directly to Target Market after persisting the finalized ops_json.
+      if not str((ops_json or {}).get("competitive_advantage") or "").strip():
+        confirmed_restatement = _extract_confirmed_restatement(messages)
+        proposed_advantage = _propose_ops_competitive_advantage(
+          ops_json=ops_json,
+          business_facts=business_facts,
+          shared_context=shared_context,
+          confirmed_restatement=confirmed_restatement,
+        )
+        proposed_advantage = sanitize_fact_template(str(proposed_advantage or "").strip())
+        assistant_text = (
+          f"{COMPETITIVE_ADVANTAGE_PREFIX} {proposed_advantage}\n\n"
+          f"{COMPETITIVE_ADVANTAGE_QUESTION}"
+        ).strip()
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          operating_model_json=ops_json,
+          active_focus="ops",
+          business_facts=business_facts,
+          pending_ops_milestone_json=pending_ops_milestone,
+          flat_fields=_finalize_flag_field("ops", False),
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "ops",
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
+
       ops_json = final_obj
-      market_json_out = None
-      people_json_out = None
-      financials_json_out = None
+      try:
+        shared_context = dict(shared_context or {})
+        shared_context["operating_model"] = ops_json
+        shared_context["target_market"] = market_json
+        shared_context["people_capability"] = people_json
+        shared_context["financials"] = financials_json
+      except Exception:
+        pass
+
+      next_focus = "market"
+      start_instruction = _start_instruction_for_focus(next_focus)
+      turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+      intake_context_next: Dict[str, Any] = {
+        "client_id": client_id,
+        "draft_id": str(draft_id).strip(),
+        "business_name": business_facts.get("name"),
+        "business_start_date": business_facts.get("start_date"),
+        "address": business_facts.get("address"),
+        "current_date": current_date_iso,
+        "business_stage_hint": business_stage_hint,
+        "shared_context": shared_context,
+        "operating_model_json": ops_json,
+        "target_market_json": market_json,
+        "people_json": people_json,
+        "financials_json": financials_json,
+        "fulfillment_json": fulfillment_json,
+      }
+      consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
+      if consumer_type not in ("consumer", "b2b", "mixed"):
+        consumer_type = "consumer"
+      intake_context_next["consumer_type"] = consumer_type
+      next_assistant = target_market_chat_turn(
+        intake_context=intake_context_next, conversation_messages=turn_messages
+      )["assistant_message"]
+      assistant_final = f"Great, let's move on to Target Market.\n\n{next_assistant}".strip()
+      assistant_final = _strip_acs_codes(sanitize_fact_template(str(assistant_final or "").strip()))
+
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
+        operating_model_json=ops_json,
+        active_focus=next_focus,
+        confirmations={"ops": True},
+        business_facts=business_facts,
+        flat_fields=_finalize_flag_field("ops", True),
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": next_focus,
+          "awaiting_confirmation": False,
+          "done": False,
+          "action": "confirm_proceed",
+          "assistant_message": assistant_final,
+        }
+      )
     elif focus == "market":
       consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
       mapping_rows: List[Dict[str, Any]] = []
