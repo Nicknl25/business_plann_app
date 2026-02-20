@@ -1127,6 +1127,74 @@ def _maybe_parse_gender_age_intent_value_json(
   return True, [{"gender_focus": gender_focus, "age_min": float(age_min), "age_max": float(age_max)}]
 
 
+def _maybe_normalize_structured_array_value(
+  *, field: str, value: Any, allowed_types: List[str]
+) -> Tuple[bool, Any]:
+
+  """
+
+  Some model outputs serialize the right content but with the wrong top-level
+  container (e.g., object instead of array). For a small set of structured
+  fields, normalize the container deterministically so we don't fall into
+  confirm_clarify loops.
+
+  This does not guess intent; it only reshapes already-provided values.
+
+  """
+
+  field_norm = str(field or "").strip().lower()
+  allowed_norm = [str(t).strip().lower() for t in (allowed_types or [])]
+  if "array" not in allowed_norm:
+    return False, None
+
+  def _to_num(x: Any) -> Optional[float]:
+    try:
+      if x is None:
+        return None
+      return float(x)
+    except Exception:
+      return None
+
+  if field_norm.endswith("income_intent"):
+    if isinstance(value, dict):
+      mn = _to_num(value.get("income_min"))
+      mx = _to_num(value.get("income_max"))
+      if mn is None or mx is None:
+        return False, None
+      if mx < mn:
+        return False, None
+      return True, [{"income_min": float(mn), "income_max": float(mx)}]
+    return False, None
+
+  if field_norm.endswith("gender_age_intent"):
+    if isinstance(value, dict):
+      gf_raw = str(value.get("gender_focus") or "").strip().lower()
+      gf_map = {
+        "all": "all",
+        "any": "all",
+        "both": "all",
+        "mixed": "all",
+        "men": "male",
+        "male": "male",
+        "women": "female",
+        "woman": "female",
+        "female": "female",
+      }
+      gf = gf_map.get(gf_raw, gf_raw)
+      if gf not in ("female", "male", "all"):
+        return False, None
+      mn = _to_num(value.get("age_min"))
+      mx = _to_num(value.get("age_max"))
+      if mn is None or mx is None:
+        return False, None
+      if mx < mn:
+        return False, None
+      return True, [{"gender_focus": gf, "age_min": float(mn), "age_max": float(mx)}]
+    return False, None
+
+  return False, None
+
+
 def _maybe_parse_income_intent_value_json(
   *, field: str, value_json_raw: str, allowed_types: List[str]
 ) -> Tuple[bool, Any]:
@@ -1936,6 +2004,16 @@ Return JSON only. No prose.
               ok = True
               value = ga_val
 
+          # Normalize container shapes (e.g., object -> single-item array) for a few
+          # structured array fields to avoid confirm_clarify loops.
+          ok_norm, norm_val = _maybe_normalize_structured_array_value(
+            field=field,
+            value=value,
+            allowed_types=allowed_types,
+          )
+          if ok_norm:
+            value = norm_val
+
           if not ok:
 
             return {
@@ -2134,6 +2212,14 @@ Return JSON only. No prose.
       if ok_ga:
         ok = True
         value = ga_val
+
+    ok_norm, norm_val = _maybe_normalize_structured_array_value(
+      field=field,
+      value=value,
+      allowed_types=allowed_types,
+    )
+    if ok_norm:
+      value = norm_val
 
     if not ok:
 
