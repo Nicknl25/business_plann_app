@@ -915,6 +915,11 @@ def _confirm_clarify_message(field: str) -> str:
   # Field-specific clarification prompts are safer than the generic "single number"
   # prompt for structured fields like income_intent (which expects min+max).
   field_norm = str(field or "").strip().lower()
+  if field_norm.endswith("gender_age_intent"):
+    return (
+      "Just to confirm, please provide a target formatted like this for example: "
+      "\"all genders, ages 18-55\" (or \"women, ages 25-45\")."
+    )
   if field_norm.endswith("income_intent"):
     return (
       "Just to confirm, please provide an income range formatted like this for example: "
@@ -1037,6 +1042,89 @@ def _parse_income_range_from_text(text: str) -> Optional[Tuple[float, float]]:
 
   # Single number with no clear open-ended semantics is ambiguous (e.g., "60k").
   return None
+
+
+def _parse_gender_focus_from_text(text: str) -> Optional[str]:
+
+  norm = str(text or "").strip().lower()
+  if not norm:
+    return None
+
+  # Normalize common typos.
+  norm = norm.replace("woment", "women")
+
+  has_male = bool(re.search(r"\b(male|men|man|boys|guys)\b", norm))
+  has_female = bool(re.search(r"\b(female|women|woman|girls|ladies)\b", norm))
+  has_all = bool(re.search(r"\b(all|everyone|anyone)\b", norm))
+  has_mix = bool(re.search(r"\b(mix|mixed|both)\b", norm))
+
+  if has_all or has_mix or (has_male and has_female):
+    return "all"
+  if has_male:
+    return "male"
+  if has_female:
+    return "female"
+  return None
+
+
+def _parse_age_range_from_text(text: str) -> Optional[Tuple[float, float]]:
+
+  raw = str(text or "").strip().lower()
+  if not raw:
+    return None
+  norm = raw.replace("–", "-").replace("—", "-")
+
+  # Explicit ranges: "18-55", "18 to 55".
+  m = re.search(r"\b(\d{1,3})\s*(?:-|to)\s*(\d{1,3})\b", norm)
+  if m:
+    a = float(m.group(1))
+    b = float(m.group(2))
+    mn = float(min(a, b))
+    mx = float(max(a, b))
+    if 0 <= mn <= mx <= 120:
+      return mn, mx
+    return None
+
+  # Open-ended: "18+", "18 and up".
+  m = re.search(r"\b(\d{1,3})\s*\+", norm) or re.search(
+    r"\b(\d{1,3})\s*(?:and\s+up|and\s+older|plus)\b", norm
+  )
+  if m:
+    mn = float(m.group(1))
+    mx = 120.0
+    if 0 <= mn <= mx <= 120:
+      return mn, mx
+    return None
+
+  # Upper-bounded: "under 55", "up to 55".
+  m = re.search(r"\b(under|below|up\s*to|at\s*most|max(?:imum)?)\s*(\d{1,3})\b", norm)
+  if m:
+    mx = float(m.group(2))
+    mn = 0.0
+    if 0 <= mn <= mx <= 120:
+      return mn, mx
+    return None
+
+  return None
+
+
+def _maybe_parse_gender_age_intent_value_json(
+  *, field: str, value_json_raw: str, allowed_types: List[str]
+) -> Tuple[bool, Any]:
+
+  field_norm = str(field or "").strip().lower()
+  if not field_norm.endswith("gender_age_intent"):
+    return False, None
+  if "array" not in [str(t).strip().lower() for t in (allowed_types or [])]:
+    return False, None
+
+  gender_focus = _parse_gender_focus_from_text(value_json_raw)
+  age_range = _parse_age_range_from_text(value_json_raw)
+  if not gender_focus or not age_range:
+    return False, None
+
+  age_min, age_max = age_range
+  return True, [{"gender_focus": gender_focus, "age_min": float(age_min), "age_max": float(age_max)}]
 
 
 def _maybe_parse_income_intent_value_json(
@@ -1839,6 +1927,16 @@ Return JSON only. No prose.
               value = income_val
 
           if not ok:
+            ok_ga, ga_val = _maybe_parse_gender_age_intent_value_json(
+              field=field,
+              value_json_raw=value_json_raw,
+              allowed_types=allowed_types,
+            )
+            if ok_ga:
+              ok = True
+              value = ga_val
+
+          if not ok:
 
             return {
 
@@ -2028,6 +2126,16 @@ Return JSON only. No prose.
         value = income_val
 
     if not ok:
+      ok_ga, ga_val = _maybe_parse_gender_age_intent_value_json(
+        field=field,
+        value_json_raw=value_json_raw,
+        allowed_types=allowed_types,
+      )
+      if ok_ga:
+        ok = True
+        value = ga_val
+
+    if not ok:
 
       parsed["action"] = "confirm_clarify"
 
@@ -2141,7 +2249,3 @@ Return JSON only. No prose.
   parsed["patch"] = patch_dict
 
   return parsed
-
-
-
-
