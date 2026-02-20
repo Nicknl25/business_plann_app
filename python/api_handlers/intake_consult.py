@@ -3190,16 +3190,75 @@ def post_intake_consult_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
-      summary_text = str(final_obj.get("target_market_summary") or "").strip() or "Target market intake complete."
       if isinstance(final_obj, dict):
         final_obj.pop("target_market_summary", None)
-      assistant_final = f"{summary_text}\n\n{MARKET_CONFIRM_QUESTION}".strip()
-      assistant_final = _strip_acs_codes(assistant_final)
       market_json = final_obj
-      market_json_out = final_obj
-      people_json_out = None
-      financials_json_out = None
-      ops_json_out = None
+
+      # Do not show the Target Market summary for confirmation. Assume affirmative and
+      # advance directly to Human Resources after persisting the finalized market_json.
+      try:
+        shared_context = dict(shared_context or {})
+        shared_context["operating_model"] = ops_json
+        shared_context["target_market"] = market_json
+        shared_context["people_capability"] = people_json
+        shared_context["financials"] = financials_json
+      except Exception:
+        pass
+
+      next_focus = "people"
+      start_instruction = _start_instruction_for_focus(next_focus)
+      turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+      intake_context_next: Dict[str, Any] = {
+        "client_id": client_id,
+        "draft_id": str(draft_id).strip(),
+        "business_name": business_facts.get("name"),
+        "business_start_date": business_facts.get("start_date"),
+        "address": business_facts.get("address"),
+        "current_date": current_date_iso,
+        "business_stage_hint": business_stage_hint,
+        "shared_context": shared_context,
+        "operating_model_json": ops_json,
+        "target_market_json": market_json,
+        "people_json": people_json,
+        "financials_json": financials_json,
+        "fulfillment_json": fulfillment_json,
+      }
+      intake_context_next["financials_year1_json"] = financials_year1_json
+      intake_context_next["revenue_math_line"] = revenue_math_line
+      intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
+      intake_context_next["revenue_driver_patch"] = revenue_driver_patch
+      intake_context_next["revenue_guardrail_triggered"] = guardrail_triggered
+      intake_context_next["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
+      intake_context_next["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
+
+      next_assistant = people_capability_chat_turn(
+        intake_context=intake_context_next, conversation_messages=turn_messages
+      )["assistant_message"]
+      assistant_final = f"Great, let's move on to Human Resources.\n\n{next_assistant}".strip()
+      assistant_final = _strip_acs_codes(sanitize_fact_template(str(assistant_final or "").strip()))
+
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
+        target_market_json=market_json,
+        active_focus=next_focus,
+        confirmations={"market": True},
+        business_facts=business_facts,
+        flat_fields=_finalize_flag_field("market", True),
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": next_focus,
+          "awaiting_confirmation": False,
+          "done": False,
+          "action": "confirm_proceed",
+          "assistant_message": assistant_final,
+        }
+      )
     elif focus == "people":
       final_obj = people_capability_finalize(intake_context=intake_context, conversation_messages=final_messages)
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
