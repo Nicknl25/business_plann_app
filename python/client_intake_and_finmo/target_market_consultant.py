@@ -317,6 +317,7 @@ Rules:
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
+  - IMPORTANT: This "opt-in decision" message must ask ONLY that single question. Do NOT also ask any Household/Employment/Housing follow-up in the same message, and do NOT say "Let's start with X" or begin the next segment until the client has opted in.
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 
@@ -455,6 +456,7 @@ Rules:
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
+  - IMPORTANT: This "opt-in decision" message must ask ONLY that single question. Do NOT also ask any Household/Employment/Housing follow-up in the same message, and do NOT say "Let's start with X" or begin the next segment until the client has opted in.
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 - For B2B size, use only these employee bands (pick one or more): 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+.
