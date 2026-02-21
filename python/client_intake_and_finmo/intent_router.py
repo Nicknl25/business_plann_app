@@ -918,7 +918,7 @@ def _confirm_clarify_message(field: str) -> str:
   if field_norm.endswith("gender_age_intent"):
     return (
       "Just to confirm, please provide a target formatted like this for example: "
-      "\"all genders, ages 18-55\" (or \"women, ages 25-45\")."
+      "\"18 to 55\""
     )
   if field_norm.endswith("income_intent"):
     return (
