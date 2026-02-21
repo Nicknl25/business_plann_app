@@ -372,11 +372,17 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, legal_entity
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
-- Do NOT signal finalization until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
-- When you are confident ALL required fields are complete, respond with EXACTLY one paragraph operational summary and a single-sentence confirmation question.
-- Do NOT include bullets, lists, headings, or extra restatements in that final message.
-- Append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- Return ONLY JSON matching this schema (no prose outside JSON):
+  {{
+    "assistant_message": string,  // normal conversation text
+    "finalize_ready": boolean,   // true only when all required fields are complete (see below)
+    "is_restatement_confirmation_prompt": boolean  // true only for the business-type restatement confirmation prompt
+  }}
+- finalize_ready must be false until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
+- When finalize_ready is true:
+  - assistant_message must be EXACTLY one paragraph operational summary and a single-sentence confirmation question.
+  - Do NOT include bullets, lists, headings, or extra restatements in that final message.
+- is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the final summary confirmation.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -384,6 +390,16 @@ Output rules:
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "assistant_message": {"type": "string"},
+      "finalize_ready": {"type": "boolean"},
+      "is_restatement_confirmation_prompt": {"type": "boolean"},
+    },
+    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt"],
+  }
   payload = {
     "model": model,
     "input": [
@@ -391,16 +407,44 @@ Output rules:
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "ops_consult_chat_turn",
+        "schema": schema,
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(_format_openai_error(resp))
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        obj = part["json"]
+        return {
+          "assistant_message": str(obj.get("assistant_message") or "").strip(),
+          "finalize_ready": bool(obj.get("finalize_ready", False)),
+          "is_restatement_confirmation_prompt": bool(
+            obj.get("is_restatement_confirmation_prompt", False)
+          ),
+        }
+
+  # Fallback: parse output_text as JSON (should be rare with strict schema).
+  raw = _parse_responses_text(data)
+  parsed = json.loads(raw)
+  if not isinstance(parsed, dict):
+    raise RuntimeError("Ops consultant turn did not return a JSON object.")
+  return {
+    "assistant_message": str(parsed.get("assistant_message") or "").strip(),
+    "finalize_ready": bool(parsed.get("finalize_ready", False)),
+    "is_restatement_confirmation_prompt": bool(parsed.get("is_restatement_confirmation_prompt", False)),
+  }
 
 
 def consultant_finalize(

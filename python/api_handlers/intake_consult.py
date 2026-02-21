@@ -1681,16 +1681,31 @@ def post_intake_consult_handler(*, app, request):
     last_assistant = _last_assistant_message(messages)
     restatement_confirmed_this_turn = False
     persist_ops_from_restatement = False
+    ops_restatement_meta_touched = False
+    ops_restatement_pending = bool((ops_json or {}).get("_ops_restatement_pending"))
+    ops_restatement_text = str((ops_json or {}).get("_ops_restatement_text") or "").strip()
     if (
       str(focus).strip().lower() == "ops"
       and last_assistant
     ):
-      classification = _classify_restatement_response(
-        restatement=last_assistant,
-        user_reply=message,
-      )
-      if classification == "ACCEPT":
-        restatement_confirmed_this_turn = True
+      # Only run restatement confirmation inference when the controller explicitly
+      # marked the prior assistant turn as the restatement confirmation prompt.
+      # This avoids early persistence from classifier misfires on non-restatement turns.
+      if ops_restatement_pending:
+        try:
+          classification = _classify_restatement_response(
+            restatement=ops_restatement_text or last_assistant,
+            user_reply=message,
+          )
+        finally:
+          # Pending applies to exactly one client reply turn. Clear it regardless of
+          # ACCEPT/REJECT/CLARIFY so we don't keep classifying subsequent answers.
+          if isinstance(ops_json, dict):
+            ops_json.pop("_ops_restatement_pending", None)
+            ops_json.pop("_ops_restatement_text", None)
+          ops_restatement_meta_touched = True
+        if classification == "ACCEPT":
+          restatement_confirmed_this_turn = True
 
     if restatement_confirmed_this_turn:
       already_locked = bool(ops_json.get("business_type_candidates_locked"))
@@ -1701,7 +1716,7 @@ def post_intake_consult_handler(*, app, request):
           bt_candidates = _build_business_type_candidates(
             conn=conn,
             messages=[*messages, user_msg],
-            restatement_text=last_assistant,
+            restatement_text=ops_restatement_text or last_assistant,
           )
         except Exception as exc:
           logger.exception("business_type_selection_failed: %s", exc)
@@ -2855,6 +2870,17 @@ def post_intake_consult_handler(*, app, request):
 
     finalize_ready = bool(turn.get("finalize_ready", False))
     review_ready = bool(turn.get("review_ready", False))
+    # Controller-owned restatement-confirmation state: only classify acceptance on the
+    # client reply to the explicit restatement confirmation prompt.
+    if (
+      str(focus).strip().lower() == "ops"
+      and bool(turn.get("is_restatement_confirmation_prompt", False))
+      and not bool((ops_json or {}).get("business_type_candidates_locked"))
+    ):
+      if isinstance(ops_json, dict):
+        ops_json["_ops_restatement_pending"] = True
+        ops_json["_ops_restatement_text"] = assistant_text
+      ops_restatement_meta_touched = True
     if str(focus).strip().lower() == "people" and review_ready and not finalize_ready:
       finalize_ready = True
     if str(focus).strip().lower() == "financials" and guardrail_triggered:
@@ -3036,7 +3062,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        operating_model_json=ops_json if persist_ops_from_restatement else None,
+        operating_model_json=ops_json if (persist_ops_from_restatement or ops_restatement_meta_touched) else None,
         active_focus=focus,
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
