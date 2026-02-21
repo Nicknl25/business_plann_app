@@ -2066,6 +2066,53 @@ def post_intake_consult_handler(*, app, request):
 
     if action == "edit_patch" and patch:
       patch = _normalize_unscoped_patch(patch, focus=focus)
+
+      # Target Market: after we generate a marketing_plan_summary, we present it for
+      # confirmation. If the client counters with edits, keep them in this proposal
+      # step and re-show the updated marketing_plan_summary (do not restart the
+      # full Target Market consult).
+      if (
+        str(focus or "").strip().lower() == "market"
+        and market_finalize_proposed
+        and isinstance(patch, dict)
+        and ("market.marketing_plan_summary" in patch)
+      ):
+        business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
+          patch,
+          business_facts=business_facts,
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          fulfillment_json=fulfillment_json,
+        )
+        assistant_text = sanitize_fact_template(
+          str((market_json or {}).get("marketing_plan_summary") or "").strip()
+        )
+        assistant_text = _strip_acs_codes(assistant_text)
+        assistant_text = f"{assistant_text}\n\n{MARKET_CONFIRM_QUESTION}".strip()
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          target_market_json=market_json,
+          active_focus="market",
+          business_facts=business_facts,
+          flat_fields=_finalize_flag_field("market", True),
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "market",
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
+
       people_patch_applied = bool(
         str(focus or "").strip().lower() == "people"
         or any(str(k).strip().lower().startswith("people.") for k in patch.keys())
@@ -3194,56 +3241,20 @@ def post_intake_consult_handler(*, app, request):
         final_obj.pop("target_market_summary", None)
       market_json = final_obj
 
-      # Do not show the Target Market summary for confirmation. Assume affirmative and
-      # advance directly to Human Resources after persisting the finalized market_json.
-      try:
-        shared_context = dict(shared_context or {})
-        shared_context["operating_model"] = ops_json
-        shared_context["target_market"] = market_json
-        shared_context["people_capability"] = people_json
-        shared_context["financials"] = financials_json
-      except Exception:
-        pass
-
-      next_focus = "people"
-      start_instruction = _start_instruction_for_focus(next_focus)
-      turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
-      intake_context_next: Dict[str, Any] = {
-        "client_id": client_id,
-        "draft_id": str(draft_id).strip(),
-        "business_name": business_facts.get("name"),
-        "business_start_date": business_facts.get("start_date"),
-        "address": business_facts.get("address"),
-        "current_date": current_date_iso,
-        "business_stage_hint": business_stage_hint,
-        "shared_context": shared_context,
-        "operating_model_json": ops_json,
-        "target_market_json": market_json,
-        "people_json": people_json,
-        "financials_json": financials_json,
-        "fulfillment_json": fulfillment_json,
-      }
-      intake_context_next["financials_year1_json"] = financials_year1_json
-      intake_context_next["revenue_math_line"] = revenue_math_line
-      intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
-      intake_context_next["revenue_driver_patch"] = revenue_driver_patch
-      intake_context_next["revenue_guardrail_triggered"] = guardrail_triggered
-      intake_context_next["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
-      intake_context_next["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
-
-      next_assistant = people_capability_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )["assistant_message"]
-      assistant_final = f"Great, let's move on to Human Resources.\n\n{next_assistant}".strip()
-      assistant_final = _strip_acs_codes(sanitize_fact_template(str(assistant_final or "").strip()))
+      # Show the finalized marketing_plan_summary to the client for confirmation/counter
+      # before advancing. This replaces the older in-chat "promotion model" proposal.
+      assistant_final = sanitize_fact_template(
+        str((market_json or {}).get("marketing_plan_summary") or "").strip()
+      )
+      assistant_final = _strip_acs_codes(assistant_final)
+      assistant_final = f"{assistant_final}\n\n{MARKET_CONFIRM_QUESTION}".strip()
 
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         target_market_json=market_json,
-        active_focus=next_focus,
-        confirmations={"market": True},
+        active_focus="market",
         business_facts=business_facts,
         flat_fields=_finalize_flag_field("market", True),
       )
@@ -3252,10 +3263,10 @@ def post_intake_consult_handler(*, app, request):
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "active_focus": next_focus,
-          "awaiting_confirmation": False,
+          "active_focus": "market",
+          "awaiting_confirmation": True,
           "done": False,
-          "action": "confirm_proceed",
+          "action": "continue",
           "assistant_message": assistant_final,
         }
       )

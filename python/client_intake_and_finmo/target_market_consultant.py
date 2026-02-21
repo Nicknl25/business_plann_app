@@ -311,7 +311,7 @@ Rules:
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring "please confirm / once you confirm / let's lock this in" loops. Treat the user's answer to your question as the decision, briefly reflect it back, and move on. Only ask a follow-up if the answer is ambiguous or incomplete.
 - The user may revise earlier choices at any time; accept the revision and continue without restarting the consult.
-- Do not consult or discuss any other segments (except the promotion model confirmation at the end).
+- Do not consult or discuss any other segments.
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
 - If the user says they serve "everyone" or "all incomes", propose a broad range starting at $0 (or the lowest practical bracket) and a high upper bound that clearly covers everyone, then move on once the user accepts.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
@@ -321,13 +321,8 @@ Rules:
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 
-Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
-- After target market segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
-- Present a short proposed statement for confirmation (ONE question only), like:
-  "This is how customers are typically reached - does this sound right?"
-- If the client disagrees, ask ONE targeted correction question (e.g., "What's the main way customers usually find you today?"), then restate your updated proposed model and confirm again.
-- Do not ask about budgets, platforms, or preferences. Do not propose tactics. Keep it high-level and realistic.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+Do NOT propose or confirm acquisition channels/platforms during the chat intake.
+The backend will generate a client-facing marketing architecture narrative after target market finalization and handle confirmation there.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -384,13 +379,8 @@ Rules:
 - Firm size must use these employee bands (the client may pick one or more): 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+.
 - Firm age must use these bands (the client may pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
-
-Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
-- After the B2B firmographic segments are decided, infer 1-2 primary ways businesses like this typically reach target organizations (e.g., referrals, partnerships, outbound, industry networks).
-- Present a short proposed statement for confirmation (ONE question only).
-- If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
-- Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+Do NOT propose or confirm acquisition channels/platforms during the chat intake.
+The backend will generate a client-facing marketing architecture narrative after target market finalization and handle confirmation there.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -406,7 +396,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all three segments decided AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all three segments decided), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   system_mixed = f"""
@@ -463,12 +453,8 @@ Rules:
 - For B2B age, use only these bands (pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For B2B industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 
-Promotion / acquisition model (INFER THEN CONFIRM, NO NEW FIELDS):
-- After both the consumer and B2B target segments are decided, infer 1-2 primary promotion/acquisition channels that businesses like this typically rely on (based on the confirmed target market and business context).
-- Present a short proposed statement for confirmation (ONE question only).
-- If the client disagrees, ask ONE targeted correction question, then restate and confirm again.
-- Do not ask about budgets, platforms, or preferences. Do not propose tactics.
-- Once confirmed, include this promotion model in your final recap so it becomes part of the persisted target_market_summary.
+Do NOT propose or confirm acquisition channels/platforms during the chat intake.
+The backend will generate a client-facing marketing architecture narrative after target market finalization and handle confirmation there.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -484,7 +470,7 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
 """.strip()
 
   if consumer_type == "b2b":
