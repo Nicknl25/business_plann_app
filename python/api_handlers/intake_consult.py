@@ -264,27 +264,6 @@ def _classify_restatement_response(*, restatement: str, user_reply: str) -> Opti
   return label if label in ("ACCEPT", "REJECT", "CLARIFY") else None
 
 
-def _looks_like_ops_restatement_confirmation_prompt(text: str) -> bool:
-  """
-  Structural gate: only allow restatement-acceptance classification when the last assistant
-  message is actually the Ops restatement confirmation prompt.
-
-  Without this, the classifier can misfire on the kickoff question and incorrectly trigger
-  early persistence of ops business_type/NAICS.
-  """
-  t = str(text or "").strip()
-  if not t or not t.endswith("?"):
-    return False
-  low = t.lower()
-  # The Ops restatement must include an explicit unit cadence (weekly/monthly/contract),
-  # and it typically frames a "unit" used for planning. We key off those requirements.
-  has_cadence = ("cadence" in low) or any(w in low for w in ("weekly", "monthly", "contract"))
-  has_unit = (" unit" in low) or ("unit " in low) or ("for our planning" in low) or ("we'll treat" in low)
-  # Also require multiple sentences so we don't treat a short kickoff question as a restatement.
-  sentence_marks = sum(1 for ch in t if ch in ".!?")
-  return bool(has_cadence and has_unit and sentence_marks >= 2)
-
-
 def _detect_confirm_question(last_assistant: str) -> Optional[str]:
   text = str(last_assistant or "").strip().lower()
   if not text:
@@ -1706,16 +1685,12 @@ def post_intake_consult_handler(*, app, request):
       str(focus).strip().lower() == "ops"
       and last_assistant
     ):
-      # Only classify ACCEPT/REJECT/CLARIFY when the last assistant message is the Ops
-      # restatement confirmation prompt. This prevents early persistence on the kickoff
-      # question (classifier misfire).
-      if _looks_like_ops_restatement_confirmation_prompt(last_assistant):
-        classification = _classify_restatement_response(
-          restatement=last_assistant,
-          user_reply=message,
-        )
-        if classification == "ACCEPT":
-          restatement_confirmed_this_turn = True
+      classification = _classify_restatement_response(
+        restatement=last_assistant,
+        user_reply=message,
+      )
+      if classification == "ACCEPT":
+        restatement_confirmed_this_turn = True
 
     if restatement_confirmed_this_turn:
       already_locked = bool(ops_json.get("business_type_candidates_locked"))
