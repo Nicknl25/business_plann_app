@@ -561,7 +561,17 @@ Field rules by mode:
 - If consumer_type is b2b: set gender_age_intent, income_intent, selections to null and populate b2b_industry_terms, b2b_naics_6, b2b_size_bands, b2b_age_bands.
 - If consumer_type is mixed: populate all consumer demographic fields AND all B2B fields.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across segments.
-- marketing_plan_summary must be a short, practical plan (1-2 primary channels + acquisition approach) based on what the client confirmed. Keep it high-level; no budgets, platforms, or tactics.
+- marketing_plan_summary must be a stronger, tailored narrative and must follow this strict format:
+  - Exactly TWO paragraphs (no bullet points, no numbering).
+  - Write like a senior strategist: specific to THIS business and audience. Avoid buzzwords and generic claims (e.g., "best-in-class", "high quality", "customer-centric") unless directly supported by the consultation.
+  - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
+    - Business model (e.g., membership/subscription vs per-visit vs per-transaction vs contract/retainer). Do not invent a model.
+    - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Geographic scope (local/regional/national) without inventing specific cities.
+    - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
+    - Confirmed target segment(s) (consumer demographics and/or B2B firmographics) in plain language (no ACS codes and no NAICS codes).
+  - Paragraph 2 (Acquisition architecture): Name up to FIVE specific acquisition channels/platforms (e.g., Google Search, Google Maps/Business Profile, Instagram, LinkedIn, industry directories, referral partners, partnerships, marketplaces). For EACH, include one short "why this fits" sentence grounded in the business context (offer, pricing/tier, geography, and who you're targeting). No tactical details (no budgets, funnel steps, SEO jargon, ad mechanics).
+  - End the second paragraph with this exact sentence: "This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
 - Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 - The mapping table includes min_value and max_value (numeric) for some rows (notably Gender & Age and Income). Use them to be precise:
@@ -601,7 +611,17 @@ Return ONLY JSON matching the provided schema. No prose.
     - b2b_age_bands: one or more firm-age bands from the allowed list only. If the client says "all ages" / "all firm ages", include every allowed age band.
 - Do not invent new bands. Do not include any values outside the allowed enums.
 - target_market_summary must be one comprehensive paragraph in human-readable language that reflects the full consultation across the B2B segments.
-- marketing_plan_summary must be a short, practical plan (1-2 primary channels + acquisition approach) based on what the client confirmed. Keep it high-level; no budgets, platforms, or tactics.
+- marketing_plan_summary must be a stronger, tailored narrative and must follow this strict format:
+  - Exactly TWO paragraphs (no bullet points, no numbering).
+  - Write like a senior strategist: specific to THIS business and buyer. Avoid buzzwords and generic claims (e.g., "best-in-class", "high quality", "customer-centric") unless directly supported by the consultation.
+  - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
+    - Business model (e.g., project/contract/retainer vs per-transaction). Do not invent a model.
+    - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Geographic scope (local/regional/national) without inventing specific cities.
+    - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
+    - Confirmed target segment(s) as B2B firmographics in plain language (industry terms, size bands, age bands) without listing NAICS codes.
+  - Paragraph 2 (Acquisition architecture): Name up to FIVE specific acquisition channels/platforms (e.g., Google Search, LinkedIn, industry directories, referral networks, channel partners, partnerships, marketplaces). For EACH, include one short "why this fits" sentence grounded in the business context (offer, pricing/tier, geography, and who you're targeting). No tactical details (no budgets, funnel steps, SEO jargon, ad mechanics).
+  - End the second paragraph with this exact sentence: "This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
 - Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
@@ -630,9 +650,19 @@ Hard requirements:
   - b2b_industry_terms are NOT NAICS codes; keep them as short, practical labels.
   - b2b_naics_6 must be a list of 6-digit NAICS codes (as strings) matching the agreed B2B industry scope. Include 1-20 codes; more is better within that limit. Do NOT include NAICS codes in the summary paragraph.
   - b2b_size_bands and b2b_age_bands must use allowed values only (no inventions). If the client indicates "all sizes" or "all ages", include all allowed bands for that dimension.
-  - Businesses are not people: do NOT add any people-based demographic targeting for B2B.
+- Businesses are not people: do NOT add any people-based demographic targeting for B2B.
 - target_market_summary must be one comprehensive paragraph that reflects BOTH the consumer and B2B targeting (without listing raw codes).
-- marketing_plan_summary must be a short, practical plan (1-2 primary channels + acquisition approach) based on what the client confirmed. Keep it high-level; no budgets, platforms, or tactics.
+- marketing_plan_summary must be a stronger, tailored narrative and must follow this strict format:
+  - Exactly TWO paragraphs (no bullet points, no numbering).
+  - Write like a senior strategist: specific to THIS business and audience. Avoid buzzwords and generic claims (e.g., "best-in-class", "high quality", "customer-centric") unless directly supported by the consultation.
+  - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
+    - Business model (consumer + B2B mix). Do not invent a model.
+    - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
+    - Geographic scope (local/regional/national) without inventing specific cities.
+    - Primary capacity driver (labor vs demand vs system), matching what was confirmed in Ops.
+    - Confirmed target segment(s) across BOTH consumer demographics and B2B firmographics in plain language (no ACS codes and no NAICS codes).
+  - Paragraph 2 (Acquisition architecture): Name up to FIVE specific acquisition channels/platforms (e.g., Google Search, Google Maps/Business Profile, Instagram, LinkedIn, industry directories, referral partners, partnerships, marketplaces). For EACH, include one short "why this fits" sentence grounded in the business context (offer, pricing/tier, geography, and who you're targeting). No tactical details (no budgets, funnel steps, SEO jargon, ad mechanics).
+  - End the second paragraph with this exact sentence: "This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan."
 - Include the same plan inside target_market_summary as a brief clause so it is captured in the recap.
 - Fact-bearing template rule: if you mention the business name or upstream Ops facts, use placeholders like {{fact:business.name}}, {{fact:ops.unit_name}}, and {{fact:ops.unit_price}} (do not print literal values).
 
