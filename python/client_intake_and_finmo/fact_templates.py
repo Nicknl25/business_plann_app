@@ -194,7 +194,61 @@ def render_fact_template(
     if group == "business":
       return business_facts.get(field)
     if group == "ops":
-      return (shared_context.get("operating_model") or {}).get(field)
+      operating_model = shared_context.get("operating_model") or {}
+      if not isinstance(operating_model, dict):
+        operating_model = {}
+      direct = operating_model.get(field)
+
+      # Compatibility: ops templates may reference top-level unit_* fields even when
+      # ops uses lob_models/products (where top-level unit fields are null by design).
+      # Render a best-effort fallback from product drivers so summaries don't show $0/0.
+      if (direct is None or direct == "") and field in (
+        "unit_name",
+        "unit_cadence",
+        "unit_price",
+        "units_per_week_capacity",
+        "units_per_period_capacity",
+      ):
+        lob_models = operating_model.get("lob_models")
+        products = []
+        if isinstance(lob_models, list):
+          for lob in lob_models:
+            if not isinstance(lob, dict):
+              continue
+            prods = lob.get("products")
+            if isinstance(prods, list):
+              products.extend([p for p in prods if isinstance(p, dict)])
+
+        if products:
+          if field in ("unit_price", "units_per_week_capacity", "units_per_period_capacity"):
+            vals = []
+            for p in products:
+              num = _to_float(p.get(field))
+              if num is not None:
+                vals.append(num)
+            if vals:
+              uniq = sorted({round(v, 6) for v in vals})
+              if len(uniq) == 1:
+                return float(uniq[0])
+              return [float(v) for v in uniq]
+          else:
+            vals = []
+            for p in products:
+              raw = str(p.get(field) or "").strip()
+              if raw:
+                vals.append(raw)
+            if vals:
+              uniq = []
+              seen = set()
+              for v in vals:
+                if v not in seen:
+                  uniq.append(v)
+                  seen.add(v)
+              if len(uniq) == 1:
+                return uniq[0]
+              return uniq
+
+      return direct
     if group == "market":
       return (shared_context.get("target_market") or {}).get(field)
     if group == "people":
@@ -206,6 +260,27 @@ def render_fact_template(
   def format_value(group: str, field: str, value: Any) -> str:
     if field == "initial_lease":
       return _format_lease(value)
+
+    # Range-format multi-valued numeric fallbacks (used for multi-product ops templates).
+    if isinstance(value, list) and value and field in COUNT_FIELDS:
+      nums = [_to_float(v) for v in value]
+      nums = [n for n in nums if n is not None]
+      if not nums:
+        return "0"
+      lo, hi = min(nums), max(nums)
+      if abs(lo - hi) < 1e-9:
+        return _format_number(lo, money=False)
+      return f"{_format_number(lo, money=False)}-{_format_number(hi, money=False)}"
+
+    if isinstance(value, list) and value and group == "ops" and field in OPS_MONEY_FIELDS:
+      nums = [_to_float(v) for v in value]
+      nums = [n for n in nums if n is not None]
+      if not nums:
+        return "$0"
+      lo, hi = min(nums), max(nums)
+      if abs(lo - hi) < 1e-9:
+        return _format_number(lo, money=True)
+      return f"{_format_number(lo, money=True)}-{_format_number(hi, money=True)}"
 
     if field in COUNT_FIELDS:
       return _format_number(value, money=False)

@@ -3225,6 +3225,34 @@ def post_intake_consult_handler(*, app, request):
         _enrich_milestones_timing(final_obj, reference_date=current_date)
       except Exception:
         pass
+
+      # Persist a rendered business_description_summary (no {{fact:...}} placeholders).
+      # Keep the change scoped to this single field only.
+      try:
+        try:
+          from fact_templates import render_fact_template  # type: ignore
+        except Exception:
+          from client_intake_and_finmo.fact_templates import render_fact_template  # type: ignore
+
+        if isinstance(final_obj, dict) and str(final_obj.get("business_description_summary") or "").strip():
+          business_facts_for_render = {
+            "name": str(business_facts.get("name") or "").strip(),
+            "address": str(business_facts.get("address") or "").strip(),
+            "start_date": str(business_facts.get("start_date") or "").strip(),
+          }
+          shared_ctx_for_render = {
+            "operating_model": final_obj,
+            "target_market": market_json,
+            "people_capability": people_json,
+            "financials": financials_json,
+          }
+          final_obj["business_description_summary"] = render_fact_template(
+            str(final_obj.get("business_description_summary") or ""),
+            shared_context=shared_ctx_for_render,
+            business_facts=business_facts_for_render,
+          ).strip()
+      except Exception:
+        pass
       # Do not show the Ops summary for confirmation. Assume affirmative and
       # advance directly to Target Market after persisting the finalized ops_json.
       if not str((ops_json or {}).get("competitive_advantage") or "").strip():
