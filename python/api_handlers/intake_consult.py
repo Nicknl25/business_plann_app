@@ -1702,7 +1702,6 @@ def post_intake_consult_handler(*, app, request):
           # ACCEPT/REJECT/CLARIFY so we don't keep classifying subsequent answers.
           if isinstance(ops_json, dict):
             ops_json.pop("_ops_restatement_pending", None)
-            ops_json.pop("_ops_restatement_text", None)
           ops_restatement_meta_touched = True
         if classification == "ACCEPT":
           restatement_confirmed_this_turn = True
@@ -2897,6 +2896,80 @@ def post_intake_consult_handler(*, app, request):
       # treat it as a finalize attempt so we can enforce milestone-first and then auto-advance.
       if OPS_CONFIRM_QUESTION.lower() in assistant_text.lower():
         finalize_ready = True
+
+    # Ops hard gate: do not allow the ops "finalize-ready" path (which triggers competitive
+    # advantage/milestone injection and summary auto-skip) unless capacity has been captured.
+    #
+    # We avoid brittle heuristic phrase-matching by taking a structured snapshot via
+    # consultant_finalize() and checking the numeric capacity fields directly.
+    if str(focus).strip().lower() == "ops" and finalize_ready:
+      try:
+        gate_messages = [*messages, user_msg, {"role": "assistant", "content": assistant_text}]
+        business_type_candidates = (ops_json or {}).get("business_type_candidates")
+        if not isinstance(business_type_candidates, list):
+          business_type_candidates = []
+        gate_context = dict(intake_context)
+        gate_context["business_type_candidates"] = business_type_candidates
+        gate_obj = consultant_finalize(intake_context=gate_context, conversation_messages=gate_messages)
+
+        def _missing_number(value: Any) -> bool:
+          if value is None:
+            return True
+          if isinstance(value, bool):
+            return True
+          try:
+            return float(value) <= 0
+          except Exception:
+            return True
+
+        def _final_obj_missing_capacity(obj: Any) -> bool:
+          if not isinstance(obj, dict):
+            return True
+          lob_models = obj.get("lob_models")
+          products: List[Dict[str, Any]] = []
+          if isinstance(lob_models, list):
+            for lob in lob_models:
+              if not isinstance(lob, dict):
+                continue
+              prods = lob.get("products")
+              if not isinstance(prods, list):
+                continue
+              for p in prods:
+                if isinstance(p, dict):
+                  products.append(p)
+          if products:
+            for p in products:
+              if _missing_number(p.get("units_per_period_capacity")) and _missing_number(
+                p.get("units_per_week_capacity")
+              ):
+                return True
+            return False
+          return _missing_number(obj.get("units_per_period_capacity")) and _missing_number(
+            obj.get("units_per_week_capacity")
+          )
+
+        if _final_obj_missing_capacity(gate_obj):
+          cadence = str(
+            (gate_obj or {}).get("unit_cadence")
+            or (ops_json or {}).get("unit_cadence")
+            or "weekly"
+          ).strip().lower()
+          period_label = "week"
+          if cadence == "monthly":
+            period_label = "month"
+          elif cadence == "contract":
+            # Financials treat "contract" cadence as 12 periods/year; ask for a per-month capacity.
+            period_label = "month"
+          unit_name = str((gate_obj or {}).get("unit_name") or (ops_json or {}).get("unit_name") or "unit").strip()
+          if not unit_name:
+            unit_name = "unit"
+          assistant_text = (
+            f"To make planning realistic, on a fully busy {period_label}, about how many {unit_name}s do you expect you can handle?"
+          ).strip()
+          finalize_ready = False
+      except Exception:
+        # Best-effort: if gating fails, preserve existing behavior.
+        pass
 
     if (
       str(focus).strip().lower() == "ops"
