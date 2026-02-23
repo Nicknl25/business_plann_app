@@ -262,16 +262,46 @@ def _final_schema() -> Dict[str, Any]:
   }
 
 
+def _turn_schema() -> Dict[str, Any]:
+  # Structured output allows the controller to persist proposal state (e.g., income range)
+  # without relying on brittle wording/heuristics.
+  return {
+    "name": "intake_target_market_turn",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "assistant_message": {"type": "string"},
+        "finalize_ready": {"type": "boolean"},
+        "income_proposal": {
+          "type": ["object", "null"],
+          "additionalProperties": False,
+          "properties": {
+            "income_min": {"type": "number"},
+            "income_max": {"type": "number"},
+          },
+          "required": ["income_min", "income_max"],
+        },
+      },
+      "required": ["assistant_message", "finalize_ready", "income_proposal"],
+    },
+  }
+
+
 def target_market_chat_turn(
   *,
   intake_context: Dict[str, Any],
   conversation_messages: List[Dict[str, str]],
 ) -> Dict[str, Any]:
   """
-  Free-text target market consultant conversation turn (NO schema enforcement).
+  Target market consultant conversation turn with strict JSON schema output.
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    {
+      "assistant_message": str,
+      "finalize_ready": bool,
+      "income_proposal": {"income_min": number, "income_max": number} | null
+    }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -311,10 +341,11 @@ Rules:
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring "please confirm / once you confirm / let's lock this in" loops. Treat the user's answer to your question as the decision, briefly reflect it back, and move on. Only ask a follow-up if the answer is ambiguous or incomplete.
 - The user may revise earlier choices at any time; accept the revision and continue without restarting the consult.
-- Do not consult or discuss any other segments.
-- For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
-- If the user says they serve "everyone" or "all incomes", propose a broad range starting at $0 (or the lowest practical bracket) and a high upper bound that clearly covers everyone, then move on once the user accepts.
-- Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
+ - Do not consult or discuss any other segments.
+ - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
+ - If the user says they serve "everyone" or "all incomes", propose a broad range starting at $0 (or the lowest practical bracket) and a high upper bound that clearly covers everyone, then move on once the user accepts.
+ - IMPORTANT (Income proposal state): If you propose a specific numeric income range and ask the user to accept/adjust it, set income_proposal to that proposed (income_min, income_max) range. Otherwise set income_proposal to null.
+ - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
   - IMPORTANT: This "opt-in decision" message must ask ONLY that single question. Do NOT also ask any Household/Employment/Housing follow-up in the same message, and do NOT say "Let's start with X" or begin the next segment until the client has opted in.
@@ -337,8 +368,9 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, AND the promotion model has been confirmed), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- Output ONLY JSON matching the provided schema (no prose outside JSON).
+- assistant_message must be normal conversation text for the client.
+- finalize_ready must be true ONLY when you have enough information to finalize (all required segments decided, any optional segments handled/skipped).
   """.strip()
 
   consumer_type = str(intake_context.get("consumer_type") or "consumer").strip().lower()
@@ -395,8 +427,9 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all three segments decided), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- Output ONLY JSON matching the provided schema (no prose outside JSON).
+- assistant_message must be normal conversation text for the client.
+- finalize_ready must be true ONLY when you have enough information to finalize (all three segments decided).
 """.strip()
 
   system_mixed = f"""
@@ -443,6 +476,7 @@ Rules:
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, briefly reflect it back, and move on. Only ask follow-ups if ambiguous or incomplete.
 - Do not consult or discuss any other segments (except the promotion model confirmation at the end).
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
+ - IMPORTANT (Income proposal state): If you propose a specific numeric income range and ask the user to accept/adjust it, set income_proposal to that proposed (income_min, income_max) range. Otherwise set income_proposal to null.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
@@ -469,8 +503,9 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage
 
 Output rules:
-- Respond with normal conversation text (NOT JSON).
-- When you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided), end with a short recap + "Target market intake complete.", then append the token {FINALIZE_TOKEN} on its own line at the very end of your message.
+- Output ONLY JSON matching the provided schema (no prose outside JSON).
+- assistant_message must be normal conversation text for the client.
+- finalize_ready must be true ONLY when you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided).
 """.strip()
 
   if consumer_type == "b2b":
@@ -487,6 +522,7 @@ Output rules:
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  schema_wrapper = _turn_schema()
   payload = {
     "model": model,
     "input": [
@@ -494,19 +530,50 @@ Output rules:
       {"role": "user", "content": context_msg},
       *conversation_messages,
     ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
   }
 
   resp = _post_openai(url=url, headers=headers, payload=payload)
   if resp.status_code >= 400:
     raise RuntimeError(_format_openai_error(resp))
 
-  text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  text = text.replace(FINALIZE_TOKEN, "").strip()
+  data = resp.json()
+  output = data.get("output") or []
+  result: Optional[Dict[str, Any]] = None
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        result = part.get("json")
+        break
+    if result is not None:
+      break
+  if not isinstance(result, dict):
+    raise RuntimeError("OpenAI response contained no output_json.")
+
+  text = str(result.get("assistant_message") or "").strip()
+  finalize_ready = bool(result.get("finalize_ready", False))
+  income_proposal = result.get("income_proposal")
   if not finalize_ready:
     text = _trim_after_first_question_block(text)
     text = _split_long_response(text)
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+
+  # Back-compat safety: strip any stray FINALIZE_TOKEN if a model included it.
+  if FINALIZE_TOKEN in text:
+    text = text.replace(FINALIZE_TOKEN, "").strip()
+    finalize_ready = True
+
+  return {
+    "assistant_message": text,
+    "finalize_ready": bool(finalize_ready),
+    "income_proposal": income_proposal if isinstance(income_proposal, dict) else None,
+  }
 
 
 def target_market_finalize(

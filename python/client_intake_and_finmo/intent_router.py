@@ -923,7 +923,7 @@ def _confirm_clarify_message(field: str) -> str:
   if field_norm.endswith("income_intent"):
     return (
       "Just to confirm, please provide an income range formatted like this for example: "
-      "$60,000-$120,000"
+      "60000 to 120000"
     )
 
   return (

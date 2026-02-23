@@ -1943,9 +1943,21 @@ def post_intake_consult_handler(*, app, request):
     except Exception:
       shared_context_for_router = shared_context
     # Route the user's message through the GPT-only intent router first.
-    confirm_override = str(
-      confirm_question or _detect_confirm_question(last_assistant) or ""
-    ).strip()
+    confirm_override = str(confirm_question or _detect_confirm_question(last_assistant) or "").strip()
+    pending_income_intent = None
+    try:
+      candidate = (market_json or {}).get("_pending_income_intent")
+      if isinstance(candidate, list) and candidate:
+        pending_income_intent = [c for c in candidate if isinstance(c, dict)]
+      else:
+        pending_income_intent = None
+    except Exception:
+      pending_income_intent = None
+    pending_income_active = bool(str(focus).strip().lower() == "market" and pending_income_intent)
+    # When we have an explicit pending income proposal, treat the next user reply as a
+    # confirmation/counter decision for that proposal (router remains the authority).
+    if pending_income_active:
+      confirm_override = "Does the proposed income range work?"
     milestone_intent_override: Optional[Dict[str, Any]] = None
     if (
       str(focus).strip().lower() == "ops"
@@ -2018,6 +2030,17 @@ def post_intake_consult_handler(*, app, request):
       action = str(intent.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
       patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
+
+    pending_income_resolved = False
+    if pending_income_active:
+      # If the client accepts the pending proposal, persist it immediately as a normal patch.
+      # If the client counters, the router should return edit_patch and we let that override.
+      if action == "confirm_proceed":
+        action = "edit_patch"
+        patch = {"market.income_intent": pending_income_intent}
+        pending_income_resolved = True
+      elif action == "edit_patch":
+        pending_income_resolved = True
 
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
@@ -2141,6 +2164,8 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      if pending_income_resolved and isinstance(market_json, dict):
+        market_json.pop("_pending_income_intent", None)
       try:
         shared_context = dict(shared_context or {})
         shared_context["operating_model"] = ops_json
@@ -2867,6 +2892,25 @@ def post_intake_consult_handler(*, app, request):
         force=True,
       )
 
+    market_pending_income_touched = False
+    if str(focus).strip().lower() == "market" and isinstance(turn, dict):
+      # Controller-owned pending income proposal state (no heuristics): when the target
+      # market consultant proposes a numeric income range for confirmation, persist it so
+      # the next client reply can be routed as accept/counter and commit numbers.
+      try:
+        if isinstance(market_json, dict) and not (market_json.get("income_intent") or None):
+          proposal = turn.get("income_proposal")
+          if isinstance(proposal, dict):
+            mn = proposal.get("income_min")
+            mx = proposal.get("income_max")
+            if isinstance(mn, (int, float)) and isinstance(mx, (int, float)) and float(mx) >= float(mn):
+              market_json["_pending_income_intent"] = [
+                {"income_min": float(mn), "income_max": float(mx)}
+              ]
+              market_pending_income_touched = True
+      except Exception:
+        market_pending_income_touched = False
+
     finalize_ready = bool(turn.get("finalize_ready", False))
     review_ready = bool(turn.get("review_ready", False))
     # Controller-owned restatement-confirmation state: only classify acceptance on the
@@ -3136,6 +3180,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         operating_model_json=ops_json if (persist_ops_from_restatement or ops_restatement_meta_touched) else None,
+        target_market_json=market_json if market_pending_income_touched else None,
         active_focus=focus,
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
@@ -3366,6 +3411,34 @@ def post_intake_consult_handler(*, app, request):
           final_obj[k] = sanitize_fact_template(v)
       if isinstance(final_obj, dict):
         final_obj.pop("target_market_summary", None)
+
+      # Persist a rendered marketing_plan_summary (no {{fact:...}} placeholders).
+      # Keep the change scoped to this single field only.
+      try:
+        try:
+          from fact_templates import render_fact_template  # type: ignore
+        except Exception:
+          from client_intake_and_finmo.fact_templates import render_fact_template  # type: ignore
+
+        if isinstance(final_obj, dict) and str(final_obj.get("marketing_plan_summary") or "").strip():
+          business_facts_for_render = {
+            "name": str(business_facts.get("name") or "").strip(),
+            "address": str(business_facts.get("address") or "").strip(),
+            "start_date": str(business_facts.get("start_date") or "").strip(),
+          }
+          shared_ctx_for_render = {
+            "operating_model": ops_json,
+            "target_market": final_obj,
+            "people_capability": people_json,
+            "financials": financials_json,
+          }
+          final_obj["marketing_plan_summary"] = render_fact_template(
+            str(final_obj.get("marketing_plan_summary") or ""),
+            shared_context=shared_ctx_for_render,
+            business_facts=business_facts_for_render,
+          ).strip()
+      except Exception:
+        pass
       market_json = final_obj
 
       # Show the finalized marketing_plan_summary to the client for confirmation/counter
