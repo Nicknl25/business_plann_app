@@ -555,7 +555,18 @@ Output rules:
     if result is not None:
       break
   if not isinstance(result, dict):
-    raise RuntimeError("OpenAI response contained no output_json.")
+    # Some Responses API replies may surface the JSON as output_text rather than output_json,
+    # even when using json_schema. Fall back to parsing output_text as JSON to avoid
+    # intermittent hard failures during section handoffs (Ops -> Target Market).
+    try:
+      raw = _parse_responses_text(data)
+      parsed = json.loads(raw)
+      if isinstance(parsed, dict):
+        result = parsed
+    except Exception:
+      result = None
+    if not isinstance(result, dict):
+      raise RuntimeError("OpenAI response contained no output_json.")
 
   text = str(result.get("assistant_message") or "").strip()
   finalize_ready = bool(result.get("finalize_ready", False))

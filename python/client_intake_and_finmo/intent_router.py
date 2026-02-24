@@ -910,7 +910,12 @@ def _humanize_patch_field(field: str) -> str:
   return tail.replace("_", " ")
 
 
-def _confirm_clarify_message(field: str) -> str:
+def _confirm_clarify_message(
+  field: str,
+  *,
+  consult_type: str | None = None,
+  baseline_json: Any = None,
+) -> str:
 
   # Field-specific clarification prompts are safer than the generic "single number"
   # prompt for structured fields like income_intent (which expects min+max).
@@ -924,6 +929,39 @@ def _confirm_clarify_message(field: str) -> str:
     return (
       "Just to confirm, please provide an income range formatted like this for example: "
       "60000 to 120000"
+    )
+  if field_norm.endswith("units_per_week_capacity") or field_norm.endswith("units_per_period_capacity"):
+    cadence = ""
+    unit_name = ""
+    try:
+      # baseline_json is typically the consult's canonical baseline. For unified consults,
+      # ops facts may be nested or the prompt may be asking about an ops.* field.
+      base = baseline_json if isinstance(baseline_json, dict) else {}
+      if isinstance(base, dict) and (
+        str(consult_type or "").strip().lower() == "unified" or field_norm.startswith("ops.")
+      ):
+        ops_base = base.get("ops")
+        if isinstance(ops_base, dict):
+          base = ops_base
+      if isinstance(base, dict):
+        cadence = str(base.get("unit_cadence") or "").strip().lower()
+        unit_name = str(base.get("unit_name") or "").strip()
+    except Exception:
+      cadence = ""
+      unit_name = ""
+
+    # Default to a generic prompt that avoids internal field names and makes the period explicit.
+    period_label = "period"
+    if cadence == "weekly":
+      period_label = "week"
+    elif cadence in ("monthly", "contract"):
+      period_label = "month"
+
+    unit_phrase = unit_name or "units"
+    # Avoid confusing the user with internal field jargon ("units_per_week_capacity").
+    return (
+      f"Just to confirm your capacity: in a fully booked {period_label}, about how many {unit_phrase} can you handle? "
+      "(One number is fine, e.g., 20.)"
     )
 
   return (
@@ -2020,7 +2058,11 @@ Return JSON only. No prose.
 
               "action": "confirm_clarify",
 
-              "assistant_message": _confirm_clarify_message(field),
+              "assistant_message": _confirm_clarify_message(
+                field,
+                consult_type=consult_type_norm,
+                baseline_json=baseline_json,
+              ),
               "patch": None,
 
             }
@@ -2037,7 +2079,11 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(field),
+                  "assistant_message": _confirm_clarify_message(
+                    field,
+                    consult_type=consult_type_norm,
+                    baseline_json=baseline_json,
+                  ),
                   "patch": None,
 
                 }
@@ -2050,7 +2096,11 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(field),
+                  "assistant_message": _confirm_clarify_message(
+                    field,
+                    consult_type=consult_type_norm,
+                    baseline_json=baseline_json,
+                  ),
                   "patch": None,
 
                 }
@@ -2063,7 +2113,11 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(field),
+                  "assistant_message": _confirm_clarify_message(
+                    field,
+                    consult_type=consult_type_norm,
+                    baseline_json=baseline_json,
+                  ),
                   "patch": None,
 
                 }
@@ -2076,7 +2130,11 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(field),
+                  "assistant_message": _confirm_clarify_message(
+                    field,
+                    consult_type=consult_type_norm,
+                    baseline_json=baseline_json,
+                  ),
                   "patch": None,
 
                 }
@@ -2089,7 +2147,11 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(field),
+                  "assistant_message": _confirm_clarify_message(
+                    field,
+                    consult_type=consult_type_norm,
+                    baseline_json=baseline_json,
+                  ),
                   "patch": None,
 
                 }
@@ -2102,7 +2164,11 @@ Return JSON only. No prose.
 
                   "action": "confirm_clarify",
 
-                  "assistant_message": _confirm_clarify_message(field),
+                  "assistant_message": _confirm_clarify_message(
+                    field,
+                    consult_type=consult_type_norm,
+                    baseline_json=baseline_json,
+                  ),
                   "patch": None,
 
                 }
@@ -2227,7 +2293,11 @@ Return JSON only. No prose.
 
       parsed["assistant_message"] = (
 
-        _confirm_clarify_message(field)
+        _confirm_clarify_message(
+          field,
+          consult_type=consult_type_norm,
+          baseline_json=baseline_json,
+        )
       )
 
       parsed["patch"] = None
@@ -2246,7 +2316,11 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(field)
+            _confirm_clarify_message(
+              field,
+              consult_type=consult_type_norm,
+              baseline_json=baseline_json,
+            )
           )
 
           parsed["patch"] = None
@@ -2261,7 +2335,11 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(field)
+            _confirm_clarify_message(
+              field,
+              consult_type=consult_type_norm,
+              baseline_json=baseline_json,
+            )
           )
 
           parsed["patch"] = None
@@ -2276,7 +2354,11 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(field)
+            _confirm_clarify_message(
+              field,
+              consult_type=consult_type_norm,
+              baseline_json=baseline_json,
+            )
           )
 
           parsed["patch"] = None
@@ -2291,7 +2373,11 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(field)
+            _confirm_clarify_message(
+              field,
+              consult_type=consult_type_norm,
+              baseline_json=baseline_json,
+            )
           )
 
           parsed["patch"] = None
@@ -2306,7 +2392,11 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(field)
+            _confirm_clarify_message(
+              field,
+              consult_type=consult_type_norm,
+              baseline_json=baseline_json,
+            )
           )
 
           parsed["patch"] = None
@@ -2321,7 +2411,11 @@ Return JSON only. No prose.
 
           parsed["assistant_message"] = (
 
-            _confirm_clarify_message(field)
+            _confirm_clarify_message(
+              field,
+              consult_type=consult_type_norm,
+              baseline_json=baseline_json,
+            )
           )
 
           parsed["patch"] = None

@@ -2172,6 +2172,36 @@ def post_intake_consult_handler(*, app, request):
         shared_context["target_market"] = market_json
         shared_context["people_capability"] = people_json
         shared_context["financials"] = financials_json
+
+        # Persist ops.business_description_summary rendered (no {{fact:...}} placeholders),
+        # even when ops is updated via edit patches after finalization.
+        try:
+          try:
+            from fact_templates import render_fact_template  # type: ignore
+          except Exception:
+            from client_intake_and_finmo.fact_templates import render_fact_template  # type: ignore
+
+          if isinstance(ops_json, dict) and str(ops_json.get("business_description_summary") or "").strip():
+            business_facts_for_render = {
+              "name": str(business_facts.get("name") or "").strip(),
+              "address": str(business_facts.get("address") or "").strip(),
+              "start_date": str(business_facts.get("start_date") or "").strip(),
+            }
+            shared_ctx_for_render = {
+              "operating_model": ops_json,
+              "target_market": market_json,
+              "people_capability": people_json,
+              "financials": financials_json,
+            }
+            ops_json["business_description_summary"] = render_fact_template(
+              str(ops_json.get("business_description_summary") or ""),
+              shared_context=shared_ctx_for_render,
+              business_facts=business_facts_for_render,
+            ).strip()
+            shared_context["operating_model"] = ops_json
+        except Exception:
+          pass
+
         base_year1 = assemble_financials_year1(shared_context, None)
         if _year1_drivers_conflict(financials_year1_json, base_year1):
           financials_year1_json = base_year1
@@ -2356,6 +2386,75 @@ def post_intake_consult_handler(*, app, request):
       consistency_passed_out = False
       completed_out = False
       confirm_question_live = _detect_confirm_question(last_assistant)
+
+      # People/HR: if we're on the People section-final confirmation step and the client
+      # counters with edits, acknowledge the change and advance (do not re-show the full
+      # People recap/wage proposal again).
+      if (
+        str(focus).strip().lower() == "people"
+        and active_focus_out == focus
+        and confirm_question_live == PEOPLE_CONFIRM_QUESTION
+      ):
+        next_focus = "financials"
+        start_instruction = _start_instruction_for_focus(next_focus)
+        turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+        intake_context_next: Dict[str, Any] = {
+          "client_id": client_id,
+          "draft_id": str(draft_id).strip(),
+          "business_name": business_facts.get("name"),
+          "business_start_date": business_facts.get("start_date"),
+          "address": business_facts.get("address"),
+          "current_date": current_date_iso,
+          "business_stage_hint": business_stage_hint,
+          "shared_context": shared_context,
+          "operating_model_json": ops_json,
+          "target_market_json": market_json,
+          "people_json": people_json,
+          "financials_json": financials_json,
+          "fulfillment_json": fulfillment_json,
+        }
+        intake_context_next["financials_year1_json"] = financials_year1_json
+        intake_context_next["revenue_math_line"] = revenue_math_line
+        intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
+        intake_context_next["revenue_driver_patch"] = revenue_driver_patch
+        intake_context_next["revenue_guardrail_triggered"] = guardrail_triggered
+        intake_context_next["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
+        intake_context_next["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
+
+        next_assistant = financials_chat_turn(
+          intake_context=intake_context_next, conversation_messages=turn_messages
+        )["assistant_message"]
+        next_assistant = sanitize_fact_template(str(next_assistant or "").strip())
+        next_assistant = _append_constraints_snippet(
+          next_assistant,
+          revenue_constraints_snippet,
+          messages,
+          force=True,
+        )
+        assistant_text = f"Got it, updated.\n\nGreat, let's move on to Financials.\n\n{next_assistant}".strip()
+
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          people_json=people_json,
+          active_focus=next_focus,
+          confirmations={"people": True},
+          business_facts=business_facts,
+          flat_fields=_finalize_flag_field("people", True),
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": next_focus,
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "confirm_proceed",
+            "assistant_message": assistant_text,
+          }
+        )
 
       # If the draft was already marked complete, edits must reopen it and trigger
       # a new consistency pass.
@@ -3515,18 +3614,81 @@ def post_intake_consult_handler(*, app, request):
           final_obj["inferred_roles_summary"] = ""
         if "business_naics_6" not in final_obj:
           final_obj["business_naics_6"] = None
-      summary_text = str(final_obj.get("key_people_summary") or "").strip() or "People & capability intake complete."
+
+      # Auto-skip People/HR finalization summary (noise). Persist the finalized people_json
+      # and advance directly to Financials, mirroring Ops auto-advance behavior.
       if isinstance(final_obj, dict):
         final_obj.pop("key_people_summary", None)
-      roles_summary = str(final_obj.get("inferred_roles_summary") or "").strip()
-      if roles_summary:
-        summary_text = f"{summary_text}\n\n{roles_summary}".strip()
-      assistant_final = f"{summary_text}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
       people_json = final_obj
-      people_json_out = final_obj
-      market_json_out = None
-      financials_json_out = None
-      ops_json_out = None
+      try:
+        shared_context = dict(shared_context or {})
+        shared_context["operating_model"] = ops_json
+        shared_context["target_market"] = market_json
+        shared_context["people_capability"] = people_json
+        shared_context["financials"] = financials_json
+      except Exception:
+        pass
+
+      next_focus = "financials"
+      start_instruction = _start_instruction_for_focus(next_focus)
+      turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+      intake_context_next: Dict[str, Any] = {
+        "client_id": client_id,
+        "draft_id": str(draft_id).strip(),
+        "business_name": business_facts.get("name"),
+        "business_start_date": business_facts.get("start_date"),
+        "address": business_facts.get("address"),
+        "current_date": current_date_iso,
+        "business_stage_hint": business_stage_hint,
+        "shared_context": shared_context,
+        "operating_model_json": ops_json,
+        "target_market_json": market_json,
+        "people_json": people_json,
+        "financials_json": financials_json,
+        "fulfillment_json": fulfillment_json,
+      }
+      intake_context_next["financials_year1_json"] = financials_year1_json
+      intake_context_next["revenue_math_line"] = revenue_math_line
+      intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
+      intake_context_next["revenue_driver_patch"] = revenue_driver_patch
+      intake_context_next["revenue_guardrail_triggered"] = guardrail_triggered
+      intake_context_next["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
+      intake_context_next["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
+
+      next_assistant = financials_chat_turn(
+        intake_context=intake_context_next, conversation_messages=turn_messages
+      )["assistant_message"]
+      assistant_final = f"Great, let's move on to Financials.\n\n{next_assistant}".strip()
+      assistant_final = sanitize_fact_template(str(assistant_final or "").strip())
+      assistant_final = _append_constraints_snippet(
+        assistant_final,
+        revenue_constraints_snippet,
+        messages,
+        force=True,
+      )
+
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
+        people_json=people_json,
+        active_focus=next_focus,
+        confirmations={"people": True},
+        business_facts=business_facts,
+        flat_fields=_finalize_flag_field("people", True),
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": next_focus,
+          "awaiting_confirmation": False,
+          "done": False,
+          "action": "confirm_proceed",
+          "assistant_message": assistant_final,
+        }
+      )
     elif focus == "financials":
       final_obj = financials_finalize(intake_context=intake_context, conversation_messages=final_messages)
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
