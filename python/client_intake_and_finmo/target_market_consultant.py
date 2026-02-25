@@ -353,7 +353,7 @@ Rules:
   - If the client opts in, handle one optional segment at a time, with minimal questions.
 
 Do NOT propose or confirm acquisition channels/platforms during the chat intake.
-The backend will generate a client-facing marketing architecture narrative after target market finalization and handle confirmation there.
+Do NOT mention "the backend" or describe internal next steps to the client.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -370,6 +370,8 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Output ONLY JSON matching the provided schema (no prose outside JSON).
 - assistant_message must be normal conversation text for the client.
+- If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
+- If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all required segments decided, any optional segments handled/skipped).
   """.strip()
 
@@ -412,7 +414,7 @@ Rules:
 - Firm age must use these bands (the client may pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
 - For industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 Do NOT propose or confirm acquisition channels/platforms during the chat intake.
-The backend will generate a client-facing marketing architecture narrative after target market finalization and handle confirmation there.
+Do NOT mention "the backend" or describe internal next steps to the client.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -429,6 +431,8 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Output ONLY JSON matching the provided schema (no prose outside JSON).
 - assistant_message must be normal conversation text for the client.
+- If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
+- If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all three segments decided).
 """.strip()
 
@@ -474,7 +478,7 @@ Rules:
 - Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, briefly reflect it back, and move on. Only ask follow-ups if ambiguous or incomplete.
-- Do not consult or discuss any other segments (except the promotion model confirmation at the end).
+- Do not consult or discuss any other segments.
 - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
  - IMPORTANT (Income proposal state): If you propose a specific numeric income range and ask the user to accept/adjust it, set income_proposal to that proposed (income_min, income_max) range. Otherwise set income_proposal to null.
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
@@ -488,7 +492,7 @@ Rules:
 - For B2B industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
 
 Do NOT propose or confirm acquisition channels/platforms during the chat intake.
-The backend will generate a client-facing marketing architecture narrative after target market finalization and handle confirmation there.
+Do NOT mention "the backend" or describe internal next steps to the client.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -505,6 +509,8 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Output ONLY JSON matching the provided schema (no prose outside JSON).
 - assistant_message must be normal conversation text for the client.
+- If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
+- If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided).
 """.strip()
 

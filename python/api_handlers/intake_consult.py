@@ -66,6 +66,75 @@ def _parse_pending_bool(raw: Any) -> bool:
   return bool(raw)
 
 
+def _is_missing_number_value(value: Any) -> bool:
+  if value is None:
+    return True
+  if isinstance(value, bool):
+    return True
+  try:
+    return float(value) <= 0
+  except Exception:
+    return True
+
+
+def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
+  """
+  Capacity compatibility: keep ops capacity coherent without re-asking the user.
+
+  Rules (minimal, non-destructive):
+  - If unit_cadence is weekly and week capacity is set, fill missing period capacity from it.
+  - If unit_cadence is monthly/contract and period capacity is set, fill missing week capacity from it.
+  - Never overwrite an existing non-missing capacity number.
+  - For multi-product ops (lob_models with >1 product), only normalize per-product fields;
+    keep top-level unit fields null by design.
+  """
+  if not isinstance(ops_obj, dict):
+    return ops_obj
+
+  def _normalize_unit_dict(d: Dict[str, Any]) -> None:
+    cadence = str(d.get("unit_cadence") or "").strip().lower()
+    week = d.get("units_per_week_capacity")
+    period = d.get("units_per_period_capacity")
+
+    if cadence == "weekly":
+      if _is_missing_number_value(period) and not _is_missing_number_value(week):
+        d["units_per_period_capacity"] = week
+      return
+
+    if cadence in ("monthly", "contract"):
+      if _is_missing_number_value(week) and not _is_missing_number_value(period):
+        d["units_per_week_capacity"] = period
+      elif _is_missing_number_value(period) and not _is_missing_number_value(week):
+        d["units_per_period_capacity"] = week
+      return
+
+    # Unknown cadence: best-effort fill the missing side only.
+    if _is_missing_number_value(week) and not _is_missing_number_value(period):
+      d["units_per_week_capacity"] = period
+    elif _is_missing_number_value(period) and not _is_missing_number_value(week):
+      d["units_per_period_capacity"] = week
+
+  lob_models = ops_obj.get("lob_models")
+  product_count = 0
+  if isinstance(lob_models, list):
+    for lob in lob_models:
+      if not isinstance(lob, dict):
+        continue
+      prods = lob.get("products")
+      if not isinstance(prods, list):
+        continue
+      for p in prods:
+        if isinstance(p, dict):
+          product_count += 1
+          _normalize_unit_dict(p)
+
+  # Only normalize top-level unit fields if this is not a multi-product model.
+  if product_count <= 1:
+    _normalize_unit_dict(ops_obj)
+
+  return ops_obj
+
+
 def _last_assistant_message(messages: List[Dict[str, str]]) -> str:
   for msg in reversed(messages or []):
     if str(msg.get("role") or "").strip().lower() != "assistant":
@@ -2164,6 +2233,8 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      # Keep capacity compatibility coherent (especially monthly/contract cadence).
+      ops_json = _normalize_ops_capacity_compat(ops_json)
       if pending_income_resolved and isinstance(market_json, dict):
         market_json.pop("_pending_income_intent", None)
       try:
@@ -3350,6 +3421,8 @@ def post_intake_consult_handler(*, app, request):
             _maybe_set_number("unit_price")
             _maybe_set_number("units_per_week_capacity")
             _maybe_set_number("units_per_period_capacity")
+      # Capacity compatibility: fill missing week/period fields deterministically.
+      final_obj = _normalize_ops_capacity_compat(final_obj)
       try:
         try:
           from intake_business_types import get_naics_from_business_type  # type: ignore
