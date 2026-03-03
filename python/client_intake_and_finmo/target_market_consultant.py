@@ -263,8 +263,8 @@ def _final_schema() -> Dict[str, Any]:
 
 
 def _turn_schema() -> Dict[str, Any]:
-  # Structured output allows the controller to persist proposal state (e.g., income range)
-  # without relying on brittle wording/heuristics.
+  # Structured output allows the controller to persist Target Market fields on every turn
+  # without parsing client text in the controller.
   return {
     "name": "intake_target_market_turn",
     "schema": {
@@ -273,17 +273,53 @@ def _turn_schema() -> Dict[str, Any]:
       "properties": {
         "assistant_message": {"type": "string"},
         "finalize_ready": {"type": "boolean"},
-        "income_proposal": {
-          "type": ["object", "null"],
+        "patch": {
+          "type": "object",
           "additionalProperties": False,
           "properties": {
-            "income_min": {"type": "number"},
-            "income_max": {"type": "number"},
+            "consumer_type": {"type": ["string", "null"]},
+            "gender_age_intent": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "gender_focus": {"type": "string"},
+                  "age_min": {"type": "number"},
+                  "age_max": {"type": "number"},
+                },
+                "required": ["gender_focus", "age_min", "age_max"],
+              },
+            },
+            "income_intent": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "income_min": {"type": "number"},
+                  "income_max": {"type": "number"},
+                },
+                "required": ["income_min", "income_max"],
+              },
+            },
+            "b2b_industry_terms": {"type": ["array", "null"], "items": {"type": "string"}},
+            "b2b_size_bands": {"type": ["array", "null"], "items": {"type": "string"}},
+            "b2b_age_bands": {"type": ["array", "null"], "items": {"type": "string"}},
           },
-          "required": ["income_min", "income_max"],
+          # OpenAI strict json_schema requires `required` to include every key in
+          # `properties`. Optionality is expressed via `null` in the type union.
+          "required": [
+            "consumer_type",
+            "gender_age_intent",
+            "income_intent",
+            "b2b_industry_terms",
+            "b2b_size_bands",
+            "b2b_age_bands",
+          ],
         },
       },
-      "required": ["assistant_message", "finalize_ready", "income_proposal"],
+      "required": ["assistant_message", "finalize_ready", "patch"],
     },
   }
 
@@ -300,7 +336,7 @@ def target_market_chat_turn(
     {
       "assistant_message": str,
       "finalize_ready": bool,
-      "income_proposal": {"income_min": number, "income_max": number} | null
+      "patch": dict
     }
   """
   api_key = _require_openai_key()
@@ -323,13 +359,14 @@ Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbi
 - Do not debate or block progress; if the client insists, record it and move on (Consistency will reconcile cross-domain issues later).
 
 Segments to consult on (in this order):
-1) Gender & Age
-2) Income
-3) Education
-4) Optional segments decision (Household / Employment / Housing)
-5) Household structure (ONLY if client opts in)
-6) Employment (ONLY if client opts in)
-7) Housing economics (ONLY if client opts in)
+1) Gender (gender focus only)
+2) Age (age range only)
+3) Income
+4) Education
+5) Optional segments decision (Household / Employment / Housing)
+6) Household structure (ONLY if client opts in)
+7) Employment (ONLY if client opts in)
+8) Housing economics (ONLY if client opts in)
 
 Rules:
 - Default to ranges and breadth: multiple groups per segment is normal.
@@ -338,13 +375,16 @@ Rules:
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
 - Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
 - Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
+- IMPORTANT: Gender and Age are separate in this intake. Ask for gender focus in one stand-alone question, then ask for the age range in a separate stand-alone question.
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring "please confirm / once you confirm / let's lock this in" loops. Treat the user's answer to your question as the decision, briefly reflect it back, and move on. Only ask a follow-up if the answer is ambiguous or incomplete.
 - The user may revise earlier choices at any time; accept the revision and continue without restarting the consult.
  - Do not consult or discuss any other segments.
- - For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
- - If the user says they serve "everyone" or "all incomes", propose a broad range starting at $0 (or the lowest practical bracket) and a high upper bound that clearly covers everyone, then move on once the user accepts.
- - IMPORTANT (Income proposal state): If you propose a specific numeric income range and ask the user to accept/adjust it, set income_proposal to that proposed (income_min, income_max) range. Otherwise set income_proposal to null.
+ - For Age and Income, infer a numeric min and max from natural language and commit it via patch.
+   - Do NOT ask the user to reformat their answer into a specific numeric string.
+   - Only ask a clarifying question if the intent is truly ambiguous.
+   - If only a lower bound is given (e.g., "60k and up"), use a high upper bound (1000000 for income; 120 for age).
+   - If the user says no preference/any/open, use broad bounds (age 18-120; income 0-1000000).
  - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
@@ -370,6 +410,16 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Output ONLY JSON matching the provided schema (no prose outside JSON).
 - assistant_message must be normal conversation text for the client.
+- patch must commit normalized Target Market fields implied by the client's most recent message.
+  - If the most recent message does not provide new target market data (e.g., the first "start" turn), you MUST still output all patch keys (per schema) and set each value to null.
+  - When updating gender_age_intent:
+    - gender_focus must be one of: "all", "male", "female".
+    - If the client answered gender only, keep the most recent age_min/age_max from context if available; otherwise use 18-120.
+    - If the client answered age only, keep the most recent gender_focus from context if available; otherwise use "all".
+  - When updating income_intent:
+    - Always output numeric income_min and income_max.
+    - If only a lower bound is given, set income_max to 1000000.
+    - If no preference/any/open, set income_min=0 and income_max=1000000.
 - If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
 - If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all required segments decided, any optional segments handled/skipped).
@@ -408,11 +458,15 @@ Rules:
 - Handle ONE segment at a time. Do not preview or list upcoming segments or questions.
 - Keep messages concise: ask EXACTLY ONE question per message and offer at most 2-3 suggested options unless the user asks for more.
 - Do not bundle questions. Do not ask for two separate inputs in one turn (e.g., do NOT ask both gender AND age). Pick the single next-most-important detail and ask only that.
+- IMPORTANT: Gender and Age are separate in this intake. Ask for gender focus in one stand-alone question, then ask for the age range in a separate stand-alone question.
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, reflect it back briefly, and move on unless ambiguous.
-- Firm size must use these employee bands (the client may pick one or more): 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+.
-- Firm age must use these bands (the client may pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
+- For B2B firm size and firm age, ask in plain language and let the client answer however they want (ranges, qualitative, "no preference", etc.).
+- IMPORTANT: Do NOT dump long canonical band lists to the client. If examples are helpful, give at most 2-3 short examples (e.g., "under 20 employees", "20-99", "100+").
 - For industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
+Canonical band tokens (for patch only; NEVER show these lists to the client):
+- b2b_size_bands: 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+
+- b2b_age_bands: 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+
 Do NOT propose or confirm acquisition channels/platforms during the chat intake.
 Do NOT mention "the backend" or describe internal next steps to the client.
 
@@ -431,6 +485,18 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Output ONLY JSON matching the provided schema (no prose outside JSON).
 - assistant_message must be normal conversation text for the client.
+- patch must commit normalized Target Market fields implied by the client's most recent message.
+  - If the most recent message does not provide new target market data (e.g., the first "start" turn), you MUST still output all patch keys (per schema) and set each value to null.
+  - When updating gender_age_intent:
+    - gender_focus must be one of: "all", "male", "female".
+    - If the client answered gender only, keep the most recent age_min/age_max from context if available; otherwise use 18-120.
+    - If the client answered age only, keep the most recent gender_focus from context if available; otherwise use "all".
+  - When updating income_intent:
+    - Always output numeric income_min and income_max.
+    - If only a lower bound is given, set income_max to 1000000.
+    - If no preference/any/open, set income_min=0 and income_max=1000000.
+  - b2b_size_bands and b2b_age_bands must use canonical band tokens only (e.g., "20-99", "6-10").
+  - If the client indicates no preference/any/all sizes or all ages, include all canonical bands for that dimension.
 - If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
 - If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all three segments decided).
@@ -458,16 +524,17 @@ Critical B2B rule:
 - B2B targeting must use ONLY firmographics: industry, firm size, firm age (and use the existing geography context).
 
 Segments to consult on (in this order):
-1) Gender & Age
-2) Income
-3) Education
-4) Optional segments decision (Household / Employment / Housing)
-5) Household structure (ONLY if client opts in)
-6) Employment (ONLY if client opts in)
-7) Housing economics (ONLY if client opts in)
-8) B2B Industry (what kinds of businesses they sell to)
-9) B2B Firm size (employee bands)
-10) B2B Firm age (years since founding)
+1) Gender (gender focus only)
+2) Age (age range only)
+3) Income
+4) Education
+5) Optional segments decision (Household / Employment / Housing)
+6) Household structure (ONLY if client opts in)
+7) Employment (ONLY if client opts in)
+8) Housing economics (ONLY if client opts in)
+9) B2B Industry (what kinds of businesses they sell to)
+10) B2B Firm size (employee bands)
+11) B2B Firm age (years since founding)
 
 Rules:
 - Default to ranges and breadth: multiple groups per segment is normal.
@@ -479,17 +546,23 @@ Rules:
 - Do not number questions (no "1)", "2)", etc.). If you need to present choices, use a short bullet list under the single question.
 - Avoid pressuring confirmation loops. Treat the user's answer as the decision, briefly reflect it back, and move on. Only ask follow-ups if ambiguous or incomplete.
 - Do not consult or discuss any other segments.
-- For Gender & Age and Income, prefer collecting a clear numeric range (min and max). If the user answers qualitatively (e.g., "middle income"), propose a reasonable numeric range based on the business context and ask whether that range is acceptable or how they'd adjust it.
- - IMPORTANT (Income proposal state): If you propose a specific numeric income range and ask the user to accept/adjust it, set income_proposal to that proposed (income_min, income_max) range. Otherwise set income_proposal to null.
+- For Age and Income, infer a numeric min and max from natural language and commit it via patch.
+  - Do NOT ask the user to reformat their answer into a specific numeric string.
+  - Only ask a clarifying question if the intent is truly ambiguous.
+  - If only a lower bound is given (e.g., "60k and up"), use a high upper bound (1000000 for income; 120 for age).
+  - If the user says no preference/any/open, use broad bounds (age 18-120; income 0-1000000).
 - Employment and Housing Economics are OPTIONAL and should not be a long, drawn-out process:
   - After finishing Education, briefly state whether you think Household Structure, Employment and/or Housing Economics are relevant (1-2 sentences total, grounded in the business context).
   - Then ask the client to choose: include Household Structure, include Employment, include Housing, include any combination, or skip all three.
   - IMPORTANT: This "opt-in decision" message must ask ONLY that single question. Do NOT also ask any Household/Employment/Housing follow-up in the same message, and do NOT say "Let's start with X" or begin the next segment until the client has opted in.
   - If the client says skip, do not discuss those segments at all.
   - If the client opts in, handle one optional segment at a time, with minimal questions.
-- For B2B size, use only these employee bands (pick one or more): 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+.
-- For B2B age, use only these bands (pick one or more): 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+.
+- For B2B size and B2B firm age, ask in plain language and let the client answer however they want (ranges, qualitative, "no preference", etc.).
+- IMPORTANT: Do NOT dump long canonical band lists to the client. If examples are helpful, give at most 2-3 short examples (e.g., "under 20 employees", "20-99", "100+").
 - For B2B industry, propose practical groupings (not long lists). Do not show NAICS codes to the user.
+Canonical band tokens (for patch only; NEVER show these lists to the client):
+- b2b_size_bands: 1-4, 5-9, 10-19, 20-99, 100-499, 500-999, 1000-2499, 2500-4999, 5000-9999, 10000+
+- b2b_age_bands: 0, 1, 2, 3, 4, 5, 6-10, 11-15, 16-20, 21-25, 26+
 
 Do NOT propose or confirm acquisition channels/platforms during the chat intake.
 Do NOT mention "the backend" or describe internal next steps to the client.
@@ -509,6 +582,9 @@ Fact-bearing templates (STRICT):
 Output rules:
 - Output ONLY JSON matching the provided schema (no prose outside JSON).
 - assistant_message must be normal conversation text for the client.
+- patch must commit normalized Target Market fields implied by the client's most recent message.
+  - If the most recent message does not provide new target market data (e.g., the first "start" turn), you MUST still output all patch keys (per schema) and set each value to null.
+  - b2b_size_bands and b2b_age_bands must use canonical band tokens only (e.g., "20-99", "6-10").
 - If finalize_ready is false, assistant_message MUST ask exactly ONE clear next question and must end with a question mark. Do NOT end with a recap or a "we have enough" handoff statement.
 - If finalize_ready is true, assistant_message must be exactly: "Target market intake complete."
 - finalize_ready must be true ONLY when you have enough information to finalize (all required segments decided, any optional segments handled/skipped, plus the B2B segments decided).
@@ -576,7 +652,9 @@ Output rules:
 
   text = str(result.get("assistant_message") or "").strip()
   finalize_ready = bool(result.get("finalize_ready", False))
-  income_proposal = result.get("income_proposal")
+  patch_obj = result.get("patch")
+  if not isinstance(patch_obj, dict):
+    patch_obj = {}
   if not finalize_ready:
     text = _trim_after_first_question_block(text)
     text = _split_long_response(text)
@@ -589,7 +667,7 @@ Output rules:
   return {
     "assistant_message": text,
     "finalize_ready": bool(finalize_ready),
-    "income_proposal": income_proposal if isinstance(income_proposal, dict) else None,
+    "patch": patch_obj,
   }
 
 

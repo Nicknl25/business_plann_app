@@ -308,8 +308,10 @@ def _classify_restatement_response(*, restatement: str, user_reply: str) -> Opti
     "You are classifying a user's reply to a proposed restatement.\n"
     "Return exactly one of: ACCEPT, REJECT, CLARIFY.\n"
     "If the assistant text is not a restatement asking for confirmation, return CLARIFY.\n"
-    "- ACCEPT: user affirms the restatement without changes.\n"
-    "- REJECT: user disagrees or provides corrections.\n"
+    "- ACCEPT: the user generally agrees that the restatement is accurate, even if they add extra nuance,\n"
+    "  caveats, future plans, or additional details (e.g., \"yes, but...\", \"mostly yes...\", \"although...\").\n"
+    "  Treat these as ACCEPT unless they clearly contradict the restatement.\n"
+    "- REJECT: the user disagrees with a material part of the restatement or explicitly corrects/contradicts it.\n"
     "- CLARIFY: user is unsure, ambiguous, or asks for clarification.\n"
     "Return only the label."
   )
@@ -1494,6 +1496,7 @@ def post_intake_consult_handler(*, app, request):
   """
   Unified intake consult controller (single chat, single draft model).
   """
+
   if request.method == "OPTIONS":
     return ("", 204)
 
@@ -1690,28 +1693,49 @@ def post_intake_consult_handler(*, app, request):
       intake_context["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
       intake_context["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
 
+      # Target Market is model-interpreted every turn and returns a structured patch,
+      # allowing us to persist the Target Market JSON incrementally (no controller parsing).
+      turn: Dict[str, Any] = {}
       if focus == "ops":
-        assistant_text = consultant_chat_turn(
-          intake_context=intake_context, conversation_messages=turn_messages
-        )["assistant_message"]
+        turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
       elif focus == "market":
-        assistant_text = target_market_chat_turn(
-          intake_context=intake_context, conversation_messages=turn_messages
-        )["assistant_message"]
+        turn = target_market_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
+        try:
+          if isinstance(market_json, dict):
+            patch_obj = turn.get("patch") if isinstance(turn, dict) else None
+            if isinstance(patch_obj, dict):
+              allowed_keys = {
+                "consumer_type",
+                "gender_age_intent",
+                "income_intent",
+                "b2b_industry_terms",
+                "b2b_size_bands",
+                "b2b_age_bands",
+              }
+              for k, v in patch_obj.items():
+                key = str(k or "").strip()
+                if not key:
+                  continue
+                if key.startswith("market."):
+                  key = key.split(".", 1)[1].strip()
+                if key in allowed_keys:
+                  # In strict json_schema, the model must always output every patch key.
+                  # We treat null values as "no change" to avoid wiping prior answers.
+                  if v is None:
+                    continue
+                  market_json[key] = v
+        except Exception:
+          pass
       elif focus == "people":
-        assistant_text = people_capability_chat_turn(
-          intake_context=intake_context, conversation_messages=turn_messages
-        )["assistant_message"]
+        turn = people_capability_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
       elif focus == "financials":
-        assistant_text = financials_chat_turn(
-          intake_context=intake_context, conversation_messages=turn_messages
-        )["assistant_message"]
+        turn = financials_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
       elif focus == "consistency":
-        assistant_text = consistency_chat_turn(
-          intake_context=intake_context, conversation_messages=turn_messages
-        )["assistant_message"]
+        turn = consistency_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
       else:
-        assistant_text = "Continue."
+        turn = {"assistant_message": "Continue."}
+
+      assistant_text = str(turn.get("assistant_message") or "").strip() or "Continue."
 
       assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
       if focus == "market":
@@ -1728,6 +1752,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[{"role": "assistant", "content": assistant_text}],
+        target_market_json=market_json if focus == "market" else None,
         active_focus=focus,
         business_facts=business_facts,
       )
@@ -2013,20 +2038,9 @@ def post_intake_consult_handler(*, app, request):
       shared_context_for_router = shared_context
     # Route the user's message through the GPT-only intent router first.
     confirm_override = str(confirm_question or _detect_confirm_question(last_assistant) or "").strip()
-    pending_income_intent = None
-    try:
-      candidate = (market_json or {}).get("_pending_income_intent")
-      if isinstance(candidate, list) and candidate:
-        pending_income_intent = [c for c in candidate if isinstance(c, dict)]
-      else:
-        pending_income_intent = None
-    except Exception:
-      pending_income_intent = None
-    pending_income_active = bool(str(focus).strip().lower() == "market" and pending_income_intent)
-    # When we have an explicit pending income proposal, treat the next user reply as a
-    # confirmation/counter decision for that proposal (router remains the authority).
-    if pending_income_active:
-      confirm_override = "Does the proposed income range work?"
+    # NOTE: Target Market replies are interpreted directly by the Target Market consultant
+    # (structured patch). We intentionally do not maintain controller-owned "pending income"
+    # confirmation state to avoid brittle loops.
     milestone_intent_override: Optional[Dict[str, Any]] = None
     if (
       str(focus).strip().lower() == "ops"
@@ -2085,6 +2099,11 @@ def post_intake_consult_handler(*, app, request):
       action = "continue_chat"
       router_msg = ""
       patch = None
+    elif str(focus).strip().lower() == "market" and not market_finalize_proposed:
+      # Target Market is model-interpreted every turn (structured patch), not router-parsed.
+      action = "continue_chat"
+      router_msg = ""
+      patch = None
     else:
       intent = route_intent(
         consult_type="unified",
@@ -2099,17 +2118,6 @@ def post_intake_consult_handler(*, app, request):
       action = str(intent.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
       patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
-
-    pending_income_resolved = False
-    if pending_income_active:
-      # If the client accepts the pending proposal, persist it immediately as a normal patch.
-      # If the client counters, the router should return edit_patch and we let that override.
-      if action == "confirm_proceed":
-        action = "edit_patch"
-        patch = {"market.income_intent": pending_income_intent}
-        pending_income_resolved = True
-      elif action == "edit_patch":
-        pending_income_resolved = True
 
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
@@ -2235,8 +2243,6 @@ def post_intake_consult_handler(*, app, request):
       )
       # Keep capacity compatibility coherent (especially monthly/contract cadence).
       ops_json = _normalize_ops_capacity_compat(ops_json)
-      if pending_income_resolved and isinstance(market_json, dict):
-        market_json.pop("_pending_income_intent", None)
       try:
         shared_context = dict(shared_context or {})
         shared_context["operating_model"] = ops_json
@@ -2770,9 +2776,10 @@ def post_intake_consult_handler(*, app, request):
             if consumer_type not in ("consumer", "b2b", "mixed"):
               consumer_type = "consumer"
             intake_context_next["consumer_type"] = consumer_type
-            next_assistant = target_market_chat_turn(
+            market_turn = target_market_chat_turn(
               intake_context=intake_context_next, conversation_messages=turn_messages
-            )["assistant_message"]
+            )
+            next_assistant = str((market_turn or {}).get("assistant_message") or "").strip()
             assistant_text = f"Great, let's move on to Target Market.\n\n{next_assistant}".strip()
             assistant_text = _strip_acs_codes(sanitize_fact_template(str(assistant_text or "").strip()))
 
@@ -2781,6 +2788,7 @@ def post_intake_consult_handler(*, app, request):
               draft_id=str(draft_id).strip(),
               new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
               operating_model_json=ops_json,
+              target_market_json=market_json,
               active_focus=next_focus,
               confirmations={"ops": True},
               business_facts=business_facts,
@@ -2877,9 +2885,10 @@ def post_intake_consult_handler(*, app, request):
           intake_context=intake_context_next, conversation_messages=turn_messages
         )["assistant_message"]
       elif next_focus == "market":
-        next_assistant = target_market_chat_turn(
+        market_turn = target_market_chat_turn(
           intake_context=intake_context_next, conversation_messages=turn_messages
-        )["assistant_message"]
+        )
+        next_assistant = str((market_turn or {}).get("assistant_message") or "").strip()
       elif next_focus == "people":
         next_assistant = people_capability_chat_turn(
           intake_context=intake_context_next, conversation_messages=turn_messages
@@ -2927,6 +2936,7 @@ def post_intake_consult_handler(*, app, request):
         confirmations=confirmations,
         active_focus=next_focus,
         business_facts=business_facts,
+        target_market_json=market_json if next_focus == "market" else None,
         flat_fields=_finalize_flag_field(focus, False),
       )
 
@@ -2951,6 +2961,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        target_market_json=market_json if focus == "market" else None,
         active_focus=focus,
         business_facts=business_facts,
         pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
@@ -2977,6 +2988,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        target_market_json=market_json if focus == "market" else None,
         active_focus=focus,
         business_facts=business_facts,
         pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
@@ -3062,24 +3074,34 @@ def post_intake_consult_handler(*, app, request):
         force=True,
       )
 
-    market_pending_income_touched = False
+    # Target Market: apply model-produced structured patch immediately (no controller parsing).
     if str(focus).strip().lower() == "market" and isinstance(turn, dict):
-      # Controller-owned pending income proposal state (no heuristics): when the target
-      # market consultant proposes a numeric income range for confirmation, persist it so
-      # the next client reply can be routed as accept/counter and commit numbers.
-      try:
-        if isinstance(market_json, dict) and not (market_json.get("income_intent") or None):
-          proposal = turn.get("income_proposal")
-          if isinstance(proposal, dict):
-            mn = proposal.get("income_min")
-            mx = proposal.get("income_max")
-            if isinstance(mn, (int, float)) and isinstance(mx, (int, float)) and float(mx) >= float(mn):
-              market_json["_pending_income_intent"] = [
-                {"income_min": float(mn), "income_max": float(mx)}
-              ]
-              market_pending_income_touched = True
-      except Exception:
-        market_pending_income_touched = False
+      patch_obj = turn.get("patch")
+      if isinstance(patch_obj, dict) and isinstance(market_json, dict):
+        allowed_keys = {
+          "consumer_type",
+          "gender_age_intent",
+          "income_intent",
+          "b2b_industry_terms",
+          "b2b_size_bands",
+          "b2b_age_bands",
+        }
+        for k, v in patch_obj.items():
+          key = str(k or "").strip()
+          if not key:
+            continue
+          if key.startswith("market."):
+            key = key.split(".", 1)[1].strip()
+          if key in allowed_keys:
+            # In strict json_schema, the model must always output every patch key.
+            # We treat null values as "no change" to avoid wiping prior answers.
+            if v is None:
+              continue
+            market_json[key] = v
+        try:
+          shared_context["target_market"] = market_json
+        except Exception:
+          pass
 
     finalize_ready = bool(turn.get("finalize_ready", False))
     review_ready = bool(turn.get("review_ready", False))
@@ -3265,7 +3287,14 @@ def post_intake_consult_handler(*, app, request):
             force=True,
           )
         if followup_text:
-          assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
+          # If the follow-up turn indicates the consult is complete, carry that
+          # completion signal forward so we finalize immediately instead of
+          # returning a dead-end statement that forces the user to type "ok".
+          if bool(followup_turn.get("finalize_ready", False)):
+            finalize_ready = True
+            assistant_text = followup_text.strip()
+          else:
+            assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
       except Exception:
         # Best-effort; if follow-up fails, keep the original reply.
         pass
@@ -3350,7 +3379,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         operating_model_json=ops_json if (persist_ops_from_restatement or ops_restatement_meta_touched) else None,
-        target_market_json=market_json if market_pending_income_touched else None,
+        target_market_json=market_json if str(focus).strip().lower() == "market" else None,
         active_focus=focus,
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
@@ -3540,9 +3569,10 @@ def post_intake_consult_handler(*, app, request):
       if consumer_type not in ("consumer", "b2b", "mixed"):
         consumer_type = "consumer"
       intake_context_next["consumer_type"] = consumer_type
-      next_assistant = target_market_chat_turn(
+      market_turn = target_market_chat_turn(
         intake_context=intake_context_next, conversation_messages=turn_messages
-      )["assistant_message"]
+      )
+      next_assistant = str((market_turn or {}).get("assistant_message") or "").strip()
       assistant_final = f"Great, let's move on to Target Market.\n\n{next_assistant}".strip()
       assistant_final = _strip_acs_codes(sanitize_fact_template(str(assistant_final or "").strip()))
 
@@ -3551,6 +3581,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         operating_model_json=ops_json,
+        target_market_json=market_json,
         active_focus=next_focus,
         confirmations={"ops": True},
         business_facts=business_facts,
@@ -3583,6 +3614,10 @@ def post_intake_consult_handler(*, app, request):
           final_obj[k] = sanitize_fact_template(v)
       if isinstance(final_obj, dict):
         final_obj.pop("target_market_summary", None)
+        final_obj.pop("_pending_income_intent", None)
+        final_obj.pop("_pending_capture_field", None)
+        final_obj.pop("_pending_gender_focus", None)
+        final_obj.pop("_pending_age_range", None)
 
       # Persist a rendered marketing_plan_summary (no {{fact:...}} placeholders).
       # Keep the change scoped to this single field only.
