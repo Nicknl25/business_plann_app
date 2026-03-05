@@ -1923,7 +1923,13 @@ def post_intake_consult_handler(*, app, request):
       }
 
     if not starting:
-      should_check_revenue = _should_check_revenue_patch(last_assistant, message) or guardrail_triggered
+      # Revenue driver edits (financials_year1) should only be interpreted while the
+      # user is in the Financials section; otherwise we can incorrectly intercept
+      # unrelated edits (e.g., People/HR wage/timing changes) and crash the turn.
+      should_check_revenue = (
+        str(focus).strip().lower() == "financials"
+        and (_should_check_revenue_patch(last_assistant, message) or guardrail_triggered)
+      )
       if should_check_revenue:
         revenue_intent = route_intent(
           consult_type="financials_year1",
@@ -2373,6 +2379,131 @@ def post_intake_consult_handler(*, app, request):
             )
       except Exception:
         pass
+
+      # People/HR confirm stage: if the client counters/edits the People review, we apply
+      # the patch, acknowledge briefly, and advance to Financials WITHOUT re-showing
+      # roles/people again (noise). This keeps behavior scoped to People only.
+      if (
+        str(focus or "").strip().lower() == "people"
+        and bool(people_finalize_proposed)
+        and isinstance(patch, dict)
+        and any(str(k).strip().lower().startswith("people.") for k in patch.keys())
+      ):
+        # Refresh derived People fields after edits (keeps SQL internally consistent).
+        try:
+          from people_roles import format_roles_summary  # type: ignore
+
+          if isinstance(people_json, dict):
+            roles_now = people_json.get("inferred_roles")
+            roles_now = roles_now if isinstance(roles_now, list) else []
+            people_json["inferred_roles_summary"] = format_roles_summary(roles_now)
+        except Exception:
+          pass
+
+        # Render People fact templates (no {{fact:...}} placeholders) for persisted JSON.
+        try:
+          try:
+            from fact_templates import render_fact_template  # type: ignore
+          except Exception:
+            from client_intake_and_finmo.fact_templates import render_fact_template  # type: ignore
+
+          if isinstance(people_json, dict):
+            business_facts_for_render = {
+              "name": str(business_facts.get("name") or "").strip(),
+              "address": str(business_facts.get("address") or "").strip(),
+              "start_date": str(business_facts.get("start_date") or "").strip(),
+            }
+            shared_ctx_for_render = {
+              "operating_model": ops_json,
+              "target_market": market_json,
+              "people_capability": people_json,
+              "financials": financials_json,
+            }
+            ppl = people_json.get("people")
+            if isinstance(ppl, list):
+              for p in ppl:
+                if not isinstance(p, dict):
+                  continue
+                for fk, fv in list(p.items()):
+                  if isinstance(fv, str) and "{{fact:" in fv:
+                    p[fk] = render_fact_template(
+                      fv, shared_context=shared_ctx_for_render, business_facts=business_facts_for_render
+                    ).strip()
+            roles = people_json.get("inferred_roles")
+            if isinstance(roles, list):
+              for r in roles:
+                if not isinstance(r, dict):
+                  continue
+                for fk, fv in list(r.items()):
+                  if isinstance(fv, str) and "{{fact:" in fv:
+                    r[fk] = render_fact_template(
+                      fv, shared_context=shared_ctx_for_render, business_facts=business_facts_for_render
+                    ).strip()
+            shared_context["people_capability"] = people_json
+        except Exception:
+          pass
+
+        next_focus = "financials"
+        start_instruction = _start_instruction_for_focus(next_focus)
+        turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+        intake_context_next: Dict[str, Any] = {
+          "client_id": client_id,
+          "draft_id": str(draft_id).strip(),
+          "business_name": business_facts.get("name"),
+          "business_start_date": business_facts.get("start_date"),
+          "address": business_facts.get("address"),
+          "current_date": current_date_iso,
+          "business_stage_hint": business_stage_hint,
+          "shared_context": shared_context,
+          "operating_model_json": ops_json,
+          "target_market_json": market_json,
+          "people_json": people_json,
+          "financials_json": financials_json,
+          "fulfillment_json": fulfillment_json,
+        }
+        intake_context_next["financials_year1_json"] = financials_year1_json
+        intake_context_next["revenue_math_line"] = revenue_math_line
+        intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
+        intake_context_next["revenue_driver_patch"] = revenue_driver_patch
+        intake_context_next["revenue_guardrail_triggered"] = guardrail_triggered
+        intake_context_next["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
+        intake_context_next["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
+
+        next_assistant = financials_chat_turn(
+          intake_context=intake_context_next, conversation_messages=turn_messages
+        )["assistant_message"]
+        assistant_text = f"Got it - updated.\n\nGreat, let's move on to Financials.\n\n{next_assistant}".strip()
+        assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
+        assistant_text = _append_constraints_snippet(
+          assistant_text,
+          revenue_constraints_snippet,
+          messages,
+          force=True,
+        )
+
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          confirmations={"people": True},
+          active_focus=next_focus,
+          business_facts=business_facts,
+          people_json=people_json,
+          financials_year1_json=financials_year1_json,
+          flat_fields=_finalize_flag_field("people", False),
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": next_focus,
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "confirm_proceed",
+            "assistant_message": assistant_text,
+          }
+        )
       business_type_touched = False
       if isinstance(patch, dict):
         business_type_touched = "ops.business_type" in patch
@@ -3723,65 +3854,86 @@ def post_intake_consult_handler(*, app, request):
         if "business_naics_6" not in final_obj:
           final_obj["business_naics_6"] = None
 
-      # Auto-skip People/HR finalization summary (noise). Persist the finalized people_json
-      # and advance directly to Financials, mirroring Ops auto-advance behavior.
+      # People/HR: show a one-time review (key people + inferred roles) and ask for
+      # confirmation. If the client counters, we acknowledge and advance without
+      # re-showing this review again.
       if isinstance(final_obj, dict):
         final_obj.pop("key_people_summary", None)
       people_json = final_obj
+
+      # Render People fact templates (no {{fact:...}} placeholders) for display + persistence.
       try:
-        shared_context = dict(shared_context or {})
-        shared_context["operating_model"] = ops_json
-        shared_context["target_market"] = market_json
-        shared_context["people_capability"] = people_json
-        shared_context["financials"] = financials_json
+        try:
+          from fact_templates import render_fact_template  # type: ignore
+        except Exception:
+          from client_intake_and_finmo.fact_templates import render_fact_template  # type: ignore
+
+        if isinstance(people_json, dict):
+          business_facts_for_render = {
+            "name": str(business_facts.get("name") or "").strip(),
+            "address": str(business_facts.get("address") or "").strip(),
+            "start_date": str(business_facts.get("start_date") or "").strip(),
+          }
+          shared_ctx_for_render = {
+            "operating_model": ops_json,
+            "target_market": market_json,
+            "people_capability": people_json,
+            "financials": financials_json,
+          }
+          ppl = people_json.get("people")
+          if isinstance(ppl, list):
+            for p in ppl:
+              if not isinstance(p, dict):
+                continue
+              for fk, fv in list(p.items()):
+                if isinstance(fv, str) and "{{fact:" in fv:
+                  p[fk] = render_fact_template(
+                    fv, shared_context=shared_ctx_for_render, business_facts=business_facts_for_render
+                  ).strip()
+          roles = people_json.get("inferred_roles")
+          if isinstance(roles, list):
+            for r in roles:
+              if not isinstance(r, dict):
+                continue
+              for fk, fv in list(r.items()):
+                if isinstance(fv, str) and "{{fact:" in fv:
+                  r[fk] = render_fact_template(
+                    fv, shared_context=shared_ctx_for_render, business_facts=business_facts_for_render
+                  ).strip()
       except Exception:
         pass
 
-      next_focus = "financials"
-      start_instruction = _start_instruction_for_focus(next_focus)
-      turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
-      intake_context_next: Dict[str, Any] = {
-        "client_id": client_id,
-        "draft_id": str(draft_id).strip(),
-        "business_name": business_facts.get("name"),
-        "business_start_date": business_facts.get("start_date"),
-        "address": business_facts.get("address"),
-        "current_date": current_date_iso,
-        "business_stage_hint": business_stage_hint,
-        "shared_context": shared_context,
-        "operating_model_json": ops_json,
-        "target_market_json": market_json,
-        "people_json": people_json,
-        "financials_json": financials_json,
-        "fulfillment_json": fulfillment_json,
-      }
-      intake_context_next["financials_year1_json"] = financials_year1_json
-      intake_context_next["revenue_math_line"] = revenue_math_line
-      intake_context_next["revenue_constraints_snippet"] = revenue_constraints_snippet
-      intake_context_next["revenue_driver_patch"] = revenue_driver_patch
-      intake_context_next["revenue_guardrail_triggered"] = guardrail_triggered
-      intake_context_next["revenue_guardrail_context_signals"] = guardrail_signals.get("context_signals") or []
-      intake_context_next["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
+      key_people_blocks: List[str] = []
+      try:
+        people_list = people_json.get("people") if isinstance(people_json, dict) else None
+        people_list = people_list if isinstance(people_list, list) else []
+        for p in people_list:
+          if not isinstance(p, dict):
+            continue
+          para = p.get("paragraph")
+          if isinstance(para, str) and para.strip():
+            key_people_blocks.append(para.strip())
+      except Exception:
+        key_people_blocks = []
 
-      next_assistant = financials_chat_turn(
-        intake_context=intake_context_next, conversation_messages=turn_messages
-      )["assistant_message"]
-      assistant_final = f"Great, let's move on to Financials.\n\n{next_assistant}".strip()
-      assistant_final = sanitize_fact_template(str(assistant_final or "").strip())
-      assistant_final = _append_constraints_snippet(
-        assistant_final,
-        revenue_constraints_snippet,
-        messages,
-        force=True,
-      )
+      inferred_roles_summary = str((people_json or {}).get("inferred_roles_summary") or "").strip()
+      parts: List[str] = []
+      if key_people_blocks:
+        parts.append("Key people:\n\n" + "\n\n".join(key_people_blocks))
+      if inferred_roles_summary:
+        parts.append(inferred_roles_summary)
+      assistant_final = "\n\n".join([p for p in parts if p.strip()]).strip()
+      if assistant_final:
+        assistant_final = f"{assistant_final}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+      else:
+        assistant_final = PEOPLE_CONFIRM_QUESTION
 
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         people_json=people_json,
-        active_focus=next_focus,
-        confirmations={"people": True},
+        active_focus="people",
         business_facts=business_facts,
         flat_fields=_finalize_flag_field("people", True),
       )
@@ -3790,10 +3942,10 @@ def post_intake_consult_handler(*, app, request):
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "active_focus": next_focus,
-          "awaiting_confirmation": False,
+          "active_focus": "people",
+          "awaiting_confirmation": True,
           "done": False,
-          "action": "confirm_proceed",
+          "action": "continue",
           "assistant_message": assistant_final,
         }
       )

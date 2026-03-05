@@ -1979,8 +1979,14 @@ Return JSON only. No prose.
 
 
         if not isinstance(patch_ops, list) or not patch_ops:
-
-          raise RuntimeError("Intent router returned edit_patch without a patch operations array.")
+          # Don't hard-fail the entire intake if the model emits a malformed edit_patch.
+          # Instead, ask the user to clarify/rephrase so we can try again next turn.
+          result["action"] = "confirm_clarify"
+          result["assistant_message"] = (
+            "I had trouble applying that change. Can you rephrase what you want to update?"
+          )
+          result["patch"] = None
+          return result
 
 
 
@@ -2218,8 +2224,14 @@ Return JSON only. No prose.
     return parsed
 
   if not isinstance(patch_ops, list) or not patch_ops:
-
-    raise RuntimeError("Intent router returned edit_patch without a patch operations array.")
+    # Don't hard-fail the entire intake if the model emits a malformed edit_patch.
+    # Instead, ask the user to clarify/rephrase so we can try again next turn.
+    parsed["action"] = "confirm_clarify"
+    parsed["assistant_message"] = (
+      "I had trouble applying that change. Can you rephrase what you want to update?"
+    )
+    parsed["patch"] = None
+    return parsed
 
   value_schemas = _value_schema_by_consult_field(consult_type=consult_type_norm)
 
