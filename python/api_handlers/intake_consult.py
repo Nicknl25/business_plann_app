@@ -2144,7 +2144,14 @@ def post_intake_consult_handler(*, app, request):
       if existing_milestones:
         milestone_patch_from_user = None
 
-    if str(focus).strip().lower() == "ops" and not _has_confirmed_milestone(ops_json):
+    # Only accept milestone patches when we are explicitly in the milestone-capture step.
+    # This keeps Ops sequencing stable (competitive advantage second-to-last, milestone last)
+    # and prevents earlier turns from accidentally persisting a milestone out of order.
+    if (
+      str(focus).strip().lower() == "ops"
+      and pending_ops_milestone
+      and not _has_confirmed_milestone(ops_json)
+    ):
       if milestone_patch_from_user:
         ops_json["milestones"] = milestone_patch_from_user
         _enrich_milestones_timing(ops_json, reference_date=current_date)
@@ -3264,6 +3271,7 @@ def post_intake_consult_handler(*, app, request):
       if OPS_CONFIRM_QUESTION.lower() in assistant_text.lower():
         finalize_ready = True
 
+    ops_ready_for_wrap = False
     # Ops hard gate: do not allow the ops "finalize-ready" path (which triggers competitive
     # advantage/milestone injection and summary auto-skip) unless capacity has been captured.
     #
@@ -3334,6 +3342,25 @@ def post_intake_consult_handler(*, app, request):
             f"To make planning realistic, on a fully busy {period_label}, about how many {unit_name}s do you expect you can handle?"
           ).strip()
           finalize_ready = False
+        else:
+          # Competitive advantage should be second-to-last and milestones last. Only
+          # allow that wrap-up sequence once the core Ops fields are present.
+          required_fields = [
+            "unit_name",
+            "unit_cadence",
+            "unit_price",
+            "shipping_method",
+            "sales_modality",
+            "geographic_scope",
+            "legal_entity",
+            "capacity_driver",
+            "primary_growth_lever",
+          ]
+          if isinstance(gate_obj, dict) and all(str(gate_obj.get(k) or "").strip() for k in required_fields):
+            ops_ready_for_wrap = True
+          else:
+            # The model attempted to finalize early; keep the conversation in Ops.
+            finalize_ready = False
       except Exception:
         # Best-effort: if gating fails, preserve existing behavior.
         pass
@@ -3341,6 +3368,7 @@ def post_intake_consult_handler(*, app, request):
     if (
       str(focus).strip().lower() == "ops"
       and finalize_ready
+      and ops_ready_for_wrap
       and not str((ops_json or {}).get("competitive_advantage") or "").strip()
     ):
       confirmed_restatement = _extract_confirmed_restatement(messages)
@@ -3361,6 +3389,7 @@ def post_intake_consult_handler(*, app, request):
     if (
       str(focus).strip().lower() == "ops"
       and finalize_ready
+      and ops_ready_for_wrap
       and str((ops_json or {}).get("competitive_advantage") or "").strip()
       and not _has_confirmed_milestone(ops_json)
       and not pending_ops_milestone
@@ -3912,15 +3941,36 @@ def post_intake_consult_handler(*, app, request):
             continue
           para = p.get("paragraph")
           if isinstance(para, str) and para.strip():
-            key_people_blocks.append(para.strip())
+            block = para.strip()
+            wage_raw = p.get("annual_wage")
+            try:
+              wage_val = float(wage_raw)
+            except Exception:
+              wage_val = None
+            if wage_val is not None and wage_val > 0:
+              wage_fmt = f"${int(round(wage_val)):,.0f}"
+              # Keep wage visible to the client, but embedded in the narrative (no standalone line).
+              block = f"{block.rstrip()} Estimated annual wage: {wage_fmt}/year."
+            key_people_blocks.append(block)
       except Exception:
         key_people_blocks = []
 
       inferred_roles_summary = str((people_json or {}).get("inferred_roles_summary") or "").strip()
       parts: List[str] = []
-      if key_people_blocks:
-        parts.append("Key people:\n\n" + "\n\n".join(key_people_blocks))
-      if inferred_roles_summary:
+      has_people = bool(key_people_blocks)
+      has_roles = bool(inferred_roles_summary)
+      if has_people and has_roles:
+        parts.append(
+          "Review this draft (key people narrative + suggested year-1 roles with wages and timing) and tell me any changes."
+        )
+      elif has_people:
+        parts.append("Review this draft (key people narrative) and tell me any changes.")
+      elif has_roles:
+        parts.append("Review these suggested year-1 roles (with wages and timing) and tell me any changes.")
+
+      if has_people:
+        parts.append("\n\n".join(key_people_blocks))
+      if has_roles:
         parts.append(inferred_roles_summary)
       assistant_final = "\n\n".join([p for p in parts if p.strip()]).strip()
       if assistant_final:
