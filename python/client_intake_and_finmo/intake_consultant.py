@@ -113,6 +113,7 @@ def _final_schema() -> Dict[str, Any]:
                     "unit_cadence": {"type": "string", "enum": ["weekly", "monthly", "contract"]},
                     "units_per_week_capacity": {"type": "number"},
                     "units_per_period_capacity": {"type": "number"},
+                    "utilization_rate": {"type": ["number", "null"]},
                     "unit_price": {"type": "number"},
                   },
                   "required": [
@@ -122,6 +123,7 @@ def _final_schema() -> Dict[str, Any]:
                     "unit_cadence",
                     "units_per_week_capacity",
                     "units_per_period_capacity",
+                    "utilization_rate",
                     "unit_price",
                   ],
                 },
@@ -135,6 +137,7 @@ def _final_schema() -> Dict[str, Any]:
         "unit_cadence": {"type": ["string", "null"], "enum": ["weekly", "monthly", "contract", None]},
         "units_per_week_capacity": {"type": ["number", "null"]},
         "units_per_period_capacity": {"type": ["number", "null"]},
+        "utilization_rate": {"type": ["number", "null"]},
         "unit_price": {"type": ["number", "null"]},
         "shipping_method": {"type": "string"},
         "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
@@ -173,6 +176,7 @@ def _final_schema() -> Dict[str, Any]:
         "unit_cadence",
         "units_per_week_capacity",
         "units_per_period_capacity",
+        "utilization_rate",
         "unit_price",
         "shipping_method",
         "sales_modality",
@@ -269,6 +273,7 @@ Multiple lines of business (LOB) and products (EARLY, REVENUE-DRIVEN):
 - If the client prefers to keep them combined, treat it as a single LOB.
 - When defining the unit, if the client mentions more than one distinct unit/product, propose tracking multiple products and confirm.
 - If multiple LOBs/products are confirmed, capture unit_name, unit_description, unit_cadence, units_per_period_capacity, unit_price, and units_per_week_capacity for each product, one product at a time.
+- For each product, also capture a Year-1 practical utilization rate as a percentage of practical capacity (for example 70%).
 - Do NOT ask the client to choose a "primary" product when multiple are confirmed.
 
 Information you must collect before finalizing (do NOT show these as internal field names to the client):
@@ -279,6 +284,7 @@ Information you must collect before finalizing (do NOT show these as internal fi
 - A short description of what's included in a typical unit (per product)
 - Unit cadence (weekly, monthly, or contract) for each product
 - Capacity per cadence period (how many units can be handled in a fully booked period, per product)
+- Year-1 practical utilization rate per product (as a percent of practical capacity)
 - A single agreed average price per unit (> 0) for each product
 - How the customer receives the product/service (delivery/fulfillment/shipping method), explicitly chosen by the client
 - Sales channel modality: physical | online | hybrid
@@ -297,6 +303,14 @@ Cadence handling (REQUIRED):
 - If the unit represents owned assets/inventory (rentals, storage units, rooms, vehicles, seats, etc.), treat capacity as the count of those units available in a typical period and keep the language plain. Do not frame this as throughput or a "mapping" choice; just restate the business normally and confirm.
 - Always populate units_per_period_capacity based on the chosen cadence.
 - For compatibility, also populate units_per_week_capacity with the same numeric value (even for monthly/contract cadences).
+
+Utilization handling (REQUIRED):
+- After capacity is agreed for a product, capture a Year-1 practical utilization rate for that product.
+- utilization_rate is the average share of practical capacity you expect to actually use in Year 1.
+- Store utilization_rate as a decimal fraction (for example 70% -> 0.7, 85% -> 0.85).
+- Propose a practical utilization assumption first, then let the client agree or counter.
+- Keep the question plain: do not ask the client to do math; they may answer in percent language ("70%", "about 80 percent", "closer to 65").
+- Do not finalize Ops until utilization_rate has been explicitly agreed for every product in scope.
 
 Unit price rules (STRICT):
 - The final unit_price for each product must be explicitly agreed to by the client; you may not unilaterally assign it.
@@ -343,7 +357,7 @@ Conversation rules:
 - Do not estimate or invent values EXCEPT that you may propose unit_price as described above when the client is unsure.
 - Legal entity handling: help the client choose the closest label; if they are unsure after one clarification question, default to "Sole proprietor". Never respond with long explanatory phrases for the legal entity.
 - Legal entity confirmation (REQUIRED): ask and confirm the legal structure as a stand-alone question after the restatement is confirmed and before the final summary. Do NOT bundle it with any other question.
-- Final confirmation summary MUST be a single paragraph with no bullets, no headings, and no preamble.
+- Do NOT generate a final operational summary paragraph. End-of-Ops wrap-up is controller-owned.
 - Geography rules:
   - Use the provided business address context (street/city/state/ZIP/country) to avoid asking basic location questions like "which country are you operating in?" when it is already known.
   - After agreeing on the high-level geographic scope (local/regional/national/international), you MUST capture geographic coverage as a concrete set of areas that matches the scope:
@@ -379,10 +393,11 @@ Output rules:
     "is_restatement_confirmation_prompt": boolean  // true only for the business-type restatement confirmation prompt
   }}
 - finalize_ready must be false until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
+- finalize_ready must also remain false until utilization_rate has been explicitly agreed for every product in scope.
 - When finalize_ready is true:
-  - assistant_message must be EXACTLY one paragraph operational summary and a single-sentence confirmation question.
-  - Do NOT include bullets, lists, headings, or extra restatements in that final message.
-- is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the final summary confirmation.
+  - assistant_message must be a short handoff message only, or an empty string.
+  - Do NOT include an operational summary, confirmation paragraph, bullets, lists, headings, or extra restatements.
+- is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the end-of-Ops handoff.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -489,6 +504,7 @@ Edit mode (IMPORTANT):
 Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation OR, in edit_mode, the previously agreed value in existing_operating_model_json.
 unit_cadence must be exactly one of: weekly, monthly, contract, based on how the client gets paid.
 units_per_period_capacity must be provided for each product; for monthly or contract cadence, mirror that value into units_per_week_capacity for compatibility.
+utilization_rate must be included for each product as a decimal fraction of practical Year-1 utilization (for example 0.7 for 70%). In edit_mode, carry forward the baseline value unless the edit request clearly changes it.
 
 The business_description_summary must include a concrete fulfillment model narrative consistent with the conversation (who fulfills the work, typical timing/lead time, and what primarily constrains capacity: labor/system/demand) and a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
 If a full business address is present in the context (including country), use it to populate countries and geographic_coverage without asking extra country questions.
@@ -500,8 +516,9 @@ Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or s
 Multi-LOB/products:
 - If the conversation confirms multiple LOBs and/or multiple products, populate lob_models accordingly.
 - For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, and unit_price.
+- For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, utilization_rate, and unit_price.
 - When multiple LOBs or multiple products are confirmed, set top-level unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, and unit_price to null.
-- When only one LOB with one product is confirmed, set top-level unit fields to that single product.
+- When only one LOB with one product is confirmed, set top-level unit fields and top-level utilization_rate to that single product.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

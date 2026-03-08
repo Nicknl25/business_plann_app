@@ -427,6 +427,7 @@ def _year1_driver_map(year1_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         "unit_cadence": str(product.get("unit_cadence") or "").strip().lower(),
         "unit_price": product.get("unit_price"),
         "units_per_period_capacity": product.get("units_per_period_capacity"),
+        "utilization_rate": product.get("utilization_rate"),
       }
   return out
 
@@ -461,6 +462,10 @@ def _year1_drivers_conflict(existing_year1: Optional[Dict[str, Any]], base_year1
     existing_capacity = _num(existing_driver.get("units_per_period_capacity"))
     if base_capacity is not None and existing_capacity is not None and abs(base_capacity - existing_capacity) > 0.01:
       return True
+    base_util = _num(base_driver.get("utilization_rate"))
+    existing_util = _num(existing_driver.get("utilization_rate"))
+    if base_util is not None and existing_util is not None and abs(base_util - existing_util) > 0.0001:
+      return True
   return False
 
 
@@ -479,6 +484,7 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "unit_cadence",
       "units_per_week_capacity",
       "units_per_period_capacity",
+      "utilization_rate",
       "unit_price",
       "shipping_method",
       "sales_modality",
@@ -3315,6 +3321,28 @@ def post_intake_consult_handler(*, app, request):
             obj.get("units_per_week_capacity")
           )
 
+        def _final_obj_missing_utilization(obj: Any) -> bool:
+          if not isinstance(obj, dict):
+            return True
+          lob_models = obj.get("lob_models")
+          products: List[Dict[str, Any]] = []
+          if isinstance(lob_models, list):
+            for lob in lob_models:
+              if not isinstance(lob, dict):
+                continue
+              prods = lob.get("products")
+              if not isinstance(prods, list):
+                continue
+              for p in prods:
+                if isinstance(p, dict):
+                  products.append(p)
+          if products:
+            for p in products:
+              if _missing_number(p.get("utilization_rate")):
+                return True
+            return False
+          return _missing_number(obj.get("utilization_rate"))
+
         if _final_obj_missing_capacity(gate_obj):
           cadence = str(
             (gate_obj or {}).get("unit_cadence")
@@ -3332,6 +3360,35 @@ def post_intake_consult_handler(*, app, request):
             unit_name = "unit"
           assistant_text = (
             f"To make planning realistic, on a fully busy {period_label}, about how many {unit_name}s do you expect you can handle?"
+          ).strip()
+          finalize_ready = False
+        elif _final_obj_missing_utilization(gate_obj):
+          def _first_product_missing_utilization(obj: Any) -> Optional[Dict[str, Any]]:
+            if not isinstance(obj, dict):
+              return None
+            lob_models = obj.get("lob_models")
+            if isinstance(lob_models, list):
+              for lob in lob_models:
+                if not isinstance(lob, dict):
+                  continue
+                products = lob.get("products")
+                if not isinstance(products, list):
+                  continue
+                for product in products:
+                  if isinstance(product, dict) and _missing_number(product.get("utilization_rate")):
+                    return product
+            return obj if _missing_number(obj.get("utilization_rate")) else None
+
+          missing_product = _first_product_missing_utilization(gate_obj) or {}
+          util_label = str(
+            missing_product.get("product_name")
+            or missing_product.get("unit_name")
+            or (ops_json or {}).get("unit_name")
+            or "this offering"
+          ).strip()
+          assistant_text = (
+            f"For Year 1 planning, what average utilization do you want to assume for {util_label} "
+            "(for example, 70% of practical capacity)?"
           ).strip()
           finalize_ready = False
         else:
@@ -3602,6 +3659,7 @@ def post_intake_consult_handler(*, app, request):
             _maybe_set_number("unit_price")
             _maybe_set_number("units_per_week_capacity")
             _maybe_set_number("units_per_period_capacity")
+            _maybe_set_number("utilization_rate")
       # Capacity compatibility: fill missing week/period fields deterministically.
       final_obj = _normalize_ops_capacity_compat(final_obj)
       try:

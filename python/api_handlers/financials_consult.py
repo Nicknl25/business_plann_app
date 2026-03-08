@@ -160,6 +160,7 @@ def _year1_driver_map(year1_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         "unit_cadence": str(product.get("unit_cadence") or "").strip().lower(),
         "unit_price": product.get("unit_price"),
         "units_per_period_capacity": product.get("units_per_period_capacity"),
+        "utilization_rate": product.get("utilization_rate"),
       }
   return out
 
@@ -193,6 +194,10 @@ def _year1_drivers_conflict(existing_year1: Dict[str, Any], base_year1: Dict[str
     base_capacity = _num(base_driver.get("units_per_period_capacity"))
     existing_capacity = _num(existing_driver.get("units_per_period_capacity"))
     if base_capacity is not None and existing_capacity is not None and abs(base_capacity - existing_capacity) > 0.01:
+      return True
+    base_util = _num(base_driver.get("utilization_rate"))
+    existing_util = _num(existing_driver.get("utilization_rate"))
+    if base_util is not None and existing_util is not None and abs(base_util - existing_util) > 0.0001:
       return True
   return False
 

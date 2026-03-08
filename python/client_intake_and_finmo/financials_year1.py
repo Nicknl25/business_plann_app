@@ -122,6 +122,7 @@ def _build_default_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]
           "unit_price": operating_model.get("unit_price"),
           "units_per_week_capacity": operating_model.get("units_per_week_capacity"),
           "units_per_period_capacity": units_per_period_capacity,
+          "utilization_rate": operating_model.get("utilization_rate"),
         }
       ],
     }
@@ -162,6 +163,9 @@ def _build_base_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]:
           "unit_price": product.get("unit_price"),
           "units_per_week_capacity": product.get("units_per_week_capacity"),
           "units_per_period_capacity": units_per_period_capacity,
+          "utilization_rate": product.get("utilization_rate")
+          if product.get("utilization_rate") is not None
+          else operating_model.get("utilization_rate"),
         }
       )
     if not products:
@@ -758,6 +762,12 @@ def build_revenue_math_line(
     capacity = _format_number(capacity_val)
     return f"{capacity} {unit_label}/{period_label}"
 
+  def _utilization_display(obj: Dict[str, Any]) -> str:
+    utilization_rate = _normalize_utilization(obj.get("utilization_rate"))
+    if utilization_rate is None:
+      return ""
+    return _format_percent(utilization_rate)
+
   def _periods_display(obj: Dict[str, Any]) -> str:
     cadence = _normalize_cadence(obj.get("unit_cadence"))
     periods_val = obj.get("operating_periods_per_year")
@@ -775,25 +785,26 @@ def build_revenue_math_line(
       str(unit_name or "").strip() or "Product"
     )
     rows = [
-      "| Line of Business | Product / Unit | Capacity | Price | Periods / Year | Year-1 Revenue |",
-      "| --- | --- | --- | --- | --- | --- |",
+      "| Line of Business | Product / Unit | Capacity | Utilization | Price | Periods / Year | Year-1 Revenue |",
+      "| --- | --- | --- | --- | --- | --- | --- |",
       (
         f"| {_escape_cell(line_of_business)} | {_escape_cell(product_name)} | "
         f"{_escape_cell(_capacity_display(financials_year1_json, unit_name))} | "
+        f"{_escape_cell(_utilization_display(financials_year1_json))} | "
         f"{_escape_cell(_format_currency(financials_year1_json.get('unit_price')))} | "
         f"{_escape_cell(_periods_display(financials_year1_json))} | "
         f"{_escape_cell(_format_currency(financials_year1_json.get('revenue_total_year1')))} |"
       ),
       (
-        f"| **Company Total** |  |  |  |  | "
+        f"| **Company Total** |  |  |  |  |  | "
         f"**{_escape_cell(_format_currency(financials_year1_json.get('revenue_total_year1')))}** |"
       ),
     ]
     return "\n".join(rows)
 
   lines: List[str] = [
-    "| Line of Business | Product / Unit | Capacity | Price | Periods / Year | Year-1 Revenue |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| Line of Business | Product / Unit | Capacity | Utilization | Price | Periods / Year | Year-1 Revenue |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
   ]
   for lob in lobs:
     if not isinstance(lob, dict):
@@ -808,17 +819,18 @@ def build_revenue_math_line(
       lines.append(
         f"| {_escape_cell(lob_name)} | {_escape_cell(product_name)} | "
         f"{_escape_cell(_capacity_display(product, unit_name))} | "
+        f"{_escape_cell(_utilization_display(product))} | "
         f"{_escape_cell(_format_currency(product.get('unit_price')))} | "
         f"{_escape_cell(_periods_display(product))} | "
         f"{_escape_cell(_format_currency(product.get('revenue_total_year1')))} |"
       )
     lines.append(
-      f"| **{_escape_cell(lob_name)} total** |  |  |  |  | "
+      f"| **{_escape_cell(lob_name)} total** |  |  |  |  |  | "
       f"**{_escape_cell(_format_currency(lob.get('revenue_total_year1')))}** |"
     )
 
   lines.append(
-    f"| **Company Total** |  |  |  |  | "
+    f"| **Company Total** |  |  |  |  |  | "
     f"**{_escape_cell(_format_currency(financials_year1_json.get('company_revenue_total_year1')))}** |"
   )
   return "\n".join([line for line in lines if line])
