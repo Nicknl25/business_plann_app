@@ -573,17 +573,9 @@ def _append_constraints_snippet(
   *,
   force: bool = False,
 ) -> str:
-  if not snippet:
-    return assistant_text
-  if "operational constraints:" in str(assistant_text or "").lower():
-    return assistant_text
-  if _constraints_snippet_already_sent(messages):
-    return assistant_text
-  if not force:
-    return assistant_text
-  if not assistant_text:
-    return snippet
-  return f"{assistant_text}\n\n{snippet}".strip()
+  # Financials no longer shows the deterministic "Operational constraints" block
+  # in the client-facing chat output.
+  return assistant_text
 
 
 

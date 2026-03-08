@@ -380,9 +380,7 @@ Style:
 
 Revenue assembly (REPLACES revenue question):
 - You will be given financials_year1_json and revenue_math_line in the context JSON.
-- You will also be given revenue_constraints_snippet (deterministic).
-- Start this section by presenting "Year 1 revenue:" and include the revenue_math_line verbatim.
-- Immediately after the revenue_math_line, include the revenue_constraints_snippet verbatim (it is the required constraints bullet list).
+- Start this section by presenting "Year 1 revenue:" followed by a blank line, then include the revenue_math_line verbatim.
 - Revenue is derived at the product level; LOB totals are rollups only.
 - Explain the result in plain English using narrative-only inputs (unit_name, unit_description, unit_cadence, capacity_driver, sales_modality, fulfillment_model, geographic_scope, geographic_coverage, start_date, milestones, primary_growth_lever).
 - Do NOT ask "What is your revenue?" and do NOT ask for a revenue number.

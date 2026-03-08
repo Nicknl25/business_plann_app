@@ -17,6 +17,13 @@ type ChatMessage = {
   content: string;
 };
 
+type ParsedRevenueTable = {
+  intro: string;
+  headers: string[];
+  rows: string[][];
+  outro: string;
+};
+
 type DraftMeta = {
   status: string;
   activeFocus: string;
@@ -43,6 +50,69 @@ function formatDollars(value: unknown): string | null {
   const num = Number(raw);
   if (!Number.isFinite(num) || num <= 0) return null;
   return `$${Math.round(num).toLocaleString("en-US")}`;
+}
+
+function stripMarkdownBold(value: string): string {
+  return value.replace(/\*\*(.*?)\*\*/g, "$1").trim();
+}
+
+function parsePipeTableLine(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|")) return [];
+  return trimmed
+    .split("|")
+    .slice(1, -1)
+    .map((cell) => stripMarkdownBold(cell.trim()));
+}
+
+function isPipeSeparatorRow(line: string): boolean {
+  const cells = parsePipeTableLine(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
+}
+
+function parseFinancialsRevenueTable(content: string): ParsedRevenueTable | null {
+  if (!content.includes("Year 1 revenue:") || !content.includes("|")) return null;
+
+  const lines = content.split(/\r?\n/);
+  const tableStart = lines.findIndex((line) => line.trim().startsWith("|"));
+  if (tableStart < 0 || tableStart + 1 >= lines.length) return null;
+  if (!isPipeSeparatorRow(lines[tableStart + 1] || "")) return null;
+
+  let tableEnd = tableStart;
+  while (tableEnd < lines.length && lines[tableEnd].trim().startsWith("|")) {
+    tableEnd += 1;
+  }
+
+  const headerCells = parsePipeTableLine(lines[tableStart] || "");
+  if (headerCells.length === 0) return null;
+
+  const bodyRows = lines
+    .slice(tableStart + 2, tableEnd)
+    .map(parsePipeTableLine)
+    .filter((row) => row.length > 0);
+
+  if (bodyRows.length === 0) return null;
+
+  const intro = lines.slice(0, tableStart).join("\n").trim();
+  const outro = lines.slice(tableEnd).join("\n").trim();
+
+  return {
+    intro,
+    headers: headerCells,
+    rows: bodyRows,
+    outro,
+  };
+}
+
+function renderMessageText(
+  content: string,
+  sharedContext: any,
+  business: { name: string; address: string; startDate: string }
+) {
+  return renderFactTemplate(content, {
+    sharedContext,
+    business,
+  });
 }
 
 function normalizeDraftMeta(body: any): DraftMeta {
@@ -808,7 +878,7 @@ export default function UnifiedConsultStep() {
             {visibleMessages.map((m, idx) => (
               <div
                 key={idx}
-                className={`whitespace-pre-wrap rounded-md border px-3 py-2 leading-relaxed ${
+                className={`rounded-md border px-3 py-2 leading-relaxed ${
                   m.role === "assistant"
                       ? "border-slate-700/60 bg-slate-900/40"
                       : "border-slate-800/70 bg-slate-950/30"
@@ -816,16 +886,80 @@ export default function UnifiedConsultStep() {
                   data-msg-role={m.role}
                 >
                   <span className="text-slate-400">{roleLabel(m.role)}:</span>{" "}
-                  {m.role === "assistant"
-                    ? renderFactTemplate(m.content, {
-                        sharedContext,
-                        business: {
-                          name: String(businessName || ""),
-                          address: String(address || ""),
-                          startDate: String(businessStartDate || ""),
-                        },
-                      })
-                    : m.content}
+                  {(() => {
+                    const business = {
+                      name: String(businessName || ""),
+                      address: String(address || ""),
+                      startDate: String(businessStartDate || ""),
+                    };
+
+                    if (m.role !== "assistant") {
+                      return <span className="whitespace-pre-wrap">{m.content}</span>;
+                    }
+
+                    const parsedRevenueTable = parseFinancialsRevenueTable(m.content);
+                    if (!parsedRevenueTable) {
+                      return (
+                        <span className="whitespace-pre-wrap">
+                          {renderMessageText(m.content, sharedContext, business)}
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <div className="mt-1 space-y-3">
+                        {parsedRevenueTable.intro ? (
+                          <div className="whitespace-pre-wrap">
+                            {renderMessageText(parsedRevenueTable.intro, sharedContext, business)}
+                          </div>
+                        ) : null}
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full border-collapse text-left text-[11px] text-slate-200">
+                            <thead>
+                              <tr className="border-b border-slate-700/70 text-slate-300">
+                                {parsedRevenueTable.headers.map((header) => (
+                                  <th key={header} className="px-3 py-2 font-medium">
+                                    {header}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {parsedRevenueTable.rows.map((row, rowIdx) => (
+                                <tr
+                                  key={`row-${idx}-${rowIdx}`}
+                                  className="border-b border-slate-800/60 last:border-b-0"
+                                >
+                                  {parsedRevenueTable.headers.map((_, cellIdx) => {
+                                    const cell = row[cellIdx] || "";
+                                    const isTotalRow = cellIdx === 0 && /total/i.test(cell);
+                                    const isRevenueCol = cellIdx === parsedRevenueTable.headers.length - 1;
+                                    return (
+                                      <td
+                                        key={`cell-${idx}-${rowIdx}-${cellIdx}`}
+                                        className={`px-3 py-2 align-top ${isRevenueCol ? "text-right" : ""} ${
+                                          isTotalRow || isRevenueCol ? "font-medium" : ""
+                                        }`}
+                                      >
+                                        {cell}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {parsedRevenueTable.outro ? (
+                          <div className="whitespace-pre-wrap">
+                            {renderMessageText(parsedRevenueTable.outro, sharedContext, business)}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
               {sending ? (

@@ -736,33 +736,65 @@ def build_revenue_math_line(
   financials_year1_json: Dict[str, Any],
   unit_name: Optional[str] = None,
 ) -> str:
+  def _escape_cell(value: Any) -> str:
+    return str(value or "").replace("|", "\\|").strip()
+
+  def _capacity_display(obj: Dict[str, Any], fallback_unit_name: Optional[str] = None) -> str:
+    cadence = _normalize_cadence(obj.get("unit_cadence"))
+    period_label = _cadence_label(cadence)
+    unit_label = str(obj.get("unit_name") or "").strip() or str(fallback_unit_name or "").strip() or "units"
+
+    if cadence == "contract":
+      avg_units_val = obj.get("avg_units_per_period_year1")
+      if _to_float(avg_units_val) is None:
+        avg_units_val = obj.get("avg_units_per_week_year1")
+      avg_units = _format_number(avg_units_val)
+      return f"{avg_units} active {unit_label}"
+
+    capacity_val = obj.get("units_per_period_capacity")
+    if _to_float(capacity_val) is None:
+      capacity_val = obj.get("units_per_week_capacity")
+      period_label = "week"
+    capacity = _format_number(capacity_val)
+    return f"{capacity} {unit_label}/{period_label}"
+
+  def _periods_display(obj: Dict[str, Any]) -> str:
+    cadence = _normalize_cadence(obj.get("unit_cadence"))
+    periods_val = obj.get("operating_periods_per_year")
+    if _to_float(periods_val) is None:
+      periods_val = obj.get("operating_weeks_per_year")
+    periods = _format_number(periods_val)
+    if cadence == "contract":
+      return f"~{periods} turns/year"
+    return periods
+
   lobs = financials_year1_json.get("lobs")
   if not isinstance(lobs, list):
-    cadence = _normalize_cadence(financials_year1_json.get("unit_cadence"))
-    period_label = _cadence_label(cadence)
-    avg_units_val = financials_year1_json.get("avg_units_per_period_year1")
-    if _to_float(avg_units_val) is None:
-      avg_units_val = financials_year1_json.get("avg_units_per_week_year1")
-    avg_units = _format_number(avg_units_val)
-    periods_val = financials_year1_json.get("operating_periods_per_year")
-    if _to_float(periods_val) is None:
-      periods_val = financials_year1_json.get("operating_weeks_per_year")
-    periods = _format_number(periods_val)
-    unit_label = str(unit_name or "").strip() or "units"
-    price = _format_currency(financials_year1_json.get("unit_price"))
-    total = _format_currency(financials_year1_json.get("revenue_total_year1"))
-    if cadence == "contract":
-      return (
-        f"{avg_units} active {unit_label} (avg concurrent) x {price} per {unit_label} x "
-        f"~{periods} turns/year = {total}"
-      )
-    period_label_plural = _pluralize(period_label, periods)
-    return (
-      f"{avg_units} {unit_label}/{period_label} x {periods} {period_label_plural}/year x "
-      f"{price} per {unit_label} = {total}"
+    line_of_business = str(financials_year1_json.get("lob_name") or "").strip() or "Company"
+    product_name = str(financials_year1_json.get("product_name") or "").strip() or (
+      str(unit_name or "").strip() or "Product"
     )
+    rows = [
+      "| Line of Business | Product / Unit | Capacity | Price | Periods / Year | Year-1 Revenue |",
+      "| --- | --- | --- | --- | --- | --- |",
+      (
+        f"| {_escape_cell(line_of_business)} | {_escape_cell(product_name)} | "
+        f"{_escape_cell(_capacity_display(financials_year1_json, unit_name))} | "
+        f"{_escape_cell(_format_currency(financials_year1_json.get('unit_price')))} | "
+        f"{_escape_cell(_periods_display(financials_year1_json))} | "
+        f"{_escape_cell(_format_currency(financials_year1_json.get('revenue_total_year1')))} |"
+      ),
+      (
+        f"| **Company Total** |  |  |  |  | "
+        f"**{_escape_cell(_format_currency(financials_year1_json.get('revenue_total_year1')))}** |"
+      ),
+    ]
+    return "\n".join(rows)
 
-  lines: List[str] = []
+  lines: List[str] = [
+    "| Line of Business | Product / Unit | Capacity | Price | Periods / Year | Year-1 Revenue |",
+    "| --- | --- | --- | --- | --- | --- |",
+  ]
   for lob in lobs:
     if not isinstance(lob, dict):
       continue
@@ -773,33 +805,21 @@ def build_revenue_math_line(
       if not isinstance(product, dict):
         continue
       product_name = str(product.get("product_name") or "").strip() or "Product"
-      unit_label = str(product.get("unit_name") or "").strip() or str(unit_name or "").strip() or "units"
-      cadence = _normalize_cadence(product.get("unit_cadence"))
-      period_label = _cadence_label(cadence)
-      avg_units_val = product.get("avg_units_per_period_year1")
-      if _to_float(avg_units_val) is None:
-        avg_units_val = product.get("avg_units_per_week_year1")
-      avg_units = _format_number(avg_units_val)
-      periods_val = product.get("operating_periods_per_year")
-      if _to_float(periods_val) is None:
-        periods_val = product.get("operating_weeks_per_year")
-      periods = _format_number(periods_val)
-      price = _format_currency(product.get("unit_price"))
-      total = _format_currency(product.get("revenue_total_year1"))
-      if cadence == "contract":
-        lines.append(
-          f"{product_name}: {avg_units} active {unit_label} (avg concurrent) x {price} per "
-          f"{unit_label} x ~{periods} turns/year = {total}"
-        )
-      else:
-        lines.append(
-          f"{product_name}: {avg_units} {unit_label}/{period_label} x {periods} "
-          f"{_pluralize(period_label, periods)}/year x {price} per {unit_label} = {total}"
-        )
-    lines.append(f"{lob_name} total: {_format_currency(lob.get('revenue_total_year1'))}")
+      lines.append(
+        f"| {_escape_cell(lob_name)} | {_escape_cell(product_name)} | "
+        f"{_escape_cell(_capacity_display(product, unit_name))} | "
+        f"{_escape_cell(_format_currency(product.get('unit_price')))} | "
+        f"{_escape_cell(_periods_display(product))} | "
+        f"{_escape_cell(_format_currency(product.get('revenue_total_year1')))} |"
+      )
+    lines.append(
+      f"| **{_escape_cell(lob_name)} total** |  |  |  |  | "
+      f"**{_escape_cell(_format_currency(lob.get('revenue_total_year1')))}** |"
+    )
 
   lines.append(
-    f"Company total: {_format_currency(financials_year1_json.get('company_revenue_total_year1'))}"
+    f"| **Company Total** |  |  |  |  | "
+    f"**{_escape_cell(_format_currency(financials_year1_json.get('company_revenue_total_year1')))}** |"
   )
   return "\n".join([line for line in lines if line])
 

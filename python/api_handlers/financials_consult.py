@@ -214,17 +214,9 @@ def _append_constraints_snippet(
   *,
   force: bool = False,
 ) -> str:
-  if not snippet:
-    return assistant_text
-  if "operational constraints:" in str(assistant_text or "").lower():
-    return assistant_text
-  if _constraints_snippet_already_sent(messages):
-    return assistant_text
-  if not force:
-    return assistant_text
-  if not assistant_text:
-    return snippet
-  return f"{assistant_text}\n\n{snippet}".strip()
+  # Financials no longer shows the deterministic "Operational constraints" block
+  # in the client-facing chat output.
+  return assistant_text
 
 
 def _validate_final(final_obj: Dict[str, Any]) -> None:
@@ -536,7 +528,7 @@ def post_financials_consult_handler(*, app, request):
               business_start_date=business_start_date,
             )
             assistant_message = (
-              "Updated the revenue drivers. Year 1 revenue:\n"
+              "Updated the revenue drivers. Year 1 revenue:\n\n"
               f"{revenue_math_line}\n\n"
               "Does this look right, or which driver should change?"
             )
