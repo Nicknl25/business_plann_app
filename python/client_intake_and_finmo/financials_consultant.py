@@ -92,6 +92,289 @@ def _parse_responses_text(data: Dict[str, Any]) -> str:
   return "\n".join(chunks).strip()
 
 
+def _parse_responses_json(data: Dict[str, Any]) -> Dict[str, Any]:
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      parsed = part.get("parsed")
+      if isinstance(parsed, dict):
+        return parsed
+      if part.get("type") == "output_text" and part.get("text"):
+        try:
+          parsed_text = json.loads(str(part.get("text") or "").strip())
+        except Exception:
+          continue
+        if isinstance(parsed_text, dict):
+          return parsed_text
+  raise RuntimeError("OpenAI response contained no parsed JSON.")
+
+
+def _revenue_adjudication_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_revenue_adjudication",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "requires_adjustment": {"type": "boolean"},
+        "good_to_proceed_without_revenue_change": {"type": "boolean"},
+        "overall_judgment": {"type": "string"},
+        "dominant_constraint": {"type": "string"},
+        "plain_language_summary": {"type": "string"},
+        "proceed_rationale": {"type": "string"},
+        "options": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "option_id": {"type": "string"},
+              "label": {"type": "string"},
+              "suggested_change": {"type": "string"},
+              "why_it_helps": {"type": "string"},
+            },
+            "required": ["option_id", "label", "suggested_change", "why_it_helps"],
+          },
+        },
+      },
+      "required": [
+        "requires_adjustment",
+        "good_to_proceed_without_revenue_change",
+        "overall_judgment",
+        "dominant_constraint",
+        "plain_language_summary",
+        "proceed_rationale",
+        "options",
+      ],
+    },
+  }
+
+
+def _build_revenue_adjudication_context(intake_context: Dict[str, Any]) -> Dict[str, Any]:
+  shared_context = intake_context.get("shared_context")
+  if not isinstance(shared_context, dict):
+    shared_context = {}
+
+  operating_model = shared_context.get("operating_model")
+  if not isinstance(operating_model, dict):
+    operating_model = {}
+  market_context = shared_context.get("target_market")
+  if not isinstance(market_context, dict):
+    market_context = {}
+  people_context = shared_context.get("people_capability")
+  if not isinstance(people_context, dict):
+    people_context = {}
+  fulfillment_context = intake_context.get("fulfillment_json")
+  if not isinstance(fulfillment_context, dict):
+    fulfillment_context = {}
+
+  people_summary = []
+  for person in people_context.get("people") or []:
+    if not isinstance(person, dict):
+      continue
+    people_summary.append(
+      {
+        "full_name": str(person.get("full_name") or "").strip(),
+        "role_title": str(person.get("role_title") or "").strip(),
+        "experience_years": str(person.get("experience_years") or "").strip(),
+        "annual_wage": person.get("annual_wage"),
+      }
+    )
+
+  inferred_roles_summary = []
+  for role in people_context.get("inferred_roles") or []:
+    if not isinstance(role, dict):
+      continue
+    inferred_roles_summary.append(
+      {
+        "role_title": str(role.get("role_title") or "").strip(),
+        "annual_wage": role.get("annual_wage"),
+        "months_until_hire": role.get("months_until_hire"),
+      }
+    )
+
+  return {
+    "business": {
+      "name": intake_context.get("business_name"),
+      "start_date": intake_context.get("business_start_date"),
+    },
+    "ops": {
+      "business_type": operating_model.get("business_type"),
+      "business_description_summary": operating_model.get("business_description_summary"),
+      "business_stage": operating_model.get("business_stage"),
+      "consumer_type": operating_model.get("consumer_type"),
+      "sales_modality": operating_model.get("sales_modality"),
+      "shipping_method": operating_model.get("shipping_method"),
+      "geographic_scope": operating_model.get("geographic_scope"),
+      "geographic_coverage": operating_model.get("geographic_coverage"),
+      "capacity_driver": operating_model.get("capacity_driver"),
+      "primary_growth_lever": operating_model.get("primary_growth_lever"),
+      "legal_entity": operating_model.get("legal_entity"),
+      "competitive_advantage": operating_model.get("competitive_advantage"),
+      "milestones": operating_model.get("milestones"),
+    },
+    "market": {
+      "consumer_type": market_context.get("consumer_type"),
+      "target_market_summary": market_context.get("target_market_summary"),
+      "marketing_plan_summary": market_context.get("marketing_plan_summary"),
+    },
+    "people": {
+      "people": people_summary,
+      "inferred_roles": inferred_roles_summary,
+      "key_people_summary": people_context.get("key_people_summary"),
+    },
+    "fulfillment": {
+      "time": fulfillment_context.get("time"),
+      "personnel": fulfillment_context.get("personnel"),
+    },
+    "revenue_model": intake_context.get("financials_year1_json") or {},
+    "guardrail_context_signals": intake_context.get("revenue_guardrail_context_signals") or [],
+    "guardrail_product_signals": intake_context.get("revenue_guardrail_product_signals") or [],
+  }
+
+
+def _adjudicate_revenue_setup(intake_context: Dict[str, Any]) -> Dict[str, Any]:
+  financials_year1_json = intake_context.get("financials_year1_json")
+  if not isinstance(financials_year1_json, dict) or not financials_year1_json:
+    return {}
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _revenue_adjudication_schema()
+  context_blob = json.dumps(_build_revenue_adjudication_context(intake_context), ensure_ascii=False)
+
+  system = """
+You are adjudicating whether a Year-1 revenue setup is internally coherent for a business plan.
+
+Your job:
+- Judge the revenue setup holistically using the provided persisted context.
+- Use business type/industry, stage/start date, product mix, capacity, utilization, price, periods/year, people/wages, hiring timing, fulfillment reality, target market, and operational constraints together.
+- Treat practical capacity as the ceiling and utilization as the planned Year-1 operating level. Do not silently convert the setup into a 100% utilization assumption unless the context explicitly does that.
+- Do NOT use hardcoded utilization bands, canned industry templates, or external benchmarks.
+- Decide whether the Year-1 revenue setup is workable as-is, too stretched, too low for the stated model, or structurally inconsistent.
+
+Adjustment options:
+- If no revenue change is needed, set requires_adjustment to false, good_to_proceed_without_revenue_change to true, and return options as an empty list.
+- If revenue does need adjustment, set requires_adjustment to true and return up to 3 concrete options.
+- Each option must be short, client-friendly, and patchable from the visible assistant text.
+- Each option must contain explicit changed values tied to revenue-driver fields only: price, capacity, utilization, periods/year, or product-specific overrides.
+- Do not propose unrelated changes outside the revenue-driver model.
+
+Output intent:
+- plain_language_summary should be one concise, non-technical paragraph for the client.
+- proceed_rationale should be a short explanation of why the current setup can proceed unchanged when good_to_proceed_without_revenue_change is true; otherwise explain the main tension.
+- dominant_constraint should name the main bottleneck or "none" if there is no meaningful strain.
+- The reasoning must be holistic. Do not reduce the judgment to capacity/utilization alone if the broader business context materially affects feasibility.
+""".strip()
+
+  payload = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": context_blob},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _split_revenue_table_block(text: str) -> Tuple[str, str]:
+  raw = str(text or "").strip()
+  if "Year 1 revenue:" not in raw:
+    return raw, ""
+  marker = "Year 1 revenue:"
+  start = raw.find(marker)
+  table_start = raw.find("\n\n", start)
+  if table_start == -1:
+    return raw, ""
+  remainder_start = raw.find("\n\n", table_start + 2)
+  if remainder_start == -1:
+    return raw, ""
+  return raw[:remainder_start].strip(), raw[remainder_start:].strip()
+
+
+def _extract_last_question(text: str) -> str:
+  raw = str(text or "").strip()
+  if not raw:
+    return ""
+  lines = [line.strip() for line in raw.splitlines() if line.strip()]
+  for line in reversed(lines):
+    if line.endswith("?"):
+      return line
+  return ""
+
+
+def _render_revenue_adjudication_response(
+  *,
+  draft_text: str,
+  intake_context: Dict[str, Any],
+) -> str:
+  adjudication = intake_context.get("revenue_adjudication")
+  if not isinstance(adjudication, dict) or not adjudication:
+    return draft_text
+
+  table_block, remainder = _split_revenue_table_block(draft_text)
+  if "Year 1 revenue:" not in table_block:
+    return draft_text
+
+  plain_summary = str(adjudication.get("plain_language_summary") or "").strip()
+  proceed_rationale = str(adjudication.get("proceed_rationale") or "").strip()
+  requires_adjustment = bool(adjudication.get("requires_adjustment"))
+  can_proceed = bool(adjudication.get("good_to_proceed_without_revenue_change"))
+  options = adjudication.get("options")
+  options = options if isinstance(options, list) else []
+
+  body_parts: List[str] = []
+  if plain_summary:
+    body_parts.append(plain_summary)
+  elif proceed_rationale:
+    body_parts.append(proceed_rationale)
+
+  if requires_adjustment:
+    option_lines: List[str] = []
+    for idx, option in enumerate(options[:3], start=1):
+      if not isinstance(option, dict):
+        continue
+      suggested_change = str(option.get("suggested_change") or "").strip()
+      why_it_helps = str(option.get("why_it_helps") or "").strip()
+      label = f"Option {idx}: {suggested_change}".strip()
+      if why_it_helps:
+        label = f"{label} - {why_it_helps}"
+      option_lines.append(f"- {label}")
+    if option_lines:
+      body_parts.append("\n".join(option_lines))
+    body_parts.append("Which option do you want, or what else do you want to change?")
+  elif can_proceed:
+    next_question = _extract_last_question(remainder)
+    if next_question:
+      body_parts.append(next_question)
+    elif proceed_rationale and proceed_rationale not in body_parts:
+      body_parts.append(proceed_rationale)
+
+  if not body_parts:
+    return draft_text
+
+  return f"{table_block}\n\n" + "\n\n".join(part for part in body_parts if part.strip())
+
+
 def _normalize_cadence(value: Any) -> str:
   raw = str(value or "").strip().lower()
   if raw in ("monthly", "month", "per month", "mo", "m"):
@@ -138,34 +421,70 @@ def _has_required_revenue_elements(
   *,
   text: str,
   guardrail_triggered: bool,
+  intake_context: Dict[str, Any],
 ) -> bool:
   lowered = text.lower()
-  has_assertion = ("assumes" in lowered) and any(
+  adjudication = intake_context.get("revenue_adjudication")
+  if not isinstance(adjudication, dict):
+    adjudication = {}
+
+  has_constraint_language = any(
     token in lowered
     for token in (
-      "concurrent",
-      "active",
-      "capacity",
       "utilization",
-      "fully booked",
-      "full capacity",
+      "capacity",
+      "demand",
+      "staff",
+      "team",
+      "hiring",
+      "ramp",
+      "timing",
+      "volume",
+      "price",
     )
   )
-  has_implication = any(
-    token in lowered
-    for token in (
-      "implies",
-      "means",
-      "requires",
-      "must",
-      "would need",
-    )
-  )
-  has_judgment = any(token in lowered for token in ("aggressive", "conservative", "balanced"))
-  has_strain = any(token in lowered for token in ("strain", "tight", "pressure", "risk", "little room", "no room"))
-  if guardrail_triggered and not has_strain:
+  has_question = text.count("?") == 1
+  has_options = "option 1" in lowered or "- option 1" in lowered
+  full_capacity_claim = ("full capacity" in lowered or "fully booked" in lowered)
+
+  financials_year1_json = intake_context.get("financials_year1_json")
+  if not isinstance(financials_year1_json, dict):
+    financials_year1_json = {}
+  utilization_below_full = False
+  lobs = financials_year1_json.get("lobs")
+  if isinstance(lobs, list):
+    for lob in lobs:
+      if not isinstance(lob, dict):
+        continue
+      for product in lob.get("products") or []:
+        if not isinstance(product, dict):
+          continue
+        try:
+          utilization = float(product.get("utilization_rate"))
+        except Exception:
+          utilization = None
+        if utilization is not None and utilization < 0.999:
+          utilization_below_full = True
+          break
+      if utilization_below_full:
+        break
+
+  if utilization_below_full and full_capacity_claim:
     return False
-  if not has_assertion or not has_implication or not has_judgment:
+
+  if guardrail_triggered and not any(
+    token in lowered for token in ("strain", "pressure", "risk", "tight", "constraint")
+  ):
+    return False
+
+  requires_adjustment = bool(adjudication.get("requires_adjustment"))
+  can_proceed = bool(adjudication.get("good_to_proceed_without_revenue_change"))
+
+  if not has_constraint_language or not has_question:
+    return False
+  if requires_adjustment and not has_options:
+    return False
+  if can_proceed and has_options:
     return False
   return True
 
@@ -177,9 +496,6 @@ def _needs_revenue_rewrite(
 ) -> bool:
   if "Year 1 revenue" not in text:
     return False
-  question_count = text.count("?")
-  if question_count != 1:
-    return True
   financials_year1_json = intake_context.get("financials_year1_json")
   if not isinstance(financials_year1_json, dict):
     financials_year1_json = {}
@@ -187,7 +503,11 @@ def _needs_revenue_rewrite(
   if _is_time_slice_forbidden(text, cadences):
     return True
   guardrail_triggered = bool(intake_context.get("revenue_guardrail_triggered"))
-  if not _has_required_revenue_elements(text=text, guardrail_triggered=guardrail_triggered):
+  if not _has_required_revenue_elements(
+    text=text,
+    guardrail_triggered=guardrail_triggered,
+    intake_context=intake_context,
+  ):
     return True
   return False
 
@@ -199,6 +519,14 @@ def _rewrite_financials_revenue_response(
 ) -> str:
   if "Year 1 revenue" not in draft_text:
     return draft_text
+  adjudication = intake_context.get("revenue_adjudication")
+  if isinstance(adjudication, dict) and adjudication:
+    rendered = _render_revenue_adjudication_response(
+      draft_text=draft_text,
+      intake_context=intake_context,
+    )
+    if not _needs_revenue_rewrite(text=rendered, intake_context=intake_context):
+      return rendered
   if not _needs_revenue_rewrite(text=draft_text, intake_context=intake_context):
     return draft_text
 
@@ -206,20 +534,26 @@ def _rewrite_financials_revenue_response(
   model = _openai_model()
 
   system = """
-You are a compliance editor for a Financials revenue response.
+You are a compliance editor for a Financials Year-1 revenue response.
 
 Rules:
-- Capacity-first framing only; do not rely on time-slice math or "12 months/periods" unless unit_cadence is monthly.
-- Take a position (adjudicator), state implications plainly, and avoid hedging phrases.
-- Use the required response pattern:
-  1) Assertion ("This revenue setup assumes...") stating concurrency/utilization/workload.
-  2) Implication: what must be true operationally.
-  3) Judgment: aggressive/conservative/balanced.
-  4) Risk acknowledgement if present.
-  5) Single confirmation/adjustment question (one sentence, no list).
-- The final response MUST include an explicit operational reality statement, an explicit judgment word, and an explicit strain statement when strain is present.
+- Keep the existing "Year 1 revenue:" header and the revenue table exactly intact.
+- Replace only the client-facing narrative and question beneath the table.
+- Use the provided revenue_adjudication object as the source of truth for the judgment. Do not contradict it.
+- Judge the setup holistically: business type/industry, stage/start date, capacity, utilization, price, periods/year, staffing/wages, hiring timing, fulfillment, and other persisted constraints.
+- Treat utilization as the planned Year-1 operating level. Do not describe the setup as full capacity or fully booked unless utilization is actually 100%.
+- The narrative must be one concise paragraph in plain English for a non-financial client.
+- If revenue_adjudication.good_to_proceed_without_revenue_change is true:
+  - do NOT offer options,
+  - do NOT ask for permission to proceed on revenue,
+  - move directly to the next financial question in everyday language.
+- If revenue_adjudication.requires_adjustment is true:
+  - include up to 3 short option bullets labeled "Option 1", "Option 2", "Option 3",
+  - each option must contain a concrete changed value tied to the revenue-driver model,
+  - end with one question asking which option they want or what else they want to change.
+- Keep the tone decisive and client-friendly. No hedging, no generic filler.
 - Do not introduce new facts, benchmarks, or external data.
-- Keep any required "Year 1 revenue" and constraints content intact.
+- Do not rely on canned "aggressive/conservative/balanced" wording unless it genuinely fits the adjudication.
 
 If the draft already complies, return it unchanged. Otherwise, rewrite it to comply.
 Return ONLY the final response text.
@@ -261,8 +595,8 @@ Return ONLY the final response text.
   system_strict = (
     system
     + "\n"
-    + "STRICT MODE: You MUST include the exact words aggressive/conservative/balanced "
-    + "and an explicit strain statement when strain is present."
+    + "STRICT MODE: You MUST preserve the table exactly, use at most three option bullets when adjustment is needed, "
+    + "and never describe sub-100% utilization as full capacity."
   )
   payload["input"] = [
     {"role": "system", "content": system_strict},
@@ -347,6 +681,10 @@ def financials_chat_turn(
   """
   api_key = _require_openai_key()
   model = _openai_model()
+  revenue_adjudication = _adjudicate_revenue_setup(intake_context)
+  if revenue_adjudication:
+    intake_context = dict(intake_context)
+    intake_context["revenue_adjudication"] = revenue_adjudication
 
   system = f"""
 You are a business consultant running the Financials intake conversation.
@@ -382,23 +720,26 @@ Revenue assembly (REPLACES revenue question):
 - You will be given financials_year1_json and revenue_math_line in the context JSON.
 - Start this section by presenting "Year 1 revenue:" followed by a blank line, then include the revenue_math_line verbatim.
 - Revenue is derived at the product level; LOB totals are rollups only.
-- Explain the result in plain English using narrative-only inputs (unit_name, unit_description, unit_cadence, capacity_driver, sales_modality, fulfillment_model, geographic_scope, geographic_coverage, start_date, milestones, primary_growth_lever).
+- Explain the result in plain English using the full persisted business context, especially business type/industry, stage/start date, capacity, utilization, price, periods/year, staffing/wages, hiring timing, fulfillment, and the other constraints already captured in Ops/Market/People.
 - Do NOT ask "What is your revenue?" and do NOT ask for a revenue number.
 - If revenue_driver_patch is present in context, acknowledge the change and re-state the updated revenue_math_line before moving on.
+- If revenue_adjudication is present in context, follow it. It is the holistic revenue judgment for this exact Year-1 setup.
 
 Financials adjudication (MANDATORY):
 - You are an arbitrator, not an interviewer. Take a position, state implications plainly, then ask for agreement or correction.
 - Do not use hedging phrases like "Does this feel right?", "If you'd like, we can...", or "Just to check...".
 - Do not hint at a problem without stating it directly.
 - Do not use "12 months", "12 periods", or similar time-slice framing unless unit_cadence is explicitly monthly (subscription-based).
-- Revenue explanation must be capacity-first: emphasize concurrent workload, implied utilization, and the constrained resource (labor/system/demand).
+- Revenue explanation must be holistic: evaluate whether the Year-1 revenue setup makes sense for this specific business as currently defined. Capacity matters, but so do utilization, timing, industry/business type, pricing, product mix, staffing, wages, fulfillment reality, market scope, and the dominant operating constraint.
+- Treat practical capacity as the ceiling and utilization as the planned Year-1 operating level. Do not silently collapse the setup into a 100% utilization assumption.
 
 Required response pattern (every revenue setup):
-1) Assertion: "This revenue setup assumes ..." and state concurrency/utilization and implied workload.
-2) Implication: explain what must be true operationally for this to hold.
-3) Judgment: call it aggressive, conservative, or balanced.
-4) Risk acknowledgement (if present): explicitly name the strain (capacity, ramp, timing, labor).
-5) Single confirmation/adjustment question: one sentence, no list.
+1) Keep the existing Year-1 revenue table intact.
+2) Write one concise, client-friendly paragraph explaining whether the revenue setup looks workable or not, and why.
+3) If revenue_adjudication.requires_adjustment is true, add up to 3 short bullets labeled "Option 1", "Option 2", and "Option 3". Each option must include concrete changed values tied to the revenue-driver model.
+4) End with one question:
+   - if adjustment is needed: ask which option they want or what else they want to change;
+   - if no adjustment is needed: move directly to the next unanswered financial question and do not ask permission to proceed on revenue.
 
 Revenue plausibility guardrail (only when revenue_guardrail_triggered is true):
 
@@ -528,7 +869,7 @@ Output rules:
 - Respond with normal conversation text (NOT JSON).
 - When you are confident all required fields are complete, append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
-""".strip()
+  """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
   context_msg = "Current known intake context (JSON):\n" + context_blob

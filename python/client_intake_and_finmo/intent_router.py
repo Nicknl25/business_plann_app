@@ -1692,6 +1692,9 @@ def route_intent(
       "\"product_overrides\" with an object mapping that product name to its updated driver values.\n"
       "- If the user does not specify a product, apply the update to the global driver field "
       "(unit_cadence, unit_price, units_per_week_capacity, units_per_period_capacity, avg_units_per_week_year1, avg_units_per_period_year1, operating_weeks_per_year, operating_periods_per_year, utilization_rate).\n"
+      "- If the last assistant message presented labeled revenue options (for example Option 1 / Option 2 / Option 3) and the user selects one by number, label, or short description, infer the corresponding revenue-driver patch from that option and return edit_patch.\n"
+      "- Use the last assistant message as the source of truth for what each option changes; do not require the user to restate the numbers.\n"
+      "- If the assistant already accepted the current revenue setup and moved on to a different financial question, do not invent a revenue edit unless the user explicitly asks to change revenue drivers.\n"
     )
 
   if consult_type_norm == "people" or (

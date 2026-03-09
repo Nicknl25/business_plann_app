@@ -274,6 +274,30 @@ def _apply_override_value(raw: Any, fallback: Any) -> Any:
   return raw if raw is not None else fallback
 
 
+def _derive_realized_volume_and_utilization(
+  *,
+  units_per_period_capacity: float,
+  utilization_rate: Optional[float],
+  avg_units_per_period_year1: Optional[float],
+) -> Tuple[float, Optional[float]]:
+  capacity = _nonnegative(_to_float(units_per_period_capacity)) or 0.0
+  utilization = _normalize_utilization(utilization_rate)
+  avg_units = _nonnegative(_to_float(avg_units_per_period_year1))
+
+  # Utilization is the canonical Year-1 volume driver when present.
+  if utilization is not None:
+    realized = utilization * capacity
+    return float(realized), float(utilization)
+
+  if avg_units is not None:
+    if capacity > 0:
+      utilization = avg_units / capacity
+      utilization = min(max(utilization, 0.0), 1.0)
+    return float(avg_units), utilization
+
+  return float(capacity), utilization
+
+
 def _apply_product_drivers(
   *,
   base_product: Dict[str, Any],
@@ -336,10 +360,14 @@ def _apply_product_drivers(
     legacy_avg = _nonnegative(_to_float(legacy_avg))
     if legacy_avg is not None and unit_cadence == "weekly":
       avg_units_per_period_year1 = legacy_avg
-    elif utilization_rate is not None:
-      avg_units_per_period_year1 = utilization_rate * units_per_period_capacity
     else:
-      avg_units_per_period_year1 = units_per_period_capacity
+      avg_units_per_period_year1 = None
+
+  avg_units_per_period_year1, utilization_rate = _derive_realized_volume_and_utilization(
+    units_per_period_capacity=units_per_period_capacity,
+    utilization_rate=utilization_rate,
+    avg_units_per_period_year1=avg_units_per_period_year1,
+  )
 
   revenue_total_year1 = avg_units_per_period_year1 * operating_periods_per_year * unit_price
 
@@ -481,12 +509,13 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
     if legacy_avg is not None and unit_cadence == "weekly":
       avg_units_per_period_year1 = legacy_avg
     else:
-      avg_units_per_period_year1 = units_per_period_capacity
+      avg_units_per_period_year1 = None
 
-  if "utilization_rate" in next_product and "avg_units_per_period_year1" not in patch:
-    util = _normalize_utilization(next_product.get("utilization_rate"))
-    if util is not None:
-      avg_units_per_period_year1 = util * units_per_period_capacity
+  avg_units_per_period_year1, utilization_rate = _derive_realized_volume_and_utilization(
+    units_per_period_capacity=units_per_period_capacity,
+    utilization_rate=next_product.get("utilization_rate"),
+    avg_units_per_period_year1=avg_units_per_period_year1,
+  )
 
   next_product["unit_cadence"] = unit_cadence
   next_product["avg_units_per_period_year1"] = float(avg_units_per_period_year1)
@@ -496,6 +525,8 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
   next_product["units_per_week_capacity"] = float(units_per_week_capacity)
   next_product["units_per_period_capacity"] = float(units_per_period_capacity)
   next_product["unit_price"] = float(unit_price)
+  if utilization_rate is not None:
+    next_product["utilization_rate"] = float(utilization_rate)
   next_product["revenue_total_year1"] = float(
     avg_units_per_period_year1 * operating_periods_per_year * unit_price
   )
