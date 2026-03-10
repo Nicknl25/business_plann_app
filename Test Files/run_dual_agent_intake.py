@@ -1,9 +1,11 @@
 import argparse
 import json
 import os
+import re
 import sys
 import textwrap
 from dataclasses import dataclass
+from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
@@ -268,6 +270,62 @@ def _print_transcript_tail(transcript: List[Dict[str, str]], count: int = 10) ->
     print(f"[{role}] {content}")
 
 
+def _safe_filename_part(text: str, *, max_len: int = 80) -> str:
+  cleaned = re.sub(r"[<>:\"/\\\\|?*]+", "", str(text or "").strip())
+  cleaned = re.sub(r"\s+", " ", cleaned).strip()
+  cleaned = cleaned.replace(".", "")
+  return (cleaned[:max_len].rstrip() or "test-run")
+
+
+def _save_run_report(
+  *,
+  output_dir: str,
+  seed: str,
+  bootstrap: Optional[Bootstrap],
+  transcript: List[Dict[str, str]],
+  draft_id: Optional[str],
+  status: str,
+  stop_reason: str,
+) -> Optional[str]:
+  try:
+    os.makedirs(output_dir, exist_ok=True)
+    now = datetime.now()
+    date_part = now.strftime("%m-%d-%Y")
+    scenario_part = _safe_filename_part(seed)
+    path = os.path.join(output_dir, f"{date_part} -- {scenario_part}.txt")
+
+    lines: List[str] = []
+    lines.append(f"Test Run: {seed}")
+    lines.append(f"Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    if bootstrap:
+      lines.append(f"Bootstrapped Business: {bootstrap.business_name}")
+      lines.append(f"Business Start Date: {bootstrap.business_start_date}")
+      lines.append(f"Address: {bootstrap.address}")
+    if draft_id:
+      lines.append(f"Draft ID: {draft_id}")
+    lines.append(f"Status: {status}")
+    lines.append(f"Stop Reason: {stop_reason}")
+    lines.append("")
+    lines.append("Transcript")
+    lines.append("----------")
+    lines.append("")
+    for item in transcript:
+      role = str(item.get("role") or "?")
+      focus = str(item.get("focus") or "").strip()
+      content = str(item.get("content") or "").strip()
+      if focus:
+        lines.append(f"{role} [{focus}]: {content}")
+      else:
+        lines.append(f"{role}: {content}")
+      lines.append("")
+
+    with open(path, "w", encoding="utf-8") as handle:
+      handle.write("\n".join(lines).rstrip() + "\n")
+    return path
+  except Exception:
+    return None
+
+
 def _detect_failure(
   *,
   transcript: List[Dict[str, str]],
@@ -318,6 +376,10 @@ def main() -> int:
   parser.add_argument("--base-url", default=os.getenv("INTAKE_BASE_URL", "http://127.0.0.1:5050"))
   parser.add_argument("--model", default=os.getenv("INTAKE_SIM_MODEL", "gpt-4.1-mini"))
   parser.add_argument("--max-turns", type=int, default=80)
+  parser.add_argument(
+    "--output-dir",
+    default=r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs",
+  )
   args = parser.parse_args()
 
   api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -328,6 +390,21 @@ def main() -> int:
   base_url = args.base_url.rstrip("/")
   agent = ClientAgent(api_key=api_key, model=args.model, seed=args.seed)
   transcript: List[Dict[str, str]] = []
+  bootstrap: Optional[Bootstrap] = None
+  draft_id: Optional[str] = None
+
+  def _persist_report(*, status: str, stop_reason: str) -> None:
+    path = _save_run_report(
+      output_dir=args.output_dir,
+      seed=args.seed,
+      bootstrap=bootstrap,
+      transcript=transcript,
+      draft_id=draft_id,
+      status=status,
+      stop_reason=stop_reason,
+    )
+    if path:
+      print(f"Saved run report: {path}")
 
   try:
     bootstrap = agent.bootstrap()
@@ -377,6 +454,7 @@ def main() -> int:
           ),
         )
         print(f"Draft ID: {draft_id}")
+        _persist_report(status="completed", stop_reason="intake completed")
         return 0
 
       failure = _detect_failure(
@@ -390,6 +468,7 @@ def main() -> int:
         print(f"\nSTOP: {failure}")
         print(f"Draft ID: {draft_id}")
         _print_transcript_tail(transcript)
+        _persist_report(status="stopped", stop_reason=failure)
         return 1
 
       reply = agent.answer(
@@ -412,14 +491,17 @@ def main() -> int:
     print(f"\nSTOP: max turns reached ({args.max_turns})")
     print(f"Draft ID: {draft_id}")
     _print_transcript_tail(transcript)
+    _persist_report(status="stopped", stop_reason=f"max turns reached ({args.max_turns})")
     return 1
 
   except KeyboardInterrupt:
     print("\nStopped by user.")
+    _persist_report(status="stopped", stop_reason="stopped by user")
     return 130
   except Exception as exc:
     print(f"\nSTOP: runner error: {type(exc).__name__}: {exc}")
     _print_transcript_tail(transcript)
+    _persist_report(status="error", stop_reason=f"{type(exc).__name__}: {exc}")
     return 1
 
 
