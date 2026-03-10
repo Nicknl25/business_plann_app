@@ -218,7 +218,7 @@ def consultant_chat_turn(
   Free-text consultant conversation turn (NO schema enforcement).
 
   Returns:
-    { "assistant_message": str, "finalize_ready": bool }
+    { "assistant_message": str, "finalize_ready": bool, "patch": dict }
   """
   api_key = _require_openai_key()
   model = _openai_model()
@@ -409,8 +409,19 @@ Output rules:
   {{
     "assistant_message": string,  // normal conversation text
     "finalize_ready": boolean,   // true only when all required fields are complete (see below)
-    "is_restatement_confirmation_prompt": boolean  // true only for the business-type restatement confirmation prompt
+    "is_restatement_confirmation_prompt": boolean,  // true only for the business-type restatement confirmation prompt
+    "patch": object  // incremental Ops facts for this turn; unknown/no-change fields must be null
   }}
+- patch rules (IMPORTANT):
+  - Use patch to persist structured Ops facts incrementally during the conversation.
+  - If a fact becomes clear on this turn, include it in patch.
+  - If a fact is still unknown or unchanged, return null for that field.
+  - For multi-product flows, lob_models must be the full current structured snapshot of the known products so far; carry forward already-known products from the context JSON and do not drop them.
+  - For not-yet-known fields inside a product, return null for those product fields.
+  - Normalize enums where known:
+    - unit_cadence: weekly, monthly, contract
+    - sales_modality: physical, online, hybrid
+    - capacity_driver: labor, system, demand
 - finalize_ready must be false until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
 - finalize_ready must also remain false until utilization_rate has been explicitly agreed for every product in scope.
 - finalize_ready must also remain false until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
@@ -432,8 +443,105 @@ Output rules:
       "assistant_message": {"type": "string"},
       "finalize_ready": {"type": "boolean"},
       "is_restatement_confirmation_prompt": {"type": "boolean"},
+      "patch": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+          "consumer_type": {"type": ["string", "null"]},
+          "business_type": {"type": ["string", "null"]},
+          "unit_name": {"type": ["string", "null"]},
+          "unit_description": {"type": ["string", "null"]},
+          "unit_cadence": {
+            "type": ["string", "null"],
+            "enum": ["weekly", "monthly", "contract", None],
+          },
+          "units_per_week_capacity": {"type": ["number", "null"]},
+          "units_per_period_capacity": {"type": ["number", "null"]},
+          "operating_periods_per_year": {"type": ["number", "null"]},
+          "utilization_rate": {"type": ["number", "null"]},
+          "unit_price": {"type": ["number", "null"]},
+          "shipping_method": {"type": ["string", "null"]},
+          "sales_modality": {
+            "type": ["string", "null"],
+            "enum": ["physical", "online", "hybrid", None],
+          },
+          "geographic_scope": {"type": ["string", "null"]},
+          "geographic_coverage": {"type": ["string", "null"]},
+          "countries": {"type": ["array", "null"], "items": {"type": "string"}},
+          "capacity_driver": {
+            "type": ["string", "null"],
+            "enum": ["labor", "system", "demand", None],
+          },
+          "primary_growth_lever": {"type": ["string", "null"]},
+          "legal_entity": {"type": ["string", "null"]},
+          "lob_models": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "additionalProperties": False,
+              "properties": {
+                "lob_name": {"type": "string"},
+                "products": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                      "product_name": {"type": ["string", "null"]},
+                      "unit_name": {"type": ["string", "null"]},
+                      "unit_description": {"type": ["string", "null"]},
+                      "unit_cadence": {
+                        "type": ["string", "null"],
+                        "enum": ["weekly", "monthly", "contract", None],
+                      },
+                      "units_per_week_capacity": {"type": ["number", "null"]},
+                      "units_per_period_capacity": {"type": ["number", "null"]},
+                      "operating_periods_per_year": {"type": ["number", "null"]},
+                      "utilization_rate": {"type": ["number", "null"]},
+                      "unit_price": {"type": ["number", "null"]},
+                    },
+                    "required": [
+                      "product_name",
+                      "unit_name",
+                      "unit_description",
+                      "unit_cadence",
+                      "units_per_week_capacity",
+                      "units_per_period_capacity",
+                      "operating_periods_per_year",
+                      "utilization_rate",
+                      "unit_price",
+                    ],
+                  },
+                },
+              },
+              "required": ["lob_name", "products"],
+            },
+          },
+        },
+        "required": [
+          "consumer_type",
+          "business_type",
+          "unit_name",
+          "unit_description",
+          "unit_cadence",
+          "units_per_week_capacity",
+          "units_per_period_capacity",
+          "operating_periods_per_year",
+          "utilization_rate",
+          "unit_price",
+          "shipping_method",
+          "sales_modality",
+          "geographic_scope",
+          "geographic_coverage",
+          "countries",
+          "capacity_driver",
+          "primary_growth_lever",
+          "legal_entity",
+          "lob_models",
+        ],
+      },
     },
-    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt"],
+    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt", "patch"],
   }
   payload = {
     "model": model,
@@ -468,6 +576,7 @@ Output rules:
           "is_restatement_confirmation_prompt": bool(
             obj.get("is_restatement_confirmation_prompt", False)
           ),
+          "patch": obj.get("patch") if isinstance(obj.get("patch"), dict) else {},
         }
 
   # Fallback: parse output_text as JSON (should be rare with strict schema).
@@ -479,6 +588,7 @@ Output rules:
     "assistant_message": str(parsed.get("assistant_message") or "").strip(),
     "finalize_ready": bool(parsed.get("finalize_ready", False)),
     "is_restatement_confirmation_prompt": bool(parsed.get("is_restatement_confirmation_prompt", False)),
+    "patch": parsed.get("patch") if isinstance(parsed.get("patch"), dict) else {},
   }
 
 

@@ -18,6 +18,98 @@ except Exception:
 
 
 OPENAI_URL = "https://api.openai.com/v1/responses"
+_FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
+
+BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
+OPS_FACT_FIELDS = {
+  "consumer_type",
+  "business_type",
+  "unit_name",
+  "unit_description",
+  "unit_cadence",
+  "units_per_week_capacity",
+  "units_per_period_capacity",
+  "unit_price",
+  "shipping_method",
+  "sales_modality",
+  "geographic_scope",
+  "geographic_coverage",
+  "countries",
+  "milestones",
+  "capacity_driver",
+  "primary_growth_lever",
+  "initial_assets",
+  "initial_lease",
+  "initial_equity",
+  "total_debt_outstanding",
+  "legal_entity",
+  "confidence",
+  "business_description_summary",
+}
+MARKET_FACT_FIELDS = {
+  "consumer_type",
+  "gender_age_intent",
+  "income_intent",
+  "selections",
+  "b2b_industry_terms",
+  "b2b_naics_6",
+  "b2b_size_bands",
+  "b2b_age_bands",
+  "target_market_summary",
+  "confidence",
+}
+PEOPLE_FACT_FIELDS = {"people", "key_people_summary", "confidence"}
+FINANCIALS_FACT_FIELDS = {
+  "financials_summary",
+  "current_revenue",
+  "current_cogs",
+  "other_operating_expense",
+  "monthly_rent_expense",
+  "other_monthly_debt_payments",
+  "current_payroll",
+  "current_num_employees",
+  "current_capex",
+  "ar_balance",
+  "ap_balance",
+  "inventory_balance",
+  "initial_assets",
+  "initial_lease",
+  "initial_equity",
+  "total_debt_outstanding",
+  "annual_interest_payment",
+  "annual_principal_payment",
+  "owner_compensation",
+  "cash_on_hand",
+  "confidence",
+}
+FACT_GROUPS = {
+  "business": BUSINESS_FACT_FIELDS,
+  "ops": OPS_FACT_FIELDS,
+  "market": MARKET_FACT_FIELDS,
+  "people": PEOPLE_FACT_FIELDS,
+  "financials": FINANCIALS_FACT_FIELDS,
+}
+OPS_MONEY_FIELDS = {"unit_price", "initial_assets", "initial_equity", "total_debt_outstanding"}
+FIN_MONEY_FIELDS = {
+  "current_revenue",
+  "current_cogs",
+  "other_operating_expense",
+  "monthly_rent_expense",
+  "other_monthly_debt_payments",
+  "current_payroll",
+  "current_capex",
+  "ar_balance",
+  "ap_balance",
+  "inventory_balance",
+  "initial_assets",
+  "initial_equity",
+  "total_debt_outstanding",
+  "annual_interest_payment",
+  "annual_principal_payment",
+  "owner_compensation",
+  "cash_on_hand",
+}
+COUNT_FIELDS = {"units_per_week_capacity", "units_per_period_capacity", "current_num_employees"}
 
 
 def _load_env() -> None:
@@ -61,6 +153,122 @@ def _get_json(url: str, params: Dict[str, Any], *, timeout: int = 240) -> Dict[s
 
 def _normalize(text: str) -> str:
   return " ".join(str(text or "").strip().lower().split())
+
+
+def _parse_json_dict(raw: Any) -> Dict[str, Any]:
+  if raw is None:
+    return {}
+  if isinstance(raw, dict):
+    return raw
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _to_float(value: Any) -> Optional[float]:
+  if value is None or value == "" or isinstance(value, bool):
+    return None
+  if isinstance(value, (int, float)):
+    return float(value)
+  try:
+    return float(str(value).strip().replace(",", ""))
+  except Exception:
+    return None
+
+
+def _format_number(value: Any, *, money: bool) -> str:
+  num = _to_float(value)
+  if num is None:
+    return "$0" if money else "0"
+  if abs(num - round(num)) < 1e-9:
+    core = f"{int(round(num)):,}"
+  else:
+    core = f"{num:,.2f}".rstrip("0").rstrip(".")
+  return f"${core}" if money else core
+
+
+def _format_lease(value: Any) -> str:
+  if value is None:
+    return "none"
+  raw = str(value).strip()
+  if not raw:
+    return "none"
+  parts = [p.strip() for p in raw.split(",")]
+  amount = _to_float(parts[0]) if parts else None
+  period = parts[1] if len(parts) > 1 else ""
+  if not amount or amount <= 1e-9:
+    return "none" if period.lower() in ("none", "n/a", "na", "") else f"$0/{period}"
+  money = _format_number(amount, money=True)
+  if not period or period.lower() == "none":
+    return money
+  return f"{money}/{period}"
+
+
+def _is_allowed_fact_key(key: str) -> bool:
+  raw = str(key or "").strip()
+  if not raw or raw.count(".") != 1:
+    return False
+  group, field = raw.split(".", 1)
+  allowed = FACT_GROUPS.get(group)
+  return bool(allowed and field in allowed)
+
+
+def _render_fact_placeholders(text: str, draft: Optional[Dict[str, Any]]) -> str:
+  if not text or "{{fact:" not in str(text):
+    return str(text or "")
+  draft = draft or {}
+  business_facts = {
+    "name": str(draft.get("business_name") or "").strip(),
+    "address": str(draft.get("address") or "").strip(),
+    "start_date": str(draft.get("business_start_date") or "").strip(),
+  }
+  shared_context = {
+    "operating_model": _parse_json_dict(draft.get("operating_model_json")),
+    "target_market": _parse_json_dict(draft.get("target_market_json")),
+    "people_capability": _parse_json_dict(draft.get("people_json")),
+    "financials": _parse_json_dict(draft.get("financials_json")),
+  }
+
+  def resolve_value(group: str, field: str) -> Any:
+    if group == "business":
+      return business_facts.get(field)
+    if group == "ops":
+      return (shared_context.get("operating_model") or {}).get(field)
+    if group == "market":
+      return (shared_context.get("target_market") or {}).get(field)
+    if group == "people":
+      return (shared_context.get("people_capability") or {}).get(field)
+    if group == "financials":
+      return (shared_context.get("financials") or {}).get(field)
+    return None
+
+  def format_value(group: str, field: str, value: Any) -> str:
+    if field == "initial_lease":
+      return _format_lease(value)
+    if field in COUNT_FIELDS:
+      return _format_number(value, money=False)
+    if group == "ops" and field in OPS_MONEY_FIELDS:
+      return _format_number(value, money=True)
+    if group == "financials" and field in FIN_MONEY_FIELDS:
+      return _format_number(value, money=True)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+      return _format_number(value, money=False)
+    if isinstance(value, list):
+      return ", ".join([str(v) for v in value if v is not None]).strip()
+    if isinstance(value, dict):
+      return ""
+    return str(value).strip() if value is not None else ""
+
+  def _replace(match: re.Match[str]) -> str:
+    key = (match.group(1) or "").strip()
+    if not _is_allowed_fact_key(key):
+      return ""
+    group, field = key.split(".", 1)
+    return format_value(group, field, resolve_value(group, field))
+
+  return _FACT_PATTERN.sub(_replace, str(text))
 
 
 def _similarity(a: str, b: str) -> float:
@@ -432,14 +640,18 @@ def main() -> int:
     response = _post_json(f"{base_url}/api/intake-consult", seed_payload)
 
     for turn_index in range(args.max_turns):
-      assistant_message = str(response.get("assistant_message") or "").strip()
+      draft_snapshot = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
+      assistant_message = _render_fact_placeholders(
+        str(response.get("assistant_message") or "").strip(),
+        draft_snapshot,
+      ).strip()
       active_focus = str(response.get("active_focus") or "").strip().lower()
       transcript.append({"role": "assistant", "content": assistant_message, "focus": active_focus})
       print(f"\n[{active_focus or 'unknown'}][assistant] {assistant_message}")
 
       if response.get("done"):
         print("\nSimulation completed.")
-        draft = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
+        draft = draft_snapshot
         print(
           "Final flags:",
           json.dumps(

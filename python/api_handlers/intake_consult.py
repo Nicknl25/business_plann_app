@@ -141,6 +141,70 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
   return ops_obj
 
 
+def _apply_model_ops_patch(ops_json: Any, patch_obj: Any) -> Any:
+  """
+  Merge model-produced incremental Ops facts into the working Ops JSON.
+
+  This mirrors the existing edit_patch persistence style, but stays scoped to Ops
+  and ignores nulls so partial snapshots do not wipe prior answers.
+  """
+  if not isinstance(ops_json, dict) or not isinstance(patch_obj, dict):
+    return ops_json
+
+  allowed_keys = {
+    "consumer_type",
+    "business_type",
+    "unit_name",
+    "unit_description",
+    "unit_cadence",
+    "units_per_week_capacity",
+    "units_per_period_capacity",
+    "operating_periods_per_year",
+    "utilization_rate",
+    "unit_price",
+    "shipping_method",
+    "sales_modality",
+    "geographic_scope",
+    "geographic_coverage",
+    "countries",
+    "capacity_driver",
+    "primary_growth_lever",
+    "legal_entity",
+    "lob_models",
+  }
+  for k, v in patch_obj.items():
+    key = str(k or "").strip()
+    if key not in allowed_keys or v is None:
+      continue
+    ops_json[key] = v
+
+  # Keep single-product top-level convenience fields aligned with the product row.
+  lob_models = ops_json.get("lob_models")
+  if isinstance(lob_models, list) and len(lob_models) == 1:
+    products = lob_models[0].get("products") if isinstance(lob_models[0], dict) else None
+    if isinstance(products, list) and len(products) == 1 and isinstance(products[0], dict):
+      product = products[0]
+
+      def _maybe_copy_text(field: str) -> None:
+        if not str(ops_json.get(field) or "").strip() and product.get(field) is not None:
+          ops_json[field] = product.get(field)
+
+      def _maybe_copy_number(field: str) -> None:
+        if _is_missing_number_value(ops_json.get(field)) and product.get(field) is not None:
+          ops_json[field] = product.get(field)
+
+      _maybe_copy_text("unit_name")
+      _maybe_copy_text("unit_description")
+      _maybe_copy_text("unit_cadence")
+      _maybe_copy_number("unit_price")
+      _maybe_copy_number("units_per_week_capacity")
+      _maybe_copy_number("units_per_period_capacity")
+      _maybe_copy_number("operating_periods_per_year")
+      _maybe_copy_number("utilization_rate")
+
+  return _normalize_ops_capacity_compat(ops_json)
+
+
 def _last_assistant_message(messages: List[Dict[str, str]]) -> str:
   for msg in reversed(messages or []):
     if str(msg.get("role") or "").strip().lower() != "assistant":
@@ -1004,6 +1068,102 @@ def _extract_ops_pending_milestone(
     return None
   return [m for m in milestones_val if isinstance(m, dict)]
 
+
+def _extract_ops_pending_milestone_via_openai(
+  *,
+  text: str,
+  ops_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> Dict[str, Any]:
+  key = _openai_key()
+  user_text = str(text or "").strip()
+  if not key or not user_text:
+    return {"captured": False, "milestone": None, "clarification_question": ""}
+
+  schema = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "captured": {"type": "boolean"},
+      "milestone": {
+        "type": ["object", "null"],
+        "additionalProperties": False,
+        "properties": {
+          "description": {"type": "string"},
+          "timing": {"type": "string"},
+        },
+        "required": ["description", "timing"],
+      },
+      "clarification_question": {"type": "string"},
+    },
+    "required": ["captured", "milestone", "clarification_question"],
+  }
+
+  system = (
+    "You are extracting a single 12-month business milestone from the user's answer.\n"
+    "The user is answering the question: what is one concrete goal they want to hit in about the next 12 months?\n\n"
+    "Return ONLY JSON matching the schema.\n"
+    "- If the user's answer clearly states one concrete goal, set captured=true and return one milestone object.\n"
+    "- milestone.description should be a concise plain-English business goal.\n"
+    "- milestone.timing should preserve the user's timeframe in plain English when available (for example: "
+    "\"Within the next 12 months\" or \"By Q4 2026\").\n"
+    "- If the answer is unclear or does not contain a concrete goal, set captured=false and ask one short clarification question.\n"
+    "- Do not ask for permission to continue.\n"
+    "- Do not return more than one milestone.\n"
+  )
+  context = {
+    "business_name": str(business_facts.get("name") or "").strip(),
+    "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+    "unit_name": str((ops_json or {}).get("unit_name") or "").strip(),
+    "unit_cadence": str((ops_json or {}).get("unit_cadence") or "").strip(),
+    "user_answer": user_text,
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "ops_pending_milestone_extract",
+        "schema": schema,
+        "strict": True,
+      }
+    },
+  }
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    return {"captured": False, "milestone": None, "clarification_question": ""}
+
+  data = resp.json()
+  output = data.get("output") or []
+  parsed: Optional[Dict[str, Any]] = None
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        parsed = part["json"]
+        break
+    if parsed:
+      break
+  if parsed is None:
+    try:
+      parsed = json.loads(_parse_responses_text(data))
+    except Exception:
+      parsed = None
+  if not isinstance(parsed, dict):
+    return {"captured": False, "milestone": None, "clarification_question": ""}
+  return {
+    "captured": bool(parsed.get("captured", False)),
+    "milestone": parsed.get("milestone") if isinstance(parsed.get("milestone"), dict) else None,
+    "clarification_question": str(parsed.get("clarification_question") or "").strip(),
+  }
+
 def _propose_ops_competitive_advantage(
   *,
   ops_json: Dict[str, Any],
@@ -1759,6 +1919,11 @@ def post_intake_consult_handler(*, app, request):
       turn: Dict[str, Any] = {}
       if focus == "ops":
         turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
+        ops_json = _apply_model_ops_patch(ops_json, turn.get("patch") if isinstance(turn, dict) else None)
+        try:
+          shared_context["operating_model"] = ops_json
+        except Exception:
+          pass
       elif focus == "market":
         turn = target_market_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
         try:
@@ -2115,34 +2280,56 @@ def post_intake_consult_handler(*, app, request):
       and not _has_confirmed_milestone(ops_json)
     ):
       try:
-        milestone_intent = route_intent(
-          consult_type="ops",
-          user_message=message,
-          baseline_json=ops_json,
-          shared_context=shared_context_for_router,
-          recent_messages=recent_messages,
-          active_focus="ops",
+        extracted_milestone = _extract_ops_pending_milestone_via_openai(
+          text=message,
+          ops_json=ops_json,
+          business_facts=business_facts,
         )
-        m_action = str(milestone_intent.get("action") or "").strip()
-        m_router_msg = sanitize_fact_template(str(milestone_intent.get("assistant_message") or "").strip())
-        m_patch = (
-          milestone_intent.get("patch") if isinstance(milestone_intent.get("patch"), dict) else None
+        milestone_obj = extracted_milestone.get("milestone")
+        clarification_question = sanitize_fact_template(
+          str(extracted_milestone.get("clarification_question") or "").strip()
         )
-        # Only override routing when the router actually produced a milestones patch.
-        if m_action == "edit_patch" and isinstance(m_patch, dict) and (
-          "milestones" in m_patch or "ops.milestones" in m_patch
-        ):
+        if bool(extracted_milestone.get("captured")) and isinstance(milestone_obj, dict):
           milestone_intent_override = {
-            "action": m_action,
-            "router_msg": m_router_msg,
-            "patch": m_patch,
+            "action": "edit_patch",
+            "router_msg": "Got it.",
+            "patch": {"milestones": [milestone_obj]},
           }
-        elif m_action == "confirm_clarify" and m_router_msg:
+        elif clarification_question:
           milestone_intent_override = {
-            "action": m_action,
-            "router_msg": m_router_msg,
+            "action": "confirm_clarify",
+            "router_msg": clarification_question,
             "patch": None,
           }
+        else:
+          milestone_intent = route_intent(
+            consult_type="ops",
+            user_message=message,
+            baseline_json=ops_json,
+            shared_context=shared_context_for_router,
+            recent_messages=recent_messages,
+            active_focus="ops",
+          )
+          m_action = str(milestone_intent.get("action") or "").strip()
+          m_router_msg = sanitize_fact_template(str(milestone_intent.get("assistant_message") or "").strip())
+          m_patch = (
+            milestone_intent.get("patch") if isinstance(milestone_intent.get("patch"), dict) else None
+          )
+          # Only override routing when the router actually produced a milestones patch.
+          if m_action == "edit_patch" and isinstance(m_patch, dict) and (
+            "milestones" in m_patch or "ops.milestones" in m_patch
+          ):
+            milestone_intent_override = {
+              "action": m_action,
+              "router_msg": m_router_msg,
+              "patch": m_patch,
+            }
+          elif m_action == "confirm_clarify" and m_router_msg:
+            milestone_intent_override = {
+              "action": m_action,
+              "router_msg": m_router_msg,
+              "patch": None,
+            }
       except Exception:
         milestone_intent_override = None
 
@@ -2204,6 +2391,19 @@ def post_intake_consult_handler(*, app, request):
       if isinstance(inferred_ops_patch, dict) and inferred_ops_patch:
         action = "edit_patch"
         patch = inferred_ops_patch
+
+    if (
+      str(focus).strip().lower() == "ops"
+      and pending_ops_milestone
+      and not _has_confirmed_milestone(ops_json)
+      and not milestone_intent_override
+      and action != "edit_patch"
+    ):
+      action = "confirm_clarify"
+      router_msg = (
+        "What is one concrete goal you want to hit in about the next 12 months, and by when?"
+      )
+      patch = None
 
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
@@ -2842,6 +3042,15 @@ def post_intake_consult_handler(*, app, request):
         else:
           followup_turn = {"assistant_message": ""}
 
+        if followup_focus == "ops":
+          ops_json = _apply_model_ops_patch(
+            ops_json, followup_turn.get("patch") if isinstance(followup_turn, dict) else None
+          )
+          try:
+            shared_context["operating_model"] = ops_json
+          except Exception:
+            pass
+
         followup_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
         if focus == "market":
           followup_text = _strip_acs_codes(followup_text)
@@ -3293,6 +3502,14 @@ def post_intake_consult_handler(*, app, request):
         messages,
         force=True,
       )
+
+    # Ops: apply model-produced structured patch immediately (no controller parsing).
+    if str(focus).strip().lower() == "ops" and isinstance(turn, dict):
+      ops_json = _apply_model_ops_patch(ops_json, turn.get("patch"))
+      try:
+        shared_context["operating_model"] = ops_json
+      except Exception:
+        pass
 
     # Target Market: apply model-produced structured patch immediately (no controller parsing).
     if str(focus).strip().lower() == "market" and isinstance(turn, dict):
