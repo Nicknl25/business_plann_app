@@ -113,6 +113,7 @@ def _final_schema() -> Dict[str, Any]:
                     "unit_cadence": {"type": "string", "enum": ["weekly", "monthly", "contract"]},
                     "units_per_week_capacity": {"type": "number"},
                     "units_per_period_capacity": {"type": "number"},
+                    "operating_periods_per_year": {"type": ["number", "null"]},
                     "utilization_rate": {"type": ["number", "null"]},
                     "unit_price": {"type": "number"},
                   },
@@ -123,6 +124,7 @@ def _final_schema() -> Dict[str, Any]:
                     "unit_cadence",
                     "units_per_week_capacity",
                     "units_per_period_capacity",
+                    "operating_periods_per_year",
                     "utilization_rate",
                     "unit_price",
                   ],
@@ -137,6 +139,7 @@ def _final_schema() -> Dict[str, Any]:
         "unit_cadence": {"type": ["string", "null"], "enum": ["weekly", "monthly", "contract", None]},
         "units_per_week_capacity": {"type": ["number", "null"]},
         "units_per_period_capacity": {"type": ["number", "null"]},
+        "operating_periods_per_year": {"type": ["number", "null"]},
         "utilization_rate": {"type": ["number", "null"]},
         "unit_price": {"type": ["number", "null"]},
         "shipping_method": {"type": "string"},
@@ -176,6 +179,7 @@ def _final_schema() -> Dict[str, Any]:
         "unit_cadence",
         "units_per_week_capacity",
         "units_per_period_capacity",
+        "operating_periods_per_year",
         "utilization_rate",
         "unit_price",
         "shipping_method",
@@ -284,6 +288,7 @@ Information you must collect before finalizing (do NOT show these as internal fi
 - A short description of what's included in a typical unit (per product)
 - Unit cadence (weekly, monthly, or contract) for each product
 - Capacity per cadence period (how many units can be handled in a fully booked period, per product)
+- Operating periods/turns per year for each product when needed for revenue planning
 - Year-1 practical utilization rate per product (as a percent of practical capacity)
 - A single agreed average price per unit (> 0) for each product
 - How the customer receives the product/service (delivery/fulfillment/shipping method), explicitly chosen by the client
@@ -299,10 +304,23 @@ Cadence handling (REQUIRED):
 - Infer the most likely unit cadence from the business model (weekly, monthly, or contract) and confirm it as part of the restatement.
 - weekly: capacity is per week.
 - monthly: capacity is per month.
-- contract: capacity is concurrent active matters (concurrency-first).
+- contract: capacity is the maximum number of active projects/contracts you can handle at the same time (concurrency-first), NOT the total number completed in a year.
 - If the unit represents owned assets/inventory (rentals, storage units, rooms, vehicles, seats, etc.), treat capacity as the count of those units available in a typical period and keep the language plain. Do not frame this as throughput or a "mapping" choice; just restate the business normally and confirm.
 - Always populate units_per_period_capacity based on the chosen cadence.
 - For compatibility, also populate units_per_week_capacity with the same numeric value (even for monthly/contract cadences).
+
+Periods-per-year handling (REQUIRED):
+- operating_periods_per_year is the number of planning periods/turns per year for each product.
+- weekly cadence implies 52 operating periods per year unless the client explicitly changes it.
+- monthly cadence implies 12 operating periods per year unless the client explicitly changes it.
+- contract cadence does NOT have an automatic final answer. Infer and propose the most likely annual turns assumption first, then let the client agree or counter in plain language.
+- For contract-cadence products, ask/propose operating_periods_per_year during the normal Ops conversation after utilization is agreed and before the end-of-Ops wrap-up. Do not defer this to a final summary or late controller correction.
+- For contract cadence, explain turns/year as how many times ONE active project slot turns over in a year. Do NOT describe it as total annual events unless the client explicitly chooses to think about it that way.
+- If the client gives a total annual-events answer while you are trying to capture turns/year, do NOT overwrite the already-agreed concurrent capacity. Keep the capacity unchanged and either (a) translate that annual total into an implied turns/year assumption and confirm it, or (b) ask one short clarification if the numbers do not make sense together.
+- Once concurrent capacity for a contract product has been agreed, never reinterpret that same number later as annual throughput.
+- Keep the question plain and client-friendly; do not ask the client to do finance math.
+- Store operating_periods_per_year as a numeric value for each product.
+- Do not finalize Ops until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
 
 Utilization handling (REQUIRED):
 - After capacity is agreed for a product, capture a Year-1 practical utilization rate for that product.
@@ -351,6 +369,7 @@ Licensing/permits radar check (NON-LEGAL, ONE-TIME ONLY):
 Conversation rules:
 - Ask ONE question at a time. Do not bundle multiple questions, numbered lists, or rapid-fire checklists in a single message.
 - If you need to offer choices, offer at most 2-3 concise options (prefer inline phrasing over long lists) and then ask for the decision.
+- Do NOT re-ask a field that has already been explicitly answered and acknowledged unless the client changed it, contradicted it, or the earlier answer truly did not resolve the field.
 - Never show internal schema/field names (e.g., unit_name, unit_description, shipping_method, sales_modality, geographic_scope, etc.). Use natural language.
 - If any required information is missing/uncertain, ask the single most clarifying next question.
 - Prefer concrete operational phrasing (what gets delivered, how often, what limits throughput).
@@ -394,6 +413,7 @@ Output rules:
   }}
 - finalize_ready must be false until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
 - finalize_ready must also remain false until utilization_rate has been explicitly agreed for every product in scope.
+- finalize_ready must also remain false until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
 - When finalize_ready is true:
   - assistant_message must be a short handoff message only, or an empty string.
   - Do NOT include an operational summary, confirmation paragraph, bullets, lists, headings, or extra restatements.
@@ -504,6 +524,7 @@ Edit mode (IMPORTANT):
 Important: unit_price must reflect a single, non-zero number that the user explicitly agreed to in the conversation OR, in edit_mode, the previously agreed value in existing_operating_model_json.
 unit_cadence must be exactly one of: weekly, monthly, contract, based on how the client gets paid.
 units_per_period_capacity must be provided for each product; for monthly or contract cadence, mirror that value into units_per_week_capacity for compatibility.
+operating_periods_per_year must be included for each product as a number. For weekly/monthly cadence, use the implied annual value unless the client explicitly changed it. For contract cadence, carry forward the confirmed turns-per-year assumption unless the edit request clearly changes it.
 utilization_rate must be included for each product as a decimal fraction of practical Year-1 utilization (for example 0.7 for 70%). In edit_mode, carry forward the baseline value unless the edit request clearly changes it.
 
 The business_description_summary must include a concrete fulfillment model narrative consistent with the conversation (who fulfills the work, typical timing/lead time, and what primarily constrains capacity: labor/system/demand) and a brief, professional licensing/permits/insurance/compliance note framed as assumption-first narrative (e.g., standard requirements for this business type are assumed to be incorporated into operations; exact requirements vary by jurisdiction). If the client explicitly said something does not apply, reflect that.
@@ -515,10 +536,9 @@ Ensure geographic_coverage is expressed as ZIPs, counties, metro areas, and/or s
 - Do NOT leave "blank" factual slots (e.g., "about  worth"). If a value is unknown or zero, still include the correct placeholder so the UI renders $0/none.
 Multi-LOB/products:
 - If the conversation confirms multiple LOBs and/or multiple products, populate lob_models accordingly.
-- For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, and unit_price.
-- For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, utilization_rate, and unit_price.
-- When multiple LOBs or multiple products are confirmed, set top-level unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, and unit_price to null.
-- When only one LOB with one product is confirmed, set top-level unit fields and top-level utilization_rate to that single product.
+- For lob_models, include each LOB name and one or more products with their unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, operating_periods_per_year, utilization_rate, and unit_price.
+- When multiple LOBs or multiple products are confirmed, set top-level unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, operating_periods_per_year, and unit_price to null.
+- When only one LOB with one product is confirmed, set top-level unit fields, top-level operating_periods_per_year, and top-level utilization_rate to that single product.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

@@ -122,6 +122,7 @@ def _build_default_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]
           "unit_price": operating_model.get("unit_price"),
           "units_per_week_capacity": operating_model.get("units_per_week_capacity"),
           "units_per_period_capacity": units_per_period_capacity,
+          "operating_periods_per_year": operating_model.get("operating_periods_per_year"),
           "utilization_rate": operating_model.get("utilization_rate"),
         }
       ],
@@ -163,6 +164,9 @@ def _build_base_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]:
           "unit_price": product.get("unit_price"),
           "units_per_week_capacity": product.get("units_per_week_capacity"),
           "units_per_period_capacity": units_per_period_capacity,
+          "operating_periods_per_year": product.get("operating_periods_per_year")
+          if product.get("operating_periods_per_year") is not None
+          else operating_model.get("operating_periods_per_year"),
           "utilization_rate": product.get("utilization_rate")
           if product.get("utilization_rate") is not None
           else operating_model.get("utilization_rate"),
@@ -331,7 +335,10 @@ def _apply_product_drivers(
     units_per_period_capacity = units_per_week_capacity
 
   operating_periods_per_year = _apply_override_value(
-    override.get("operating_periods_per_year"), global_override.get("operating_periods_per_year")
+    override.get("operating_periods_per_year"), base_product.get("operating_periods_per_year")
+  )
+  operating_periods_per_year = _apply_override_value(
+    global_override.get("operating_periods_per_year"), operating_periods_per_year
   )
   operating_periods_per_year = _nonnegative(_to_float(operating_periods_per_year))
   if operating_periods_per_year is None or operating_periods_per_year <= 0:
@@ -345,8 +352,9 @@ def _apply_product_drivers(
       operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
 
   utilization_rate = _apply_override_value(
-    override.get("utilization_rate"), global_override.get("utilization_rate")
+    override.get("utilization_rate"), base_product.get("utilization_rate")
   )
+  utilization_rate = _apply_override_value(global_override.get("utilization_rate"), utilization_rate)
   utilization_rate = _normalize_utilization(utilization_rate)
 
   avg_units_per_period_year1 = _apply_override_value(
@@ -780,11 +788,11 @@ def build_revenue_math_line(
     unit_label = str(obj.get("unit_name") or "").strip() or str(fallback_unit_name or "").strip() or "units"
 
     if cadence == "contract":
-      avg_units_val = obj.get("avg_units_per_period_year1")
-      if _to_float(avg_units_val) is None:
-        avg_units_val = obj.get("avg_units_per_week_year1")
-      avg_units = _format_number(avg_units_val)
-      return f"{avg_units} active {unit_label}"
+      capacity_val = obj.get("units_per_period_capacity")
+      if _to_float(capacity_val) is None:
+        capacity_val = obj.get("units_per_week_capacity")
+      capacity = _format_number(capacity_val)
+      return f"{capacity} {unit_label}"
 
     capacity_val = obj.get("units_per_period_capacity")
     if _to_float(capacity_val) is None:

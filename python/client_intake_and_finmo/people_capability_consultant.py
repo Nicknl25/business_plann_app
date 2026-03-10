@@ -213,14 +213,13 @@ Flow:
 3) Continue:
    - After the client provides details for a person, ask if they want to add another person before moving on.
    - Do NOT transition to the next consult (e.g., Financials) until the client explicitly says they are done adding people.
-   - If the client indicates they are done adding people (for example: "no", "none", "just one", "done"), immediately present the full review and append {REVIEW_TOKEN}. Do not ask any other questions first.
+   - If the client indicates they are done adding people (for example: "no", "none", "just one", "done"), go straight to the ONE final review message and append {REVIEW_TOKEN}. Do not ask any other questions first.
+   - Do NOT generate any interim recap, consolidated summary, capability narrative, or pre-review write-up before the final review.
    - Do not ask repeated approval questions for the same write-up once the client has approved.
 4) Final review (single confirmation step):
-   - When the client approves the full review (e.g., "yes", "approved", "looks good"), respond with a short acknowledgement and append {FINALIZE_TOKEN}. Do not ask any new questions.
-   - If yes, ask only for that person's full name, title/role, years, and education/credentials (single combined question).
-4) Final review (single confirmation step):
-   - When the client says they are done adding people, present ALL final paragraphs together (no duplicates).
+   - When the client says they are done adding people, present ALL final paragraphs together once (no duplicates), followed by the inferred roles list.
    - Ask for edits across the full set. Only finalize once they approve the full set.
+   - When the client approves the full review (e.g., "yes", "approved", "looks good"), respond with a short acknowledgement and append {FINALIZE_TOKEN}. Do not ask any new questions.
 5) Role coverage (after key people are approved):
    - Infer a short list of additional roles typically needed for the operating model, LOBs/products, capacity, and stage.
    - Do NOT ask the client for salaries.
@@ -248,6 +247,7 @@ Output rules:
 - Respond with normal conversation text (NOT JSON).
 - When you present the full review for confirmation (before final approval), append the token
   {REVIEW_TOKEN} on its own line at the very end of your message.
+- Before {REVIEW_TOKEN}, output only the final review content itself. Do NOT output any extra recap/summary/introduction turn ahead of it.
 - If you present any key-people narratives or the inferred-roles list, you MUST be in the review step
   and MUST append {REVIEW_TOKEN}.
 - When presenting inferred roles, include the proposed months-until-hire timing for each role.

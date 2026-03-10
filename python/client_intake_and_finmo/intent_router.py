@@ -254,6 +254,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "units_per_period_capacity": {"type": "number"},
 
+      "operating_periods_per_year": {"type": "number"},
+
       "unit_price": {"type": "number"},
       "shipping_method": {"type": "string"},
       "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
@@ -1445,6 +1447,8 @@ def route_intent(
 
       "units_per_period_capacity",
 
+      "operating_periods_per_year",
+
       "unit_price",
 
       "shipping_method",
@@ -1578,6 +1582,7 @@ def route_intent(
         "unit_cadence",
         "units_per_week_capacity",
         "units_per_period_capacity",
+        "operating_periods_per_year",
         "unit_price",
         "shipping_method",
         "sales_modality",
