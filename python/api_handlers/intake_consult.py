@@ -84,6 +84,7 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
   Rules (minimal, non-destructive):
   - If unit_cadence is weekly and week capacity is set, fill missing period capacity from it.
   - If unit_cadence is monthly/contract and period capacity is set, fill missing week capacity from it.
+  - If unit_cadence is weekly/monthly and operating_periods_per_year is missing, fill it with 52/12.
   - Never overwrite an existing non-missing capacity number.
   - For multi-product ops (lob_models with >1 product), only normalize per-product fields;
     keep top-level unit fields null by design.
@@ -95,10 +96,13 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     cadence = str(d.get("unit_cadence") or "").strip().lower()
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
+    periods_per_year = d.get("operating_periods_per_year")
 
     if cadence == "weekly":
       if _is_missing_number_value(period) and not _is_missing_number_value(week):
         d["units_per_period_capacity"] = week
+      if _is_missing_number_value(periods_per_year):
+        d["operating_periods_per_year"] = 52
       return
 
     if cadence in ("monthly", "contract"):
@@ -106,6 +110,8 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         d["units_per_week_capacity"] = period
       elif _is_missing_number_value(period) and not _is_missing_number_value(week):
         d["units_per_period_capacity"] = week
+      if cadence == "monthly" and _is_missing_number_value(periods_per_year):
+        d["operating_periods_per_year"] = 12
       return
 
     # Unknown cadence: best-effort fill the missing side only.
@@ -204,6 +210,57 @@ def _extract_revenue_proposal_patch(
   if not isinstance(patch, dict) or not patch:
     return None
   return patch
+
+
+def _extract_ops_proposal_patch(
+  *,
+  last_assistant: str,
+  route_intent,
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  recent_messages: List[Dict[str, str]],
+) -> Optional[Dict[str, Any]]:
+  text = str(last_assistant or "").strip()
+  if not text:
+    return None
+  try:
+    proposal_intent = route_intent(
+      consult_type="ops",
+      user_message=text,
+      baseline_json=ops_json,
+      shared_context=shared_context,
+      recent_messages=recent_messages,
+      active_focus="ops",
+    )
+  except Exception:
+    return None
+  if str(proposal_intent.get("action") or "").strip() != "edit_patch":
+    return None
+  patch = proposal_intent.get("patch")
+  if not isinstance(patch, dict) or not patch:
+    return None
+  return patch
+
+
+def _fallback_ops_followup_question(ops_json: Dict[str, Any]) -> str:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+
+  def _missing_text(field: str) -> bool:
+    return not str(ops.get(field) or "").strip()
+
+  if _missing_text("capacity_driver"):
+    return (
+      "What most limits how much you can grow right now: your available labor/time, "
+      "your systems/processes, or having enough customer demand?"
+    )
+  if _missing_text("primary_growth_lever"):
+    return (
+      "What do you see as the main lever you'll push first to grow this business: "
+      "winning more demand, improving systems/processes, or adding more people/capacity?"
+    )
+  if _missing_text("legal_entity"):
+    return "Which legal structure are you using right now: Sole proprietor, LLC, Partnership, S-corp, or C-corp?"
+  return ""
 
 
 def _is_guardrail_acknowledgement(message: str) -> bool:
@@ -427,6 +484,7 @@ def _year1_driver_map(year1_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         "unit_cadence": str(product.get("unit_cadence") or "").strip().lower(),
         "unit_price": product.get("unit_price"),
         "units_per_period_capacity": product.get("units_per_period_capacity"),
+        "operating_periods_per_year": product.get("operating_periods_per_year"),
         "utilization_rate": product.get("utilization_rate"),
       }
   return out
@@ -462,6 +520,10 @@ def _year1_drivers_conflict(existing_year1: Optional[Dict[str, Any]], base_year1
     existing_capacity = _num(existing_driver.get("units_per_period_capacity"))
     if base_capacity is not None and existing_capacity is not None and abs(base_capacity - existing_capacity) > 0.01:
       return True
+    base_periods = _num(base_driver.get("operating_periods_per_year"))
+    existing_periods = _num(existing_driver.get("operating_periods_per_year"))
+    if base_periods is not None and existing_periods is not None and abs(base_periods - existing_periods) > 0.01:
+      return True
     base_util = _num(base_driver.get("utilization_rate"))
     existing_util = _num(existing_driver.get("utilization_rate"))
     if base_util is not None and existing_util is not None and abs(base_util - existing_util) > 0.0001:
@@ -484,6 +546,7 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "unit_cadence",
       "units_per_week_capacity",
       "units_per_period_capacity",
+      "operating_periods_per_year",
       "utilization_rate",
       "unit_price",
       "shipping_method",
@@ -2123,6 +2186,25 @@ def post_intake_consult_handler(*, app, request):
       router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
       patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
 
+    if (
+      str(focus).strip().lower() == "ops"
+      and action == "confirm_proceed"
+      and not ops_finalize_proposed
+      and not pending_ops_milestone
+      and not competitive_intent_override
+      and not milestone_intent_override
+    ):
+      inferred_ops_patch = _extract_ops_proposal_patch(
+        last_assistant=last_assistant,
+        route_intent=route_intent,
+        ops_json=ops_json,
+        shared_context=shared_context,
+        recent_messages=recent_messages,
+      )
+      if isinstance(inferred_ops_patch, dict) and inferred_ops_patch:
+        action = "edit_patch"
+        patch = inferred_ops_patch
+
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
       patch = _normalize_unscoped_patch(patch, focus=focus)
@@ -2770,6 +2852,8 @@ def post_intake_consult_handler(*, app, request):
             messages,
             force=True,
           )
+        if followup_focus == "ops" and not followup_text:
+          followup_text = _fallback_ops_followup_question(ops_json)
         if followup_focus == "ops":
           followup_finalize_ready = bool(followup_turn.get("finalize_ready", False))
           followup_attempts_finalize = (
@@ -3659,6 +3743,7 @@ def post_intake_consult_handler(*, app, request):
             _maybe_set_number("unit_price")
             _maybe_set_number("units_per_week_capacity")
             _maybe_set_number("units_per_period_capacity")
+            _maybe_set_number("operating_periods_per_year")
             _maybe_set_number("utilization_rate")
       # Capacity compatibility: fill missing week/period fields deterministically.
       final_obj = _normalize_ops_capacity_compat(final_obj)
