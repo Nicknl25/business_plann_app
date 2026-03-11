@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_OPERATING_WEEKS_PER_YEAR = 52.0
 DEFAULT_OPERATING_MONTHS_PER_YEAR = 12.0
-DEFAULT_OPERATING_CONTRACT_PERIODS_PER_YEAR = 12.0
+DEFAULT_OPERATING_CONTRACT_PERIODS_PER_YEAR = 0.0
 
 
 def _to_float(value: Any) -> Optional[float]:
@@ -812,6 +812,10 @@ def build_revenue_math_line(
     periods_val = obj.get("operating_periods_per_year")
     if _to_float(periods_val) is None:
       periods_val = obj.get("operating_weeks_per_year")
+    if cadence == "contract":
+      periods_num = _to_float(periods_val)
+      if periods_num is None or periods_num <= 0:
+        return ""
     periods = _format_number(periods_val)
     if cadence == "contract":
       return f"~{periods} turns/year"

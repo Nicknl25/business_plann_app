@@ -418,6 +418,8 @@ Output rules:
   - If a fact is still unknown or unchanged, return null for that field.
   - For multi-product flows, lob_models must be the full current structured snapshot of the known products so far; carry forward already-known products from the context JSON and do not drop them.
   - For not-yet-known fields inside a product, return null for those product fields.
+  - For business-wide answers like legal_entity, capacity_driver, primary_growth_lever, shipping_method, sales_modality, and geographic fields, always populate those top-level patch fields as soon as the client answers them.
+  - Once a business-wide top-level field is known, keep carrying it forward; do not reset it to null just because the current turn is about a product.
   - Normalize enums where known:
     - unit_cadence: weekly, monthly, contract
     - sales_modality: physical, online, hybrid

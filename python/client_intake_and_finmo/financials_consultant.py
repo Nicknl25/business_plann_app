@@ -124,7 +124,7 @@ def _revenue_adjudication_schema() -> Dict[str, Any]:
         "proceed_rationale": {"type": "string"},
         "options": {
           "type": "array",
-          "maxItems": 3,
+          "maxItems": 4,
           "items": {
             "type": "object",
             "additionalProperties": False,
@@ -133,8 +133,29 @@ def _revenue_adjudication_schema() -> Dict[str, Any]:
               "label": {"type": "string"},
               "suggested_change": {"type": "string"},
               "why_it_helps": {"type": "string"},
+              "driver_changes": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "financials_year1_patch": {
+                    "type": "object",
+                    "additionalProperties": True,
+                  },
+                  "financials_patch": {
+                    "type": "object",
+                    "additionalProperties": True,
+                  },
+                },
+                "required": ["financials_year1_patch", "financials_patch"],
+              },
             },
-            "required": ["option_id", "label", "suggested_change", "why_it_helps"],
+            "required": [
+              "option_id",
+              "label",
+              "suggested_change",
+              "why_it_helps",
+              "driver_changes",
+            ],
           },
         },
       },
@@ -256,10 +277,12 @@ Your job:
 
 Adjustment options:
 - If no revenue change is needed, set requires_adjustment to false, good_to_proceed_without_revenue_change to true, and return options as an empty list.
-- If revenue does need adjustment, set requires_adjustment to true and return up to 3 concrete options.
-- Each option must be short, client-friendly, and patchable from the visible assistant text.
-- Each option must contain explicit changed values tied to revenue-driver fields only: price, capacity, utilization, periods/year, or product-specific overrides.
-- Do not propose unrelated changes outside the revenue-driver model.
+- If revenue does need adjustment, set requires_adjustment to true and return 2 to 4 concrete options.
+- Each option must be short, client-friendly, and include deterministic driver_changes.
+- Each option must contain explicit changed values and a matching driver_changes object.
+- driver_changes.financials_year1_patch should carry the exact revenue-driver patch to apply.
+- driver_changes.financials_patch may carry supporting financial assumption changes (for example payroll, owner pay, rent, or regular operating costs) when needed to make the overall model coherent.
+- Each option must be a complete resolution path, not a partial tweak that requires another revenue-adjustment round afterward.
 
 Output intent:
 - plain_language_summary should be one concise, non-technical paragraph for the client.
@@ -273,6 +296,144 @@ Output intent:
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": context_blob},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {}
+  if isinstance(parsed, dict) and bool(parsed.get("requires_adjustment")):
+    options = parsed.get("options")
+    if not isinstance(options, list) or len(options) < 2:
+      payload["input"] = [
+        {
+          "role": "system",
+          "content": system + "\nSTRICT MODE: if adjustment is required, you MUST return at least 2 and at most 4 complete options.",
+        },
+        {"role": "user", "content": context_blob},
+      ]
+      resp = _post_openai(url=url, headers=headers, payload=payload)
+      if resp.status_code < 400:
+        try:
+          parsed = _parse_responses_json(resp.json())
+        except Exception:
+          pass
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _locked_revenue_adjudication(intake_context: Dict[str, Any]) -> Dict[str, Any]:
+  financials_json = intake_context.get("financials_json")
+  if not isinstance(financials_json, dict):
+    financials_json = {}
+  financials_year1_json = intake_context.get("financials_year1_json")
+  if not isinstance(financials_year1_json, dict) or not financials_year1_json:
+    return {}
+  try:
+    from financials_year1 import build_revenue_driver_signature  # type: ignore
+  except Exception:
+    try:
+      from client_intake_and_finmo.financials_year1 import build_revenue_driver_signature  # type: ignore
+    except Exception:
+      return {}
+
+  locked_signature = str(financials_json.get("_revenue_adjustment_locked_signature") or "").strip()
+  current_signature = str(build_revenue_driver_signature(financials_year1_json) or "").strip()
+  if not locked_signature or not current_signature or locked_signature != current_signature:
+    return {}
+
+  locked_summary = str(financials_json.get("_revenue_adjustment_locked_summary") or "").strip()
+  if not locked_summary:
+    locked_summary = (
+      "This revised revenue setup is now the locked Year-1 baseline for the rest of the "
+      "financial model, and it is consistent enough to proceed without reopening the same "
+      "revenue adjustment issue."
+    )
+
+  return {
+    "requires_adjustment": False,
+    "good_to_proceed_without_revenue_change": True,
+    "overall_judgment": "locked_baseline",
+    "dominant_constraint": "none",
+    "plain_language_summary": locked_summary,
+    "proceed_rationale": locked_summary,
+    "options": [],
+  }
+
+
+def _revenue_option_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_revenue_option_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": ["select_option", "custom_change", "ask_question", "reject_all", "unclear"],
+        },
+        "selected_option_id": {
+          "type": ["string", "null"],
+        },
+        "reason": {"type": "string"},
+      },
+      "required": ["intent_type", "selected_option_id", "reason"],
+    },
+  }
+
+
+def interpret_revenue_option_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+  pending_options: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+  if not str(user_message or "").strip():
+    return {}
+  options = [option for option in (pending_options or []) if isinstance(option, dict)]
+  if not options:
+    return {}
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _revenue_option_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply to a Financials revenue-adjustment turn.\n"
+          "Classify whether the client selected one of the previously proposed options, "
+          "proposed a custom change instead, asked a question, rejected all options, or was unclear.\n"
+          "Use the stored structured options and the visible assistant wording as context.\n"
+          "Do not rely on exact keywords. Only return select_option when the user's meaning clearly chooses one of the provided options."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "assistant_message": str(last_assistant or "").strip(),
+            "pending_options": options,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
     ],
     "text": {
       "format": {
@@ -350,7 +511,7 @@ def _render_revenue_adjudication_response(
 
   if requires_adjustment:
     option_lines: List[str] = []
-    for idx, option in enumerate(options[:3], start=1):
+    for idx, option in enumerate(options[:4], start=1):
       if not isinstance(option, dict):
         continue
       suggested_change = str(option.get("suggested_change") or "").strip()
@@ -548,9 +709,11 @@ Rules:
   - do NOT ask for permission to proceed on revenue,
   - move directly to the next financial question in everyday language.
 - If revenue_adjudication.requires_adjustment is true:
-  - include up to 3 short option bullets labeled "Option 1", "Option 2", "Option 3",
+  - include 2 to 4 short option bullets labeled "Option 1", "Option 2", "Option 3", and optionally "Option 4",
   - each option must contain a concrete changed value tied to the revenue-driver model,
+  - each option must be a complete resolution path, not a partial tweak that forces another revenue-adjustment round,
   - end with one question asking which option they want or what else they want to change.
+- If revenue_adjudication.good_to_proceed_without_revenue_change is true because the revenue baseline is already locked, acknowledge that locked baseline once and move directly to the next unanswered financial question.
 - Keep the tone decisive and client-friendly. No hedging, no generic filler.
 - Do not introduce new facts, benchmarks, or external data.
 - Do not rely on canned "aggressive/conservative/balanced" wording unless it genuinely fits the adjudication.
@@ -595,7 +758,7 @@ Return ONLY the final response text.
   system_strict = (
     system
     + "\n"
-    + "STRICT MODE: You MUST preserve the table exactly, use at most three option bullets when adjustment is needed, "
+    + "STRICT MODE: You MUST preserve the table exactly, use 2 to 4 option bullets when adjustment is needed, "
     + "and never describe sub-100% utilization as full capacity."
   )
   payload["input"] = [
@@ -681,7 +844,7 @@ def financials_chat_turn(
   """
   api_key = _require_openai_key()
   model = _openai_model()
-  revenue_adjudication = _adjudicate_revenue_setup(intake_context)
+  revenue_adjudication = _locked_revenue_adjudication(intake_context) or _adjudicate_revenue_setup(intake_context)
   if revenue_adjudication:
     intake_context = dict(intake_context)
     intake_context["revenue_adjudication"] = revenue_adjudication
@@ -736,10 +899,11 @@ Financials adjudication (MANDATORY):
 Required response pattern (every revenue setup):
 1) Keep the existing Year-1 revenue table intact.
 2) Write one concise, client-friendly paragraph explaining whether the revenue setup looks workable or not, and why.
-3) If revenue_adjudication.requires_adjustment is true, add up to 3 short bullets labeled "Option 1", "Option 2", and "Option 3". Each option must include concrete changed values tied to the revenue-driver model.
+3) If revenue_adjudication.requires_adjustment is true, add 2 to 4 short bullets labeled "Option 1", "Option 2", "Option 3", and optionally "Option 4". Each option must include concrete changed values tied to the revenue-driver model and must fully resolve the mismatch.
 4) End with one question:
    - if adjustment is needed: ask which option they want or what else they want to change;
    - if no adjustment is needed: move directly to the next unanswered financial question and do not ask permission to proceed on revenue.
+5) Once the client selects a coherent revenue option and it becomes the active revenue model, treat that baseline as locked for the rest of this Financials consult unless the client explicitly asks to change revenue again. Do not reopen the same revenue issue on the next turn.
 
 Revenue plausibility guardrail (only when revenue_guardrail_triggered is true):
 
@@ -893,7 +1057,11 @@ Output rules:
   finalize_ready = FINALIZE_TOKEN in text
   text = text.replace(FINALIZE_TOKEN, "").strip()
   text = _rewrite_financials_revenue_response(draft_text=text, intake_context=intake_context)
-  return {"assistant_message": text, "finalize_ready": finalize_ready}
+  return {
+    "assistant_message": text,
+    "finalize_ready": finalize_ready,
+    "revenue_adjudication": revenue_adjudication,
+  }
 
 
 def financials_finalize(
