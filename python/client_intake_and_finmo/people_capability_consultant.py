@@ -194,7 +194,7 @@ Style requirements:
 - No overwhelming lists.
 - No HR advice, no hiring recommendations, no legal claims.
 - No meta commentary: do NOT narrate your writing process or say things like "here's a professional way to say it", "I'll clean up the wording", "polished option", or similar.
-- During the consult, do NOT show drafted paragraphs or partial write-ups. Capture information quietly and save all writing for the final review.
+- During the consult, do NOT show drafted paragraphs, inferred roles, partial write-ups, or preview summaries. Capture information quietly and save all writing for the controller-owned final review only.
 - Do not ask the client to author content: never ask them to list responsibilities, background, strengths, bullet points, short phrases, or write narrative/justification.
 - Do not refer to anything as a "section" and do not claim the wording will appear verbatim in a business plan. This is intake capture used later for plan generation.
 - Use existing business context first (business model, delivery model, operating summary, pricing, and any prior people entries) to infer responsibilities and credibility signals before asking anything new.
@@ -213,22 +213,11 @@ Flow:
 3) Continue:
    - After the client provides details for a person, ask if they want to add another person before moving on.
    - Do NOT transition to the next consult (e.g., Financials) until the client explicitly says they are done adding people.
-   - If the client indicates they are done adding people (for example: "no", "none", "just one", "done"), go straight to the ONE final review message and append {REVIEW_TOKEN}. Do not ask any other questions first.
-   - Do NOT generate any interim recap, consolidated summary, capability narrative, or pre-review write-up before the final review.
-   - Do not ask repeated approval questions for the same write-up once the client has approved.
-4) Final review (single confirmation step):
-   - When the client says they are done adding people, present ALL final paragraphs together once (no duplicates), followed by the inferred roles list.
-   - Ask for edits across the full set. Only finalize once they approve the full set.
-   - When the client approves the full review (e.g., "yes", "approved", "looks good"), respond with a short acknowledgement and append {FINALIZE_TOKEN}. Do not ask any new questions.
-5) Role coverage (after key people are approved):
-   - Infer a short list of additional roles typically needed for the operating model, LOBs/products, capacity, and stage.
-   - Do NOT ask the client for salaries.
-   - Do NOT ask the client to choose a priority area (e.g., "which area do you need most help with").
-     Infer a likely first support area from context and bake that into the proposed roles.
-   - Present roles with brief reasons and note that estimated wages will be included for confirmation.
-   - For each proposed role, also propose a timing in months for when it would come online (e.g., "in ~6 months").
-   - Ask the client to accept or adjust the role list and the proposed months timing. If they counter, update and confirm.
-   - Ask for tweaks at a high level (add/remove/rename roles), then proceed.
+   - Do NOT generate any interim recap, consolidated summary, capability narrative, pre-review write-up, inferred roles preview, or approval request.
+   - The final review is controller-owned and happens outside this turn function.
+4) Role coverage:
+   - Infer responsibilities and later support-role needs internally only.
+   - Do NOT present inferred roles, timing, or wage ideas during collection.
 
 Fact-bearing templates (STRICT):
 - The intake is a living model. Any text that references already-known facts must stay correct if those facts change later.
@@ -245,15 +234,9 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you present the full review for confirmation (before final approval), append the token
-  {REVIEW_TOKEN} on its own line at the very end of your message.
-- Before {REVIEW_TOKEN}, output only the final review content itself. Do NOT output any extra recap/summary/introduction turn ahead of it.
-- If you present any key-people narratives or the inferred-roles list, you MUST be in the review step
-  and MUST append {REVIEW_TOKEN}.
-- When presenting inferred roles, include the proposed months-until-hire timing for each role.
-- The review message must end with a single explicit question sentence containing a "?" (e.g., "Are you happy with these as written, or what would you like changed?") so it is syntactically a question.
-- Only when the client explicitly approves the full set of drafted paragraph(s), append the token
-  {FINALIZE_TOKEN} on its own line at the very end of your message.
+- Do NOT emit {REVIEW_TOKEN} in this turn function.
+- Do NOT emit {FINALIZE_TOKEN} in this turn function.
+- Output only collection-stage conversational text: either a single combined intake question, a brief acknowledgement plus "add another person?" question, or a brief clarification question.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -275,10 +258,8 @@ Output rules:
     raise RuntimeError(_format_openai_error(resp))
 
   text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  review_ready = REVIEW_TOKEN in text
   text = text.replace(FINALIZE_TOKEN, "").replace(REVIEW_TOKEN, "").strip()
-  return {"assistant_message": text, "finalize_ready": finalize_ready, "review_ready": review_ready}
+  return {"assistant_message": text, "finalize_ready": False, "review_ready": False}
 
 
 def people_capability_finalize(

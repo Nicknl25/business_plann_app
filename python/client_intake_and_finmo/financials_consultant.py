@@ -374,6 +374,172 @@ def _locked_revenue_adjudication(intake_context: Dict[str, Any]) -> Dict[str, An
   }
 
 
+def _cogs_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_cogs_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": [
+            "accept_baseline",
+            "set_total",
+            "set_percent",
+            "set_adjustment",
+            "ask_question",
+            "unclear",
+          ],
+        },
+        "cogs_total_year1": {"type": ["number", "null"]},
+        "cogs_percent_of_revenue": {"type": ["number", "null"]},
+        "cogs_adjustment": {"type": ["number", "null"]},
+        "question_or_clarification": {"type": "string"},
+      },
+      "required": [
+        "intent_type",
+        "cogs_total_year1",
+        "cogs_percent_of_revenue",
+        "cogs_adjustment",
+        "question_or_clarification",
+      ],
+    },
+  }
+
+
+def interpret_cogs_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+  cogs_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  if not str(user_message or "").strip():
+    return {}
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _cogs_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply to a Year-1 COGS baseline proposal.\n"
+          "The baseline COGS has already been computed deterministically from industry data.\n"
+          "Classify whether the client accepts the baseline, sets a new total COGS amount, gives a COGS percent of revenue, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
+          "Do not rely on exact keywords. Use the assistant proposal, the numeric baseline context, and the user's reply together.\n"
+          "If the user asks a question or is unclear, put the follow-up text in question_or_clarification.\n"
+          "For set_percent, return the percent as a decimal fraction when clear (for example 0.42 for 42%)."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "assistant_message": str(last_assistant or "").strip(),
+            "cogs_context": cogs_context,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _cogs_validation_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_cogs_validation",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "proceed": {"type": "boolean"},
+        "assistant_message": {"type": "string"},
+      },
+      "required": ["proceed", "assistant_message"],
+    },
+  }
+
+
+def validate_cogs_setup(
+  *,
+  intake_context: Dict[str, Any],
+  cogs_context: Dict[str, Any],
+  user_message: str,
+) -> Dict[str, Any]:
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _cogs_validation_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are validating a proposed Year-1 COGS setup for an intake consult.\n"
+          "The baseline COGS came from industry data and the client may have accepted it or adjusted it.\n"
+          "Decide whether the resulting Year-1 direct-cost setup is coherent enough to proceed.\n"
+          "Use the business type, revenue, operating model, and the final COGS percent/total.\n"
+          "If it is coherent enough for intake, set proceed=true and return a very short acknowledgement or an empty string.\n"
+          "If it likely misses major direct costs or is structurally inconsistent, set proceed=false and ask one short clarification question.\n"
+          "Do not ask the client to build COGS from scratch.\n"
+          "Do not rely on exact keywords."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "intake_context": intake_context,
+            "cogs_context": cogs_context,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {"proceed": True, "assistant_message": ""}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {"proceed": True, "assistant_message": ""}
+  return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
+
+
 def _revenue_option_reply_schema() -> Dict[str, Any]:
   return {
     "name": "financials_revenue_option_reply",
@@ -707,13 +873,13 @@ Rules:
 - If revenue_adjudication.good_to_proceed_without_revenue_change is true:
   - do NOT offer options,
   - do NOT ask for permission to proceed on revenue,
-  - move directly to the next financial question in everyday language.
+  - stop after the revenue explanation.
 - If revenue_adjudication.requires_adjustment is true:
   - include 2 to 4 short option bullets labeled "Option 1", "Option 2", "Option 3", and optionally "Option 4",
   - each option must contain a concrete changed value tied to the revenue-driver model,
   - each option must be a complete resolution path, not a partial tweak that forces another revenue-adjustment round,
   - end with one question asking which option they want or what else they want to change.
-- If revenue_adjudication.good_to_proceed_without_revenue_change is true because the revenue baseline is already locked, acknowledge that locked baseline once and move directly to the next unanswered financial question.
+- If revenue_adjudication.good_to_proceed_without_revenue_change is true because the revenue baseline is already locked, acknowledge that locked baseline once and stop after the revenue explanation.
 - Keep the tone decisive and client-friendly. No hedging, no generic filler.
 - Do not introduce new facts, benchmarks, or external data.
 - Do not rely on canned "aggressive/conservative/balanced" wording unless it genuinely fits the adjudication.
@@ -844,6 +1010,7 @@ def financials_chat_turn(
   """
   api_key = _require_openai_key()
   model = _openai_model()
+  active_stage = str(intake_context.get("financials_active_stage") or "").strip()
   revenue_adjudication = _locked_revenue_adjudication(intake_context) or _adjudicate_revenue_setup(intake_context)
   if revenue_adjudication:
     intake_context = dict(intake_context)
@@ -853,7 +1020,8 @@ def financials_chat_turn(
 You are a business consultant running the Financials intake conversation.
 
 Goal:
-- Capture the client's best-current picture of their financial reality as of last month.
+- Capture the remaining financial picture needed for intake.
+- current_revenue and current_cogs are modeled Year-1 values when they are already present in context; do not re-ask them as historical memory questions.
 - Ask one question at a time and keep it non-overwhelming.
 - Behave like a human consultant: infer intent, keep it conversational, and avoid rigid command-style prompts.
 
@@ -868,6 +1036,7 @@ Core rule for this section:
 - Do not ask the client to choose or label a time basis. Use the anchor "as of last month".
 - Anchor everything to "as of last month". If the client doesn't have the item, explicitly tell them you're recording 0 and move on.
 - Nothing should be left unknown: if you can't get a clear answer after minimal clarification, record 0 and move on.
+- Exception: current_revenue and current_cogs are controller-owned modeled Year-1 values when already present. Treat them as established and move to the next unanswered item.
 
 Style:
 - One plain question sentence per message.
@@ -888,6 +1057,38 @@ Revenue assembly (REPLACES revenue question):
 - If revenue_driver_patch is present in context, acknowledge the change and re-state the updated revenue_math_line before moving on.
 - If revenue_adjudication is present in context, follow it. It is the holistic revenue judgment for this exact Year-1 setup.
 
+COGS handling (REPLACES direct-cost question when already present):
+- If current_cogs or cogs_total_year1 is already present in context, treat Year-1 direct costs as established.
+- Do not ask a monthly or historical COGS/direct-cost question once that Year-1 COGS value exists.
+
+Stage control:
+- The controller may provide financials_active_stage in the context.
+- If financials_active_stage is present, you must handle ONLY that one stage and nothing else.
+- Do not skip ahead, do not bundle later financial topics, and do not ask about a different stage.
+- If financials_active_stage is "revenue_intro" and revenue does not need adjustment, explain the revenue setup only and stop; the controller will advance to the next stage.
+- If financials_active_stage is "cogs", do not ask a COGS question here; the controller owns that stage.
+- For other stages, ask exactly one question for that stage only.
+
+Stage names:
+- revenue_intro
+- other_operating_expense
+- monthly_rent_expense
+- current_payroll
+- current_num_employees
+- owner_compensation
+- current_capex
+- initial_assets
+- initial_lease
+- initial_equity
+- total_debt_outstanding
+- other_monthly_debt_payments
+- annual_interest_payment
+- annual_principal_payment
+- cash_on_hand
+- ar_balance
+- ap_balance
+- inventory_balance
+
 Financials adjudication (MANDATORY):
 - You are an arbitrator, not an interviewer. Take a position, state implications plainly, then ask for agreement or correction.
 - Do not use hedging phrases like "Does this feel right?", "If you'd like, we can...", or "Just to check...".
@@ -902,7 +1103,7 @@ Required response pattern (every revenue setup):
 3) If revenue_adjudication.requires_adjustment is true, add 2 to 4 short bullets labeled "Option 1", "Option 2", "Option 3", and optionally "Option 4". Each option must include concrete changed values tied to the revenue-driver model and must fully resolve the mismatch.
 4) End with one question:
    - if adjustment is needed: ask which option they want or what else they want to change;
-   - if no adjustment is needed: move directly to the next unanswered financial question and do not ask permission to proceed on revenue.
+   - if no adjustment is needed: stop after the revenue explanation and do not ask any additional financial question in that same turn.
 5) Once the client selects a coherent revenue option and it becomes the active revenue model, treat that baseline as locked for the rest of this Financials consult unless the client explicitly asks to change revenue again. Do not reopen the same revenue issue on the next turn.
 
 Revenue plausibility guardrail (only when revenue_guardrail_triggered is true):
@@ -957,8 +1158,7 @@ End by either:
 
 Do not mention steady-state or long-run targets here.
 
-Items to cover (one at a time, in a sensible order):
-- Direct costs to deliver product/service (COGS)
+Financial topics used by the controller-owned stage flow:
 - Other regular operating bills (other operating expense)
 - Rent payments (rent)
 - Payroll for employees (payroll) and headcount (employees)
@@ -972,7 +1172,6 @@ Items to cover (one at a time, in a sensible order):
 - Money customers owe you (AR), money you owe others (AP), and inventory on hand (inventory)
 
 Everyday phrasing guide (adapt as needed; keep it short and natural):
-- COGS: "what it cost to make/buy what you sold, or to deliver the service"
 - Other operating expense: "other regular business bills (utilities, software, insurance, shipping, etc.)"
 - Rent: "rent for your space"
 - Payroll: "what you paid employees"
@@ -1034,6 +1233,14 @@ Output rules:
 - When you are confident all required fields are complete, append the token
   {FINALIZE_TOKEN} on its own line at the very end of your message.
   """.strip()
+
+  if active_stage:
+    stage_instruction = (
+      "\n\nActive stage now: "
+      f"{active_stage}\n"
+      "You must handle only this stage in this turn."
+    )
+    system = f"{system}{stage_instruction}"
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
   context_msg = "Current known intake context (JSON):\n" + context_blob

@@ -390,6 +390,332 @@ def _apply_revenue_option_bundle(
   return next_year1, next_financials
 
 
+def _build_cogs_baseline_signature(
+  financials_year1_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> str:
+  try:
+    from financials_year1 import build_revenue_driver_signature as _build_signature  # type: ignore
+  except Exception:
+    from client_intake_and_finmo.financials_year1 import (  # type: ignore
+      build_revenue_driver_signature as _build_signature,
+    )
+  revenue_signature = str(_build_signature(financials_year1_json or {}) or "").strip()
+  naics = str((ops_json or {}).get("business_naics_6") or "").strip()
+  return f"{naics}::{revenue_signature}" if revenue_signature or naics else ""
+
+
+def _compute_cogs_baseline(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
+  naics_6 = str((ops_json or {}).get("business_naics_6") or "").strip()
+  if revenue_year1 <= 0 or not naics_6:
+    return None
+  try:
+    try:
+      from intake_business_types import get_growth_naics_from_index  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.intake_business_types import (  # type: ignore
+        get_growth_naics_from_index,
+      )
+    growth_row = get_growth_naics_from_index(conn, naics_6)
+    basis_naics = str(growth_row.get("naics_code") or "").strip() or naics_6
+  except Exception:
+    basis_naics = naics_6
+
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      """
+      SELECT fiscalDateEnding, quarter, industry_cogs_percent
+      FROM industry_growth_table
+      WHERE naics_code = %s
+        AND industry_cogs_percent IS NOT NULL
+      ORDER BY fiscalDateEnding DESC, quarter DESC
+      LIMIT 8
+      """,
+      (basis_naics,),
+    )
+    rows = cur.fetchall() or []
+  finally:
+    cur.close()
+
+  percents: List[float] = []
+  years_used: List[str] = []
+  seen_years = set()
+  for row in rows:
+    value = row.get("industry_cogs_percent")
+    if value is None:
+      continue
+    try:
+      percents.append(float(value))
+    except Exception:
+      continue
+    year = str(row.get("fiscalDateEnding") or "")[:4].strip()
+    if year and year not in seen_years:
+      seen_years.add(year)
+      years_used.append(year)
+
+  if not percents:
+    return None
+
+  baseline_cogs_percent = float(sum(percents) / len(percents))
+  baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
+  return {
+    "baseline_cogs_percent": baseline_cogs_percent,
+    "baseline_cogs": baseline_cogs,
+    "cogs_adjustment": 0.0,
+    "cogs_total_year1": baseline_cogs,
+    "cogs_basis_naics": basis_naics,
+    "cogs_basis_years_used": years_used[:2],
+    "revenue_year1": revenue_year1,
+  }
+
+
+def _format_currency(value: Any) -> str:
+  try:
+    return f"${float(value):,.0f}"
+  except Exception:
+    return "$0"
+
+
+def _format_percent(value: Any) -> str:
+  try:
+    return f"{float(value) * 100:.0f}%"
+  except Exception:
+    return "0%"
+
+
+def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
+  return (
+    f"Based on direct-cost data from similar businesses in this industry, a reasonable Year-1 COGS baseline is about "
+    f"{_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of revenue, which puts your projected Year-1 direct costs around "
+    f"{_format_currency(cogs_baseline.get('baseline_cogs'))}.\n\n"
+    "Does that broadly match how your business works, or should we adjust it because your direct costs are materially different?"
+  )
+
+
+def _normalize_cogs_reply_to_fields(
+  *,
+  reply: Dict[str, Any],
+  baseline: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  baseline_amount = float(baseline.get("baseline_cogs") or 0.0)
+  revenue_year1 = float(baseline.get("revenue_year1") or 0.0)
+  baseline_percent = float(baseline.get("baseline_cogs_percent") or 0.0)
+  intent_type = str(reply.get("intent_type") or "").strip()
+
+  if intent_type == "accept_baseline":
+    total = baseline_amount
+  elif intent_type == "set_total":
+    try:
+      total = float(reply.get("cogs_total_year1"))
+    except Exception:
+      return None
+  elif intent_type == "set_percent":
+    try:
+      percent = float(reply.get("cogs_percent_of_revenue"))
+    except Exception:
+      return None
+    total = float(revenue_year1 * percent)
+  elif intent_type == "set_adjustment":
+    try:
+      adjustment = float(reply.get("cogs_adjustment"))
+    except Exception:
+      return None
+    total = baseline_amount + adjustment
+  else:
+    return None
+
+  total = max(0.0, float(total))
+  adjustment = float(total - baseline_amount)
+  percent_total = float(total / revenue_year1) if revenue_year1 > 0 else baseline_percent
+  return {
+    "baseline_cogs_percent": baseline_percent,
+    "baseline_cogs": baseline_amount,
+    "cogs_adjustment": adjustment,
+    "cogs_total_year1": total,
+    "cogs_basis_naics": baseline.get("cogs_basis_naics"),
+    "cogs_basis_years_used": baseline.get("cogs_basis_years_used"),
+    "current_cogs": total,
+    "cogs_percent_of_revenue": percent_total,
+  }
+
+
+def _maybe_handle_financials_cogs_turn(
+  *,
+  interpret_cogs_reply,
+  financials_chat_turn,
+  conn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  business_facts: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  next_financials = dict(financials_json or {})
+  ops_json = dict((shared_context or {}).get("operating_model") or {})
+  current_signature = _build_cogs_baseline_signature(financials_year1_json, ops_json)
+  pending_signature = str(next_financials.get("_pending_cogs_signature") or "").strip()
+  pending_baseline = next_financials.get("_pending_cogs_baseline")
+
+  if pending_signature and current_signature and pending_signature != current_signature:
+    next_financials.pop("_pending_cogs_signature", None)
+    next_financials.pop("_pending_cogs_baseline", None)
+    pending_baseline = None
+
+  current_cogs_resolved = "current_cogs" in next_financials
+  if not current_cogs_resolved and not isinstance(pending_baseline, dict):
+    baseline = _compute_cogs_baseline(
+      conn=conn,
+      ops_json=ops_json,
+      financials_year1_json=financials_year1_json,
+    )
+    if baseline:
+      next_financials["_pending_cogs_signature"] = current_signature
+      next_financials["_pending_cogs_baseline"] = baseline
+      return {
+        "assistant_message": _build_cogs_baseline_message(baseline),
+        "finalize_ready": False,
+      }, next_financials
+    return None, next_financials
+
+  if not isinstance(pending_baseline, dict):
+    return None, next_financials
+
+  if not str(user_message or "").strip():
+    return {
+      "assistant_message": _build_cogs_baseline_message(pending_baseline),
+      "finalize_ready": False,
+    }, next_financials
+
+  reply = interpret_cogs_reply(
+    user_message=user_message,
+    last_assistant=last_assistant,
+    cogs_context=pending_baseline,
+  )
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type in ("ask_question", "unclear") or not intent_type:
+    assistant_message = str(reply.get("question_or_clarification") or "").strip()
+    if not assistant_message:
+      assistant_message = (
+        "What should we use for Year-1 direct costs: keep the industry baseline, use a percent of revenue, use a total amount, or adjust the baseline up or down?"
+      )
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  normalized = _normalize_cogs_reply_to_fields(reply=reply, baseline=pending_baseline)
+  if not isinstance(normalized, dict):
+    return {
+      "assistant_message": "What should we use for Year-1 direct costs: keep the baseline, use a total amount, use a percent of revenue, or adjust the baseline up or down?",
+      "finalize_ready": False,
+    }, next_financials
+
+  if intent_type != "accept_baseline":
+    try:
+      from financials_consultant import validate_cogs_setup  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.financials_consultant import validate_cogs_setup  # type: ignore
+    validation_context = dict(intake_context or {})
+    validation_financials = dict(next_financials)
+    validation_financials.update(normalized)
+    validation_shared = dict(shared_context or {})
+    validation_shared["financials"] = validation_financials
+    validation_context["financials_json"] = validation_financials
+    validation_context["shared_context"] = validation_shared
+    validation = validate_cogs_setup(
+      intake_context=validation_context,
+      cogs_context={**pending_baseline, **normalized},
+      user_message=user_message,
+    )
+    if not bool(validation.get("proceed", False)):
+      assistant_message = str(validation.get("assistant_message") or "").strip()
+      if not assistant_message:
+        assistant_message = "What should Year-1 direct costs be instead?"
+      return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  next_financials.update(normalized)
+  next_financials.pop("_pending_cogs_signature", None)
+  next_financials.pop("_pending_cogs_baseline", None)
+
+  next_shared_context = dict(shared_context or {})
+  next_shared_context["financials"] = next_financials
+  next_intake_context = dict(intake_context or {})
+  next_intake_context["financials_json"] = next_financials
+  next_intake_context["shared_context"] = next_shared_context
+
+  turn = financials_chat_turn(
+    intake_context=next_intake_context,
+    conversation_messages=conversation_messages,
+  ) or {}
+  next_financials = _sync_pending_revenue_adjustment_state(
+    next_financials,
+    financials_year1_json,
+    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+  )
+  next_financials["_financials_revenue_intro_done"] = True
+  return turn, next_financials
+
+
+def _financials_field_resolved(financials_json: Dict[str, Any], field: str) -> bool:
+  if not isinstance(financials_json, dict):
+    return False
+  if field not in financials_json:
+    return False
+  value = financials_json.get(field)
+  if field == "initial_lease":
+    return bool(str(value or "").strip())
+  return value is not None
+
+
+def _ensure_financials_stage_defaults(financials_json: Dict[str, Any]) -> Dict[str, Any]:
+  next_financials = dict(financials_json or {})
+  try:
+    debt = float(next_financials.get("total_debt_outstanding"))
+  except Exception:
+    debt = None
+  if debt is not None and debt <= 0:
+    next_financials.setdefault("other_monthly_debt_payments", 0)
+    next_financials.setdefault("annual_interest_payment", 0)
+    next_financials.setdefault("annual_principal_payment", 0)
+  return next_financials
+
+
+def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
+  data = _ensure_financials_stage_defaults(financials_json)
+  ordered_stages = [
+    ("revenue_intro", lambda d: bool(d.get("_financials_revenue_intro_done"))),
+    ("cogs", lambda d: _financials_field_resolved(d, "current_cogs")),
+    ("other_operating_expense", lambda d: _financials_field_resolved(d, "other_operating_expense")),
+    ("monthly_rent_expense", lambda d: _financials_field_resolved(d, "monthly_rent_expense")),
+    ("current_payroll", lambda d: _financials_field_resolved(d, "current_payroll")),
+    ("current_num_employees", lambda d: _financials_field_resolved(d, "current_num_employees")),
+    ("owner_compensation", lambda d: _financials_field_resolved(d, "owner_compensation")),
+    ("current_capex", lambda d: _financials_field_resolved(d, "current_capex")),
+    ("initial_assets", lambda d: _financials_field_resolved(d, "initial_assets")),
+    ("initial_lease", lambda d: _financials_field_resolved(d, "initial_lease")),
+    ("initial_equity", lambda d: _financials_field_resolved(d, "initial_equity")),
+    ("total_debt_outstanding", lambda d: _financials_field_resolved(d, "total_debt_outstanding")),
+    ("other_monthly_debt_payments", lambda d: _financials_field_resolved(d, "other_monthly_debt_payments")),
+    ("annual_interest_payment", lambda d: _financials_field_resolved(d, "annual_interest_payment")),
+    ("annual_principal_payment", lambda d: _financials_field_resolved(d, "annual_principal_payment")),
+    ("cash_on_hand", lambda d: _financials_field_resolved(d, "cash_on_hand")),
+    ("ar_balance", lambda d: _financials_field_resolved(d, "ar_balance")),
+    ("ap_balance", lambda d: _financials_field_resolved(d, "ap_balance")),
+    ("inventory_balance", lambda d: _financials_field_resolved(d, "inventory_balance")),
+  ]
+  for stage_name, resolved_fn in ordered_stages:
+    if not resolved_fn(data):
+      return stage_name
+  return None
+
+
 def _extract_ops_proposal_patch(
   *,
   last_assistant: str,
@@ -444,20 +770,100 @@ def _fallback_ops_followup_question(ops_json: Dict[str, Any]) -> str:
 def _run_financials_turn_and_sync(
   *,
   financials_chat_turn,
+  interpret_cogs_reply,
+  conn,
   intake_context: Dict[str, Any],
   conversation_messages: List[Dict[str, str]],
+  business_facts: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+  next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  active_stage = _next_financials_stage(next_financials)
+
+  def _stage_context(stage_name: Optional[str], fin_json: Dict[str, Any]) -> Dict[str, Any]:
+    ctx = dict(intake_context or {})
+    ctx["financials_json"] = fin_json
+    next_shared = dict(shared_context or {})
+    next_shared["financials"] = fin_json
+    ctx["shared_context"] = next_shared
+    if stage_name:
+      ctx["financials_active_stage"] = stage_name
+    else:
+      ctx.pop("financials_active_stage", None)
+    return ctx
+
+  if active_stage == "cogs":
+    cogs_turn, next_financials = _maybe_handle_financials_cogs_turn(
+      interpret_cogs_reply=interpret_cogs_reply,
+      financials_chat_turn=financials_chat_turn,
+      conn=conn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      business_facts=business_facts,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if cogs_turn is not None:
+      return cogs_turn, next_financials
+
   turn = financials_chat_turn(
-    intake_context=intake_context,
+    intake_context=_stage_context(active_stage, next_financials),
     conversation_messages=conversation_messages,
   ) or {}
   next_financials = _sync_pending_revenue_adjustment_state(
-    financials_json,
+    next_financials,
     financials_year1_json,
     turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
   )
+
+  if active_stage == "revenue_intro":
+    next_financials["_financials_revenue_intro_done"] = True
+    revenue_adjudication = turn.get("revenue_adjudication") if isinstance(turn, dict) else None
+    needs_adjustment = bool((revenue_adjudication or {}).get("requires_adjustment")) if isinstance(revenue_adjudication, dict) else False
+    if not needs_adjustment:
+      next_stage = _next_financials_stage(next_financials)
+      if next_stage == "cogs":
+        cogs_turn, next_financials = _maybe_handle_financials_cogs_turn(
+          interpret_cogs_reply=interpret_cogs_reply,
+          financials_chat_turn=financials_chat_turn,
+          conn=conn,
+          intake_context=_stage_context(next_stage, next_financials),
+          conversation_messages=conversation_messages,
+          business_facts=business_facts,
+          shared_context=shared_context,
+          last_assistant="",
+          user_message="",
+          financials_json=next_financials,
+          financials_year1_json=financials_year1_json,
+        )
+        if cogs_turn and str(cogs_turn.get("assistant_message") or "").strip():
+          combined_turn = dict(turn)
+          combined_turn["assistant_message"] = (
+            f"{str(turn.get('assistant_message') or '').strip()}\n\n{str(cogs_turn.get('assistant_message') or '').strip()}"
+          ).strip()
+          combined_turn["finalize_ready"] = False
+          return combined_turn, next_financials
+      elif next_stage:
+        stage_turn = financials_chat_turn(
+          intake_context=_stage_context(next_stage, next_financials),
+          conversation_messages=conversation_messages,
+        ) or {}
+        stage_text = str(stage_turn.get("assistant_message") or "").strip()
+        if stage_text:
+          combined_turn = dict(turn)
+          combined_turn["assistant_message"] = (
+            f"{str(turn.get('assistant_message') or '').strip()}\n\n{stage_text}"
+          ).strip()
+          combined_turn["finalize_ready"] = False
+          return combined_turn, next_financials
+
   return turn, next_financials
 
 
@@ -1446,6 +1852,149 @@ def _detect_people_done_adding_via_openai(
     return False
   return bool(parsed.get("done_adding_people"))
 
+
+def _build_people_review_payload(
+  *,
+  conn,
+  final_obj: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> Tuple[Dict[str, Any], str]:
+  people_json = dict(final_obj or {})
+  try:
+    from people_roles import (  # type: ignore
+      apply_oews_wages,
+      apply_oews_wages_to_people,
+      format_roles_summary,
+    )
+
+    roles = people_json.get("inferred_roles") if isinstance(people_json, dict) else None
+    roles = roles if isinstance(roles, list) else []
+    people_list = people_json.get("people") if isinstance(people_json, dict) else None
+    people_list = people_list if isinstance(people_list, list) else []
+    enriched_people = apply_oews_wages_to_people(
+      conn,
+      people=people_list,
+      business_type=ops_json.get("business_type"),
+      business_stage=ops_json.get("business_stage"),
+      address_state=business_facts.get("address_state"),
+      address=business_facts.get("address"),
+      business_naics_6=ops_json.get("business_naics_6"),
+    )
+    enriched_roles = apply_oews_wages(
+      conn,
+      roles=roles,
+      business_type=ops_json.get("business_type"),
+      business_stage=ops_json.get("business_stage"),
+      address_state=business_facts.get("address_state"),
+      address=business_facts.get("address"),
+      business_naics_6=ops_json.get("business_naics_6"),
+    )
+    people_json["business_naics_6"] = ops_json.get("business_naics_6")
+    people_json["people"] = enriched_people
+    people_json["inferred_roles"] = enriched_roles
+    people_json["inferred_roles_summary"] = format_roles_summary(enriched_roles)
+  except Exception:
+    if "inferred_roles" not in people_json:
+      people_json["inferred_roles"] = []
+    if "inferred_roles_summary" not in people_json:
+      people_json["inferred_roles_summary"] = ""
+    if "business_naics_6" not in people_json:
+      people_json["business_naics_6"] = None
+
+  if isinstance(people_json, dict):
+    people_json.pop("key_people_summary", None)
+
+  try:
+    try:
+      from fact_templates import render_fact_template  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.fact_templates import render_fact_template  # type: ignore
+
+    if isinstance(people_json, dict):
+      business_facts_for_render = {
+        "name": str(business_facts.get("name") or "").strip(),
+        "address": str(business_facts.get("address") or "").strip(),
+        "start_date": str(business_facts.get("start_date") or "").strip(),
+      }
+      shared_ctx_for_render = {
+        "operating_model": ops_json,
+        "target_market": market_json,
+        "people_capability": people_json,
+        "financials": financials_json,
+      }
+      ppl = people_json.get("people")
+      if isinstance(ppl, list):
+        for p in ppl:
+          if not isinstance(p, dict):
+            continue
+          for fk, fv in list(p.items()):
+            if isinstance(fv, str) and "{{fact:" in fv:
+              p[fk] = render_fact_template(
+                fv, shared_context=shared_ctx_for_render, business_facts=business_facts_for_render
+              ).strip()
+      roles = people_json.get("inferred_roles")
+      if isinstance(roles, list):
+        for r in roles:
+          if not isinstance(r, dict):
+            continue
+          for fk, fv in list(r.items()):
+            if isinstance(fv, str) and "{{fact:" in fv:
+              r[fk] = render_fact_template(
+                fv, shared_context=shared_ctx_for_render, business_facts=business_facts_for_render
+              ).strip()
+  except Exception:
+    pass
+
+  key_people_blocks: List[str] = []
+  try:
+    people_list = people_json.get("people") if isinstance(people_json, dict) else None
+    people_list = people_list if isinstance(people_list, list) else []
+    for p in people_list:
+      if not isinstance(p, dict):
+        continue
+      para = p.get("paragraph")
+      if isinstance(para, str) and para.strip():
+        block = para.strip()
+        wage_raw = p.get("annual_wage")
+        try:
+          wage_val = float(wage_raw)
+        except Exception:
+          wage_val = None
+        if wage_val is not None and wage_val > 0:
+          wage_fmt = f"${int(round(wage_val)):,.0f}"
+          block = f"{block.rstrip()} Estimated annual wage: {wage_fmt}/year."
+        key_people_blocks.append(block)
+  except Exception:
+    key_people_blocks = []
+
+  inferred_roles_summary = str((people_json or {}).get("inferred_roles_summary") or "").strip()
+  parts: List[str] = []
+  has_people = bool(key_people_blocks)
+  has_roles = bool(inferred_roles_summary)
+  if has_people and has_roles:
+    parts.append(
+      "Review this draft (key people narrative + suggested year-1 roles with wages and timing) and tell me any changes."
+    )
+  elif has_people:
+    parts.append("Review this draft (key people narrative) and tell me any changes.")
+  elif has_roles:
+    parts.append("Review these suggested year-1 roles (with wages and timing) and tell me any changes.")
+
+  if has_people:
+    parts.append("\n\n".join(key_people_blocks))
+  if has_roles:
+    parts.append(inferred_roles_summary)
+  assistant_final = "\n\n".join([p for p in parts if p.strip()]).strip()
+  if assistant_final:
+    assistant_final = f"{assistant_final}\n\n{PEOPLE_CONFIRM_QUESTION}".strip()
+  else:
+    assistant_final = PEOPLE_CONFIRM_QUESTION
+
+  return people_json, assistant_final
+
 def _propose_ops_competitive_advantage(
   *,
   ops_json: Dict[str, Any],
@@ -2032,6 +2581,7 @@ def post_intake_consult_handler(*, app, request):
       _adjudicate_revenue_setup,
       financials_chat_turn,
       financials_finalize,
+      interpret_cogs_reply,
       interpret_revenue_option_reply,
     )
     from financials_year1 import (  # type: ignore
@@ -2244,8 +2794,14 @@ def post_intake_consult_handler(*, app, request):
       elif focus == "financials":
         turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          interpret_cogs_reply=interpret_cogs_reply,
+          conn=conn,
           intake_context=intake_context,
           conversation_messages=turn_messages,
+          business_facts=business_facts,
+          shared_context=shared_context,
+          last_assistant="",
+          user_message="",
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
         )
@@ -2709,6 +3265,63 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         milestone_intent_override = None
 
+    if (
+      str(focus).strip().lower() == "people"
+      and str(confirm_override or "").strip() != PEOPLE_CONFIRM_QUESTION
+      and _detect_people_done_adding_via_openai(
+        last_assistant=last_assistant,
+        user_message=message,
+      )
+    ):
+      intake_context_people = {
+        "client_id": client_id,
+        "draft_id": str(draft_id).strip(),
+        "business_name": business_facts.get("name"),
+        "business_start_date": business_facts.get("start_date"),
+        "address": business_facts.get("address"),
+        "current_date": current_date_iso,
+        "business_stage_hint": business_stage_hint,
+        "shared_context": shared_context,
+        "operating_model_json": ops_json,
+        "target_market_json": market_json,
+        "people_json": people_json,
+        "financials_json": financials_json,
+        "fulfillment_json": fulfillment_json,
+      }
+      final_obj = people_capability_finalize(
+        intake_context=intake_context_people,
+        conversation_messages=[*messages, user_msg],
+      )
+      people_json, assistant_final = _build_people_review_payload(
+        conn=conn,
+        final_obj=final_obj,
+        ops_json=ops_json,
+        market_json=market_json,
+        financials_json=financials_json,
+        business_facts=business_facts,
+      )
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
+        people_json=people_json,
+        active_focus="people",
+        business_facts=business_facts,
+        flat_fields=_finalize_flag_field("people", True),
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": "people",
+          "awaiting_confirmation": True,
+          "done": False,
+          "action": "continue",
+          "assistant_message": assistant_final,
+        }
+      )
+
     if competitive_intent_override:
       action = str(competitive_intent_override.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(competitive_intent_override.get("router_msg") or "").strip())
@@ -3134,8 +3747,14 @@ def post_intake_consult_handler(*, app, request):
 
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          interpret_cogs_reply=interpret_cogs_reply,
+          conn=conn,
           intake_context=intake_context_next,
           conversation_messages=turn_messages,
+          business_facts=business_facts,
+          shared_context=shared_context,
+          last_assistant="",
+          user_message="",
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
         )
@@ -3300,8 +3919,14 @@ def post_intake_consult_handler(*, app, request):
 
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          interpret_cogs_reply=interpret_cogs_reply,
+          conn=conn,
           intake_context=intake_context_next,
           conversation_messages=turn_messages,
+          business_facts=business_facts,
+          shared_context=shared_context,
+          last_assistant="",
+          user_message="",
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
         )
@@ -3415,8 +4040,14 @@ def post_intake_consult_handler(*, app, request):
         elif followup_focus == "financials":
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
+            interpret_cogs_reply=interpret_cogs_reply,
+            conn=conn,
             intake_context=intake_context_followup,
             conversation_messages=[*messages, user_msg],
+            business_facts=business_facts,
+            shared_context=shared_context,
+            last_assistant="",
+            user_message="",
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
           )
@@ -3717,8 +4348,14 @@ def post_intake_consult_handler(*, app, request):
       elif next_focus == "financials":
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          interpret_cogs_reply=interpret_cogs_reply,
+          conn=conn,
           intake_context=intake_context_next,
           conversation_messages=turn_messages,
+          business_facts=business_facts,
+          shared_context=shared_context,
+          last_assistant="",
+          user_message="",
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
         )
@@ -3882,8 +4519,14 @@ def post_intake_consult_handler(*, app, request):
     elif focus == "financials":
       turn, financials_json = _run_financials_turn_and_sync(
         financials_chat_turn=financials_chat_turn,
+        interpret_cogs_reply=interpret_cogs_reply,
+        conn=conn,
         intake_context=intake_context,
         conversation_messages=[*messages, user_msg],
+        business_facts=business_facts,
+        shared_context=shared_context,
+        last_assistant=last_assistant,
+        user_message=message,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
       )
@@ -3944,20 +4587,6 @@ def post_intake_consult_handler(*, app, request):
 
     finalize_ready = bool(turn.get("finalize_ready", False))
     review_ready = bool(turn.get("review_ready", False))
-    if str(focus).strip().lower() == "people" and not review_ready and not finalize_ready:
-      try:
-        if _detect_people_done_adding_via_openai(
-          last_assistant=last_assistant,
-          user_message=message,
-        ):
-          review_ready = True
-          finalize_ready = True
-          assistant_text = ""
-      except Exception:
-        pass
-    if str(focus).strip().lower() == "ops" and not assistant_text:
-      assistant_text = _fallback_ops_followup_question(ops_json)
-      finalize_ready = False
     # Controller-owned restatement-confirmation state: only classify acceptance on the
     # client reply to the explicit restatement confirmation prompt.
     if (
@@ -3992,7 +4621,7 @@ def post_intake_consult_handler(*, app, request):
     #
     # We avoid brittle heuristic phrase-matching by taking a structured snapshot via
     # consultant_finalize() and checking the numeric capacity fields directly.
-    if str(focus).strip().lower() == "ops" and finalize_ready:
+    if str(focus).strip().lower() == "ops" and (finalize_ready or not assistant_text):
       try:
         gate_messages = [*messages, user_msg, {"role": "assistant", "content": assistant_text}]
         business_type_candidates = (ops_json or {}).get("business_type_candidates")
@@ -4128,11 +4757,15 @@ def post_intake_consult_handler(*, app, request):
             # the business-wide top-level fields, not placeholder top-level unit fields.
             if _ops_ready_for_wrap_from_gate_obj(gate_obj):
               ops_ready_for_wrap = True
+              finalize_ready = True
             else:
               finalize_ready = False
       except Exception:
         # Best-effort: if gating fails, preserve existing behavior.
         pass
+
+    if str(focus).strip().lower() == "ops" and not assistant_text and not finalize_ready:
+      assistant_text = _fallback_ops_followup_question(ops_json)
 
     if (
       str(focus).strip().lower() == "ops"
@@ -4198,8 +4831,14 @@ def post_intake_consult_handler(*, app, request):
         elif focus == "financials":
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
+            interpret_cogs_reply=interpret_cogs_reply,
+            conn=conn,
             intake_context=intake_context,
             conversation_messages=followup_messages,
+            business_facts=business_facts,
+            shared_context=shared_context,
+            last_assistant="",
+            user_message="",
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
           )
@@ -4780,6 +5419,17 @@ def post_intake_consult_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      if isinstance(final_obj, dict):
+        for extra_key in (
+          "baseline_cogs_percent",
+          "baseline_cogs",
+          "cogs_adjustment",
+          "cogs_total_year1",
+          "cogs_basis_naics",
+          "cogs_basis_years_used",
+        ):
+          if extra_key in financials_json and extra_key not in final_obj:
+            final_obj[extra_key] = financials_json.get(extra_key)
       summary_text = str(final_obj.get("financials_summary") or "").strip() or "Financials intake complete."
       if isinstance(final_obj, dict):
         final_obj.pop("financials_summary", None)

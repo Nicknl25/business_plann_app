@@ -571,40 +571,21 @@ def _detect_failure(
   return None
 
 
-def main() -> int:
-  _load_env()
-
-  parser = argparse.ArgumentParser(
-    description="Run a black-box dual-agent intake simulation against the real local app."
-  )
-  parser.add_argument(
-    "seed",
-    help='Plain-English seed, e.g. "Test a two-product local event services business"',
-  )
-  parser.add_argument("--base-url", default=os.getenv("INTAKE_BASE_URL", "http://127.0.0.1:5050"))
-  parser.add_argument("--model", default=os.getenv("INTAKE_SIM_MODEL", "gpt-4.1-mini"))
-  parser.add_argument("--max-turns", type=int, default=80)
-  parser.add_argument(
-    "--output-dir",
-    default=r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs",
-  )
-  args = parser.parse_args()
-
+def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, output_dir: str) -> int:
   api_key = os.getenv("OPENAI_API_KEY", "").strip()
   if not api_key:
     print("OPENAI_API_KEY is not set.", file=sys.stderr)
     return 2
 
-  base_url = args.base_url.rstrip("/")
-  agent = ClientAgent(api_key=api_key, model=args.model, seed=args.seed)
+  agent = ClientAgent(api_key=api_key, model=model, seed=seed)
   transcript: List[Dict[str, str]] = []
   bootstrap: Optional[Bootstrap] = None
   draft_id: Optional[str] = None
 
   def _persist_report(*, status: str, stop_reason: str) -> None:
     path = _save_run_report(
-      output_dir=args.output_dir,
-      seed=args.seed,
+      output_dir=output_dir,
+      seed=seed,
       bootstrap=bootstrap,
       transcript=transcript,
       draft_id=draft_id,
@@ -639,7 +620,7 @@ def main() -> int:
     }
     response = _post_json(f"{base_url}/api/intake-consult", seed_payload)
 
-    for turn_index in range(args.max_turns):
+    for turn_index in range(max_turns):
       draft_snapshot = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
       assistant_message = _render_fact_placeholders(
         str(response.get("assistant_message") or "").strip(),
@@ -674,7 +655,7 @@ def main() -> int:
         assistant_message=assistant_message,
         active_focus=active_focus,
         turn_index=turn_index,
-        max_turns=args.max_turns,
+        max_turns=max_turns,
       )
       if failure:
         print(f"\nSTOP: {failure}")
@@ -700,10 +681,10 @@ def main() -> int:
         },
       )
 
-    print(f"\nSTOP: max turns reached ({args.max_turns})")
+    print(f"\nSTOP: max turns reached ({max_turns})")
     print(f"Draft ID: {draft_id}")
     _print_transcript_tail(transcript)
-    _persist_report(status="stopped", stop_reason=f"max turns reached ({args.max_turns})")
+    _persist_report(status="stopped", stop_reason=f"max turns reached ({max_turns})")
     return 1
 
   except KeyboardInterrupt:
@@ -715,6 +696,42 @@ def main() -> int:
     _print_transcript_tail(transcript)
     _persist_report(status="error", stop_reason=f"{type(exc).__name__}: {exc}")
     return 1
+
+
+def main() -> int:
+  _load_env()
+
+  parser = argparse.ArgumentParser(
+    description="Run a black-box dual-agent intake simulation against the real local app."
+  )
+  parser.add_argument(
+    "seeds",
+    nargs="+",
+    help='One or more plain-English seeds, e.g. "Test a two-product local event services business"',
+  )
+  parser.add_argument("--base-url", default=os.getenv("INTAKE_BASE_URL", "http://127.0.0.1:5050"))
+  parser.add_argument("--model", default=os.getenv("INTAKE_SIM_MODEL", "gpt-4.1-mini"))
+  parser.add_argument("--max-turns", type=int, default=80)
+  parser.add_argument(
+    "--output-dir",
+    default=r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs",
+  )
+  args = parser.parse_args()
+
+  base_url = args.base_url.rstrip("/")
+  for index, seed in enumerate(args.seeds, start=1):
+    if len(args.seeds) > 1:
+      print(f"\n=== Scenario {index}/{len(args.seeds)}: {seed} ===\n")
+    result = _run_single_seed(
+      seed=seed,
+      base_url=base_url,
+      model=args.model,
+      max_turns=args.max_turns,
+      output_dir=args.output_dir,
+    )
+    if result != 0:
+      return result
+  return 0
 
 
 if __name__ == "__main__":
