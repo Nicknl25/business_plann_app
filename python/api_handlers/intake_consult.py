@@ -499,6 +499,155 @@ def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
   )
 
 
+def _build_cogs_manual_message(cogs_context: Dict[str, Any]) -> str:
+  return (
+    "I couldn't pull a clean industry direct-cost benchmark for this business, so let's set Year-1 direct costs directly.\n\n"
+    f"What should we use for Year-1 COGS: a total annual amount, a percent of revenue, or a typical monthly direct-cost pattern we should convert into the yearly model? "
+    f"(Current Year-1 revenue baseline: {_format_currency(cogs_context.get('revenue_year1'))}.)"
+  )
+
+
+def _build_payroll_baseline_signature(shared_context: Dict[str, Any]) -> str:
+  people_context = dict((shared_context or {}).get("people_capability") or {})
+  people_rows: List[Dict[str, Any]] = []
+  for person in people_context.get("people") or []:
+    if not isinstance(person, dict):
+      continue
+    people_rows.append(
+      {
+        "source": "person",
+        "full_name": str(person.get("full_name") or "").strip(),
+        "role_title": str(person.get("role_title") or "").strip(),
+        "annual_wage": person.get("annual_wage"),
+      }
+    )
+  role_rows: List[Dict[str, Any]] = []
+  for role in people_context.get("inferred_roles") or []:
+    if not isinstance(role, dict):
+      continue
+    role_rows.append(
+      {
+        "source": "inferred_role",
+        "role_title": str(role.get("role_title") or "").strip(),
+        "annual_wage": role.get("annual_wage"),
+        "months_until_hire": role.get("months_until_hire"),
+      }
+    )
+  try:
+    return json.dumps({"people": people_rows, "roles": role_rows}, sort_keys=True, ensure_ascii=False)
+  except Exception:
+    return ""
+
+
+def _compute_payroll_baseline(
+  *,
+  shared_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  people_context = dict((shared_context or {}).get("people_capability") or {})
+  basis_roles: List[Dict[str, Any]] = []
+  baseline_total = 0.0
+
+  for person in people_context.get("people") or []:
+    if not isinstance(person, dict):
+      continue
+    try:
+      annual_wage = float(person.get("annual_wage") or 0.0)
+    except Exception:
+      annual_wage = 0.0
+    annual_wage = max(0.0, annual_wage)
+    baseline_total += annual_wage
+    basis_roles.append(
+      {
+        "source": "person",
+        "full_name": str(person.get("full_name") or "").strip(),
+        "role_title": str(person.get("role_title") or "").strip(),
+        "annual_wage": annual_wage,
+        "months_counted_year1": 12,
+        "year1_payroll_amount": annual_wage,
+      }
+    )
+
+  for role in people_context.get("inferred_roles") or []:
+    if not isinstance(role, dict):
+      continue
+    try:
+      annual_wage = float(role.get("annual_wage") or 0.0)
+    except Exception:
+      annual_wage = 0.0
+    annual_wage = max(0.0, annual_wage)
+    raw_months = role.get("months_until_hire")
+    try:
+      months_until_hire = int(float(raw_months))
+    except Exception:
+      months_until_hire = 0
+    months_until_hire = max(0, min(12, months_until_hire))
+    months_counted = max(0, 12 - months_until_hire)
+    year1_amount = float(annual_wage * (months_counted / 12.0))
+    baseline_total += year1_amount
+    basis_roles.append(
+      {
+        "source": "inferred_role",
+        "role_title": str(role.get("role_title") or "").strip(),
+        "annual_wage": annual_wage,
+        "months_until_hire": months_until_hire,
+        "months_counted_year1": months_counted,
+        "year1_payroll_amount": year1_amount,
+      }
+    )
+
+  return {
+    "baseline_payroll_year1": float(baseline_total),
+    "payroll_adjustment": 0.0,
+    "payroll_total_year1": float(baseline_total),
+    "payroll_basis_people_roles": basis_roles,
+  }
+
+
+def _build_payroll_baseline_message(payroll_baseline: Dict[str, Any]) -> str:
+  role_count = len(payroll_baseline.get("payroll_basis_people_roles") or [])
+  role_phrase = "role" if role_count == 1 else "roles"
+  return (
+    f"Based on the people plan already defined, a reasonable Year-1 payroll baseline is about "
+    f"{_format_currency(payroll_baseline.get('baseline_payroll_year1'))} across {role_count} {role_phrase} in the plan.\n\n"
+    "Does that broadly match your Year-1 payroll expectation, or should we adjust it because your actual payroll setup is materially different?"
+  )
+
+
+def _normalize_payroll_reply_to_fields(
+  *,
+  reply: Dict[str, Any],
+  baseline: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  baseline_amount = float(baseline.get("baseline_payroll_year1") or 0.0)
+  intent_type = str(reply.get("intent_type") or "").strip()
+
+  if intent_type == "accept_baseline":
+    total = baseline_amount
+  elif intent_type == "set_total":
+    try:
+      total = float(reply.get("payroll_total_year1"))
+    except Exception:
+      return None
+  elif intent_type == "set_adjustment":
+    try:
+      adjustment = float(reply.get("payroll_adjustment"))
+    except Exception:
+      return None
+    total = baseline_amount + adjustment
+  else:
+    return None
+
+  total = max(0.0, float(total))
+  adjustment = float(total - baseline_amount)
+  return {
+    "baseline_payroll_year1": baseline_amount,
+    "payroll_adjustment": adjustment,
+    "payroll_total_year1": total,
+    "payroll_basis_people_roles": baseline.get("payroll_basis_people_roles") or [],
+    "current_payroll": total,
+  }
+
+
 def _normalize_cogs_reply_to_fields(
   *,
   reply: Dict[str, Any],
@@ -507,9 +656,13 @@ def _normalize_cogs_reply_to_fields(
   baseline_amount = float(baseline.get("baseline_cogs") or 0.0)
   revenue_year1 = float(baseline.get("revenue_year1") or 0.0)
   baseline_percent = float(baseline.get("baseline_cogs_percent") or 0.0)
+  years_used = baseline.get("cogs_basis_years_used")
+  requires_manual_input = bool(baseline.get("requires_manual_input"))
   intent_type = str(reply.get("intent_type") or "").strip()
 
   if intent_type == "accept_baseline":
+    if requires_manual_input:
+      return None
     total = baseline_amount
   elif intent_type == "set_total":
     try:
@@ -522,6 +675,12 @@ def _normalize_cogs_reply_to_fields(
     except Exception:
       return None
     total = float(revenue_year1 * percent)
+  elif intent_type == "set_monthly_amount":
+    try:
+      monthly_amount = float(reply.get("cogs_monthly_amount"))
+    except Exception:
+      return None
+    total = float(monthly_amount * 12.0)
   elif intent_type == "set_adjustment":
     try:
       adjustment = float(reply.get("cogs_adjustment"))
@@ -540,15 +699,217 @@ def _normalize_cogs_reply_to_fields(
     "cogs_adjustment": adjustment,
     "cogs_total_year1": total,
     "cogs_basis_naics": baseline.get("cogs_basis_naics"),
-    "cogs_basis_years_used": baseline.get("cogs_basis_years_used"),
+    "cogs_basis_years_used": years_used if isinstance(years_used, list) else [],
     "current_cogs": total,
     "cogs_percent_of_revenue": percent_total,
   }
 
 
+def _build_initial_lease_message() -> str:
+  return (
+    "Now let's capture any leased or rented equipment or space beyond your main rent. "
+    "Do you pay to use any equipment, vehicles, servers, or other space you do not own, and if so, about how much and how often "
+    "(for example, $5,000 per month or $20,000 per year)?"
+  )
+
+
+def _normalize_initial_lease_reply(reply: Dict[str, Any]) -> Optional[str]:
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type == "set_none":
+    return "0,none"
+  if intent_type != "set_value":
+    return None
+  try:
+    amount = float(reply.get("payment_amount"))
+  except Exception:
+    amount = 0.0
+  amount = max(0.0, amount)
+  period = str(reply.get("period") or "").strip().lower()
+  if period == "annual":
+    period = "yearly"
+  if period not in {"daily", "weekly", "monthly", "quarterly", "yearly", "one-time", "unknown"}:
+    period = "unknown"
+  return f"{amount:g},{period}"
+
+
+def _maybe_handle_financials_initial_lease_turn(
+  *,
+  interpret_initial_lease_reply,
+  financials_chat_turn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  next_financials = dict(financials_json or {})
+  if _financials_field_resolved(next_financials, "initial_lease"):
+    return None, next_financials
+
+  if not str(user_message or "").strip():
+    return {"assistant_message": _build_initial_lease_message(), "finalize_ready": False}, next_financials
+
+  reply = interpret_initial_lease_reply(
+    user_message=user_message,
+    last_assistant=last_assistant,
+  )
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type in ("ask_question", "unclear") or not intent_type:
+    assistant_message = str(reply.get("question_or_clarification") or "").strip()
+    if not assistant_message:
+      assistant_message = (
+        "Should I record no additional lease commitments beyond main rent, or is there a payment amount and frequency we should use?"
+      )
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  normalized = _normalize_initial_lease_reply(reply)
+  if not normalized:
+    return {
+      "assistant_message": "Should I record no additional lease commitments beyond main rent, or is there a payment amount and frequency we should use?",
+      "finalize_ready": False,
+    }, next_financials
+
+  next_financials["initial_lease"] = normalized
+  next_shared_context = dict(shared_context or {})
+  next_shared_context["financials"] = next_financials
+  next_intake_context = dict(intake_context or {})
+  next_intake_context["financials_json"] = next_financials
+  next_intake_context["shared_context"] = next_shared_context
+  next_stage = _next_financials_stage(next_financials)
+  if next_stage:
+    next_intake_context["financials_active_stage"] = next_stage
+  else:
+    next_intake_context.pop("financials_active_stage", None)
+  turn = financials_chat_turn(
+    intake_context=next_intake_context,
+    conversation_messages=conversation_messages,
+  ) or {}
+  next_financials = _sync_pending_revenue_adjustment_state(
+    next_financials,
+    financials_year1_json,
+    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+  )
+  return turn, next_financials
+
+
+def _maybe_handle_financials_payroll_turn(
+  *,
+  interpret_payroll_reply,
+  validate_payroll_setup,
+  financials_chat_turn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  next_financials = dict(financials_json or {})
+  current_signature = _build_payroll_baseline_signature(shared_context)
+  pending_signature = str(next_financials.get("_pending_payroll_signature") or "").strip()
+  pending_baseline = next_financials.get("_pending_payroll_baseline")
+
+  if pending_signature and current_signature and pending_signature != current_signature:
+    next_financials.pop("_pending_payroll_signature", None)
+    next_financials.pop("_pending_payroll_baseline", None)
+    pending_baseline = None
+
+  current_payroll_resolved = "current_payroll" in next_financials
+  if not current_payroll_resolved and not isinstance(pending_baseline, dict):
+    baseline = _compute_payroll_baseline(shared_context=shared_context)
+    next_financials["_pending_payroll_signature"] = current_signature
+    next_financials["_pending_payroll_baseline"] = baseline
+    return {
+      "assistant_message": _build_payroll_baseline_message(baseline),
+      "finalize_ready": False,
+    }, next_financials
+
+  if not isinstance(pending_baseline, dict):
+    return None, next_financials
+
+  if not str(user_message or "").strip():
+    return {
+      "assistant_message": _build_payroll_baseline_message(pending_baseline),
+      "finalize_ready": False,
+    }, next_financials
+
+  reply = interpret_payroll_reply(
+    user_message=user_message,
+    last_assistant=last_assistant,
+    payroll_context=pending_baseline,
+  )
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type in ("ask_question", "unclear") or not intent_type:
+    assistant_message = str(reply.get("question_or_clarification") or "").strip()
+    if not assistant_message:
+      assistant_message = (
+        "What should we use for Year-1 payroll: keep the people-plan baseline, use a total annual payroll amount, or adjust the baseline up or down?"
+      )
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  normalized = _normalize_payroll_reply_to_fields(reply=reply, baseline=pending_baseline)
+  if not isinstance(normalized, dict):
+    return {
+      "assistant_message": "What should we use for Year-1 payroll: keep the baseline, use a total annual payroll amount, or adjust the baseline up or down?",
+      "finalize_ready": False,
+    }, next_financials
+
+  if intent_type != "accept_baseline":
+    validation_context = dict(intake_context or {})
+    validation_financials = dict(next_financials)
+    validation_financials.update(normalized)
+    validation_shared = dict(shared_context or {})
+    validation_shared["financials"] = validation_financials
+    validation_context["financials_json"] = validation_financials
+    validation_context["shared_context"] = validation_shared
+    validation = validate_payroll_setup(
+      intake_context=validation_context,
+      payroll_context={**pending_baseline, **normalized},
+      user_message=user_message,
+    )
+    if not bool(validation.get("proceed", False)):
+      assistant_message = str(validation.get("assistant_message") or "").strip()
+      if not assistant_message:
+        assistant_message = "What should Year-1 payroll be instead?"
+      return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  next_financials.update(normalized)
+  next_financials.pop("_pending_payroll_signature", None)
+  next_financials.pop("_pending_payroll_baseline", None)
+
+  next_shared_context = dict(shared_context or {})
+  next_shared_context["financials"] = next_financials
+  next_intake_context = dict(intake_context or {})
+  next_intake_context["financials_json"] = next_financials
+  next_intake_context["shared_context"] = next_shared_context
+
+  next_stage = _next_financials_stage(next_financials)
+  if next_stage:
+    next_intake_context["financials_active_stage"] = next_stage
+  else:
+    next_intake_context.pop("financials_active_stage", None)
+
+  turn = financials_chat_turn(
+    intake_context=next_intake_context,
+    conversation_messages=conversation_messages,
+  ) or {}
+  next_financials = _sync_pending_revenue_adjustment_state(
+    next_financials,
+    financials_year1_json,
+    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+  )
+  return turn, next_financials
+
+
 def _maybe_handle_financials_cogs_turn(
   *,
   interpret_cogs_reply,
+  interpret_payroll_reply,
+  validate_payroll_setup,
+  interpret_initial_lease_reply,
   financials_chat_turn,
   conn,
   intake_context: Dict[str, Any],
@@ -578,21 +939,57 @@ def _maybe_handle_financials_cogs_turn(
       ops_json=ops_json,
       financials_year1_json=financials_year1_json,
     )
-    if baseline:
+    if not baseline:
+      revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
+      baseline = {
+        "baseline_cogs_percent": 0.0,
+        "baseline_cogs": 0.0,
+        "cogs_adjustment": 0.0,
+        "cogs_total_year1": 0.0,
+        "cogs_basis_naics": "",
+        "cogs_basis_years_used": [],
+        "revenue_year1": revenue_year1,
+        "requires_manual_input": True,
+      }
       next_financials["_pending_cogs_signature"] = current_signature
       next_financials["_pending_cogs_baseline"] = baseline
       return {
-        "assistant_message": _build_cogs_baseline_message(baseline),
+        "assistant_message": _build_cogs_manual_message(baseline),
         "finalize_ready": False,
       }, next_financials
-    return None, next_financials
+    next_financials["_pending_cogs_signature"] = current_signature
+    next_financials["_pending_cogs_baseline"] = baseline
+    return {
+      "assistant_message": _build_cogs_baseline_message(baseline),
+      "finalize_ready": False,
+    }, next_financials
 
   if not isinstance(pending_baseline, dict):
-    return None, next_financials
+    revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
+    pending_baseline = {
+      "baseline_cogs_percent": 0.0,
+      "baseline_cogs": 0.0,
+      "cogs_adjustment": 0.0,
+      "cogs_total_year1": 0.0,
+      "cogs_basis_naics": "",
+      "cogs_basis_years_used": [],
+      "revenue_year1": revenue_year1,
+      "requires_manual_input": True,
+    }
+    next_financials["_pending_cogs_signature"] = current_signature
+    next_financials["_pending_cogs_baseline"] = pending_baseline
+    return {
+      "assistant_message": _build_cogs_manual_message(pending_baseline),
+      "finalize_ready": False,
+    }, next_financials
 
   if not str(user_message or "").strip():
     return {
-      "assistant_message": _build_cogs_baseline_message(pending_baseline),
+      "assistant_message": (
+        _build_cogs_manual_message(pending_baseline)
+        if bool(pending_baseline.get("requires_manual_input"))
+        else _build_cogs_baseline_message(pending_baseline)
+      ),
       "finalize_ready": False,
     }, next_financials
 
@@ -606,14 +1003,20 @@ def _maybe_handle_financials_cogs_turn(
     assistant_message = str(reply.get("question_or_clarification") or "").strip()
     if not assistant_message:
       assistant_message = (
-        "What should we use for Year-1 direct costs: keep the industry baseline, use a percent of revenue, use a total amount, or adjust the baseline up or down?"
+        "What should we use for Year-1 direct costs: a total annual amount, a percent of revenue, or a typical monthly direct-cost pattern we should convert into the yearly model?"
+        if bool(pending_baseline.get("requires_manual_input"))
+        else "What should we use for Year-1 direct costs: keep the industry baseline, use a percent of revenue, use a total amount, or adjust the baseline up or down?"
       )
     return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
 
   normalized = _normalize_cogs_reply_to_fields(reply=reply, baseline=pending_baseline)
   if not isinstance(normalized, dict):
     return {
-      "assistant_message": "What should we use for Year-1 direct costs: keep the baseline, use a total amount, use a percent of revenue, or adjust the baseline up or down?",
+      "assistant_message": (
+        "What should we use for Year-1 direct costs: a total annual amount, a percent of revenue, or a typical monthly direct-cost pattern we should convert into the yearly model?"
+        if bool(pending_baseline.get("requires_manual_input"))
+        else "What should we use for Year-1 direct costs: keep the baseline, use a total amount, use a percent of revenue, or adjust the baseline up or down?"
+      ),
       "finalize_ready": False,
     }, next_financials
 
@@ -649,6 +1052,40 @@ def _maybe_handle_financials_cogs_turn(
   next_intake_context = dict(intake_context or {})
   next_intake_context["financials_json"] = next_financials
   next_intake_context["shared_context"] = next_shared_context
+  next_stage = _next_financials_stage(next_financials)
+  if next_stage == "current_payroll":
+    payroll_turn, next_financials = _maybe_handle_financials_payroll_turn(
+      interpret_payroll_reply=interpret_payroll_reply,
+      validate_payroll_setup=validate_payroll_setup,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=next_intake_context,
+      conversation_messages=conversation_messages,
+      shared_context=next_shared_context,
+      last_assistant="",
+      user_message="",
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if payroll_turn is not None:
+      return payroll_turn, next_financials
+  if next_stage == "initial_lease":
+    lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
+      interpret_initial_lease_reply=interpret_initial_lease_reply,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=next_intake_context,
+      conversation_messages=conversation_messages,
+      shared_context=next_shared_context,
+      last_assistant="",
+      user_message="",
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if lease_turn is not None:
+      return lease_turn, next_financials
+  if next_stage:
+    next_intake_context["financials_active_stage"] = next_stage
+  else:
+    next_intake_context.pop("financials_active_stage", None)
 
   turn = financials_chat_turn(
     intake_context=next_intake_context,
@@ -692,11 +1129,11 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
   ordered_stages = [
     ("revenue_intro", lambda d: bool(d.get("_financials_revenue_intro_done"))),
     ("cogs", lambda d: _financials_field_resolved(d, "current_cogs")),
+    ("current_payroll", lambda d: _financials_field_resolved(d, "current_payroll")),
     ("other_operating_expense", lambda d: _financials_field_resolved(d, "other_operating_expense")),
     ("monthly_rent_expense", lambda d: _financials_field_resolved(d, "monthly_rent_expense")),
-    ("current_payroll", lambda d: _financials_field_resolved(d, "current_payroll")),
-    ("current_num_employees", lambda d: _financials_field_resolved(d, "current_num_employees")),
     ("owner_compensation", lambda d: _financials_field_resolved(d, "owner_compensation")),
+    ("current_num_employees", lambda d: _financials_field_resolved(d, "current_num_employees")),
     ("current_capex", lambda d: _financials_field_resolved(d, "current_capex")),
     ("initial_assets", lambda d: _financials_field_resolved(d, "initial_assets")),
     ("initial_lease", lambda d: _financials_field_resolved(d, "initial_lease")),
@@ -714,6 +1151,9 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
     if not resolved_fn(data):
       return stage_name
   return None
+
+
+_CONTROLLER_OWNED_FINANCIALS_STAGES = {"cogs", "current_payroll", "initial_lease"}
 
 
 def _extract_ops_proposal_patch(
@@ -771,6 +1211,9 @@ def _run_financials_turn_and_sync(
   *,
   financials_chat_turn,
   interpret_cogs_reply,
+  interpret_payroll_reply,
+  validate_payroll_setup,
+  interpret_initial_lease_reply,
   conn,
   intake_context: Dict[str, Any],
   conversation_messages: List[Dict[str, str]],
@@ -799,6 +1242,9 @@ def _run_financials_turn_and_sync(
   if active_stage == "cogs":
     cogs_turn, next_financials = _maybe_handle_financials_cogs_turn(
       interpret_cogs_reply=interpret_cogs_reply,
+      interpret_payroll_reply=interpret_payroll_reply,
+      validate_payroll_setup=validate_payroll_setup,
+      interpret_initial_lease_reply=interpret_initial_lease_reply,
       financials_chat_turn=financials_chat_turn,
       conn=conn,
       intake_context=_stage_context(active_stage, next_financials),
@@ -812,6 +1258,35 @@ def _run_financials_turn_and_sync(
     )
     if cogs_turn is not None:
       return cogs_turn, next_financials
+  if active_stage == "current_payroll":
+    payroll_turn, next_financials = _maybe_handle_financials_payroll_turn(
+      interpret_payroll_reply=interpret_payroll_reply,
+      validate_payroll_setup=validate_payroll_setup,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if payroll_turn is not None:
+      return payroll_turn, next_financials
+  if active_stage == "initial_lease":
+    lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
+      interpret_initial_lease_reply=interpret_initial_lease_reply,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if lease_turn is not None:
+      return lease_turn, next_financials
 
   turn = financials_chat_turn(
     intake_context=_stage_context(active_stage, next_financials),
@@ -832,6 +1307,9 @@ def _run_financials_turn_and_sync(
       if next_stage == "cogs":
         cogs_turn, next_financials = _maybe_handle_financials_cogs_turn(
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_payroll_reply=interpret_payroll_reply,
+          validate_payroll_setup=validate_payroll_setup,
+          interpret_initial_lease_reply=interpret_initial_lease_reply,
           financials_chat_turn=financials_chat_turn,
           conn=conn,
           intake_context=_stage_context(next_stage, next_financials),
@@ -2582,7 +3060,10 @@ def post_intake_consult_handler(*, app, request):
       financials_chat_turn,
       financials_finalize,
       interpret_cogs_reply,
+      interpret_initial_lease_reply,
+      interpret_payroll_reply,
       interpret_revenue_option_reply,
+      validate_payroll_setup,
     )
     from financials_year1 import (  # type: ignore
       assemble_financials_year1,
@@ -2795,6 +3276,9 @@ def post_intake_consult_handler(*, app, request):
         turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_payroll_reply=interpret_payroll_reply,
+          validate_payroll_setup=validate_payroll_setup,
+          interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context,
           conversation_messages=turn_messages,
@@ -3192,6 +3676,11 @@ def post_intake_consult_handler(*, app, request):
       "financials": financials_json,
       "fulfillment": fulfillment_json,
     }
+    current_financials_stage = (
+      _next_financials_stage(financials_json)
+      if str(focus).strip().lower() == "financials"
+      else None
+    )
     shared_context_for_router = shared_context
     try:
       router_candidates = ops_json.get("business_type_candidates")
@@ -3344,6 +3833,13 @@ def post_intake_consult_handler(*, app, request):
       patch = None
     elif str(focus).strip().lower() == "market" and not market_finalize_proposed:
       # Target Market is model-interpreted every turn (structured patch), not router-parsed.
+      action = "continue_chat"
+      router_msg = ""
+      patch = None
+    elif (
+      str(focus).strip().lower() == "financials"
+      and str(current_financials_stage or "").strip() in _CONTROLLER_OWNED_FINANCIALS_STAGES
+    ):
       action = "continue_chat"
       router_msg = ""
       patch = None
@@ -3748,6 +4244,9 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_payroll_reply=interpret_payroll_reply,
+          validate_payroll_setup=validate_payroll_setup,
+          interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context_next,
           conversation_messages=turn_messages,
@@ -3920,6 +4419,9 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_payroll_reply=interpret_payroll_reply,
+          validate_payroll_setup=validate_payroll_setup,
+          interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context_next,
           conversation_messages=turn_messages,
@@ -4041,6 +4543,9 @@ def post_intake_consult_handler(*, app, request):
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
             interpret_cogs_reply=interpret_cogs_reply,
+            interpret_payroll_reply=interpret_payroll_reply,
+            validate_payroll_setup=validate_payroll_setup,
+            interpret_initial_lease_reply=interpret_initial_lease_reply,
             conn=conn,
             intake_context=intake_context_followup,
             conversation_messages=[*messages, user_msg],
@@ -4349,6 +4854,9 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_payroll_reply=interpret_payroll_reply,
+          validate_payroll_setup=validate_payroll_setup,
+          interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context_next,
           conversation_messages=turn_messages,
@@ -4520,6 +5028,9 @@ def post_intake_consult_handler(*, app, request):
       turn, financials_json = _run_financials_turn_and_sync(
         financials_chat_turn=financials_chat_turn,
         interpret_cogs_reply=interpret_cogs_reply,
+        interpret_payroll_reply=interpret_payroll_reply,
+        validate_payroll_setup=validate_payroll_setup,
+        interpret_initial_lease_reply=interpret_initial_lease_reply,
         conn=conn,
         intake_context=intake_context,
         conversation_messages=[*messages, user_msg],
@@ -4602,6 +5113,33 @@ def post_intake_consult_handler(*, app, request):
       finalize_ready = True
     if str(focus).strip().lower() == "financials" and guardrail_triggered:
       finalize_ready = False
+    if str(focus).strip().lower() == "financials" and finalize_ready:
+      remaining_stage = _next_financials_stage(financials_json)
+      if remaining_stage:
+        finalize_ready = False
+        stage_turn, financials_json = _run_financials_turn_and_sync(
+          financials_chat_turn=financials_chat_turn,
+          interpret_cogs_reply=interpret_cogs_reply,
+          interpret_payroll_reply=interpret_payroll_reply,
+          validate_payroll_setup=validate_payroll_setup,
+          interpret_initial_lease_reply=interpret_initial_lease_reply,
+          conn=conn,
+          intake_context=intake_context,
+          conversation_messages=[*messages, user_msg],
+          business_facts=business_facts,
+          shared_context=shared_context,
+          last_assistant="",
+          user_message="",
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+        )
+        assistant_text = sanitize_fact_template(str((stage_turn or {}).get("assistant_message") or "").strip())
+        assistant_text = _append_constraints_snippet(
+          assistant_text,
+          revenue_constraints_snippet,
+          messages,
+          force=True,
+        )
 
     if str(focus).strip().lower() == "ops" and assistant_text:
       question_count = assistant_text.count("?")
@@ -4832,6 +5370,9 @@ def post_intake_consult_handler(*, app, request):
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
             interpret_cogs_reply=interpret_cogs_reply,
+            interpret_payroll_reply=interpret_payroll_reply,
+            validate_payroll_setup=validate_payroll_setup,
+            interpret_initial_lease_reply=interpret_initial_lease_reply,
             conn=conn,
             intake_context=intake_context,
             conversation_messages=followup_messages,
@@ -5427,6 +5968,10 @@ def post_intake_consult_handler(*, app, request):
           "cogs_total_year1",
           "cogs_basis_naics",
           "cogs_basis_years_used",
+          "baseline_payroll_year1",
+          "payroll_adjustment",
+          "payroll_total_year1",
+          "payroll_basis_people_roles",
         ):
           if extra_key in financials_json and extra_key not in final_obj:
             final_obj[extra_key] = financials_json.get(extra_key)

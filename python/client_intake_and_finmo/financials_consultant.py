@@ -386,6 +386,7 @@ def _cogs_reply_schema() -> Dict[str, Any]:
           "enum": [
             "accept_baseline",
             "set_total",
+            "set_monthly_amount",
             "set_percent",
             "set_adjustment",
             "ask_question",
@@ -393,6 +394,7 @@ def _cogs_reply_schema() -> Dict[str, Any]:
           ],
         },
         "cogs_total_year1": {"type": ["number", "null"]},
+        "cogs_monthly_amount": {"type": ["number", "null"]},
         "cogs_percent_of_revenue": {"type": ["number", "null"]},
         "cogs_adjustment": {"type": ["number", "null"]},
         "question_or_clarification": {"type": "string"},
@@ -400,6 +402,7 @@ def _cogs_reply_schema() -> Dict[str, Any]:
       "required": [
         "intent_type",
         "cogs_total_year1",
+        "cogs_monthly_amount",
         "cogs_percent_of_revenue",
         "cogs_adjustment",
         "question_or_clarification",
@@ -426,12 +429,13 @@ def interpret_cogs_reply(
       {
         "role": "system",
         "content": (
-          "You are interpreting a client's reply to a Year-1 COGS baseline proposal.\n"
-          "The baseline COGS has already been computed deterministically from industry data.\n"
-          "Classify whether the client accepts the baseline, sets a new total COGS amount, gives a COGS percent of revenue, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
+          "You are interpreting a client's reply to a Year-1 COGS stage in an intake consult.\n"
+          "Sometimes there is an industry baseline proposal. Sometimes there is no benchmark and the client is being asked for a Year-1 direct-cost assumption.\n"
+          "Classify whether the client accepts the baseline, sets a new total annual COGS amount, gives a monthly direct-cost amount, gives a COGS percent of revenue, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
           "Do not rely on exact keywords. Use the assistant proposal, the numeric baseline context, and the user's reply together.\n"
           "If the user asks a question or is unclear, put the follow-up text in question_or_clarification.\n"
-          "For set_percent, return the percent as a decimal fraction when clear (for example 0.42 for 42%)."
+          "For set_percent, return the percent as a decimal fraction when clear (for example 0.42 for 42%).\n"
+          "For set_monthly_amount, return the monthly amount only; do not annualize it yourself."
         ),
       },
       {
@@ -498,7 +502,7 @@ def validate_cogs_setup(
         "role": "system",
         "content": (
           "You are validating a proposed Year-1 COGS setup for an intake consult.\n"
-          "The baseline COGS came from industry data and the client may have accepted it or adjusted it.\n"
+          "Sometimes the COGS baseline comes from industry data; sometimes no benchmark is available and the client provides the Year-1 direct-cost assumption directly.\n"
           "Decide whether the resulting Year-1 direct-cost setup is coherent enough to proceed.\n"
           "Use the business type, revenue, operating model, and the final COGS percent/total.\n"
           "If it is coherent enough for intake, set proceed=true and return a very short acknowledgement or an empty string.\n"
@@ -538,6 +542,249 @@ def validate_cogs_setup(
   except Exception:
     return {"proceed": True, "assistant_message": ""}
   return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
+
+
+def _payroll_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_payroll_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": [
+            "accept_baseline",
+            "set_total",
+            "set_adjustment",
+            "ask_question",
+            "unclear",
+          ],
+        },
+        "payroll_total_year1": {"type": ["number", "null"]},
+        "payroll_adjustment": {"type": ["number", "null"]},
+        "question_or_clarification": {"type": "string"},
+      },
+      "required": [
+        "intent_type",
+        "payroll_total_year1",
+        "payroll_adjustment",
+        "question_or_clarification",
+      ],
+    },
+  }
+
+
+def interpret_payroll_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+  payroll_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  if not str(user_message or "").strip():
+    return {}
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _payroll_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply to a Year-1 payroll baseline proposal.\n"
+          "The baseline payroll has already been computed deterministically from the People plan.\n"
+          "Classify whether the client accepts the baseline, sets a new total annual payroll amount, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
+          "Do not rely on exact keywords. Use the assistant proposal, the numeric baseline context, and the user's reply together.\n"
+          "If the user asks a question or is unclear, put the follow-up text in question_or_clarification."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "assistant_message": str(last_assistant or "").strip(),
+            "payroll_context": payroll_context,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _payroll_validation_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_payroll_validation",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "proceed": {"type": "boolean"},
+        "assistant_message": {"type": "string"},
+      },
+      "required": ["proceed", "assistant_message"],
+    },
+  }
+
+
+def validate_payroll_setup(
+  *,
+  intake_context: Dict[str, Any],
+  payroll_context: Dict[str, Any],
+  user_message: str,
+) -> Dict[str, Any]:
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _payroll_validation_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are validating a proposed Year-1 payroll setup for an intake consult.\n"
+          "The baseline payroll came from the People plan and the client may have accepted it or adjusted it.\n"
+          "Decide whether the resulting Year-1 payroll setup is coherent enough to proceed.\n"
+          "Use the business type, revenue, staffing plan, hiring timing, and final payroll total.\n"
+          "If it is coherent enough for intake, set proceed=true and return a very short acknowledgement or an empty string.\n"
+          "If it likely conflicts with the people plan or the broader business setup, set proceed=false and ask one short clarification question.\n"
+          "Do not ask the client to rebuild payroll from scratch.\n"
+          "Do not rely on exact keywords."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "intake_context": intake_context,
+            "payroll_context": payroll_context,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {"proceed": True, "assistant_message": ""}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {"proceed": True, "assistant_message": ""}
+  return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
+
+
+def _initial_lease_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_initial_lease_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": ["set_none", "set_value", "ask_question", "unclear"],
+        },
+        "payment_amount": {"type": ["number", "null"]},
+        "period": {
+          "type": ["string", "null"],
+          "enum": [None, "daily", "weekly", "monthly", "quarterly", "yearly", "annual", "one-time", "unknown", "none"],
+        },
+        "question_or_clarification": {"type": "string"},
+      },
+      "required": ["intent_type", "payment_amount", "period", "question_or_clarification"],
+    },
+  }
+
+
+def interpret_initial_lease_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+) -> Dict[str, Any]:
+  if not str(user_message or "").strip():
+    return {}
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _initial_lease_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply about leased or rented equipment/space costs beyond main rent.\n"
+          "Classify whether the client says there is no such lease cost, provides a payment amount and frequency, asks a question, or is unclear.\n"
+          "Do not rely on exact keywords. Use the assistant question and the user's reply together.\n"
+          "If there is no such lease cost, return intent_type='set_none'.\n"
+          "If there is a lease cost, return intent_type='set_value' with payment_amount and period.\n"
+          "Normalize period to one of: daily, weekly, monthly, quarterly, yearly, annual, one-time, unknown.\n"
+          "If the user asks a question or is unclear, put the follow-up text in question_or_clarification."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "assistant_message": str(last_assistant or "").strip(),
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
 
 
 def _revenue_option_reply_schema() -> Dict[str, Any]:
@@ -1036,7 +1283,7 @@ Core rule for this section:
 - Do not ask the client to choose or label a time basis. Use the anchor "as of last month".
 - Anchor everything to "as of last month". If the client doesn't have the item, explicitly tell them you're recording 0 and move on.
 - Nothing should be left unknown: if you can't get a clear answer after minimal clarification, record 0 and move on.
-- Exception: current_revenue and current_cogs are controller-owned modeled Year-1 values when already present. Treat them as established and move to the next unanswered item.
+- Exception: current_revenue, current_cogs, and current_payroll are controller-owned modeled Year-1 values when already present. Treat them as established and move to the next unanswered item.
 
 Style:
 - One plain question sentence per message.
@@ -1057,9 +1304,14 @@ Revenue assembly (REPLACES revenue question):
 - If revenue_driver_patch is present in context, acknowledge the change and re-state the updated revenue_math_line before moving on.
 - If revenue_adjudication is present in context, follow it. It is the holistic revenue judgment for this exact Year-1 setup.
 
-COGS handling (REPLACES direct-cost question when already present):
-- If current_cogs or cogs_total_year1 is already present in context, treat Year-1 direct costs as established.
-- Do not ask a monthly or historical COGS/direct-cost question once that Year-1 COGS value exists.
+COGS handling (controller-owned):
+- COGS is always a controller-owned Year-1 modeled stage.
+- Do not ask a COGS/direct-cost question in the generic Financials flow.
+- If current_cogs or cogs_total_year1 is already present in context, treat Year-1 direct costs as established and move on.
+
+Payroll handling (REPLACES payroll question when already present):
+- If current_payroll or payroll_total_year1 is already present in context, treat Year-1 payroll as established.
+- Do not ask a monthly or historical payroll question once that Year-1 payroll value exists.
 
 Stage control:
 - The controller may provide financials_active_stage in the context.
@@ -1067,15 +1319,18 @@ Stage control:
 - Do not skip ahead, do not bundle later financial topics, and do not ask about a different stage.
 - If financials_active_stage is "revenue_intro" and revenue does not need adjustment, explain the revenue setup only and stop; the controller will advance to the next stage.
 - If financials_active_stage is "cogs", do not ask a COGS question here; the controller owns that stage.
+- If financials_active_stage is "current_payroll", do not ask a payroll question here; the controller owns that stage.
+- If financials_active_stage is "initial_lease", do not ask a lease question here; the controller owns that stage.
 - For other stages, ask exactly one question for that stage only.
 
 Stage names:
 - revenue_intro
+- cogs
+- current_payroll
 - other_operating_expense
 - monthly_rent_expense
-- current_payroll
-- current_num_employees
 - owner_compensation
+- current_num_employees
 - current_capex
 - initial_assets
 - initial_lease
@@ -1159,9 +1414,9 @@ End by either:
 Do not mention steady-state or long-run targets here.
 
 Financial topics used by the controller-owned stage flow:
+- Payroll for employees (payroll) and headcount (employees)
 - Other regular operating bills (other operating expense)
 - Rent payments (rent)
-- Payroll for employees (payroll) and headcount (employees)
 - Owner pay or owner's draws (owner compensation)
 - Larger one-time equipment/investment spend (capex)
 - Assets the business already uses to operate (rough total value as of last month)
@@ -1262,6 +1517,8 @@ Output rules:
 
   text = _parse_responses_text(resp.json())
   finalize_ready = FINALIZE_TOKEN in text
+  if active_stage:
+    finalize_ready = False
   text = text.replace(FINALIZE_TOKEN, "").strip()
   text = _rewrite_financials_revenue_response(draft_text=text, intake_context=intake_context)
   return {
@@ -1309,20 +1566,24 @@ Edit mode (if intake_context.edit_mode is true):
 
 Unit conventions (do not mention these in the summary):
 - Treat these as annualized flow assumptions: current_revenue, current_cogs, other_operating_expense, current_payroll, current_capex, annual_interest_payment, annual_principal_payment, owner_compensation.
-  - If the conversation only establishes a "last month" amount, annualize it by multiplying by 12.
+  - If intake_context.financials_json already contains any of these fields, treat that stored value as the canonical annual amount and do NOT annualize it again from conversation text.
+  - Otherwise, if the conversation only establishes a monthly amount, annualize it by multiplying by 12.
   - If the client clearly stated a yearly total, use it as-is.
 - Treat these as last-month amounts: monthly_rent_expense, other_monthly_debt_payments.
 - Treat these as end-of-last-month balances: ar_balance, ap_balance, inventory_balance, total_debt_outstanding, cash_on_hand, initial_assets, initial_equity.
 - current_num_employees is a count; round to a whole number if needed.
 
-financials_summary should be a short, plain-language recap anchored to "as of last month" (1 paragraph).
+financials_summary should be a short, plain-language recap (1 paragraph).
 - IMPORTANT: financials_summary is a fact-bearing template. Do NOT print literal numbers for known fields; use {{fact:financials.<field>}} (and {{fact:business.name}} if you mention the business) so the UI always renders the latest facts.
-- Include the key numeric facts using placeholders so nothing renders blank, even when values are 0:
-  - revenue, cogs, other operating expense, rent, payroll and headcount, owner compensation
-  - cash on hand, AR, AP, inventory
-  - operating assets, lease commitments, owner/investor funding to date
-  - total debt outstanding and monthly debt payments (and interest/principal if applicable)
-  - Use {{fact:financials.initial_assets}}, {{fact:financials.initial_lease}}, and {{fact:financials.initial_equity}} when describing assets/leases/funding.
+- Present annual modeled income-statement items as Year-1 values:
+  - revenue, cogs, other operating expense, payroll, owner compensation, annual interest, annual principal, capex
+- Present monthly fields as monthly values:
+  - rent, other monthly debt payments
+- Present balance-sheet / stock items as current balances:
+  - cash on hand, AR, AP, inventory, operating assets, lease commitments, owner/investor funding to date, total debt outstanding
+- Include the key numeric facts using placeholders so nothing renders blank, even when values are 0.
+- Use {{fact:financials.initial_assets}}, {{fact:financials.initial_lease}}, and {{fact:financials.initial_equity}} when describing assets/leases/funding.
+- Do NOT describe annual modeled values as "as of last month."
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
