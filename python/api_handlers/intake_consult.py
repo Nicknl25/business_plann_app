@@ -3125,6 +3125,7 @@ def post_intake_consult_handler(*, app, request):
     from intake_consultant import consultant_chat_turn, consultant_finalize  # type: ignore
     from target_market_consultant import target_market_chat_turn, target_market_finalize  # type: ignore
     from people_capability_consultant import (  # type: ignore
+      extract_people_collection_progress,
       people_capability_chat_turn,
       people_capability_finalize,
     )
@@ -5176,6 +5177,34 @@ def post_intake_consult_handler(*, app, request):
         except Exception:
           pass
 
+    # People: persist raw structured person facts incrementally during collection.
+    if str(focus).strip().lower() == "people":
+      try:
+        people_progress_context = dict(intake_context)
+        people_progress_context["existing_people_capability_json"] = people_json
+        extracted_people = extract_people_collection_progress(
+          intake_context=people_progress_context,
+          conversation_messages=[
+            *messages,
+            user_msg,
+            {"role": "assistant", "content": assistant_text},
+          ],
+        )
+        extracted_people_list = (
+          extracted_people.get("people") if isinstance(extracted_people, dict) else None
+        )
+        if isinstance(extracted_people_list, list) and extracted_people_list:
+          next_people_json = dict(people_json or {})
+          next_people_json["people"] = extracted_people_list
+          next_people_json["business_naics_6"] = ops_json.get("business_naics_6")
+          people_json = next_people_json
+          try:
+            shared_context["people_capability"] = people_json
+          except Exception:
+            pass
+      except Exception:
+        pass
+
     finalize_ready = bool(turn.get("finalize_ready", False))
     review_ready = bool(turn.get("review_ready", False))
     # Controller-owned restatement-confirmation state: only classify acceptance on the
@@ -5573,7 +5602,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        operating_model_json=ops_json if (persist_ops_from_restatement or ops_restatement_meta_touched) else None,
+        operating_model_json=ops_json if str(focus).strip().lower() == "ops" else None,
         target_market_json=market_json if str(focus).strip().lower() == "market" else None,
         financials_json=financials_json if focus == "financials" else None,
         active_focus=focus,
@@ -5581,7 +5610,7 @@ def post_intake_consult_handler(*, app, request):
         financials_year1_json=financials_year1_json if focus == "financials" else None,
         pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
         flat_fields=_finalize_flag_field(focus, False),
-        people_json=review_people if review_ready else None,
+        people_json=review_people if review_ready else (people_json if str(focus).strip().lower() == "people" else None),
       )
       return jsonify(
         {

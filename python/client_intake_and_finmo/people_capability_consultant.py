@@ -162,6 +162,119 @@ def _final_schema() -> Dict[str, Any]:
   }
 
 
+def _progress_schema() -> Dict[str, Any]:
+  return {
+    "name": "people_collection_progress",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "people": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+              "full_name": {"type": "string"},
+              "role_title": {"type": "string"},
+              "relevant_background": {"type": "string"},
+              "experience_years": {"type": "string"},
+              "annual_wage": {"type": ["number", "null"]},
+              "wage_source": {"type": "string"},
+            },
+            "required": [
+              "full_name",
+              "role_title",
+              "relevant_background",
+              "experience_years",
+              "annual_wage",
+              "wage_source",
+            ],
+          },
+        },
+        "confidence": {"type": "number"},
+      },
+      "required": ["people", "confidence"],
+    },
+  }
+
+
+def extract_people_collection_progress(
+  *,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+) -> Dict[str, Any]:
+  """
+  Backend-only structured extraction of raw People facts during collection.
+  """
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _progress_schema()
+
+  system = """
+You are extracting structured People & Capability collection progress for backend persistence only.
+
+Return ONLY JSON matching the provided schema.
+
+Purpose:
+- Maintain the current raw key-people facts captured so far during the People consult.
+- This is not the final narrative output and not the inferred-roles step.
+
+Rules:
+- Use existing_people_capability_json from the context as the canonical baseline when present.
+- Keep already captured people unless the conversation clearly changes or removes them.
+- Output one object per currently confirmed key person in the conversation so far.
+- Do not invent people.
+- Do not output inferred roles.
+- Do not output narrative paragraphs or summaries.
+- relevant_background should be a concise factual phrase combining relevant experience, education, credentials, or licenses actually stated by the client.
+- experience_years should be the best current textual value for years of relevant experience.
+- annual_wage should stay null unless it is already present in the baseline context or clearly stated by the client.
+- wage_source should be:
+  - "client_override" if the client explicitly provided a wage
+  - "gpt_estimate" only if the baseline already contains that source
+  - "unknown" otherwise
+- If the latest turn adds no new person facts, return the current baseline people list unchanged.
+""".strip()
+
+  context_blob = json.dumps(intake_context, ensure_ascii=False)
+  payload = {
+    "model": model,
+    "input": [
+      {"role": "system", "content": system},
+      {"role": "user", "content": "Current known People context (JSON):\n" + context_blob},
+      *conversation_messages,
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    raise RuntimeError(_format_openai_error(resp))
+
+  data = resp.json()
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        return part["json"]
+
+  raw = _parse_responses_text(data)
+  parsed = json.loads(raw)
+  if not isinstance(parsed, dict):
+    raise RuntimeError("People progress extraction did not return a JSON object.")
+  return parsed
+
+
 def people_capability_chat_turn(
   *,
   intake_context: Dict[str, Any],
