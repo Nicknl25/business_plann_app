@@ -386,7 +386,6 @@ def _cogs_reply_schema() -> Dict[str, Any]:
           "enum": [
             "accept_baseline",
             "set_total",
-            "set_monthly_amount",
             "set_percent",
             "set_adjustment",
             "ask_question",
@@ -394,7 +393,6 @@ def _cogs_reply_schema() -> Dict[str, Any]:
           ],
         },
         "cogs_total_year1": {"type": ["number", "null"]},
-        "cogs_monthly_amount": {"type": ["number", "null"]},
         "cogs_percent_of_revenue": {"type": ["number", "null"]},
         "cogs_adjustment": {"type": ["number", "null"]},
         "question_or_clarification": {"type": "string"},
@@ -402,7 +400,6 @@ def _cogs_reply_schema() -> Dict[str, Any]:
       "required": [
         "intent_type",
         "cogs_total_year1",
-        "cogs_monthly_amount",
         "cogs_percent_of_revenue",
         "cogs_adjustment",
         "question_or_clarification",
@@ -429,13 +426,11 @@ def interpret_cogs_reply(
       {
         "role": "system",
         "content": (
-          "You are interpreting a client's reply to a Year-1 COGS stage in an intake consult.\n"
-          "Sometimes there is an industry baseline proposal. Sometimes there is no benchmark and the client is being asked for a Year-1 direct-cost assumption.\n"
-          "Classify whether the client accepts the baseline, sets a new total annual COGS amount, gives a monthly direct-cost amount, gives a COGS percent of revenue, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
+          "You are interpreting a client's reply to a Year-1 COGS baseline proposal in an intake consult.\n"
+          "Classify whether the client accepts the baseline, sets a new total annual COGS amount, gives a COGS percent of revenue, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
           "Do not rely on exact keywords. Use the assistant proposal, the numeric baseline context, and the user's reply together.\n"
           "If the user asks a question or is unclear, put the follow-up text in question_or_clarification.\n"
-          "For set_percent, return the percent as a decimal fraction when clear (for example 0.42 for 42%).\n"
-          "For set_monthly_amount, return the monthly amount only; do not annualize it yourself."
+          "For set_percent, return the percent as a decimal fraction when clear (for example 0.42 for 42%)."
         ),
       },
       {
@@ -542,6 +537,90 @@ def validate_cogs_setup(
   except Exception:
     return {"proceed": True, "assistant_message": ""}
   return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
+
+
+def _cogs_estimate_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_cogs_estimate",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "estimated_cogs_percent": {"type": "number"},
+        "brief_rationale": {"type": "string"},
+      },
+      "required": ["estimated_cogs_percent", "brief_rationale"],
+    },
+  }
+
+
+def estimate_cogs_percent_from_context(
+  *,
+  cogs_estimate_context: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  if not isinstance(cogs_estimate_context, dict):
+    return None
+  naics_6 = str(cogs_estimate_context.get("business_naics_6") or "").strip()
+  financials_year1_json = dict(cogs_estimate_context.get("financials_year1_json") or {})
+  revenue_year1 = float(financials_year1_json.get("company_revenue_total_year1") or 0.0)
+  if revenue_year1 <= 0 or not naics_6:
+    return None
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _cogs_estimate_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are producing a single Year-1 direct-cost estimate for a business-plan intake when exact industry COGS benchmark coverage is unavailable.\n"
+          "Return one best estimated COGS percent of revenue as a decimal fraction, not a range.\n"
+          "COGS here means direct fulfillment/delivery costs only. Do not include payroll, rent, owner pay, marketing, or general overhead unless the business model clearly makes them direct fulfillment costs.\n"
+          "Use the exact 6-digit NAICS, business type, operating model, pricing, capacity, cadence, staffing context, and all other provided business facts.\n"
+          "Do not use broad parent-NAICS averages. Do not ask questions. You must return one usable estimate."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(cogs_estimate_context, ensure_ascii=False),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  for _ in range(2):
+    try:
+      resp = _post_openai(url=url, headers=headers, payload=payload)
+    except Exception:
+      continue
+    if resp.status_code >= 400:
+      continue
+    try:
+      parsed = _parse_responses_json(resp.json())
+    except Exception:
+      continue
+    if not isinstance(parsed, dict):
+      continue
+    try:
+      percent = float(parsed.get("estimated_cogs_percent"))
+    except Exception:
+      continue
+    percent = max(0.0, min(percent, 1.0))
+    return {
+      "estimated_cogs_percent": percent,
+      "brief_rationale": str(parsed.get("brief_rationale") or "").strip(),
+    }
+  return None
 
 
 def _payroll_reply_schema() -> Dict[str, Any]:

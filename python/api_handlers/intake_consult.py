@@ -405,27 +405,72 @@ def _build_cogs_baseline_signature(
   return f"{naics}::{revenue_signature}" if revenue_signature or naics else ""
 
 
+def _build_cogs_estimate_context(
+  *,
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  people_ctx = dict((shared_context or {}).get("people_capability") or {})
+  market_ctx = dict((shared_context or {}).get("target_market") or {})
+  return {
+    "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+    "business_naics_6": str((ops_json or {}).get("business_naics_6") or "").strip(),
+    "unit_name": str((ops_json or {}).get("unit_name") or "").strip(),
+    "unit_description": str((ops_json or {}).get("unit_description") or "").strip(),
+    "unit_cadence": str((ops_json or {}).get("unit_cadence") or "").strip(),
+    "unit_price": (ops_json or {}).get("unit_price"),
+    "units_per_period_capacity": (ops_json or {}).get("units_per_period_capacity"),
+    "units_per_week_capacity": (ops_json or {}).get("units_per_week_capacity"),
+    "operating_periods_per_year": (ops_json or {}).get("operating_periods_per_year"),
+    "utilization_rate": (ops_json or {}).get("utilization_rate"),
+    "shipping_method": str((ops_json or {}).get("shipping_method") or "").strip(),
+    "sales_modality": str((ops_json or {}).get("sales_modality") or "").strip(),
+    "geographic_scope": str((ops_json or {}).get("geographic_scope") or "").strip(),
+    "capacity_driver": str((ops_json or {}).get("capacity_driver") or "").strip(),
+    "competitive_advantage": str((ops_json or {}).get("competitive_advantage") or "").strip(),
+    "market_summary": str((market_ctx or {}).get("target_market_summary") or "").strip(),
+    "key_people_summary": str((people_ctx or {}).get("key_people_summary") or "").strip(),
+    "people": people_ctx.get("people") or [],
+    "inferred_roles": people_ctx.get("inferred_roles") or [],
+    "financials_year1_json": financials_year1_json or {},
+  }
+
+
+def _resolve_cogs_baseline_or_raise(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  estimate_cogs_percent_from_context,
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  baseline = _compute_cogs_baseline(
+    conn=conn,
+    ops_json=ops_json,
+    shared_context=shared_context,
+    estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
+    financials_year1_json=financials_year1_json,
+  )
+  if isinstance(baseline, dict):
+    return baseline
+  raise RuntimeError(
+    "Unable to resolve a Year-1 COGS baseline from exact industry data or GPT estimation."
+  )
+
+
 def _compute_cogs_baseline(
   *,
   conn,
   ops_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  estimate_cogs_percent_from_context,
   financials_year1_json: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
   revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
   naics_6 = str((ops_json or {}).get("business_naics_6") or "").strip()
   if revenue_year1 <= 0 or not naics_6:
     return None
-  try:
-    try:
-      from intake_business_types import get_growth_naics_from_index  # type: ignore
-    except Exception:
-      from client_intake_and_finmo.intake_business_types import (  # type: ignore
-        get_growth_naics_from_index,
-      )
-    growth_row = get_growth_naics_from_index(conn, naics_6)
-    basis_naics = str(growth_row.get("naics_code") or "").strip() or naics_6
-  except Exception:
-    basis_naics = naics_6
 
   cur = conn.cursor(dictionary=True)
   try:
@@ -438,7 +483,7 @@ def _compute_cogs_baseline(
       ORDER BY fiscalDateEnding DESC, quarter DESC
       LIMIT 8
       """,
-      (basis_naics,),
+      (naics_6,),
     )
     rows = cur.fetchall() or []
   finally:
@@ -448,6 +493,9 @@ def _compute_cogs_baseline(
   years_used: List[str] = []
   seen_years = set()
   for row in rows:
+    year = str(row.get("fiscalDateEnding") or "")[:4].strip()
+    if year and year not in seen_years and len(seen_years) >= 2:
+      continue
     value = row.get("industry_cogs_percent")
     if value is None:
       continue
@@ -460,19 +508,39 @@ def _compute_cogs_baseline(
       seen_years.add(year)
       years_used.append(year)
 
-  if not percents:
-    return None
+  if percents:
+    baseline_cogs_percent = float(sum(percents) / len(percents))
+    baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
+    return {
+      "baseline_cogs_percent": baseline_cogs_percent,
+      "baseline_cogs": baseline_cogs,
+      "cogs_adjustment": 0.0,
+      "cogs_total_year1": baseline_cogs,
+      "cogs_basis_naics": naics_6,
+      "cogs_basis_years_used": years_used[:2],
+      "revenue_year1": revenue_year1,
+    }
 
-  baseline_cogs_percent = float(sum(percents) / len(percents))
+  estimated = estimate_cogs_percent_from_context(
+    cogs_estimate_context=_build_cogs_estimate_context(
+      ops_json=ops_json,
+      shared_context=shared_context,
+      financials_year1_json=financials_year1_json,
+    ),
+  )
+  if not estimated:
+    return None
+  baseline_cogs_percent = float(estimated.get("estimated_cogs_percent") or 0.0)
   baseline_cogs = float(revenue_year1 * baseline_cogs_percent)
   return {
     "baseline_cogs_percent": baseline_cogs_percent,
     "baseline_cogs": baseline_cogs,
     "cogs_adjustment": 0.0,
     "cogs_total_year1": baseline_cogs,
-    "cogs_basis_naics": basis_naics,
-    "cogs_basis_years_used": years_used[:2],
+    "cogs_basis_naics": naics_6,
+    "cogs_basis_years_used": [],
     "revenue_year1": revenue_year1,
+    "cogs_basis_rationale": str(estimated.get("brief_rationale") or "").strip(),
   }
 
 
@@ -492,18 +560,10 @@ def _format_percent(value: Any) -> str:
 
 def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
   return (
-    f"Based on direct-cost data from similar businesses in this industry, a reasonable Year-1 COGS baseline is about "
+    f"A reasonable Year-1 COGS baseline is about "
     f"{_format_percent(cogs_baseline.get('baseline_cogs_percent'))} of revenue, which puts your projected Year-1 direct costs around "
     f"{_format_currency(cogs_baseline.get('baseline_cogs'))}.\n\n"
     "Does that broadly match how your business works, or should we adjust it because your direct costs are materially different?"
-  )
-
-
-def _build_cogs_manual_message(cogs_context: Dict[str, Any]) -> str:
-  return (
-    "I couldn't pull a clean industry direct-cost benchmark for this business, so let's set Year-1 direct costs directly.\n\n"
-    f"What should we use for Year-1 COGS: a total annual amount, a percent of revenue, or a typical monthly direct-cost pattern we should convert into the yearly model? "
-    f"(Current Year-1 revenue baseline: {_format_currency(cogs_context.get('revenue_year1'))}.)"
   )
 
 
@@ -657,12 +717,9 @@ def _normalize_cogs_reply_to_fields(
   revenue_year1 = float(baseline.get("revenue_year1") or 0.0)
   baseline_percent = float(baseline.get("baseline_cogs_percent") or 0.0)
   years_used = baseline.get("cogs_basis_years_used")
-  requires_manual_input = bool(baseline.get("requires_manual_input"))
   intent_type = str(reply.get("intent_type") or "").strip()
 
   if intent_type == "accept_baseline":
-    if requires_manual_input:
-      return None
     total = baseline_amount
   elif intent_type == "set_total":
     try:
@@ -675,12 +732,6 @@ def _normalize_cogs_reply_to_fields(
     except Exception:
       return None
     total = float(revenue_year1 * percent)
-  elif intent_type == "set_monthly_amount":
-    try:
-      monthly_amount = float(reply.get("cogs_monthly_amount"))
-    except Exception:
-      return None
-    total = float(monthly_amount * 12.0)
   elif intent_type == "set_adjustment":
     try:
       adjustment = float(reply.get("cogs_adjustment"))
@@ -700,6 +751,7 @@ def _normalize_cogs_reply_to_fields(
     "cogs_total_year1": total,
     "cogs_basis_naics": baseline.get("cogs_basis_naics"),
     "cogs_basis_years_used": years_used if isinstance(years_used, list) else [],
+    "cogs_basis_rationale": str(baseline.get("cogs_basis_rationale") or "").strip(),
     "current_cogs": total,
     "cogs_percent_of_revenue": percent_total,
   }
@@ -907,6 +959,7 @@ def _maybe_handle_financials_payroll_turn(
 def _maybe_handle_financials_cogs_turn(
   *,
   interpret_cogs_reply,
+  estimate_cogs_percent_from_context,
   interpret_payroll_reply,
   validate_payroll_setup,
   interpret_initial_lease_reply,
@@ -934,29 +987,13 @@ def _maybe_handle_financials_cogs_turn(
 
   current_cogs_resolved = "current_cogs" in next_financials
   if not current_cogs_resolved and not isinstance(pending_baseline, dict):
-    baseline = _compute_cogs_baseline(
+    baseline = _resolve_cogs_baseline_or_raise(
       conn=conn,
       ops_json=ops_json,
+      shared_context=shared_context,
+      estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
       financials_year1_json=financials_year1_json,
     )
-    if not baseline:
-      revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
-      baseline = {
-        "baseline_cogs_percent": 0.0,
-        "baseline_cogs": 0.0,
-        "cogs_adjustment": 0.0,
-        "cogs_total_year1": 0.0,
-        "cogs_basis_naics": "",
-        "cogs_basis_years_used": [],
-        "revenue_year1": revenue_year1,
-        "requires_manual_input": True,
-      }
-      next_financials["_pending_cogs_signature"] = current_signature
-      next_financials["_pending_cogs_baseline"] = baseline
-      return {
-        "assistant_message": _build_cogs_manual_message(baseline),
-        "finalize_ready": False,
-      }, next_financials
     next_financials["_pending_cogs_signature"] = current_signature
     next_financials["_pending_cogs_baseline"] = baseline
     return {
@@ -965,31 +1002,19 @@ def _maybe_handle_financials_cogs_turn(
     }, next_financials
 
   if not isinstance(pending_baseline, dict):
-    revenue_year1 = float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0)
-    pending_baseline = {
-      "baseline_cogs_percent": 0.0,
-      "baseline_cogs": 0.0,
-      "cogs_adjustment": 0.0,
-      "cogs_total_year1": 0.0,
-      "cogs_basis_naics": "",
-      "cogs_basis_years_used": [],
-      "revenue_year1": revenue_year1,
-      "requires_manual_input": True,
-    }
+    pending_baseline = _resolve_cogs_baseline_or_raise(
+      conn=conn,
+      ops_json=ops_json,
+      shared_context=shared_context,
+      estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
+      financials_year1_json=financials_year1_json,
+    )
     next_financials["_pending_cogs_signature"] = current_signature
     next_financials["_pending_cogs_baseline"] = pending_baseline
-    return {
-      "assistant_message": _build_cogs_manual_message(pending_baseline),
-      "finalize_ready": False,
-    }, next_financials
 
   if not str(user_message or "").strip():
     return {
-      "assistant_message": (
-        _build_cogs_manual_message(pending_baseline)
-        if bool(pending_baseline.get("requires_manual_input"))
-        else _build_cogs_baseline_message(pending_baseline)
-      ),
+      "assistant_message": _build_cogs_baseline_message(pending_baseline),
       "finalize_ready": False,
     }, next_financials
 
@@ -1002,21 +1027,13 @@ def _maybe_handle_financials_cogs_turn(
   if intent_type in ("ask_question", "unclear") or not intent_type:
     assistant_message = str(reply.get("question_or_clarification") or "").strip()
     if not assistant_message:
-      assistant_message = (
-        "What should we use for Year-1 direct costs: a total annual amount, a percent of revenue, or a typical monthly direct-cost pattern we should convert into the yearly model?"
-        if bool(pending_baseline.get("requires_manual_input"))
-        else "What should we use for Year-1 direct costs: keep the industry baseline, use a percent of revenue, use a total amount, or adjust the baseline up or down?"
-      )
+      assistant_message = "Should we keep that direct-cost baseline, or adjust it because your direct costs work differently?"
     return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
 
   normalized = _normalize_cogs_reply_to_fields(reply=reply, baseline=pending_baseline)
   if not isinstance(normalized, dict):
     return {
-      "assistant_message": (
-        "What should we use for Year-1 direct costs: a total annual amount, a percent of revenue, or a typical monthly direct-cost pattern we should convert into the yearly model?"
-        if bool(pending_baseline.get("requires_manual_input"))
-        else "What should we use for Year-1 direct costs: keep the baseline, use a total amount, use a percent of revenue, or adjust the baseline up or down?"
-      ),
+      "assistant_message": "Should we keep that direct-cost baseline, or adjust it because your direct costs work differently?",
       "finalize_ready": False,
     }, next_financials
 
@@ -1211,6 +1228,7 @@ def _run_financials_turn_and_sync(
   *,
   financials_chat_turn,
   interpret_cogs_reply,
+  estimate_cogs_percent_from_context,
   interpret_payroll_reply,
   validate_payroll_setup,
   interpret_initial_lease_reply,
@@ -1242,6 +1260,7 @@ def _run_financials_turn_and_sync(
   if active_stage == "cogs":
     cogs_turn, next_financials = _maybe_handle_financials_cogs_turn(
       interpret_cogs_reply=interpret_cogs_reply,
+      estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
       interpret_payroll_reply=interpret_payroll_reply,
       validate_payroll_setup=validate_payroll_setup,
       interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -1307,6 +1326,7 @@ def _run_financials_turn_and_sync(
       if next_stage == "cogs":
         cogs_turn, next_financials = _maybe_handle_financials_cogs_turn(
           interpret_cogs_reply=interpret_cogs_reply,
+          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -3057,6 +3077,7 @@ def post_intake_consult_handler(*, app, request):
     )
     from financials_consultant import (  # type: ignore
       _adjudicate_revenue_setup,
+      estimate_cogs_percent_from_context,
       financials_chat_turn,
       financials_finalize,
       interpret_cogs_reply,
@@ -3276,6 +3297,7 @@ def post_intake_consult_handler(*, app, request):
         turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -4244,6 +4266,7 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -4419,6 +4442,7 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -4543,6 +4567,7 @@ def post_intake_consult_handler(*, app, request):
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
             interpret_cogs_reply=interpret_cogs_reply,
+            estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
             interpret_payroll_reply=interpret_payroll_reply,
             validate_payroll_setup=validate_payroll_setup,
             interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -4854,6 +4879,7 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -5028,6 +5054,7 @@ def post_intake_consult_handler(*, app, request):
       turn, financials_json = _run_financials_turn_and_sync(
         financials_chat_turn=financials_chat_turn,
         interpret_cogs_reply=interpret_cogs_reply,
+        estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
         interpret_payroll_reply=interpret_payroll_reply,
         validate_payroll_setup=validate_payroll_setup,
         interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -5120,6 +5147,7 @@ def post_intake_consult_handler(*, app, request):
         stage_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -5370,6 +5398,7 @@ def post_intake_consult_handler(*, app, request):
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
             interpret_cogs_reply=interpret_cogs_reply,
+            estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
             interpret_payroll_reply=interpret_payroll_reply,
             validate_payroll_setup=validate_payroll_setup,
             interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -5968,6 +5997,7 @@ def post_intake_consult_handler(*, app, request):
           "cogs_total_year1",
           "cogs_basis_naics",
           "cogs_basis_years_used",
+          "cogs_basis_rationale",
           "baseline_payroll_year1",
           "payroll_adjustment",
           "payroll_total_year1",
