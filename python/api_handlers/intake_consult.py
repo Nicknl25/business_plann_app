@@ -567,6 +567,22 @@ def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
   )
 
 
+def _build_cogs_adjustment_acknowledgement(cogs_fields: Dict[str, Any]) -> str:
+  total = _format_currency(cogs_fields.get("cogs_total_year1"))
+  revenue = float(cogs_fields.get("revenue_year1") or 0.0)
+  try:
+    percent_value = (
+      float(cogs_fields.get("cogs_total_year1") or 0.0) / revenue if revenue > 0 else float(cogs_fields.get("baseline_cogs_percent") or 0.0)
+    )
+  except Exception:
+    percent_value = float(cogs_fields.get("baseline_cogs_percent") or 0.0)
+  return (
+    f"Got it - I'll use Year-1 direct costs of "
+    f"{total} "
+    f"({_format_percent(percent_value)} of revenue)."
+  )
+
+
 def _build_payroll_baseline_signature(shared_context: Dict[str, Any]) -> str:
   people_context = dict((shared_context or {}).get("people_capability") or {})
   people_rows: List[Dict[str, Any]] = []
@@ -670,6 +686,13 @@ def _build_payroll_baseline_message(payroll_baseline: Dict[str, Any]) -> str:
     f"Based on the people plan already defined, a reasonable Year-1 payroll baseline is about "
     f"{_format_currency(payroll_baseline.get('baseline_payroll_year1'))} across {role_count} {role_phrase} in the plan.\n\n"
     "Does that broadly match your Year-1 payroll expectation, or should we adjust it because your actual payroll setup is materially different?"
+  )
+
+
+def _build_payroll_adjustment_acknowledgement(payroll_fields: Dict[str, Any]) -> str:
+  return (
+    f"Got it - I'll use Year-1 payroll of "
+    f"{_format_currency(payroll_fields.get('payroll_total_year1'))}."
   )
 
 
@@ -931,6 +954,11 @@ def _maybe_handle_financials_payroll_turn(
   next_financials.update(normalized)
   next_financials.pop("_pending_payroll_signature", None)
   next_financials.pop("_pending_payroll_baseline", None)
+  acknowledgement = (
+    _build_payroll_adjustment_acknowledgement(next_financials)
+    if intent_type != "accept_baseline"
+    else ""
+  )
 
   next_shared_context = dict(shared_context or {})
   next_shared_context["financials"] = next_financials
@@ -948,6 +976,11 @@ def _maybe_handle_financials_payroll_turn(
     intake_context=next_intake_context,
     conversation_messages=conversation_messages,
   ) or {}
+  if acknowledgement:
+    next_text = str(turn.get("assistant_message") or "").strip()
+    turn["assistant_message"] = (
+      f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+    )
   next_financials = _sync_pending_revenue_adjustment_state(
     next_financials,
     financials_year1_json,
@@ -1063,6 +1096,11 @@ def _maybe_handle_financials_cogs_turn(
   next_financials.update(normalized)
   next_financials.pop("_pending_cogs_signature", None)
   next_financials.pop("_pending_cogs_baseline", None)
+  acknowledgement = (
+    _build_cogs_adjustment_acknowledgement(next_financials)
+    if intent_type != "accept_baseline"
+    else ""
+  )
 
   next_shared_context = dict(shared_context or {})
   next_shared_context["financials"] = next_financials
@@ -1084,6 +1122,11 @@ def _maybe_handle_financials_cogs_turn(
       financials_year1_json=financials_year1_json,
     )
     if payroll_turn is not None:
+      if acknowledgement:
+        next_text = str(payroll_turn.get("assistant_message") or "").strip()
+        payroll_turn["assistant_message"] = (
+          f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+        )
       return payroll_turn, next_financials
   if next_stage == "initial_lease":
     lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
@@ -1098,6 +1141,11 @@ def _maybe_handle_financials_cogs_turn(
       financials_year1_json=financials_year1_json,
     )
     if lease_turn is not None:
+      if acknowledgement:
+        next_text = str(lease_turn.get("assistant_message") or "").strip()
+        lease_turn["assistant_message"] = (
+          f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+        )
       return lease_turn, next_financials
   if next_stage:
     next_intake_context["financials_active_stage"] = next_stage
@@ -1108,6 +1156,11 @@ def _maybe_handle_financials_cogs_turn(
     intake_context=next_intake_context,
     conversation_messages=conversation_messages,
   ) or {}
+  if acknowledgement:
+    next_text = str(turn.get("assistant_message") or "").strip()
+    turn["assistant_message"] = (
+      f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+    )
   next_financials = _sync_pending_revenue_adjustment_state(
     next_financials,
     financials_year1_json,
