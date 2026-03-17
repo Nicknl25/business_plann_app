@@ -639,6 +639,10 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "current_cogs": {"type": "number"},
 
+      "marketing_total_year1": {"type": "number"},
+
+      "marketing_percent_of_revenue": {"type": "number"},
+
       "other_operating_expense": {"type": "number"},
 
       "monthly_rent_expense": {"type": "number"},
@@ -1501,6 +1505,10 @@ def route_intent(
 
       "current_cogs",
 
+      "marketing_total_year1",
+
+      "marketing_percent_of_revenue",
+
       "other_operating_expense",
 
       "monthly_rent_expense",
@@ -1631,6 +1639,10 @@ def route_intent(
         "current_revenue",
 
         "current_cogs",
+
+        "marketing_total_year1",
+
+        "marketing_percent_of_revenue",
 
         "other_operating_expense",
 

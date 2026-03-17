@@ -69,6 +69,7 @@ def ensure_table(conn) -> None:
         target_market_json LONGTEXT NULL,
         people_json LONGTEXT NULL,
         financials_json LONGTEXT NULL,
+        marketing_model_json LONGTEXT NULL,
         financials_year1_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
@@ -131,6 +132,8 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN people_json LONGTEXT NULL")
   if "financials_json" not in cols:
     alterations.append("ADD COLUMN financials_json LONGTEXT NULL")
+  if "marketing_model_json" not in cols:
+    alterations.append("ADD COLUMN marketing_model_json LONGTEXT NULL")
   if "financials_year1_json" not in cols:
     alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
@@ -232,6 +235,7 @@ def append_messages(
   target_market_json: Optional[Dict[str, Any]] = None,
   people_json: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
   pending_ops_milestone_json: Optional[Any] = None,
   fulfillment_json: Optional[Dict[str, Any]] = None,
@@ -274,6 +278,10 @@ def append_messages(
   if financials_json is not None:
     set_parts.append("financials_json = %s")
     values.append(json.dumps(financials_json, ensure_ascii=False))
+
+  if marketing_model_json is not None:
+    set_parts.append("marketing_model_json = %s")
+    values.append(json.dumps(marketing_model_json, ensure_ascii=False))
 
   if financials_year1_json is not None:
     set_parts.append("financials_year1_json = %s")
@@ -356,6 +364,7 @@ def append_messages(
       "target_market_json",
       "people_json",
       "financials_json",
+      "marketing_model_json",
       "financials_year1_json",
       "pending_ops_milestone_json",
       "fulfillment_json",

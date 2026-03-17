@@ -45,6 +45,7 @@ MARKET_FACT_FIELDS = {
   "b2b_size_bands",
   "b2b_age_bands",
   "target_market_summary",
+  "marketing_plan_summary",
   "confidence",
 }
 
@@ -62,6 +63,11 @@ FINANCIALS_FACT_FIELDS = {
   "monthly_rent_expense",
   "other_monthly_debt_payments",
   "current_payroll",
+  "baseline_marketing_percent",
+  "baseline_marketing",
+  "marketing_adjustment",
+  "marketing_total_year1",
+  "marketing_percent_of_revenue",
   "current_num_employees",
   "current_capex",
   "ar_balance",
@@ -96,6 +102,8 @@ FIN_MONEY_FIELDS = {
   "monthly_rent_expense",
   "other_monthly_debt_payments",
   "current_payroll",
+  "baseline_marketing",
+  "marketing_total_year1",
   "current_capex",
   "ar_balance",
   "ap_balance",

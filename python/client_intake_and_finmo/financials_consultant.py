@@ -785,6 +785,293 @@ def validate_payroll_setup(
   return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
 
 
+def _marketing_estimate_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_marketing_estimate",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "reachable_market": {"type": "number"},
+        "capture_rate_year1": {"type": "number"},
+        "expected_customers_or_clients_year1": {"type": "number"},
+        "expected_units_year1": {"type": "number"},
+        "marketing_intensity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "very_high"],
+        },
+        "baseline_marketing_percent": {"type": "number"},
+        "brief_rationale": {"type": "string"},
+      },
+      "required": [
+        "reachable_market",
+        "capture_rate_year1",
+        "expected_customers_or_clients_year1",
+        "expected_units_year1",
+        "marketing_intensity",
+        "baseline_marketing_percent",
+        "brief_rationale",
+      ],
+    },
+  }
+
+
+def estimate_marketing_baseline_from_context(
+  *,
+  marketing_estimate_context: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  if not isinstance(marketing_estimate_context, dict):
+    return None
+  revenue_year1 = float(
+    ((marketing_estimate_context.get("financials_year1_json") or {}).get("company_revenue_total_year1") or 0.0)
+  )
+  if revenue_year1 <= 0:
+    return None
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _marketing_estimate_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are producing a Year-1 marketing baseline for a business-plan intake.\n"
+          "Your job is to translate observed market-basis signals into one realistic Year-1 marketing percent of revenue.\n"
+          "Important rules:\n"
+          "- Treat B2C and B2B basis signals as observed inputs, not exact intersections.\n"
+          "- Do not multiply separate basis signals together into fake precise target-market counts.\n"
+          "- Use the observed signals, normalized geography, offer, pricing, sales model, and Year-1 revenue/unit requirements together.\n"
+          "- geography_basis is the hard scope anchor. Respect it.\n"
+          "- If scope is local, reachable_market must reflect only the local footprint implied by the anchor ZIP, county basis, and coverage summary. Do not treat a state-level observed universe as directly reachable.\n"
+          "- If scope is regional, reachable_market must be constrained to the provided regional state/county basis, not the entire country.\n"
+          "- If scope is national, reason from national reachability rather than ZIP/county footprint.\n"
+          "- Treat ZIP/county/state basis as backend aggregation anchors. Do not assume the client explicitly named every ZIP unless it appears in explicit_zip_basis.\n"
+          "- Marketing here means the spend required to support the Year-1 demand assumption. It does not set revenue by itself.\n"
+          "- Ops/capacity remains the ceiling.\n"
+          "- Return one point estimate, not a range.\n"
+          "- baseline_marketing_percent must be a decimal fraction of revenue between 0 and 1.\n"
+          "- reachable_market, capture_rate_year1, expected_customers_or_clients_year1, and expected_units_year1 must be internally coherent with the provided context.\n"
+          "- Do not ask questions."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(marketing_estimate_context, ensure_ascii=False),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  for _ in range(2):
+    try:
+      resp = _post_openai(url=url, headers=headers, payload=payload)
+    except Exception:
+      continue
+    if resp.status_code >= 400:
+      continue
+    try:
+      parsed = _parse_responses_json(resp.json())
+    except Exception:
+      continue
+    if not isinstance(parsed, dict):
+      continue
+    try:
+      baseline_percent = float(parsed.get("baseline_marketing_percent"))
+      reachable_market = float(parsed.get("reachable_market"))
+      capture_rate = float(parsed.get("capture_rate_year1"))
+      expected_customers = float(parsed.get("expected_customers_or_clients_year1"))
+      expected_units = float(parsed.get("expected_units_year1"))
+    except Exception:
+      continue
+    baseline_percent = max(0.0, min(baseline_percent, 1.0))
+    capture_rate = max(0.0, min(capture_rate, 1.0))
+    return {
+      "reachable_market": max(0.0, reachable_market),
+      "capture_rate_year1": capture_rate,
+      "expected_customers_or_clients_year1": max(0.0, expected_customers),
+      "expected_units_year1": max(0.0, expected_units),
+      "marketing_intensity": str(parsed.get("marketing_intensity") or "").strip() or "medium",
+      "baseline_marketing_percent": baseline_percent,
+      "brief_rationale": str(parsed.get("brief_rationale") or "").strip(),
+    }
+  return None
+
+
+def _marketing_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_marketing_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": [
+            "accept_baseline",
+            "set_total",
+            "set_percent",
+            "set_adjustment",
+            "ask_question",
+            "unclear",
+          ],
+        },
+        "marketing_total_year1": {"type": ["number", "null"]},
+        "marketing_percent_of_revenue": {"type": ["number", "null"]},
+        "marketing_adjustment": {"type": ["number", "null"]},
+        "question_or_clarification": {"type": "string"},
+      },
+      "required": [
+        "intent_type",
+        "marketing_total_year1",
+        "marketing_percent_of_revenue",
+        "marketing_adjustment",
+        "question_or_clarification",
+      ],
+    },
+  }
+
+
+def interpret_marketing_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+  marketing_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  if not str(user_message or "").strip():
+    return {}
+
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _marketing_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply to a Year-1 marketing baseline proposal.\n"
+          "Classify whether the client accepts the baseline, sets a new total annual marketing amount, gives a marketing percent of revenue, gives an additive adjustment from baseline, asks a question, or is unclear.\n"
+          "Do not rely on exact keywords. Use the assistant proposal, the numeric baseline context, and the user's reply together.\n"
+          "For set_percent, return the percent as a decimal fraction.\n"
+          "If the user asks a question or is unclear, put the follow-up text in question_or_clarification."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "assistant_message": str(last_assistant or "").strip(),
+            "marketing_context": marketing_context,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _marketing_validation_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_marketing_validation",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "proceed": {"type": "boolean"},
+        "assistant_message": {"type": "string"},
+      },
+      "required": ["proceed", "assistant_message"],
+    },
+  }
+
+
+def validate_marketing_setup(
+  *,
+  intake_context: Dict[str, Any],
+  marketing_context: Dict[str, Any],
+  user_message: str,
+) -> Dict[str, Any]:
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _marketing_validation_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are validating a proposed Year-1 marketing setup for an intake consult.\n"
+          "The baseline came from the observed market basis and the business context, and the client may have accepted it or adjusted it.\n"
+          "Decide whether the resulting Year-1 marketing setup is coherent enough to proceed.\n"
+          "Use the market basis, demand expectations, business model, pricing, geography, and final marketing total/percent.\n"
+          "If it is coherent enough for intake, set proceed=true and return a very short acknowledgement or an empty string.\n"
+          "If it is structurally inconsistent, set proceed=false and ask one short clarification question.\n"
+          "Do not ask the client to calculate the market from scratch.\n"
+          "Do not rely on exact keywords."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "intake_context": intake_context,
+            "marketing_context": marketing_context,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {"proceed": True, "assistant_message": ""}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {"proceed": True, "assistant_message": ""}
+  return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
+
+
 def _initial_lease_reply_schema() -> Dict[str, Any]:
   return {
     "name": "financials_initial_lease_reply",
@@ -1277,6 +1564,8 @@ def _final_schema() -> Dict[str, Any]:
         "financials_summary": {"type": "string"},
         "current_revenue": {"type": "number"},
         "current_cogs": {"type": "number"},
+        "marketing_total_year1": {"type": "number"},
+        "marketing_percent_of_revenue": {"type": "number"},
         "other_operating_expense": {"type": "number"},
         "monthly_rent_expense": {"type": "number"},
         "other_monthly_debt_payments": {"type": "number"},
@@ -1300,6 +1589,8 @@ def _final_schema() -> Dict[str, Any]:
         "financials_summary",
         "current_revenue",
         "current_cogs",
+        "marketing_total_year1",
+        "marketing_percent_of_revenue",
         "other_operating_expense",
         "monthly_rent_expense",
         "other_monthly_debt_payments",
@@ -1362,7 +1653,7 @@ Core rule for this section:
 - Do not ask the client to choose or label a time basis. Use the anchor "as of last month".
 - Anchor everything to "as of last month". If the client doesn't have the item, explicitly tell them you're recording 0 and move on.
 - Nothing should be left unknown: if you can't get a clear answer after minimal clarification, record 0 and move on.
-- Exception: current_revenue, current_cogs, and current_payroll are controller-owned modeled Year-1 values when already present. Treat them as established and move to the next unanswered item.
+- Exception: current_revenue, current_cogs, current_payroll, and marketing_total_year1 are controller-owned modeled Year-1 values when already present. Treat them as established and move to the next unanswered item.
 
 Style:
 - One plain question sentence per message.
@@ -1392,6 +1683,11 @@ Payroll handling (REPLACES payroll question when already present):
 - If current_payroll or payroll_total_year1 is already present in context, treat Year-1 payroll as established.
 - Do not ask a monthly or historical payroll question once that Year-1 payroll value exists.
 
+Marketing handling (controller-owned):
+- Marketing is a controller-owned Year-1 modeled stage.
+- Do not ask a marketing/advertising/promo budget question in the generic Financials flow.
+- If marketing_total_year1 or marketing_percent_of_revenue is already present in context, treat Year-1 marketing as established and move on.
+
 Stage control:
 - The controller may provide financials_active_stage in the context.
 - If financials_active_stage is present, you must handle ONLY that one stage and nothing else.
@@ -1399,6 +1695,7 @@ Stage control:
 - If financials_active_stage is "revenue_intro" and revenue does not need adjustment, explain the revenue setup only and stop; the controller will advance to the next stage.
 - If financials_active_stage is "cogs", do not ask a COGS question here; the controller owns that stage.
 - If financials_active_stage is "current_payroll", do not ask a payroll question here; the controller owns that stage.
+- If financials_active_stage is "marketing", do not ask a marketing question here; the controller owns that stage.
 - If financials_active_stage is "initial_lease", do not ask a lease question here; the controller owns that stage.
 - For other stages, ask exactly one question for that stage only.
 
@@ -1406,9 +1703,10 @@ Stage names:
 - revenue_intro
 - cogs
 - current_payroll
-- other_operating_expense
+- marketing
 - monthly_rent_expense
 - owner_compensation
+- other_operating_expense
 - current_num_employees
 - current_capex
 - initial_assets
@@ -1494,7 +1792,8 @@ Do not mention steady-state or long-run targets here.
 
 Financial topics used by the controller-owned stage flow:
 - Payroll for employees (payroll) and headcount (employees)
-- Other regular operating bills (other operating expense)
+- Year-1 marketing budget (marketing)
+- Other regular operating bills excluding payroll, marketing, and rent (other operating expense)
 - Rent payments (rent)
 - Owner pay or owner's draws (owner compensation)
 - Larger one-time equipment/investment spend (capex)
@@ -1506,7 +1805,8 @@ Financial topics used by the controller-owned stage flow:
 - Money customers owe you (AR), money you owe others (AP), and inventory on hand (inventory)
 
 Everyday phrasing guide (adapt as needed; keep it short and natural):
-- Other operating expense: "other regular business bills (utilities, software, insurance, shipping, etc.)"
+- Marketing: "your Year-1 marketing/advertising budget"
+- Other operating expense: "other regular business bills besides payroll, marketing, and rent (utilities, software, insurance, shipping, etc.)"
 - Rent: "rent for your space"
 - Payroll: "what you paid employees"
 - Employees: "how many people were on payroll"
@@ -1553,6 +1853,7 @@ Fact-bearing templates (STRICT):
   - lease commitments: {{fact:financials.initial_lease}}
   - money invested so far: {{fact:financials.initial_equity}}
   - total debt outstanding: {{fact:financials.total_debt_outstanding}}
+  - marketing budget: {{fact:financials.marketing_total_year1}}
   - other regular operating bills: {{fact:financials.other_operating_expense}}
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
@@ -1560,7 +1861,7 @@ Fact-bearing templates (STRICT):
   - ops: consumer_type, business_type, unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, utilization_rate, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, legal_entity
   - market: consumer_type, target_market_summary
   - people: key_people_summary
-  - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
+  - financials: current_revenue, current_cogs, marketing_total_year1, marketing_percent_of_revenue, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
@@ -1644,7 +1945,7 @@ Edit mode (if intake_context.edit_mode is true):
 - Do NOT re-derive or re-annualize unrelated values; keep all other numeric fields unchanged unless the edit_request forces a change.
 
 Unit conventions (do not mention these in the summary):
-- Treat these as annualized flow assumptions: current_revenue, current_cogs, other_operating_expense, current_payroll, current_capex, annual_interest_payment, annual_principal_payment, owner_compensation.
+- Treat these as annualized flow assumptions: current_revenue, current_cogs, marketing_total_year1, other_operating_expense, current_payroll, current_capex, annual_interest_payment, annual_principal_payment, owner_compensation.
   - If intake_context.financials_json already contains any of these fields, treat that stored value as the canonical annual amount and do NOT annualize it again from conversation text.
   - Otherwise, if the conversation only establishes a monthly amount, annualize it by multiplying by 12.
   - If the client clearly stated a yearly total, use it as-is.
@@ -1655,13 +1956,13 @@ Unit conventions (do not mention these in the summary):
 financials_summary should be a short, plain-language recap (1 paragraph).
 - IMPORTANT: financials_summary is a fact-bearing template. Do NOT print literal numbers for known fields; use {{fact:financials.<field>}} (and {{fact:business.name}} if you mention the business) so the UI always renders the latest facts.
 - Present annual modeled income-statement items as Year-1 values:
-  - revenue, cogs, other operating expense, payroll, owner compensation, annual interest, annual principal, capex
+  - revenue, cogs, marketing, other operating expense, payroll, owner compensation, annual interest, annual principal, capex
 - Present monthly fields as monthly values:
   - rent, other monthly debt payments
 - Present balance-sheet / stock items as current balances:
   - cash on hand, AR, AP, inventory, operating assets, lease commitments, owner/investor funding to date, total debt outstanding
 - Include the key numeric facts using placeholders so nothing renders blank, even when values are 0.
-- Use {{fact:financials.initial_assets}}, {{fact:financials.initial_lease}}, and {{fact:financials.initial_equity}} when describing assets/leases/funding.
+- Use {{fact:financials.marketing_total_year1}}, {{fact:financials.initial_assets}}, {{fact:financials.initial_lease}}, and {{fact:financials.initial_equity}} when describing marketing/assets/leases/funding.
 - Do NOT describe annual modeled values as "as of last month."
 """.strip()
 

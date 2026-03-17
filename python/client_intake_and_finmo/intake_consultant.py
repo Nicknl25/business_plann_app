@@ -384,6 +384,7 @@ Conversation rules:
     - regional: one or more states/provinces and/or metro regions
     - national: one or more states or "United States" if truly nationwide
     - international: one or more countries (and optionally regions within them)
+  - For local scope, prefer a county-anchored coverage proposal when county is already implied by the business address or the client's wording. Example style: "Springfield and nearby communities in Sangamon County." Keep this in the normal confirmation flow; do not add a separate geography interview.
   - Coverage format (IMPORTANT):
     - geographic_coverage must be a concrete list of ZIPs, counties, metro areas, and/or states (comma-separated is preferred). Do NOT store a distance/radius (e.g., "within 25 miles") in geographic_coverage.
     - If the client describes coverage as a radius, translate it into ZIPs/counties/metros/states: propose a practical set first (based on the address and scope) and ask for simple confirmation or a correction.

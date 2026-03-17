@@ -129,6 +129,8 @@ What to check (illustrative, not exhaustive):
 - People reality vs payroll/owner pay (e.g., founder working but owner_compensation 0 — clarify once).
 - Debt/funding consistency (e.g., assets exist but no equity/loans captured).
 
+- Marketing consistency (e.g., marketing budget exists but marketing percent does not line up with revenue, or market-support signals do not plausibly support the modeled Year-1 demand).
+
 Resolution behavior:
 - Surface the single most important inconsistency first.
 - Ask a concise clarifying question to reconcile it.
@@ -144,13 +146,15 @@ Fact-bearing templates (STRICT):
   {{{{fact:financials.initial_lease}}}}
   {{{{fact:financials.other_operating_expense}}}}
   {{{{fact:financials.current_revenue}}}}
+
+  {{{{fact:financials.marketing_total_year1}}}}
 - You may ONLY use existing, whitelisted fact keys. Do NOT invent new keys, paths, or formats.
 - Allowed groups/fields you may reference:
   - business: name, address, start_date
   - ops: consumer_type, business_type, business_stage, unit_name, unit_description, unit_cadence, units_per_week_capacity, units_per_period_capacity, unit_price, shipping_method, sales_modality, geographic_scope, geographic_coverage, countries, milestones, capacity_driver, primary_growth_lever, legal_entity
   - market: consumer_type, target_market_summary
   - people: key_people_summary
-  - financials: current_revenue, current_cogs, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
+  - financials: current_revenue, current_cogs, marketing_total_year1, marketing_percent_of_revenue, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)

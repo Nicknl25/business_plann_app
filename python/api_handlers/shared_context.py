@@ -28,6 +28,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   target_market: Dict[str, Any] = {}
   people_capability: Dict[str, Any] = {}
   financials: Dict[str, Any] = {}
+  marketing_model: Dict[str, Any] = {}
   financials_year1_json: Dict[str, Any] = {}
 
   # Preferred: unified draft table (single canonical model).
@@ -39,6 +40,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
+    marketing_model = _parse_json_maybe(consult.get("marketing_model_json"))
     financials_year1_json = _parse_json_maybe(consult.get("financials_year1_json"))
   except Exception:
     # Fall back to legacy per-consult drafts below.
@@ -98,6 +100,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "target_market": target_market,
     "people_capability": people_capability,
     "financials": financials,
+    "marketing": marketing_model,
     "financials_year1_json": financials_year1_json,
   }
 

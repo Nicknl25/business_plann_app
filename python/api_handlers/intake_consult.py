@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import calendar
 import logging
@@ -696,6 +697,1091 @@ def _build_payroll_adjustment_acknowledgement(payroll_fields: Dict[str, Any]) ->
   )
 
 
+def _extract_zip_codes(text: Any) -> List[str]:
+  import re
+
+  raw = str(text or "").strip()
+  if not raw:
+    return []
+  seen = set()
+  out: List[str] = []
+  for match in re.findall(r"\b(\d{5})(?:-\d{4})?\b", raw):
+    code = str(match).strip()
+    if code and code not in seen:
+      seen.add(code)
+      out.append(code)
+  return out
+
+
+def _is_us_country(value: Any) -> bool:
+  raw = " ".join(str(value or "").strip().lower().split())
+  if not raw:
+    return True
+  return raw in {"us", "u.s.", "usa", "u.s.a.", "united states", "united states of america"}
+
+
+def _marketing_dependency_signature(
+  *,
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> str:
+  signature_payload = {
+    "business": {
+      "address_zip": str((business_facts or {}).get("address_zip") or "").strip(),
+      "address_state": str((business_facts or {}).get("address_state") or "").strip(),
+      "address_country": str((business_facts or {}).get("address_country") or "").strip(),
+    },
+    "ops": {
+      "consumer_type": str((ops_json or {}).get("consumer_type") or "").strip(),
+      "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+      "business_naics_6": str((ops_json or {}).get("business_naics_6") or "").strip(),
+      "unit_name": str((ops_json or {}).get("unit_name") or "").strip(),
+      "unit_description": str((ops_json or {}).get("unit_description") or "").strip(),
+      "unit_cadence": str((ops_json or {}).get("unit_cadence") or "").strip(),
+      "unit_price": (ops_json or {}).get("unit_price"),
+      "units_per_week_capacity": (ops_json or {}).get("units_per_week_capacity"),
+      "units_per_period_capacity": (ops_json or {}).get("units_per_period_capacity"),
+      "operating_periods_per_year": (ops_json or {}).get("operating_periods_per_year"),
+      "utilization_rate": (ops_json or {}).get("utilization_rate"),
+      "shipping_method": str((ops_json or {}).get("shipping_method") or "").strip(),
+      "sales_modality": str((ops_json or {}).get("sales_modality") or "").strip(),
+      "geographic_scope": str((ops_json or {}).get("geographic_scope") or "").strip(),
+      "geographic_coverage": str((ops_json or {}).get("geographic_coverage") or "").strip(),
+      "countries": (ops_json or {}).get("countries") or [],
+      "competitive_advantage": str((ops_json or {}).get("competitive_advantage") or "").strip(),
+      "capacity_driver": str((ops_json or {}).get("capacity_driver") or "").strip(),
+      "primary_growth_lever": str((ops_json or {}).get("primary_growth_lever") or "").strip(),
+    },
+    "market": {
+      "consumer_type": str((market_json or {}).get("consumer_type") or "").strip(),
+      "selections": (market_json or {}).get("selections") or [],
+      "b2b_naics_6": (market_json or {}).get("b2b_naics_6") or [],
+      "b2b_size_bands": (market_json or {}).get("b2b_size_bands") or [],
+      "b2b_age_bands": (market_json or {}).get("b2b_age_bands") or [],
+      "marketing_plan_summary": str((market_json or {}).get("marketing_plan_summary") or "").strip(),
+      "target_market_summary": str((market_json or {}).get("target_market_summary") or "").strip(),
+    },
+    "year1": {
+      "company_revenue_total_year1": (financials_year1_json or {}).get("company_revenue_total_year1"),
+      "lobs": (financials_year1_json or {}).get("lobs") or [],
+    },
+  }
+  return json.dumps(signature_payload, sort_keys=True, ensure_ascii=False)
+
+
+def _marketing_explicit_zips(
+  *,
+  ops_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> List[str]:
+  coverage = str((ops_json or {}).get("geographic_coverage") or "").strip()
+  zips = _extract_zip_codes(coverage)
+  address_zip = str((business_facts or {}).get("address_zip") or "").strip()
+  if address_zip and address_zip not in zips:
+    zips.append(address_zip)
+  return zips
+
+
+def _fetch_crosswalk_rows_for_zips(conn, zips: List[str]) -> List[Dict[str, Any]]:
+  if not zips:
+    return []
+  placeholders = ",".join(["%s"] * len(zips))
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      f"""
+      SELECT zcta, state_fips, county_fips, geoid, zpop_pct, zhu_pct
+      FROM zip_county_crosswalk
+      WHERE zcta IN ({placeholders})
+      """,
+      tuple(zips),
+    )
+    return cur.fetchall() or []
+  finally:
+    cur.close()
+
+
+def _fetch_crosswalk_rows_for_counties(conn, county_geoids: List[str]) -> List[Dict[str, Any]]:
+  if not county_geoids:
+    return []
+  placeholders = ",".join(["%s"] * len(county_geoids))
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      f"""
+      SELECT zcta, state_fips, county_fips, geoid, zpop_pct, zhu_pct
+      FROM zip_county_crosswalk
+      WHERE geoid IN ({placeholders})
+      """,
+      tuple(county_geoids),
+    )
+    return cur.fetchall() or []
+  finally:
+    cur.close()
+
+
+def _acs_zip_column_sets(conn) -> Tuple[set[str], set[str]]:
+  cache = getattr(_acs_zip_column_sets, "_cache", None)
+  if isinstance(cache, tuple) and len(cache) == 2:
+    return cache  # type: ignore[return-value]
+  cur = conn.cursor()
+  try:
+    cur.execute("SHOW COLUMNS FROM acs_zip_2022_part1")
+    part1 = {str(row[0]) for row in (cur.fetchall() or [])}
+    cur.execute("SHOW COLUMNS FROM acs_zip_2022_part2")
+    part2 = {str(row[0]) for row in (cur.fetchall() or [])}
+  finally:
+    cur.close()
+  result = (part1, part2)
+  setattr(_acs_zip_column_sets, "_cache", result)
+  return result
+
+
+def _weighted_acs_total_for_code(
+  *,
+  conn,
+  table_name: str,
+  acs_code: str,
+  zips: List[str],
+  county_geoids: List[str],
+  state_fips: List[str],
+  weight_field: Optional[str],
+) -> float:
+  code = str(acs_code or "").strip()
+  if not code:
+    return 0.0
+  cur = conn.cursor()
+  try:
+    if county_geoids:
+      placeholders = ",".join(["%s"] * len(county_geoids))
+      if weight_field:
+        cur.execute(
+          f"""
+          SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0) * COALESCE(x.`{weight_field}`, 0) / 100.0), 0)
+          FROM {table_name} a
+          JOIN zip_county_crosswalk x
+            ON x.zcta = a.zcta
+          WHERE x.geoid IN ({placeholders})
+          """,
+          tuple(county_geoids),
+        )
+      else:
+        cur.execute(
+          f"""
+          SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0)), 0)
+          FROM {table_name} a
+          JOIN zip_county_crosswalk x
+            ON x.zcta = a.zcta
+          WHERE x.geoid IN ({placeholders})
+          """,
+          tuple(county_geoids),
+        )
+    elif state_fips:
+      placeholders = ",".join(["%s"] * len(state_fips))
+      if weight_field:
+        cur.execute(
+          f"""
+          SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0) * COALESCE(x.`{weight_field}`, 0) / 100.0), 0)
+          FROM {table_name} a
+          JOIN zip_county_crosswalk x
+            ON x.zcta = a.zcta
+          WHERE x.state_fips IN ({placeholders})
+          """,
+          tuple(state_fips),
+        )
+      else:
+        cur.execute(
+          f"""
+          SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0)), 0)
+          FROM {table_name} a
+          JOIN zip_county_crosswalk x
+            ON x.zcta = a.zcta
+          WHERE x.state_fips IN ({placeholders})
+          """,
+          tuple(state_fips),
+        )
+    elif zips:
+      placeholders = ",".join(["%s"] * len(zips))
+      if weight_field:
+        cur.execute(
+          f"""
+          SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0) * COALESCE(x.`{weight_field}`, 0) / 100.0), 0)
+          FROM {table_name} a
+          JOIN zip_county_crosswalk x
+            ON x.zcta = a.zcta
+          WHERE a.zcta IN ({placeholders})
+          """,
+          tuple(zips),
+        )
+      else:
+        cur.execute(
+          f"""
+          SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0)), 0)
+          FROM {table_name} a
+          WHERE a.zcta IN ({placeholders})
+          """,
+          tuple(zips),
+        )
+    else:
+      cur.execute(
+        f"""
+        SELECT COALESCE(SUM(COALESCE(a.`{code}`, 0)), 0)
+        FROM {table_name} a
+        """
+      )
+    row = cur.fetchone()
+  finally:
+    cur.close()
+  try:
+    return float((row or [0])[0] or 0.0)
+  except Exception:
+    return 0.0
+
+
+def _marketing_segment_weight_field(segment: str) -> Optional[str]:
+  seg = str(segment or "").strip()
+  if seg in {"Income", "Household Structure", "Housing Economics"}:
+    return "zhu_pct"
+  if seg:
+    return "zpop_pct"
+  return None
+
+
+def _all_cbp_state_fips(conn) -> List[str]:
+  cur = conn.cursor()
+  try:
+    cur.execute("SELECT DISTINCT state_fips FROM cbp_2022_raw ORDER BY state_fips ASC")
+    return [str(row[0]).strip() for row in (cur.fetchall() or []) if str(row[0]).strip()]
+  finally:
+    cur.close()
+
+
+def _state_fips_from_text(conn, text: str) -> List[str]:
+  clean_text = str(text or "").strip().lower()
+  if not clean_text:
+    return []
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute("SELECT DISTINCT state_fips, state_name FROM cbp_2022_raw")
+    rows = cur.fetchall() or []
+  finally:
+    cur.close()
+  resolved: List[str] = []
+  seen = set()
+  for row in rows:
+    state_name = str((row or {}).get("state_name") or "").strip().lower()
+    state_fips = str((row or {}).get("state_fips") or "").strip()
+    if not state_name or not state_fips:
+      continue
+    pattern = re.compile(rf"(?<![a-z]){re.escape(state_name)}(?![a-z])")
+    if pattern.search(clean_text) and state_fips not in seen:
+      seen.add(state_fips)
+      resolved.append(state_fips)
+  return sorted(resolved)
+
+
+def _marketing_normalized_geography(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> Dict[str, Any]:
+  scope = str((ops_json or {}).get("geographic_scope") or "").strip().lower() or "local"
+  coverage = str((ops_json or {}).get("geographic_coverage") or "").strip()
+  address_zip = str((business_facts or {}).get("address_zip") or "").strip()
+  address_state = str((business_facts or {}).get("address_state") or "").strip()
+
+  explicit_zips = _extract_zip_codes(coverage)
+  anchor_zip = address_zip if len(address_zip) == 5 and address_zip.isdigit() else ""
+  crosswalk_seed_zips: List[str] = list(explicit_zips)
+  if anchor_zip and anchor_zip not in crosswalk_seed_zips:
+    crosswalk_seed_zips.append(anchor_zip)
+  crosswalk_rows = _fetch_crosswalk_rows_for_zips(conn, crosswalk_seed_zips) if crosswalk_seed_zips else []
+
+  county_geoids = sorted(
+    {
+      str(row.get("geoid") or "").strip()
+      for row in crosswalk_rows
+      if isinstance(row, dict) and str(row.get("geoid") or "").strip()
+    }
+  )
+  state_fips = sorted(
+    {
+      str(row.get("state_fips") or "").strip()
+      for row in crosswalk_rows
+      if isinstance(row, dict) and str(row.get("state_fips") or "").strip()
+    }
+  )
+
+  if scope == "national":
+    state_fips = _all_cbp_state_fips(conn)
+    county_geoids = []
+  else:
+    text_states = _state_fips_from_text(conn, coverage)
+    if scope == "regional":
+      for state in text_states:
+        if state not in state_fips:
+          state_fips.append(state)
+      state_fips = sorted(set(state_fips))
+    if scope == "local":
+      # Local market sizing should anchor to county even if the client only confirmed
+      # a city/metro phrase. Address ZIP gives us the county aggregation basis.
+      if not county_geoids and anchor_zip:
+        anchor_rows = _fetch_crosswalk_rows_for_zips(conn, [anchor_zip])
+        county_geoids = sorted(
+          {
+            str(row.get("geoid") or "").strip()
+            for row in anchor_rows
+            if isinstance(row, dict) and str(row.get("geoid") or "").strip()
+          }
+        )
+        for row in anchor_rows:
+          state = str(row.get("state_fips") or "").strip()
+          if state and state not in state_fips:
+            state_fips.append(state)
+        state_fips = sorted(set(state_fips))
+
+  if not state_fips and address_state:
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        """
+        SELECT DISTINCT state_fips
+        FROM cbp_2022_raw
+        WHERE LOWER(state_name) = LOWER(%s)
+        ORDER BY state_fips ASC
+        """,
+        (address_state,),
+      )
+      state_fips = [str(row[0]).strip() for row in (cur.fetchall() or []) if str(row[0]).strip()]
+    finally:
+      cur.close()
+
+  return {
+    "scope": scope,
+    "coverage_summary": coverage,
+    "anchor_zip": anchor_zip,
+    "explicit_zip_basis": explicit_zips,
+    "county_geoids": county_geoids,
+    "state_fips": state_fips,
+  }
+
+
+def _build_b2c_marketing_basis(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  normalized_geography: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  selections = market_json.get("selections")
+  if not isinstance(selections, list) or not selections:
+    return None
+
+  geo = dict(normalized_geography or {})
+  zips = list(geo.get("explicit_zip_basis") or [])
+  county_geoids = list(geo.get("county_geoids") or [])
+  state_fips = list(geo.get("state_fips") or [])
+  part1_cols, part2_cols = _acs_zip_column_sets(conn)
+  segment_basis: List[Dict[str, Any]] = []
+
+  for selection in selections:
+    if not isinstance(selection, dict):
+      continue
+    segment = str(selection.get("segment") or "").strip()
+    codes = selection.get("acs_codes")
+    if not segment or not isinstance(codes, list):
+      continue
+    clean_codes: List[str] = []
+    seen_codes = set()
+    for code in codes:
+      acs_code = str(code or "").strip()
+      if not acs_code or acs_code in seen_codes:
+        continue
+      if acs_code not in part1_cols and acs_code not in part2_cols:
+        continue
+      seen_codes.add(acs_code)
+      clean_codes.append(acs_code)
+    if not clean_codes:
+      continue
+    weight_field = _marketing_segment_weight_field(segment)
+    total = 0.0
+    for acs_code in clean_codes:
+      table_name = "acs_zip_2022_part1" if acs_code in part1_cols else "acs_zip_2022_part2"
+      total += _weighted_acs_total_for_code(
+        conn=conn,
+        table_name=table_name,
+        acs_code=acs_code,
+        zips=zips,
+        county_geoids=county_geoids,
+        state_fips=state_fips,
+        weight_field=weight_field if (zips or county_geoids or state_fips) else None,
+      )
+    segment_basis.append(
+      {
+        "segment": segment,
+        "acs_codes": clean_codes,
+        "basis_count": float(max(0.0, total)),
+        "weight_basis": "housing" if weight_field == "zhu_pct" else "population",
+      }
+    )
+
+  if not segment_basis:
+    return None
+
+  return {
+    "basis_type": "b2c",
+    "scope": str((geo.get("scope") or (ops_json or {}).get("geographic_scope") or "").strip().lower() or "local"),
+    "anchor_zip": str(geo.get("anchor_zip") or "").strip(),
+    "zip_basis": zips,
+    "county_geoids": county_geoids,
+    "state_fips": state_fips,
+    "coverage_summary": str(geo.get("coverage_summary") or "").strip(),
+    "segment_basis_counts": segment_basis,
+  }
+
+
+def _state_fips_from_basis(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+) -> List[str]:
+  normalized = _marketing_normalized_geography(conn=conn, ops_json=ops_json, business_facts=business_facts)
+  return list(normalized.get("state_fips") or [])
+
+
+_BDS_SIZE_BUCKET_MAP = {
+  "1-4": "a) 1 to 4",
+  "5-9": "b) 5 to 9",
+  "10-19": "c) 10 to 19",
+  "20-99": "d) 20 to 99",
+  "100-499": "e) 100 to 499",
+  "500-999": "f) 500 to 999",
+  "1000-2499": "g) 1000 to 2499",
+  "2500-4999": "h) 2500 to 4999",
+  "5000-9999": "i) 5000 to 9999",
+  "10000+": "j) 10000+",
+}
+
+_BDS_AGE_BUCKET_MAP = {
+  "0": "a) 0",
+  "1": "b) 1",
+  "2": "c) 2",
+  "3": "d) 3",
+  "4": "e) 4",
+  "5": "f) 5",
+  "6-10": "g) 6 to 10",
+  "11-15": "h) 11 to 15",
+  "16-20": "i) 16 to 20",
+  "21-25": "j) 21 to 25",
+  "26+": "k) 26+",
+}
+
+
+def _cbp_exact_hits_for_codes(
+  *,
+  conn,
+  naics_codes: List[str],
+  state_fips: List[str],
+) -> List[Dict[str, Any]]:
+  if not naics_codes or not state_fips:
+    return []
+  code_placeholders = ",".join(["%s"] * len(naics_codes))
+  state_placeholders = ",".join(["%s"] * len(state_fips))
+  params: List[Any] = [*naics_codes, *state_fips]
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      f"""
+      SELECT naics, SUM(estab) AS estab_total, SUM(emp) AS emp_total
+      FROM cbp_2022_raw
+      WHERE naics IN ({code_placeholders})
+        AND state_fips IN ({state_placeholders})
+      GROUP BY naics
+      """,
+      tuple(params),
+    )
+    return cur.fetchall() or []
+  finally:
+    cur.close()
+
+
+def _cbp_parent_hit(
+  *,
+  conn,
+  prefix: str,
+  state_fips: List[str],
+) -> Optional[Dict[str, Any]]:
+  if not prefix or not state_fips:
+    return None
+  state_placeholders = ",".join(["%s"] * len(state_fips))
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      f"""
+      SELECT naics, SUM(estab) AS estab_total, SUM(emp) AS emp_total
+      FROM cbp_2022_raw
+      WHERE naics = %s
+        AND state_fips IN ({state_placeholders})
+      GROUP BY naics
+      """,
+      tuple([prefix, *state_fips]),
+    )
+    row = cur.fetchone()
+  finally:
+    cur.close()
+  return row if isinstance(row, dict) else None
+
+
+def _latest_bds_year(conn, *, table_name: str) -> Optional[int]:
+  cur = conn.cursor()
+  try:
+    cur.execute(f"SELECT MAX(year) FROM {table_name}")
+    row = cur.fetchone()
+  finally:
+    cur.close()
+  try:
+    return int((row or [None])[0])
+  except Exception:
+    return None
+
+
+def _aggregate_bds_signal(
+  *,
+  conn,
+  table_name: str,
+  bucket_column: str,
+  selected_bucket_labels: List[str],
+  naics4_prefixes: List[int],
+  exclude_bucket: Optional[str] = None,
+) -> Dict[str, Any]:
+  if not naics4_prefixes:
+    return {
+      "latest_year": None,
+      "selected_buckets": [],
+      "selected_firms": 0.0,
+      "total_firms": 0.0,
+      "selected_share": 0.0,
+    }
+  latest_year = _latest_bds_year(conn, table_name=table_name)
+  if latest_year is None:
+    return {
+      "latest_year": None,
+      "selected_buckets": [],
+      "selected_firms": 0.0,
+      "total_firms": 0.0,
+      "selected_share": 0.0,
+    }
+  placeholders = ",".join(["%s"] * len(naics4_prefixes))
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      f"""
+      SELECT `{bucket_column}` AS bucket_label, SUM(firms) AS firms_total
+      FROM {table_name}
+      WHERE year = %s
+        AND vcnaics4 IN ({placeholders})
+      GROUP BY `{bucket_column}`
+      """,
+      tuple([latest_year, *naics4_prefixes]),
+    )
+    rows = cur.fetchall() or []
+  finally:
+    cur.close()
+  total = 0.0
+  selected = 0.0
+  cleaned_selected = {str(label).strip() for label in selected_bucket_labels if str(label).strip()}
+  for row in rows:
+    label = str(row.get("bucket_label") or "").strip()
+    try:
+      firms_total = float(row.get("firms_total") or 0.0)
+    except Exception:
+      firms_total = 0.0
+    if exclude_bucket and label == exclude_bucket:
+      continue
+    total += firms_total
+    if label in cleaned_selected:
+      selected += firms_total
+  share = (selected / total) if total > 0 else 0.0
+  return {
+    "latest_year": latest_year,
+    "selected_buckets": sorted(cleaned_selected),
+    "selected_firms": float(max(0.0, selected)),
+    "total_firms": float(max(0.0, total)),
+    "selected_share": float(max(0.0, share)),
+  }
+
+
+def _build_b2b_marketing_basis(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  normalized_geography: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  selected_codes = []
+  seen_codes = set()
+  for value in market_json.get("b2b_naics_6") or []:
+    code = str(value or "").strip()
+    if len(code) == 6 and code.isdigit() and code not in seen_codes:
+      seen_codes.add(code)
+      selected_codes.append(code)
+  if not selected_codes:
+    return None
+
+  state_fips = list((normalized_geography or {}).get("state_fips") or [])
+  if not state_fips:
+    return None
+
+  cbp_match_level = 6
+  cbp_source_codes: List[str] = []
+  cbp_establishments_total = 0.0
+  cbp_employee_total = 0.0
+
+  exact_hits = _cbp_exact_hits_for_codes(conn=conn, naics_codes=selected_codes, state_fips=state_fips)
+  if exact_hits:
+    cbp_source_codes = [str(row.get("naics") or "").strip() for row in exact_hits if str(row.get("naics") or "").strip()]
+    for row in exact_hits:
+      try:
+        cbp_establishments_total += float(row.get("estab_total") or 0.0)
+      except Exception:
+        pass
+      try:
+        cbp_employee_total += float(row.get("emp_total") or 0.0)
+      except Exception:
+        pass
+  else:
+    for level in (5, 4, 3, 2):
+      prefixes = {code[:level] for code in selected_codes if len(code) >= level}
+      if len(prefixes) != 1:
+        continue
+      prefix = next(iter(prefixes))
+      parent_hit = _cbp_parent_hit(conn=conn, prefix=prefix, state_fips=state_fips)
+      if not parent_hit:
+        continue
+      cbp_match_level = level
+      cbp_source_codes = [prefix]
+      try:
+        cbp_establishments_total = float(parent_hit.get("estab_total") or 0.0)
+      except Exception:
+        cbp_establishments_total = 0.0
+      try:
+        cbp_employee_total = float(parent_hit.get("emp_total") or 0.0)
+      except Exception:
+        cbp_employee_total = 0.0
+      break
+
+  naics4_prefixes = sorted({int(code[:4]) for code in selected_codes})
+  selected_size_labels = [_BDS_SIZE_BUCKET_MAP.get(str(band).strip()) for band in (market_json.get("b2b_size_bands") or [])]
+  selected_size_labels = [label for label in selected_size_labels if label]
+  selected_age_labels = [_BDS_AGE_BUCKET_MAP.get(str(band).strip()) for band in (market_json.get("b2b_age_bands") or [])]
+  selected_age_labels = [label for label in selected_age_labels if label]
+
+  size_signal = _aggregate_bds_signal(
+    conn=conn,
+    table_name="bds_firm_size",
+    bucket_column="firm_size_bucket",
+    selected_bucket_labels=selected_size_labels,
+    naics4_prefixes=naics4_prefixes,
+  )
+  age_signal = _aggregate_bds_signal(
+    conn=conn,
+    table_name="bds_firm_age",
+    bucket_column="firm_age_bucket",
+    selected_bucket_labels=selected_age_labels,
+    naics4_prefixes=naics4_prefixes,
+    exclude_bucket="l) Left Censored",
+  )
+
+  return {
+    "basis_type": "b2b",
+    "scope": str(((normalized_geography or {}).get("scope") or (ops_json or {}).get("geographic_scope") or "").strip().lower() or "local"),
+    "anchor_zip": str((normalized_geography or {}).get("anchor_zip") or "").strip(),
+    "county_geoids": (normalized_geography or {}).get("county_geoids") or [],
+    "state_fips": state_fips,
+    "coverage_summary": str((normalized_geography or {}).get("coverage_summary") or "").strip(),
+    "cbp_basis": {
+      "match_level": cbp_match_level,
+      "source_codes": cbp_source_codes,
+      "establishments_total": float(max(0.0, cbp_establishments_total)),
+      "employees_total": float(max(0.0, cbp_employee_total)),
+    },
+    "size_signal": size_signal,
+    "age_signal": age_signal,
+    "selected_naics_6": selected_codes,
+    "selected_naics_4": [str(value) for value in naics4_prefixes],
+  }
+
+
+def _required_units_year1(financials_year1_json: Dict[str, Any]) -> float:
+  total_units = 0.0
+  lobs = (financials_year1_json or {}).get("lobs")
+  if not isinstance(lobs, list):
+    return 0.0
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    products = lob.get("products")
+    if not isinstance(products, list):
+      continue
+    for product in products:
+      if not isinstance(product, dict):
+        continue
+      try:
+        avg_units = float(product.get("avg_units_per_period_year1") or product.get("avg_units_per_week_year1") or 0.0)
+      except Exception:
+        avg_units = 0.0
+      try:
+        periods = float(product.get("operating_periods_per_year") or product.get("operating_weeks_per_year") or 0.0)
+      except Exception:
+        periods = 0.0
+      total_units += max(0.0, avg_units) * max(0.0, periods)
+  return float(max(0.0, total_units))
+
+
+def _build_marketing_estimate_context(
+  *,
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  return {
+    "business": {
+      "name": business_facts.get("name"),
+      "address_zip": business_facts.get("address_zip"),
+      "address_state": business_facts.get("address_state"),
+      "address_country": business_facts.get("address_country"),
+    },
+    "ops": {
+      "consumer_type": ops_json.get("consumer_type"),
+      "business_type": ops_json.get("business_type"),
+      "business_naics_6": ops_json.get("business_naics_6"),
+      "unit_name": ops_json.get("unit_name"),
+      "unit_description": ops_json.get("unit_description"),
+      "unit_cadence": ops_json.get("unit_cadence"),
+      "unit_price": ops_json.get("unit_price"),
+      "units_per_week_capacity": ops_json.get("units_per_week_capacity"),
+      "units_per_period_capacity": ops_json.get("units_per_period_capacity"),
+      "operating_periods_per_year": ops_json.get("operating_periods_per_year"),
+      "utilization_rate": ops_json.get("utilization_rate"),
+      "shipping_method": ops_json.get("shipping_method"),
+      "sales_modality": ops_json.get("sales_modality"),
+      "geographic_scope": ops_json.get("geographic_scope"),
+      "geographic_coverage": ops_json.get("geographic_coverage"),
+      "capacity_driver": ops_json.get("capacity_driver"),
+      "primary_growth_lever": ops_json.get("primary_growth_lever"),
+      "competitive_advantage": ops_json.get("competitive_advantage"),
+    },
+    "market": {
+      "consumer_type": market_json.get("consumer_type"),
+      "target_market_summary": market_json.get("target_market_summary"),
+      "marketing_plan_summary": market_json.get("marketing_plan_summary"),
+      "b2b_industry_terms": market_json.get("b2b_industry_terms") or [],
+      "b2b_naics_6": market_json.get("b2b_naics_6") or [],
+      "b2b_size_bands": market_json.get("b2b_size_bands") or [],
+      "b2b_age_bands": market_json.get("b2b_age_bands") or [],
+      "selections": market_json.get("selections") or [],
+    },
+    "people": {
+      "key_people_summary": people_json.get("key_people_summary"),
+      "people": people_json.get("people") or [],
+      "inferred_roles": people_json.get("inferred_roles") or [],
+    },
+    "financials_year1_json": financials_year1_json or {},
+    "normalized_geography": marketing_model_json.get("geography_basis") or {},
+    "marketing_model_basis": {
+      "market_basis_type": marketing_model_json.get("market_basis_type"),
+      "geography_basis": marketing_model_json.get("geography_basis"),
+      "b2c_basis_counts": marketing_model_json.get("b2c_basis_counts") or [],
+      "b2b_basis_counts": marketing_model_json.get("b2b_basis_counts") or {},
+      "required_revenue_year1": marketing_model_json.get("required_revenue_year1"),
+      "required_units_year1": marketing_model_json.get("required_units_year1"),
+    },
+  }
+
+
+def _compute_marketing_model_json(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  existing_marketing_model_json: Dict[str, Any],
+  estimate_marketing_baseline_from_context,
+) -> Dict[str, Any]:
+  signature = _marketing_dependency_signature(
+    ops_json=ops_json,
+    market_json=market_json,
+    financials_year1_json=financials_year1_json,
+    business_facts=business_facts,
+  )
+  base_model: Dict[str, Any] = {
+    "version": 1,
+    "signature": signature,
+    "market_basis_type": str((market_json or {}).get("consumer_type") or (ops_json or {}).get("consumer_type") or "").strip().lower() or "consumer",
+    "geography_basis": {},
+    "b2c_basis_counts": [],
+    "b2b_basis_counts": {},
+    "required_revenue_year1": float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0),
+    "required_units_year1": _required_units_year1(financials_year1_json or {}),
+    "missing_dependencies": [],
+    "ready": False,
+  }
+  normalized_geography = _marketing_normalized_geography(
+    conn=conn,
+    ops_json=ops_json,
+    business_facts=business_facts,
+  )
+  base_model["geography_basis"] = normalized_geography
+
+  if not _is_us_country((business_facts or {}).get("address_country")):
+    base_model["missing_dependencies"] = ["us_only_quantified_market"]
+    return base_model
+
+  market_basis_type = str(base_model.get("market_basis_type") or "").strip().lower()
+  b2c_basis = None
+  b2b_basis = None
+  if market_basis_type in {"consumer", "mixed"}:
+    b2c_basis = _build_b2c_marketing_basis(
+      conn=conn,
+      ops_json=ops_json,
+      market_json=market_json,
+      business_facts=business_facts,
+      normalized_geography=normalized_geography,
+    )
+    if isinstance(b2c_basis, dict):
+      base_model["b2c_basis_counts"] = b2c_basis.get("segment_basis_counts") or []
+      base_model["geography_basis"]["zip_basis"] = b2c_basis.get("zip_basis") or []
+      base_model["geography_basis"]["county_geoids"] = b2c_basis.get("county_geoids") or []
+      base_model["geography_basis"]["state_fips"] = b2c_basis.get("state_fips") or base_model["geography_basis"].get("state_fips") or []
+      base_model["geography_basis"]["scope"] = b2c_basis.get("scope")
+  if market_basis_type in {"b2b", "mixed"}:
+    b2b_basis = _build_b2b_marketing_basis(
+      conn=conn,
+      ops_json=ops_json,
+      market_json=market_json,
+      business_facts=business_facts,
+      normalized_geography=normalized_geography,
+    )
+    if isinstance(b2b_basis, dict):
+      base_model["b2b_basis_counts"] = {
+        "cbp_basis": b2b_basis.get("cbp_basis") or {},
+        "size_signal": b2b_basis.get("size_signal") or {},
+        "age_signal": b2b_basis.get("age_signal") or {},
+        "state_fips": b2b_basis.get("state_fips") or [],
+        "selected_naics_6": b2b_basis.get("selected_naics_6") or [],
+        "selected_naics_4": b2b_basis.get("selected_naics_4") or [],
+      }
+      base_model["geography_basis"]["state_fips"] = b2b_basis.get("state_fips") or []
+      base_model["geography_basis"]["scope"] = b2b_basis.get("scope")
+
+  has_b2c = bool(base_model.get("b2c_basis_counts"))
+  has_b2b = bool((base_model.get("b2b_basis_counts") or {}).get("cbp_basis") or (base_model.get("b2b_basis_counts") or {}).get("size_signal") or (base_model.get("b2b_basis_counts") or {}).get("age_signal"))
+  if market_basis_type == "consumer" and not has_b2c:
+    base_model["missing_dependencies"] = ["b2c_market_basis"]
+    return base_model
+  if market_basis_type == "b2b" and not has_b2b:
+    base_model["missing_dependencies"] = ["b2b_market_basis"]
+    return base_model
+  if market_basis_type == "mixed" and not (has_b2c or has_b2b):
+    base_model["missing_dependencies"] = ["market_basis"]
+    return base_model
+  if base_model["required_revenue_year1"] <= 0:
+    base_model["missing_dependencies"] = ["required_revenue_year1"]
+    return base_model
+
+  existing_model = dict(existing_marketing_model_json or {})
+  if (
+    str(existing_model.get("signature") or "").strip() == signature
+    and existing_model.get("ready") is True
+    and existing_model.get("baseline_marketing_percent") is not None
+  ):
+    for key in (
+      "reachable_market",
+      "capture_rate_year1",
+      "expected_customers_or_clients_year1",
+      "expected_units_year1",
+      "marketing_intensity",
+      "baseline_marketing_percent",
+      "baseline_marketing",
+      "marketing_basis_summary",
+      "demand_supports_required_units",
+    ):
+      if key in existing_model:
+        base_model[key] = existing_model.get(key)
+    base_model["ready"] = True
+    return base_model
+
+  estimated = estimate_marketing_baseline_from_context(
+    marketing_estimate_context=_build_marketing_estimate_context(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_year1_json=financials_year1_json,
+      business_facts=business_facts,
+      marketing_model_json=base_model,
+    )
+  )
+  if not isinstance(estimated, dict):
+    return base_model
+
+  baseline_percent = float(estimated.get("baseline_marketing_percent") or 0.0)
+  baseline_amount = float(base_model["required_revenue_year1"] * baseline_percent)
+  expected_units_year1 = float(estimated.get("expected_units_year1") or 0.0)
+  base_model.update(
+    {
+      "reachable_market": float(estimated.get("reachable_market") or 0.0),
+      "capture_rate_year1": float(estimated.get("capture_rate_year1") or 0.0),
+      "expected_customers_or_clients_year1": float(estimated.get("expected_customers_or_clients_year1") or 0.0),
+      "expected_units_year1": expected_units_year1,
+      "marketing_intensity": str(estimated.get("marketing_intensity") or "").strip() or "medium",
+      "baseline_marketing_percent": baseline_percent,
+      "baseline_marketing": baseline_amount,
+      "marketing_basis_summary": str(estimated.get("brief_rationale") or "").strip(),
+      "demand_supports_required_units": expected_units_year1 >= float(base_model.get("required_units_year1") or 0.0),
+      "ready": True,
+    }
+  )
+  return base_model
+
+
+def _resolve_marketing_model_or_raise(
+  *,
+  conn,
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  existing_marketing_model_json: Dict[str, Any],
+  estimate_marketing_baseline_from_context,
+) -> Dict[str, Any]:
+  marketing_model = _compute_marketing_model_json(
+    conn=conn,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_year1_json=financials_year1_json,
+    business_facts=business_facts,
+    existing_marketing_model_json=existing_marketing_model_json,
+    estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+  )
+  if isinstance(marketing_model, dict) and marketing_model.get("ready") is True:
+    return marketing_model
+  raise RuntimeError("Unable to resolve a Year-1 marketing baseline from the current market and operating context.")
+
+
+def _build_marketing_baseline_message(marketing_baseline: Dict[str, Any]) -> str:
+  return (
+    f"A reasonable Year-1 marketing baseline is about "
+    f"{_format_percent(marketing_baseline.get('baseline_marketing_percent'))} of revenue, which puts your projected Year-1 marketing spend around "
+    f"{_format_currency(marketing_baseline.get('baseline_marketing'))}.\n\n"
+    "Does that broadly match what it will take to attract and convert customers in Year 1, or should we adjust it because your marketing spend will be materially different?"
+  )
+
+
+def _build_marketing_adjustment_acknowledgement(marketing_fields: Dict[str, Any]) -> str:
+  return (
+    f"Got it - I'll use a Year-1 marketing budget of "
+    f"{_format_currency(marketing_fields.get('marketing_total_year1'))} "
+    f"({_format_percent(marketing_fields.get('marketing_percent_of_revenue'))} of revenue)."
+  )
+
+
+def _normalize_marketing_reply_to_fields(
+  *,
+  reply: Dict[str, Any],
+  baseline: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  baseline_amount = float(baseline.get("baseline_marketing") or 0.0)
+  revenue_year1 = float(baseline.get("required_revenue_year1") or 0.0)
+  baseline_percent = float(baseline.get("baseline_marketing_percent") or 0.0)
+  intent_type = str(reply.get("intent_type") or "").strip()
+
+  if intent_type == "accept_baseline":
+    total = baseline_amount
+  elif intent_type == "set_total":
+    try:
+      total = float(reply.get("marketing_total_year1"))
+    except Exception:
+      return None
+  elif intent_type == "set_percent":
+    try:
+      percent = float(reply.get("marketing_percent_of_revenue"))
+    except Exception:
+      return None
+    total = float(revenue_year1 * percent)
+  elif intent_type == "set_adjustment":
+    try:
+      adjustment = float(reply.get("marketing_adjustment"))
+    except Exception:
+      return None
+    total = baseline_amount + adjustment
+  else:
+    return None
+
+  total = max(0.0, float(total))
+  adjustment = float(total - baseline_amount)
+  percent_total = float(total / revenue_year1) if revenue_year1 > 0 else baseline_percent
+  return {
+    "baseline_marketing_percent": baseline_percent,
+    "baseline_marketing": baseline_amount,
+    "marketing_adjustment": adjustment,
+    "marketing_total_year1": total,
+    "marketing_percent_of_revenue": percent_total,
+  }
+
+
+def _sync_marketing_field_family(
+  *,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  next_financials = dict(financials_json or {})
+  revenue = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
+  baseline_percent = _safe_float(next_financials.get("baseline_marketing_percent"))
+  baseline_amount = _safe_float(next_financials.get("baseline_marketing"))
+  if baseline_percent is None:
+    baseline_percent = _safe_float((marketing_model_json or {}).get("baseline_marketing_percent"))
+  if baseline_amount is None:
+    baseline_amount = _safe_float((marketing_model_json or {}).get("baseline_marketing"))
+  if baseline_percent is None and baseline_amount is not None and revenue and revenue > 0:
+    baseline_percent = baseline_amount / revenue
+  if baseline_amount is None and baseline_percent is not None and revenue is not None:
+    baseline_amount = revenue * baseline_percent
+
+  total = _safe_float(next_financials.get("marketing_total_year1"))
+  percent_total = _safe_float(next_financials.get("marketing_percent_of_revenue"))
+  if total is None and percent_total is not None and revenue is not None:
+    total = revenue * percent_total
+  if percent_total is None and total is not None and revenue and revenue > 0:
+    percent_total = total / revenue
+
+  if total is None:
+    return next_financials
+
+  next_financials["marketing_total_year1"] = total
+  if percent_total is not None:
+    next_financials["marketing_percent_of_revenue"] = percent_total
+  if baseline_percent is not None:
+    next_financials["baseline_marketing_percent"] = baseline_percent
+  if baseline_amount is not None:
+    next_financials["baseline_marketing"] = baseline_amount
+  if baseline_amount is not None:
+    next_financials["marketing_adjustment"] = total - baseline_amount
+  return next_financials
+
 def _normalize_payroll_reply_to_fields(
   *,
   reply: Dict[str, Any],
@@ -873,9 +1959,14 @@ def _maybe_handle_financials_payroll_turn(
   *,
   interpret_payroll_reply,
   validate_payroll_setup,
+  estimate_marketing_baseline_from_context,
+  interpret_marketing_reply,
+  validate_marketing_setup,
   financials_chat_turn,
+  conn,
   intake_context: Dict[str, Any],
   conversation_messages: List[Dict[str, str]],
+  business_facts: Dict[str, Any],
   shared_context: Dict[str, Any],
   last_assistant: str,
   user_message: str,
@@ -967,6 +2058,190 @@ def _maybe_handle_financials_payroll_turn(
   next_intake_context["shared_context"] = next_shared_context
 
   next_stage = _next_financials_stage(next_financials)
+  if next_stage == "marketing":
+    marketing_turn, next_financials, next_marketing_model = _maybe_handle_financials_marketing_turn(
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+      interpret_marketing_reply=interpret_marketing_reply,
+      validate_marketing_setup=validate_marketing_setup,
+      financials_chat_turn=financials_chat_turn,
+      conn=conn,
+      intake_context=next_intake_context,
+      conversation_messages=conversation_messages,
+      business_facts=business_facts,
+      shared_context=next_shared_context,
+      last_assistant="",
+      user_message="",
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    next_shared_context["marketing"] = next_marketing_model
+    if marketing_turn is not None:
+      if acknowledgement:
+        next_text = str(marketing_turn.get("assistant_message") or "").strip()
+        marketing_turn["assistant_message"] = (
+          f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+        )
+      return marketing_turn, next_financials
+  if next_stage:
+    next_intake_context["financials_active_stage"] = next_stage
+  else:
+    next_intake_context.pop("financials_active_stage", None)
+
+  turn = financials_chat_turn(
+    intake_context=next_intake_context,
+    conversation_messages=conversation_messages,
+  ) or {}
+  if acknowledgement:
+    next_text = str(turn.get("assistant_message") or "").strip()
+    turn["assistant_message"] = (
+      f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+  )
+  next_financials = _sync_pending_revenue_adjustment_state(
+    next_financials,
+    financials_year1_json,
+    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+  )
+  return turn, next_financials
+
+
+def _maybe_handle_financials_marketing_turn(
+  *,
+  estimate_marketing_baseline_from_context,
+  interpret_marketing_reply,
+  validate_marketing_setup,
+  financials_chat_turn,
+  conn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  business_facts: Dict[str, Any],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+  next_financials = dict(financials_json or {})
+  ops_json = dict((shared_context or {}).get("operating_model") or {})
+  market_json = dict((shared_context or {}).get("target_market") or {})
+  people_json = dict((shared_context or {}).get("people_capability") or {})
+  current_marketing_model = dict((shared_context or {}).get("marketing") or {})
+  marketing_model = _compute_marketing_model_json(
+    conn=conn,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_year1_json=financials_year1_json,
+    business_facts=business_facts,
+    existing_marketing_model_json=current_marketing_model,
+    estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+  )
+  current_signature = str(marketing_model.get("signature") or "").strip()
+  pending_signature = str(next_financials.get("_pending_marketing_signature") or "").strip()
+  pending_baseline = next_financials.get("_pending_marketing_baseline")
+
+  if pending_signature and current_signature and pending_signature != current_signature:
+    next_financials.pop("_pending_marketing_signature", None)
+    next_financials.pop("_pending_marketing_baseline", None)
+    pending_baseline = None
+
+  current_marketing_resolved = "marketing_total_year1" in next_financials
+  if not current_marketing_resolved and not isinstance(pending_baseline, dict):
+    ready_model = _resolve_marketing_model_or_raise(
+      conn=conn,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_year1_json=financials_year1_json,
+      business_facts=business_facts,
+      existing_marketing_model_json=marketing_model,
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+    )
+    marketing_model = ready_model
+    next_financials["_pending_marketing_signature"] = current_signature
+    next_financials["_pending_marketing_baseline"] = ready_model
+    return {
+      "assistant_message": _build_marketing_baseline_message(ready_model),
+      "finalize_ready": False,
+    }, next_financials, marketing_model
+
+  if not isinstance(pending_baseline, dict):
+    pending_baseline = _resolve_marketing_model_or_raise(
+      conn=conn,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_year1_json=financials_year1_json,
+      business_facts=business_facts,
+      existing_marketing_model_json=marketing_model,
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+    )
+    marketing_model = pending_baseline
+    next_financials["_pending_marketing_signature"] = current_signature
+    next_financials["_pending_marketing_baseline"] = pending_baseline
+
+  if not str(user_message or "").strip():
+    return {
+      "assistant_message": _build_marketing_baseline_message(pending_baseline),
+      "finalize_ready": False,
+    }, next_financials, marketing_model
+
+  reply = interpret_marketing_reply(
+    user_message=user_message,
+    last_assistant=last_assistant,
+    marketing_context=pending_baseline,
+  )
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type in ("ask_question", "unclear") or not intent_type:
+    assistant_message = str(reply.get("question_or_clarification") or "").strip()
+    if not assistant_message:
+      assistant_message = (
+        "What should we use for Year-1 marketing: keep the baseline, use a total annual amount, or adjust the baseline up or down?"
+      )
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials, marketing_model
+
+  normalized = _normalize_marketing_reply_to_fields(reply=reply, baseline=pending_baseline)
+  if not isinstance(normalized, dict):
+    return {
+      "assistant_message": "What should we use for Year-1 marketing: keep the baseline, use a total annual amount, or adjust the baseline up or down?",
+      "finalize_ready": False,
+    }, next_financials, marketing_model
+
+  if intent_type != "accept_baseline":
+    validation_context = dict(intake_context or {})
+    validation_financials = dict(next_financials)
+    validation_financials.update(normalized)
+    validation_shared = dict(shared_context or {})
+    validation_shared["financials"] = validation_financials
+    validation_shared["marketing"] = marketing_model
+    validation_context["financials_json"] = validation_financials
+    validation_context["shared_context"] = validation_shared
+    validation = validate_marketing_setup(
+      intake_context=validation_context,
+      marketing_context={**pending_baseline, **normalized},
+      user_message=user_message,
+    )
+    if not bool(validation.get("proceed", False)):
+      assistant_message = str(validation.get("assistant_message") or "").strip()
+      if not assistant_message:
+        assistant_message = "What should the Year-1 marketing budget be instead?"
+      return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials, marketing_model
+
+  next_financials.update(normalized)
+  next_financials.pop("_pending_marketing_signature", None)
+  next_financials.pop("_pending_marketing_baseline", None)
+  acknowledgement = (
+    _build_marketing_adjustment_acknowledgement(next_financials)
+    if intent_type != "accept_baseline"
+    else ""
+  )
+
+  next_shared_context = dict(shared_context or {})
+  next_shared_context["financials"] = next_financials
+  next_shared_context["marketing"] = marketing_model
+  next_intake_context = dict(intake_context or {})
+  next_intake_context["financials_json"] = next_financials
+  next_intake_context["shared_context"] = next_shared_context
+  next_stage = _next_financials_stage(next_financials)
   if next_stage:
     next_intake_context["financials_active_stage"] = next_stage
   else:
@@ -986,7 +2261,7 @@ def _maybe_handle_financials_payroll_turn(
     financials_year1_json,
     turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
   )
-  return turn, next_financials
+  return turn, next_financials, marketing_model
 
 
 def _maybe_handle_financials_cogs_turn(
@@ -995,6 +2270,9 @@ def _maybe_handle_financials_cogs_turn(
   estimate_cogs_percent_from_context,
   interpret_payroll_reply,
   validate_payroll_setup,
+  estimate_marketing_baseline_from_context,
+  interpret_marketing_reply,
+  validate_marketing_setup,
   interpret_initial_lease_reply,
   financials_chat_turn,
   conn,
@@ -1112,9 +2390,14 @@ def _maybe_handle_financials_cogs_turn(
     payroll_turn, next_financials = _maybe_handle_financials_payroll_turn(
       interpret_payroll_reply=interpret_payroll_reply,
       validate_payroll_setup=validate_payroll_setup,
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+      interpret_marketing_reply=interpret_marketing_reply,
+      validate_marketing_setup=validate_marketing_setup,
       financials_chat_turn=financials_chat_turn,
+      conn=conn,
       intake_context=next_intake_context,
       conversation_messages=conversation_messages,
+      business_facts=business_facts,
       shared_context=next_shared_context,
       last_assistant="",
       user_message="",
@@ -1200,9 +2483,10 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
     ("revenue_intro", lambda d: bool(d.get("_financials_revenue_intro_done"))),
     ("cogs", lambda d: _financials_field_resolved(d, "current_cogs")),
     ("current_payroll", lambda d: _financials_field_resolved(d, "current_payroll")),
-    ("other_operating_expense", lambda d: _financials_field_resolved(d, "other_operating_expense")),
+    ("marketing", lambda d: _financials_field_resolved(d, "marketing_total_year1")),
     ("monthly_rent_expense", lambda d: _financials_field_resolved(d, "monthly_rent_expense")),
     ("owner_compensation", lambda d: _financials_field_resolved(d, "owner_compensation")),
+    ("other_operating_expense", lambda d: _financials_field_resolved(d, "other_operating_expense")),
     ("current_num_employees", lambda d: _financials_field_resolved(d, "current_num_employees")),
     ("current_capex", lambda d: _financials_field_resolved(d, "current_capex")),
     ("initial_assets", lambda d: _financials_field_resolved(d, "initial_assets")),
@@ -1223,7 +2507,7 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
   return None
 
 
-_CONTROLLER_OWNED_FINANCIALS_STAGES = {"cogs", "current_payroll", "initial_lease"}
+_CONTROLLER_OWNED_FINANCIALS_STAGES = {"cogs", "current_payroll", "marketing", "initial_lease"}
 
 
 def _extract_ops_proposal_patch(
@@ -1284,6 +2568,9 @@ def _run_financials_turn_and_sync(
   estimate_cogs_percent_from_context,
   interpret_payroll_reply,
   validate_payroll_setup,
+  estimate_marketing_baseline_from_context,
+  interpret_marketing_reply,
+  validate_marketing_setup,
   interpret_initial_lease_reply,
   conn,
   intake_context: Dict[str, Any],
@@ -1316,6 +2603,9 @@ def _run_financials_turn_and_sync(
       estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
       interpret_payroll_reply=interpret_payroll_reply,
       validate_payroll_setup=validate_payroll_setup,
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+      interpret_marketing_reply=interpret_marketing_reply,
+      validate_marketing_setup=validate_marketing_setup,
       interpret_initial_lease_reply=interpret_initial_lease_reply,
       financials_chat_turn=financials_chat_turn,
       conn=conn,
@@ -1334,9 +2624,14 @@ def _run_financials_turn_and_sync(
     payroll_turn, next_financials = _maybe_handle_financials_payroll_turn(
       interpret_payroll_reply=interpret_payroll_reply,
       validate_payroll_setup=validate_payroll_setup,
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+      interpret_marketing_reply=interpret_marketing_reply,
+      validate_marketing_setup=validate_marketing_setup,
       financials_chat_turn=financials_chat_turn,
+      conn=conn,
       intake_context=_stage_context(active_stage, next_financials),
       conversation_messages=conversation_messages,
+      business_facts=business_facts,
       shared_context=shared_context,
       last_assistant=last_assistant,
       user_message=user_message,
@@ -1345,6 +2640,28 @@ def _run_financials_turn_and_sync(
     )
     if payroll_turn is not None:
       return payroll_turn, next_financials
+  if active_stage == "marketing":
+    marketing_turn, next_financials, marketing_model = _maybe_handle_financials_marketing_turn(
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+      interpret_marketing_reply=interpret_marketing_reply,
+      validate_marketing_setup=validate_marketing_setup,
+      financials_chat_turn=financials_chat_turn,
+      conn=conn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      business_facts=business_facts,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    try:
+      shared_context["marketing"] = marketing_model
+    except Exception:
+      pass
+    if marketing_turn is not None:
+      return marketing_turn, next_financials
   if active_stage == "initial_lease":
     lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
       interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -1382,6 +2699,9 @@ def _run_financials_turn_and_sync(
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          interpret_marketing_reply=interpret_marketing_reply,
+          validate_marketing_setup=validate_marketing_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
           financials_chat_turn=financials_chat_turn,
           conn=conn,
@@ -1810,6 +3130,11 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
     "financials": {
       "current_revenue",
       "current_cogs",
+      "baseline_marketing_percent",
+      "baseline_marketing",
+      "marketing_adjustment",
+      "marketing_total_year1",
+      "marketing_percent_of_revenue",
       "other_operating_expense",
       "monthly_rent_expense",
       "other_monthly_debt_payments",
@@ -3132,12 +4457,15 @@ def post_intake_consult_handler(*, app, request):
     from financials_consultant import (  # type: ignore
       _adjudicate_revenue_setup,
       estimate_cogs_percent_from_context,
+      estimate_marketing_baseline_from_context,
       financials_chat_turn,
       financials_finalize,
       interpret_cogs_reply,
       interpret_initial_lease_reply,
+      interpret_marketing_reply,
       interpret_payroll_reply,
       interpret_revenue_option_reply,
+      validate_marketing_setup,
       validate_payroll_setup,
     )
     from financials_year1 import (  # type: ignore
@@ -3172,6 +4500,7 @@ def post_intake_consult_handler(*, app, request):
     market_json = _parse_json_dict(consult.get("target_market_json"))
     people_json = _parse_json_dict(consult.get("people_json"))
     financials_json = _parse_json_dict(consult.get("financials_json"))
+    marketing_model_json = _parse_json_dict(consult.get("marketing_model_json"))
     financials_year1_json = _parse_json_dict(consult.get("financials_year1_json"))
     fulfillment_json = _parse_json_dict(consult.get("fulfillment_json"))
     pending_ops_milestone = _parse_pending_bool(consult.get("pending_ops_milestone_json"))
@@ -3259,6 +4588,26 @@ def post_intake_consult_handler(*, app, request):
       financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
     if isinstance(financials_year1_json, dict) and financials_year1_json:
       shared_context["financials_year1_json"] = financials_year1_json
+
+    def _refresh_marketing_model() -> Dict[str, Any]:
+      nonlocal marketing_model_json, shared_context
+      try:
+        marketing_model_json = _compute_marketing_model_json(
+          conn=conn,
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_year1_json=financials_year1_json,
+          business_facts=business_facts,
+          existing_marketing_model_json=marketing_model_json,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+        )
+      except Exception:
+        marketing_model_json = dict(marketing_model_json or {})
+      shared_context["marketing"] = marketing_model_json
+      return marketing_model_json
+
+    _refresh_marketing_model()
     revenue_math_line = build_revenue_math_line(
       financials_year1_json,
       unit_name=str((ops_json or {}).get("unit_name") or "").strip() or None,
@@ -3354,6 +4703,9 @@ def post_intake_consult_handler(*, app, request):
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          interpret_marketing_reply=interpret_marketing_reply,
+          validate_marketing_setup=validate_marketing_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context,
@@ -3389,6 +4741,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[{"role": "assistant", "content": assistant_text}],
         target_market_json=market_json if focus == "market" else None,
         financials_json=financials_json if focus == "financials" else None,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=focus,
         business_facts=business_facts,
       )
@@ -3520,6 +4873,7 @@ def post_intake_consult_handler(*, app, request):
           conn,
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          marketing_model_json=_refresh_marketing_model(),
           active_focus=focus,
           business_facts=business_facts,
         )
@@ -3870,6 +5224,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         people_json=people_json,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus="people",
         business_facts=business_facts,
         flat_fields=_finalize_flag_field("people", True),
@@ -4016,6 +5371,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        marketing_model_json=_refresh_marketing_model(),
         active_focus="done",
         business_facts=business_facts,
       )
@@ -4064,6 +5420,7 @@ def post_intake_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           target_market_json=market_json,
+          marketing_model_json=_refresh_marketing_model(),
           active_focus="market",
           business_facts=business_facts,
           flat_fields=_finalize_flag_field("market", True),
@@ -4095,6 +5452,21 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
       )
+      marketing_patch_touched = any(
+        str(key or "").strip() in {
+          "marketing_total_year1",
+          "marketing_percent_of_revenue",
+          "financials.marketing_total_year1",
+          "financials.marketing_percent_of_revenue",
+        }
+        for key in patch.keys()
+      )
+      if marketing_patch_touched:
+        financials_json = _sync_marketing_field_family(
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=marketing_model_json,
+        )
       # Keep capacity compatibility coherent (especially monthly/contract cadence).
       ops_json = _normalize_ops_capacity_compat(ops_json)
       try:
@@ -4323,6 +5695,9 @@ def post_intake_consult_handler(*, app, request):
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          interpret_marketing_reply=interpret_marketing_reply,
+          validate_marketing_setup=validate_marketing_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context_next,
@@ -4349,6 +5724,7 @@ def post_intake_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           confirmations={"people": True},
+          marketing_model_json=_refresh_marketing_model(),
           active_focus=next_focus,
           business_facts=business_facts,
           people_json=people_json,
@@ -4499,6 +5875,9 @@ def post_intake_consult_handler(*, app, request):
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          interpret_marketing_reply=interpret_marketing_reply,
+          validate_marketing_setup=validate_marketing_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context_next,
@@ -4526,6 +5905,7 @@ def post_intake_consult_handler(*, app, request):
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           people_json=people_json,
           financials_json=financials_json,
+          marketing_model_json=_refresh_marketing_model(),
           active_focus=next_focus,
           confirmations={"people": True},
           business_facts=business_facts,
@@ -4624,6 +6004,9 @@ def post_intake_consult_handler(*, app, request):
             estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
             interpret_payroll_reply=interpret_payroll_reply,
             validate_payroll_setup=validate_payroll_setup,
+            estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+            interpret_marketing_reply=interpret_marketing_reply,
+            validate_marketing_setup=validate_marketing_setup,
             interpret_initial_lease_reply=interpret_initial_lease_reply,
             conn=conn,
             intake_context=intake_context_followup,
@@ -4695,6 +6078,7 @@ def post_intake_consult_handler(*, app, request):
                 draft_id=str(draft_id).strip(),
                 new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
                 operating_model_json=ops_json,
+                marketing_model_json=_refresh_marketing_model(),
                 active_focus="ops",
                 business_facts=business_facts,
                 pending_ops_milestone_json=pending_ops_milestone,
@@ -4725,6 +6109,7 @@ def post_intake_consult_handler(*, app, request):
                 draft_id=str(draft_id).strip(),
                 new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
                 operating_model_json=ops_json,
+                marketing_model_json=_refresh_marketing_model(),
                 active_focus="ops",
                 business_facts=business_facts,
                 pending_ops_milestone_json=True,
@@ -4825,6 +6210,7 @@ def post_intake_consult_handler(*, app, request):
               new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
               operating_model_json=ops_json,
               target_market_json=market_json,
+              marketing_model_json=_refresh_marketing_model(),
               active_focus=next_focus,
               confirmations={"ops": True},
               business_facts=business_facts,
@@ -4865,6 +6251,7 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
         fulfillment_json=fulfillment_json,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=active_focus_out,
         business_facts=business_facts,
         consistency_passed=consistency_passed_out,
@@ -4936,6 +6323,9 @@ def post_intake_consult_handler(*, app, request):
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          interpret_marketing_reply=interpret_marketing_reply,
+          validate_marketing_setup=validate_marketing_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context_next,
@@ -4985,6 +6375,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": next_assistant}],
         confirmations=confirmations,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=next_focus,
         business_facts=business_facts,
         target_market_json=market_json if next_focus == "market" else None,
@@ -5014,6 +6405,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         target_market_json=market_json if focus == "market" else None,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=focus,
         business_facts=business_facts,
         pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
@@ -5041,6 +6433,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         target_market_json=market_json if focus == "market" else None,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=focus,
         business_facts=business_facts,
         pending_ops_milestone_json=pending_ops_milestone if focus == "ops" else None,
@@ -5111,6 +6504,9 @@ def post_intake_consult_handler(*, app, request):
         estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
         interpret_payroll_reply=interpret_payroll_reply,
         validate_payroll_setup=validate_payroll_setup,
+        estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+        interpret_marketing_reply=interpret_marketing_reply,
+        validate_marketing_setup=validate_marketing_setup,
         interpret_initial_lease_reply=interpret_initial_lease_reply,
         conn=conn,
         intake_context=intake_context,
@@ -5232,6 +6628,9 @@ def post_intake_consult_handler(*, app, request):
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
+          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+          interpret_marketing_reply=interpret_marketing_reply,
+          validate_marketing_setup=validate_marketing_setup,
           interpret_initial_lease_reply=interpret_initial_lease_reply,
           conn=conn,
           intake_context=intake_context,
@@ -5483,6 +6882,9 @@ def post_intake_consult_handler(*, app, request):
             estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
             interpret_payroll_reply=interpret_payroll_reply,
             validate_payroll_setup=validate_payroll_setup,
+            estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+            interpret_marketing_reply=interpret_marketing_reply,
+            validate_marketing_setup=validate_marketing_setup,
             interpret_initial_lease_reply=interpret_initial_lease_reply,
             conn=conn,
             intake_context=intake_context,
@@ -5529,6 +6931,7 @@ def post_intake_consult_handler(*, app, request):
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        marketing_model_json=_refresh_marketing_model(),
         active_focus="done",
         business_facts=business_facts,
         consistency_passed=True,
@@ -5605,6 +7008,7 @@ def post_intake_consult_handler(*, app, request):
         operating_model_json=ops_json if str(focus).strip().lower() == "ops" else None,
         target_market_json=market_json if str(focus).strip().lower() == "market" else None,
         financials_json=financials_json if focus == "financials" else None,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=focus,
         business_facts=business_facts,
         financials_year1_json=financials_year1_json if focus == "financials" else None,
@@ -5746,6 +7150,7 @@ def post_intake_consult_handler(*, app, request):
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           operating_model_json=ops_json,
+          marketing_model_json=_refresh_marketing_model(),
           active_focus="ops",
           business_facts=business_facts,
           pending_ops_milestone_json=pending_ops_milestone,
@@ -5809,6 +7214,7 @@ def post_intake_consult_handler(*, app, request):
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         operating_model_json=ops_json,
         target_market_json=market_json,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus=next_focus,
         confirmations={"ops": True},
         business_facts=business_facts,
@@ -5888,6 +7294,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         target_market_json=market_json,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus="market",
         business_facts=business_facts,
         flat_fields=_finalize_flag_field("market", True),
@@ -6050,6 +7457,7 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         people_json=people_json,
+        marketing_model_json=_refresh_marketing_model(),
         active_focus="people",
         business_facts=business_facts,
         flat_fields=_finalize_flag_field("people", True),
@@ -6084,6 +7492,11 @@ def post_intake_consult_handler(*, app, request):
           "payroll_adjustment",
           "payroll_total_year1",
           "payroll_basis_people_roles",
+          "baseline_marketing_percent",
+          "baseline_marketing",
+          "marketing_adjustment",
+          "marketing_total_year1",
+          "marketing_percent_of_revenue",
         ):
           if extra_key in financials_json and extra_key not in final_obj:
             final_obj[extra_key] = financials_json.get(extra_key)
@@ -6116,6 +7529,7 @@ def post_intake_consult_handler(*, app, request):
       people_json=people_json if focus == "people" else None,
       financials_json=financials_json if focus == "financials" else None,
       financials_year1_json=financials_year1_json if focus == "financials" else None,
+      marketing_model_json=_refresh_marketing_model(),
       active_focus=focus,
       business_facts=business_facts,
       consistency_passed=False,
