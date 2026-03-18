@@ -793,6 +793,8 @@ def _marketing_estimate_schema() -> Dict[str, Any]:
       "additionalProperties": False,
       "properties": {
         "reachable_market": {"type": "number"},
+        "reachable_market_b2c": {"type": "number"},
+        "reachable_market_b2b": {"type": "number"},
         "capture_rate_year1": {"type": "number"},
         "expected_customers_or_clients_year1": {"type": "number"},
         "expected_units_year1": {"type": "number"},
@@ -805,6 +807,8 @@ def _marketing_estimate_schema() -> Dict[str, Any]:
       },
       "required": [
         "reachable_market",
+        "reachable_market_b2c",
+        "reachable_market_b2b",
         "capture_rate_year1",
         "expected_customers_or_clients_year1",
         "expected_units_year1",
@@ -814,6 +818,90 @@ def _marketing_estimate_schema() -> Dict[str, Any]:
       ],
     },
   }
+
+
+def _marketing_estimate_review_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_marketing_estimate_review",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "proceed": {"type": "boolean"},
+        "feedback": {"type": "string"},
+      },
+      "required": ["proceed", "feedback"],
+    },
+  }
+
+
+def _validate_marketing_estimate_candidate(
+  *,
+  marketing_estimate_context: Dict[str, Any],
+  estimate_candidate: Dict[str, Any],
+) -> Dict[str, Any]:
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _marketing_estimate_review_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are validating an internal Year-1 marketing estimate candidate.\n"
+          "Approve only if the candidate is coherent with the observed market basis and the business context.\n"
+          "Rules:\n"
+          "- B2B reach must stay grounded in the observed CBP firm universe.\n"
+          "- B2B reach may narrow from CBP, but should not drift away from that base.\n"
+          "- B2B reachable market should represent only the realistic Year-1 subset of the CBP establishment universe that can actually be reached given the sales model, channels, onboarding/sales friction, geography, and Year-1 business-development realism in the provided context.\n"
+          "- Do not treat most of the CBP universe as reachable by default.\n"
+          "- Avoid candidates where reachable_market_b2b sits close to the full CBP establishment universe unless the rationale explicitly justifies why that unusually broad reach is realistic in Year 1.\n"
+          "- B2B reach should not collapse to an unrealistically tiny share of the observed CBP universe unless the rationale clearly justifies why.\n"
+          "- B2C reach may be GPT-compressed from ACS basis counts because no exact behavioral/intersection data exists.\n"
+          "- But B2C must still narrow to the actual user type implied by the business model rather than treating broad ACS population ceilings as the reachable market.\n"
+          "- In mixed cases, B2C and B2B are different measurement types and must stay conceptually separate.\n"
+          "- In mixed cases, avoid neat or symmetrical component splits unless the observed data actually supports them.\n"
+          "- Combined reachable_market is a planning/reporting abstraction, not a literal additive homogeneous TAM count.\n"
+          "- reachable_market, reachable_market_b2c, and reachable_market_b2b are entity-level counts (people/customers for B2C; firms/accounts for B2B).\n"
+          "- expected_units_year1 is a unit-level output and may reflect repeat or recurring units per reachable entity.\n"
+          "- capture_rate_year1 must be interpreted as units relative to reachable entities, not as a simple one-time adoption percentage.\n"
+          "- Do not imply that capture_rate_year1 equals the percent of the total market adopting the product.\n"
+          "- If capture_rate_year1 looks high, the rationale must explain it using the actual unit mechanics already implied by the business model, such as recurring periods, repeat purchases, multiple units per entity, or account/user structure.\n"
+          "- If the candidate is acceptable, return proceed=true and feedback as an empty string.\n"
+          "- If not acceptable, return proceed=false and feedback as one short internal correction note."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "marketing_estimate_context": marketing_estimate_context,
+            "estimate_candidate": estimate_candidate,
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {"proceed": True, "feedback": ""}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {"proceed": True, "feedback": ""}
+  return parsed if isinstance(parsed, dict) else {"proceed": True, "feedback": ""}
 
 
 def estimate_marketing_baseline_from_context(
@@ -831,48 +919,81 @@ def estimate_marketing_baseline_from_context(
   api_key = _require_openai_key()
   model = _openai_model()
   schema_wrapper = _marketing_estimate_schema()
-  payload = {
-    "model": model,
-    "input": [
-      {
-        "role": "system",
-        "content": (
-          "You are producing a Year-1 marketing baseline for a business-plan intake.\n"
-          "Your job is to translate observed market-basis signals into one realistic Year-1 marketing percent of revenue.\n"
-          "Important rules:\n"
-          "- Treat B2C and B2B basis signals as observed inputs, not exact intersections.\n"
-          "- Do not multiply separate basis signals together into fake precise target-market counts.\n"
-          "- Use the observed signals, normalized geography, offer, pricing, sales model, and Year-1 revenue/unit requirements together.\n"
-          "- geography_basis is the hard scope anchor. Respect it.\n"
-          "- If scope is local, reachable_market must reflect only the local footprint implied by the anchor ZIP, county basis, and coverage summary. Do not treat a state-level observed universe as directly reachable.\n"
-          "- If scope is regional, reachable_market must be constrained to the provided regional state/county basis, not the entire country.\n"
-          "- If scope is national, reason from national reachability rather than ZIP/county footprint.\n"
-          "- Treat ZIP/county/state basis as backend aggregation anchors. Do not assume the client explicitly named every ZIP unless it appears in explicit_zip_basis.\n"
-          "- Marketing here means the spend required to support the Year-1 demand assumption. It does not set revenue by itself.\n"
-          "- Ops/capacity remains the ceiling.\n"
-          "- Return one point estimate, not a range.\n"
-          "- baseline_marketing_percent must be a decimal fraction of revenue between 0 and 1.\n"
-          "- reachable_market, capture_rate_year1, expected_customers_or_clients_year1, and expected_units_year1 must be internally coherent with the provided context.\n"
-          "- Do not ask questions."
-        ),
-      },
-      {
-        "role": "user",
-        "content": json.dumps(marketing_estimate_context, ensure_ascii=False),
-      },
-    ],
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": schema_wrapper["name"],
-        "schema": schema_wrapper["schema"],
-        "strict": True,
-      }
-    },
-  }
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  for _ in range(2):
+  retry_feedback = ""
+  for _ in range(3):
+    request_context = dict(marketing_estimate_context or {})
+    if retry_feedback:
+      request_context["estimate_feedback"] = retry_feedback
+    payload = {
+      "model": model,
+      "input": [
+        {
+          "role": "system",
+          "content": (
+            "You are producing a Year-1 marketing baseline for a business-plan intake.\n"
+            "Your job is to translate observed market-basis signals into one realistic Year-1 marketing percent of revenue.\n"
+            "Important rules:\n"
+            "- Treat B2C and B2B basis signals as observed inputs, not exact intersections.\n"
+            "- Do not multiply separate basis signals together into fake precise target-market counts.\n"
+            "- Use the observed signals, normalized geography, offer, pricing, sales model, and Year-1 revenue/unit requirements together.\n"
+            "- reachable_market is the combined reachable market across all applicable basis types.\n"
+            "- reachable_market_b2c is the population-based reachable component only.\n"
+            "- reachable_market_b2b is the firm-based reachable component only.\n"
+            "- If only one basis type applies, set the other component to 0.\n"
+            "- If both basis types apply, keep the components informational and make reachable_market a coherent combined figure.\n"
+            "- reachable_market is a planning/reporting field only. Do not present it as one literal homogeneous TAM count when both B2C and B2B are present.\n"
+            "- In mixed cases, keep B2C people reach and B2B firm reach conceptually separate in your reasoning and in brief_rationale.\n"
+            "- Do not produce neat or symmetrical B2C/B2B splits unless the observed data clearly supports that symmetry.\n"
+            "- B2B reach must stay anchored to the observed CBP firm universe provided in context.\n"
+            "- reachable_market_b2b is a reachable subset of the observed CBP firm universe, not a free-floating estimate.\n"
+            "- Regional and national B2B reach must stay grounded in the observed state-level CBP firm universe.\n"
+            "- reachable_market_b2b must never exceed the observed B2B firm universe provided in context.\n"
+            "- reachable_market_b2b should reflect only the realistic Year-1 reachable subset of that CBP universe given the sales model, channels, onboarding/sales friction, geography, and Year-1 business-development realism already in the context.\n"
+            "- Do not treat most of the CBP universe as reachable by default.\n"
+            "- Avoid selecting values close to the full CBP establishment universe unless the rationale explicitly justifies why that unusually broad reach is realistic in Year 1.\n"
+            "- reachable_market_b2b should not collapse to an unrealistically tiny fraction of the observed CBP universe unless the rationale clearly justifies why.\n"
+            "- B2C reach must be anchored to the actual user type implied by the business model, offer, and target-market description; do not treat the full ACS audience ceiling as the reachable market.\n"
+            "- For B2C, ACS basis counts are an observed ceiling only. They are not the answer.\n"
+            "- For B2C, explicitly narrow from broad population -> relevant user group -> reachable subset.\n"
+            "- Avoid using large local, regional, or national population counts directly as reachable_market_b2c when the actual user type is a narrower role-based or behavior-based audience.\n"
+            "- Apply that B2C narrowing discipline across all scopes: local, regional, and national.\n"
+            "- geography_basis is the hard scope anchor. Respect it.\n"
+            "- If scope is local, reachable_market must reflect only the local footprint implied by the anchor ZIP, county basis, and coverage summary. Do not treat a state-level observed universe as directly reachable.\n"
+            "- If scope is regional, reachable_market must be constrained to the provided regional state/county basis, not the entire country.\n"
+            "- If scope is national, reason from national reachability rather than ZIP/county footprint.\n"
+            "- Treat ZIP/county/state basis as backend aggregation anchors. Do not assume the client explicitly named every ZIP unless it appears in explicit_zip_basis.\n"
+            "- Marketing here means the spend required to support the Year-1 demand assumption. It does not set revenue by itself.\n"
+            "- Ops/capacity remains the ceiling.\n"
+            "- Return one point estimate, not a range.\n"
+            "- baseline_marketing_percent must be a decimal fraction of revenue between 0 and 1.\n"
+            "- reachable_market, capture_rate_year1, expected_customers_or_clients_year1, and expected_units_year1 must be internally coherent with the provided context.\n"
+            "- reachable_market, reachable_market_b2c, and reachable_market_b2b are entity-level counts, while expected_units_year1 is a unit-level output.\n"
+            "- capture_rate_year1 must be interpreted as units relative to reachable entities, not as a simple one-time adoption rate.\n"
+            "- Do not imply that capture_rate_year1 equals the percent of the total market adopting the product.\n"
+            "- If capture_rate_year1 appears high, explain it using the actual unit mechanics implied by the business model and unit definition (for example, recurring periods, repeat purchases, multiple units per entity, or account/user structure).\n"
+            "- brief_rationale must separate the B2C people-based reach from the B2B firm-based reach whenever both are present, and must describe reachable_market as a planning/reporting view rather than one literal combined TAM.\n"
+            "- For B2C, brief_rationale must explicitly explain the narrowing from broad ACS population basis to the actual user type and then to the reachable subset.\n"
+            "- Avoid false precision in brief_rationale; explain the grounding honestly.\n"
+            "- If estimate_feedback is present in the context, correct the estimate accordingly.\n"
+            "- Do not ask questions."
+          ),
+        },
+        {
+          "role": "user",
+          "content": json.dumps(request_context, ensure_ascii=False),
+        },
+      ],
+      "text": {
+        "format": {
+          "type": "json_schema",
+          "name": schema_wrapper["name"],
+          "schema": schema_wrapper["schema"],
+          "strict": True,
+        }
+      },
+    }
     try:
       resp = _post_openai(url=url, headers=headers, payload=payload)
     except Exception:
@@ -888,15 +1009,31 @@ def estimate_marketing_baseline_from_context(
     try:
       baseline_percent = float(parsed.get("baseline_marketing_percent"))
       reachable_market = float(parsed.get("reachable_market"))
+      reachable_market_b2c = float(parsed.get("reachable_market_b2c"))
+      reachable_market_b2b = float(parsed.get("reachable_market_b2b"))
       capture_rate = float(parsed.get("capture_rate_year1"))
       expected_customers = float(parsed.get("expected_customers_or_clients_year1"))
       expected_units = float(parsed.get("expected_units_year1"))
     except Exception:
       continue
+    try:
+      b2b_universe = float(
+        ((marketing_estimate_context.get("market_measurement_guidance") or {}).get("b2b_observed_establishments_total")) or 0.0
+      )
+    except Exception:
+      b2b_universe = 0.0
     baseline_percent = max(0.0, min(baseline_percent, 1.0))
     capture_rate = max(0.0, min(capture_rate, 1.0))
-    return {
-      "reachable_market": max(0.0, reachable_market),
+    if b2b_universe > 0:
+      reachable_market_b2b = min(max(0.0, reachable_market_b2b), b2b_universe)
+    else:
+      reachable_market_b2b = max(0.0, reachable_market_b2b)
+    reachable_market_b2c = max(0.0, reachable_market_b2c)
+    reachable_market = max(0.0, reachable_market, reachable_market_b2c, reachable_market_b2b)
+    estimate_candidate = {
+      "reachable_market": reachable_market,
+      "reachable_market_b2c": reachable_market_b2c,
+      "reachable_market_b2b": reachable_market_b2b,
       "capture_rate_year1": capture_rate,
       "expected_customers_or_clients_year1": max(0.0, expected_customers),
       "expected_units_year1": max(0.0, expected_units),
@@ -904,6 +1041,16 @@ def estimate_marketing_baseline_from_context(
       "baseline_marketing_percent": baseline_percent,
       "brief_rationale": str(parsed.get("brief_rationale") or "").strip(),
     }
+    review = _validate_marketing_estimate_candidate(
+      marketing_estimate_context=request_context,
+      estimate_candidate=estimate_candidate,
+    )
+    if bool(review.get("proceed")):
+      return estimate_candidate
+    retry_feedback = str(review.get("feedback") or "").strip() or (
+      "Tighten the estimate so B2B stays grounded in CBP, B2C remains a separate compressed consumer reach, "
+      "and combined reachable_market stays a planning abstraction."
+    )
   return None
 
 
@@ -1033,6 +1180,15 @@ def validate_marketing_setup(
           "The baseline came from the observed market basis and the business context, and the client may have accepted it or adjusted it.\n"
           "Decide whether the resulting Year-1 marketing setup is coherent enough to proceed.\n"
           "Use the market basis, demand expectations, business model, pricing, geography, and final marketing total/percent.\n"
+          "Treat any B2B reach assumptions as subsets of the observed CBP firm universe, not as free-floating counts.\n"
+          "Treat B2B reachable market as the realistic Year-1 subset of the CBP universe that can actually be reached given the sales model, channels, onboarding/sales friction, geography, and Year-1 business-development realism already in context.\n"
+          "Do not allow the model to treat most of the CBP universe as reachable by default unless the context clearly justifies that unusually broad reach.\n"
+          "Do not allow B2B reach to collapse to an implausibly tiny share of the observed CBP universe without clear justification from the context.\n"
+          "Treat any B2C reach assumptions as narrowed reachable subsets of the broad ACS audience ceiling, anchored to the actual user type implied by the business model.\n"
+          "Do not allow broad ACS population ceilings to be treated as the reachable B2C market directly.\n"
+          "In mixed B2C/B2B cases, keep B2C people reach and B2B firm reach conceptually separate; combined reachable market is a planning abstraction only.\n"
+          "Treat reachable-market fields as entity counts and expected_units_year1 as unit output; capture rate should be interpreted as units relative to reachable entities, not pure adoption rate.\n"
+          "If capture looks high, it must be explainable by the actual unit mechanics already implied by the business model rather than by vague market-adoption language.\n"
           "If it is coherent enough for intake, set proceed=true and return a very short acknowledgement or an empty string.\n"
           "If it is structurally inconsistent, set proceed=false and ask one short clarification question.\n"
           "Do not ask the client to calculate the market from scratch.\n"

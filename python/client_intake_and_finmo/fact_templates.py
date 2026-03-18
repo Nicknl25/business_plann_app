@@ -116,6 +116,10 @@ FIN_MONEY_FIELDS = {
   "owner_compensation",
   "cash_on_hand",
 }
+FIN_PERCENT_FIELDS = {
+  "baseline_marketing_percent",
+  "marketing_percent_of_revenue",
+}
 COUNT_FIELDS = {"units_per_week_capacity", "units_per_period_capacity", "current_num_employees"}
 
 
@@ -139,7 +143,7 @@ def sanitize_fact_template(text: str) -> str:
   return _FACT_PATTERN.sub(_replace, str(text))
 
 
-def _to_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> Optional[float]:
   if value is None or value == "":
     return None
   if isinstance(value, bool):
@@ -152,17 +156,35 @@ def _to_float(value: Any) -> Optional[float]:
     return None
 
 
-def _format_number(value: Any, *, money: bool) -> str:
-  num = _to_float(value)
+def _format_currency(value: Any) -> str:
+  num = _safe_float(value)
   if num is None:
-    # Canonical intake facts should be non-null; when they aren't, default to 0 so
-    # fact-bearing templates never display blanks.
-    return "$0" if money else "0"
+    return "$0"
   if abs(num - round(num)) < 1e-9:
     core = f"{int(round(num)):,}"
   else:
     core = f"{num:,.2f}".rstrip("0").rstrip(".")
-  return f"${core}" if money else core
+  return f"${core}"
+
+
+def _format_percent(value: Any) -> str:
+  num = _safe_float(value)
+  if num is None:
+    return "0%"
+  return f"{num * 100:,.0f}%"
+
+
+def _format_number(value: Any, *, money: bool) -> str:
+  num = _safe_float(value)
+  if num is None:
+    # Canonical intake facts should be non-null; when they aren't, default to 0 so
+    # fact-bearing templates never display blanks.
+    return "$0" if money else "0"
+  if money:
+    return _format_currency(num)
+  if abs(num - round(num)) < 1e-9:
+    return f"{int(round(num)):,}"
+  return f"{num:,.2f}".rstrip("0").rstrip(".")
 
 
 def _format_lease(value: Any) -> str:
@@ -172,7 +194,7 @@ def _format_lease(value: Any) -> str:
   if not raw:
     return "none"
   parts = [p.strip() for p in raw.split(",")]
-  amount = _to_float(parts[0]) if parts else None
+  amount = _safe_float(parts[0]) if parts else None
   period = parts[1] if len(parts) > 1 else ""
   if not amount or amount <= 1e-9:
     return "none" if (period.lower() in ("none", "n/a", "na", "")) else f"$0/{period}"
@@ -231,7 +253,7 @@ def render_fact_template(
           if field in ("unit_price", "units_per_week_capacity", "units_per_period_capacity"):
             vals = []
             for p in products:
-              num = _to_float(p.get(field))
+              num = _safe_float(p.get(field))
               if num is not None:
                 vals.append(num)
             if vals:
@@ -271,7 +293,7 @@ def render_fact_template(
 
     # Range-format multi-valued numeric fallbacks (used for multi-product ops templates).
     if isinstance(value, list) and value and field in COUNT_FIELDS:
-      nums = [_to_float(v) for v in value]
+      nums = [_safe_float(v) for v in value]
       nums = [n for n in nums if n is not None]
       if not nums:
         return "0"
@@ -281,7 +303,7 @@ def render_fact_template(
       return f"{_format_number(lo, money=False)}-{_format_number(hi, money=False)}"
 
     if isinstance(value, list) and value and group == "ops" and field in OPS_MONEY_FIELDS:
-      nums = [_to_float(v) for v in value]
+      nums = [_safe_float(v) for v in value]
       nums = [n for n in nums if n is not None]
       if not nums:
         return "$0"
@@ -297,6 +319,8 @@ def render_fact_template(
       return _format_number(value, money=True)
     if group == "financials" and field in FIN_MONEY_FIELDS:
       return _format_number(value, money=True)
+    if group == "financials" and field in FIN_PERCENT_FIELDS:
+      return _format_percent(value)
 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
       return _format_number(value, money=False)

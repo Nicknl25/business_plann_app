@@ -9,7 +9,7 @@ DEFAULT_OPERATING_MONTHS_PER_YEAR = 12.0
 DEFAULT_OPERATING_CONTRACT_PERIODS_PER_YEAR = 0.0
 
 
-def _to_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> Optional[float]:
   if value is None or value == "":
     return None
   if isinstance(value, bool):
@@ -20,6 +20,10 @@ def _to_float(value: Any) -> Optional[float]:
     return float(str(value).strip().replace(",", ""))
   except Exception:
     return None
+
+
+def _to_float(value: Any) -> Optional[float]:
+  return _safe_float(value)
 
 
 def _nonnegative(value: Optional[float]) -> Optional[float]:

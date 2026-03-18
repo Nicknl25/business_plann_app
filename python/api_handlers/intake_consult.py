@@ -545,18 +545,27 @@ def _compute_cogs_baseline(
   }
 
 
-def _format_currency(value: Any) -> str:
+def _safe_float(value: Any) -> Optional[float]:
+  if value is None or value == "" or isinstance(value, bool):
+    return None
   try:
-    return f"${float(value):,.0f}"
+    return float(value)
   except Exception:
+    return None
+
+
+def _format_currency(value: Any) -> str:
+  amount = _safe_float(value)
+  if amount is None:
     return "$0"
+  return f"${amount:,.0f}"
 
 
 def _format_percent(value: Any) -> str:
-  try:
-    return f"{float(value) * 100:.0f}%"
-  except Exception:
+  ratio = _safe_float(value)
+  if ratio is None:
     return "0%"
+  return f"{ratio * 100:.0f}%"
 
 
 def _build_cogs_baseline_message(cogs_baseline: Dict[str, Any]) -> str:
@@ -1453,6 +1462,12 @@ def _build_marketing_estimate_context(
   business_facts: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
 ) -> Dict[str, Any]:
+  marketing_basis = dict(marketing_model_json or {})
+  b2b_basis = dict(marketing_basis.get("b2b_basis_counts") or {})
+  cbp_basis = dict(b2b_basis.get("cbp_basis") or {})
+  market_basis_type = str(marketing_basis.get("market_basis_type") or "").strip().lower()
+  normalized_geography = marketing_basis.get("geography_basis") or {}
+  scope = str((normalized_geography or {}).get("scope") or "").strip().lower()
   return {
     "business": {
       "name": business_facts.get("name"),
@@ -1496,14 +1511,39 @@ def _build_marketing_estimate_context(
       "inferred_roles": people_json.get("inferred_roles") or [],
     },
     "financials_year1_json": financials_year1_json or {},
-    "normalized_geography": marketing_model_json.get("geography_basis") or {},
+    "normalized_geography": normalized_geography,
+    "market_measurement_guidance": {
+      "combined_reachable_market_reporting_only": True,
+      "combined_reachable_market_note": (
+        "reachable_market is a high-level planning/reporting field only. "
+        "Do not treat it as a literal additive TAM count when B2C and B2B are both present."
+      ),
+      "b2c_measurement_unit": "people/customers",
+      "b2b_measurement_unit": "firms",
+      "mixed_case_note": (
+        "In mixed models, keep B2C people reach and B2B firm reach conceptually separate. "
+        "Do not use neat or symmetrical splits unless the observed data truly supports them."
+      ) if market_basis_type == "mixed" else "",
+      "scope_note": (
+        "Regional and national B2B reach must stay grounded in the observed state-level CBP firm universe."
+        if scope in {"regional", "national"} else
+        "Local B2B reach must still stay grounded in the observed state-level CBP firm universe while respecting the tighter local footprint."
+      ),
+      "b2b_observed_establishments_total": cbp_basis.get("establishments_total"),
+      "b2b_observed_employees_total": cbp_basis.get("employees_total"),
+      "b2b_cbp_match_level": cbp_basis.get("match_level"),
+    },
     "marketing_model_basis": {
-      "market_basis_type": marketing_model_json.get("market_basis_type"),
-      "geography_basis": marketing_model_json.get("geography_basis"),
-      "b2c_basis_counts": marketing_model_json.get("b2c_basis_counts") or [],
-      "b2b_basis_counts": marketing_model_json.get("b2b_basis_counts") or {},
-      "required_revenue_year1": marketing_model_json.get("required_revenue_year1"),
-      "required_units_year1": marketing_model_json.get("required_units_year1"),
+      "version": marketing_basis.get("version"),
+      "market_basis_type": marketing_basis.get("market_basis_type"),
+      "geography_basis": normalized_geography,
+      "b2c_basis_counts": marketing_basis.get("b2c_basis_counts") or [],
+      "b2b_basis_counts": b2b_basis,
+      "required_revenue_year1": marketing_basis.get("required_revenue_year1"),
+      "required_units_year1": marketing_basis.get("required_units_year1"),
+      "reachable_market": marketing_basis.get("reachable_market"),
+      "reachable_market_b2c": marketing_basis.get("reachable_market_b2c"),
+      "reachable_market_b2b": marketing_basis.get("reachable_market_b2b"),
     },
   }
 
@@ -1526,7 +1566,7 @@ def _compute_marketing_model_json(
     business_facts=business_facts,
   )
   base_model: Dict[str, Any] = {
-    "version": 1,
+    "version": 3,
     "signature": signature,
     "market_basis_type": str((market_json or {}).get("consumer_type") or (ops_json or {}).get("consumer_type") or "").strip().lower() or "consumer",
     "geography_basis": {},
@@ -1534,6 +1574,8 @@ def _compute_marketing_model_json(
     "b2b_basis_counts": {},
     "required_revenue_year1": float((financials_year1_json or {}).get("company_revenue_total_year1") or 0.0),
     "required_units_year1": _required_units_year1(financials_year1_json or {}),
+    "reachable_market_b2c": None,
+    "reachable_market_b2b": None,
     "missing_dependencies": [],
     "ready": False,
   }
@@ -1602,12 +1644,15 @@ def _compute_marketing_model_json(
 
   existing_model = dict(existing_marketing_model_json or {})
   if (
-    str(existing_model.get("signature") or "").strip() == signature
+    int(existing_model.get("version") or 0) == int(base_model.get("version") or 0)
+    and str(existing_model.get("signature") or "").strip() == signature
     and existing_model.get("ready") is True
     and existing_model.get("baseline_marketing_percent") is not None
   ):
     for key in (
       "reachable_market",
+      "reachable_market_b2c",
+      "reachable_market_b2b",
       "capture_rate_year1",
       "expected_customers_or_clients_year1",
       "expected_units_year1",
@@ -1638,9 +1683,25 @@ def _compute_marketing_model_json(
   baseline_percent = float(estimated.get("baseline_marketing_percent") or 0.0)
   baseline_amount = float(base_model["required_revenue_year1"] * baseline_percent)
   expected_units_year1 = float(estimated.get("expected_units_year1") or 0.0)
+  reachable_market = float(estimated.get("reachable_market") or 0.0)
+  reachable_market_b2c = _safe_float(estimated.get("reachable_market_b2c"))
+  reachable_market_b2b = _safe_float(estimated.get("reachable_market_b2b"))
+  if market_basis_type == "consumer":
+    reachable_market_b2c = reachable_market
+    reachable_market_b2b = 0.0
+  elif market_basis_type == "b2b":
+    reachable_market_b2c = 0.0
+    reachable_market_b2b = reachable_market
+  else:
+    if reachable_market_b2c is None:
+      reachable_market_b2c = 0.0
+    if reachable_market_b2b is None:
+      reachable_market_b2b = 0.0
   base_model.update(
     {
-      "reachable_market": float(estimated.get("reachable_market") or 0.0),
+      "reachable_market": reachable_market,
+      "reachable_market_b2c": max(0.0, reachable_market_b2c),
+      "reachable_market_b2b": max(0.0, reachable_market_b2b),
       "capture_rate_year1": float(estimated.get("capture_rate_year1") or 0.0),
       "expected_customers_or_clients_year1": float(estimated.get("expected_customers_or_clients_year1") or 0.0),
       "expected_units_year1": expected_units_year1,

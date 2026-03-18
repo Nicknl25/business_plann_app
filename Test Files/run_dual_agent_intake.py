@@ -4,12 +4,19 @@ import os
 import re
 import sys
 import textwrap
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 import requests
+
+try:
+  import mysql.connector  # type: ignore
+except Exception:
+  mysql = None  # type: ignore
 
 try:
   from dotenv import load_dotenv
@@ -63,6 +70,8 @@ FINANCIALS_FACT_FIELDS = {
   "financials_summary",
   "current_revenue",
   "current_cogs",
+  "marketing_total_year1",
+  "marketing_percent_of_revenue",
   "other_operating_expense",
   "monthly_rent_expense",
   "other_monthly_debt_payments",
@@ -93,6 +102,7 @@ OPS_MONEY_FIELDS = {"unit_price", "initial_assets", "initial_equity", "total_deb
 FIN_MONEY_FIELDS = {
   "current_revenue",
   "current_cogs",
+  "marketing_total_year1",
   "other_operating_expense",
   "monthly_rent_expense",
   "other_monthly_debt_payments",
@@ -109,6 +119,9 @@ FIN_MONEY_FIELDS = {
   "owner_compensation",
   "cash_on_hand",
 }
+FIN_PERCENT_FIELDS = {
+  "marketing_percent_of_revenue",
+}
 COUNT_FIELDS = {"units_per_week_capacity", "units_per_period_capacity", "current_num_employees"}
 
 
@@ -123,6 +136,275 @@ def _load_env() -> None:
         load_dotenv(override=False)
     except Exception:
       pass
+
+
+def _mysql_env() -> Optional[Dict[str, Any]]:
+  host = os.getenv("MYSQL_HOST", "").strip()
+  user = os.getenv("MYSQL_USER", "").strip()
+  password = os.getenv("MYSQL_PASSWORD", "")
+  database = os.getenv("MYSQL_DB", "").strip()
+  port_raw = os.getenv("MYSQL_PORT", "3306").strip()
+  if not (host and user and database):
+    return None
+  try:
+    port = int(port_raw or "3306")
+  except Exception:
+    port = 3306
+  return {
+    "host": host,
+    "user": user,
+    "password": password,
+    "database": database,
+    "port": port,
+  }
+
+
+class _SimulatorMetricsStore:
+  def __init__(self) -> None:
+    self._conn = None
+    self._enabled = False
+    if mysql is None or getattr(mysql, "connector", None) is None:
+      return
+    cfg = _mysql_env()
+    if not cfg:
+      return
+    try:
+      self._conn = mysql.connector.connect(**cfg)
+      self._ensure_tables()
+      self._enabled = True
+    except Exception:
+      self._conn = None
+      self._enabled = False
+
+  @property
+  def enabled(self) -> bool:
+    return self._enabled and self._conn is not None
+
+  def close(self) -> None:
+    if self._conn is not None:
+      try:
+        self._conn.close()
+      except Exception:
+        pass
+    self._conn = None
+    self._enabled = False
+
+  def _ensure_tables(self) -> None:
+    if self._conn is None:
+      return
+    cur = self._conn.cursor()
+    try:
+      cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS intake_sim_runs (
+          run_id VARCHAR(32) PRIMARY KEY,
+          seed TEXT NOT NULL,
+          model_name VARCHAR(128) NOT NULL,
+          base_url VARCHAR(255) NOT NULL,
+          output_dir TEXT NULL,
+          started_at DATETIME(6) NOT NULL,
+          ended_at DATETIME(6) NULL,
+          total_duration_ms BIGINT NULL,
+          start_hour_local TINYINT NULL,
+          status VARCHAR(32) NOT NULL,
+          stop_reason TEXT NULL,
+          draft_id VARCHAR(64) NULL,
+          client_id VARCHAR(64) NULL,
+          business_name VARCHAR(255) NULL,
+          business_start_date VARCHAR(32) NULL,
+          business_address TEXT NULL,
+          session_create_ms BIGINT NULL,
+          initial_app_response_ms BIGINT NULL,
+          total_turns INT NOT NULL DEFAULT 0,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+        )
+        """
+      )
+      cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS intake_sim_turn_metrics (
+          id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          run_id VARCHAR(32) NOT NULL,
+          turn_index INT NOT NULL,
+          focus VARCHAR(32) NULL,
+          turn_started_at DATETIME(6) NOT NULL,
+          draft_fetch_ms BIGINT NULL,
+          client_answer_ms BIGINT NULL,
+          app_response_ms BIGINT NULL,
+          assistant_chars INT NULL,
+          user_chars INT NULL,
+          stop_flag TINYINT(1) NOT NULL DEFAULT 0,
+          stop_reason TEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          INDEX idx_intake_sim_turn_metrics_run_turn (run_id, turn_index)
+        )
+        """
+      )
+      self._conn.commit()
+    finally:
+      cur.close()
+
+  def create_run(
+    self,
+    *,
+    run_id: str,
+    seed: str,
+    model_name: str,
+    base_url: str,
+    output_dir: str,
+    started_at: datetime,
+  ) -> None:
+    if not self.enabled:
+      return
+    cur = self._conn.cursor()
+    try:
+      cur.execute(
+        """
+        INSERT INTO intake_sim_runs (
+          run_id, seed, model_name, base_url, output_dir, started_at, start_hour_local, status
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+          run_id,
+          seed,
+          model_name,
+          base_url,
+          output_dir,
+          started_at,
+          started_at.hour,
+          "running",
+        ),
+      )
+      self._conn.commit()
+    finally:
+      cur.close()
+
+  def update_run_bootstrap(
+    self,
+    *,
+    run_id: str,
+    business_name: str,
+    business_start_date: str,
+    business_address: str,
+  ) -> None:
+    if not self.enabled:
+      return
+    cur = self._conn.cursor()
+    try:
+      cur.execute(
+        """
+        UPDATE intake_sim_runs
+        SET business_name=%s, business_start_date=%s, business_address=%s
+        WHERE run_id=%s
+        """,
+        (business_name, business_start_date, business_address, run_id),
+      )
+      self._conn.commit()
+    finally:
+      cur.close()
+
+  def update_run_session(
+    self,
+    *,
+    run_id: str,
+    draft_id: Optional[str],
+    client_id: Optional[str],
+    session_create_ms: Optional[int],
+    initial_app_response_ms: Optional[int],
+  ) -> None:
+    if not self.enabled:
+      return
+    cur = self._conn.cursor()
+    try:
+      cur.execute(
+        """
+        UPDATE intake_sim_runs
+        SET draft_id=%s, client_id=%s, session_create_ms=%s, initial_app_response_ms=%s
+        WHERE run_id=%s
+        """,
+        (draft_id, client_id, session_create_ms, initial_app_response_ms, run_id),
+      )
+      self._conn.commit()
+    finally:
+      cur.close()
+
+  def insert_turn(
+    self,
+    *,
+    run_id: str,
+    turn_index: int,
+    focus: str,
+    turn_started_at: datetime,
+    draft_fetch_ms: Optional[int],
+    client_answer_ms: Optional[int],
+    app_response_ms: Optional[int],
+    assistant_chars: int,
+    user_chars: int,
+    stop_flag: bool,
+    stop_reason: str,
+  ) -> None:
+    if not self.enabled:
+      return
+    cur = self._conn.cursor()
+    try:
+      cur.execute(
+        """
+        INSERT INTO intake_sim_turn_metrics (
+          run_id, turn_index, focus, turn_started_at, draft_fetch_ms, client_answer_ms,
+          app_response_ms, assistant_chars, user_chars, stop_flag, stop_reason
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+          run_id,
+          turn_index,
+          focus,
+          turn_started_at,
+          draft_fetch_ms,
+          client_answer_ms,
+          app_response_ms,
+          assistant_chars,
+          user_chars,
+          1 if stop_flag else 0,
+          stop_reason or None,
+        ),
+      )
+      self._conn.commit()
+    finally:
+      cur.close()
+
+  def finish_run(
+    self,
+    *,
+    run_id: str,
+    ended_at: datetime,
+    total_duration_ms: int,
+    total_turns: int,
+    status: str,
+    stop_reason: str,
+  ) -> None:
+    if not self.enabled:
+      return
+    cur = self._conn.cursor()
+    try:
+      cur.execute(
+        """
+        UPDATE intake_sim_runs
+        SET ended_at=%s, total_duration_ms=%s, total_turns=%s, status=%s, stop_reason=%s
+        WHERE run_id=%s
+        """,
+        (
+          ended_at,
+          total_duration_ms,
+          total_turns,
+          status,
+          stop_reason,
+          run_id,
+        ),
+      )
+      self._conn.commit()
+    finally:
+      cur.close()
 
 
 def _post_json(url: str, payload: Dict[str, Any], *, timeout: int = 240) -> Dict[str, Any]:
@@ -167,7 +449,7 @@ def _parse_json_dict(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
-def _to_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> Optional[float]:
   if value is None or value == "" or isinstance(value, bool):
     return None
   if isinstance(value, (int, float)):
@@ -178,15 +460,33 @@ def _to_float(value: Any) -> Optional[float]:
     return None
 
 
-def _format_number(value: Any, *, money: bool) -> str:
-  num = _to_float(value)
+def _format_currency(value: Any) -> str:
+  num = _safe_float(value)
   if num is None:
-    return "$0" if money else "0"
+    return "$0"
   if abs(num - round(num)) < 1e-9:
     core = f"{int(round(num)):,}"
   else:
     core = f"{num:,.2f}".rstrip("0").rstrip(".")
-  return f"${core}" if money else core
+  return f"${core}"
+
+
+def _format_percent(value: Any) -> str:
+  num = _safe_float(value)
+  if num is None:
+    return "0%"
+  return f"{num * 100:,.0f}%"
+
+
+def _format_number(value: Any, *, money: bool) -> str:
+  num = _safe_float(value)
+  if num is None:
+    return "$0" if money else "0"
+  if money:
+    return _format_currency(num)
+  if abs(num - round(num)) < 1e-9:
+    return f"{int(round(num)):,}"
+  return f"{num:,.2f}".rstrip("0").rstrip(".")
 
 
 def _format_lease(value: Any) -> str:
@@ -196,7 +496,7 @@ def _format_lease(value: Any) -> str:
   if not raw:
     return "none"
   parts = [p.strip() for p in raw.split(",")]
-  amount = _to_float(parts[0]) if parts else None
+  amount = _safe_float(parts[0]) if parts else None
   period = parts[1] if len(parts) > 1 else ""
   if not amount or amount <= 1e-9:
     return "none" if period.lower() in ("none", "n/a", "na", "") else f"$0/{period}"
@@ -253,6 +553,8 @@ def _render_fact_placeholders(text: str, draft: Optional[Dict[str, Any]]) -> str
       return _format_number(value, money=True)
     if group == "financials" and field in FIN_MONEY_FIELDS:
       return _format_number(value, money=True)
+    if group == "financials" and field in FIN_PERCENT_FIELDS:
+      return _format_percent(value)
     if isinstance(value, (int, float)) and not isinstance(value, bool):
       return _format_number(value, money=False)
     if isinstance(value, list):
@@ -581,6 +883,19 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
   transcript: List[Dict[str, str]] = []
   bootstrap: Optional[Bootstrap] = None
   draft_id: Optional[str] = None
+  client_id: Optional[str] = None
+  run_id = uuid.uuid4().hex
+  run_started_at = datetime.now()
+  run_started_perf = time.perf_counter()
+  metrics = _SimulatorMetricsStore()
+  metrics.create_run(
+    run_id=run_id,
+    seed=seed,
+    model_name=model,
+    base_url=base_url,
+    output_dir=output_dir,
+    started_at=run_started_at,
+  )
 
   def _persist_report(*, status: str, stop_reason: str) -> None:
     path = _save_run_report(
@@ -595,11 +910,30 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
     if path:
       print(f"Saved run report: {path}")
 
+  def _finish_metrics(*, status: str, stop_reason: str, total_turns: int) -> None:
+    metrics.finish_run(
+      run_id=run_id,
+      ended_at=datetime.now(),
+      total_duration_ms=int(round((time.perf_counter() - run_started_perf) * 1000.0)),
+      total_turns=total_turns,
+      status=status,
+      stop_reason=stop_reason,
+    )
+    metrics.close()
+
   try:
     bootstrap = agent.bootstrap()
+    metrics.update_run_bootstrap(
+      run_id=run_id,
+      business_name=bootstrap.business_name,
+      business_start_date=bootstrap.business_start_date,
+      business_address=bootstrap.address,
+    )
     print(f"Bootstrapped business: {bootstrap.business_name}")
 
+    started = time.perf_counter()
     session = _post_json(f"{base_url}/api/intake-consult/session", {})
+    session_create_ms = int(round((time.perf_counter() - started) * 1000.0))
     draft_id = session.get("draft_id")
     client_id = session.get("client_id")
     if not draft_id:
@@ -618,10 +952,22 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
       "address_country": bootstrap.address_country,
       "message": "",
     }
+    started = time.perf_counter()
     response = _post_json(f"{base_url}/api/intake-consult", seed_payload)
+    initial_app_response_ms = int(round((time.perf_counter() - started) * 1000.0))
+    metrics.update_run_session(
+      run_id=run_id,
+      draft_id=draft_id,
+      client_id=client_id,
+      session_create_ms=session_create_ms,
+      initial_app_response_ms=initial_app_response_ms,
+    )
 
     for turn_index in range(max_turns):
+      turn_started_at = datetime.now()
+      draft_fetch_started = time.perf_counter()
       draft_snapshot = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
+      draft_fetch_ms = int(round((time.perf_counter() - draft_fetch_started) * 1000.0))
       assistant_message = _render_fact_placeholders(
         str(response.get("assistant_message") or "").strip(),
         draft_snapshot,
@@ -647,6 +993,20 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
           ),
         )
         print(f"Draft ID: {draft_id}")
+        metrics.insert_turn(
+          run_id=run_id,
+          turn_index=turn_index,
+          focus=active_focus,
+          turn_started_at=turn_started_at,
+          draft_fetch_ms=draft_fetch_ms,
+          client_answer_ms=None,
+          app_response_ms=None,
+          assistant_chars=len(assistant_message),
+          user_chars=0,
+          stop_flag=True,
+          stop_reason="intake completed",
+        )
+        _finish_metrics(status="completed", stop_reason="intake completed", total_turns=turn_index + 1)
         _persist_report(status="completed", stop_reason="intake completed")
         return 0
 
@@ -661,17 +1021,34 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
         print(f"\nSTOP: {failure}")
         print(f"Draft ID: {draft_id}")
         _print_transcript_tail(transcript)
+        metrics.insert_turn(
+          run_id=run_id,
+          turn_index=turn_index,
+          focus=active_focus,
+          turn_started_at=turn_started_at,
+          draft_fetch_ms=draft_fetch_ms,
+          client_answer_ms=None,
+          app_response_ms=None,
+          assistant_chars=len(assistant_message),
+          user_chars=0,
+          stop_flag=True,
+          stop_reason=failure,
+        )
+        _finish_metrics(status="stopped", stop_reason=failure, total_turns=turn_index + 1)
         _persist_report(status="stopped", stop_reason=failure)
         return 1
 
+      client_answer_started = time.perf_counter()
       reply = agent.answer(
         active_focus=active_focus,
         assistant_message=assistant_message,
         transcript_tail=transcript,
       )
+      client_answer_ms = int(round((time.perf_counter() - client_answer_started) * 1000.0))
       transcript.append({"role": "user", "content": reply, "focus": active_focus})
       print(f"[user] {reply}")
 
+      app_response_started = time.perf_counter()
       response = _post_json(
         f"{base_url}/api/intake-consult",
         {
@@ -680,20 +1057,41 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
           "message": reply,
         },
       )
+      app_response_ms = int(round((time.perf_counter() - app_response_started) * 1000.0))
+      metrics.insert_turn(
+        run_id=run_id,
+        turn_index=turn_index,
+        focus=active_focus,
+        turn_started_at=turn_started_at,
+        draft_fetch_ms=draft_fetch_ms,
+        client_answer_ms=client_answer_ms,
+        app_response_ms=app_response_ms,
+        assistant_chars=len(assistant_message),
+        user_chars=len(reply),
+        stop_flag=False,
+        stop_reason="",
+      )
 
     print(f"\nSTOP: max turns reached ({max_turns})")
     print(f"Draft ID: {draft_id}")
     _print_transcript_tail(transcript)
+    _finish_metrics(status="stopped", stop_reason=f"max turns reached ({max_turns})", total_turns=max_turns)
     _persist_report(status="stopped", stop_reason=f"max turns reached ({max_turns})")
     return 1
 
   except KeyboardInterrupt:
     print("\nStopped by user.")
+    _finish_metrics(status="stopped", stop_reason="stopped by user", total_turns=len([t for t in transcript if t.get("role") == "assistant"]))
     _persist_report(status="stopped", stop_reason="stopped by user")
     return 130
   except Exception as exc:
     print(f"\nSTOP: runner error: {type(exc).__name__}: {exc}")
     _print_transcript_tail(transcript)
+    _finish_metrics(
+      status="error",
+      stop_reason=f"{type(exc).__name__}: {exc}",
+      total_turns=len([t for t in transcript if t.get("role") == "assistant"]),
+    )
     _persist_report(status="error", stop_reason=f"{type(exc).__name__}: {exc}")
     return 1
 
