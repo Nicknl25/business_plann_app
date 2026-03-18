@@ -630,6 +630,7 @@ def _compute_payroll_baseline(
   shared_context: Dict[str, Any],
 ) -> Dict[str, Any]:
   people_context = dict((shared_context or {}).get("people_capability") or {})
+  operating_model = dict((shared_context or {}).get("operating_model") or {})
   basis_roles: List[Dict[str, Any]] = []
   baseline_total = 0.0
 
@@ -686,15 +687,56 @@ def _compute_payroll_baseline(
     "payroll_adjustment": 0.0,
     "payroll_total_year1": float(baseline_total),
     "payroll_basis_people_roles": basis_roles,
+    "business_stage": str(operating_model.get("business_stage") or "").strip().lower(),
   }
 
 
 def _build_payroll_baseline_message(payroll_baseline: Dict[str, Any]) -> str:
-  role_count = len(payroll_baseline.get("payroll_basis_people_roles") or [])
+  roles = payroll_baseline.get("payroll_basis_people_roles") or []
+  role_count = len(roles)
   role_phrase = "role" if role_count == 1 else "roles"
+  existing_count = 0
+  inferred_count = 0
+  for role in roles:
+    if not isinstance(role, dict):
+      continue
+    source = str(role.get("source") or "").strip().lower()
+    if source == "person":
+      existing_count += 1
+    elif source == "inferred_role":
+      inferred_count += 1
+  stage = str(payroll_baseline.get("business_stage") or "").strip().lower()
+  clarification = (
+    "This payroll estimate reflects the staffing plan already captured, including current team members and any additional roles discussed earlier where applicable."
+  )
+  if stage == "pre-revenue":
+    clarification = (
+      "This payroll estimate reflects the team needed to launch and operate in Year 1, including any planned hires from the staffing plan."
+    )
+  elif stage == "early-stage":
+    clarification = (
+      "This payroll estimate reflects the current staffing plan plus near-term additions as the business ramps and workload increases."
+    )
+  elif stage == "operating":
+    clarification = (
+      "This payroll estimate reflects the existing team plus any incremental additions from the staffing plan; it is not replacing the team already in place."
+    )
+  composition = ""
+  if existing_count and inferred_count:
+    composition = (
+      f" That includes {existing_count} current team {'role' if existing_count == 1 else 'roles'} "
+      f"and {inferred_count} additional planned {'role' if inferred_count == 1 else 'roles'}."
+    )
+  elif existing_count:
+    composition = f" That includes {existing_count} current team {'role' if existing_count == 1 else 'roles'}."
+  elif inferred_count:
+    composition = (
+      f" That includes {inferred_count} planned {'role' if inferred_count == 1 else 'roles'} from the staffing plan."
+    )
   return (
     f"Based on the people plan already defined, a reasonable Year-1 payroll baseline is about "
     f"{_format_currency(payroll_baseline.get('baseline_payroll_year1'))} across {role_count} {role_phrase} in the plan.\n\n"
+    f"{clarification}{composition}\n\n"
     "Does that broadly match your Year-1 payroll expectation, or should we adjust it because your actual payroll setup is materially different?"
   )
 

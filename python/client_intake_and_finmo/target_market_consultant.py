@@ -712,6 +712,10 @@ Field rules by mode:
 - marketing_plan_summary must be a stronger, tailored narrative and must follow this strict format:
   - Exactly TWO paragraphs (no bullet points, no numbering).
   - Write like a senior strategist: specific to THIS business and audience. Avoid buzzwords and generic claims (e.g., "best-in-class", "high quality", "customer-centric") unless directly supported by the consultation.
+  - business_stage from the provided context is a global reasoning constraint for the narrative:
+    - If business_stage is pre-revenue, frame the plan around launch readiness, awareness, early testing, and first traction. Do NOT write as if the business already has stable repeat demand, mature retention systems, or optimized channels.
+    - If business_stage is early-stage, frame the plan around ramp, acquisition, proving repeatability, and early operational strain. Do NOT write as if the business is already a mature scaled operator.
+    - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (e.g., membership/subscription vs per-visit vs per-transaction vs contract/retainer). Do not invent a model.
     - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
@@ -762,6 +766,10 @@ Return ONLY JSON matching the provided schema. No prose.
 - marketing_plan_summary must be a stronger, tailored narrative and must follow this strict format:
   - Exactly TWO paragraphs (no bullet points, no numbering).
   - Write like a senior strategist: specific to THIS business and buyer. Avoid buzzwords and generic claims (e.g., "best-in-class", "high quality", "customer-centric") unless directly supported by the consultation.
+  - business_stage from the provided context is a global reasoning constraint for the narrative:
+    - If business_stage is pre-revenue, frame the plan around launch readiness, awareness, early testing, and first traction. Do NOT write as if the business already has stable repeat demand, mature retention systems, or optimized channels.
+    - If business_stage is early-stage, frame the plan around ramp, acquisition, proving repeatability, and early operational strain. Do NOT write as if the business is already a mature scaled operator.
+    - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (e.g., project/contract/retainer vs per-transaction). Do not invent a model.
     - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.
@@ -803,6 +811,10 @@ Hard requirements:
 - marketing_plan_summary must be a stronger, tailored narrative and must follow this strict format:
   - Exactly TWO paragraphs (no bullet points, no numbering).
   - Write like a senior strategist: specific to THIS business and audience. Avoid buzzwords and generic claims (e.g., "best-in-class", "high quality", "customer-centric") unless directly supported by the consultation.
+  - business_stage from the provided context is a global reasoning constraint for the narrative:
+    - If business_stage is pre-revenue, frame the plan around launch readiness, awareness, early testing, and first traction. Do NOT write as if the business already has stable repeat demand, mature retention systems, or optimized channels.
+    - If business_stage is early-stage, frame the plan around ramp, acquisition, proving repeatability, and early operational strain. Do NOT write as if the business is already a mature scaled operator.
+    - If business_stage is operating, assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that. Focus more on optimization, retention, repeatability, and scaling efficiency. Do NOT frame the strategy as discovery or experimentation unless the context explicitly supports that.
   - Paragraph 1 (Positioning): In 3-5 sentences, define the market positioning and tie it explicitly to:
     - Business model (consumer + B2B mix). Do not invent a model.
     - Unit price or economic tier. If a price is known, reference it using {{fact:ops.unit_price}} per {{fact:ops.unit_name}} (do not print literal values). If price is not known, describe the tier (value/mid-market/premium) without numbers.

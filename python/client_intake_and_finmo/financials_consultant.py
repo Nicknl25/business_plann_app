@@ -271,6 +271,10 @@ You are adjudicating whether a Year-1 revenue setup is internally coherent for a
 Your job:
 - Judge the revenue setup holistically using the provided persisted context.
 - Use business type/industry, stage/start date, product mix, capacity, utilization, price, periods/year, people/wages, hiring timing, fulfillment reality, target market, and operational constraints together.
+- Treat business_stage as a global realism modifier, not a cosmetic label:
+  - pre-revenue: emphasize launch readiness, proving first demand, and early traction realism; do not assume established channel efficiency or repeat demand unless the facts explicitly show it.
+  - early-stage: emphasize ramp, acquisition realism, and early operational strain; do not assume mature repeatability unless the facts support it.
+  - operating: assume some installed base, historical channel knowledge, and repeat demand patterns unless the facts contradict that; weigh optimization, retention, and scaling efficiency more heavily than startup-style discovery framing.
 - Treat practical capacity as the ceiling and utilization as the planned Year-1 operating level. Do not silently convert the setup into a 100% utilization assumption unless the context explicitly does that.
 - Do NOT use hardcoded utilization bands, canned industry templates, or external benchmarks.
 - Decide whether the Year-1 revenue setup is workable as-is, too stretched, too low for the stated model, or structurally inconsistent.
@@ -868,6 +872,10 @@ def _validate_marketing_estimate_candidate(
           "- capture_rate_year1 must be interpreted as units relative to reachable entities, not as a simple one-time adoption percentage.\n"
           "- Do not imply that capture_rate_year1 equals the percent of the total market adopting the product.\n"
           "- If capture_rate_year1 looks high, the rationale must explain it using the actual unit mechanics already implied by the business model, such as recurring periods, repeat purchases, multiple units per entity, or account/user structure.\n"
+          "- Treat business_stage as a global realism modifier:\n"
+          "  - pre-revenue: keep the rationale centered on launch readiness, early awareness, testing, and first traction; do not assume mature installed-base behavior unless the facts explicitly support it.\n"
+          "  - early-stage: keep the rationale centered on ramp, acquisition, proving repeatability, and early operational strain.\n"
+          "  - operating: assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that; focus more on optimization, retention, repeat demand, and scaling efficiency than on discovery framing.\n"
           "- If the candidate is acceptable, return proceed=true and feedback as an empty string.\n"
           "- If not acceptable, return proceed=false and feedback as one short internal correction note."
         ),
@@ -975,6 +983,10 @@ def estimate_marketing_baseline_from_context(
             "- If capture_rate_year1 appears high, explain it using the actual unit mechanics implied by the business model and unit definition (for example, recurring periods, repeat purchases, multiple units per entity, or account/user structure).\n"
             "- brief_rationale must separate the B2C people-based reach from the B2B firm-based reach whenever both are present, and must describe reachable_market as a planning/reporting view rather than one literal combined TAM.\n"
             "- For B2C, brief_rationale must explicitly explain the narrowing from broad ACS population basis to the actual user type and then to the reachable subset.\n"
+            "- Treat business_stage as a global reasoning constraint:\n"
+            "  - pre-revenue: frame the estimate around launch readiness, awareness, testing, and first traction; do not write as if the business already has stable repeat demand or mature channel optimization.\n"
+            "  - early-stage: frame the estimate around ramp, acquisition, proving repeatability, and early operational strain.\n"
+            "  - operating: assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that; focus more on optimization, retention, repeatability, and scaling efficiency than on startup-style discovery.\n"
             "- Avoid false precision in brief_rationale; explain the grounding honestly.\n"
             "- If estimate_feedback is present in the context, correct the estimate accordingly.\n"
             "- Do not ask questions."
@@ -1189,6 +1201,10 @@ def validate_marketing_setup(
           "In mixed B2C/B2B cases, keep B2C people reach and B2B firm reach conceptually separate; combined reachable market is a planning abstraction only.\n"
           "Treat reachable-market fields as entity counts and expected_units_year1 as unit output; capture rate should be interpreted as units relative to reachable entities, not pure adoption rate.\n"
           "If capture looks high, it must be explainable by the actual unit mechanics already implied by the business model rather than by vague market-adoption language.\n"
+          "Treat business_stage as a global realism modifier:\n"
+          "- pre-revenue: keep the setup and acknowledgement framed around launch readiness, early awareness, testing, and first traction rather than mature optimization.\n"
+          "- early-stage: keep the setup and acknowledgement framed around ramp, acquisition, and proving repeatability.\n"
+          "- operating: assume some existing customer base, historical channel knowledge, and prior traction unless the facts contradict that; focus more on optimization, retention, repeatability, and scaling efficiency than on discovery framing.\n"
           "If it is coherent enough for intake, set proceed=true and return a very short acknowledgement or an empty string.\n"
           "If it is structurally inconsistent, set proceed=false and ask one short clarification question.\n"
           "Do not ask the client to calculate the market from scratch.\n"
@@ -1637,6 +1653,10 @@ Rules:
 - Replace only the client-facing narrative and question beneath the table.
 - Use the provided revenue_adjudication object as the source of truth for the judgment. Do not contradict it.
 - Judge the setup holistically: business type/industry, stage/start date, capacity, utilization, price, periods/year, staffing/wages, hiring timing, fulfillment, and other persisted constraints.
+- Treat business_stage as a global realism/tone modifier:
+  - pre-revenue: explain the setup in terms of launch readiness, first demand, and early traction realism; do not write like a mature operator unless the facts explicitly support it.
+  - early-stage: explain the setup in terms of ramp, acquisition realism, and proving repeatability.
+  - operating: assume some installed base, historical channel knowledge, and repeat demand unless the facts contradict that; use optimization, retention, and scaling language rather than startup-style discovery language.
 - Treat utilization as the planned Year-1 operating level. Do not describe the setup as full capacity or fully booked unless utilization is actually 100%.
 - The narrative must be one concise paragraph in plain English for a non-financial client.
 - If revenue_adjudication.good_to_proceed_without_revenue_change is true:

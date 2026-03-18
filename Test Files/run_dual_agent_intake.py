@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -26,6 +27,7 @@ except Exception:
 
 OPENAI_URL = "https://api.openai.com/v1/responses"
 _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
+US_EASTERN = ZoneInfo("America/New_York")
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 OPS_FACT_FIELDS = {
@@ -787,6 +789,10 @@ def _safe_filename_part(text: str, *, max_len: int = 80) -> str:
   return (cleaned[:max_len].rstrip() or "test-run")
 
 
+def _eastern_now() -> datetime:
+  return datetime.now(US_EASTERN)
+
+
 def _save_run_report(
   *,
   output_dir: str,
@@ -799,7 +805,7 @@ def _save_run_report(
 ) -> Optional[str]:
   try:
     os.makedirs(output_dir, exist_ok=True)
-    now = datetime.now()
+    now = _eastern_now()
     date_part = now.strftime("%m-%d-%Y")
     scenario_part = _safe_filename_part(seed)
     path = os.path.join(output_dir, f"{date_part} -- {scenario_part}.txt")
@@ -885,7 +891,7 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
   draft_id: Optional[str] = None
   client_id: Optional[str] = None
   run_id = uuid.uuid4().hex
-  run_started_at = datetime.now()
+  run_started_at = _eastern_now()
   run_started_perf = time.perf_counter()
   metrics = _SimulatorMetricsStore()
   metrics.create_run(
@@ -913,7 +919,7 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
   def _finish_metrics(*, status: str, stop_reason: str, total_turns: int) -> None:
     metrics.finish_run(
       run_id=run_id,
-      ended_at=datetime.now(),
+      ended_at=_eastern_now(),
       total_duration_ms=int(round((time.perf_counter() - run_started_perf) * 1000.0)),
       total_turns=total_turns,
       status=status,
@@ -964,7 +970,7 @@ def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, ou
     )
 
     for turn_index in range(max_turns):
-      turn_started_at = datetime.now()
+      turn_started_at = _eastern_now()
       draft_fetch_started = time.perf_counter()
       draft_snapshot = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
       draft_fetch_ms = int(round((time.perf_counter() - draft_fetch_started) * 1000.0))

@@ -315,6 +315,11 @@ Style requirements:
 
 One-time nudge (use once early, then never repeat):
 - Briefly mention that businesses often highlight a small number of pivotal roles (leadership, operations, technical/licensed, client-facing), but this is not a checklist.
+- Also include one short stage-aware framing sentence so the client knows how to interpret later inferred roles and timing:
+  - pre-revenue: frame later inferred roles as initial buildout capacity for launch and early operation.
+  - early-stage: frame later inferred roles as additions that support ramp, increasing workload, and early specialization.
+  - operating: frame later inferred roles as targeted additions or specialization within an already functioning business, not a rebuild from scratch.
+- Keep that framing light: one sentence only, no extra question, no preview of specific roles, and no repeat after the early nudge.
 
 Flow:
 1) Single combined intake question per person (one question total for each person):
@@ -406,6 +411,21 @@ Hard requirements:
 - Do NOT include meta phrases like "professional way to say this" or "I'll clean up wording" in the paragraph text.
 - Do not refer to the output as a "section" and do not say it will appear verbatim in a plan; treat it as narrative source material.
 - Fact-bearing template rule: if you mention the business name, use {{fact:business.name}} (do not print the literal name).
+- business_stage from context is a required reasoning constraint for inferred roles, notes, timing, and summary:
+  - If business_stage is pre-revenue:
+    - inferred roles should reflect initial buildout and coverage of core functions needed to launch and stabilize early operation.
+    - months_until_hire should reflect when those capabilities first become necessary, including immediate roles when needed for launch.
+    - inferred_roles_summary should read like launch-readiness planning, not mature optimization.
+  - If business_stage is early-stage:
+    - inferred roles should reflect ramp, increasing workload, and early specialization as demand grows.
+    - months_until_hire should reflect growth timing and early operational strain, not all roles front-loaded at once.
+    - inferred_roles_summary should read like scaling and proving repeatability, not a business being built entirely from scratch.
+  - If business_stage is operating:
+    - inferred roles should reflect targeted additions to refine and scale an already functioning business with ongoing work.
+    - Do NOT frame roles purely as generic growth hires.
+    - Prefer notes that emphasize reducing bottlenecks, increasing leverage, improving throughput, adding specialization where generalists are stretched, or supporting repeat demand in an existing operation.
+    - months_until_hire should reflect when additional capacity or specialization becomes necessary within the active workload, not immediate blanket hiring.
+    - inferred_roles_summary should make clear these are incremental additions to improve and expand an existing operation rather than building the team from scratch.
 
 Edit mode (if intake_context.edit_mode is true):
 - You will be provided:
