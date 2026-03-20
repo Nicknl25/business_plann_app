@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 import requests
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-FINALIZE_TOKEN = "[[FINALIZE_READY]]"
 _RETRYABLE_STATUS = {429, 502, 503, 504}
 
 
@@ -1886,68 +1885,6 @@ Return ONLY the final response text.
   return revised_strict or revised
 
 
-def _final_schema() -> Dict[str, Any]:
-  return {
-    "name": "intake_financials_final",
-    "schema": {
-      "type": "object",
-      "additionalProperties": False,
-      "properties": {
-        "financials_summary": {"type": "string"},
-        "current_revenue": {"type": "number"},
-        "current_cogs": {"type": "number"},
-        "marketing_total_year1": {"type": "number"},
-        "marketing_percent_of_revenue": {"type": "number"},
-        "other_operating_expense": {"type": "number"},
-        "monthly_rent_expense": {"type": "number"},
-        "future_rent_expected": {"type": "boolean"},
-        "other_monthly_debt_payments": {"type": "number"},
-        "current_payroll": {"type": "number"},
-        "current_num_employees": {"type": "number"},
-        "current_capex": {"type": "number"},
-        "ar_balance": {"type": "number"},
-        "ap_balance": {"type": "number"},
-        "inventory_balance": {"type": "number"},
-        "initial_assets": {"type": "number"},
-        "initial_lease": {"type": "string"},
-        "initial_equity": {"type": "number"},
-        "total_debt_outstanding": {"type": "number"},
-        "annual_interest_payment": {"type": "number"},
-        "annual_principal_payment": {"type": "number"},
-        "owner_compensation": {"type": "number"},
-        "cash_on_hand": {"type": "number"},
-        "confidence": {"type": "number"},
-      },
-      "required": [
-        "financials_summary",
-        "current_revenue",
-        "current_cogs",
-        "marketing_total_year1",
-        "marketing_percent_of_revenue",
-        "other_operating_expense",
-        "monthly_rent_expense",
-        "future_rent_expected",
-        "other_monthly_debt_payments",
-        "current_payroll",
-        "current_num_employees",
-        "current_capex",
-        "ar_balance",
-        "ap_balance",
-        "inventory_balance",
-        "initial_assets",
-        "initial_lease",
-        "initial_equity",
-        "total_debt_outstanding",
-        "annual_interest_payment",
-        "annual_principal_payment",
-        "owner_compensation",
-        "cash_on_hand",
-        "confidence",
-      ],
-    },
-  }
-
-
 def financials_chat_turn(
   *,
   intake_context: Dict[str, Any],
@@ -2202,8 +2139,6 @@ Fact-bearing templates (STRICT):
 
 Output rules:
 - Respond with normal conversation text (NOT JSON).
-- When you are confident all required fields are complete, append the token
-  {FINALIZE_TOKEN} on its own line at the very end of your message.
   """.strip()
 
   if active_stage:
@@ -2233,10 +2168,7 @@ Output rules:
     raise RuntimeError(_format_openai_error(resp))
 
   text = _parse_responses_text(resp.json())
-  finalize_ready = FINALIZE_TOKEN in text
-  if active_stage:
-    finalize_ready = False
-  text = text.replace(FINALIZE_TOKEN, "").strip()
+  finalize_ready = False
   text = _rewrite_financials_revenue_response(draft_text=text, intake_context=intake_context)
   return {
     "assistant_message": text,
@@ -2244,107 +2176,4 @@ Output rules:
     "revenue_adjudication": revenue_adjudication,
   }
 
-
-def financials_finalize(
-  *,
-  intake_context: Dict[str, Any],
-  conversation_messages: List[Dict[str, str]],
-) -> Dict[str, Any]:
-  """
-  One-time finalization call with strict JSON schema.
-  """
-  api_key = _require_openai_key()
-  model = _openai_model()
-
-  system = """
-You are a business consultant finalizing the Financials intake.
-
-Return ONLY JSON matching the provided schema. No prose.
-
-Rules:
-- Do not invent non-zero values. Use only values explicitly established in the conversation.
-  - Values may be proposed by you ONLY if the client clearly agrees to that specific number in the conversation.
-  - If both an earlier number and a later corrected/agreed number exist, use the most recent explicitly agreed number.
-- No nulls: every numeric field must be a number (0 is allowed).
-- All values must be >= 0.
-- future_rent_expected must be a boolean.
-- If total_debt_outstanding is 0, annual_interest_payment and annual_principal_payment must be 0.
-- initial_assets must be a number >= 0 representing the rough total value of operating assets as of last month. If none/unclear, set initial_assets = 0.
-- initial_lease must be a comma-separated string "payment_amount,period" (examples: "0,none", "500,monthly", "200,weekly").
-  - If none/unclear, set initial_lease = "0,none".
-  - If amount is unclear but lease exists, use 0 for the payment amount and best-known period (or "unknown" if not known).
-- initial_equity must be a number >= 0 representing a rough total of money/value already put into the business so far. If none/unclear, set initial_equity = 0.
-
-Edit mode (if intake_context.edit_mode is true):
-- You will be provided:
-  - existing_financials_json: the last confirmed finalized object (canonical baseline)
-  - edit_request: the client's update request
-- Treat existing_financials_json as the baseline truth. Output a complete object by copying it and applying ONLY the changes clearly implied by edit_request.
-- Do NOT re-derive or re-annualize unrelated values; keep all other numeric fields unchanged unless the edit_request forces a change.
-
-Unit conventions (do not mention these in the summary):
-- Treat these as annualized flow assumptions: current_revenue, current_cogs, marketing_total_year1, other_operating_expense, current_payroll, current_capex, annual_interest_payment, annual_principal_payment, owner_compensation.
-  - If intake_context.financials_json already contains any of these fields, treat that stored value as the canonical annual amount and do NOT annualize it again from conversation text.
-  - Otherwise, if the conversation only establishes a monthly amount, annualize it by multiplying by 12.
-  - If the client clearly stated a yearly total, use it as-is.
-- Treat these as last-month amounts: monthly_rent_expense, other_monthly_debt_payments.
-- Treat these as end-of-last-month balances: ar_balance, ap_balance, inventory_balance, total_debt_outstanding, cash_on_hand, initial_assets, initial_equity.
-- current_num_employees is a count; round to a whole number if needed.
-
-financials_summary should be a short, plain-language recap (1 paragraph).
-- IMPORTANT: financials_summary is a fact-bearing template. Do NOT print literal numbers for known fields; use {{fact:financials.<field>}} (and {{fact:business.name}} if you mention the business) so the UI always renders the latest facts.
-- Present annual modeled income-statement items as Year-1 values:
-  - revenue, cogs, marketing, other operating expense, payroll, owner compensation, annual interest, annual principal, capex
-- Present monthly fields as monthly values:
-  - rent, other monthly debt payments
-- Present balance-sheet / stock items as current balances:
-  - cash on hand, AR, AP, inventory, operating assets, lease commitments, owner/investor funding to date, total debt outstanding
-- Include the key numeric facts using placeholders so nothing renders blank, even when values are 0.
-- Use {{fact:financials.marketing_total_year1}}, {{fact:financials.initial_assets}}, {{fact:financials.initial_lease}}, and {{fact:financials.initial_equity}} when describing marketing/assets/leases/funding.
-- Do NOT describe annual modeled values as "as of last month."
-""".strip()
-
-  context_blob = json.dumps(intake_context, ensure_ascii=False)
-  user = (
-    "Using the conversation and the current context, output the final financials intake.\n"
-    "Current known intake context (JSON):\n"
-    f"{context_blob}\n"
-  )
-
-  url = "https://api.openai.com/v1/responses"
-  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  schema_wrapper = _final_schema()
-  payload = {
-    "model": model,
-    "input": [
-      {"role": "system", "content": system},
-      {"role": "user", "content": user},
-      *conversation_messages,
-    ],
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": schema_wrapper["name"],
-        "schema": schema_wrapper["schema"],
-        "strict": True,
-      }
-    },
-  }
-
-  resp = _post_openai(url=url, headers=headers, payload=payload)
-  if resp.status_code >= 400:
-    raise RuntimeError(_format_openai_error(resp))
-
-  data = resp.json()
-  output = data.get("output") or []
-  for item in output:
-    for part in item.get("content", []) or []:
-      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
-        return part["json"]
-
-  raw = _parse_responses_text(data)
-  parsed = json.loads(raw)
-  if not isinstance(parsed, dict):
-    raise RuntimeError("Finalization did not return a JSON object.")
-  return parsed
 
