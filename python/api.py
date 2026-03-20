@@ -138,6 +138,12 @@ def create_app() -> Flask:
 
     return get_intake_consult_draft_handler(app=app, request=request)
 
+  @app.route("/debug/state/<draft_id>", methods=["GET", "OPTIONS"])
+  def get_intake_consult_debug_state(draft_id):
+    from api_handlers.intake_consult import get_intake_consult_debug_state_handler
+
+    return get_intake_consult_debug_state_handler(app=app, request=request, draft_id=draft_id)
+
   @app.route("/api/target-market/session", methods=["POST", "OPTIONS"])
   def post_target_market_session():
     """

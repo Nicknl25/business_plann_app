@@ -4,3 +4,4 @@ python-dotenv
 mysql-connector-python
 requests
 openai
+pulp

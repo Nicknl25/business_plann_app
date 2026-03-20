@@ -184,6 +184,340 @@ def _parse_responses_text(data: Dict[str, Any]) -> str:
 
 
 
+
+def _parse_responses_json(data: Dict[str, Any]) -> Dict[str, Any]:
+
+  output = data.get("output") or []
+
+  for item in output:
+
+    for part in item.get("content", []) or []:
+
+      if part.get("type") == "output_text" and part.get("text"):
+
+        raw = str(part["text"]).strip()
+
+        try:
+
+          parsed = json.loads(raw)
+
+        except Exception:
+
+          continue
+
+        if isinstance(parsed, dict):
+
+          return parsed
+
+  raise RuntimeError("OpenAI response contained no JSON object.")
+
+
+
+def consistency_solver_proposal_message(
+
+  *,
+
+  intake_context: Dict[str, Any],
+
+  solver_state: Dict[str, Any],
+
+) -> str:
+
+  api_key = _require_openai_key()
+
+  model = _openai_model()
+
+  business = {
+    "name": intake_context.get("business_name"),
+    "start_date": intake_context.get("business_start_date"),
+  }
+  shared_context = dict(intake_context.get("shared_context") or {})
+  operating_model = dict(shared_context.get("operating_model") or intake_context.get("operating_model_json") or {})
+  target_market = dict(shared_context.get("target_market") or intake_context.get("target_market_json") or {})
+
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are presenting Year-1 plan options to the client.\n"
+          "Assume the client has already reviewed and accepted the controller-built Year-1 table.\n"
+          "The numbers are already calculated. Do not recalculate them. Do not invent new options.\n"
+          "Use the provided scenario labels, EBITDA, net income, and loss percentages exactly as supplied.\n"
+          "Keep this tight: one short transition sentence, then a numbered list of the available options (usually 1-3), then one short question.\n"
+          "The objective is to move Year-1 EBITDA to break-even when possible.\n"
+          "If solver_state.structural_gap is true, say plainly: 'None of these gets Year 1 EBITDA to break-even, but these are the strongest options within the current plan.'\n"
+          "If an option changes price, briefly ground it in the business model and market, but do not mention NAICS or internal analysis language.\n"
+          "If an option delays hiring, explain it as timing of planned hires in plain English.\n"
+          "Do not use internal jargon like controller-built, structural gap, viability, optimization engine, or burn rate.\n"
+          "Do not show a table. Do not restate the table in prose. Do not recap the baseline beyond the one short transition sentence."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "business": business,
+            "operating_model": {
+              "business_type": operating_model.get("business_type"),
+              "business_stage": operating_model.get("business_stage"),
+              "business_naics_6": operating_model.get("business_naics_6"),
+              "unit_name": operating_model.get("unit_name"),
+              "unit_description": operating_model.get("unit_description"),
+              "sales_modality": operating_model.get("sales_modality"),
+              "shipping_method": operating_model.get("shipping_method"),
+              "geographic_scope": operating_model.get("geographic_scope"),
+            },
+            "target_market": {
+              "consumer_type": target_market.get("consumer_type"),
+              "target_market_summary": target_market.get("target_market_summary"),
+              "marketing_plan_summary": target_market.get("marketing_plan_summary"),
+            },
+            "solver_state": solver_state,
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+  }
+
+  url = "https://api.openai.com/v1/responses"
+
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+
+  if resp.status_code >= 400:
+
+    raise RuntimeError(_format_openai_error(resp))
+
+  return _parse_responses_text(resp.json())
+
+
+
+def _solver_reply_schema() -> Dict[str, Any]:
+
+  return {
+    "name": "consistency_solver_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": ["select_option", "modify_option", "ask_question", "reject_all", "unclear"],
+        },
+        "selected_scenario_id": {"type": ["string", "null"]},
+        "reason": {"type": "string"},
+        "unit_price_absolute": {"type": ["number", "null"]},
+        "price_change_percent": {"type": ["number", "null"]},
+        "utilization_percent": {"type": ["number", "null"]},
+        "marketing_total_year1_absolute": {"type": ["number", "null"]},
+        "marketing_reduction_percent": {"type": ["number", "null"]},
+        "other_opex_absolute": {"type": ["number", "null"]},
+        "other_opex_reduction_percent": {"type": ["number", "null"]},
+        "role_title": {"type": ["string", "null"]},
+        "months_until_hire": {"type": ["number", "null"]},
+        "milestone_timing_months_max": {"type": ["number", "null"]},
+      },
+      "required": [
+        "intent_type",
+        "selected_scenario_id",
+        "reason",
+        "unit_price_absolute",
+        "price_change_percent",
+        "utilization_percent",
+        "marketing_total_year1_absolute",
+        "marketing_reduction_percent",
+        "other_opex_absolute",
+        "other_opex_reduction_percent",
+        "role_title",
+        "months_until_hire",
+        "milestone_timing_months_max",
+      ],
+    },
+  }
+
+
+
+def interpret_consistency_solver_reply(
+
+  *,
+
+  user_message: str,
+
+  last_assistant: str,
+
+  solver_state: Dict[str, Any],
+
+) -> Dict[str, Any]:
+
+  if not str(user_message or "").strip():
+
+    return {}
+
+  scenarios = solver_state.get("scenarios") if isinstance(solver_state, dict) else None
+
+  if not isinstance(scenarios, list) or not scenarios:
+
+    return {}
+
+  api_key = _require_openai_key()
+
+  model = _openai_model()
+
+  schema_wrapper = _solver_reply_schema()
+
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply to controller-built consistency optimization options.\n"
+          "The controller owns the math. You must not invent new calculations.\n"
+          "Return select_option when the client clearly chooses one of the listed options.\n"
+          "Return modify_option when the client chooses an option but wants one numeric change, such as a different price change, utilization level, marketing cut, other operating expense cut, hire timing, or milestone timing.\n"
+          "When the client gives a percent like 5%, return the percent number only (for example 5, not 0.05).\n"
+          "When the client gives utilization like 75%, return 75 in utilization_percent.\n"
+          "Only populate numeric override fields when the user explicitly changes that thing.\n"
+          "If the client is only asking what an option means, return ask_question.\n"
+          "If the client rejects everything without choosing a path, return reject_all.\n"
+          "If meaning is ambiguous, return unclear."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "assistant_message": str(last_assistant or "").strip(),
+            "solver_state": solver_state,
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+
+  url = "https://api.openai.com/v1/responses"
+
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+
+  if resp.status_code >= 400:
+
+    return {}
+
+  try:
+
+    parsed = _parse_responses_json(resp.json())
+
+  except Exception:
+
+    return {}
+
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _marketing_rewrite_schema() -> Dict[str, Any]:
+
+  return {
+    "name": "consistency_marketing_rewrite",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "marketing_plan_summary": {"type": "string"},
+        "marketing_basis_summary": {"type": "string"},
+      },
+      "required": ["marketing_plan_summary", "marketing_basis_summary"],
+    },
+  }
+
+
+def rewrite_marketing_state_after_consistency(
+
+  *,
+
+  intake_context: Dict[str, Any],
+
+  existing_marketing_plan_summary: str,
+
+  existing_marketing_basis_summary: str,
+
+  scenario_context: Optional[Dict[str, Any]] = None,
+
+) -> Dict[str, str]:
+
+  api_key = _require_openai_key()
+
+  model = _openai_model()
+
+  schema_wrapper = _marketing_rewrite_schema()
+
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are updating persisted marketing summaries after a consistency-driven business-plan adjustment.\n"
+          "Rewrite the stored marketing_plan_summary and marketing_basis_summary so they stay aligned with the current plan.\n"
+          "Use the full persisted context provided. Reflect the current Year-1 marketing budget and percent of revenue, and if a consistency scenario changed marketing, acknowledge the updated posture in plain business language.\n"
+          "Keep the same business, geography, stage, and target-market framing unless the context clearly changed them.\n"
+          "Do not invent new strategy unrelated to the current plan.\n"
+          "marketing_plan_summary should stay as a concise strategic narrative.\n"
+          "marketing_basis_summary should stay as a concise rationale for the current quantified marketing setup.\n"
+          "Return JSON only."
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "intake_context": intake_context,
+            "existing_marketing_plan_summary": str(existing_marketing_plan_summary or "").strip(),
+            "existing_marketing_basis_summary": str(existing_marketing_basis_summary or "").strip(),
+            "scenario_context": scenario_context or {},
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+
+  url = "https://api.openai.com/v1/responses"
+
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+
+  if resp.status_code >= 400:
+
+    raise RuntimeError(_format_openai_error(resp))
+
+  parsed = _parse_responses_json(resp.json())
+  return parsed if isinstance(parsed, dict) else {}
+
 def consistency_chat_turn(
 
   *,
@@ -230,6 +564,10 @@ Goals:
 
 - Do NOT proceed until the model is coherent.
 
+- Be a reconciler, not a resetter. Prefer the smallest coherent interpretation or adjustment that preserves the captured model.
+
+- A deterministic controller-built Year-1 financial summary may be present in the context as consistency_financial_summary and consistency_financial_table_markdown. Treat those values as authoritative for Year-1 financial math. Do not recalculate them yourself.
+
 
 
 Rules of engagement:
@@ -246,10 +584,37 @@ Rules of engagement:
 
 - Never assume a value is true just because a stage makes it plausible; propose the likely interpretation and confirm it.
 
+- Use the full persisted context already provided in JSON. Do not ignore a broad set of captured facts because one label appears stale.
+
+- Distinguish three categories of truth before you reason:
+  1. current snapshot facts
+  2. Year-1 / launch-plan modeled values
+  3. milestone or growth claims
+
+- current snapshot facts describe what is true as of the snapshot date.
+
+- Year-1 / launch-plan modeled values describe the planned launch-year business, not necessarily the current snapshot. These must NOT be zeroed out just because the business is pre-revenue or opening soon.
+
+- milestone or growth claims are targets that must be checked against capacity, staffing, timing, geography, and market reach.
+
+- inferred roles, hiring timing, modeled payroll, modeled revenue, modeled COGS, and modeled marketing are planning values unless the context clearly says they are current realized values.
+
+- pre-revenue means the current snapshot may still be light or zero. It does NOT mean planned launch-year staffing, payroll, revenue, COGS, or marketing should be wiped out.
+
+- Taxes may appear as 0 in the controller-built financial summary because tax modeling is not implemented yet. Treat that as an intentional placeholder, not a contradiction.
+
+- early-stage usually means the business has begun operating or ramping but is not yet fully stable. Treat uneven staffing, ramping revenue, early strain, and partially built systems as potentially coherent if the rest of the model supports that.
+
+- operating means the business already has a functioning base of clients, workflows, and known channels. Do not force operating businesses back into startup-style interpretations unless the concrete facts clearly require it.
+
 - Use business_stage explicitly when checking narrative coherence:
   - operating businesses should not sound like they are still purely in discovery/testing mode unless the facts clearly support that.
   - pre-revenue businesses should not be described like mature scaled operators with established retention, channel optimization, or repeat demand unless the facts clearly support that.
   - early-stage businesses should usually read like they are ramping, proving repeatability, and managing early strain rather than behaving like either a launch-only concept or a mature optimized operator.
+
+- If business_stage conflicts with many concrete operating facts, treat that as a stage interpretation issue to reconcile first. Do NOT zero out other values by default.
+
+- For early-stage and operating businesses, do not erase current operating facts just because some modeled Year-1 values or milestone targets are also present. First decide whether the model is mixing current-state and forward-plan values, then reconcile that mix explicitly.
 
 
 What to check (illustrative, not exhaustive):
@@ -262,11 +627,21 @@ What to check (illustrative, not exhaustive):
 
 - Debt/funding consistency (e.g., assets exist but no equity/loans captured).
 
-
-
 - Marketing consistency (e.g., marketing budget exists but marketing percent does not line up with revenue, or market-support signals do not plausibly support the modeled Year-1 demand).
 
 - Stage/narrative consistency (e.g., operating business with startup-style marketing language, pre-revenue business described like a mature scaled operator, or staffing/revenue/acquisition language that materially conflicts with the stated stage).
+
+- Milestone realism (e.g., the stated 12-month target requires more capacity, staffing, utilization, geography reach, or timing than the current plan supports).
+
+- Year-1 financial viability using the deterministic controller-built financial summary when provided.
+
+- Distinguish true contradictions from valid planning structure:
+  - A pre-revenue business may still have a non-zero Year-1 modeled payroll, revenue, COGS, marketing budget, and planned roles.
+  - An early-stage business may show both real current operations and larger Year-1 modeled targets at the same time.
+  - An operating business may show optimization, retention, repeat demand, and existing payroll while still carrying future hiring plans and milestone targets.
+  - Do NOT treat planned roles or modeled Year-1 values as current snapshot employees or current historical revenue unless the context says so.
+
+- If the model contains both current-state values and forward-plan values, prefer reconciling them by naming the distinction clearly rather than treating one side as invalid by default.
 
 
 Resolution behavior:
@@ -276,6 +651,34 @@ Resolution behavior:
 - Ask a concise clarifying question to reconcile it.
 
 - Once reconciled, move to the next most important inconsistency.
+
+- Prefer the lightest coherent fix:
+  - reinterpret a stale label
+  - reclassify a value as planned instead of current
+  - adjust a milestone target
+  - push a milestone timing assumption
+  - ask for one specific correction
+
+- Do NOT flatten values to zero unless the user clearly confirms they should be zero.
+
+- When checking milestones, reason from the full captured plan and decide whether the milestone is:
+  - plausible as stated
+  - plausible only with driver changes
+  - not plausible on the current plan
+
+- If a milestone is not plausible, propose one concrete revision and ask for confirmation.
+
+- When the main issue is financial viability, use the controller-built financial summary/table as the source of truth for revenue, EBITDA, interest, taxes, and net income. Do not make up alternative numbers.
+
+- Do NOT build your own financial table, financial snapshot, launch-plan rollup, or line-item paragraph summary. The controller owns the Year-1 financial table and will show it later.
+
+- Do NOT restate controller-owned financial line items in prose once the model is coherent enough to proceed. Your job is to reconcile the model, not to present the final financial close.
+
+- Keep each issue tight:
+  - what conflicts
+  - what it most likely means
+  - one recommended adjustment
+  - one question
 
 - When everything is coherent enough to proceed, say so briefly and then append the token {FINALIZE_TOKEN} on its own line.
 
