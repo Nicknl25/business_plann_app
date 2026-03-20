@@ -647,6 +647,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "monthly_rent_expense": {"type": "number"},
 
+      "future_rent_expected": {"type": "boolean"},
+
       "other_monthly_debt_payments": {"type": "number"},
 
       "current_payroll": {"type": "number"},
@@ -1513,6 +1515,8 @@ def route_intent(
 
       "monthly_rent_expense",
 
+      "future_rent_expected",
+
       "other_monthly_debt_payments",
 
       "current_payroll",
@@ -1648,6 +1652,8 @@ def route_intent(
 
         "monthly_rent_expense",
 
+        "future_rent_expected",
+
         "other_monthly_debt_payments",
 
         "current_payroll",
@@ -1712,6 +1718,16 @@ def route_intent(
       "- If the last assistant message presented labeled revenue options (for example Option 1 / Option 2 / Option 3) and the user selects one by number, label, or short description, infer the corresponding revenue-driver patch from that option and return edit_patch.\n"
       "- Use the last assistant message as the source of truth for what each option changes; do not require the user to restate the numbers.\n"
       "- If the assistant already accepted the current revenue setup and moved on to a different financial question, do not invent a revenue edit unless the user explicitly asks to change revenue drivers.\n"
+    )
+
+  if consult_type_norm == "financials" or (
+    consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "financials"
+  ):
+    extra_instructions = (
+      extra_instructions
+      + "Financials rent handling:\n"
+      + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
+      + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"
     )
 
   if consult_type_norm == "people" or (

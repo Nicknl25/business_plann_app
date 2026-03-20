@@ -61,6 +61,7 @@ FINANCIALS_FACT_FIELDS = {
   "current_cogs",
   "other_operating_expense",
   "monthly_rent_expense",
+  "future_rent_expected",
   "other_monthly_debt_payments",
   "current_payroll",
   "baseline_marketing_percent",

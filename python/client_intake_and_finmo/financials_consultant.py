@@ -1244,6 +1244,162 @@ def validate_marketing_setup(
   return parsed if isinstance(parsed, dict) else {"proceed": True, "assistant_message": ""}
 
 
+def _monthly_rent_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_monthly_rent_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": ["set_none", "set_value", "ask_question", "unclear"],
+        },
+        "monthly_rent_expense": {"type": ["number", "null"]},
+        "question_or_clarification": {"type": "string"},
+      },
+      "required": ["intent_type", "monthly_rent_expense", "question_or_clarification"],
+    },
+  }
+
+
+def interpret_monthly_rent_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+) -> Dict[str, Any]:
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _monthly_rent_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply to a business-space rent question.\n"
+          "This field is only monthly rent for dedicated business space such as an office, storefront, clinic, studio, kitchen, or warehouse.\n"
+          "Interpret human meaning, not keywords.\n"
+          "If the client indicates they do not pay for dedicated business space, return set_none.\n"
+          "If the client gives a monthly amount, return set_value with the numeric amount only.\n"
+          "If the client says they work from home, are remote, do not have space yet, or do not need dedicated space, treat that as set_none.\n"
+          "If the client asks a question, return ask_question.\n"
+          "If the reply is too unclear to use, return unclear.\n"
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "last_assistant": str(last_assistant or "").strip(),
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {"intent_type": "unclear", "monthly_rent_expense": None, "question_or_clarification": ""}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {"intent_type": "unclear", "monthly_rent_expense": None, "question_or_clarification": ""}
+  return (
+    parsed
+    if isinstance(parsed, dict)
+    else {"intent_type": "unclear", "monthly_rent_expense": None, "question_or_clarification": ""}
+  )
+
+
+def _future_rent_reply_schema() -> Dict[str, Any]:
+  return {
+    "name": "financials_future_rent_reply",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "intent_type": {
+          "type": "string",
+          "enum": ["set_true", "set_false", "ask_question", "unclear"],
+        },
+        "future_rent_expected": {"type": ["boolean", "null"]},
+        "question_or_clarification": {"type": "string"},
+      },
+      "required": ["intent_type", "future_rent_expected", "question_or_clarification"],
+    },
+  }
+
+
+def interpret_future_rent_reply(
+  *,
+  user_message: str,
+  last_assistant: str,
+) -> Dict[str, Any]:
+  api_key = _require_openai_key()
+  model = _openai_model()
+  schema_wrapper = _future_rent_reply_schema()
+  payload = {
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are interpreting a client's reply about whether the business is expected to need paid dedicated space later.\n"
+          "Interpret human meaning, not keywords.\n"
+          "If the client indicates they do expect to need paid dedicated business space later, return set_true.\n"
+          "If the client indicates they do not expect to need paid dedicated business space later, return set_false.\n"
+          "If the client asks a question, return ask_question.\n"
+          "If the reply is too unclear to use confidently, return unclear.\n"
+        ),
+      },
+      {
+        "role": "user",
+        "content": json.dumps(
+          {
+            "last_assistant": str(last_assistant or "").strip(),
+            "user_message": str(user_message or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+      },
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema_wrapper["name"],
+        "schema": schema_wrapper["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  resp = _post_openai(url=url, headers=headers, payload=payload)
+  if resp.status_code >= 400:
+    return {"intent_type": "unclear", "future_rent_expected": None, "question_or_clarification": ""}
+  try:
+    parsed = _parse_responses_json(resp.json())
+  except Exception:
+    return {"intent_type": "unclear", "future_rent_expected": None, "question_or_clarification": ""}
+  return (
+    parsed
+    if isinstance(parsed, dict)
+    else {"intent_type": "unclear", "future_rent_expected": None, "question_or_clarification": ""}
+  )
+
+
 def _initial_lease_reply_schema() -> Dict[str, Any]:
   return {
     "name": "financials_initial_lease_reply",
@@ -1744,6 +1900,7 @@ def _final_schema() -> Dict[str, Any]:
         "marketing_percent_of_revenue": {"type": "number"},
         "other_operating_expense": {"type": "number"},
         "monthly_rent_expense": {"type": "number"},
+        "future_rent_expected": {"type": "boolean"},
         "other_monthly_debt_payments": {"type": "number"},
         "current_payroll": {"type": "number"},
         "current_num_employees": {"type": "number"},
@@ -1769,6 +1926,7 @@ def _final_schema() -> Dict[str, Any]:
         "marketing_percent_of_revenue",
         "other_operating_expense",
         "monthly_rent_expense",
+        "future_rent_expected",
         "other_monthly_debt_payments",
         "current_payroll",
         "current_num_employees",
@@ -1833,7 +1991,6 @@ Core rule for this section:
 
 Style:
 - One plain question sentence per message.
-- Optional short bullet choices under it (not numbered).
 - Explain each item in everyday terms (assume no finance background).
 - Only ask for a number if the client actually has the item as of last month.
 - If the client says "no", "none", "not yet", or they don't know after brief clarification, record 0 and explicitly say so.
@@ -1872,6 +2029,8 @@ Stage control:
 - If financials_active_stage is "cogs", do not ask a COGS question here; the controller owns that stage.
 - If financials_active_stage is "current_payroll", do not ask a payroll question here; the controller owns that stage.
 - If financials_active_stage is "marketing", do not ask a marketing question here; the controller owns that stage.
+- If financials_active_stage is "monthly_rent_expense", do not ask a rent question here; the controller owns that stage.
+- If financials_active_stage is "future_rent_expected", do not ask a future-rent question here; the controller owns that stage.
 - If financials_active_stage is "initial_lease", do not ask a lease question here; the controller owns that stage.
 - For other stages, ask exactly one question for that stage only.
 
@@ -1881,6 +2040,7 @@ Stage names:
 - current_payroll
 - marketing
 - monthly_rent_expense
+- future_rent_expected
 - owner_compensation
 - other_operating_expense
 - current_num_employees
@@ -1984,6 +2144,7 @@ Everyday phrasing guide (adapt as needed; keep it short and natural):
 - Marketing: "your Year-1 marketing/advertising budget"
 - Other operating expense: "other regular business bills besides payroll, marketing, and rent (utilities, software, insurance, shipping, etc.)"
 - Rent: "rent for your space"
+- Future rent signal: "whether you expect to need paid dedicated business space later"
 - Payroll: "what you paid employees"
 - Employees: "how many people were on payroll"
 - Owner compensation: "money you paid yourself from the business (wages/draws)"
@@ -2106,6 +2267,7 @@ Rules:
   - If both an earlier number and a later corrected/agreed number exist, use the most recent explicitly agreed number.
 - No nulls: every numeric field must be a number (0 is allowed).
 - All values must be >= 0.
+- future_rent_expected must be a boolean.
 - If total_debt_outstanding is 0, annual_interest_payment and annual_principal_payment must be 0.
 - initial_assets must be a number >= 0 representing the rough total value of operating assets as of last month. If none/unclear, set initial_assets = 0.
 - initial_lease must be a comma-separated string "payment_amount,period" (examples: "0,none", "500,monthly", "200,weekly").

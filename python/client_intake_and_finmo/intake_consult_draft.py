@@ -225,6 +225,84 @@ def _parse_messages(raw: Any) -> List[Dict[str, str]]:
   return []
 
 
+def _parse_json_object(raw: Any) -> Dict[str, Any]:
+  if raw is None:
+    return {}
+  if isinstance(raw, dict):
+    return raw
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return {}
+  return parsed if isinstance(parsed, dict) else {}
+
+
+def _render_messages_for_storage(
+  *,
+  row: Dict[str, Any],
+  messages: List[Dict[str, str]],
+  operating_model_json: Optional[Dict[str, Any]] = None,
+  target_market_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, str]]:
+  try:
+    from fact_templates import render_fact_template, sanitize_fact_template  # type: ignore
+  except Exception:
+    return messages
+
+  latest_business_facts: Dict[str, Any] = {
+    "name": row.get("business_name"),
+    "address": row.get("business_address"),
+    "address_street": row.get("address_street"),
+    "address_city": row.get("address_city"),
+    "address_state": row.get("address_state"),
+    "address_zip": row.get("address_zip"),
+    "address_country": row.get("address_country"),
+    "start_date": row.get("business_start_date"),
+  }
+  if isinstance(business_facts, dict):
+    for key, value in business_facts.items():
+      if key in latest_business_facts:
+        latest_business_facts[key] = value
+
+  shared_context: Dict[str, Any] = {
+    "operating_model": operating_model_json if operating_model_json is not None else _parse_json_object(row.get("operating_model_json")),
+    "target_market": target_market_json if target_market_json is not None else _parse_json_object(row.get("target_market_json")),
+    "people_capability": people_json if people_json is not None else _parse_json_object(row.get("people_json")),
+    "financials": financials_json if financials_json is not None else _parse_json_object(row.get("financials_json")),
+    "marketing": marketing_model_json if marketing_model_json is not None else _parse_json_object(row.get("marketing_model_json")),
+    "financials_year1_json": (
+      financials_year1_json if financials_year1_json is not None else _parse_json_object(row.get("financials_year1_json"))
+    ),
+  }
+
+  rendered_messages: List[Dict[str, str]] = []
+  for message in messages:
+    if not isinstance(message, dict):
+      continue
+    role = str(message.get("role") or "").strip()
+    content = str(message.get("content") or "")
+    rendered = content
+    if role == "assistant" and content:
+      try:
+        rendered = render_fact_template(
+          content,
+          shared_context=shared_context,
+          business_facts=latest_business_facts,
+        )
+      except Exception:
+        rendered = content
+      rendered = sanitize_fact_template(str(rendered or ""))
+    rendered_message = dict(message)
+    rendered_message["content"] = rendered
+    rendered_messages.append(rendered_message)
+  return rendered_messages
+
+
 def append_messages(
   conn,
   *,
@@ -249,6 +327,17 @@ def append_messages(
   row = get_draft(conn, draft_id=draft_id)
   messages = _parse_messages(row.get("messages_json"))
   messages.extend(new_messages)
+  messages = _render_messages_for_storage(
+    row=row,
+    messages=messages,
+    operating_model_json=operating_model_json,
+    target_market_json=target_market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    marketing_model_json=marketing_model_json,
+    financials_year1_json=financials_year1_json,
+    business_facts=business_facts,
+  )
 
   now = _utc_now_str()
   set_parts = ["messages_json = %s", "updated_at = %s"]

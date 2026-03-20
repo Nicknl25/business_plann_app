@@ -1977,6 +1977,197 @@ def _build_initial_lease_message() -> str:
   )
 
 
+def _financials_business_stage(shared_context: Dict[str, Any]) -> str:
+  operating_model = (shared_context or {}).get("operating_model") or {}
+  if not isinstance(operating_model, dict):
+    return ""
+  return str(operating_model.get("business_stage") or "").strip().lower()
+
+
+def _build_monthly_rent_message(*, shared_context: Dict[str, Any]) -> str:
+  stage = _financials_business_stage(shared_context)
+  if stage == "operating":
+    return (
+      "What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?"
+    )
+  return (
+    "What do you pay each month for any dedicated business space, like an office, storefront, clinic, kitchen, warehouse, or similar facility? "
+    "If you are not paying for separate space yet but already know what it will cost when you open, use that amount."
+  )
+
+
+def _build_future_rent_message(
+  *,
+  shared_context: Dict[str, Any],
+  monthly_rent_expense: Any,
+) -> str:
+  try:
+    current_rent = float(monthly_rent_expense)
+  except Exception:
+    current_rent = 0.0
+  stage = _financials_business_stage(shared_context)
+  if current_rent > 0:
+    if stage == "operating":
+      return "Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?"
+    return "Looking ahead, do you expect paid dedicated business space to stay part of this business once it is up and running?"
+  if stage == "operating":
+    return "Looking ahead, do you expect this business to need paid dedicated space later, or do you expect it to stay remote or space-light?"
+  return "Looking ahead, do you expect this business to need paid dedicated space later, or do you expect it to stay without separate business space?"
+
+
+def _maybe_handle_financials_monthly_rent_turn(
+  *,
+  interpret_monthly_rent_reply,
+  interpret_future_rent_reply,
+  financials_chat_turn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  next_financials = dict(financials_json or {})
+  if _financials_field_resolved(next_financials, "monthly_rent_expense"):
+    return None, next_financials
+
+  if not str(user_message or "").strip():
+    return {
+      "assistant_message": _build_monthly_rent_message(shared_context=shared_context),
+      "finalize_ready": False,
+    }, next_financials
+
+  reply = interpret_monthly_rent_reply(
+    user_message=user_message,
+    last_assistant=last_assistant,
+  )
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type in ("ask_question", "unclear") or not intent_type:
+    assistant_message = str(reply.get("question_or_clarification") or "").strip()
+    if not assistant_message:
+      assistant_message = "What monthly amount should I use for dedicated business space, if any?"
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  if intent_type == "set_none":
+    amount = 0.0
+  else:
+    try:
+      amount = float(reply.get("monthly_rent_expense"))
+    except Exception:
+      amount = None
+    if amount is None:
+      return {
+        "assistant_message": "What monthly amount should I use for dedicated business space, if any?",
+        "finalize_ready": False,
+      }, next_financials
+    amount = max(0.0, amount)
+
+  next_financials["monthly_rent_expense"] = float(amount)
+  next_shared_context = dict(shared_context or {})
+  next_shared_context["financials"] = next_financials
+  next_intake_context = dict(intake_context or {})
+  next_intake_context["financials_json"] = next_financials
+  next_intake_context["shared_context"] = next_shared_context
+  next_stage = _next_financials_stage(next_financials)
+  if next_stage == "future_rent_expected":
+    future_turn, next_financials = _maybe_handle_financials_future_rent_turn(
+      interpret_future_rent_reply=interpret_future_rent_reply,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=next_intake_context,
+      conversation_messages=conversation_messages,
+      shared_context=next_shared_context,
+      last_assistant="",
+      user_message="",
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if future_turn is not None:
+      return future_turn, next_financials
+  if next_stage:
+    next_intake_context["financials_active_stage"] = next_stage
+  else:
+    next_intake_context.pop("financials_active_stage", None)
+  turn = financials_chat_turn(
+    intake_context=next_intake_context,
+    conversation_messages=conversation_messages,
+  ) or {}
+  next_financials = _sync_pending_revenue_adjustment_state(
+    next_financials,
+    financials_year1_json,
+    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+  )
+  return turn, next_financials
+
+
+def _maybe_handle_financials_future_rent_turn(
+  *,
+  interpret_future_rent_reply,
+  financials_chat_turn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  next_financials = dict(financials_json or {})
+  if _financials_field_resolved(next_financials, "future_rent_expected"):
+    return None, next_financials
+
+  if not str(user_message or "").strip():
+    return {
+      "assistant_message": _build_future_rent_message(
+        shared_context=shared_context,
+        monthly_rent_expense=next_financials.get("monthly_rent_expense"),
+      ),
+      "finalize_ready": False,
+    }, next_financials
+
+  reply = interpret_future_rent_reply(
+    user_message=user_message,
+    last_assistant=last_assistant,
+  )
+  intent_type = str(reply.get("intent_type") or "").strip()
+  if intent_type in ("ask_question", "unclear") or not intent_type:
+    assistant_message = str(reply.get("question_or_clarification") or "").strip()
+    if not assistant_message:
+      assistant_message = "Should I treat paid dedicated business space as something this business is likely to need later on?"
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  if intent_type == "set_true":
+    next_financials["future_rent_expected"] = True
+  elif intent_type == "set_false":
+    next_financials["future_rent_expected"] = False
+  else:
+    return {
+      "assistant_message": "Should I treat paid dedicated business space as something this business is likely to need later on?",
+      "finalize_ready": False,
+    }, next_financials
+
+  next_shared_context = dict(shared_context or {})
+  next_shared_context["financials"] = next_financials
+  next_intake_context = dict(intake_context or {})
+  next_intake_context["financials_json"] = next_financials
+  next_intake_context["shared_context"] = next_shared_context
+  next_stage = _next_financials_stage(next_financials)
+  if next_stage:
+    next_intake_context["financials_active_stage"] = next_stage
+  else:
+    next_intake_context.pop("financials_active_stage", None)
+  turn = financials_chat_turn(
+    intake_context=next_intake_context,
+    conversation_messages=conversation_messages,
+  ) or {}
+  next_financials = _sync_pending_revenue_adjustment_state(
+    next_financials,
+    financials_year1_json,
+    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+  )
+  return turn, next_financials
+
+
 def _normalize_initial_lease_reply(reply: Dict[str, Any]) -> Optional[str]:
   intent_type = str(reply.get("intent_type") or "").strip()
   if intent_type == "set_none":
@@ -2166,6 +2357,8 @@ def _maybe_handle_financials_payroll_turn(
       estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
       interpret_marketing_reply=interpret_marketing_reply,
       validate_marketing_setup=validate_marketing_setup,
+      interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+      interpret_future_rent_reply=interpret_future_rent_reply,
       financials_chat_turn=financials_chat_turn,
       conn=conn,
       intake_context=next_intake_context,
@@ -2212,6 +2405,8 @@ def _maybe_handle_financials_marketing_turn(
   estimate_marketing_baseline_from_context,
   interpret_marketing_reply,
   validate_marketing_setup,
+  interpret_monthly_rent_reply,
+  interpret_future_rent_reply,
   financials_chat_turn,
   conn,
   intake_context: Dict[str, Any],
@@ -2345,6 +2540,26 @@ def _maybe_handle_financials_marketing_turn(
   next_intake_context["financials_json"] = next_financials
   next_intake_context["shared_context"] = next_shared_context
   next_stage = _next_financials_stage(next_financials)
+  if next_stage == "monthly_rent_expense":
+    rent_turn, next_financials = _maybe_handle_financials_monthly_rent_turn(
+      interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+      interpret_future_rent_reply=interpret_future_rent_reply,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=next_intake_context,
+      conversation_messages=conversation_messages,
+      shared_context=next_shared_context,
+      last_assistant="",
+      user_message="",
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if rent_turn is not None:
+      if acknowledgement:
+        next_text = str(rent_turn.get("assistant_message") or "").strip()
+        rent_turn["assistant_message"] = (
+          f"{acknowledgement}\n\n{next_text}".strip() if next_text else acknowledgement
+        )
+      return rent_turn, next_financials, marketing_model
   if next_stage:
     next_intake_context["financials_active_stage"] = next_stage
   else:
@@ -2588,6 +2803,7 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
     ("current_payroll", lambda d: _financials_field_resolved(d, "current_payroll")),
     ("marketing", lambda d: _financials_field_resolved(d, "marketing_total_year1")),
     ("monthly_rent_expense", lambda d: _financials_field_resolved(d, "monthly_rent_expense")),
+    ("future_rent_expected", lambda d: _financials_field_resolved(d, "future_rent_expected")),
     ("owner_compensation", lambda d: _financials_field_resolved(d, "owner_compensation")),
     ("other_operating_expense", lambda d: _financials_field_resolved(d, "other_operating_expense")),
     ("current_num_employees", lambda d: _financials_field_resolved(d, "current_num_employees")),
@@ -2610,7 +2826,14 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
   return None
 
 
-_CONTROLLER_OWNED_FINANCIALS_STAGES = {"cogs", "current_payroll", "marketing", "initial_lease"}
+_CONTROLLER_OWNED_FINANCIALS_STAGES = {
+  "cogs",
+  "current_payroll",
+  "marketing",
+  "monthly_rent_expense",
+  "future_rent_expected",
+  "initial_lease",
+}
 
 
 def _extract_ops_proposal_patch(
@@ -2668,6 +2891,8 @@ def _run_financials_turn_and_sync(
   *,
   financials_chat_turn,
   interpret_cogs_reply,
+  interpret_monthly_rent_reply,
+  interpret_future_rent_reply,
   estimate_cogs_percent_from_context,
   interpret_payroll_reply,
   validate_payroll_setup,
@@ -2748,6 +2973,8 @@ def _run_financials_turn_and_sync(
       estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
       interpret_marketing_reply=interpret_marketing_reply,
       validate_marketing_setup=validate_marketing_setup,
+      interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+      interpret_future_rent_reply=interpret_future_rent_reply,
       financials_chat_turn=financials_chat_turn,
       conn=conn,
       intake_context=_stage_context(active_stage, next_financials),
@@ -2765,6 +2992,35 @@ def _run_financials_turn_and_sync(
       pass
     if marketing_turn is not None:
       return marketing_turn, next_financials
+  if active_stage == "monthly_rent_expense":
+    rent_turn, next_financials = _maybe_handle_financials_monthly_rent_turn(
+      interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+      interpret_future_rent_reply=interpret_future_rent_reply,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if rent_turn is not None:
+      return rent_turn, next_financials
+  if active_stage == "future_rent_expected":
+    future_rent_turn, next_financials = _maybe_handle_financials_future_rent_turn(
+      interpret_future_rent_reply=interpret_future_rent_reply,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+    )
+    if future_rent_turn is not None:
+      return future_rent_turn, next_financials
   if active_stage == "initial_lease":
     lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
       interpret_initial_lease_reply=interpret_initial_lease_reply,
@@ -3240,6 +3496,7 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "marketing_percent_of_revenue",
       "other_operating_expense",
       "monthly_rent_expense",
+      "future_rent_expected",
       "other_monthly_debt_payments",
       "current_payroll",
       "current_num_employees",
@@ -4566,7 +4823,9 @@ def post_intake_consult_handler(*, app, request):
       interpret_cogs_reply,
       interpret_initial_lease_reply,
       interpret_marketing_reply,
+      interpret_monthly_rent_reply,
       interpret_payroll_reply,
+      interpret_future_rent_reply,
       interpret_revenue_option_reply,
       validate_marketing_setup,
       validate_payroll_setup,
@@ -4803,6 +5062,8 @@ def post_intake_consult_handler(*, app, request):
         turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+          interpret_future_rent_reply=interpret_future_rent_reply,
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
@@ -5795,6 +6056,8 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+          interpret_future_rent_reply=interpret_future_rent_reply,
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
@@ -5975,6 +6238,8 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+          interpret_future_rent_reply=interpret_future_rent_reply,
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
@@ -6104,6 +6369,8 @@ def post_intake_consult_handler(*, app, request):
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
             interpret_cogs_reply=interpret_cogs_reply,
+            interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+            interpret_future_rent_reply=interpret_future_rent_reply,
             estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
             interpret_payroll_reply=interpret_payroll_reply,
             validate_payroll_setup=validate_payroll_setup,
@@ -6423,6 +6690,8 @@ def post_intake_consult_handler(*, app, request):
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+          interpret_future_rent_reply=interpret_future_rent_reply,
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
@@ -6604,6 +6873,8 @@ def post_intake_consult_handler(*, app, request):
       turn, financials_json = _run_financials_turn_and_sync(
         financials_chat_turn=financials_chat_turn,
         interpret_cogs_reply=interpret_cogs_reply,
+        interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+        interpret_future_rent_reply=interpret_future_rent_reply,
         estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
         interpret_payroll_reply=interpret_payroll_reply,
         validate_payroll_setup=validate_payroll_setup,
@@ -6728,6 +6999,8 @@ def post_intake_consult_handler(*, app, request):
         stage_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
           interpret_cogs_reply=interpret_cogs_reply,
+          interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+          interpret_future_rent_reply=interpret_future_rent_reply,
           estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
           interpret_payroll_reply=interpret_payroll_reply,
           validate_payroll_setup=validate_payroll_setup,
@@ -6982,6 +7255,8 @@ def post_intake_consult_handler(*, app, request):
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
             interpret_cogs_reply=interpret_cogs_reply,
+            interpret_monthly_rent_reply=interpret_monthly_rent_reply,
+            interpret_future_rent_reply=interpret_future_rent_reply,
             estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
             interpret_payroll_reply=interpret_payroll_reply,
             validate_payroll_setup=validate_payroll_setup,

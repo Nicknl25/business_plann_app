@@ -315,7 +315,7 @@ Fact-bearing templates (STRICT):
 
   - people: key_people_summary
 
-  - financials: current_revenue, current_cogs, marketing_total_year1, marketing_percent_of_revenue, other_operating_expense, monthly_rent_expense, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
+  - financials: current_revenue, current_cogs, marketing_total_year1, marketing_percent_of_revenue, other_operating_expense, monthly_rent_expense, future_rent_expected, other_monthly_debt_payments, current_payroll, current_num_employees, current_capex, ar_balance, ap_balance, inventory_balance, initial_assets, initial_lease, initial_equity, total_debt_outstanding, annual_interest_payment, annual_principal_payment, owner_compensation, cash_on_hand
 
 """.strip()
 

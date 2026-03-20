@@ -648,10 +648,11 @@ class Bootstrap:
 
 
 class ClientAgent:
-  def __init__(self, *, api_key: str, model: str, seed: str) -> None:
+  def __init__(self, *, api_key: str, model: str, seed: str, business_start_date_override: Optional[str] = None) -> None:
     self.api_key = api_key
     self.model = model
     self.seed = seed.strip()
+    self.business_start_date_override = str(business_start_date_override or "").strip()
     self.private_state = ""
 
   def bootstrap(self) -> Bootstrap:
@@ -696,6 +697,12 @@ class ClientAgent:
       """
     ).strip()
     user = f"Seed business to simulate: {self.seed}"
+    if self.business_start_date_override:
+      user = (
+        f"{user}\n"
+        f"Use this exact business_start_date: {self.business_start_date_override}\n"
+        "Keep the hidden private_state fully consistent with that exact start date."
+      )
     obj = _openai_call(
       api_key=self.api_key,
       model=self.model,
@@ -706,10 +713,18 @@ class ClientAgent:
         {"role": "user", "content": user},
       ],
     )
-    self.private_state = str(obj["private_state"]).strip()
+    business_start_date = str(obj["business_start_date"]).strip()
+    private_state = str(obj["private_state"]).strip()
+    if self.business_start_date_override:
+      business_start_date = self.business_start_date_override
+      private_state = (
+        f"Business start date is exactly {self.business_start_date_override}. "
+        f"{private_state}"
+      ).strip()
+    self.private_state = private_state
     return Bootstrap(
       business_name=str(obj["business_name"]).strip(),
-      business_start_date=str(obj["business_start_date"]).strip(),
+      business_start_date=business_start_date,
       address=str(obj["address"]).strip(),
       address_street=str(obj["address_street"]).strip(),
       address_city=str(obj["address_city"]).strip(),
@@ -879,13 +894,26 @@ def _detect_failure(
   return None
 
 
-def _run_single_seed(*, seed: str, base_url: str, model: str, max_turns: int, output_dir: str) -> int:
+def _run_single_seed(
+  *,
+  seed: str,
+  base_url: str,
+  model: str,
+  max_turns: int,
+  output_dir: str,
+  business_start_date_override: Optional[str],
+) -> int:
   api_key = os.getenv("OPENAI_API_KEY", "").strip()
   if not api_key:
     print("OPENAI_API_KEY is not set.", file=sys.stderr)
     return 2
 
-  agent = ClientAgent(api_key=api_key, model=model, seed=seed)
+  agent = ClientAgent(
+    api_key=api_key,
+    model=model,
+    seed=seed,
+    business_start_date_override=business_start_date_override,
+  )
   transcript: List[Dict[str, str]] = []
   bootstrap: Optional[Bootstrap] = None
   draft_id: Optional[str] = None
@@ -1117,10 +1145,22 @@ def main() -> int:
   parser.add_argument("--model", default=os.getenv("INTAKE_SIM_MODEL", "gpt-4.1-mini"))
   parser.add_argument("--max-turns", type=int, default=80)
   parser.add_argument(
+    "--business-start-date",
+    default="",
+    help='Optional exact business start date override in MM/DD/YYYY format.',
+  )
+  parser.add_argument(
     "--output-dir",
     default=r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs",
   )
   args = parser.parse_args()
+  business_start_date_override = str(args.business_start_date or "").strip()
+  if business_start_date_override:
+    try:
+      datetime.strptime(business_start_date_override, "%m/%d/%Y")
+    except ValueError:
+      print("--business-start-date must be in MM/DD/YYYY format.", file=sys.stderr)
+      return 2
 
   base_url = args.base_url.rstrip("/")
   for index, seed in enumerate(args.seeds, start=1):
@@ -1132,6 +1172,7 @@ def main() -> int:
       model=args.model,
       max_turns=args.max_turns,
       output_dir=args.output_dir,
+      business_start_date_override=business_start_date_override or None,
     )
     if result != 0:
       return result
