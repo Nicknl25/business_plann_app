@@ -16,6 +16,18 @@ def _parse_json_maybe(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
+def _parse_json_list_maybe(raw: Any) -> Any:
+  if raw is None:
+    return []
+  if isinstance(raw, list):
+    return raw
+  try:
+    parsed = json.loads(str(raw))
+  except Exception:
+    return []
+  return parsed if isinstance(parsed, list) else []
+
+
 def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   """
   Load the latest finalized outputs from each consult draft table and return them as
@@ -30,6 +42,13 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   financials: Dict[str, Any] = {}
   marketing_model: Dict[str, Any] = {}
   financials_year1_json: Dict[str, Any] = {}
+  normalized_traits: Dict[str, Any] = {}
+  benchmark_payload: Dict[str, Any] = {}
+  constraint_engine_state: Dict[str, Any] = {}
+  consistency_solver_state: Dict[str, Any] = {}
+  forecast_engine_state: Dict[str, Any] = {}
+  forecast_quarters: Any = []
+  engine_versions: Dict[str, Any] = {}
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -40,14 +59,28 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
+    consistency_solver_state = _parse_json_maybe(financials.get("_consistency_solver_state"))
     marketing_model = _parse_json_maybe(consult.get("marketing_model_json"))
     financials_year1_json = _parse_json_maybe(consult.get("financials_year1_json"))
+    normalized_traits = _parse_json_maybe(consult.get("normalized_traits_json"))
+    benchmark_payload = _parse_json_maybe(consult.get("benchmark_payload_json"))
+    constraint_engine_state = _parse_json_maybe(consult.get("constraint_engine_state_json"))
+    forecast_engine_state = _parse_json_maybe(consult.get("forecast_engine_state_json"))
+    forecast_quarters = _parse_json_list_maybe(consult.get("forecast_quarters_json"))
+    engine_versions = _parse_json_maybe(consult.get("engine_versions_json"))
   except Exception:
     # Fall back to legacy per-consult drafts below.
     operating_model = {}
     target_market = {}
     people_capability = {}
     financials = {}
+    normalized_traits = {}
+    benchmark_payload = {}
+    constraint_engine_state = {}
+    consistency_solver_state = {}
+    forecast_engine_state = {}
+    forecast_quarters = []
+    engine_versions = {}
 
   try:
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
@@ -94,6 +127,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     for key in ("initial_assets", "initial_lease", "initial_equity", "total_debt_outstanding"):
       if financials.get(key) in (None, "") and key in operating_model:
         financials[key] = operating_model.get(key)
+  consistency_solver_state = _parse_json_maybe(financials.get("_consistency_solver_state"))
 
   return {
     "operating_model": operating_model,
@@ -102,6 +136,13 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "financials": financials,
     "marketing": marketing_model,
     "financials_year1_json": financials_year1_json,
+    "normalized_traits": normalized_traits,
+    "benchmark_payload": benchmark_payload,
+    "constraint_engine_state": constraint_engine_state,
+    "consistency_solver_state": consistency_solver_state,
+    "forecast_engine_state": forecast_engine_state,
+    "forecast_quarters": forecast_quarters,
+    "engine_versions": engine_versions,
   }
 
 

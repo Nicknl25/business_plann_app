@@ -242,16 +242,16 @@ def consistency_solver_proposal_message(
         "role": "system",
         "content": (
           "You are presenting Year-1 plan options to the client.\n"
-          "Assume the client has already reviewed and accepted the controller-built Year-1 table.\n"
+          "Assume the client has already reviewed the Year-1 table.\n"
           "The numbers are already calculated. Do not recalculate them. Do not invent new options.\n"
           "Use the provided scenario labels, EBITDA, net income, and loss percentages exactly as supplied.\n"
-          "Keep this tight: one short transition sentence, then a numbered list of the available options (usually 1-3), then one short question.\n"
-          "The objective is to move Year-1 EBITDA to break-even when possible.\n"
-          "If solver_state.structural_gap is true, say plainly: 'None of these gets Year 1 EBITDA to break-even, but these are the strongest options within the current plan.'\n"
-          "If an option changes price, briefly ground it in the business model and market, but do not mention NAICS or internal analysis language.\n"
-          "If an option delays hiring, explain it as timing of planned hires in plain English.\n"
-          "Do not use internal jargon like controller-built, structural gap, viability, optimization engine, or burn rate.\n"
-          "Do not show a table. Do not restate the table in prose. Do not recap the baseline beyond the one short transition sentence."
+          "Keep this extremely tight: one short sentence, then a numbered list of the options, then one short question.\n"
+          "Make each option mostly numeric. Lead with EBITDA and net income. Keep the text after that minimal.\n"
+          "Do not explain backend logic. Do not explain realism envelopes. Do not explain why the solver did anything.\n"
+          "Do not use internal jargon like controller-built, structural gap, viability, optimization engine, benchmark, NAICS, Alpha, or burn rate.\n"
+          "Do not show a table. Do not restate the existing table in prose. Do not write long rationale paragraphs.\n"
+          "Use plain labels like price, utilization, marketing, payroll, hiring timing, COGS, and opex only when needed.\n"
+          "If solver_state.structural_gap is true, say only: 'These are the strongest current options.'"
         ),
       },
       {

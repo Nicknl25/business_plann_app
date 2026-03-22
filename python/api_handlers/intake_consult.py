@@ -574,6 +574,13 @@ def _attach_consistency_financial_context(
   financials_year1_json: Dict[str, Any],
 ) -> Dict[str, Any]:
   ctx = dict(intake_context or {})
+  forecast_quarters = []
+  if isinstance(ctx.get("forecast_quarters"), list):
+    forecast_quarters = [q for q in (ctx.get("forecast_quarters") or []) if isinstance(q, dict)]
+  elif isinstance(ctx.get("shared_context"), dict):
+    shared_forecast = ctx.get("shared_context", {}).get("forecast_quarters")
+    if isinstance(shared_forecast, list):
+      forecast_quarters = [q for q in shared_forecast if isinstance(q, dict)]
   try:
     try:
       from consistency_financials import (  # type: ignore
@@ -591,7 +598,10 @@ def _attach_consistency_financial_context(
       financials_year1_json=financials_year1_json,
     )
     ctx["consistency_financial_summary"] = summary
-    ctx["consistency_financial_table_markdown"] = build_consistency_financial_table(summary)
+    ctx["consistency_financial_table_markdown"] = build_consistency_financial_table(
+      summary,
+      forecast_quarters=forecast_quarters,
+    )
   except Exception:
     pass
   return ctx
@@ -599,7 +609,14 @@ def _attach_consistency_financial_context(
 
 def _get_pending_consistency_solver_state(financials_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
   state = (financials_json or {}).get("_consistency_solver_state")
-  return state if isinstance(state, dict) else None
+  if not isinstance(state, dict):
+    return None
+  if str(state.get("status") or "").strip() != "awaiting_choice":
+    return None
+  scenarios = state.get("scenarios")
+  if not isinstance(scenarios, list) or not scenarios:
+    return None
+  return state
 
 
 CONSISTENCY_TABLE_REVIEW_QUESTION = (
@@ -621,17 +638,23 @@ def _build_consistency_table_review_message(
   *,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  forecast_quarters: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
   ctx = _attach_consistency_financial_context(
-    {},
+    {
+      "forecast_quarters": forecast_quarters or [],
+    },
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
   )
   table_markdown = str(ctx.get("consistency_financial_table_markdown") or "").strip()
   if not table_markdown:
     return CONSISTENCY_TABLE_REVIEW_QUESTION
+  intro = "Year 1 numbers:"
+  if forecast_quarters:
+    intro = "Year 1 numbers and quarterly EBITDA forecast:"
   return (
-    "Here is the Year-1 summary I'm using for the final consistency check:\n\n"
+    f"{intro}\n\n"
     f"{table_markdown}\n\n"
     f"{CONSISTENCY_TABLE_REVIEW_QUESTION}"
   ).strip()
@@ -641,6 +664,7 @@ def _start_consistency_table_review(
   *,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  forecast_quarters: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
   next_financials = dict(financials_json or {})
   next_financials.pop("_consistency_solver_state", None)
@@ -648,6 +672,7 @@ def _start_consistency_table_review(
   assistant_text = _build_consistency_table_review_message(
     financials_json=next_financials,
     financials_year1_json=financials_year1_json,
+    forecast_quarters=forecast_quarters,
   )
   return assistant_text, next_financials
 
@@ -689,6 +714,86 @@ def _build_consistency_runtime_context(
   return ctx
 
 
+def _build_constraint_bundle_for_persistence(
+  *,
+  conn=None,
+  intake_context: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  market_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  try:
+    try:
+      from constraint_engine import build_constraint_engine_bundle  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.constraint_engine import build_constraint_engine_bundle  # type: ignore
+    try:
+      from forecast_engine import build_forecast_engine_bundle  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.forecast_engine import build_forecast_engine_bundle  # type: ignore
+    context = intake_context if isinstance(intake_context, dict) else {}
+    constraint_bundle = build_constraint_engine_bundle(
+      conn=conn,
+      shared_context=context.get("shared_context") if isinstance(context, dict) else {},
+      operating_model_json=ops_json or {},
+      target_market_json=market_json or {},
+      people_json=people_json or {},
+      financials_json=financials_json or {},
+      financials_year1_json=financials_year1_json or {},
+      marketing_model_json=marketing_model_json or {},
+      fulfillment_json=context.get("fulfillment_json") if isinstance(context, dict) else {},
+    )
+    forecast_bundle = build_forecast_engine_bundle(
+      shared_context=context.get("shared_context") if isinstance(context, dict) else {},
+      operating_model_json=ops_json or {},
+      target_market_json=market_json or {},
+      people_json=people_json or {},
+      financials_json=financials_json or {},
+      financials_year1_json=financials_year1_json or {},
+      marketing_model_json=marketing_model_json or {},
+      normalized_traits=(
+        constraint_bundle.get("normalized_traits") if isinstance(constraint_bundle, dict) else None
+      ),
+      benchmark_payload=(
+        constraint_bundle.get("benchmark_payload") if isinstance(constraint_bundle, dict) else None
+      ),
+      constraint_engine_state=(
+        constraint_bundle.get("constraint_engine_state") if isinstance(constraint_bundle, dict) else None
+      ),
+    )
+
+    merged_bundle = dict(constraint_bundle or {})
+    if isinstance(forecast_bundle, dict):
+      merged_bundle["forecast_engine_state"] = forecast_bundle.get("forecast_engine_state") or {}
+      merged_bundle["forecast_quarters"] = forecast_bundle.get("forecast_quarters") or []
+      base_versions = dict((constraint_bundle or {}).get("engine_versions") or {})
+      forecast_versions = dict(forecast_bundle.get("engine_versions") or {})
+      for key, value in forecast_versions.items():
+        if value is None or value == "":
+          base_versions.setdefault(key, value)
+          continue
+        base_versions[key] = value
+      merged_bundle["engine_versions"] = base_versions
+    return merged_bundle
+  except Exception:
+    return {}
+
+
+def _constraint_bundle_append_kwargs(bundle: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = bundle if isinstance(bundle, dict) else {}
+  return {
+    "normalized_traits_json": payload.get("normalized_traits"),
+    "benchmark_payload_json": payload.get("benchmark_payload"),
+    "constraint_engine_state_json": payload.get("constraint_engine_state"),
+    "forecast_engine_state_json": payload.get("forecast_engine_state"),
+    "forecast_quarters_json": payload.get("forecast_quarters"),
+    "engine_versions_json": payload.get("engine_versions"),
+  }
+
+
 def _build_consistency_viable_close_message(
   *,
   financials_json: Dict[str, Any],
@@ -701,18 +806,42 @@ def _build_consistency_viable_close_message(
   )
   summary_obj = summary_ctx.get("consistency_financial_summary") if isinstance(summary_ctx, dict) else {}
   final_net_income = _format_currency((summary_obj or {}).get("net_income"))
-  return f"After this, Year 1 net income is {final_net_income}."
+  final_ebitda = _format_currency((summary_obj or {}).get("ebitda"))
+  return f"Updated Year 1 EBITDA: {final_ebitda}. Net income: {final_net_income}."
+
+
+def _build_consistency_blocking_message(solver_state: Dict[str, Any]) -> str:
+  violations = [
+    str(code or "").strip().replace("_", " ")
+    for code in (solver_state.get("blocking_violations") or [])
+    if str(code or "").strip()
+  ]
+  if violations:
+    joined = ", ".join(violations[:3])
+    return f"Year 1 is still blocked: {joined}."
+  return "Year 1 is still blocked."
 
 
 def _start_consistency_solver_if_needed(
   *,
   intake_context: Dict[str, Any],
   ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
   people_json: Dict[str, Any],
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
-) -> Tuple[Optional[str], Dict[str, Any]]:
+) -> Tuple[Optional[str], Dict[str, Any], Dict[str, Any]]:
+  constraint_bundle: Dict[str, Any] = _build_constraint_bundle_for_persistence(
+    intake_context=intake_context,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+  )
+
   try:
     try:
       from consistency_solver import build_consistency_solver_state  # type: ignore
@@ -723,7 +852,7 @@ def _start_consistency_solver_if_needed(
     except Exception:
       from client_intake_and_finmo.consistency_consultant import consistency_solver_proposal_message  # type: ignore
   except Exception:
-    return None, financials_json
+    return None, financials_json, constraint_bundle
 
   solver_state = build_consistency_solver_state(
     ops_json=ops_json,
@@ -731,9 +860,22 @@ def _start_consistency_solver_if_needed(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
+    constraint_engine_state=(
+      constraint_bundle.get("constraint_engine_state") if isinstance(constraint_bundle, dict) else None
+    ),
   )
-  if not isinstance(solver_state, dict) or not (solver_state.get("scenarios") or []):
-    return None, financials_json
+  if not isinstance(solver_state, dict):
+    return None, financials_json, constraint_bundle
+
+  if str(solver_state.get("status") or "").strip() == "blocking_unresolved":
+    assistant_text = _build_consistency_blocking_message(solver_state)
+    next_financials = dict(financials_json or {})
+    next_financials.pop("_consistency_close_stage", None)
+    next_financials["_consistency_solver_state"] = solver_state
+    return assistant_text, next_financials, constraint_bundle
+
+  if not (solver_state.get("scenarios") or []):
+    return None, financials_json, constraint_bundle
 
   solver_context = _attach_consistency_financial_context(
     intake_context,
@@ -746,14 +888,14 @@ def _start_consistency_solver_if_needed(
       solver_state=solver_state,
     )
   except Exception:
-    return None, financials_json
+    return None, financials_json, constraint_bundle
 
   assistant_text = proposal_text.strip()
 
   next_financials = dict(financials_json or {})
   next_financials.pop("_consistency_close_stage", None)
   next_financials["_consistency_solver_state"] = solver_state
-  return assistant_text, next_financials
+  return assistant_text, next_financials, constraint_bundle
 
 
 def _apply_consistency_solver_choice(
@@ -5127,6 +5269,13 @@ def get_intake_consult_draft_handler(*, app, request):
         "financials_json": draft.get("financials_json"),
         "financials_year1_json": draft.get("financials_year1_json"),
         "fulfillment_json": draft.get("fulfillment_json"),
+        "consistency_solver_state_json": _extract_consistency_solver_state(draft.get("financials_json")),
+        "normalized_traits_json": draft.get("normalized_traits_json"),
+        "benchmark_payload_json": draft.get("benchmark_payload_json"),
+        "constraint_engine_state_json": draft.get("constraint_engine_state_json"),
+        "forecast_engine_state_json": draft.get("forecast_engine_state_json"),
+        "forecast_quarters_json": draft.get("forecast_quarters_json"),
+        "engine_versions_json": draft.get("engine_versions_json"),
       }
     )
   finally:
@@ -5147,6 +5296,14 @@ def _parse_json_value(raw: Any) -> Any:
     return raw
 
 
+def _extract_consistency_solver_state(raw_financials: Any) -> Dict[str, Any]:
+  parsed = _parse_json_value(raw_financials)
+  if isinstance(parsed, dict):
+    state = parsed.get("_consistency_solver_state")
+    return state if isinstance(state, dict) else {}
+  return {}
+
+
 def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
   if not isinstance(row, dict):
     return {}
@@ -5158,6 +5315,12 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
     "financials_json",
     "marketing_model_json",
     "financials_year1_json",
+    "normalized_traits_json",
+    "benchmark_payload_json",
+    "constraint_engine_state_json",
+    "forecast_engine_state_json",
+    "forecast_quarters_json",
+    "engine_versions_json",
     "pending_ops_milestone_json",
     "fulfillment_json",
   }
@@ -5169,6 +5332,7 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
       serialized[key] = value.isoformat(sep=" ")
     else:
       serialized[key] = value
+  serialized["consistency_solver_state_json"] = _extract_consistency_solver_state(row.get("financials_json"))
   return serialized
 
 
@@ -6077,9 +6241,10 @@ def post_intake_consult_handler(*, app, request):
           fulfillment_json=fulfillment_json,
           marketing_model_json=marketing_model_json,
         )
-        solver_assistant, financials_json = _start_consistency_solver_if_needed(
+        solver_assistant, financials_json, constraint_bundle = _start_consistency_solver_if_needed(
           intake_context=consistency_runtime_context,
           ops_json=ops_json,
+          market_json=market_json,
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
@@ -6095,6 +6260,7 @@ def post_intake_consult_handler(*, app, request):
             people_json=people_json,
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
+            **_constraint_bundle_append_kwargs(constraint_bundle),
             marketing_model_json=_refresh_marketing_model(),
             active_focus="consistency",
             business_facts=business_facts,
@@ -6126,6 +6292,7 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          **_constraint_bundle_append_kwargs(constraint_bundle),
           marketing_model_json=_refresh_marketing_model(),
           active_focus="done",
           business_facts=business_facts,
@@ -6224,6 +6391,31 @@ def post_intake_consult_handler(*, app, request):
         assistant_text, financials_json = _start_consistency_table_review(
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        )
+        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+          conn=conn,
+          intake_context=_build_consistency_runtime_context(
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=marketing_model_json if isinstance(marketing_model_json, dict) else _refresh_marketing_model(),
+          ),
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=marketing_model_json if isinstance(marketing_model_json, dict) else _refresh_marketing_model(),
         )
         append_messages(
           conn,
@@ -6234,6 +6426,7 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
           marketing_model_json=marketing_model_json if isinstance(marketing_model_json, dict) else _refresh_marketing_model(),
           active_focus="consistency",
           business_facts=business_facts,
@@ -6398,8 +6591,33 @@ def post_intake_consult_handler(*, app, request):
             financials_year1_json=financials_year1_json,
           )
           summary_obj = summary_ctx.get("consistency_financial_summary") if isinstance(summary_ctx, dict) else {}
+          final_ebitda = _format_currency((summary_obj or {}).get("ebitda"))
           final_net_income = _format_currency((summary_obj or {}).get("net_income"))
-          assistant_text = f"After this adjustment, Year 1 net income is {final_net_income}."
+          assistant_text = f"Updated Year 1 EBITDA: {final_ebitda}. Net income: {final_net_income}."
+          persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+            conn=conn,
+            intake_context=_build_consistency_runtime_context(
+              client_id=client_id,
+              draft_id=str(draft_id).strip(),
+              business_facts=business_facts,
+              business_stage_hint=business_stage_hint,
+              current_date_iso=current_date_iso,
+              shared_context=shared_context,
+              ops_json=ops_json,
+              market_json=market_json,
+              people_json=people_json,
+              financials_json=financials_json,
+              financials_year1_json=financials_year1_json,
+              fulfillment_json=fulfillment_json,
+              marketing_model_json=marketing_model_json,
+            ),
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            marketing_model_json=marketing_model_json,
+          )
           append_messages(
             conn,
             draft_id=str(draft_id).strip(),
@@ -6409,6 +6627,7 @@ def post_intake_consult_handler(*, app, request):
             people_json=people_json,
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
+            **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
             marketing_model_json=marketing_model_json,
             active_focus="done",
             business_facts=business_facts,
@@ -6430,11 +6649,11 @@ def post_intake_consult_handler(*, app, request):
           )
 
       assistant_text = (
-        "Which option do you want to use, or what single change do you want to make to one of them?"
+        "Which option number do you want, or what one numeric change do you want?"
       )
       if solver_intent_type == "ask_question":
         assistant_text = (
-          "These options are already recalculated. Which option do you want to use, or what single change do you want to make to one of them?"
+          "The numbers are already recalculated. Which option number do you want, or what one numeric change do you want?"
         )
       append_messages(
         conn,
@@ -7095,6 +7314,31 @@ def post_intake_consult_handler(*, app, request):
         assistant_text, financials_json = _start_consistency_table_review(
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        )
+        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+          conn=conn,
+          intake_context=_build_consistency_runtime_context(
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=_refresh_marketing_model(),
+          ),
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=_refresh_marketing_model(),
         )
         append_messages(
           conn,
@@ -7105,6 +7349,7 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
           fulfillment_json=fulfillment_json,
           marketing_model_json=_refresh_marketing_model(),
           active_focus="consistency",
@@ -7335,6 +7580,7 @@ def post_intake_consult_handler(*, app, request):
             review_text, financials_json = _start_consistency_table_review(
               financials_json=financials_json,
               financials_year1_json=financials_year1_json,
+              forecast_quarters=(shared_context or {}).get("forecast_quarters"),
             )
             followup_turn["assistant_message"] = review_text
             followup_turn["finalize_ready"] = False
@@ -7565,6 +7811,36 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json if people_patch_applied else None,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
+        **(
+          _constraint_bundle_append_kwargs(
+            _build_constraint_bundle_for_persistence(
+              conn=conn,
+              intake_context=_build_consistency_runtime_context(
+                client_id=client_id,
+                draft_id=str(draft_id).strip(),
+                business_facts=business_facts,
+                business_stage_hint=business_stage_hint,
+                current_date_iso=current_date_iso,
+                shared_context=shared_context,
+                ops_json=ops_json,
+                market_json=market_json,
+                people_json=people_json,
+                financials_json=financials_json,
+                financials_year1_json=financials_year1_json,
+                fulfillment_json=fulfillment_json,
+                marketing_model_json=_refresh_marketing_model(),
+              ),
+              ops_json=ops_json,
+              market_json=market_json,
+              people_json=people_json,
+              financials_json=financials_json,
+              financials_year1_json=financials_year1_json,
+              marketing_model_json=_refresh_marketing_model(),
+            )
+          )
+          if str(focus).strip().lower() == "consistency" or str(active_focus_out).strip().lower() in {"consistency", "done"}
+          else {}
+        ),
         fulfillment_json=fulfillment_json,
         marketing_model_json=_refresh_marketing_model(),
         active_focus=active_focus_out,
@@ -7597,6 +7873,31 @@ def post_intake_consult_handler(*, app, request):
         assistant_text, financials_json = _start_consistency_table_review(
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        )
+        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+          conn=conn,
+          intake_context=_build_consistency_runtime_context(
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=_refresh_marketing_model(),
+          ),
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=_refresh_marketing_model(),
         )
         append_messages(
           conn,
@@ -7607,6 +7908,7 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
           marketing_model_json=_refresh_marketing_model(),
           active_focus="consistency",
           business_facts=business_facts,
@@ -8301,6 +8603,31 @@ def post_intake_consult_handler(*, app, request):
       assistant_text, financials_json = _start_consistency_table_review(
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
+        forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+      )
+      persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+        conn=conn,
+        intake_context=_build_consistency_runtime_context(
+          client_id=client_id,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          business_stage_hint=business_stage_hint,
+          current_date_iso=current_date_iso,
+          shared_context=shared_context,
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          fulfillment_json=fulfillment_json,
+          marketing_model_json=_refresh_marketing_model(),
+        ),
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=_refresh_marketing_model(),
       )
       append_messages(
         conn,
@@ -8311,6 +8638,7 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
+        **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
         marketing_model_json=_refresh_marketing_model(),
         active_focus="consistency",
         business_facts=business_facts,
@@ -8376,18 +8704,44 @@ def post_intake_consult_handler(*, app, request):
         review_text, financials_json = _start_consistency_table_review(
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
         )
         assistant_final = (
           "Thanks for confirming. I'm going to do one quick consistency pass across the plan "
           "to make sure the numbers, staffing, timing, and milestones all fit together.\n\n"
           f"{review_text}"
         ).strip()
+        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+          conn=conn,
+          intake_context=_build_consistency_runtime_context(
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=_refresh_marketing_model(),
+          ),
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=_refresh_marketing_model(),
+        )
         append_messages(
           conn,
           draft_id=str(draft_id).strip(),
           new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
           marketing_model_json=_refresh_marketing_model(),
           active_focus="consistency",
           confirmations={"financials": True},

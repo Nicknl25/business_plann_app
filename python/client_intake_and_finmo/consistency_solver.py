@@ -69,18 +69,45 @@ MAX_SCENARIOS = 3
 ROLE_WAGE_MIN_FACTOR = _float_env("CONSISTENCY_ROLE_WAGE_MIN_FACTOR", 0.85)
 ROLE_WAGE_MAX_FACTOR = _float_env("CONSISTENCY_ROLE_WAGE_MAX_FACTOR", 1.00)
 ENABLE_PRICE_LEVER = _bool_env("CONSISTENCY_SOLVER_ENABLE_PRICE", False)
-PRICE_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_PRICE_WEIGHT", 12.0)
+PRICE_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_PRICE_WEIGHT", 18.0)
+PRICE_DOWN_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_PRICE_DOWN_WEIGHT", 24.0)
 UTILIZATION_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_UTILIZATION_WEIGHT", 4.0)
+UTILIZATION_DOWN_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_UTILIZATION_DOWN_WEIGHT", UTILIZATION_DISTORTION_WEIGHT)
 MARKETING_UP_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_MARKETING_UP_WEIGHT", 4.0)
 MARKETING_DOWN_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_MARKETING_DOWN_WEIGHT", 5.0)
 OTHER_OPEX_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_OTHER_OPEX_WEIGHT", 2.0)
+OTHER_OPEX_UP_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_OTHER_OPEX_UP_WEIGHT", OTHER_OPEX_DISTORTION_WEIGHT)
+COGS_DOWN_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_COGS_DOWN_WEIGHT", 1.5)
+COGS_UP_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_COGS_UP_WEIGHT", 1.5)
 HIRE_DELAY_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_HIRE_DELAY_WEIGHT", 6.0)
+HIRE_ADVANCE_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_HIRE_ADVANCE_WEIGHT", 3.5)
 PAYROLL_DOWN_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_PAYROLL_WEIGHT", 8.0)
+PAYROLL_UP_DISTORTION_WEIGHT = _float_env("CONSISTENCY_SOLVER_PAYROLL_UP_WEIGHT", 3.5)
 FAMILY_CONCENTRATION_WEIGHT = _float_env("CONSISTENCY_SOLVER_FAMILY_CONCENTRATION_WEIGHT", 6.0)
 HEALTHY_EBITDA_MARGIN_RATIO = _float_env("CONSISTENCY_SOLVER_HEALTHY_EBITDA_MARGIN_RATIO", 0.05)
 EBITDA_CUSHION_PREFERENCE_WEIGHT = _float_env("CONSISTENCY_SOLVER_EBITDA_CUSHION_WEIGHT", 1.5)
 OPTION_OBJECTIVE_TOLERANCE_RATIO = _float_env("CONSISTENCY_SOLVER_OPTION_TOLERANCE_RATIO", 0.03)
 OPTION_OBJECTIVE_TOLERANCE_ABS = _float_env("CONSISTENCY_SOLVER_OPTION_TOLERANCE_ABS", 0.05)
+REALISM_DISTANCE_TOLERANCE = _float_env("CONSISTENCY_SOLVER_REALISM_DISTANCE_TOLERANCE", 0.001)
+SOLVER_DISTANCE_REGRESSION_TOLERANCE = _float_env("CONSISTENCY_SOLVER_DISTANCE_REGRESSION_TOLERANCE", 0.10)
+BLOCKING_VIOLATION_PENALTY = _float_env("CONSISTENCY_SOLVER_BLOCKING_VIOLATION_PENALTY", 250000.0)
+NONBLOCKING_VIOLATION_PENALTY = _float_env("CONSISTENCY_SOLVER_NONBLOCKING_VIOLATION_PENALTY", 15000.0)
+UNRESOLVED_BLOCKING_SCENARIO_LIMIT = max(0, int(round(_float_env("CONSISTENCY_SOLVER_UNRESOLVED_BLOCKING_LIMIT", 1.0))))
+
+BLOCKING_YEAR1_VIOLATIONS = {
+  "capacity_unsupported",
+  "revenue_out_of_range",
+  "gross_margin_too_high",
+  "gross_margin_too_low",
+  "ebitda_margin_too_high",
+  "ebitda_margin_too_low",
+  "payroll_too_light",
+  "payroll_too_heavy",
+  "opex_too_light",
+  "opex_too_heavy",
+  "utilization_too_high",
+  "utilization_too_low",
+}
 
 
 def _require_pulp():
@@ -116,6 +143,16 @@ def _safe_int(value: Any) -> Optional[int]:
     return None
 
 
+def _lp_value(value: Any, default: float = 0.0) -> float:
+  try:
+    raw = value.value() if hasattr(value, "value") else value
+  except Exception:
+    raw = None
+  if raw is None:
+    return float(default)
+  return float(raw)
+
+
 def _normalize_ratio(value: Any) -> Optional[float]:
   if value is None or value == "" or isinstance(value, bool):
     return None
@@ -141,6 +178,207 @@ def _format_percent(value: Any) -> str:
   return f"{ratio * 100:.0f}%"
 
 
+def _band_min(band: Any) -> Optional[float]:
+  if not isinstance(band, dict):
+    return None
+  value = band.get("min")
+  if value is None or value == "":
+    return None
+  return _safe_float(value)
+
+
+def _band_max(band: Any) -> Optional[float]:
+  if not isinstance(band, dict):
+    return None
+  value = band.get("max")
+  if value is None or value == "":
+    return None
+  return _safe_float(value)
+
+
+def _range_distance(value: Optional[float], *, min_value: Optional[float], max_value: Optional[float], scale: float) -> float:
+  if value is None:
+    return 0.0
+  denom = max(abs(scale), 1e-6)
+  if min_value is not None and value < min_value:
+    return max(0.0, (min_value - value) / denom)
+  if max_value is not None and value > max_value:
+    return max(0.0, (value - max_value) / denom)
+  return 0.0
+
+
+def _ebitda_target_distance(
+  summary: Dict[str, Any],
+  *,
+  target_ebitda_min: Optional[float],
+  target_ebitda_max: Optional[float],
+) -> float:
+  ebitda = _safe_float((summary or {}).get("ebitda"))
+  revenue = max(1.0, _safe_float((summary or {}).get("revenue")))
+  return _range_distance(
+    ebitda,
+    min_value=target_ebitda_min,
+    max_value=target_ebitda_max,
+    scale=revenue,
+  )
+
+
+def _constraint_engine_realism_distance(
+  *,
+  constraint_engine_state: Optional[Dict[str, Any]],
+  summary: Dict[str, Any],
+  year1_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> float:
+  state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  if not state:
+    return 0.0
+
+  units = _required_units_year1(year1_json or {})
+  revenue = max(0.0, _safe_float((summary or {}).get("revenue")))
+  cogs = max(0.0, _safe_float((summary or {}).get("cogs")))
+  payroll = max(0.0, _safe_float((summary or {}).get("payroll")))
+  other_opex = max(0.0, _safe_float((summary or {}).get("other_opex")))
+  ebitda = _safe_float((summary or {}).get("ebitda"))
+  utilization = _normalize_ratio(
+    _top_level_driver_value(year1_json or {}, "utilization_rate")
+    or (ops_json or {}).get("utilization_rate")
+  )
+
+  gross_margin = ((revenue - cogs) / revenue) if revenue > 0 else None
+  ebitda_margin = (ebitda / revenue) if revenue > 0 else None
+  payroll_intensity = (payroll / revenue) if revenue > 0 else None
+  opex_intensity = (other_opex / revenue) if revenue > 0 else None
+
+  distance = 0.0
+  unit_range = state.get("supportable_unit_range") if isinstance(state, dict) else {}
+  revenue_range = state.get("supportable_revenue_range") if isinstance(state, dict) else {}
+  utilization_range = state.get("utilization_range") if isinstance(state, dict) else {}
+  gross_margin_band = state.get("gross_margin_band") if isinstance(state, dict) else {}
+  ebitda_margin_band = state.get("ebitda_margin_band") if isinstance(state, dict) else {}
+  payroll_band = state.get("payroll_intensity_band") if isinstance(state, dict) else {}
+  opex_band = state.get("opex_intensity_band") if isinstance(state, dict) else {}
+
+  distance += _range_distance(
+    units,
+    min_value=_band_min(unit_range),
+    max_value=_band_max(unit_range),
+    scale=max(1.0, _band_max(unit_range) or units or 1.0),
+  )
+  distance += _range_distance(
+    revenue,
+    min_value=_band_min(revenue_range),
+    max_value=_band_max(revenue_range),
+    scale=max(1.0, _band_max(revenue_range) or revenue or 1.0),
+  )
+  distance += _range_distance(
+    utilization,
+    min_value=_band_min(utilization_range),
+    max_value=_band_max(utilization_range),
+    scale=1.0,
+  )
+  distance += _range_distance(
+    gross_margin,
+    min_value=_band_min(gross_margin_band),
+    max_value=_band_max(gross_margin_band),
+    scale=1.0,
+  )
+  distance += _range_distance(
+    ebitda_margin,
+    min_value=_band_min(ebitda_margin_band),
+    max_value=_band_max(ebitda_margin_band),
+    scale=1.0,
+  )
+  distance += _range_distance(
+    payroll_intensity,
+    min_value=_band_min(payroll_band),
+    max_value=_band_max(payroll_band),
+    scale=1.0,
+  )
+  distance += _range_distance(
+    opex_intensity,
+    min_value=_band_min(opex_band),
+    max_value=_band_max(opex_band),
+    scale=1.0,
+  )
+  return round(distance, 6)
+
+
+def _scenario_realism_violations(
+  *,
+  constraint_engine_state: Optional[Dict[str, Any]],
+  summary: Dict[str, Any],
+  year1_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> Dict[str, List[str]]:
+  state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  if not state:
+    return {"all": [], "blocking": []}
+
+  units = _required_units_year1(year1_json or {})
+  revenue = max(0.0, _safe_float((summary or {}).get("revenue")))
+  cogs = max(0.0, _safe_float((summary or {}).get("cogs")))
+  payroll = max(0.0, _safe_float((summary or {}).get("payroll")))
+  other_opex = max(0.0, _safe_float((summary or {}).get("other_opex")))
+  ebitda = _safe_float((summary or {}).get("ebitda"))
+  utilization = _normalize_ratio(
+    _top_level_driver_value(year1_json or {}, "utilization_rate")
+    or (ops_json or {}).get("utilization_rate")
+  )
+  gross_margin = ((revenue - cogs) / revenue) if revenue > 0 else None
+  ebitda_margin = (ebitda / revenue) if revenue > 0 else None
+  payroll_intensity = (payroll / revenue) if revenue > 0 else None
+  opex_intensity = (other_opex / revenue) if revenue > 0 else None
+
+  codes: List[str] = []
+
+  def _maybe_add(code: str) -> None:
+    if code not in codes:
+      codes.append(code)
+
+  unit_range = state.get("supportable_unit_range") if isinstance(state, dict) else {}
+  revenue_range = state.get("supportable_revenue_range") if isinstance(state, dict) else {}
+  util_range = state.get("utilization_range") if isinstance(state, dict) else {}
+  gross_band = state.get("gross_margin_band") if isinstance(state, dict) else {}
+  ebitda_band = state.get("ebitda_margin_band") if isinstance(state, dict) else {}
+  payroll_band = state.get("payroll_intensity_band") if isinstance(state, dict) else {}
+  opex_band = state.get("opex_intensity_band") if isinstance(state, dict) else {}
+
+  if _range_distance(units, min_value=_band_min(unit_range), max_value=_band_max(unit_range), scale=max(1.0, units or 1.0)) > REALISM_DISTANCE_TOLERANCE:
+    _maybe_add("capacity_unsupported")
+  if _range_distance(revenue, min_value=_band_min(revenue_range), max_value=_band_max(revenue_range), scale=max(1.0, revenue or 1.0)) > REALISM_DISTANCE_TOLERANCE:
+    _maybe_add("revenue_out_of_range")
+  if _range_distance(gross_margin, min_value=_band_min(gross_band), max_value=_band_max(gross_band), scale=1.0) > REALISM_DISTANCE_TOLERANCE:
+    if gross_margin is not None and _band_max(gross_band) is not None and gross_margin > _band_max(gross_band):
+      _maybe_add("gross_margin_too_high")
+    else:
+      _maybe_add("gross_margin_too_low")
+  if _range_distance(ebitda_margin, min_value=_band_min(ebitda_band), max_value=_band_max(ebitda_band), scale=1.0) > REALISM_DISTANCE_TOLERANCE:
+    if ebitda_margin is not None and _band_max(ebitda_band) is not None and ebitda_margin > _band_max(ebitda_band):
+      _maybe_add("ebitda_margin_too_high")
+    else:
+      _maybe_add("ebitda_margin_too_low")
+  if _range_distance(payroll_intensity, min_value=_band_min(payroll_band), max_value=_band_max(payroll_band), scale=1.0) > REALISM_DISTANCE_TOLERANCE:
+    if payroll_intensity is not None and _band_max(payroll_band) is not None and payroll_intensity > _band_max(payroll_band):
+      _maybe_add("payroll_too_heavy")
+    else:
+      _maybe_add("payroll_too_light")
+  if _range_distance(opex_intensity, min_value=_band_min(opex_band), max_value=_band_max(opex_band), scale=1.0) > REALISM_DISTANCE_TOLERANCE:
+    if opex_intensity is not None and _band_max(opex_band) is not None and opex_intensity > _band_max(opex_band):
+      _maybe_add("opex_too_heavy")
+    else:
+      _maybe_add("opex_too_light")
+  if _range_distance(utilization, min_value=_band_min(util_range), max_value=_band_max(util_range), scale=1.0) > REALISM_DISTANCE_TOLERANCE:
+    if utilization is not None and _band_max(util_range) is not None and utilization > _band_max(util_range):
+      _maybe_add("utilization_too_high")
+    else:
+      _maybe_add("utilization_too_low")
+  return {
+    "all": codes,
+    "blocking": [code for code in codes if code in BLOCKING_YEAR1_VIOLATIONS],
+  }
+
+
 def _loss_pct(summary: Dict[str, Any]) -> float:
   revenue = _safe_float((summary or {}).get("revenue"))
   net_income = _safe_float((summary or {}).get("net_income"))
@@ -149,7 +387,15 @@ def _loss_pct(summary: Dict[str, Any]) -> float:
   return max(0.0, -net_income / revenue)
 
 
-def _solver_required(summary: Dict[str, Any]) -> bool:
+def _solver_required(summary: Dict[str, Any], constraint_engine_state: Optional[Dict[str, Any]] = None) -> bool:
+  if isinstance(constraint_engine_state, dict):
+    violations = [
+      str(code or "").strip()
+      for code in (constraint_engine_state.get("violations") or [])
+      if str(code or "").strip() and str(code or "").strip() != "benchmark_low_confidence"
+    ]
+    if violations:
+      return True
   revenue = _safe_float((summary or {}).get("revenue"))
   net_income = _safe_float((summary or {}).get("net_income"))
   ebitda = _safe_float((summary or {}).get("ebitda"))
@@ -157,6 +403,15 @@ def _solver_required(summary: Dict[str, Any]) -> bool:
     return net_income < 0
   healthy_target = max(0.0, revenue * HEALTHY_EBITDA_MARGIN_RATIO)
   return ebitda < healthy_target or (_loss_pct(summary) > LOSS_THRESHOLD_RATIO)
+
+
+def _blocking_constraint_violations(constraint_engine_state: Optional[Dict[str, Any]]) -> List[str]:
+  state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  return [
+    str(code or "").strip()
+    for code in (state.get("violations") or [])
+    if str(code or "").strip() in BLOCKING_YEAR1_VIOLATIONS
+  ]
 
 
 def _ebitda_gap(summary: Dict[str, Any]) -> float:
@@ -217,6 +472,117 @@ def _required_units_year1(financials_year1_json: Dict[str, Any]) -> float:
   avg_units = _safe_float(year1.get("avg_units_per_period_year1") or year1.get("avg_units_per_week_year1"))
   periods = _safe_float(year1.get("operating_periods_per_year") or year1.get("operating_weeks_per_year"))
   return avg_units * periods
+
+
+def _derived_year1_payroll_from_people(people_json: Dict[str, Any]) -> float:
+  total = 0.0
+  for person in (people_json or {}).get("people") or []:
+    if not isinstance(person, dict):
+      continue
+    total += max(0.0, _safe_float(person.get("annual_wage")))
+  for role in (people_json or {}).get("inferred_roles") or []:
+    if not isinstance(role, dict):
+      continue
+    annual_wage = max(0.0, _safe_float(role.get("annual_wage")))
+    months_until_hire = max(0, min(12, _safe_int(role.get("months_until_hire")) or 0))
+    active_months = max(0, 12 - months_until_hire)
+    total += annual_wage * (active_months / 12.0)
+  return round(total, 2)
+
+
+def _iter_year1_products(financials_year1_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  products_out: List[Dict[str, Any]] = []
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  lobs = year1.get("lobs")
+  if not isinstance(lobs, list):
+    return products_out
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip() or "Line of business"
+    products = lob.get("products")
+    if not isinstance(products, list):
+      continue
+    for product in products:
+      if not isinstance(product, dict):
+        continue
+      product_name = str(product.get("product_name") or "").strip() or str(product.get("unit_name") or "").strip() or "Product"
+      products_out.append(
+        {
+          "lob_name": lob_name,
+          "product_name": product_name,
+          "product": product,
+        }
+      )
+  return products_out
+
+
+def _build_product_driver_basis(
+  *,
+  financials_year1_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  basis: List[Dict[str, Any]] = []
+  for item in _iter_year1_products(financials_year1_json or {}):
+    product = item.get("product") if isinstance(item, dict) else {}
+    product = product if isinstance(product, dict) else {}
+    unit_price = max(0.0, _safe_float(product.get("unit_price") or (ops_json or {}).get("unit_price")))
+    periods = max(
+      0.0,
+      _safe_float(product.get("operating_periods_per_year") or product.get("operating_weeks_per_year"))
+      or _safe_float((financials_year1_json or {}).get("operating_periods_per_year") or (financials_year1_json or {}).get("operating_weeks_per_year"))
+      or 0.0,
+    )
+    units_capacity_per_period = max(
+      0.0,
+      _safe_float(product.get("units_per_period_capacity") or product.get("units_per_week_capacity"))
+      or _safe_float((financials_year1_json or {}).get("units_per_period_capacity") or (financials_year1_json or {}).get("units_per_week_capacity"))
+      or 0.0,
+    )
+    avg_units_per_period = max(
+      0.0,
+      _safe_float(product.get("avg_units_per_period_year1") or product.get("avg_units_per_week_year1"))
+      or 0.0,
+    )
+    utilization_rate = _normalize_ratio(product.get("utilization_rate"))
+    if avg_units_per_period <= 0 and utilization_rate is not None and units_capacity_per_period > 0:
+      avg_units_per_period = units_capacity_per_period * utilization_rate
+    if utilization_rate is None and units_capacity_per_period > 0 and avg_units_per_period > 0:
+      utilization_rate = max(0.0, min(1.0, avg_units_per_period / max(units_capacity_per_period, 1e-9)))
+    annual_units = avg_units_per_period * periods
+    annual_capacity_units = units_capacity_per_period * periods
+    annual_revenue = annual_units * unit_price
+    basis.append(
+      {
+        "lob_name": item.get("lob_name"),
+        "product_name": item.get("product_name"),
+        "unit_price": unit_price,
+        "operating_periods_per_year": periods,
+        "units_per_period_capacity": units_capacity_per_period,
+        "avg_units_per_period_year1": avg_units_per_period,
+        "utilization_rate": utilization_rate,
+        "annual_units": annual_units,
+        "annual_capacity_units": annual_capacity_units,
+        "annual_revenue": annual_revenue,
+      }
+    )
+  return basis
+
+
+def _weighted_product_price(product_basis: Sequence[Dict[str, Any]]) -> float:
+  total_units = sum(max(0.0, _safe_float(item.get("annual_units"))) for item in product_basis if isinstance(item, dict))
+  if total_units <= 0:
+    return 0.0
+  total_revenue = sum(max(0.0, _safe_float(item.get("annual_revenue"))) for item in product_basis if isinstance(item, dict))
+  return total_revenue / max(total_units, 1e-9)
+
+
+def _weighted_product_utilization(product_basis: Sequence[Dict[str, Any]]) -> Optional[float]:
+  total_capacity = sum(max(0.0, _safe_float(item.get("annual_capacity_units"))) for item in product_basis if isinstance(item, dict))
+  if total_capacity <= 0:
+    return None
+  total_units = sum(max(0.0, _safe_float(item.get("annual_units"))) for item in product_basis if isinstance(item, dict))
+  return max(0.0, min(1.0, total_units / max(total_capacity, 1e-9)))
 
 
 def _recompute_payroll_fields(
@@ -402,6 +768,23 @@ def _candidate_disruption_score(exact_patches: Dict[str, Any]) -> float:
 
   year1_patch = exact_patches.get("financials_year1_patch")
   if isinstance(year1_patch, dict):
+    product_overrides = year1_patch.get("product_overrides")
+    if isinstance(product_overrides, dict) and product_overrides:
+      saw_price = False
+      saw_util = False
+      for override in product_overrides.values():
+        if not isinstance(override, dict):
+          continue
+        if override.get("unit_price") is not None:
+          saw_price = True
+        if override.get("utilization_rate") is not None or override.get("avg_units_per_period_year1") is not None:
+          saw_util = True
+      if saw_util:
+        lever_count += 1
+        score += 0.75
+      if saw_price:
+        lever_count += 1
+        score += 1.0
     if year1_patch.get("utilization_rate") is not None:
       lever_count += 1
       score += abs(_safe_float(year1_patch.get("utilization_rate")))
@@ -417,6 +800,9 @@ def _candidate_disruption_score(exact_patches: Dict[str, Any]) -> float:
     if financials_patch.get("other_operating_expense") is not None:
       lever_count += 1
       score += 0.5
+    if financials_patch.get("cogs_total_year1") is not None:
+      lever_count += 1
+      score += 0.6
   marketing_model_patch = exact_patches.get("marketing_model_patch")
   if isinstance(marketing_model_patch, dict) and marketing_model_patch.get("expected_units_year1") is not None:
     lever_count += 1
@@ -484,6 +870,8 @@ def _apply_exact_patches(
   if isinstance(financials_patch, dict):
     for key, value in financials_patch.items():
       next_financials[str(key)] = value
+  solver_meta = exact_patches.get("solver_meta") if isinstance(exact_patches, dict) else {}
+  solver_meta = solver_meta if isinstance(solver_meta, dict) else {}
 
   milestone_updates = exact_patches.get("milestone_updates")
   milestones = next_ops.get("milestones")
@@ -524,6 +912,19 @@ def _apply_exact_patches(
     next_financials = _apply_other_opex_total(
       financials_json=next_financials,
       total=_safe_float(financials_patch.get("other_operating_expense")),
+    )
+
+  updated_revenue_total = max(0.0, _safe_float((next_year1 or {}).get("company_revenue_total_year1")))
+  cogs_ratio_target = _safe_float((solver_meta or {}).get("cogs_ratio_target"))
+  if updated_revenue_total > 0 and cogs_ratio_target > 0:
+    next_financials["cogs_total_year1"] = round(updated_revenue_total * cogs_ratio_target, 2)
+  opex_total_ratio_target = _safe_float((solver_meta or {}).get("opex_total_ratio_target"))
+  if updated_revenue_total > 0 and opex_total_ratio_target > 0:
+    rent_annualized = max(0.0, _safe_float(next_financials.get("monthly_rent_expense")) * 12.0)
+    other_opex_total = max(0.0, (updated_revenue_total * opex_total_ratio_target) - rent_annualized)
+    next_financials = _apply_other_opex_total(
+      financials_json=next_financials,
+      total=other_opex_total,
     )
 
   marketing_model_patch = exact_patches.get("marketing_model_patch")
@@ -573,6 +974,10 @@ def _build_candidate(
   rationale: str,
   lever_families: Sequence[str],
   exact_patches: Dict[str, Any],
+  constraint_engine_state: Optional[Dict[str, Any]] = None,
+  baseline_realism_distance: Optional[float] = None,
+  target_ebitda_min: Optional[float] = None,
+  target_ebitda_max: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
   next_ops, next_people, next_financials, next_year1, next_marketing_model = _apply_exact_patches(
     ops_json=baseline_state.get("ops_json") or {},
@@ -599,7 +1004,47 @@ def _build_candidate(
   baseline_net_income = _safe_float(baseline_summary.get("net_income"))
   next_net_income = _safe_float(summary.get("net_income"))
   improvement = next_net_income - baseline_net_income
-  if improvement <= 0:
+  baseline_distance = (
+    max(0.0, _safe_float(baseline_realism_distance))
+    if baseline_realism_distance is not None
+    else 0.0
+  )
+  next_distance = _constraint_engine_realism_distance(
+    constraint_engine_state=constraint_engine_state,
+    summary=summary,
+    year1_json=next_year1,
+    ops_json=next_ops,
+  )
+  remaining_violations = _scenario_realism_violations(
+    constraint_engine_state=constraint_engine_state,
+    summary=summary,
+    year1_json=next_year1,
+    ops_json=next_ops,
+  )
+  remaining_blocking = list(remaining_violations.get("blocking") or [])
+  all_remaining = list(remaining_violations.get("all") or [])
+  baseline_blocking_count = len(_blocking_constraint_violations(constraint_engine_state))
+  target_distance = _ebitda_target_distance(
+    summary,
+    target_ebitda_min=target_ebitda_min,
+    target_ebitda_max=target_ebitda_max,
+  )
+  baseline_target_distance = _ebitda_target_distance(
+    baseline_summary,
+    target_ebitda_min=target_ebitda_min,
+    target_ebitda_max=target_ebitda_max,
+  )
+  if constraint_engine_state:
+    if target_ebitda_min is not None or target_ebitda_max is not None:
+      if target_distance > (baseline_target_distance - REALISM_DISTANCE_TOLERANCE):
+        return None
+      if next_distance > (baseline_distance + SOLVER_DISTANCE_REGRESSION_TOLERANCE):
+        return None
+      if len(remaining_blocking) > max(UNRESOLVED_BLOCKING_SCENARIO_LIMIT, baseline_blocking_count - 1):
+        return None
+    elif next_distance > (baseline_distance - REALISM_DISTANCE_TOLERANCE):
+      return None
+  elif improvement <= 0:
     return None
 
   disruption_score = _candidate_disruption_score(exact_patches)
@@ -620,6 +1065,12 @@ def _build_candidate(
     "break_even_ebitda": is_break_even,
     "disruption_score": disruption_score,
     "improvement_amount": improvement,
+    "realism_distance": next_distance,
+    "target_distance": target_distance,
+    "remaining_violations": all_remaining,
+    "remaining_blocking_violations": remaining_blocking,
+    "remaining_blocking_count": len(remaining_blocking),
+    "remaining_violation_count": len(all_remaining),
     "signature": _scenario_signature(exact_patches),
     "editable_role_titles": [
       str(update.get("role_title") or "").strip()
@@ -784,6 +1235,29 @@ def _materially_distinct_candidate(left: Dict[str, Any], right: Dict[str, Any]) 
   right_year1 = right_patch.get("financials_year1_patch") if isinstance(right_patch, dict) else {}
   left_marketing = left_patch.get("marketing_model_patch") if isinstance(left_patch, dict) else {}
   right_marketing = right_patch.get("marketing_model_patch") if isinstance(right_patch, dict) else {}
+  left_product_overrides = (left_year1 or {}).get("product_overrides") if isinstance(left_year1, dict) else {}
+  right_product_overrides = (right_year1 or {}).get("product_overrides") if isinstance(right_year1, dict) else {}
+
+  if isinstance(left_product_overrides, dict) or isinstance(right_product_overrides, dict):
+    left_product_overrides = left_product_overrides if isinstance(left_product_overrides, dict) else {}
+    right_product_overrides = right_product_overrides if isinstance(right_product_overrides, dict) else {}
+    if set(left_product_overrides.keys()) != set(right_product_overrides.keys()):
+      return True
+    for product_name in left_product_overrides.keys():
+      left_override = left_product_overrides.get(product_name) or {}
+      right_override = right_product_overrides.get(product_name) or {}
+      left_price = _safe_float((left_override or {}).get("unit_price"))
+      right_price = _safe_float((right_override or {}).get("unit_price"))
+      if max(left_price, right_price) > 0 and abs(left_price - right_price) >= max(0.25, 0.01 * max(left_price, right_price)):
+        return True
+      left_avg_units = _safe_float((left_override or {}).get("avg_units_per_period_year1"))
+      right_avg_units = _safe_float((right_override or {}).get("avg_units_per_period_year1"))
+      if max(left_avg_units, right_avg_units) > 0 and abs(left_avg_units - right_avg_units) >= max(1.0, 0.02 * max(left_avg_units, right_avg_units)):
+        return True
+      left_prod_util = _normalize_ratio((left_override or {}).get("utilization_rate"))
+      right_prod_util = _normalize_ratio((right_override or {}).get("utilization_rate"))
+      if left_prod_util is not None and right_prod_util is not None and abs(left_prod_util - right_prod_util) >= 0.01:
+        return True
 
   left_util = _normalize_ratio((left_year1 or {}).get("utilization_rate"))
   right_util = _normalize_ratio((right_year1 or {}).get("utilization_rate"))
@@ -818,16 +1292,25 @@ def _candidate_objective(candidate: Dict[str, Any], *, break_even_target_exists:
   net_income = _safe_float(candidate.get("net_income"))
   disruption = _safe_float(candidate.get("disruption_score"))
   improvement = _safe_float(candidate.get("improvement_amount"))
+  blocking_count = max(0.0, _safe_float(candidate.get("remaining_blocking_count")))
+  remaining_count = max(0.0, _safe_float(candidate.get("remaining_violation_count")))
+  realism_distance = max(0.0, _safe_float(candidate.get("realism_distance")))
   if break_even_target_exists:
     return (
       1_000_000.0 * break_even
+      - (BLOCKING_VIOLATION_PENALTY * blocking_count)
+      - (NONBLOCKING_VIOLATION_PENALTY * max(0.0, remaining_count - blocking_count))
+      - 2_500.0 * realism_distance
       - 1_000.0 * disruption
       + ebitda
       + 0.01 * net_income
       + 0.001 * improvement
     )
   return (
+    - (BLOCKING_VIOLATION_PENALTY * blocking_count)
+    - (NONBLOCKING_VIOLATION_PENALTY * max(0.0, remaining_count - blocking_count))
     -10_000.0 * ebitda_gap
+    - 2_500.0 * realism_distance
     + ebitda
     + 0.01 * net_income
     - 10.0 * disruption
@@ -871,9 +1354,9 @@ def _collect_solver_roles(people_json: Dict[str, Any]) -> List[Dict[str, Any]]:
     lower_neighbors = [wage for wage in all_role_wages if wage < annual_wage - 0.01]
     upper_neighbors = [wage for wage in all_role_wages if wage > annual_wage + 0.01]
     nearest_lower = max(lower_neighbors) if lower_neighbors else annual_wage * ROLE_WAGE_MIN_FACTOR
-    nearest_upper = min(upper_neighbors) if upper_neighbors else annual_wage
+    nearest_upper = min(upper_neighbors) if upper_neighbors else annual_wage * max(ROLE_WAGE_MAX_FACTOR, 1.15)
     wage_floor = max(0.0, min(annual_wage, (annual_wage + nearest_lower) / 2.0))
-    wage_ceiling = max(wage_floor, min(annual_wage, nearest_upper))
+    wage_ceiling = max(wage_floor, nearest_upper)
     roles_out.append(
       {
         "role_title": role_title,
@@ -1131,40 +1614,71 @@ def _build_solver_state_model(
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]],
   baseline_summary: Dict[str, Any],
+  constraint_engine_state: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
+  engine_state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  if not engine_state:
+    return None
+  product_driver_basis = _build_product_driver_basis(
+    financials_year1_json=financials_year1_json or {},
+    ops_json=ops_json or {},
+  )
   current_price = _safe_float(
-    _top_level_driver_value(financials_year1_json or {}, "unit_price")
+    _weighted_product_price(product_driver_basis)
+    or _top_level_driver_value(financials_year1_json or {}, "unit_price")
     or (ops_json or {}).get("unit_price")
   )
   current_util = _normalize_ratio(
-    _top_level_driver_value(financials_year1_json or {}, "utilization_rate")
+    _weighted_product_utilization(product_driver_basis)
+    or _top_level_driver_value(financials_year1_json or {}, "utilization_rate")
     or (ops_json or {}).get("utilization_rate")
   )
-  baseline_units = _required_units_year1(financials_year1_json or {})
-  if current_price <= 0 or current_util is None or current_util <= 0 or baseline_units <= 0:
+  baseline_units = sum(max(0.0, _safe_float(item.get("annual_units"))) for item in product_driver_basis) or _required_units_year1(financials_year1_json or {})
+  if current_price <= 0 or current_util is None or baseline_units <= 0:
     return None
 
-  capacity_units = baseline_units / max(current_util, 1e-9)
-  expected_units = max(
-    0.0,
-    _safe_float((marketing_model_json or {}).get("expected_units_year1")),
-  )
-  reachable_market = max(
-    0.0,
-    _safe_float((marketing_model_json or {}).get("reachable_market")),
-  )
   current_marketing = max(0.0, _safe_float((financials_json or {}).get("marketing_total_year1")))
   current_other_opex = max(0.0, _safe_float((financials_json or {}).get("other_operating_expense")))
   current_interest = max(0.0, _safe_float((baseline_summary or {}).get("interest")))
   current_cogs = max(0.0, _safe_float((baseline_summary or {}).get("cogs")))
   rent_annualized = max(0.0, _safe_float((baseline_summary or {}).get("rent_annualized")))
-  fixed_people_payroll = 0.0
+  current_revenue = max(0.0, _safe_float((baseline_summary or {}).get("revenue")))
+  current_cogs_ratio = (current_cogs / current_revenue) if current_revenue > 0 else None
+
+  supportable_unit_range = engine_state.get("supportable_unit_range") if isinstance(engine_state, dict) else {}
+  supportable_revenue_range = engine_state.get("supportable_revenue_range") if isinstance(engine_state, dict) else {}
+  utilization_range = engine_state.get("utilization_range") if isinstance(engine_state, dict) else {}
+  gross_margin_band = engine_state.get("gross_margin_band") if isinstance(engine_state, dict) else {}
+  ebitda_margin_band = engine_state.get("ebitda_margin_band") if isinstance(engine_state, dict) else {}
+  opex_intensity_band = engine_state.get("opex_intensity_band") if isinstance(engine_state, dict) else {}
+  current_metrics = engine_state.get("current_metrics") if isinstance(engine_state, dict) else {}
+
+  supportable_units_min = _band_min(supportable_unit_range)
+  supportable_units_max = _band_max(supportable_unit_range)
+  supportable_revenue_min = _band_min(supportable_revenue_range)
+  supportable_revenue_max = _band_max(supportable_revenue_range)
+  util_min = _band_min(utilization_range)
+  util_max = _band_max(utilization_range)
+  gross_margin_min = _band_min(gross_margin_band)
+  gross_margin_max = _band_max(gross_margin_band)
+  opex_min_ratio = _band_min(opex_intensity_band)
+  opex_max_ratio = _band_max(opex_intensity_band)
+  physical_capacity_units = max(
+    sum(max(0.0, _safe_float(item.get("annual_capacity_units"))) for item in product_driver_basis),
+    baseline_units / max(current_util, 1e-9),
+    max(0.0, _safe_float((current_metrics or {}).get("capacity_units_year1"))),
+    baseline_units,
+  )
+  constraint_confidence = max(0.0, min(1.0, _safe_float(engine_state.get("constraint_confidence_score"))))
+  fallback_level = str(engine_state.get("fallback_level") or "generic").strip().lower()
+  price_down_pct = 0.02 if constraint_confidence >= 0.65 and fallback_level != "generic" else 0.04
+  price_up_pct = 0.03 if constraint_confidence >= 0.65 and fallback_level != "generic" else 0.05
+
   current_people: List[Dict[str, Any]] = []
   for person in (people_json or {}).get("people") or []:
     if not isinstance(person, dict):
       continue
     annual_wage = max(0.0, _safe_float(person.get("annual_wage")))
-    fixed_people_payroll += annual_wage
     current_people.append(
       {
         "full_name": str(person.get("full_name") or "").strip(),
@@ -1175,68 +1689,79 @@ def _build_solver_state_model(
     )
 
   planned_roles = _collect_solver_roles(people_json or {})
-  baseline_planned_payroll = sum(_safe_float(role.get("baseline_year1_amount")) for role in planned_roles)
-  baseline_payroll_support = fixed_people_payroll + baseline_planned_payroll
-  baseline_gap = _ebitda_gap(baseline_summary)
-  required_price_for_gap = current_price + (baseline_gap / max(1.0, baseline_units))
-  marketing_upper = current_marketing
-  if current_marketing > 0 and expected_units > 0:
-    marketing_upper = current_marketing * max(1.0, capacity_units / expected_units)
-  constraint_basis_payload = {
-    "staffing_supported_capacity_units_year1": _semantic_value(
-      value=capacity_units,
-      metric_type="units",
-      unit_basis="core_unit",
-      time_basis="per_year",
-      hard_constraint_eligible=True,
+  expected_units = max(
+    0.0,
+    _safe_float((marketing_model_json or {}).get("expected_units_year1"))
+    or _safe_float(engine_state.get("demand_supported_units"))
+    or baseline_units,
+  )
+  units_per_marketing_dollar = (
+    expected_units / max(current_marketing, 1e-9)
+    if current_marketing > 0 and expected_units > 0
+    else 0.0
+  )
+  marketing_units_min = max(0.0, min(expected_units, supportable_units_min if supportable_units_min is not None else expected_units))
+  marketing_units_max = max(expected_units, supportable_units_max if supportable_units_max is not None else expected_units)
+  marketing_min_total = (
+    marketing_units_min / max(units_per_marketing_dollar, 1e-9)
+    if units_per_marketing_dollar > 0
+    else current_marketing
+  )
+  marketing_max_total = (
+    marketing_units_max / max(units_per_marketing_dollar, 1e-9)
+    if units_per_marketing_dollar > 0
+    else current_marketing
+  )
+
+  revenue_anchor = max(
+    current_revenue,
+    supportable_revenue_max or 0.0,
+    supportable_revenue_min or 0.0,
+    1.0,
+  )
+  other_opex_min = max(
+    0.0,
+    min(
+      current_other_opex,
+      (opex_min_ratio * revenue_anchor) if opex_min_ratio is not None else current_other_opex,
     ),
-    "demand_supported_units_year1": _semantic_value(
-      value=expected_units,
-      metric_type="units",
-      unit_basis="core_unit",
-      time_basis="per_year",
-      hard_constraint_eligible=True,
-    ),
-    "reachable_market": _semantic_value(
-      value=reachable_market,
-      metric_type="customers",
-      unit_basis="potential_buyers",
-      time_basis="point_in_time",
-      hard_constraint_eligible=False,
-      transform_required="convert_market_population_to_core_unit_demand",
-    ),
-  }
+  )
+  other_opex_max = max(
+    current_other_opex,
+    (opex_max_ratio * revenue_anchor) if opex_max_ratio is not None else current_other_opex,
+  )
+
   controllable_drivers = {
     "revenue": {
       "unit_price": {
         "baseline": current_price,
-        "min": current_price,
-        "max": current_price,
-        "enabled": ENABLE_PRICE_LEVER,
+        "min": round(current_price * (1.0 - price_down_pct), 2),
+        "max": round(current_price * (1.0 + price_up_pct), 2),
+        "enabled": True,
       },
       "utilization_rate": {
         "baseline": current_util,
-        "min": current_util,
-        "max": min(1.0, max(current_util, capacity_units / max(baseline_units, 1e-9))),
+        "min": util_min if util_min is not None else current_util,
+        "max": util_max if util_max is not None else current_util,
         "enabled": True,
       },
     },
     "marketing": {
       "marketing_total_year1": {
         "baseline": current_marketing,
-        "min": 0.0,
-        "max": max(current_marketing, marketing_upper),
+        "min": min(current_marketing, marketing_min_total),
+        "max": max(current_marketing, marketing_max_total),
         "enabled": True,
-        "source": "parent_fallback",
+        "source": "constraint_engine",
       },
     },
     "other_opex": {
       "other_operating_expense": {
         "baseline": current_other_opex,
-        "min": 0.0,
-        "max": current_other_opex,
+        "min": other_opex_min,
+        "max": other_opex_max,
         "enabled": True,
-        "source": "parent_fallback",
+        "source": "constraint_engine",
       },
     },
     "people": {
@@ -1245,9 +1770,14 @@ def _build_solver_state_model(
           "role_title": str(role.get("role_title") or "").strip(),
           "annual_wage": _safe_float(role.get("annual_wage")),
           "base_months": max(0, min(12, _safe_int(role.get("base_months")) or 0)),
+          "min_months": 0,
+          "max_months": 12,
           "baseline_year1_amount": max(0.0, _safe_float(role.get("baseline_year1_amount"))),
           "wage_floor": max(0.0, _safe_float(role.get("wage_floor"))),
-          "wage_ceiling": max(0.0, _safe_float(role.get("wage_ceiling"))),
+          "wage_ceiling": max(
+            max(0.0, _safe_float(role.get("wage_ceiling"))),
+            _safe_float(role.get("annual_wage")),
+          ),
           "enabled": True,
         }
         for role in planned_roles
@@ -1266,7 +1796,7 @@ def _build_solver_state_model(
     },
   }
   derived_outputs = {
-    "revenue": max(0.0, _safe_float((baseline_summary or {}).get("revenue"))),
+    "revenue": current_revenue,
     "gross_profit": max(0.0, _safe_float((baseline_summary or {}).get("gross_profit"))),
     "payroll_total_year1": max(0.0, _safe_float((baseline_summary or {}).get("payroll"))),
     "marketing_total_year1": current_marketing,
@@ -1274,7 +1804,7 @@ def _build_solver_state_model(
     "ebitda": _safe_float((baseline_summary or {}).get("ebitda")),
     "net_income": _safe_float((baseline_summary or {}).get("net_income")),
     "loss_pct": _loss_pct(baseline_summary),
-    "break_even_gap": baseline_gap,
+    "break_even_gap": _ebitda_gap(baseline_summary),
   }
   fixed_facts = {
     "capacity_driver": str((ops_json or {}).get("capacity_driver") or "").strip(),
@@ -1282,21 +1812,94 @@ def _build_solver_state_model(
     "rent_annualized": rent_annualized,
     "interest": current_interest,
     "cogs_total_year1": current_cogs,
-    "reachable_market": reachable_market,
+    "reachable_market": max(0.0, _safe_float((marketing_model_json or {}).get("reachable_market"))),
     "baseline_units_year1": baseline_units,
-    "supported_capacity_units_year1": capacity_units,
+    "physical_capacity_units_year1": physical_capacity_units,
+    "supported_capacity_units_year1": max(
+      baseline_units,
+      supportable_units_max if supportable_units_max is not None else baseline_units,
+    ),
     "expected_units_year1": expected_units,
-    "constraint_basis": constraint_basis_payload,
-    "constraint_audit": _build_constraint_audit(constraint_basis_payload),
+    "constraint_engine_state": _clone(engine_state),
+    "constraint_audit": _clone(engine_state.get("constraints") or []),
+    "product_driver_basis": _clone(product_driver_basis),
   }
-  constraint_profile = _build_constraint_profile(
-    fixed_facts=fixed_facts,
-    controllable_drivers=controllable_drivers,
-    derived_outputs=derived_outputs,
-    marketing_model_json=marketing_model_json,
-    baseline_payroll_support=baseline_payroll_support,
-    fixed_people_payroll=fixed_people_payroll,
-  )
+  constraint_profile = {
+    "constraint_audit": _clone(engine_state.get("constraints") or []),
+    "price_envelope": {
+      "baseline": current_price,
+      "min": round(current_price * (1.0 - price_down_pct), 2),
+      "max": round(current_price * (1.0 + price_up_pct), 2),
+      "enabled": True,
+    },
+    "utilization_envelope": {
+      "baseline": current_util,
+      "min": util_min if util_min is not None else current_util,
+      "max": util_max if util_max is not None else current_util,
+      "enabled": True,
+    },
+    "marketing_envelope": {
+      "baseline": current_marketing,
+      "min": min(current_marketing, marketing_min_total),
+      "max": marketing_max_total if marketing_max_total > 0 else current_marketing,
+      "enabled": True,
+      "source": "constraint_engine",
+    },
+    "marketing_children": {
+      "reachable_market": max(0.0, _safe_float((marketing_model_json or {}).get("reachable_market"))),
+      "baseline_capture_rate": max(0.0, _safe_float((marketing_model_json or {}).get("capture_rate_year1"))),
+      "baseline_expected_customers_or_clients_year1": max(
+        0.0,
+        _safe_float((marketing_model_json or {}).get("expected_customers_or_clients_year1")),
+      ),
+      "baseline_expected_units_year1": expected_units,
+    },
+    "other_opex_envelope": {
+      "baseline": current_other_opex,
+      "min": other_opex_min,
+      "max": other_opex_max if other_opex_max > 0 else current_other_opex,
+      "enabled": True,
+      "source": "constraint_engine",
+    },
+    "cogs_envelope": {
+      "baseline": current_cogs,
+      "baseline_ratio": current_cogs_ratio,
+      "min_ratio": max(0.0, 1.0 - (gross_margin_max if gross_margin_max is not None else (1.0 - (current_cogs_ratio or 0.0)))),
+      "max_ratio": max(0.0, 1.0 - (gross_margin_min if gross_margin_min is not None else (1.0 - (current_cogs_ratio or 0.0)))),
+      "enabled": True,
+      "source": "constraint_engine",
+    },
+    "demand_curve": {
+      "semantic": None,
+      "baseline_supported_units": expected_units,
+      "units_per_marketing_dollar": units_per_marketing_dollar,
+      "enabled": units_per_marketing_dollar > 0,
+    },
+    "capacity_curve": {
+      "semantic": None,
+      "basis": "hard_units",
+      "hard_units_min": supportable_units_min if supportable_units_min is not None else 0.0,
+      "hard_units_max": supportable_units_max if supportable_units_max is not None else baseline_units,
+      "enabled": True,
+    },
+    "role_wage_bounds": [
+      {
+        "role_title": str(role.get("role_title") or "").strip(),
+        "baseline": max(0.0, _safe_float(role.get("annual_wage"))),
+        "min": max(0.0, _safe_float(role.get("wage_floor"))),
+        "max": max(0.0, _safe_float(role.get("wage_ceiling"))),
+      }
+      for role in planned_roles
+      if isinstance(role, dict)
+    ],
+    "current_revenue": current_revenue,
+    "current_cogs": current_cogs,
+    "current_interest": current_interest,
+    "current_other_opex_total": current_other_opex,
+    "rent_annualized": rent_annualized,
+    "constraint_engine_violations": list(engine_state.get("violations") or []),
+    "constraint_engine_state": _clone(engine_state),
+  }
 
   return {
     "fixed_facts": fixed_facts,
@@ -1304,8 +1907,8 @@ def _build_solver_state_model(
     "derived_outputs": derived_outputs,
     "constraint_profile": constraint_profile,
     "objective_policy": {
-      "primary_target": "ebitda_break_even",
-      "fallback_target": "minimize_ebitda_gap",
+      "primary_target": "year1_realism",
+      "fallback_target": "minimize_realism_gap",
       "healthy_ebitda_margin_ratio": HEALTHY_EBITDA_MARGIN_RATIO,
       "ebitda_cushion_preference_weight": EBITDA_CUSHION_PREFERENCE_WEIGHT,
       "option_objective_tolerance_ratio": OPTION_OBJECTIVE_TOLERANCE_RATIO,
@@ -1313,12 +1916,19 @@ def _build_solver_state_model(
       "family_concentration_weight": FAMILY_CONCENTRATION_WEIGHT,
       "distortion_weights": {
         "price_up": PRICE_DISTORTION_WEIGHT,
+        "price_down": PRICE_DOWN_DISTORTION_WEIGHT,
         "util_up": UTILIZATION_DISTORTION_WEIGHT,
+        "util_down": UTILIZATION_DOWN_DISTORTION_WEIGHT,
         "marketing_up": MARKETING_UP_DISTORTION_WEIGHT,
         "marketing_down": MARKETING_DOWN_DISTORTION_WEIGHT,
         "other_opex_down": OTHER_OPEX_DISTORTION_WEIGHT,
+        "other_opex_up": OTHER_OPEX_UP_DISTORTION_WEIGHT,
+        "cogs_down": COGS_DOWN_DISTORTION_WEIGHT,
+        "cogs_up": COGS_UP_DISTORTION_WEIGHT,
         "hire_delay": HIRE_DELAY_DISTORTION_WEIGHT,
+        "hire_advance": HIRE_ADVANCE_DISTORTION_WEIGHT,
         "payroll_down": PAYROLL_DOWN_DISTORTION_WEIGHT,
+        "payroll_up": PAYROLL_UP_DISTORTION_WEIGHT,
       },
     },
   }
@@ -1330,6 +1940,7 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
   ebitda_cushion_preference_weight = EBITDA_CUSHION_PREFERENCE_WEIGHT
   objective_tolerance_ratio = OPTION_OBJECTIVE_TOLERANCE_RATIO
   objective_tolerance_abs = OPTION_OBJECTIVE_TOLERANCE_ABS
+  active_violations: List[str] = []
   if isinstance(state_model, dict):
     objective_policy = state_model.get("objective_policy")
     if isinstance(objective_policy, dict):
@@ -1348,15 +1959,29 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
       objective_tolerance_abs = _safe_float(
         objective_policy.get("option_objective_tolerance_abs"),
       ) or OPTION_OBJECTIVE_TOLERANCE_ABS
+    constraint_profile = state_model.get("constraint_profile")
+    if isinstance(constraint_profile, dict):
+      active_violations = [
+        str(code or "").strip()
+        for code in (constraint_profile.get("constraint_engine_violations") or [])
+        if str(code or "").strip()
+      ]
   if not base_weights:
     base_weights = {
       "price_up": PRICE_DISTORTION_WEIGHT,
+      "price_down": PRICE_DOWN_DISTORTION_WEIGHT,
       "util_up": UTILIZATION_DISTORTION_WEIGHT,
+      "util_down": UTILIZATION_DOWN_DISTORTION_WEIGHT,
       "marketing_up": MARKETING_UP_DISTORTION_WEIGHT,
       "marketing_down": MARKETING_DOWN_DISTORTION_WEIGHT,
       "other_opex_down": OTHER_OPEX_DISTORTION_WEIGHT,
+      "other_opex_up": OTHER_OPEX_UP_DISTORTION_WEIGHT,
+      "cogs_down": COGS_DOWN_DISTORTION_WEIGHT,
+      "cogs_up": COGS_UP_DISTORTION_WEIGHT,
       "hire_delay": HIRE_DELAY_DISTORTION_WEIGHT,
+      "hire_advance": HIRE_ADVANCE_DISTORTION_WEIGHT,
       "payroll_down": PAYROLL_DOWN_DISTORTION_WEIGHT,
+      "payroll_up": PAYROLL_UP_DISTORTION_WEIGHT,
     }
 
   def profile_with(
@@ -1380,7 +2005,7 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
       "anchor_strict": bool(anchor_strict),
     }
 
-  return [
+  profiles = [
     profile_with("balanced", {}, anchor_strict=True),
     profile_with(
       "growth_first",
@@ -1399,15 +2024,39 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
     profile_with(
       "profit_first",
       {
-        "marketing_up": 1.35,
+        "marketing_up": 1.15,
         "util_up": 1.1,
         "marketing_down": 0.8,
         "other_opex_down": 0.7,
+        "other_opex_up": 0.75,
+        "cogs_up": 0.7,
         "hire_delay": 0.9,
         "payroll_down": 0.7,
+        "payroll_up": 0.8,
       },
       constraints={
         "marketing_max_ratio": 1.05,
+      },
+    ),
+    profile_with(
+      "operations_first",
+      {
+        "price_up": 1.5,
+        "price_down": 1.8,
+        "util_up": 0.9,
+        "marketing_up": 0.95,
+        "marketing_down": 1.15,
+        "other_opex_up": 0.65,
+        "other_opex_down": 1.2,
+        "cogs_up": 0.6,
+        "cogs_down": 1.2,
+        "hire_advance": 0.55,
+        "hire_delay": 1.4,
+        "payroll_up": 0.55,
+        "payroll_down": 1.4,
+      },
+      constraints={
+        "marketing_min_ratio": 0.9,
       },
     ),
     profile_with(
@@ -1425,6 +2074,35 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
       },
     ),
   ]
+
+  if "payroll_too_light" in active_violations:
+    profiles.insert(
+      1,
+      profile_with(
+        "labor_support_first",
+        {
+          "price_up": 1.5,
+          "util_up": 1.8,
+          "util_down": 0.5,
+          "marketing_up": 1.5,
+          "marketing_down": 0.45,
+          "other_opex_down": 0.75,
+          "other_opex_up": 1.2,
+          "cogs_down": 0.9,
+          "cogs_up": 1.1,
+          "hire_advance": 0.5,
+          "hire_delay": 1.6,
+          "payroll_up": 0.45,
+          "payroll_down": 1.6,
+        },
+        constraints={
+          "marketing_max_ratio": 0.95,
+          "utilization_max_ratio": 0.92,
+        },
+      ),
+    )
+
+  return profiles
 
 
 def _build_direct_solver_inputs(
@@ -1452,7 +2130,11 @@ def _build_direct_solver_inputs(
   if baseline_units <= 0:
     return None
 
-  capacity_units = max(0.0, _safe_float((fixed_facts or {}).get("supported_capacity_units_year1")))
+  capacity_units = max(
+    0.0,
+    _safe_float((fixed_facts or {}).get("physical_capacity_units_year1"))
+    or _safe_float((fixed_facts or {}).get("supported_capacity_units_year1")),
+  )
   fixed_people_payroll = 0.0
   for person in (fixed_facts or {}).get("current_staff") or []:
     if not isinstance(person, dict):
@@ -1466,30 +2148,71 @@ def _build_direct_solver_inputs(
     fixed_people_payroll + baseline_planned_payroll,
     _safe_float((capacity_curve or {}).get("baseline_payroll_support")),
   )
+  constraint_engine_state = (fixed_facts or {}).get("constraint_engine_state") if isinstance(fixed_facts, dict) else {}
+  constraint_engine_state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  payroll_band = constraint_engine_state.get("payroll_intensity_band") if isinstance(constraint_engine_state, dict) else {}
+  payroll_ratio_min = max(0.0, _safe_float((payroll_band or {}).get("min")))
+  payroll_ratio_max = max(payroll_ratio_min, _safe_float((payroll_band or {}).get("max")) or payroll_ratio_min)
+  current_revenue_amount = max(0.0, _safe_float((constraint_profile or {}).get("current_revenue")))
+  max_planned_payroll = sum(max(0.0, _safe_float(role.get("wage_ceiling"))) for role in roles if isinstance(role, dict))
+  max_payroll_total = fixed_people_payroll + max_planned_payroll
+  target_payroll_min_total = min(max_payroll_total, current_revenue_amount * payroll_ratio_min) if payroll_ratio_min > 0 else 0.0
+  target_payroll_max_total = max(
+    fixed_people_payroll + baseline_planned_payroll,
+    min(max_payroll_total if max_payroll_total > 0 else (current_revenue_amount * payroll_ratio_max), current_revenue_amount * payroll_ratio_max if payroll_ratio_max > 0 else max_payroll_total),
+  )
+  units_min = max(0.0, _safe_float((capacity_curve or {}).get("hard_units_min")))
+  units_max = max(
+    baseline_units,
+    _safe_float((capacity_curve or {}).get("hard_units_max")) or _safe_float((fixed_facts or {}).get("supported_capacity_units_year1")),
+  )
+  marketing_support_units_min = min(
+    max(0.0, _safe_float((marketing_children or {}).get("baseline_expected_units_year1"))),
+    max(0.0, _safe_float((demand_curve or {}).get("baseline_supported_units")) or units_max),
+  )
+  marketing_support_units_max = max(
+    max(0.0, _safe_float((marketing_children or {}).get("baseline_expected_units_year1"))),
+    max(0.0, _safe_float((demand_curve or {}).get("baseline_supported_units")) or units_max),
+  )
 
   return {
     "current_price": current_price,
     "price_enabled": bool((price_envelope or {}).get("enabled")),
     "current_util": current_util,
     "util_min": _normalize_ratio((util_envelope or {}).get("min")) or current_util,
-    "util_max": _normalize_ratio((util_envelope or {}).get("max")) or 1.0,
+    "util_max": _normalize_ratio((util_envelope or {}).get("max")) or current_util,
     "baseline_units": baseline_units,
     "capacity_units": capacity_units,
+    "units_min": units_min,
+    "units_max": units_max,
     "current_marketing": max(0.0, _safe_float((marketing_envelope or {}).get("baseline"))),
     "marketing_min": max(0.0, _safe_float((marketing_envelope or {}).get("min"))),
-    "marketing_upper": max(0.0, _safe_float((marketing_envelope or {}).get("max"))),
+    "marketing_upper": max(0.0, _safe_float((marketing_envelope or {}).get("max")) or _safe_float((marketing_envelope or {}).get("baseline"))),
     "marketing_support_units_baseline": max(0.0, _safe_float((marketing_children or {}).get("baseline_expected_units_year1"))),
+    "marketing_support_units_min": marketing_support_units_min,
     "marketing_support_units_max": max(
-      0.0,
-      _safe_float((demand_curve or {}).get("units_per_marketing_dollar")) * max(0.0, _safe_float((marketing_envelope or {}).get("max"))),
+      marketing_support_units_max,
+      max(
+        0.0,
+        _safe_float((demand_curve or {}).get("units_per_marketing_dollar")) * max(0.0, _safe_float((marketing_envelope or {}).get("max"))),
+      ),
     ),
     "marketing_units_per_dollar": max(0.0, _safe_float((demand_curve or {}).get("units_per_marketing_dollar"))),
     "current_other_opex": max(0.0, _safe_float((other_opex_envelope or {}).get("baseline"))),
     "other_opex_min": max(0.0, _safe_float((other_opex_envelope or {}).get("min"))),
+    "other_opex_max": max(0.0, _safe_float((other_opex_envelope or {}).get("max")) or _safe_float((other_opex_envelope or {}).get("baseline"))),
     "other_opex_enabled": bool((other_opex_envelope or {}).get("enabled")),
+    "payroll_ratio_min": max(0.0, _safe_float((constraint_profile.get("constraint_engine_state") or {}).get("payroll_intensity_band", {}).get("min")) if isinstance(constraint_profile, dict) else 0.0),
+    "payroll_ratio_max": max(0.0, _safe_float((constraint_profile.get("constraint_engine_state") or {}).get("payroll_intensity_band", {}).get("max")) if isinstance(constraint_profile, dict) else 0.0),
+    "opex_ratio_min": max(0.0, _safe_float((constraint_profile.get("constraint_engine_state") or {}).get("opex_intensity_band", {}).get("min")) if isinstance(constraint_profile, dict) else 0.0),
+    "opex_ratio_max": max(0.0, _safe_float((constraint_profile.get("constraint_engine_state") or {}).get("opex_intensity_band", {}).get("max")) if isinstance(constraint_profile, dict) else 0.0),
     "fixed_people_payroll": fixed_people_payroll,
     "baseline_planned_payroll": baseline_planned_payroll,
     "baseline_payroll_support": baseline_payroll_support,
+    "payroll_ratio_min": payroll_ratio_min,
+    "payroll_ratio_max": payroll_ratio_max,
+    "target_payroll_min_total": max(0.0, target_payroll_min_total),
+    "target_payroll_max_total": max(0.0, target_payroll_max_total),
     "roles": roles,
     "constraint_profile": constraint_profile,
     "expected_units": max(0.0, _safe_float((demand_curve or {}).get("baseline_supported_units"))),
@@ -1509,6 +2232,36 @@ def _build_direct_solver_inputs(
     ),
     "rent_annualized": max(0.0, _safe_float((constraint_profile or {}).get("rent_annualized"))),
     "price_upper": max(current_price, _safe_float((price_envelope or {}).get("max"))),
+    "price_lower": max(0.0, _safe_float((price_envelope or {}).get("min")) or current_price),
+    "current_cogs_ratio": _safe_float(((constraint_profile or {}).get("cogs_envelope") or {}).get("baseline_ratio")),
+    "cogs_ratio_min": max(0.0, _safe_float(((constraint_profile or {}).get("cogs_envelope") or {}).get("min_ratio"))),
+    "cogs_ratio_max": max(0.0, _safe_float(((constraint_profile or {}).get("cogs_envelope") or {}).get("max_ratio"))),
+    "product_driver_basis": _clone((fixed_facts or {}).get("product_driver_basis") or []),
+  }
+
+
+def _build_blocking_solver_state(
+  *,
+  baseline_summary: Dict[str, Any],
+  state_model: Dict[str, Any],
+  constraint_engine_state: Optional[Dict[str, Any]],
+  baseline_realism_distance: float,
+  blocking_reason: str,
+) -> Dict[str, Any]:
+  return {
+    "status": "blocking_unresolved",
+    "target_metric": "year1_realism",
+    "search_mode": "direct_pulp",
+    "blocking_reason": blocking_reason,
+    "blocking_violations": _blocking_constraint_violations(constraint_engine_state),
+    "baseline_summary": baseline_summary,
+    "baseline_loss_pct": _loss_pct(baseline_summary),
+    "baseline_table_markdown": build_consistency_financial_table(baseline_summary),
+    "state_model": state_model,
+    "constraint_engine_state": _clone(constraint_engine_state or {}),
+    "baseline_realism_distance": baseline_realism_distance,
+    "structural_gap": True,
+    "scenarios": [],
   }
 
 
@@ -1519,14 +2272,30 @@ def _label_and_rationale_from_patches(exact_patches: Dict[str, Any]) -> Tuple[st
 
   year1_patch = exact_patches.get("financials_year1_patch")
   if isinstance(year1_patch, dict):
+    product_overrides = year1_patch.get("product_overrides")
+    if isinstance(product_overrides, dict) and product_overrides:
+      saw_price = any(isinstance(override, dict) and override.get("unit_price") is not None for override in product_overrides.values())
+      saw_util = any(
+        isinstance(override, dict)
+        and (override.get("utilization_rate") is not None or override.get("avg_units_per_period_year1") is not None)
+        for override in product_overrides.values()
+      )
+      if saw_price:
+        families.append("price")
+        label_parts.append(f"Reset product pricing across {len(product_overrides)} product(s)")
+        rationale_parts.append("rebalance product-level pricing within the realism envelope")
+      if saw_util:
+        families.append("utilization")
+        label_parts.append(f"Reset product volume and utilization across {len(product_overrides)} product(s)")
+        rationale_parts.append("rebalance product-level demand and capacity usage")
     if year1_patch.get("unit_price") is not None:
       families.append("price")
-      label_parts.append(f"Increase price to {_format_currency(year1_patch.get('unit_price'))}")
-      rationale_parts.append("raise pricing")
+      label_parts.append(f"Set price to {_format_currency(year1_patch.get('unit_price'))}")
+      rationale_parts.append("reset pricing")
     if year1_patch.get("utilization_rate") is not None:
       families.append("utilization")
-      label_parts.append(f"Increase utilization to {_format_percent(year1_patch.get('utilization_rate'))}")
-      rationale_parts.append("fill more of the existing capacity")
+      label_parts.append(f"Set utilization to {_format_percent(year1_patch.get('utilization_rate'))}")
+      rationale_parts.append("reset utilization to a more supportable level")
 
   financials_patch = exact_patches.get("financials_patch")
   if isinstance(financials_patch, dict):
@@ -1538,8 +2307,13 @@ def _label_and_rationale_from_patches(exact_patches: Dict[str, Any]) -> Tuple[st
     if financials_patch.get("other_operating_expense") is not None:
       target = _safe_float(financials_patch.get("other_operating_expense"))
       families.append("other_opex")
-      label_parts.append(f"Reduce other operating expense to {_format_currency(target)}")
-      rationale_parts.append("tighten non-rent operating spend")
+      label_parts.append(f"Set other operating expense to {_format_currency(target)}")
+      rationale_parts.append("reset non-rent operating spend")
+    if financials_patch.get("cogs_total_year1") is not None:
+      target = _safe_float(financials_patch.get("cogs_total_year1"))
+      families.append("cogs")
+      label_parts.append(f"Set Year-1 COGS to {_format_currency(target)}")
+      rationale_parts.append("reset direct cost assumptions to fit the realism band")
   marketing_model_patch = exact_patches.get("marketing_model_patch")
   if isinstance(marketing_model_patch, dict):
     expected_units = _safe_float(marketing_model_patch.get("expected_units_year1"))
@@ -1558,12 +2332,12 @@ def _label_and_rationale_from_patches(exact_patches: Dict[str, Any]) -> Tuple[st
       if not role_title or months is None:
         continue
       families.append("hire_delay")
-      label_parts.append(f"Delay {role_title} to month {months}")
-      rationale_parts.append(f"push {role_title} later in Year 1")
+      label_parts.append(f"Set {role_title} timing to month {months}")
+      rationale_parts.append(f"reset {role_title} timing in Year 1")
       if update.get("annual_wage") is not None and _safe_float(update.get("annual_wage")) > 0:
         families.append("payroll")
         label_parts.append(f"Set {role_title} pay to {_format_currency(update.get('annual_wage'))}/year")
-        rationale_parts.append(f"use a leaner Year-1 pay level for {role_title}")
+        rationale_parts.append(f"reset {role_title} pay for Year 1")
 
   label = " + ".join(label_parts)
   rationale = "This path " + ", ".join(rationale_parts) + "."
@@ -1581,6 +2355,10 @@ def _build_candidate_from_exact_patches(
   baseline_state: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]],
   exact_patches: Dict[str, Any],
+  constraint_engine_state: Optional[Dict[str, Any]] = None,
+  baseline_realism_distance: Optional[float] = None,
+  target_ebitda_min: Optional[float] = None,
+  target_ebitda_max: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
   label, rationale, families = _label_and_rationale_from_patches(exact_patches)
   return _build_candidate(
@@ -1592,6 +2370,10 @@ def _build_candidate_from_exact_patches(
     rationale=rationale,
     lever_families=families,
     exact_patches=exact_patches,
+    constraint_engine_state=constraint_engine_state,
+    baseline_realism_distance=baseline_realism_distance,
+    target_ebitda_min=target_ebitda_min,
+    target_ebitda_max=target_ebitda_max,
   )
 
 
@@ -1599,11 +2381,13 @@ def _archetype_preference_objective(
   *,
   profile_id: str,
   max_family_move: Any,
-  price_move: Any,
+  price_up_move: Any,
+  price_down_move: Any,
   util_move: Any,
   marketing_up_move: Any,
   marketing_down_move: Any,
   opex_down_move: Any,
+  cogs_move: Any,
   hire_delay_move: Any,
   payroll_down_move: Any,
   ebitda_expr: Any,
@@ -1615,10 +2399,12 @@ def _archetype_preference_objective(
       1.0 * max_family_move
       - 1.25 * util_move
       - 1.15 * marketing_up_move
+      - 0.45 * cogs_move
       + 0.85 * marketing_down_move
       + 0.75 * hire_delay_move
       + 0.75 * payroll_down_move
       + 0.35 * opex_down_move
+      + 0.25 * price_down_move
       - 0.35 * normalized_ebitda
     )
   if profile_id == "profit_first":
@@ -1626,9 +2412,11 @@ def _archetype_preference_objective(
       0.95 * max_family_move
       - 0.95 * payroll_down_move
       - 0.8 * opex_down_move
+      - 0.7 * cogs_move
       - 0.45 * marketing_down_move
       + 0.85 * marketing_up_move
       + 0.35 * util_move
+      + 0.25 * price_up_move
       + 0.3 * hire_delay_move
       - 0.5 * normalized_ebitda
     )
@@ -1639,6 +2427,7 @@ def _archetype_preference_objective(
       - 0.95 * payroll_down_move
       - 0.65 * marketing_down_move
       - 0.35 * opex_down_move
+      - 0.45 * cogs_move
       + 1.0 * marketing_up_move
       + 0.55 * util_move
       - 0.25 * normalized_ebitda
@@ -1650,7 +2439,8 @@ def _archetype_preference_objective(
     - 0.35 * payroll_down_move
     - 0.3 * hire_delay_move
     - 0.2 * opex_down_move
-    + 0.15 * price_move
+    - 0.35 * cogs_move
+    + 0.15 * (price_up_move + price_down_move)
     - 0.3 * normalized_ebitda
   )
 
@@ -1660,7 +2450,9 @@ def _solve_direct_profile(
   profile: Dict[str, Any],
   direct_inputs: Dict[str, Any],
   target_ebitda_min: Optional[float],
+  target_ebitda_max: Optional[float] = None,
   family_caps: Optional[Dict[str, float]] = None,
+  enforce_blocking_bands: bool = False,
 ):
   pulp = _require_pulp()
   problem = pulp.LpProblem(f"consistency_solver_{profile.get('profile_id')}", pulp.LpMinimize)
@@ -1692,22 +2484,38 @@ def _solve_direct_profile(
 
   current_price = _safe_float(direct_inputs.get("current_price"))
   price_enabled = bool(direct_inputs.get("price_enabled"))
-  price_upper = max(current_price, _safe_float(direct_inputs.get("price_upper")))
+  price_lower = max(0.0, _safe_float(direct_inputs.get("price_lower")) or current_price)
+  price_upper = max(0.0, _safe_float(direct_inputs.get("price_upper")) or current_price)
   current_util = _normalize_ratio(direct_inputs.get("current_util")) or 0.0
-  util_max = max(current_util, _normalize_ratio(direct_inputs.get("util_max")) or 1.0)
+  util_min = min(current_util, _normalize_ratio(direct_inputs.get("util_min")) or current_util)
+  util_max = max(util_min, _normalize_ratio(direct_inputs.get("util_max")) or current_util)
   current_marketing = max(0.0, _safe_float(direct_inputs.get("current_marketing")))
   marketing_min = max(0.0, _safe_float(direct_inputs.get("marketing_min")))
-  marketing_upper = max(current_marketing, _safe_float(direct_inputs.get("marketing_upper")))
+  marketing_upper = max(marketing_min, _safe_float(direct_inputs.get("marketing_upper")) or current_marketing)
   marketing_support_units_baseline = max(0.0, _safe_float(direct_inputs.get("marketing_support_units_baseline")))
+  marketing_support_units_min = min(
+    marketing_support_units_baseline,
+    max(0.0, _safe_float(direct_inputs.get("marketing_support_units_min"))),
+  )
   marketing_support_units_max = max(marketing_support_units_baseline, _safe_float(direct_inputs.get("marketing_support_units_max")))
   marketing_units_per_dollar = max(0.0, _safe_float(direct_inputs.get("marketing_units_per_dollar")))
   current_other_opex = max(0.0, _safe_float(direct_inputs.get("current_other_opex")))
   other_opex_min = max(0.0, _safe_float(direct_inputs.get("other_opex_min")))
+  other_opex_max = max(other_opex_min, _safe_float(direct_inputs.get("other_opex_max")) or current_other_opex)
   other_opex_enabled = bool(direct_inputs.get("other_opex_enabled"))
+  payroll_ratio_min = max(0.0, _safe_float(direct_inputs.get("payroll_ratio_min")))
+  payroll_ratio_max = max(payroll_ratio_min, _safe_float(direct_inputs.get("payroll_ratio_max")) or payroll_ratio_min)
+  opex_ratio_min = max(0.0, _safe_float(direct_inputs.get("opex_ratio_min")))
+  opex_ratio_max = max(opex_ratio_min, _safe_float(direct_inputs.get("opex_ratio_max")) or opex_ratio_min)
   current_cogs = max(0.0, _safe_float(direct_inputs.get("current_cogs")))
+  current_cogs_ratio = max(0.0, _safe_float(direct_inputs.get("current_cogs_ratio")))
+  cogs_ratio_min = max(0.0, _safe_float(direct_inputs.get("cogs_ratio_min")))
+  cogs_ratio_max = max(cogs_ratio_min, _safe_float(direct_inputs.get("cogs_ratio_max")) or current_cogs_ratio)
   current_interest = max(0.0, _safe_float(direct_inputs.get("current_interest")))
   rent_annualized = max(0.0, _safe_float(direct_inputs.get("rent_annualized")))
   capacity_units = max(0.0, _safe_float(direct_inputs.get("capacity_units")))
+  units_min = max(0.0, _safe_float(direct_inputs.get("units_min")))
+  units_max = max(units_min, _safe_float(direct_inputs.get("units_max")) or capacity_units)
   expected_units = max(0.0, _safe_float(direct_inputs.get("expected_units")))
   required_units_semantic = direct_inputs.get("required_units_semantic")
   staffing_supported_capacity_semantic = direct_inputs.get("staffing_supported_capacity_semantic")
@@ -1718,15 +2526,17 @@ def _solve_direct_profile(
   demand_curve = (constraint_profile or {}).get("demand_curve") if isinstance(constraint_profile, dict) else {}
   fixed_people_payroll = max(0.0, _safe_float(direct_inputs.get("fixed_people_payroll")))
   baseline_payroll_support = max(0.0, _safe_float(direct_inputs.get("baseline_payroll_support")))
+  target_payroll_min_total = max(0.0, _safe_float(direct_inputs.get("target_payroll_min_total")))
+  target_payroll_max_total = max(target_payroll_min_total, _safe_float(direct_inputs.get("target_payroll_max_total")) or target_payroll_min_total)
   roles = direct_inputs.get("roles") if isinstance(direct_inputs, dict) else []
   roles = roles if isinstance(roles, list) else []
 
-  price = pulp.LpVariable("price", lowBound=current_price, upBound=(current_price if not price_enabled else price_upper), cat="Continuous")
-  util = pulp.LpVariable("util", lowBound=current_util, upBound=util_max, cat="Continuous")
+  price = pulp.LpVariable("price", lowBound=(current_price if not price_enabled else price_lower), upBound=(current_price if not price_enabled else price_upper), cat="Continuous")
+  util = pulp.LpVariable("util", lowBound=util_min, upBound=util_max, cat="Continuous")
   if marketing_units_per_dollar > 0:
     marketing_support_units = pulp.LpVariable(
       "marketing_support_units",
-      lowBound=marketing_support_units_baseline,
+      lowBound=marketing_support_units_min,
       upBound=marketing_support_units_max,
       cat="Continuous",
     )
@@ -1742,16 +2552,16 @@ def _solve_direct_profile(
   other_opex = pulp.LpVariable(
     "other_opex",
     lowBound=(other_opex_min if other_opex_enabled else current_other_opex),
-    upBound=current_other_opex,
+    upBound=(other_opex_max if other_opex_enabled else current_other_opex),
     cat="Continuous",
   )
-  price_util = pulp.LpVariable("price_util", lowBound=current_price * current_util, upBound=price_upper, cat="Continuous")
+  price_util = pulp.LpVariable("price_util", lowBound=0.0, upBound=price_upper * util_max, cat="Continuous")
 
   # McCormick envelope for z = price * util.
-  price_lb = current_price
+  price_lb = price_lower if price_enabled else current_price
   price_ub = price_upper
-  util_lb = current_util
-  util_ub = 1.0
+  util_lb = util_min
+  util_ub = util_max
   problem += price_util >= price_lb * util + util_lb * price - (price_lb * util_lb)
   problem += price_util >= price_ub * util + util_ub * price - (price_ub * util_ub)
   problem += price_util <= price_lb * util + util_ub * price - (price_lb * util_ub)
@@ -1762,10 +2572,14 @@ def _solve_direct_profile(
   role_wage_meta: Dict[str, Dict[str, float]] = {}
   payroll_terms: List[Any] = []
   total_delay_expr = 0
+  total_advance_expr = 0
   total_payroll_down_expr = 0
+  total_payroll_up_expr = 0
   for index, role in enumerate(roles):
     role_title = str(role.get("role_title") or "").strip()
     base_months = max(0, min(12, _safe_int(role.get("base_months")) or 0))
+    min_months = max(0, min(base_months, _safe_int(role.get("min_months")) if role.get("min_months") is not None else 0))
+    max_months = max(base_months, min(12, _safe_int(role.get("max_months")) if role.get("max_months") is not None else 12))
     annual_wage = max(0.0, _safe_float(role.get("annual_wage")))
     wage_floor = max(0.0, _safe_float(role.get("wage_floor")) or annual_wage)
     wage_ceiling = max(wage_floor, _safe_float(role.get("wage_ceiling")) or annual_wage)
@@ -1774,8 +2588,8 @@ def _solve_direct_profile(
       continue
     month_var = pulp.LpVariable(
       f"role_month_{index}",
-      lowBound=base_months,
-      upBound=12,
+      lowBound=min_months,
+      upBound=max_months,
       cat="Integer",
     )
     payroll_var = pulp.LpVariable(
@@ -1797,17 +2611,44 @@ def _solve_direct_profile(
     problem += payroll_var >= (wage_floor / 12.0) * active_months_expr
     problem += payroll_var <= (wage_ceiling / 12.0) * active_months_expr
     payroll_terms.append(payroll_var)
-    total_delay_expr += month_var - base_months
+    delay_var = pulp.LpVariable(f"role_delay_{index}", lowBound=0.0, cat="Continuous")
+    advance_var = pulp.LpVariable(f"role_advance_{index}", lowBound=0.0, cat="Continuous")
+    problem += month_var - base_months == delay_var - advance_var
+    total_delay_expr += delay_var
+    total_advance_expr += advance_var
     if baseline_year1_amount > 0:
-      total_payroll_down_expr += (baseline_year1_amount - payroll_var) / baseline_year1_amount
+      payroll_down_var = pulp.LpVariable(f"role_payroll_down_{index}", lowBound=0.0, cat="Continuous")
+      payroll_up_var = pulp.LpVariable(f"role_payroll_up_{index}", lowBound=0.0, cat="Continuous")
+      problem += baseline_year1_amount - payroll_var == payroll_down_var - payroll_up_var
+      total_payroll_down_expr += payroll_down_var / baseline_year1_amount
+      total_payroll_up_expr += payroll_up_var / baseline_year1_amount
   role_count = max(len(role_payroll_vars), 1)
 
   payroll_expr = fixed_people_payroll + pulp.lpSum(payroll_terms)
+  payroll_shortfall = pulp.LpVariable("payroll_shortfall", lowBound=0.0, cat="Continuous")
+  payroll_excess = pulp.LpVariable("payroll_excess", lowBound=0.0, cat="Continuous")
+  if target_payroll_min_total > 0:
+    problem += payroll_expr + payroll_shortfall >= target_payroll_min_total
+  else:
+    problem += payroll_shortfall == 0
+  if target_payroll_max_total > 0:
+    problem += payroll_expr - payroll_excess <= target_payroll_max_total
+  else:
+    problem += payroll_excess == 0
   units_expr = capacity_units * util
   revenue_expr = capacity_units * price_util
-  ebitda_expr = revenue_expr - current_cogs - payroll_expr - marketing_expr - other_opex - rent_annualized
+  revenue_lb = max(0.0, capacity_units * price_lb * util_lb)
+  revenue_ub = max(revenue_lb, capacity_units * price_ub * util_ub)
+  cogs_ratio = pulp.LpVariable("cogs_ratio", lowBound=cogs_ratio_min, upBound=cogs_ratio_max, cat="Continuous")
+  cogs_total = pulp.LpVariable("cogs_total", lowBound=0.0, upBound=max(current_cogs * 2.0, revenue_ub), cat="Continuous")
+  problem += cogs_total >= revenue_lb * cogs_ratio + cogs_ratio_min * revenue_expr - (revenue_lb * cogs_ratio_min)
+  problem += cogs_total >= revenue_ub * cogs_ratio + cogs_ratio_max * revenue_expr - (revenue_ub * cogs_ratio_max)
+  problem += cogs_total <= revenue_lb * cogs_ratio + cogs_ratio_max * revenue_expr - (revenue_lb * cogs_ratio_max)
+  problem += cogs_total <= revenue_ub * cogs_ratio + cogs_ratio_min * revenue_expr - (revenue_ub * cogs_ratio_min)
+  ebitda_expr = revenue_expr - cogs_total - payroll_expr - marketing_expr - other_opex - rent_annualized
   net_income_expr = ebitda_expr - current_interest
   revenue_scale = max(1.0, _safe_float(direct_inputs.get("current_revenue")) or (capacity_units * max(current_price, 1.0)))
+  total_opex_expr = other_opex + rent_annualized
 
   capacity_basis = str((capacity_curve or {}).get("basis") or "").strip().lower()
   capacity_units_per_role_month = max(0.0, _safe_float((capacity_curve or {}).get("units_per_active_role_month")))
@@ -1820,6 +2661,20 @@ def _solve_direct_profile(
   elif bool((capacity_curve or {}).get("enabled")) and capacity_units_per_payroll > 0:
     staffing_supported_units = capacity_units_per_payroll * payroll_expr
     problem += units_expr <= staffing_supported_units
+  elif bool((capacity_curve or {}).get("enabled")) and capacity_basis == "hard_units":
+    hard_units_min = max(0.0, _safe_float((capacity_curve or {}).get("hard_units_min")) or units_min)
+    hard_units_max = max(hard_units_min, _safe_float((capacity_curve or {}).get("hard_units_max")) or units_max)
+    problem += units_expr >= hard_units_min
+    problem += units_expr <= hard_units_max
+
+  if enforce_blocking_bands and payroll_ratio_min > 0:
+    problem += payroll_expr >= payroll_ratio_min * revenue_expr
+  if enforce_blocking_bands and payroll_ratio_max > 0:
+    problem += payroll_expr <= payroll_ratio_max * revenue_expr
+  if enforce_blocking_bands and opex_ratio_min > 0:
+    problem += total_opex_expr >= opex_ratio_min * revenue_expr
+  if enforce_blocking_bands and opex_ratio_max > 0:
+    problem += total_opex_expr <= opex_ratio_max * revenue_expr
 
   demand_units_per_marketing = max(0.0, _safe_float((demand_curve or {}).get("units_per_marketing_dollar")))
   if bool((demand_curve or {}).get("enabled")) and demand_units_per_marketing > 0:
@@ -1841,6 +2696,12 @@ def _solve_direct_profile(
   marketing_max_ratio = _safe_float(profile_constraints.get("marketing_max_ratio"))
   if current_marketing > 0 and marketing_max_ratio > 0:
     problem += marketing_expr <= current_marketing * marketing_max_ratio
+  utilization_max_ratio = _safe_float(profile_constraints.get("utilization_max_ratio"))
+  if current_util > 0 and utilization_max_ratio > 0:
+    problem += util <= max(util_min, current_util * utilization_max_ratio)
+  utilization_min_ratio = _safe_float(profile_constraints.get("utilization_min_ratio"))
+  if current_util > 0 and utilization_min_ratio > 0:
+    problem += util >= min(util_max, current_util * utilization_min_ratio)
   payroll_down_max_ratio = _safe_float(profile_constraints.get("payroll_down_max_ratio"))
   if payroll_down_max_ratio > 0:
     problem += total_payroll_down_expr <= payroll_down_max_ratio
@@ -1850,45 +2711,82 @@ def _solve_direct_profile(
 
   shortfall = None
   target_ebitda_min = None if target_ebitda_min is None else float(target_ebitda_min)
+  target_ebitda_max = None if target_ebitda_max is None else float(target_ebitda_max)
   if target_ebitda_min is not None:
     problem += ebitda_expr >= target_ebitda_min
+  if target_ebitda_max is not None:
+    problem += ebitda_expr <= target_ebitda_max
   else:
-    shortfall = pulp.LpVariable("ebitda_shortfall", lowBound=0.0, cat="Continuous")
-    problem += shortfall >= -ebitda_expr
+    if target_ebitda_min is None:
+      shortfall = pulp.LpVariable("ebitda_shortfall", lowBound=0.0, cat="Continuous")
+      problem += shortfall >= -ebitda_expr
 
   marketing_up = pulp.LpVariable("marketing_up", lowBound=0.0, cat="Continuous")
   marketing_down = pulp.LpVariable("marketing_down", lowBound=0.0, cat="Continuous")
   problem += marketing_expr - current_marketing == marketing_up - marketing_down
+  price_up = pulp.LpVariable("price_up", lowBound=0.0, cat="Continuous")
+  price_down = pulp.LpVariable("price_down", lowBound=0.0, cat="Continuous")
+  problem += price - current_price == price_up - price_down
+  util_up = pulp.LpVariable("util_up", lowBound=0.0, cat="Continuous")
+  util_down = pulp.LpVariable("util_down", lowBound=0.0, cat="Continuous")
+  problem += util - current_util == util_up - util_down
+  other_opex_up = pulp.LpVariable("other_opex_up", lowBound=0.0, cat="Continuous")
+  other_opex_down = pulp.LpVariable("other_opex_down", lowBound=0.0, cat="Continuous")
+  problem += other_opex - current_other_opex == other_opex_up - other_opex_down
+  cogs_up = pulp.LpVariable("cogs_up", lowBound=0.0, cat="Continuous")
+  cogs_down = pulp.LpVariable("cogs_down", lowBound=0.0, cat="Continuous")
+  problem += cogs_total - current_cogs == cogs_up - cogs_down
 
-  price_move = (price - current_price) / max(current_price, 1.0) if price_enabled else 0.0
-  util_move = (util - current_util) / max(1.0 - current_util, 1e-6)
+  price_up_move = price_up / max(current_price, 1.0) if price_enabled else 0.0
+  price_down_move = price_down / max(current_price, 1.0) if price_enabled else 0.0
+  util_up_move = util_up / max(1.0 - current_util, 1e-6)
+  util_down_move = util_down / max(current_util or 1.0, 1e-6)
   marketing_up_move = marketing_up / max(marketing_upper or 1.0, 1.0)
   marketing_down_move = marketing_down / max(current_marketing or 1.0, 1.0)
-  opex_down_move = (current_other_opex - other_opex) / max(current_other_opex or 1.0, 1.0)
+  opex_down_move = other_opex_down / max(current_other_opex or 1.0, 1.0)
+  opex_up_move = other_opex_up / max(other_opex_max or 1.0, 1.0)
+  cogs_down_move = cogs_down / max(current_cogs or 1.0, 1.0)
+  cogs_up_move = cogs_up / max(current_cogs or 1.0, 1.0)
   payroll_down_move = total_payroll_down_expr / float(role_count)
+  payroll_up_move = total_payroll_up_expr / float(role_count)
   hire_delay_move = total_delay_expr / (12.0 * float(role_count))
+  hire_advance_move = total_advance_expr / (12.0 * float(role_count))
   max_family_move = pulp.LpVariable("max_family_move", lowBound=0.0, cat="Continuous")
   for expr in (
-    price_move,
-    util_move,
+    price_up_move,
+    price_down_move,
+    util_up_move,
+    util_down_move,
     marketing_up_move,
     marketing_down_move,
     opex_down_move,
+    opex_up_move,
+    cogs_down_move,
+    cogs_up_move,
     payroll_down_move,
+    payroll_up_move,
     hire_delay_move,
+    hire_advance_move,
   ):
     if isinstance(expr, (int, float)):
       continue
     problem += max_family_move >= expr
   family_caps = family_caps if isinstance(family_caps, dict) else {}
   family_exprs = {
-    "price_up": price_move,
-    "util_up": util_move,
+    "price_up": price_up_move,
+    "price_down": price_down_move,
+    "util_up": util_up_move,
+    "util_down": util_down_move,
     "marketing_up": marketing_up_move,
     "marketing_down": marketing_down_move,
     "other_opex_down": opex_down_move,
+    "other_opex_up": opex_up_move,
+    "cogs_down": cogs_down_move,
+    "cogs_up": cogs_up_move,
     "hire_delay": hire_delay_move,
+    "hire_advance": hire_advance_move,
     "payroll_down": payroll_down_move,
+    "payroll_up": payroll_up_move,
   }
   for family_name, family_cap in family_caps.items():
     expr = family_exprs.get(str(family_name))
@@ -1898,13 +2796,22 @@ def _solve_direct_profile(
     problem += expr <= cap_value
 
   distortion_expr = (
-    _safe_float(weights.get("price_up")) * ((price - current_price) / max(current_price, 1.0))
-    + _safe_float(weights.get("util_up")) * ((util - current_util) / max(1.0 - current_util, 1e-6))
+    _safe_float(weights.get("price_up")) * price_up_move
+    + _safe_float(weights.get("price_down")) * price_down_move
+    + _safe_float(weights.get("util_up")) * util_up_move
+    + _safe_float(weights.get("util_down")) * util_down_move
     + _safe_float(weights.get("marketing_up")) * (marketing_up / max(marketing_upper or 1.0, 1.0))
     + _safe_float(weights.get("marketing_down")) * (marketing_down / max(current_marketing or 1.0, 1.0))
-    + _safe_float(weights.get("other_opex_down")) * ((current_other_opex - other_opex) / max(current_other_opex or 1.0, 1.0))
+    + _safe_float(weights.get("other_opex_down")) * opex_down_move
+    + _safe_float(weights.get("other_opex_up")) * opex_up_move
+    + _safe_float(weights.get("cogs_down")) * cogs_down_move
+    + _safe_float(weights.get("cogs_up")) * cogs_up_move
     + _safe_float(weights.get("hire_delay")) * hire_delay_move
+    + _safe_float(weights.get("hire_advance")) * hire_advance_move
     + _safe_float(weights.get("payroll_down")) * payroll_down_move
+    + _safe_float(weights.get("payroll_up")) * payroll_up_move
+    + (6.0 * (payroll_shortfall / revenue_scale))
+    + (2.0 * (payroll_excess / revenue_scale))
   )
   solver = pulp.PULP_CBC_CMD(msg=False)
 
@@ -1916,16 +2823,16 @@ def _solve_direct_profile(
   if status != pulp.LpStatusOptimal:
     return None
 
-  optimal_shortfall = float(shortfall.value() or 0.0) if shortfall is not None else 0.0
-  if target_ebitda_min is not None:
-    optimal_max_family_move = float(max_family_move.value() or 0.0)
+  optimal_shortfall = _lp_value(shortfall, 0.0) if shortfall is not None else 0.0
+  if target_ebitda_min is not None or target_ebitda_max is not None:
+    optimal_max_family_move = _lp_value(max_family_move, 0.0)
   else:
     problem += shortfall <= (optimal_shortfall + 1e-6)
     problem.setObjective(max_family_move)
     status = problem.solve(solver)
     if status != pulp.LpStatusOptimal:
       return None
-    optimal_max_family_move = float(max_family_move.value() or 0.0)
+    optimal_max_family_move = _lp_value(max_family_move, 0.0)
   problem += max_family_move <= (optimal_max_family_move + 1e-6)
 
   final_objective = distortion_expr
@@ -1939,7 +2846,7 @@ def _solve_direct_profile(
   status = problem.solve(solver)
   if status != pulp.LpStatusOptimal:
     return None
-  optimal_final_objective = float(final_objective.value() or 0.0)
+  optimal_final_objective = _lp_value(final_objective, 0.0)
 
   if not anchor_strict:
     objective_tolerance = max(
@@ -1951,13 +2858,15 @@ def _solve_direct_profile(
     archetype_objective = _archetype_preference_objective(
       profile_id=str(profile.get("profile_id") or "").strip(),
       max_family_move=max_family_move,
-      price_move=price_move,
-      util_move=util_move,
+      price_up_move=price_up_move,
+      price_down_move=price_down_move,
+      util_move=util_up_move + util_down_move,
       marketing_up_move=marketing_up_move,
       marketing_down_move=marketing_down_move,
-      opex_down_move=opex_down_move,
-      hire_delay_move=hire_delay_move,
-      payroll_down_move=payroll_down_move,
+      opex_down_move=opex_down_move + opex_up_move,
+      cogs_move=cogs_down_move + cogs_up_move,
+      hire_delay_move=hire_delay_move + hire_advance_move,
+      payroll_down_move=payroll_down_move + payroll_up_move,
       ebitda_expr=ebitda_expr,
       revenue_scale=revenue_scale,
     )
@@ -1967,55 +2876,135 @@ def _solve_direct_profile(
       return None
 
   role_month_values = {
-    role_title: int(round(float(month_var.value() or 0.0)))
+    role_title: int(round(_lp_value(month_var, 0.0)))
     for role_title, month_var in role_month_vars.items()
   }
   role_payroll_values = {
-    role_title: round(float(payroll_var.value() or 0.0), 2)
+    role_title: round(_lp_value(payroll_var, 0.0), 2)
     for role_title, payroll_var in role_payroll_vars.items()
   }
   distortion_components = {
-    "price_up": _safe_float(weights.get("price_up")) * max(0.0, (float(price.value() or current_price) - current_price) / max(current_price, 1.0)),
-    "util_up": _safe_float(weights.get("util_up")) * max(0.0, (float(util.value() or current_util) - current_util) / max(1.0 - current_util, 1e-6)),
-    "marketing_up": _safe_float(weights.get("marketing_up")) * max(0.0, float(marketing_up.value() or 0.0) / max(marketing_upper or 1.0, 1.0)),
-    "marketing_down": _safe_float(weights.get("marketing_down")) * max(0.0, float(marketing_down.value() or 0.0) / max(current_marketing or 1.0, 1.0)),
-    "other_opex_down": _safe_float(weights.get("other_opex_down")) * max(0.0, (current_other_opex - float(other_opex.value() or current_other_opex)) / max(current_other_opex or 1.0, 1.0)),
-    "hire_delay": _safe_float(weights.get("hire_delay")) * max(0.0, float(total_delay_expr.value() or 0.0) / (12.0 * float(role_count))),
-    "payroll_down": _safe_float(weights.get("payroll_down")) * max(0.0, float(total_payroll_down_expr.value() or 0.0) / float(role_count)),
+    "price_up": _safe_float(weights.get("price_up")) * max(0.0, _lp_value(price_up, 0.0) / max(current_price, 1.0)),
+    "price_down": _safe_float(weights.get("price_down")) * max(0.0, _lp_value(price_down, 0.0) / max(current_price, 1.0)),
+    "util_up": _safe_float(weights.get("util_up")) * max(0.0, _lp_value(util_up, 0.0) / max(1.0 - current_util, 1e-6)),
+    "util_down": _safe_float(weights.get("util_down")) * max(0.0, _lp_value(util_down, 0.0) / max(current_util or 1.0, 1e-6)),
+    "marketing_up": _safe_float(weights.get("marketing_up")) * max(0.0, _lp_value(marketing_up, 0.0) / max(marketing_upper or 1.0, 1.0)),
+    "marketing_down": _safe_float(weights.get("marketing_down")) * max(0.0, _lp_value(marketing_down, 0.0) / max(current_marketing or 1.0, 1.0)),
+    "other_opex_down": _safe_float(weights.get("other_opex_down")) * max(0.0, _lp_value(other_opex_down, 0.0) / max(current_other_opex or 1.0, 1.0)),
+    "other_opex_up": _safe_float(weights.get("other_opex_up")) * max(0.0, _lp_value(other_opex_up, 0.0) / max(other_opex_max or 1.0, 1.0)),
+    "cogs_down": _safe_float(weights.get("cogs_down")) * max(0.0, _lp_value(cogs_down, 0.0) / max(current_cogs or 1.0, 1.0)),
+    "cogs_up": _safe_float(weights.get("cogs_up")) * max(0.0, _lp_value(cogs_up, 0.0) / max(current_cogs or 1.0, 1.0)),
+    "hire_delay": _safe_float(weights.get("hire_delay")) * max(0.0, _lp_value(total_delay_expr, 0.0) / (12.0 * float(role_count))),
+    "hire_advance": _safe_float(weights.get("hire_advance")) * max(0.0, _lp_value(total_advance_expr, 0.0) / (12.0 * float(role_count))),
+    "payroll_down": _safe_float(weights.get("payroll_down")) * max(0.0, _lp_value(total_payroll_down_expr, 0.0) / float(role_count)),
+    "payroll_up": _safe_float(weights.get("payroll_up")) * max(0.0, _lp_value(total_payroll_up_expr, 0.0) / float(role_count)),
+    "payroll_shortfall": 6.0 * max(0.0, _lp_value(payroll_shortfall, 0.0) / revenue_scale),
+    "payroll_excess": 2.0 * max(0.0, _lp_value(payroll_excess, 0.0) / revenue_scale),
   }
   family_raw_components = {
-    "price_up": max(0.0, (float(price.value() or current_price) - current_price) / max(current_price, 1.0)) if price_enabled else 0.0,
-    "util_up": max(0.0, (float(util.value() or current_util) - current_util) / max(1.0 - current_util, 1e-6)),
-    "marketing_up": max(0.0, float(marketing_up.value() or 0.0) / max(marketing_upper or 1.0, 1.0)),
-    "marketing_down": max(0.0, float(marketing_down.value() or 0.0) / max(current_marketing or 1.0, 1.0)),
-    "other_opex_down": max(0.0, (current_other_opex - float(other_opex.value() or current_other_opex)) / max(current_other_opex or 1.0, 1.0)),
-    "hire_delay": max(0.0, float(total_delay_expr.value() or 0.0) / (12.0 * float(role_count))),
-    "payroll_down": max(0.0, float(total_payroll_down_expr.value() or 0.0) / float(role_count)),
+    "price_up": max(0.0, _lp_value(price_up, 0.0) / max(current_price, 1.0)) if price_enabled else 0.0,
+    "price_down": max(0.0, _lp_value(price_down, 0.0) / max(current_price, 1.0)) if price_enabled else 0.0,
+    "util_up": max(0.0, _lp_value(util_up, 0.0) / max(1.0 - current_util, 1e-6)),
+    "util_down": max(0.0, _lp_value(util_down, 0.0) / max(current_util or 1.0, 1e-6)),
+    "marketing_up": max(0.0, _lp_value(marketing_up, 0.0) / max(marketing_upper or 1.0, 1.0)),
+    "marketing_down": max(0.0, _lp_value(marketing_down, 0.0) / max(current_marketing or 1.0, 1.0)),
+    "other_opex_down": max(0.0, _lp_value(other_opex_down, 0.0) / max(current_other_opex or 1.0, 1.0)),
+    "other_opex_up": max(0.0, _lp_value(other_opex_up, 0.0) / max(other_opex_max or 1.0, 1.0)),
+    "cogs_down": max(0.0, _lp_value(cogs_down, 0.0) / max(current_cogs or 1.0, 1.0)),
+    "cogs_up": max(0.0, _lp_value(cogs_up, 0.0) / max(current_cogs or 1.0, 1.0)),
+    "hire_delay": max(0.0, _lp_value(total_delay_expr, 0.0) / (12.0 * float(role_count))),
+    "hire_advance": max(0.0, _lp_value(total_advance_expr, 0.0) / (12.0 * float(role_count))),
+    "payroll_down": max(0.0, _lp_value(total_payroll_down_expr, 0.0) / float(role_count)),
+    "payroll_up": max(0.0, _lp_value(total_payroll_up_expr, 0.0) / float(role_count)),
+    "payroll_shortfall": max(0.0, _lp_value(payroll_shortfall, 0.0) / revenue_scale),
+    "payroll_excess": max(0.0, _lp_value(payroll_excess, 0.0) / revenue_scale),
   }
   return {
     "profile_id": str(profile.get("profile_id") or "").strip() or "profile",
     "target_ebitda_min": target_ebitda_min,
-    "threshold_feasible": target_ebitda_min is not None,
+    "target_ebitda_max": target_ebitda_max,
+    "threshold_feasible": (target_ebitda_min is not None or target_ebitda_max is not None),
     "anchor_strict": anchor_strict,
     "objective_tolerance_ratio": objective_tolerance_ratio,
-    "price": round(float(price.value() or current_price), 2),
-    "utilization_rate": float(util.value() or current_util),
-    "marketing_total_year1": round(_safe_float(marketing_expr.value()) or current_marketing, 2),
-    "marketing_support_units_year1": round(float(marketing_support_units.value() or marketing_support_units_baseline), 2),
-    "other_operating_expense": round(float(other_opex.value() or current_other_opex), 2),
+    "price": round(_lp_value(price, current_price), 2),
+    "utilization_rate": _lp_value(util, current_util),
+    "cogs_total_year1": round(_lp_value(cogs_total, current_cogs), 2),
+    "cogs_ratio": _lp_value(cogs_ratio, current_cogs_ratio),
+    "marketing_total_year1": round(_lp_value(marketing_expr, current_marketing), 2),
+    "marketing_support_units_year1": round(_lp_value(marketing_support_units, marketing_support_units_baseline), 2),
+    "other_operating_expense": round(_lp_value(other_opex, current_other_opex), 2),
+    "other_opex_total_ratio": (_lp_value(total_opex_expr, current_other_opex + rent_annualized) / max(_lp_value(revenue_expr, revenue_scale), 1.0)),
     "role_months": role_month_values,
     "role_year1_payroll": role_payroll_values,
     "role_wage_meta": role_wage_meta,
     "distortion_components": distortion_components,
     "distortion_total": sum(distortion_components.values()),
     "family_raw_components": family_raw_components,
-    "max_family_move": float(max_family_move.value() or 0.0),
-    "final_objective_value": float(final_objective.value() or 0.0),
+    "max_family_move": _lp_value(max_family_move, 0.0),
+    "final_objective_value": _lp_value(final_objective, 0.0),
     "optimal_final_objective": optimal_final_objective,
-    "ebitda": float(ebitda_expr.value() or 0.0),
-    "net_income": float(net_income_expr.value() or 0.0),
+    "ebitda": _lp_value(ebitda_expr, 0.0),
+    "net_income": _lp_value(net_income_expr, 0.0),
     "shortfall": optimal_shortfall,
+    "enforce_blocking_bands": bool(enforce_blocking_bands),
   }
+
+
+def _build_product_overrides_from_targets(
+  *,
+  product_driver_basis: Sequence[Dict[str, Any]],
+  target_price: float,
+  target_util: float,
+  current_price: float,
+  current_util: float,
+  target_units_total: float,
+) -> Dict[str, Dict[str, Any]]:
+  overrides: Dict[str, Dict[str, Any]] = {}
+  if not product_driver_basis:
+    return overrides
+  total_units = sum(max(0.0, _safe_float(item.get("annual_units"))) for item in product_driver_basis if isinstance(item, dict))
+  total_capacity = sum(max(0.0, _safe_float(item.get("annual_capacity_units"))) for item in product_driver_basis if isinstance(item, dict))
+  price_factor = (target_price / max(current_price, 1e-9)) if current_price > 0 else 1.0
+  util_factor = (target_util / max(current_util, 1e-9)) if current_util > 0 else 1.0
+
+  for item in product_driver_basis:
+    if not isinstance(item, dict):
+      continue
+    product_name = str(item.get("product_name") or "").strip()
+    if not product_name:
+      continue
+    baseline_price = max(0.0, _safe_float(item.get("unit_price")))
+    baseline_periods = max(0.0, _safe_float(item.get("operating_periods_per_year")))
+    capacity_per_period = max(0.0, _safe_float(item.get("units_per_period_capacity")))
+    baseline_avg_units = max(0.0, _safe_float(item.get("avg_units_per_period_year1")))
+    baseline_util = _normalize_ratio(item.get("utilization_rate"))
+    annual_capacity_units = max(0.0, _safe_float(item.get("annual_capacity_units")))
+    annual_units = max(0.0, _safe_float(item.get("annual_units")))
+
+    units_share = (annual_units / max(total_units, 1e-9)) if total_units > 0 else ((annual_capacity_units / max(total_capacity, 1e-9)) if total_capacity > 0 else 0.0)
+    target_product_units = max(0.0, target_units_total * units_share)
+    target_product_price = round(max(0.0, baseline_price * price_factor), 2) if baseline_price > 0 else round(target_price, 2)
+
+    if capacity_per_period > 0 and baseline_periods > 0:
+      target_avg_units = target_product_units / max(baseline_periods, 1e-9)
+      target_product_util = max(0.0, min(1.0, target_avg_units / max(capacity_per_period, 1e-9)))
+    else:
+      target_product_util = max(0.0, min(1.0, (baseline_util or current_util or target_util or 0.0) * util_factor))
+      if capacity_per_period > 0:
+        target_avg_units = capacity_per_period * target_product_util
+      else:
+        target_avg_units = baseline_avg_units * util_factor if baseline_avg_units > 0 else 0.0
+
+    override: Dict[str, Any] = {}
+    if target_product_price > 0 and abs(target_product_price - baseline_price) >= 0.01:
+      override["unit_price"] = target_product_price
+    if abs(target_avg_units - baseline_avg_units) >= 0.01:
+      override["avg_units_per_period_year1"] = round(max(0.0, target_avg_units), 4)
+    if baseline_util is None or abs(target_product_util - baseline_util) >= 0.0005:
+      override["utilization_rate"] = round(target_product_util, 6)
+    if override:
+      overrides[product_name] = override
+  return overrides
 
 
 def _exact_patches_from_solution(
@@ -2037,12 +3026,9 @@ def _exact_patches_from_solution(
   current_other_opex = _safe_float(direct_inputs.get("current_other_opex"))
 
   target_price = round(_safe_float(solution.get("price")), 2)
-  if target_price > 0 and abs(target_price - current_price) >= 0.01:
-    financials_year1_patch["unit_price"] = target_price
-
   target_util = _normalize_ratio(solution.get("utilization_rate"))
-  if target_util is not None and abs(target_util - current_util) >= 0.0005:
-    financials_year1_patch["utilization_rate"] = target_util
+  product_driver_basis = direct_inputs.get("product_driver_basis") if isinstance(direct_inputs, dict) else []
+  product_driver_basis = product_driver_basis if isinstance(product_driver_basis, list) else []
 
   target_marketing = round(_safe_float(solution.get("marketing_total_year1")), 2)
   constraint_profile = direct_inputs.get("constraint_profile") if isinstance(direct_inputs, dict) else {}
@@ -2051,6 +3037,24 @@ def _exact_patches_from_solution(
   capacity_units = max(0.0, _safe_float(direct_inputs.get("capacity_units")))
   target_units = max(0.0, capacity_units * (target_util or current_util))
   target_support_units = round(_safe_float(solution.get("marketing_support_units_year1")), 2)
+
+  if product_driver_basis:
+    product_overrides = _build_product_overrides_from_targets(
+      product_driver_basis=product_driver_basis,
+      target_price=target_price if target_price > 0 else current_price,
+      target_util=target_util if target_util is not None else current_util,
+      current_price=current_price,
+      current_util=current_util,
+      target_units_total=target_units,
+    )
+    if product_overrides:
+      financials_year1_patch["product_overrides"] = product_overrides
+  else:
+    if target_price > 0 and abs(target_price - current_price) >= 0.01:
+      financials_year1_patch["unit_price"] = target_price
+    if target_util is not None and abs(target_util - current_util) >= 0.0005:
+      financials_year1_patch["utilization_rate"] = target_util
+
   if reachable_market > 0 and target_units >= 0:
     marketing_model_patch["capture_rate_year1"] = round(target_units / max(reachable_market, 1e-9), 6)
   if target_support_units >= 0 and abs(target_support_units - marketing_support_units_baseline) >= 0.01:
@@ -2075,6 +3079,18 @@ def _exact_patches_from_solution(
   target_other_opex = round(_safe_float(solution.get("other_operating_expense")), 2)
   if abs(target_other_opex - current_other_opex) >= 0.01:
     financials_patch["other_operating_expense"] = target_other_opex
+
+  current_cogs = _safe_float(direct_inputs.get("current_cogs"))
+  target_cogs = round(_safe_float(solution.get("cogs_total_year1")), 2)
+  if abs(target_cogs - current_cogs) >= 0.01:
+    financials_patch["cogs_total_year1"] = target_cogs
+  solver_meta: Dict[str, Any] = {}
+  target_cogs_ratio = _safe_float(solution.get("cogs_ratio"))
+  if target_cogs_ratio > 0:
+    solver_meta["cogs_ratio_target"] = round(target_cogs_ratio, 6)
+  target_opex_total_ratio = _safe_float(solution.get("other_opex_total_ratio"))
+  if target_opex_total_ratio > 0:
+    solver_meta["opex_total_ratio_target"] = round(target_opex_total_ratio, 6)
 
   role_months = solution.get("role_months") if isinstance(solution, dict) else {}
   role_year1_payroll = solution.get("role_year1_payroll") if isinstance(solution, dict) else {}
@@ -2127,6 +3143,8 @@ def _exact_patches_from_solution(
     exact_patches["financials_year1_patch"] = financials_year1_patch
   if financials_patch:
     exact_patches["financials_patch"] = financials_patch
+  if solver_meta:
+    exact_patches["solver_meta"] = solver_meta
   if marketing_model_patch:
     exact_patches["marketing_model_patch"] = marketing_model_patch
   if people_role_updates:
@@ -2164,36 +3182,62 @@ def build_consistency_solver_state(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]] = None,
+  constraint_engine_state: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
+  baseline_financials = _clone(financials_json or {})
+  if _safe_float((baseline_financials or {}).get("payroll_total_year1")) <= 0 and _safe_float((baseline_financials or {}).get("current_payroll")) <= 0:
+    derived_payroll = _derived_year1_payroll_from_people(people_json or {})
+    if derived_payroll > 0:
+      baseline_financials["payroll_total_year1"] = derived_payroll
+      baseline_financials["current_payroll"] = derived_payroll
   baseline_summary = build_consistency_financial_summary(
-    financials_json=financials_json,
+    financials_json=baseline_financials,
     financials_year1_json=financials_year1_json,
   )
-  if not _solver_required(baseline_summary):
+  if not _solver_required(baseline_summary, constraint_engine_state=constraint_engine_state):
     return None
 
   baseline_state = {
     "ops_json": _clone(ops_json or {}),
     "people_json": _clone(people_json or {}),
-    "financials_json": _clone(financials_json or {}),
+    "financials_json": _clone(baseline_financials),
     "financials_year1_json": _clone(financials_year1_json or {}),
     "marketing_model_json": _clone(marketing_model_json or {}),
   }
   state_model = _build_solver_state_model(
     ops_json=ops_json,
     people_json=people_json,
-    financials_json=financials_json,
+    financials_json=baseline_financials,
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
     baseline_summary=baseline_summary,
+    constraint_engine_state=constraint_engine_state,
+  )
+  baseline_realism_distance = _constraint_engine_realism_distance(
+    constraint_engine_state=constraint_engine_state,
+    summary=baseline_summary,
+    year1_json=financials_year1_json,
+    ops_json=ops_json,
   )
   if not isinstance(state_model, dict):
-    return None
+    return _build_blocking_solver_state(
+      baseline_summary=baseline_summary,
+      state_model={},
+      constraint_engine_state=constraint_engine_state,
+      baseline_realism_distance=baseline_realism_distance,
+      blocking_reason="missing_solver_state_model",
+    )
   direct_inputs = _build_direct_solver_inputs(
     state_model=state_model,
   )
   if not isinstance(direct_inputs, dict):
-    return None
+    return _build_blocking_solver_state(
+      baseline_summary=baseline_summary,
+      state_model=state_model,
+      constraint_engine_state=constraint_engine_state,
+      baseline_realism_distance=baseline_realism_distance,
+      blocking_reason="missing_direct_solver_inputs",
+    )
 
   profiles = _solver_profiles(state_model=state_model)
   feasible_scenarios: List[Dict[str, Any]] = []
@@ -2204,25 +3248,58 @@ def build_consistency_solver_state(
   healthy_ratio = max(0.0, _safe_float((objective_policy or {}).get("healthy_ebitda_margin_ratio")))
   baseline_revenue = max(0.0, _safe_float((baseline_summary or {}).get("revenue")))
   healthy_ebitda_target = baseline_revenue * healthy_ratio if baseline_revenue > 0 and healthy_ratio > 0 else 0.0
-  selected_target_label = "break_even"
+  selected_target_label = "constraint_envelope"
   selected_target_amount = 0.0
+  selected_target_ceiling = None
+  current_ebitda_margin = (
+    _safe_float((baseline_summary or {}).get("ebitda")) / baseline_revenue
+    if baseline_revenue > 0
+    else None
+  )
+  ebitda_band = (constraint_engine_state or {}).get("ebitda_margin_band") if isinstance(constraint_engine_state, dict) else {}
+  target_ebitda_min = None
+  target_ebitda_max = None
+  ebitda_band_min = _band_min(ebitda_band)
+  ebitda_band_max = _band_max(ebitda_band)
+  if current_ebitda_margin is not None and ebitda_band_min is not None and current_ebitda_margin < (ebitda_band_min - 0.001):
+    target_ebitda_min = baseline_revenue * ebitda_band_min
+    if ebitda_band_max is not None:
+      target_ebitda_max = baseline_revenue * ebitda_band_max
+    selected_target_label = "ebitda_floor"
+    selected_target_amount = target_ebitda_min
+  elif current_ebitda_margin is not None and ebitda_band_max is not None and current_ebitda_margin > (ebitda_band_max + 0.001):
+    target_ebitda_max = baseline_revenue * ebitda_band_max
+    if ebitda_band_min is not None:
+      target_ebitda_min = baseline_revenue * ebitda_band_min
+    selected_target_label = "ebitda_ceiling"
+    selected_target_ceiling = target_ebitda_max
+  elif healthy_ebitda_target > 0 and _safe_float((baseline_summary or {}).get("ebitda")) < healthy_ebitda_target:
+    target_ebitda_min = healthy_ebitda_target
+    if ebitda_band_max is not None:
+      target_ebitda_max = baseline_revenue * ebitda_band_max
+    selected_target_label = "healthy_floor"
+    selected_target_amount = target_ebitda_min
 
   def _try_add_solution(
     *,
     profile: Dict[str, Any],
     target_ebitda_min: Optional[float],
+    target_ebitda_max: Optional[float],
     target_list: List[Dict[str, Any]],
     seen_signatures: set,
     family_caps: Optional[Dict[str, float]] = None,
-  ) -> bool:
+    enforce_blocking_bands: bool = False,
+  ) -> Optional[Dict[str, Any]]:
     solution = _solve_direct_profile(
       profile=profile,
       direct_inputs=direct_inputs,
       target_ebitda_min=target_ebitda_min,
+      target_ebitda_max=target_ebitda_max,
       family_caps=family_caps,
+      enforce_blocking_bands=enforce_blocking_bands,
     )
     if not isinstance(solution, dict):
-      return False
+      return None
     exact_patches = _exact_patches_from_solution(
       solution=solution,
       direct_inputs=direct_inputs,
@@ -2230,85 +3307,122 @@ def build_consistency_solver_state(
     )
     signature = _scenario_signature(exact_patches)
     if not signature or signature in seen_signatures:
-      return False
+      return None
     candidate = _build_candidate_from_exact_patches(
       scenario_id=str(len(target_list) + 1),
       baseline_summary=baseline_summary,
       baseline_state=baseline_state,
       marketing_model_json=marketing_model_json,
       exact_patches=exact_patches,
+      constraint_engine_state=constraint_engine_state,
+      baseline_realism_distance=baseline_realism_distance,
+      target_ebitda_min=target_ebitda_min,
+      target_ebitda_max=target_ebitda_max,
     )
     if not candidate:
-      return False
+      return None
     candidate["solution_profile_id"] = str(solution.get("profile_id") or "")
+    candidate["enforce_blocking_bands"] = bool(solution.get("enforce_blocking_bands"))
     candidate["distortion_components"] = dict(solution.get("distortion_components") or {})
     candidate["distortion_total"] = _safe_float(solution.get("distortion_total"))
     candidate["family_raw_components"] = dict(solution.get("family_raw_components") or {})
     candidate["max_family_move"] = _safe_float(solution.get("max_family_move"))
     seen_signatures.add(signature)
     target_list.append(candidate)
-    return True
+    return candidate
 
   for profile in profiles:
     solved_for_profile = False
-    for target_label, target_amount, target_list, seen_signatures in (
-      ("healthy", healthy_ebitda_target if healthy_ebitda_target > 0 else None, feasible_scenarios, seen_feasible),
-      ("break_even", 0.0, feasible_scenarios, seen_feasible),
-      ("fallback", None, fallback_scenarios, seen_fallback),
-    ):
-      if target_label == "healthy" and healthy_ebitda_target <= 0:
-        continue
-      if _try_add_solution(
-        profile=profile,
-        target_ebitda_min=target_amount,
-        target_list=target_list,
-        seen_signatures=seen_signatures,
-      ):
+    target_specs = [
+      (selected_target_label, target_ebitda_min, target_ebitda_max, feasible_scenarios, seen_feasible),
+      ("fallback", None, None, fallback_scenarios, seen_fallback),
+    ]
+    for target_label, target_floor, target_ceiling, target_list, seen_signatures in target_specs:
+      candidate = None
+      for enforce_blocking_bands in (True, False):
+        candidate = _try_add_solution(
+          profile=profile,
+          target_ebitda_min=target_floor,
+          target_ebitda_max=target_ceiling,
+          target_list=target_list,
+          seen_signatures=seen_signatures,
+          enforce_blocking_bands=enforce_blocking_bands,
+        )
+        if candidate:
+          break
+      if candidate:
         if target_label != "fallback":
-          feasible_scenarios[-1]["target_label"] = target_label
-          feasible_scenarios[-1]["target_ebitda_min"] = target_amount
+          candidate["target_label"] = target_label
+          candidate["target_ebitda_min"] = target_floor
+          candidate["target_ebitda_max"] = target_ceiling
         else:
-          fallback_scenarios[-1]["target_label"] = target_label
-          fallback_scenarios[-1]["target_ebitda_min"] = None
+          candidate["target_label"] = target_label
+          candidate["target_ebitda_min"] = None
+          candidate["target_ebitda_max"] = None
+
+        for family_cap in _family_cap_variants(candidate):
+          alt_candidate = None
+          for enforce_blocking_bands in (True, False):
+            alt_candidate = _try_add_solution(
+              profile=profile,
+              target_ebitda_min=target_floor,
+              target_ebitda_max=target_ceiling,
+              target_list=target_list,
+              seen_signatures=seen_signatures,
+              family_caps=family_cap,
+              enforce_blocking_bands=enforce_blocking_bands,
+            )
+            if alt_candidate:
+              break
+          if not alt_candidate:
+            continue
+          alt_candidate["target_label"] = candidate.get("target_label")
+          alt_candidate["target_ebitda_min"] = candidate.get("target_ebitda_min")
+          alt_candidate["target_ebitda_max"] = candidate.get("target_ebitda_max")
         solved_for_profile = True
         break
     if solved_for_profile:
       continue
 
-  if any(str(item.get("target_label") or "") == "healthy" for item in feasible_scenarios):
-    feasible_scenarios = [
-      item for item in feasible_scenarios
-      if str(item.get("target_label") or "") == "healthy"
-    ]
   break_even_found = bool(feasible_scenarios)
   scenarios = feasible_scenarios if feasible_scenarios else fallback_scenarios
-  if feasible_scenarios:
-    if any(str(item.get("target_label") or "") == "healthy" for item in feasible_scenarios):
-      selected_target_label = "healthy"
-      selected_target_amount = healthy_ebitda_target
-    else:
-      selected_target_label = "break_even"
-      selected_target_amount = 0.0
-  else:
+  if not feasible_scenarios:
     selected_target_label = "fallback"
     selected_target_amount = 0.0
+    selected_target_ceiling = None
 
   if not scenarios:
-    return None
+    return _build_blocking_solver_state(
+      baseline_summary=baseline_summary,
+      state_model=state_model,
+      constraint_engine_state=constraint_engine_state,
+      baseline_realism_distance=baseline_realism_distance,
+      blocking_reason="no_viable_scenarios",
+    )
+
+  zero_blocker_scenarios = [
+    candidate for candidate in scenarios
+    if isinstance(candidate, dict) and _safe_float(candidate.get("remaining_blocking_count")) <= 0
+  ]
+  if zero_blocker_scenarios:
+    scenarios = zero_blocker_scenarios
 
   profile_priority = {
     "balanced": 0,
-    "growth_first": 1,
-    "profit_first": 2,
-    "lean_survival": 3,
+    "operations_first": 1,
+    "growth_first": 2,
+    "profit_first": 3,
+    "lean_survival": 4,
   }
   scenarios.sort(
     key=lambda item: (
+      _safe_float(item.get("remaining_blocking_count")),
+      _safe_float(item.get("remaining_violation_count")),
       profile_priority.get(str(item.get("solution_profile_id") or "").strip(), 99),
-      0 if bool(item.get("break_even_ebitda")) else 1,
-      _safe_float(item.get("ebitda_gap")),
+      _safe_float(item.get("realism_distance")),
+      _safe_float(item.get("target_distance")),
       _safe_float(item.get("distortion_total")) or _safe_float(item.get("disruption_score")),
-      -_safe_float(item.get("ebitda")),
+      -abs(_safe_float(item.get("ebitda"))),
     )
   )
   materially_distinct: List[Dict[str, Any]] = []
@@ -2342,16 +3456,19 @@ def build_consistency_solver_state(
 
   return {
     "status": "awaiting_choice",
-    "target_metric": "ebitda_break_even",
+    "target_metric": "year1_realism",
     "search_mode": "direct_pulp",
     "loss_threshold_ratio": LOSS_THRESHOLD_RATIO,
     "healthy_ebitda_margin_ratio": healthy_ratio,
     "selected_target_label": selected_target_label,
     "selected_target_ebitda_min": selected_target_amount,
+    "selected_target_ebitda_max": selected_target_ceiling,
     "baseline_summary": baseline_summary,
     "baseline_loss_pct": _loss_pct(baseline_summary),
     "baseline_table_markdown": build_consistency_financial_table(baseline_summary),
     "state_model": state_model,
+    "constraint_engine_state": _clone(constraint_engine_state or {}),
+    "baseline_realism_distance": baseline_realism_distance,
     "structural_gap": not break_even_found,
     "scenarios": normalized_selected,
   }
