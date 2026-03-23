@@ -74,6 +74,36 @@ def _cadence_periods_per_year(cadence: str) -> float:
   return DEFAULT_OPERATING_WEEKS_PER_YEAR
 
 
+def _cadence_driver_schema(cadence: str) -> Dict[str, str]:
+  cadence = _normalize_cadence(cadence)
+  if cadence == "contract":
+    return {
+      "cadence_type": "contract",
+      "capacity_semantics": "max concurrent active units",
+      "realized_units_semantics": "average active units during year 1",
+      "periods_semantics": "annual turns per active slot",
+      "annual_units_semantics": "annual completed units",
+      "revenue_semantics": "avg active units x price x turns/year",
+    }
+  if cadence == "monthly":
+    return {
+      "cadence_type": "monthly",
+      "capacity_semantics": "max units per month",
+      "realized_units_semantics": "average units per month during year 1",
+      "periods_semantics": "operating months per year",
+      "annual_units_semantics": "annual delivered units",
+      "revenue_semantics": "avg units/month x price x months/year",
+    }
+  return {
+    "cadence_type": "weekly",
+    "capacity_semantics": "max units per week",
+    "realized_units_semantics": "average units per week during year 1",
+    "periods_semantics": "operating weeks per year",
+    "annual_units_semantics": "annual delivered units",
+    "revenue_semantics": "avg units/week x price x weeks/year",
+  }
+
+
 def _pluralize(label: str, value: Any) -> str:
   count = _to_float(value)
   if count is None:
@@ -126,6 +156,8 @@ def _build_default_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]
           "unit_price": operating_model.get("unit_price"),
           "units_per_week_capacity": operating_model.get("units_per_week_capacity"),
           "units_per_period_capacity": units_per_period_capacity,
+          "avg_units_per_week_year1": operating_model.get("avg_units_per_week_year1"),
+          "avg_units_per_period_year1": operating_model.get("avg_units_per_period_year1"),
           "operating_periods_per_year": operating_model.get("operating_periods_per_year"),
           "utilization_rate": operating_model.get("utilization_rate"),
         }
@@ -168,6 +200,16 @@ def _build_base_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]:
           "unit_price": product.get("unit_price"),
           "units_per_week_capacity": product.get("units_per_week_capacity"),
           "units_per_period_capacity": units_per_period_capacity,
+          "avg_units_per_week_year1": (
+            product.get("avg_units_per_week_year1")
+            if product.get("avg_units_per_week_year1") is not None
+            else operating_model.get("avg_units_per_week_year1")
+          ),
+          "avg_units_per_period_year1": (
+            product.get("avg_units_per_period_year1")
+            if product.get("avg_units_per_period_year1") is not None
+            else operating_model.get("avg_units_per_period_year1")
+          ),
           "operating_periods_per_year": product.get("operating_periods_per_year")
           if product.get("operating_periods_per_year") is not None
           else operating_model.get("operating_periods_per_year"),
@@ -284,16 +326,19 @@ def _apply_override_value(raw: Any, fallback: Any) -> Any:
 
 def _derive_realized_volume_and_utilization(
   *,
+  unit_cadence: str,
   units_per_period_capacity: float,
   utilization_rate: Optional[float],
   avg_units_per_period_year1: Optional[float],
 ) -> Tuple[float, Optional[float]]:
+  cadence = _normalize_cadence(unit_cadence)
   capacity = _nonnegative(_to_float(units_per_period_capacity)) or 0.0
   utilization = _normalize_utilization(utilization_rate)
   avg_units = _nonnegative(_to_float(avg_units_per_period_year1))
 
-  # Utilization is the canonical Year-1 volume driver when present.
-  if utilization is not None:
+  # Utilization is only meaningful when capacity exists. It expresses the share of
+  # weekly/monthly capacity used, or the share of concurrent contract load filled.
+  if utilization is not None and capacity > 0:
     realized = utilization * capacity
     return float(realized), float(utilization)
 
@@ -303,7 +348,63 @@ def _derive_realized_volume_and_utilization(
       utilization = min(max(utilization, 0.0), 1.0)
     return float(avg_units), utilization
 
-  return float(capacity), utilization
+  # Missing realized volume should stay explicit. Defaulting to full capacity makes
+  # Year-1 math look filled-in when the child drivers are actually incomplete.
+  if cadence == "contract":
+    return 0.0, (0.0 if capacity > 0 else None)
+  return 0.0, (0.0 if capacity > 0 else None)
+
+
+def _apply_canonical_period_fields(
+  *,
+  out: Dict[str, Any],
+  unit_cadence: str,
+  avg_units_per_period_year1: float,
+  operating_periods_per_year: float,
+  units_per_period_capacity: float,
+  unit_price: float,
+  utilization_rate: Optional[float],
+) -> Dict[str, Any]:
+  cadence = _normalize_cadence(unit_cadence)
+  annual_units_year1 = float(avg_units_per_period_year1 * operating_periods_per_year)
+  revenue_total_year1 = float(annual_units_year1 * unit_price)
+
+  out["unit_cadence"] = cadence
+  out["unit_price"] = float(unit_price)
+  out["units_per_period_capacity"] = float(units_per_period_capacity)
+  out["avg_units_per_period_year1"] = float(avg_units_per_period_year1)
+  out["operating_periods_per_year"] = float(operating_periods_per_year)
+  out["annual_units_year1"] = annual_units_year1
+  out["revenue_total_year1"] = revenue_total_year1
+  out["driver_schema"] = _cadence_driver_schema(cadence)
+
+  if utilization_rate is not None:
+    out["utilization_rate"] = float(utilization_rate)
+  elif "utilization_rate" in out:
+    out.pop("utilization_rate", None)
+
+  # Preserve cadence-specific aliases for downstream compatibility while keeping
+  # the semantics explicit.
+  out.pop("avg_units_per_week_year1", None)
+  out.pop("operating_weeks_per_year", None)
+  out.pop("avg_units_per_month_year1", None)
+  out.pop("operating_months_per_year", None)
+  out.pop("avg_active_units_year1", None)
+  out.pop("annual_turns_per_year", None)
+  out.pop("annual_completed_units_year1", None)
+
+  if cadence == "weekly":
+    out["avg_units_per_week_year1"] = float(avg_units_per_period_year1)
+    out["operating_weeks_per_year"] = float(operating_periods_per_year)
+  elif cadence == "monthly":
+    out["avg_units_per_month_year1"] = float(avg_units_per_period_year1)
+    out["operating_months_per_year"] = float(operating_periods_per_year)
+  elif cadence == "contract":
+    out["avg_active_units_year1"] = float(avg_units_per_period_year1)
+    out["annual_turns_per_year"] = float(operating_periods_per_year)
+    out["annual_completed_units_year1"] = annual_units_year1
+
+  return out
 
 
 def _apply_product_drivers(
@@ -362,12 +463,18 @@ def _apply_product_drivers(
   utilization_rate = _normalize_utilization(utilization_rate)
 
   avg_units_per_period_year1 = _apply_override_value(
-    override.get("avg_units_per_period_year1"), global_override.get("avg_units_per_period_year1")
+    override.get("avg_units_per_period_year1"), base_product.get("avg_units_per_period_year1")
+  )
+  avg_units_per_period_year1 = _apply_override_value(
+    global_override.get("avg_units_per_period_year1"), avg_units_per_period_year1
   )
   avg_units_per_period_year1 = _nonnegative(_to_float(avg_units_per_period_year1))
   if avg_units_per_period_year1 is None:
     legacy_avg = _apply_override_value(
-      override.get("avg_units_per_week_year1"), global_override.get("avg_units_per_week_year1")
+      override.get("avg_units_per_week_year1"), base_product.get("avg_units_per_week_year1")
+    )
+    legacy_avg = _apply_override_value(
+      global_override.get("avg_units_per_week_year1"), legacy_avg
     )
     legacy_avg = _nonnegative(_to_float(legacy_avg))
     if legacy_avg is not None and unit_cadence == "weekly":
@@ -376,26 +483,23 @@ def _apply_product_drivers(
       avg_units_per_period_year1 = None
 
   avg_units_per_period_year1, utilization_rate = _derive_realized_volume_and_utilization(
+    unit_cadence=unit_cadence,
     units_per_period_capacity=units_per_period_capacity,
     utilization_rate=utilization_rate,
     avg_units_per_period_year1=avg_units_per_period_year1,
   )
 
-  revenue_total_year1 = avg_units_per_period_year1 * operating_periods_per_year * unit_price
-
   out = dict(base_product)
-  out["unit_cadence"] = unit_cadence
-  out["unit_price"] = float(unit_price)
   out["units_per_week_capacity"] = float(units_per_week_capacity)
-  out["units_per_period_capacity"] = float(units_per_period_capacity)
-  out["avg_units_per_period_year1"] = float(avg_units_per_period_year1)
-  out["operating_periods_per_year"] = float(operating_periods_per_year)
-  out["avg_units_per_week_year1"] = float(avg_units_per_period_year1)
-  out["operating_weeks_per_year"] = float(operating_periods_per_year)
-  if utilization_rate is not None:
-    out["utilization_rate"] = float(utilization_rate)
-  out["revenue_total_year1"] = float(revenue_total_year1)
-  return out
+  return _apply_canonical_period_fields(
+    out=out,
+    unit_cadence=unit_cadence,
+    avg_units_per_period_year1=avg_units_per_period_year1,
+    operating_periods_per_year=operating_periods_per_year,
+    units_per_period_capacity=units_per_period_capacity,
+    unit_price=unit_price,
+    utilization_rate=utilization_rate,
+  )
 
 
 def assemble_financials_year1(
@@ -411,18 +515,6 @@ def assemble_financials_year1(
   if _existing_drivers_are_zeroed(existing, base_lobs):
     existing = {}
   by_key, by_name = _build_existing_product_map(existing)
-
-  global_override = {
-    "unit_cadence": existing.get("unit_cadence"),
-    "unit_price": existing.get("unit_price"),
-    "units_per_week_capacity": existing.get("units_per_week_capacity"),
-    "units_per_period_capacity": existing.get("units_per_period_capacity"),
-    "avg_units_per_week_year1": existing.get("avg_units_per_week_year1"),
-    "avg_units_per_period_year1": existing.get("avg_units_per_period_year1"),
-    "operating_weeks_per_year": existing.get("operating_weeks_per_year"),
-    "operating_periods_per_year": existing.get("operating_periods_per_year"),
-    "utilization_rate": existing.get("utilization_rate"),
-  }
 
   lobs_out: List[Dict[str, Any]] = []
   company_total = 0.0
@@ -443,7 +535,7 @@ def assemble_financials_year1(
       product_out = _apply_product_drivers(
         base_product=product,
         override=override if isinstance(override, dict) else {},
-        global_override=global_override,
+        global_override={},
       )
       products_out.append(product_out)
       lob_total += float(product_out.get("revenue_total_year1") or 0.0)
@@ -524,25 +616,22 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
       avg_units_per_period_year1 = None
 
   avg_units_per_period_year1, utilization_rate = _derive_realized_volume_and_utilization(
+    unit_cadence=unit_cadence,
     units_per_period_capacity=units_per_period_capacity,
     utilization_rate=next_product.get("utilization_rate"),
     avg_units_per_period_year1=avg_units_per_period_year1,
   )
 
-  next_product["unit_cadence"] = unit_cadence
-  next_product["avg_units_per_period_year1"] = float(avg_units_per_period_year1)
-  next_product["operating_periods_per_year"] = float(operating_periods_per_year)
-  next_product["avg_units_per_week_year1"] = float(avg_units_per_period_year1)
-  next_product["operating_weeks_per_year"] = float(operating_periods_per_year)
   next_product["units_per_week_capacity"] = float(units_per_week_capacity)
-  next_product["units_per_period_capacity"] = float(units_per_period_capacity)
-  next_product["unit_price"] = float(unit_price)
-  if utilization_rate is not None:
-    next_product["utilization_rate"] = float(utilization_rate)
-  next_product["revenue_total_year1"] = float(
-    avg_units_per_period_year1 * operating_periods_per_year * unit_price
+  return _apply_canonical_period_fields(
+    out=next_product,
+    unit_cadence=unit_cadence,
+    avg_units_per_period_year1=avg_units_per_period_year1,
+    operating_periods_per_year=operating_periods_per_year,
+    units_per_period_capacity=units_per_period_capacity,
+    unit_price=unit_price,
+    utilization_rate=utilization_rate,
   )
-  return next_product
 
 
 def apply_revenue_driver_patch(
@@ -559,27 +648,31 @@ def apply_revenue_driver_patch(
 
   product_overrides = patch.get("product_overrides")
   product_overrides = product_overrides if isinstance(product_overrides, dict) else {}
-  overrides_by_name = {
+  overrides_by_key = {
     _normalize_name(name): value
     for name, value in product_overrides.items()
     if isinstance(value, dict)
   }
 
-  global_patch = {
-    key: patch[key]
-    for key in (
-      "unit_cadence",
-      "unit_price",
-      "units_per_week_capacity",
-      "units_per_period_capacity",
-      "avg_units_per_week_year1",
-      "avg_units_per_period_year1",
-      "operating_weeks_per_year",
-      "operating_periods_per_year",
-      "utilization_rate",
-    )
-    if key in patch
-  }
+  # In child-first mode, product overrides are the source of truth and parent/global
+  # revenue-driver patches must not leak back down into children.
+  global_patch: Dict[str, Any] = {}
+  if not overrides_by_key:
+    global_patch = {
+      key: patch[key]
+      for key in (
+        "unit_cadence",
+        "unit_price",
+        "units_per_week_capacity",
+        "units_per_period_capacity",
+        "avg_units_per_week_year1",
+        "avg_units_per_period_year1",
+        "operating_weeks_per_year",
+        "operating_periods_per_year",
+        "utilization_rate",
+      )
+      if key in patch
+    }
 
   lobs_out: List[Dict[str, Any]] = []
   company_total = 0.0
@@ -597,7 +690,10 @@ def apply_revenue_driver_patch(
       if not isinstance(product, dict):
         continue
       product_name = str(product.get("product_name") or "").strip() or "Product"
-      override = overrides_by_name.get(_normalize_name(product_name))
+      override = (
+        overrides_by_key.get(_product_key(lob_name, product_name))
+        or overrides_by_key.get(_normalize_name(product_name))
+      )
       merged_patch = dict(global_patch)
       if isinstance(override, dict):
         merged_patch.update(override)
@@ -710,7 +806,15 @@ def _build_utilization_summary(financials_year1_json: Dict[str, Any], *, max_ite
       if avg_units_val is None and capacity_val is None and utilization_rate is None:
         continue
 
-      if avg_units_val is not None and capacity_val is not None:
+      if cadence == "contract" and avg_units_val is not None and capacity_val is not None:
+        avg_units = _format_number(avg_units_val)
+        capacity = _format_number(capacity_val)
+        turns = _format_number(product.get("annual_turns_per_year") or product.get("operating_periods_per_year"))
+        line = (
+          f"{product_name}: avg active {avg_units} {unit_label} on "
+          f"{capacity} active-{unit_label} capacity at ~{turns} turns/year"
+        )
+      elif avg_units_val is not None and capacity_val is not None:
         avg_units = _format_number(avg_units_val)
         capacity = _format_number(capacity_val)
         line = (
@@ -796,7 +900,7 @@ def build_revenue_math_line(
       if _to_float(capacity_val) is None:
         capacity_val = obj.get("units_per_week_capacity")
       capacity = _format_number(capacity_val)
-      return f"{capacity} {unit_label}"
+      return f"{capacity} active {unit_label}"
 
     capacity_val = obj.get("units_per_period_capacity")
     if _to_float(capacity_val) is None:
@@ -825,6 +929,9 @@ def build_revenue_math_line(
       return f"~{periods} turns/year"
     return periods
 
+  def _utilization_header() -> str:
+    return "Load / Utilization"
+
   lobs = financials_year1_json.get("lobs")
   if not isinstance(lobs, list):
     line_of_business = str(financials_year1_json.get("lob_name") or "").strip() or "Company"
@@ -832,7 +939,7 @@ def build_revenue_math_line(
       str(unit_name or "").strip() or "Product"
     )
     rows = [
-      "| Line of Business | Product / Unit | Capacity | Utilization | Price | Periods / Year | Year-1 Revenue |",
+      f"| Line of Business | Product / Unit | Capacity | {_utilization_header()} | Price | Periods / Year | Year-1 Revenue |",
       "| --- | --- | --- | --- | --- | --- | --- |",
       (
         f"| {_escape_cell(line_of_business)} | {_escape_cell(product_name)} | "
@@ -850,7 +957,7 @@ def build_revenue_math_line(
     return "\n".join(rows)
 
   lines: List[str] = [
-    "| Line of Business | Product / Unit | Capacity | Utilization | Price | Periods / Year | Year-1 Revenue |",
+    f"| Line of Business | Product / Unit | Capacity | {_utilization_header()} | Price | Periods / Year | Year-1 Revenue |",
     "| --- | --- | --- | --- | --- | --- | --- |",
   ]
   for lob in lobs:
@@ -897,9 +1004,11 @@ def build_revenue_driver_signature(financials_year1_json: Dict[str, Any]) -> str
   snapshots: List[Dict[str, Any]] = []
 
   if not isinstance(lobs, list):
+    cadence = _normalize_cadence(financials_year1_json.get("unit_cadence"))
     snapshots.append(
       {
-        "unit_cadence": _normalize_cadence(financials_year1_json.get("unit_cadence")),
+        "unit_cadence": cadence,
+        "driver_schema": _cadence_driver_schema(cadence),
         "unit_price": _normalize_driver_value(financials_year1_json.get("unit_price")),
         "units_per_week_capacity": _normalize_driver_value(
           financials_year1_json.get("units_per_week_capacity")
@@ -919,6 +1028,10 @@ def build_revenue_driver_signature(financials_year1_json: Dict[str, Any]) -> str
         "operating_periods_per_year": _normalize_driver_value(
           financials_year1_json.get("operating_periods_per_year")
         ),
+        "annual_units_year1": _normalize_driver_value(financials_year1_json.get("annual_units_year1")),
+        "avg_active_units_year1": _normalize_driver_value(financials_year1_json.get("avg_active_units_year1")),
+        "annual_turns_per_year": _normalize_driver_value(financials_year1_json.get("annual_turns_per_year")),
+        "annual_completed_units_year1": _normalize_driver_value(financials_year1_json.get("annual_completed_units_year1")),
       }
     )
     return json.dumps(snapshots, sort_keys=True, ensure_ascii=False)
@@ -934,11 +1047,13 @@ def build_revenue_driver_signature(financials_year1_json: Dict[str, Any]) -> str
       if not isinstance(product, dict):
         continue
       product_name = str(product.get("product_name") or "").strip()
+      cadence = _normalize_cadence(product.get("unit_cadence"))
       snapshots.append(
         {
           "lob_name": lob_name,
           "product_name": product_name,
-          "unit_cadence": _normalize_cadence(product.get("unit_cadence")),
+          "unit_cadence": cadence,
+          "driver_schema": _cadence_driver_schema(cadence),
           "unit_price": _normalize_driver_value(product.get("unit_price")),
           "units_per_week_capacity": _normalize_driver_value(
             product.get("units_per_week_capacity")
@@ -958,6 +1073,10 @@ def build_revenue_driver_signature(financials_year1_json: Dict[str, Any]) -> str
           "operating_periods_per_year": _normalize_driver_value(
             product.get("operating_periods_per_year")
           ),
+          "annual_units_year1": _normalize_driver_value(product.get("annual_units_year1")),
+          "avg_active_units_year1": _normalize_driver_value(product.get("avg_active_units_year1")),
+          "annual_turns_per_year": _normalize_driver_value(product.get("annual_turns_per_year")),
+          "annual_completed_units_year1": _normalize_driver_value(product.get("annual_completed_units_year1")),
         }
       )
 

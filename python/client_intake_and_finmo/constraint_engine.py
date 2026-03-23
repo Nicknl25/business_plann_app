@@ -140,6 +140,168 @@ def _required_units_year1(financials_year1_json: Dict[str, Any]) -> float:
   return avg_units * periods
 
 
+def _iter_year1_products(financials_year1_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  lobs = year1.get("lobs")
+  if not isinstance(lobs, list):
+    return rows
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip() or "Line of business"
+    products = lob.get("products")
+    if not isinstance(products, list):
+      continue
+    for product in products:
+      if not isinstance(product, dict):
+        continue
+      rows.append(
+        {
+          "lob_name": lob_name,
+          "product_name": str(product.get("product_name") or "").strip() or "Product",
+          "product": product,
+        }
+      )
+  return rows
+
+
+def _build_child_metric_basis(financials_year1_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  basis: List[Dict[str, Any]] = []
+  for item in _iter_year1_products(financials_year1_json or {}):
+    product = item.get("product") if isinstance(item, dict) else {}
+    product = product if isinstance(product, dict) else {}
+    cadence = str(product.get("unit_cadence") or "").strip().lower()
+    price = _nonneg(product.get("unit_price"))
+    capacity_per_period = _nonneg(product.get("units_per_period_capacity") or product.get("units_per_week_capacity"))
+    avg_units = _nonneg(
+      product.get("avg_active_units_year1")
+      if cadence == "contract"
+      else product.get("avg_units_per_period_year1") or product.get("avg_units_per_week_year1")
+    )
+    periods = _nonneg(
+      product.get("annual_turns_per_year")
+      if cadence == "contract"
+      else product.get("operating_periods_per_year") or product.get("operating_weeks_per_year")
+    )
+    utilization = _normalize_ratio(product.get("utilization_rate"))
+    annual_units = _nonneg(product.get("annual_units_year1"))
+    if annual_units <= 0:
+      annual_units = avg_units * periods
+    annual_capacity_units = capacity_per_period * periods
+    annual_revenue = _nonneg(product.get("revenue_total_year1"))
+    if annual_revenue <= 0 and annual_units > 0 and price > 0:
+      annual_revenue = annual_units * price
+    basis.append(
+      {
+        "lob_name": item.get("lob_name"),
+        "product_name": item.get("product_name"),
+        "unit_cadence": cadence or str(product.get("unit_cadence") or "").strip().lower(),
+        "unit_price": price,
+        "avg_units_per_period_year1": avg_units,
+        "operating_periods_per_year": periods,
+        "utilization_rate": utilization,
+        "units_per_period_capacity": capacity_per_period,
+        "annual_units": annual_units,
+        "annual_capacity_units": annual_capacity_units,
+        "annual_revenue": annual_revenue,
+      }
+    )
+  return basis
+
+
+def _weighted_child_price(child_basis: List[Dict[str, Any]]) -> Optional[float]:
+  total_units = sum(max(0.0, _to_float(item.get("annual_units")) or 0.0) for item in child_basis if isinstance(item, dict))
+  if total_units <= 0:
+    return None
+  total_revenue = sum(max(0.0, _to_float(item.get("annual_revenue")) or 0.0) for item in child_basis if isinstance(item, dict))
+  return total_revenue / max(total_units, 1e-9)
+
+
+def _weighted_child_utilization(child_basis: List[Dict[str, Any]]) -> Optional[float]:
+  total_capacity = sum(max(0.0, _to_float(item.get("annual_capacity_units")) or 0.0) for item in child_basis if isinstance(item, dict))
+  if total_capacity <= 0:
+    return None
+  total_units = sum(max(0.0, _to_float(item.get("annual_units")) or 0.0) for item in child_basis if isinstance(item, dict))
+  return max(0.0, min(1.0, total_units / max(total_capacity, 1e-9)))
+
+
+def _default_marketing_center(traits: Dict[str, Any]) -> float:
+  modality = str(traits.get("sales_modality") or "").strip().lower()
+  customer = str(traits.get("customer_type") or "").strip().lower()
+  geography = str(traits.get("geographic_scope") or "").strip().lower()
+  stage = str(traits.get("business_stage") or "").strip().lower()
+  base = {
+    "local_service": 0.07,
+    "retail": 0.06,
+    "online": 0.16,
+    "project_based": 0.05,
+    "manufacturing": 0.04,
+    "hybrid": 0.08,
+  }.get(modality, 0.06)
+  if customer == "b2b":
+    base -= 0.015
+  elif customer == "b2c":
+    base += 0.01
+  if geography in {"national", "international"}:
+    base += 0.015
+  if stage in {"pre_revenue", "startup"}:
+    base += 0.02
+  return max(0.01, min(0.35, base))
+
+
+def _trait_marketing_band(
+  *,
+  traits: Dict[str, Any],
+  current_ratio: Optional[float],
+  opex_band: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Optional[float]]:
+  center = current_ratio if current_ratio is not None and current_ratio > 0 else _default_marketing_center(traits)
+  width = 0.03 + (_stage_band_adjustment(traits) * 0.35)
+  band = _clamp_band(center - width, center + width, floor=0.0, ceiling=0.40)
+  opex_max = _band_value_max(opex_band or {})
+  if opex_max is not None and band.get("max") is not None:
+    band["max"] = round(min(float(band["max"]), max(0.02, opex_max * 0.72)), 6)
+    if band.get("min") is not None and band["min"] > band["max"]:
+      band["min"] = band["max"]
+  return band
+
+
+def _labor_workload_thresholds(traits: Dict[str, Any]) -> Dict[str, float]:
+  modality = str(traits.get("sales_modality") or "").strip().lower()
+  stage = str(traits.get("business_stage") or "").strip().lower()
+  base_revenue_per_fte = {
+    "local_service": 240000.0,
+    "project_based": 300000.0,
+    "retail": 220000.0,
+    "manufacturing": 260000.0,
+    "hybrid": 250000.0,
+    "online": 320000.0,
+  }.get(modality, 240000.0)
+  stage_factor = {
+    "pre_revenue": 0.75,
+    "startup": 0.85,
+    "operating": 1.0,
+    "growth": 1.1,
+    "mature": 1.15,
+  }.get(stage, 1.0)
+  return {
+    "max_revenue_per_fte": base_revenue_per_fte * stage_factor,
+  }
+
+
+def _default_compensation_per_fte(traits: Dict[str, Any]) -> float:
+  modality = str(traits.get("sales_modality") or "").strip().lower()
+  return {
+    "local_service": 65000.0,
+    "project_based": 85000.0,
+    "retail": 45000.0,
+    "manufacturing": 60000.0,
+    "hybrid": 70000.0,
+    "online": 80000.0,
+  }.get(modality, 60000.0)
+
+
 def _derived_year1_payroll_from_people(people_json: Dict[str, Any]) -> float:
   total = 0.0
   for person in (people_json or {}).get("people") or []:
@@ -264,24 +426,40 @@ def _trait_ebitda_band(*, traits: Dict[str, Any], current_ratio: Optional[float]
 
 def _trait_utilization_band(*, traits: Dict[str, Any], current_util: Optional[float]) -> Dict[str, Optional[float]]:
   stage = str(traits.get("business_stage") or "").strip().lower()
+  driver = str(traits.get("capacity_driver") or "").strip().lower()
+  modality = str(traits.get("sales_modality") or "").strip().lower()
+  cadence = str(traits.get("unit_cadence") or "").strip().lower()
   base_bounds = {
-    "pre_revenue": (0.0, 0.45),
-    "startup": (0.05, 0.65),
-    "operating": (0.15, 0.85),
-    "growth": (0.25, 0.90),
-    "mature": (0.35, 0.92),
-  }.get(stage, (0.05, 0.80))
+    "pre_revenue": (0.0, 0.40),
+    "startup": (0.10, 0.62),
+    "operating": (0.25, 0.82),
+    "growth": (0.35, 0.86),
+    "mature": (0.45, 0.88),
+  }.get(stage, (0.10, 0.78))
+  lower = base_bounds[0]
   upper = base_bounds[1]
+  if driver == "labor":
+    if modality in {"local_service", "project_based"}:
+      lower += 0.12
+      upper = min(upper, 0.84)
+    if cadence in {"contract", "project"}:
+      lower += 0.05
+      upper = min(upper, 0.82)
+  elif driver == "system":
+    lower = max(0.05, lower - 0.10)
+    upper = min(0.95, upper + 0.06)
+  elif driver in {"space", "equipment"}:
+    lower += 0.03
+    upper = min(upper, 0.87)
   driver = str(traits.get("capacity_driver") or "").strip().lower()
   if driver == "labor":
     upper = min(upper, 0.85)
   elif driver == "system":
     upper = min(0.95, upper + 0.05)
   if current_util is None:
-    return _clamp_band(base_bounds[0], upper, floor=0.0, ceiling=1.0)
-  low = min(current_util, base_bounds[0])
-  high = max(current_util + 0.10, upper)
-  return _clamp_band(low, high, floor=0.0, ceiling=1.0)
+    return _clamp_band(lower, upper, floor=0.0, ceiling=1.0)
+  high = max(upper, min(1.0, current_util + 0.06))
+  return _clamp_band(lower, high, floor=0.0, ceiling=1.0)
 
 
 def _benchmark_or_trait_band(
@@ -429,32 +607,38 @@ def build_constraint_engine_bundle(
     financials_year1_json=year1,
   )
 
+  child_basis = _build_child_metric_basis(year1)
+  has_child_metrics = bool(child_basis)
+
   current_units = _required_units_year1(year1)
-  current_price = _nonneg(_top_level_driver_value(year1, "unit_price") or ops.get("unit_price"))
-  current_util = _normalize_ratio(_top_level_driver_value(year1, "utilization_rate") or ops.get("utilization_rate"))
+  current_price = _nonneg((_weighted_child_price(child_basis) if has_child_metrics else None) or _top_level_driver_value(year1, "unit_price") or ops.get("unit_price"))
+  current_util = _normalize_ratio((_weighted_child_utilization(child_basis) if has_child_metrics else None) or _top_level_driver_value(year1, "utilization_rate") or ops.get("utilization_rate"))
   current_revenue = _nonneg(summary.get("revenue"))
   current_payroll = _nonneg(summary.get("payroll"))
+  current_marketing = _nonneg(summary.get("marketing"))
   current_other_opex = _nonneg(summary.get("other_opex"))
   current_cogs = _nonneg(summary.get("cogs"))
   current_gross_margin = ((current_revenue - current_cogs) / current_revenue) if current_revenue > 0 else None
   current_ebitda_margin = (_to_float(summary.get("ebitda")) / current_revenue) if current_revenue > 0 else None
   current_payroll_ratio = (current_payroll / current_revenue) if current_revenue > 0 else None
+  current_marketing_ratio = (current_marketing / current_revenue) if current_revenue > 0 else None
   current_opex_ratio = (current_other_opex / current_revenue) if current_revenue > 0 else None
   benchmark_confidence = _to_float((benchmark or {}).get("confidence_score")) or 0.0
   benchmark_fallback_level = str((benchmark or {}).get("fallback_level") or "generic").strip() or "generic"
 
-  capacity_units = 0.0
-  if current_util is not None and current_util > 0 and current_units > 0:
-    capacity_units = current_units / max(current_util, 1e-9)
-  else:
-    per_period_capacity = _nonneg(_top_level_driver_value(year1, "units_per_period_capacity") or ops.get("units_per_period_capacity"))
-    periods = _nonneg(_top_level_driver_value(year1, "operating_periods_per_year") or year1.get("operating_periods_per_year"))
-    if per_period_capacity > 0 and periods > 0:
-      capacity_units = per_period_capacity * periods
+  capacity_units = sum(max(0.0, _to_float(item.get("annual_capacity_units")) or 0.0) for item in child_basis if isinstance(item, dict))
+  if capacity_units <= 0:
+    if current_util is not None and current_util > 0 and current_units > 0:
+      capacity_units = current_units / max(current_util, 1e-9)
     else:
-      week_capacity = _nonneg(_top_level_driver_value(year1, "units_per_week_capacity") or ops.get("units_per_week_capacity"))
-      weeks = _nonneg(_top_level_driver_value(year1, "operating_weeks_per_year") or year1.get("operating_weeks_per_year") or 52)
-      capacity_units = week_capacity * weeks
+      per_period_capacity = _nonneg(_top_level_driver_value(year1, "units_per_period_capacity") or ops.get("units_per_period_capacity"))
+      periods = _nonneg(_top_level_driver_value(year1, "operating_periods_per_year") or year1.get("operating_periods_per_year"))
+      if per_period_capacity > 0 and periods > 0:
+        capacity_units = per_period_capacity * periods
+      else:
+        week_capacity = _nonneg(_top_level_driver_value(year1, "units_per_week_capacity") or ops.get("units_per_week_capacity"))
+        weeks = _nonneg(_top_level_driver_value(year1, "operating_weeks_per_year") or year1.get("operating_weeks_per_year") or 52)
+        capacity_units = week_capacity * weeks
 
   demand_supported_units = None
   for key in ("expected_units_year1", "required_units_year1", "expected_customers_or_clients_year1", "reachable_market"):
@@ -502,6 +686,11 @@ def build_constraint_engine_bundle(
     benchmark_confidence=benchmark_confidence,
     fallback_level=benchmark_fallback_level,
   )
+  marketing_intensity_band = _trait_marketing_band(
+    traits=traits,
+    current_ratio=current_marketing_ratio,
+    opex_band=opex_intensity_band,
+  )
   working_capital_band = (benchmark.get("working_capital") if isinstance(benchmark, dict) else {}) or {
     "dso": {"min": None, "max": None},
     "dpo": {"min": None, "max": None},
@@ -511,6 +700,42 @@ def build_constraint_engine_bundle(
   populated_traits = len([key for key in ("naics_6", "sector", "customer_type", "sales_modality", "capacity_driver", "unit_cadence", "geographic_scope", "business_stage", "fulfillment_shape") if traits.get(key)])
   trait_confidence += min(0.35, populated_traits * 0.04)
   constraint_confidence_score = round(min(0.95, 0.5 * benchmark_confidence + 0.5 * trait_confidence), 3)
+
+  active_role_months = 0.0
+  current_people_count = 0
+  planned_roles_count = 0
+  for person in (people or {}).get("people") or []:
+    if not isinstance(person, dict):
+      continue
+    current_people_count += 1
+    active_role_months += 12.0
+  for role in (people or {}).get("inferred_roles") or []:
+    if not isinstance(role, dict):
+      continue
+    planned_roles_count += 1
+    months_until_hire = int(max(0, min(12, round(_to_float(role.get("months_until_hire")) or 0.0))))
+    active_role_months += max(0, 12 - months_until_hire)
+  fte_equivalent = active_role_months / 12.0
+  workload_required_payroll = 0.0
+  required_fte = 0.0
+  revenue_per_fte = None
+  if str(traits.get("capacity_driver") or "").strip().lower() == "labor" and fte_equivalent > 0 and current_revenue > 0:
+    thresholds = _labor_workload_thresholds(traits)
+    max_revenue_per_fte = max(1.0, _to_float(thresholds.get("max_revenue_per_fte")) or 1.0)
+    required_fte = current_revenue / max_revenue_per_fte
+    implied_comp_per_fte = max(
+      (current_payroll / max(fte_equivalent, 1e-9)) if current_payroll > 0 else 0.0,
+      (_derived_year1_payroll_from_people(people) / max(fte_equivalent, 1e-9)) if fte_equivalent > 0 else 0.0,
+      _default_compensation_per_fte(traits),
+    )
+    workload_required_payroll = required_fte * implied_comp_per_fte
+    revenue_per_fte = current_revenue / max(fte_equivalent, 1e-9)
+  people_payroll_floor = _derived_year1_payroll_from_people(people)
+  structural_payroll_floor = max(
+    people_payroll_floor,
+    workload_required_payroll,
+    (current_revenue * (_band_value_min(payroll_intensity_band) or 0.0)),
+  )
 
   violations: List[str] = []
   findings: List[Dict[str, Any]] = []
@@ -597,15 +822,19 @@ def build_constraint_engine_bundle(
 
   payroll_min = _band_value_min(payroll_intensity_band)
   payroll_max = _band_value_max(payroll_intensity_band)
-  if current_payroll_ratio is not None and payroll_min is not None and current_payroll_ratio < payroll_min - 0.01:
+  if (
+    current_payroll > 0
+    and structural_payroll_floor > 0
+    and current_payroll < (structural_payroll_floor * 0.97)
+  ) or (current_payroll_ratio is not None and payroll_min is not None and current_payroll_ratio < payroll_min - 0.01):
     _add_violation(
       findings,
       violations,
       code="payroll_too_light",
       metric="payroll_intensity",
-      actual=round(current_payroll_ratio, 6),
-      bound_min=payroll_min,
-      explanation="Payroll intensity is below the realism band for this plan and may not support the claimed Year-1 operating load.",
+      actual=round(current_payroll_ratio, 6) if current_payroll_ratio is not None else None,
+      bound_min=round(max(payroll_min or 0.0, (structural_payroll_floor / max(current_revenue, 1.0))), 6) if current_revenue > 0 else payroll_min,
+      explanation="Payroll support is below the structural requirement implied by the current workload, staffing basis, and Year-1 labor model.",
     )
   if current_payroll_ratio is not None and payroll_max is not None and current_payroll_ratio > payroll_max + 0.01:
     _add_violation(
@@ -620,6 +849,29 @@ def build_constraint_engine_bundle(
 
   opex_min = _band_value_min(opex_intensity_band)
   opex_max = _band_value_max(opex_intensity_band)
+  marketing_min = _band_value_min(marketing_intensity_band)
+  marketing_max = _band_value_max(marketing_intensity_band)
+  if current_marketing_ratio is not None and marketing_min is not None and current_marketing_ratio < marketing_min - 0.01:
+    _add_violation(
+      findings,
+      violations,
+      code="marketing_too_low",
+      metric="marketing_intensity",
+      actual=round(current_marketing_ratio, 6),
+      bound_min=marketing_min,
+      severity="info",
+      explanation="Marketing intensity is below the current realism corridor for this business model and may under-support the stated demand path.",
+    )
+  if current_marketing_ratio is not None and marketing_max is not None and current_marketing_ratio > marketing_max + 0.01:
+    _add_violation(
+      findings,
+      violations,
+      code="marketing_too_high",
+      metric="marketing_intensity",
+      actual=round(current_marketing_ratio, 6),
+      bound_max=marketing_max,
+      explanation="Marketing intensity is above the realism corridor for this business model and is too large to be the default absorber of other plan inconsistencies.",
+    )
   if current_opex_ratio is not None and opex_min is not None and current_opex_ratio < opex_min - 0.01:
     _add_violation(
       findings,
@@ -723,6 +975,14 @@ def build_constraint_engine_bundle(
       explanation="Payroll intensity band uses benchmarks when present and otherwise falls back to trait-derived operating priors.",
     ),
     _constraint_item(
+      constraint_id="marketing_intensity_band",
+      metric="marketing_intensity",
+      bound_type="soft",
+      source_type="trait",
+      confidence_score=trait_confidence,
+      explanation="Marketing intensity corridor is trait-driven and bounded by business model and compatible operating-expense realism.",
+    ),
+    _constraint_item(
       constraint_id="opex_intensity_band",
       metric="opex_intensity",
       bound_type="soft" if opex_source == "alpha" else "prior",
@@ -750,6 +1010,7 @@ def build_constraint_engine_bundle(
     "gross_margin_band": gross_margin_band,
     "ebitda_margin_band": ebitda_margin_band,
     "payroll_intensity_band": payroll_intensity_band,
+    "marketing_intensity_band": marketing_intensity_band,
     "opex_intensity_band": opex_intensity_band,
     "working_capital_band": working_capital_band,
     "utilization_range": utilization_band,
@@ -767,8 +1028,20 @@ def build_constraint_engine_bundle(
       "gross_margin": round(current_gross_margin, 6) if current_gross_margin is not None else None,
       "ebitda_margin": round(current_ebitda_margin, 6) if current_ebitda_margin is not None else None,
       "payroll_intensity": round(current_payroll_ratio, 6) if current_payroll_ratio is not None else None,
+      "marketing_intensity": round(current_marketing_ratio, 6) if current_marketing_ratio is not None else None,
       "opex_intensity": round(current_opex_ratio, 6) if current_opex_ratio is not None else None,
       "capacity_units_year1": round(capacity_units, 2),
+      "child_product_count": len(child_basis),
+      "weighted_child_price": round(_weighted_child_price(child_basis), 2) if has_child_metrics and _weighted_child_price(child_basis) is not None else None,
+      "weighted_child_utilization_rate": round(_weighted_child_utilization(child_basis), 6) if has_child_metrics and _weighted_child_utilization(child_basis) is not None else None,
+      "people_payroll_floor": round(people_payroll_floor, 2),
+      "structural_payroll_floor": round(structural_payroll_floor, 2),
+      "active_role_months_year1": round(active_role_months, 2),
+      "fte_equivalent_year1": round(fte_equivalent, 4),
+      "revenue_per_fte_year1": round(revenue_per_fte, 2) if revenue_per_fte is not None else None,
+      "required_fte_from_workload": round(required_fte, 4),
+      "current_people_count": current_people_count,
+      "planned_roles_count": planned_roles_count,
     },
     "summary": summary,
   }

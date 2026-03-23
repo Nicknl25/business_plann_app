@@ -43,6 +43,8 @@ VIOLATION_CODES: Tuple[str, ...] = (
   "capacity_unsupported",
   "demand_unsupported",
   "revenue_out_of_range",
+  "marketing_too_high",
+  "marketing_too_low",
   "gross_margin_too_high",
   "gross_margin_too_low",
   "ebitda_margin_too_high",

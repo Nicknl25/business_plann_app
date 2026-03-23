@@ -94,6 +94,39 @@ BLOCKING_VIOLATION_PENALTY = _float_env("CONSISTENCY_SOLVER_BLOCKING_VIOLATION_P
 NONBLOCKING_VIOLATION_PENALTY = _float_env("CONSISTENCY_SOLVER_NONBLOCKING_VIOLATION_PENALTY", 15000.0)
 UNRESOLVED_BLOCKING_SCENARIO_LIMIT = max(0, int(round(_float_env("CONSISTENCY_SOLVER_UNRESOLVED_BLOCKING_LIMIT", 1.0))))
 
+SCENARIO_ARCHETYPE_META = {
+  "balanced": {
+    "archetype": "operations",
+    "display": "Operational balance",
+    "tradeoff": "rebalances workload, staffing, and utilization without leaning too hard on one lever",
+  },
+  "operations_first": {
+    "archetype": "operations",
+    "display": "Operational balance",
+    "tradeoff": "fixes delivery strain and support structure before pushing growth or cost cuts",
+  },
+  "labor_support_first": {
+    "archetype": "operations",
+    "display": "Operational balance",
+    "tradeoff": "adds labor support or reduces strain so Year-1 workload is believable",
+  },
+  "growth_first": {
+    "archetype": "growth",
+    "display": "Growth path",
+    "tradeoff": "protects the revenue plan and accepts more support spend where realism allows",
+  },
+  "profit_first": {
+    "archetype": "efficiency",
+    "display": "Efficiency path",
+    "tradeoff": "improves margin quality and trims excess spend faster than the other paths",
+  },
+  "lean_survival": {
+    "archetype": "efficiency",
+    "display": "Efficiency path",
+    "tradeoff": "leans harder on cost discipline and moderated demand to stabilize Year 1",
+  },
+}
+
 BLOCKING_YEAR1_VIOLATIONS = {
   "capacity_unsupported",
   "revenue_out_of_range",
@@ -511,10 +544,44 @@ def _iter_year1_products(financials_year1_json: Dict[str, Any]) -> List[Dict[str
         {
           "lob_name": lob_name,
           "product_name": product_name,
+          "product_key": f"{lob_name.strip().lower()}::{product_name.strip().lower()}",
           "product": product,
         }
       )
   return products_out
+
+
+def _product_driver_is_solver_usable(product_basis: Dict[str, Any]) -> bool:
+  if not isinstance(product_basis, dict):
+    return False
+  unit_price = max(0.0, _safe_float(product_basis.get("unit_price")))
+  periods = max(0.0, _safe_float(product_basis.get("operating_periods_per_year")))
+  capacity = max(0.0, _safe_float(product_basis.get("units_per_period_capacity")))
+  avg_units = max(0.0, _safe_float(product_basis.get("avg_units_per_period_year1")))
+  util = _normalize_ratio(product_basis.get("utilization_rate"))
+  if unit_price <= 0 or periods <= 0:
+    return False
+  if capacity <= 0 and avg_units <= 0:
+    return False
+  if capacity > 0 and util is None and avg_units <= 0:
+    return False
+  return True
+
+
+def _resolve_solver_mode(
+  *,
+  financials_year1_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> Tuple[str, List[Dict[str, Any]]]:
+  product_basis = _build_product_driver_basis(
+    financials_year1_json=financials_year1_json or {},
+    ops_json=ops_json or {},
+  )
+  if not product_basis:
+    return "parent_fallback", []
+  if all(_product_driver_is_solver_usable(item) for item in product_basis):
+    return "child_first", product_basis
+  return "parent_fallback", []
 
 
 def _build_product_driver_basis(
@@ -556,6 +623,7 @@ def _build_product_driver_basis(
       {
         "lob_name": item.get("lob_name"),
         "product_name": item.get("product_name"),
+        "product_key": item.get("product_key"),
         "unit_price": unit_price,
         "operating_periods_per_year": periods,
         "units_per_period_capacity": units_capacity_per_period,
@@ -692,6 +760,8 @@ def _sync_marketing_derived_fields(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   units_per_dollar: Optional[float] = None,
+  min_total: Optional[float] = None,
+  max_total: Optional[float] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   next_model = dict(marketing_model_json or {})
   next_financials = dict(financials_json or {})
@@ -701,6 +771,10 @@ def _sync_marketing_derived_fields(
   expected_units = max(0.0, _safe_float(next_model.get("expected_units_year1")))
   if units_per_dollar > 0 and expected_units >= 0:
     marketing_total = round(expected_units / units_per_dollar, 2)
+    if max_total is not None:
+      marketing_total = min(marketing_total, max(0.0, _safe_float(max_total)))
+    if min_total is not None:
+      marketing_total = max(marketing_total, max(0.0, _safe_float(min_total)))
     next_model["marketing_total_year1"] = marketing_total
     next_financials = _apply_marketing_total(
       financials_json=next_financials,
@@ -930,6 +1004,8 @@ def _apply_exact_patches(
   marketing_model_patch = exact_patches.get("marketing_model_patch")
   if isinstance(marketing_model_patch, dict) and marketing_model_patch:
     baseline_units_per_dollar = _marketing_units_per_dollar(next_marketing_model)
+    solver_meta = exact_patches.get("solver_meta") if isinstance(exact_patches, dict) else {}
+    solver_meta = solver_meta if isinstance(solver_meta, dict) else {}
     next_marketing_model = _apply_marketing_model_patch(
       marketing_model_json=next_marketing_model,
       patch=marketing_model_patch,
@@ -939,6 +1015,8 @@ def _apply_exact_patches(
       financials_json=next_financials,
       financials_year1_json=next_year1,
       units_per_dollar=baseline_units_per_dollar,
+      min_total=_safe_float(solver_meta.get("marketing_min_total")) if solver_meta.get("marketing_min_total") is not None else None,
+      max_total=_safe_float(solver_meta.get("marketing_max_total")) if solver_meta.get("marketing_max_total") is not None else None,
     )
 
   return next_ops, next_people, next_financials, next_year1, next_marketing_model
@@ -962,6 +1040,118 @@ def _scenario_violations(
 
 def _scenario_signature(exact_patches: Dict[str, Any]) -> str:
   return json.dumps(exact_patches or {}, sort_keys=True, ensure_ascii=False)
+
+
+def _build_lever_summary(
+  *,
+  exact_patches: Dict[str, Any],
+  family_raw_components: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  family_raw_components = family_raw_components if isinstance(family_raw_components, dict) else {}
+  meaningful_thresholds = {
+    "price": 0.015,
+    "utilization": 0.03,
+    "marketing": 0.06,
+    "other_opex": 0.06,
+    "cogs": 0.03,
+    "hire_delay": 0.05,
+    "payroll": 0.04,
+  }
+  family_alias = {
+    "price_up": "price",
+    "price_down": "price",
+    "util_up": "utilization",
+    "util_down": "utilization",
+    "marketing_up": "marketing",
+    "marketing_down": "marketing",
+    "other_opex_down": "other_opex",
+    "other_opex_up": "other_opex",
+    "cogs_down": "cogs",
+    "cogs_up": "cogs",
+    "hire_delay": "hire_delay",
+    "hire_advance": "hire_delay",
+    "payroll_down": "payroll",
+    "payroll_up": "payroll",
+    "payroll_shortfall": "payroll",
+    "payroll_excess": "payroll",
+    "structural_payroll_shortfall": "payroll",
+  }
+  raw_moves: Dict[str, float] = {}
+  for raw_name, raw_value in family_raw_components.items():
+    family_name = family_alias.get(str(raw_name), str(raw_name))
+    value = max(0.0, _safe_float(raw_value))
+    raw_moves[family_name] = max(raw_moves.get(family_name, 0.0), value)
+  year1_patch = exact_patches.get("financials_year1_patch") if isinstance(exact_patches, dict) else {}
+  year1_patch = year1_patch if isinstance(year1_patch, dict) else {}
+  product_overrides = year1_patch.get("product_overrides") if isinstance(year1_patch, dict) else {}
+  product_overrides = product_overrides if isinstance(product_overrides, dict) else {}
+  financials_patch = exact_patches.get("financials_patch") if isinstance(exact_patches, dict) else {}
+  financials_patch = financials_patch if isinstance(financials_patch, dict) else {}
+  if financials_patch.get("marketing_total_year1") is not None:
+    raw_moves["marketing"] = max(raw_moves.get("marketing", 0.0), 0.1)
+  if financials_patch.get("other_operating_expense") is not None:
+    raw_moves["other_opex"] = max(raw_moves.get("other_opex", 0.0), 0.1)
+  if financials_patch.get("cogs_total_year1") is not None:
+    raw_moves["cogs"] = max(raw_moves.get("cogs", 0.0), 0.1)
+  if year1_patch.get("unit_price") is not None:
+    raw_moves["price"] = max(raw_moves.get("price", 0.0), 0.1)
+  if year1_patch.get("utilization_rate") is not None or year1_patch.get("avg_units_per_period_year1") is not None:
+    raw_moves["utilization"] = max(raw_moves.get("utilization", 0.0), 0.1)
+  if product_overrides:
+    for override in product_overrides.values():
+      if not isinstance(override, dict) or not override:
+        continue
+      if override.get("unit_price") is not None:
+        raw_moves["price"] = max(raw_moves.get("price", 0.0), 0.1)
+      if override.get("utilization_rate") is not None or override.get("avg_units_per_period_year1") is not None:
+        raw_moves["utilization"] = max(raw_moves.get("utilization", 0.0), 0.1)
+  if isinstance(exact_patches.get("marketing_model_patch"), dict) and exact_patches["marketing_model_patch"]:
+    raw_moves["marketing"] = max(raw_moves.get("marketing", 0.0), 0.1)
+  if isinstance(exact_patches.get("people_role_updates"), list) and exact_patches["people_role_updates"]:
+    role_updates = exact_patches["people_role_updates"]
+    if any(isinstance(item, dict) and item.get("months_until_hire") is not None for item in role_updates):
+      raw_moves["hire_delay"] = max(raw_moves.get("hire_delay", 0.0), 0.1)
+    if any(isinstance(item, dict) and item.get("annual_wage") is not None for item in role_updates):
+      raw_moves["payroll"] = max(raw_moves.get("payroll", 0.0), 0.1)
+  meaningful_families = [
+    family_name
+    for family_name, value in raw_moves.items()
+    if value >= max(0.0, _safe_float(meaningful_thresholds.get(family_name, 0.03)) or 0.03)
+  ]
+  meaningful_families = list(dict.fromkeys(meaningful_families))
+  moved_products = [
+    product_key for product_key, override in product_overrides.items()
+    if isinstance(override, dict) and override
+  ]
+  changed_products = len(moved_products)
+  coordination_score = (
+    float(len(meaningful_families))
+    + (0.35 * max(0, changed_products - 1))
+    + (0.2 * max(0, len(raw_moves) - len(meaningful_families)))
+  )
+  return {
+    "meaningful_families": meaningful_families,
+    "meaningful_lever_count": len(meaningful_families),
+    "raw_family_moves": {key: round(value, 6) for key, value in raw_moves.items()},
+    "changed_products": changed_products,
+    "moved_product_keys": moved_products,
+    "coordination_score": round(coordination_score, 4),
+  }
+
+
+def _nontrivial_repair_required(
+  *,
+  baseline_realism_distance: float,
+  target_ebitda_min: Optional[float],
+  target_ebitda_max: Optional[float],
+  baseline_blocking_count: int,
+) -> bool:
+  return (
+    baseline_blocking_count >= 1
+    or baseline_realism_distance >= 0.015
+    or target_ebitda_min is not None
+    or target_ebitda_max is not None
+  )
 
 
 def _build_candidate(
@@ -1050,6 +1240,7 @@ def _build_candidate(
   disruption_score = _candidate_disruption_score(exact_patches)
   is_break_even = _is_break_even_ebitda(summary)
   ebitda_gap = _ebitda_gap(summary)
+  lever_summary = _build_lever_summary(exact_patches=exact_patches)
 
   return {
     "scenario_id": scenario_id,
@@ -1072,6 +1263,10 @@ def _build_candidate(
     "remaining_blocking_count": len(remaining_blocking),
     "remaining_violation_count": len(all_remaining),
     "signature": _scenario_signature(exact_patches),
+    "lever_summary": lever_summary,
+    "meaningful_families": list(lever_summary.get("meaningful_families") or []),
+    "meaningful_lever_count": int(max(0, _safe_int(lever_summary.get("meaningful_lever_count")) or 0)),
+    "coordination_score": _safe_float(lever_summary.get("coordination_score")),
     "editable_role_titles": [
       str(update.get("role_title") or "").strip()
       for update in (exact_patches.get("people_role_updates") or [])
@@ -1188,6 +1383,32 @@ def _primary_family(candidate: Dict[str, Any]) -> str:
   return str(families[0] or "").strip()
 
 
+def _scenario_archetype_meta(profile_id: str) -> Dict[str, str]:
+  profile_key = str(profile_id or "").strip()
+  payload = SCENARIO_ARCHETYPE_META.get(profile_key) or {}
+  return {
+    "archetype": str(payload.get("archetype") or "operations"),
+    "display": str(payload.get("display") or "Operational balance"),
+    "tradeoff": str(payload.get("tradeoff") or "rebalances the Year-1 plan within the realism envelope"),
+  }
+
+
+def _dominant_tradeoff(lever_families: Sequence[str], archetype: str) -> str:
+  families = [str(item or "").strip() for item in lever_families if str(item or "").strip()]
+  family_set = set(families)
+  if archetype == "growth":
+    if "marketing" in family_set or "utilization" in family_set:
+      return "keeps more of the revenue ambition while adding enough support to stay credible"
+    return "leans toward preserving growth with less disruption to the revenue plan"
+  if archetype == "efficiency":
+    if "other_opex" in family_set or "cogs" in family_set or "payroll" in family_set:
+      return "trades some upside for cleaner margin structure and tighter cost control"
+    return "leans into efficiency over reach"
+  if "hire_delay" in family_set or "payroll" in family_set or "utilization" in family_set:
+    return "rebalances staffing, workload, and timing to make operations believable"
+  return "balances workload and support structure without overusing one lever family"
+
+
 def _economic_signature(candidate: Dict[str, Any]) -> str:
   return json.dumps(
     {
@@ -1229,6 +1450,18 @@ def _role_update_map(candidate: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 
 def _materially_distinct_candidate(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+  left_archetype = str(left.get("archetype") or "").strip()
+  right_archetype = str(right.get("archetype") or "").strip()
+  if left_archetype and right_archetype and left_archetype != right_archetype:
+    return True
+  left_tradeoff = str(left.get("dominant_tradeoff") or "").strip()
+  right_tradeoff = str(right.get("dominant_tradeoff") or "").strip()
+  if left_tradeoff and right_tradeoff and left_tradeoff != right_tradeoff:
+    return True
+  left_families = tuple(str(item or "").strip() for item in (left.get("lever_families") or []) if str(item or "").strip())
+  right_families = tuple(str(item or "").strip() for item in (right.get("lever_families") or []) if str(item or "").strip())
+  if left_families and right_families and left_families != right_families:
+    return True
   left_patch = left.get("exact_patches") if isinstance(left, dict) else {}
   right_patch = right.get("exact_patches") if isinstance(right, dict) else {}
   left_year1 = left_patch.get("financials_year1_patch") if isinstance(left_patch, dict) else {}
@@ -1295,6 +1528,8 @@ def _candidate_objective(candidate: Dict[str, Any], *, break_even_target_exists:
   blocking_count = max(0.0, _safe_float(candidate.get("remaining_blocking_count")))
   remaining_count = max(0.0, _safe_float(candidate.get("remaining_violation_count")))
   realism_distance = max(0.0, _safe_float(candidate.get("realism_distance")))
+  coordination_score = max(0.0, _safe_float(candidate.get("coordination_score")))
+  meaningful_lever_count = max(0.0, _safe_float(candidate.get("meaningful_lever_count")))
   if break_even_target_exists:
     return (
       1_000_000.0 * break_even
@@ -1302,6 +1537,8 @@ def _candidate_objective(candidate: Dict[str, Any], *, break_even_target_exists:
       - (NONBLOCKING_VIOLATION_PENALTY * max(0.0, remaining_count - blocking_count))
       - 2_500.0 * realism_distance
       - 1_000.0 * disruption
+      + 250.0 * coordination_score
+      + 400.0 * meaningful_lever_count
       + ebitda
       + 0.01 * net_income
       + 0.001 * improvement
@@ -1311,11 +1548,295 @@ def _candidate_objective(candidate: Dict[str, Any], *, break_even_target_exists:
     - (NONBLOCKING_VIOLATION_PENALTY * max(0.0, remaining_count - blocking_count))
     -10_000.0 * ebitda_gap
     - 2_500.0 * realism_distance
+    + 250.0 * coordination_score
+    + 400.0 * meaningful_lever_count
     + ebitda
     + 0.01 * net_income
     - 10.0 * disruption
     + 0.001 * improvement
   )
+
+
+def _select_materially_distinct_scenarios(candidates: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  archetype_priority = {
+    "operations": 0,
+    "growth": 1,
+    "efficiency": 2,
+  }
+  profile_priority = {
+    "balanced": 0,
+    "operations_first": 1,
+    "labor_support_first": 2,
+    "growth_first": 3,
+    "profit_first": 4,
+    "lean_survival": 5,
+  }
+  scenarios = [candidate for candidate in candidates if isinstance(candidate, dict)]
+  scenarios.sort(
+    key=lambda item: (
+      _safe_float(item.get("remaining_blocking_count")),
+      _safe_float(item.get("remaining_violation_count")),
+      -_safe_float(item.get("meaningful_lever_count")),
+      -_safe_float(item.get("coordination_score")),
+      archetype_priority.get(str(item.get("archetype") or "").strip(), 99),
+      profile_priority.get(str(item.get("solution_profile_id") or "").strip(), 99),
+      _safe_float(item.get("realism_distance")),
+      _safe_float(item.get("target_distance")),
+      _safe_float(item.get("distortion_total")) or _safe_float(item.get("disruption_score")),
+      -abs(_safe_float(item.get("ebitda"))),
+    )
+  )
+  materially_distinct: List[Dict[str, Any]] = []
+  used_profiles = set()
+  used_archetypes = set()
+  for candidate in scenarios:
+    profile_id = str(candidate.get("solution_profile_id") or "").strip()
+    archetype = str(candidate.get("archetype") or "").strip()
+    if archetype in used_archetypes:
+      continue
+    if any(not _materially_distinct_candidate(candidate, existing) for existing in materially_distinct):
+      continue
+    materially_distinct.append(candidate)
+    used_profiles.add(profile_id)
+    used_archetypes.add(archetype)
+    if len(materially_distinct) >= MAX_SCENARIOS:
+      return materially_distinct[:MAX_SCENARIOS]
+  if len(materially_distinct) < MAX_SCENARIOS:
+    for candidate in scenarios:
+      if any(candidate is existing for existing in materially_distinct):
+        continue
+      profile_id = str(candidate.get("solution_profile_id") or "").strip()
+      if profile_id in used_profiles:
+        continue
+      if any(not _materially_distinct_candidate(candidate, existing) for existing in materially_distinct):
+        continue
+      materially_distinct.append(candidate)
+      used_profiles.add(profile_id)
+      if len(materially_distinct) >= MAX_SCENARIOS:
+        break
+  return materially_distinct[:MAX_SCENARIOS]
+
+
+def _scenario_marketing_ratio(candidate: Dict[str, Any]) -> Optional[float]:
+  summary = candidate.get("summary") if isinstance(candidate, dict) else {}
+  summary = summary if isinstance(summary, dict) else {}
+  revenue = max(0.0, _safe_float(summary.get("revenue")))
+  marketing = max(0.0, _safe_float(summary.get("marketing")))
+  if revenue <= 0:
+    return None
+  return marketing / revenue
+
+
+def _presentation_issues(
+  candidate: Dict[str, Any],
+  *,
+  state_model: Optional[Dict[str, Any]] = None,
+  selected_candidates: Optional[Sequence[Dict[str, Any]]] = None,
+) -> List[str]:
+  issues: List[str] = []
+  candidate = candidate if isinstance(candidate, dict) else {}
+  state_model = state_model if isinstance(state_model, dict) else {}
+  selected_candidates = [item for item in (selected_candidates or []) if isinstance(item, dict)]
+
+  if _safe_float(candidate.get("remaining_blocking_count")) > 0:
+    issues.append("remaining_blockers")
+
+  if any(not _materially_distinct_candidate(candidate, existing) for existing in selected_candidates):
+    issues.append("near_duplicate")
+
+  exact_patches = candidate.get("exact_patches") if isinstance(candidate, dict) else {}
+  exact_patches = exact_patches if isinstance(exact_patches, dict) else {}
+  year1_patch = exact_patches.get("financials_year1_patch") if isinstance(exact_patches, dict) else {}
+  year1_patch = year1_patch if isinstance(year1_patch, dict) else {}
+  product_overrides = year1_patch.get("product_overrides") if isinstance(year1_patch, dict) else {}
+  product_overrides = product_overrides if isinstance(product_overrides, dict) else {}
+  if product_overrides and (year1_patch.get("unit_price") is not None or year1_patch.get("utilization_rate") is not None):
+    issues.append("child_parent_contradiction")
+
+  fixed_facts = state_model.get("fixed_facts") if isinstance(state_model, dict) else {}
+  fixed_facts = fixed_facts if isinstance(fixed_facts, dict) else {}
+  sales_modality = str(fixed_facts.get("sales_modality") or "").strip().lower()
+  capacity_driver = str(fixed_facts.get("capacity_driver") or "").strip().lower()
+  constraint_profile = state_model.get("constraint_profile") if isinstance(state_model, dict) else {}
+  constraint_profile = constraint_profile if isinstance(constraint_profile, dict) else {}
+  util_envelope = (constraint_profile.get("utilization_envelope") if isinstance(constraint_profile, dict) else {}) or {}
+  util_floor = _normalize_ratio((util_envelope or {}).get("min"))
+  summary = candidate.get("summary") if isinstance(candidate, dict) else {}
+  summary = summary if isinstance(summary, dict) else {}
+  scenario_util = _normalize_ratio(
+    ((year1_patch or {}).get("utilization_rate"))
+    or (summary.get("utilization"))
+    or (((candidate.get("forecast_engine_state") or {}) if isinstance(candidate.get("forecast_engine_state"), dict) else {}).get("starting_state") or {}).get("utilization")
+  )
+  presentation_util_floor = util_floor
+  if capacity_driver == "labor" and sales_modality in {"local_service", "project_based"}:
+    presentation_util_floor = max(presentation_util_floor or 0.0, 0.45)
+  if scenario_util is not None and presentation_util_floor is not None and scenario_util < presentation_util_floor - 0.01:
+    issues.append("weak_utilization_story")
+
+  marketing_ratio = _scenario_marketing_ratio(candidate)
+  archetype = str(candidate.get("archetype") or "").strip()
+  if marketing_ratio is not None:
+    if archetype != "growth" and marketing_ratio > 0.22:
+      issues.append("bizarre_marketing")
+    elif archetype == "growth" and marketing_ratio > 0.32:
+      issues.append("bizarre_marketing")
+
+  label = str(candidate.get("label") or "").strip()
+  rationale = str(candidate.get("rationale") or "").strip().lower()
+  dominant_tradeoff = str(candidate.get("dominant_tradeoff") or "").strip().lower()
+  if not label or ":" not in label:
+    issues.append("weak_label")
+  if dominant_tradeoff and dominant_tradeoff not in rationale:
+    issues.append("weak_rationale")
+
+  return list(dict.fromkeys(issues))
+
+
+def _select_client_ready_scenarios(
+  candidates: Sequence[Dict[str, Any]],
+  *,
+  state_model: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+  selected: List[Dict[str, Any]] = []
+  for candidate in _select_materially_distinct_scenarios(candidates):
+    issues = _presentation_issues(candidate, state_model=state_model, selected_candidates=selected)
+    if issues:
+      continue
+    next_candidate = dict(candidate)
+    next_candidate["presentation_issues"] = []
+    selected.append(next_candidate)
+    if len(selected) >= MAX_SCENARIOS:
+      break
+  if selected:
+    return selected
+  fallback: List[Dict[str, Any]] = []
+  for candidate in _select_materially_distinct_scenarios(candidates):
+    issues = _presentation_issues(candidate, state_model=state_model, selected_candidates=fallback)
+    if "remaining_blockers" in issues:
+      continue
+    next_candidate = dict(candidate)
+    next_candidate["presentation_issues"] = issues
+    fallback.append(next_candidate)
+    if len(fallback) >= MAX_SCENARIOS:
+      break
+  return fallback
+
+
+def _scenario_forecast_summary(bundle: Dict[str, Any]) -> Dict[str, Any]:
+  bundle = bundle if isinstance(bundle, dict) else {}
+  state = bundle.get("forecast_engine_state") if isinstance(bundle, dict) else {}
+  state = state if isinstance(state, dict) else {}
+  quarters = bundle.get("forecast_quarters") if isinstance(bundle, dict) else []
+  quarters = quarters if isinstance(quarters, list) else []
+  def _quarter_at(index: int) -> Dict[str, Any]:
+    if 0 <= index < len(quarters) and isinstance(quarters[index], dict):
+      return quarters[index]
+    return {}
+  q4 = _quarter_at(3)
+  q12 = _quarter_at(11)
+  q20 = _quarter_at(19)
+  return {
+    "status": str(state.get("status") or "unavailable").strip() or "unavailable",
+    "quarter_count": len(quarters),
+    "year1_exit_ebitda": round(_safe_float(q4.get("ebitda")), 2) if q4 else None,
+    "year3_exit_ebitda": round(_safe_float(q12.get("ebitda")), 2) if q12 else None,
+    "year5_exit_ebitda": round(_safe_float(q20.get("ebitda")), 2) if q20 else None,
+    "year5_exit_revenue": round(_safe_float(q20.get("revenue")), 2) if q20 else None,
+    "year5_status": str(q20.get("realism_check_status") or "").strip() if q20 else None,
+  }
+
+
+def _build_scenario_forecast_bundle(
+  *,
+  baseline_state: Dict[str, Any],
+  exact_patches: Dict[str, Any],
+  remaining_violations: Sequence[str],
+  constraint_engine_state: Optional[Dict[str, Any]],
+  normalized_traits: Optional[Dict[str, Any]],
+  benchmark_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  remaining = [
+    str(code or "").strip()
+    for code in (remaining_violations or [])
+    if str(code or "").strip()
+  ]
+  blocking_remaining = [
+    code for code in remaining
+    if code in {
+      "ebitda_margin_too_low",
+      "ebitda_margin_too_high",
+      "capacity_unsupported",
+      "revenue_out_of_range",
+      "gross_margin_too_low",
+      "gross_margin_too_high",
+      "payroll_too_light",
+      "payroll_too_heavy",
+      "opex_too_light",
+      "opex_too_heavy",
+      "utilization_too_low",
+      "utilization_too_high",
+    }
+  ]
+  if blocking_remaining:
+    bundle = {
+      "forecast_engine_state": {
+        "status": "blocked_unresolved_year1",
+        "blocking_violations": blocking_remaining,
+      },
+      "forecast_quarters": [],
+      "engine_versions": {},
+    }
+    bundle["forecast_summary"] = _scenario_forecast_summary(bundle)
+    return bundle
+  if not isinstance(normalized_traits, dict) or not isinstance(benchmark_payload, dict):
+    bundle = {
+      "forecast_engine_state": {
+        "status": "unavailable_missing_inputs",
+        "blocking_violations": [],
+      },
+      "forecast_quarters": [],
+      "engine_versions": {},
+    }
+    bundle["forecast_summary"] = _scenario_forecast_summary(bundle)
+    return bundle
+  next_ops, next_people, next_financials, next_year1, next_marketing_model = _apply_exact_patches(
+    ops_json=baseline_state.get("ops_json") or {},
+    people_json=baseline_state.get("people_json") or {},
+    financials_json=baseline_state.get("financials_json") or {},
+    financials_year1_json=baseline_state.get("financials_year1_json") or {},
+    marketing_model_json=baseline_state.get("marketing_model_json") or {},
+    exact_patches=exact_patches,
+  )
+  scenario_engine_state = _clone(constraint_engine_state or {})
+  if isinstance(scenario_engine_state, dict):
+    scenario_engine_state["violations"] = list(remaining)
+  try:
+    try:
+      from forecast_engine import build_forecast_engine_bundle  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.forecast_engine import build_forecast_engine_bundle  # type: ignore
+    bundle = build_forecast_engine_bundle(
+      operating_model_json=next_ops,
+      people_json=next_people,
+      financials_json=next_financials,
+      financials_year1_json=next_year1,
+      marketing_model_json=next_marketing_model,
+      normalized_traits=normalized_traits,
+      benchmark_payload=benchmark_payload,
+      constraint_engine_state=scenario_engine_state,
+    )
+  except Exception:
+    bundle = {
+      "forecast_engine_state": {
+        "status": "forecast_error",
+        "blocking_violations": [],
+      },
+      "forecast_quarters": [],
+      "engine_versions": {},
+    }
+  bundle["forecast_summary"] = _scenario_forecast_summary(bundle)
+  return bundle
 
 
 def _collect_solver_roles(people_json: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1619,21 +2140,33 @@ def _build_solver_state_model(
   engine_state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
   if not engine_state:
     return None
-  product_driver_basis = _build_product_driver_basis(
+  solve_mode, product_driver_basis = _resolve_solver_mode(
     financials_year1_json=financials_year1_json or {},
     ops_json=ops_json or {},
   )
   current_price = _safe_float(
-    _weighted_product_price(product_driver_basis)
+    (
+      _weighted_product_price(product_driver_basis)
+      if solve_mode == "child_first"
+      else 0.0
+    )
     or _top_level_driver_value(financials_year1_json or {}, "unit_price")
     or (ops_json or {}).get("unit_price")
   )
   current_util = _normalize_ratio(
-    _weighted_product_utilization(product_driver_basis)
+    (
+      _weighted_product_utilization(product_driver_basis)
+      if solve_mode == "child_first"
+      else None
+    )
     or _top_level_driver_value(financials_year1_json or {}, "utilization_rate")
     or (ops_json or {}).get("utilization_rate")
   )
-  baseline_units = sum(max(0.0, _safe_float(item.get("annual_units"))) for item in product_driver_basis) or _required_units_year1(financials_year1_json or {})
+  baseline_units = (
+    sum(max(0.0, _safe_float(item.get("annual_units"))) for item in product_driver_basis)
+    if solve_mode == "child_first"
+    else 0.0
+  ) or _required_units_year1(financials_year1_json or {})
   if current_price <= 0 or current_util is None or baseline_units <= 0:
     return None
 
@@ -1651,7 +2184,15 @@ def _build_solver_state_model(
   gross_margin_band = engine_state.get("gross_margin_band") if isinstance(engine_state, dict) else {}
   ebitda_margin_band = engine_state.get("ebitda_margin_band") if isinstance(engine_state, dict) else {}
   opex_intensity_band = engine_state.get("opex_intensity_band") if isinstance(engine_state, dict) else {}
+  marketing_intensity_band = engine_state.get("marketing_intensity_band") if isinstance(engine_state, dict) else {}
   current_metrics = engine_state.get("current_metrics") if isinstance(engine_state, dict) else {}
+  payroll_structural = {
+    "people_payroll_floor": max(0.0, _safe_float((current_metrics or {}).get("people_payroll_floor"))),
+    "structural_payroll_floor": max(0.0, _safe_float((current_metrics or {}).get("structural_payroll_floor"))),
+    "active_role_months_year1": max(0.0, _safe_float((current_metrics or {}).get("active_role_months_year1"))),
+    "fte_equivalent_year1": max(0.0, _safe_float((current_metrics or {}).get("fte_equivalent_year1"))),
+    "required_fte_from_workload": max(0.0, _safe_float((current_metrics or {}).get("required_fte_from_workload"))),
+  }
 
   supportable_units_min = _band_min(supportable_unit_range)
   supportable_units_max = _band_max(supportable_unit_range)
@@ -1663,6 +2204,8 @@ def _build_solver_state_model(
   gross_margin_max = _band_max(gross_margin_band)
   opex_min_ratio = _band_min(opex_intensity_band)
   opex_max_ratio = _band_max(opex_intensity_band)
+  marketing_min_ratio = _band_min(marketing_intensity_band)
+  marketing_max_ratio = _band_max(marketing_intensity_band)
   physical_capacity_units = max(
     sum(max(0.0, _safe_float(item.get("annual_capacity_units"))) for item in product_driver_basis),
     baseline_units / max(current_util, 1e-9),
@@ -1702,16 +2245,23 @@ def _build_solver_state_model(
   )
   marketing_units_min = max(0.0, min(expected_units, supportable_units_min if supportable_units_min is not None else expected_units))
   marketing_units_max = max(expected_units, supportable_units_max if supportable_units_max is not None else expected_units)
-  marketing_min_total = (
-    marketing_units_min / max(units_per_marketing_dollar, 1e-9)
-    if units_per_marketing_dollar > 0
-    else current_marketing
-  )
-  marketing_max_total = (
+  revenue_marketing_floor = (current_revenue * marketing_min_ratio) if current_revenue > 0 and marketing_min_ratio is not None else 0.0
+  revenue_marketing_cap = (current_revenue * marketing_max_ratio) if current_revenue > 0 and marketing_max_ratio is not None else None
+  units_based_marketing_cap = (
     marketing_units_max / max(units_per_marketing_dollar, 1e-9)
     if units_per_marketing_dollar > 0
-    else current_marketing
+    else None
   )
+  marketing_min_total = revenue_marketing_floor
+  if revenue_marketing_cap is not None and units_based_marketing_cap is not None:
+    marketing_max_total = min(revenue_marketing_cap, units_based_marketing_cap)
+  elif revenue_marketing_cap is not None:
+    marketing_max_total = revenue_marketing_cap
+  elif units_based_marketing_cap is not None:
+    marketing_max_total = units_based_marketing_cap
+  else:
+    marketing_max_total = current_marketing
+  marketing_max_total = max(marketing_min_total, marketing_max_total)
 
   revenue_anchor = max(
     current_revenue,
@@ -1749,8 +2299,8 @@ def _build_solver_state_model(
     "marketing": {
       "marketing_total_year1": {
         "baseline": current_marketing,
-        "min": min(current_marketing, marketing_min_total),
-        "max": max(current_marketing, marketing_max_total),
+        "min": marketing_min_total,
+        "max": marketing_max_total,
         "enabled": True,
         "source": "constraint_engine",
       },
@@ -1807,6 +2357,8 @@ def _build_solver_state_model(
     "break_even_gap": _ebitda_gap(baseline_summary),
   }
   fixed_facts = {
+    "solve_mode": solve_mode,
+    "sales_modality": str((ops_json or {}).get("sales_modality") or "").strip(),
     "capacity_driver": str((ops_json or {}).get("capacity_driver") or "").strip(),
     "current_staff": current_people,
     "rent_annualized": rent_annualized,
@@ -1823,6 +2375,7 @@ def _build_solver_state_model(
     "constraint_engine_state": _clone(engine_state),
     "constraint_audit": _clone(engine_state.get("constraints") or []),
     "product_driver_basis": _clone(product_driver_basis),
+    "payroll_structural": payroll_structural,
   }
   constraint_profile = {
     "constraint_audit": _clone(engine_state.get("constraints") or []),
@@ -1840,10 +2393,12 @@ def _build_solver_state_model(
     },
     "marketing_envelope": {
       "baseline": current_marketing,
-      "min": min(current_marketing, marketing_min_total),
+      "min": marketing_min_total,
       "max": marketing_max_total if marketing_max_total > 0 else current_marketing,
       "enabled": True,
       "source": "constraint_engine",
+      "intensity_min_ratio": marketing_min_ratio,
+      "intensity_max_ratio": marketing_max_ratio,
     },
     "marketing_children": {
       "reachable_market": max(0.0, _safe_float((marketing_model_json or {}).get("reachable_market"))),
@@ -1899,9 +2454,11 @@ def _build_solver_state_model(
     "rent_annualized": rent_annualized,
     "constraint_engine_violations": list(engine_state.get("violations") or []),
     "constraint_engine_state": _clone(engine_state),
+    "payroll_structural": payroll_structural,
   }
 
   return {
+    "solve_mode": solve_mode,
     "fixed_facts": fixed_facts,
     "controllable_drivers": controllable_drivers,
     "derived_outputs": derived_outputs,
@@ -1941,6 +2498,8 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
   objective_tolerance_ratio = OPTION_OBJECTIVE_TOLERANCE_RATIO
   objective_tolerance_abs = OPTION_OBJECTIVE_TOLERANCE_ABS
   active_violations: List[str] = []
+  sales_modality = ""
+  capacity_driver = ""
   if isinstance(state_model, dict):
     objective_policy = state_model.get("objective_policy")
     if isinstance(objective_policy, dict):
@@ -1966,6 +2525,10 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
         for code in (constraint_profile.get("constraint_engine_violations") or [])
         if str(code or "").strip()
       ]
+    fixed_facts = state_model.get("fixed_facts")
+    if isinstance(fixed_facts, dict):
+      sales_modality = str(fixed_facts.get("sales_modality") or "").strip().lower()
+      capacity_driver = str(fixed_facts.get("capacity_driver") or "").strip().lower()
   if not base_weights:
     base_weights = {
       "price_up": PRICE_DISTORTION_WEIGHT,
@@ -1983,6 +2546,14 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
       "payroll_down": PAYROLL_DOWN_DISTORTION_WEIGHT,
       "payroll_up": PAYROLL_UP_DISTORTION_WEIGHT,
     }
+  if sales_modality in {"local_service", "project_based"} and capacity_driver == "labor":
+    base_weights["marketing_up"] = _safe_float(base_weights.get("marketing_up")) * 1.85
+    base_weights["marketing_down"] = _safe_float(base_weights.get("marketing_down")) * 0.7
+  if "marketing_too_high" in active_violations:
+    base_weights["marketing_up"] = _safe_float(base_weights.get("marketing_up")) * 2.2
+    base_weights["marketing_down"] = _safe_float(base_weights.get("marketing_down")) * 0.6
+  if "marketing_too_low" in active_violations:
+    base_weights["marketing_up"] = _safe_float(base_weights.get("marketing_up")) * 0.75
 
   def profile_with(
     profile_id: str,
@@ -1991,11 +2562,15 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
     constraints: Optional[Dict[str, float]] = None,
     anchor_strict: bool = False,
   ) -> Dict[str, Any]:
+    archetype_meta = _scenario_archetype_meta(profile_id)
     weights = dict(base_weights)
     for key, factor in overrides.items():
       weights[key] = _safe_float(weights.get(key)) * _safe_float(factor)
     return {
       "profile_id": profile_id,
+      "archetype": archetype_meta["archetype"],
+      "archetype_display": archetype_meta["display"],
+      "dominant_tradeoff": archetype_meta["tradeoff"],
       "weights": weights,
       "constraints": dict(constraints or {}),
       "family_concentration_weight": family_concentration_weight,
@@ -2098,6 +2673,8 @@ def _solver_profiles(state_model: Optional[Dict[str, Any]] = None) -> List[Dict[
         constraints={
           "marketing_max_ratio": 0.95,
           "utilization_max_ratio": 0.92,
+          "payroll_down_max_ratio": 0.05,
+          "hire_delay_max_months_total": 1.0,
         },
       ),
     )
@@ -2150,17 +2727,40 @@ def _build_direct_solver_inputs(
   )
   constraint_engine_state = (fixed_facts or {}).get("constraint_engine_state") if isinstance(fixed_facts, dict) else {}
   constraint_engine_state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  current_metrics = (constraint_engine_state or {}).get("current_metrics") if isinstance(constraint_engine_state, dict) else {}
+  current_metrics = current_metrics if isinstance(current_metrics, dict) else {}
+  active_violations = [
+    str(code or "").strip()
+    for code in ((constraint_profile or {}).get("constraint_engine_violations") or [])
+    if str(code or "").strip()
+  ]
   payroll_band = constraint_engine_state.get("payroll_intensity_band") if isinstance(constraint_engine_state, dict) else {}
   payroll_ratio_min = max(0.0, _safe_float((payroll_band or {}).get("min")))
   payroll_ratio_max = max(payroll_ratio_min, _safe_float((payroll_band or {}).get("max")) or payroll_ratio_min)
   current_revenue_amount = max(0.0, _safe_float((constraint_profile or {}).get("current_revenue")))
   max_planned_payroll = sum(max(0.0, _safe_float(role.get("wage_ceiling"))) for role in roles if isinstance(role, dict))
   max_payroll_total = fixed_people_payroll + max_planned_payroll
-  target_payroll_min_total = min(max_payroll_total, current_revenue_amount * payroll_ratio_min) if payroll_ratio_min > 0 else 0.0
+  people_payroll_floor = max(
+    fixed_people_payroll,
+    _safe_float((current_metrics or {}).get("people_payroll_floor")),
+    _safe_float(((constraint_profile or {}).get("payroll_structural") or {}).get("people_payroll_floor")),
+  )
+  structural_payroll_floor = max(
+    people_payroll_floor,
+    _safe_float((current_metrics or {}).get("structural_payroll_floor")),
+    _safe_float(((constraint_profile or {}).get("payroll_structural") or {}).get("structural_payroll_floor")),
+  )
+  structural_payroll_base = people_payroll_floor
+  workload_payroll_per_unit = 0.0
+  if baseline_units > 0 and structural_payroll_floor > structural_payroll_base:
+    workload_payroll_per_unit = (structural_payroll_floor - structural_payroll_base) / max(baseline_units, 1e-9)
+  ratio_floor_total = (current_revenue_amount * payroll_ratio_min) if payroll_ratio_min > 0 else 0.0
+  target_payroll_min_total = max(ratio_floor_total, structural_payroll_base)
   target_payroll_max_total = max(
     fixed_people_payroll + baseline_planned_payroll,
     min(max_payroll_total if max_payroll_total > 0 else (current_revenue_amount * payroll_ratio_max), current_revenue_amount * payroll_ratio_max if payroll_ratio_max > 0 else max_payroll_total),
   )
+  target_payroll_max_total = max(target_payroll_min_total, target_payroll_max_total)
   units_min = max(0.0, _safe_float((capacity_curve or {}).get("hard_units_min")))
   units_max = max(
     baseline_units,
@@ -2176,6 +2776,7 @@ def _build_direct_solver_inputs(
   )
 
   return {
+    "solve_mode": str(state_model.get("solve_mode") or "parent_fallback") if isinstance(state_model, dict) else "parent_fallback",
     "current_price": current_price,
     "price_enabled": bool((price_envelope or {}).get("enabled")),
     "current_util": current_util,
@@ -2213,6 +2814,26 @@ def _build_direct_solver_inputs(
     "payroll_ratio_max": payroll_ratio_max,
     "target_payroll_min_total": max(0.0, target_payroll_min_total),
     "target_payroll_max_total": max(0.0, target_payroll_max_total),
+    "people_payroll_floor": max(0.0, people_payroll_floor),
+    "structural_payroll_floor": max(0.0, structural_payroll_floor),
+    "structural_payroll_base": max(0.0, structural_payroll_base),
+    "workload_payroll_per_unit": max(0.0, workload_payroll_per_unit),
+    "required_fte_from_workload": max(
+      0.0,
+      _safe_float((current_metrics or {}).get("required_fte_from_workload"))
+      or _safe_float(((constraint_profile or {}).get("payroll_structural") or {}).get("required_fte_from_workload")),
+    ),
+    "fte_equivalent_year1": max(
+      0.0,
+      _safe_float((current_metrics or {}).get("fte_equivalent_year1"))
+      or _safe_float(((constraint_profile or {}).get("payroll_structural") or {}).get("fte_equivalent_year1")),
+    ),
+    "active_role_months_year1": max(
+      0.0,
+      _safe_float((current_metrics or {}).get("active_role_months_year1"))
+      or _safe_float(((constraint_profile or {}).get("payroll_structural") or {}).get("active_role_months_year1")),
+    ),
+    "constraint_violations": active_violations,
     "roles": roles,
     "constraint_profile": constraint_profile,
     "expected_units": max(0.0, _safe_float((demand_curve or {}).get("baseline_supported_units"))),
@@ -2250,6 +2871,7 @@ def _build_blocking_solver_state(
 ) -> Dict[str, Any]:
   return {
     "status": "blocking_unresolved",
+    "solve_mode": str(state_model.get("solve_mode") or "parent_fallback") if isinstance(state_model, dict) else "parent_fallback",
     "target_metric": "year1_realism",
     "search_mode": "direct_pulp",
     "blocking_reason": blocking_reason,
@@ -2265,7 +2887,13 @@ def _build_blocking_solver_state(
   }
 
 
-def _label_and_rationale_from_patches(exact_patches: Dict[str, Any]) -> Tuple[str, str, List[str]]:
+def _label_and_rationale_from_patches(
+  exact_patches: Dict[str, Any],
+  *,
+  archetype: str = "operations",
+  archetype_display: Optional[str] = None,
+  dominant_tradeoff: Optional[str] = None,
+) -> Tuple[str, str, List[str]]:
   label_parts: List[str] = []
   rationale_parts: List[str] = []
   families: List[str] = []
@@ -2339,12 +2967,22 @@ def _label_and_rationale_from_patches(exact_patches: Dict[str, Any]) -> Tuple[st
         label_parts.append(f"Set {role_title} pay to {_format_currency(update.get('annual_wage'))}/year")
         rationale_parts.append(f"reset {role_title} pay for Year 1")
 
+  marketing_mentions = len([family for family in families if family == "marketing"])
+  if marketing_mentions > 0 and len(set(families)) <= 2:
+    label_parts.insert(0, "Marketing-heavy path")
+    rationale_parts.append("leans more heavily on marketing than the other repair paths")
+  display_name = str(archetype_display or "").strip() or _scenario_archetype_meta(archetype).get("display") or "Operational balance"
+  strategic_tradeoff = str(dominant_tradeoff or "").strip() or _dominant_tradeoff(families, archetype)
   label = " + ".join(label_parts)
-  rationale = "This path " + ", ".join(rationale_parts) + "."
+  if label:
+    label = f"{display_name}: {label}"
+  else:
+    label = display_name
+  rationale = "This path " + ", ".join(rationale_parts) + f", and {strategic_tradeoff}."
   if not label:
     label = "Keep the current plan"
   if not rationale_parts:
-    rationale = "This path keeps the current Year-1 plan intact."
+    rationale = f"This path {strategic_tradeoff}."
   return label, rationale, list(dict.fromkeys(families))
 
 
@@ -2355,13 +2993,21 @@ def _build_candidate_from_exact_patches(
   baseline_state: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]],
   exact_patches: Dict[str, Any],
+  archetype: str = "operations",
+  archetype_display: Optional[str] = None,
+  dominant_tradeoff: Optional[str] = None,
   constraint_engine_state: Optional[Dict[str, Any]] = None,
   baseline_realism_distance: Optional[float] = None,
   target_ebitda_min: Optional[float] = None,
   target_ebitda_max: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
-  label, rationale, families = _label_and_rationale_from_patches(exact_patches)
-  return _build_candidate(
+  label, rationale, families = _label_and_rationale_from_patches(
+    exact_patches,
+    archetype=archetype,
+    archetype_display=archetype_display,
+    dominant_tradeoff=dominant_tradeoff,
+  )
+  candidate = _build_candidate(
     scenario_id=scenario_id,
     baseline_summary=baseline_summary,
     baseline_state=baseline_state,
@@ -2375,6 +3021,11 @@ def _build_candidate_from_exact_patches(
     target_ebitda_min=target_ebitda_min,
     target_ebitda_max=target_ebitda_max,
   )
+  if isinstance(candidate, dict):
+    candidate["archetype"] = str(archetype or "operations")
+    candidate["archetype_display"] = str(archetype_display or "").strip() or _scenario_archetype_meta(archetype).get("display") or "Operational balance"
+    candidate["dominant_tradeoff"] = str(dominant_tradeoff or "").strip() or _dominant_tradeoff(families, archetype)
+  return candidate
 
 
 def _archetype_preference_objective(
@@ -2528,6 +3179,17 @@ def _solve_direct_profile(
   baseline_payroll_support = max(0.0, _safe_float(direct_inputs.get("baseline_payroll_support")))
   target_payroll_min_total = max(0.0, _safe_float(direct_inputs.get("target_payroll_min_total")))
   target_payroll_max_total = max(target_payroll_min_total, _safe_float(direct_inputs.get("target_payroll_max_total")) or target_payroll_min_total)
+  people_payroll_floor = max(0.0, _safe_float(direct_inputs.get("people_payroll_floor")))
+  structural_payroll_floor = max(people_payroll_floor, _safe_float(direct_inputs.get("structural_payroll_floor")))
+  structural_payroll_base = max(people_payroll_floor, _safe_float(direct_inputs.get("structural_payroll_base")) or people_payroll_floor)
+  workload_payroll_per_unit = max(0.0, _safe_float(direct_inputs.get("workload_payroll_per_unit")))
+  active_violations = {
+    str(code or "").strip()
+    for code in (direct_inputs.get("constraint_violations") or [])
+    if str(code or "").strip()
+  }
+  if "payroll_too_light" in active_violations and (workload_payroll_per_unit > 0 or structural_payroll_floor > target_payroll_min_total):
+    payroll_ratio_max = 0.0
   roles = direct_inputs.get("roles") if isinstance(direct_inputs, dict) else []
   roles = roles if isinstance(roles, list) else []
 
@@ -2639,6 +3301,20 @@ def _solve_direct_profile(
   revenue_expr = capacity_units * price_util
   revenue_lb = max(0.0, capacity_units * price_lb * util_lb)
   revenue_ub = max(revenue_lb, capacity_units * price_ub * util_ub)
+  required_structural_payroll_expr: Any = max(structural_payroll_floor, structural_payroll_base)
+  structural_payroll_shortfall = pulp.LpVariable("structural_payroll_shortfall", lowBound=0.0, cat="Continuous")
+  if workload_payroll_per_unit > 0:
+    required_structural_payroll_expr = structural_payroll_base + (workload_payroll_per_unit * units_expr)
+  elif structural_payroll_floor > 0:
+    required_structural_payroll_expr = structural_payroll_floor
+  if workload_payroll_per_unit > 0 or structural_payroll_floor > 0:
+    if enforce_blocking_bands and "payroll_too_light" in active_violations:
+      problem += payroll_expr >= required_structural_payroll_expr
+      problem += structural_payroll_shortfall == 0
+    else:
+      problem += payroll_expr + structural_payroll_shortfall >= required_structural_payroll_expr
+  else:
+    problem += structural_payroll_shortfall == 0
   cogs_ratio = pulp.LpVariable("cogs_ratio", lowBound=cogs_ratio_min, upBound=cogs_ratio_max, cat="Continuous")
   cogs_total = pulp.LpVariable("cogs_total", lowBound=0.0, upBound=max(current_cogs * 2.0, revenue_ub), cat="Continuous")
   problem += cogs_total >= revenue_lb * cogs_ratio + cogs_ratio_min * revenue_expr - (revenue_lb * cogs_ratio_min)
@@ -2812,6 +3488,7 @@ def _solve_direct_profile(
     + _safe_float(weights.get("payroll_up")) * payroll_up_move
     + (6.0 * (payroll_shortfall / revenue_scale))
     + (2.0 * (payroll_excess / revenue_scale))
+    + (10.0 * (structural_payroll_shortfall / revenue_scale))
   )
   solver = pulp.PULP_CBC_CMD(msg=False)
 
@@ -2900,6 +3577,7 @@ def _solve_direct_profile(
     "payroll_up": _safe_float(weights.get("payroll_up")) * max(0.0, _lp_value(total_payroll_up_expr, 0.0) / float(role_count)),
     "payroll_shortfall": 6.0 * max(0.0, _lp_value(payroll_shortfall, 0.0) / revenue_scale),
     "payroll_excess": 2.0 * max(0.0, _lp_value(payroll_excess, 0.0) / revenue_scale),
+    "structural_payroll_shortfall": 10.0 * max(0.0, _lp_value(structural_payroll_shortfall, 0.0) / revenue_scale),
   }
   family_raw_components = {
     "price_up": max(0.0, _lp_value(price_up, 0.0) / max(current_price, 1.0)) if price_enabled else 0.0,
@@ -2918,9 +3596,13 @@ def _solve_direct_profile(
     "payroll_up": max(0.0, _lp_value(total_payroll_up_expr, 0.0) / float(role_count)),
     "payroll_shortfall": max(0.0, _lp_value(payroll_shortfall, 0.0) / revenue_scale),
     "payroll_excess": max(0.0, _lp_value(payroll_excess, 0.0) / revenue_scale),
+    "structural_payroll_shortfall": max(0.0, _lp_value(structural_payroll_shortfall, 0.0) / revenue_scale),
   }
   return {
     "profile_id": str(profile.get("profile_id") or "").strip() or "profile",
+    "archetype": str(profile.get("archetype") or "").strip() or _scenario_archetype_meta(str(profile.get("profile_id") or "")).get("archetype") or "operations",
+    "archetype_display": str(profile.get("archetype_display") or "").strip() or _scenario_archetype_meta(str(profile.get("profile_id") or "")).get("display") or "Operational balance",
+    "dominant_tradeoff": str(profile.get("dominant_tradeoff") or "").strip() or _scenario_archetype_meta(str(profile.get("profile_id") or "")).get("tradeoff") or "rebalances the Year-1 plan within the realism envelope",
     "target_ebitda_min": target_ebitda_min,
     "target_ebitda_max": target_ebitda_max,
     "threshold_feasible": (target_ebitda_min is not None or target_ebitda_max is not None),
@@ -2937,6 +3619,8 @@ def _solve_direct_profile(
     "role_months": role_month_values,
     "role_year1_payroll": role_payroll_values,
     "role_wage_meta": role_wage_meta,
+    "structural_payroll_required_total": round(_lp_value(required_structural_payroll_expr, structural_payroll_floor), 2),
+    "structural_payroll_shortfall": round(_lp_value(structural_payroll_shortfall, 0.0), 2),
     "distortion_components": distortion_components,
     "distortion_total": sum(distortion_components.values()),
     "family_raw_components": family_raw_components,
@@ -2970,8 +3654,9 @@ def _build_product_overrides_from_targets(
   for item in product_driver_basis:
     if not isinstance(item, dict):
       continue
+    product_key = str(item.get("product_key") or "").strip()
     product_name = str(item.get("product_name") or "").strip()
-    if not product_name:
+    if not product_key or not product_name:
       continue
     baseline_price = max(0.0, _safe_float(item.get("unit_price")))
     baseline_periods = max(0.0, _safe_float(item.get("operating_periods_per_year")))
@@ -3003,8 +3688,95 @@ def _build_product_overrides_from_targets(
     if baseline_util is None or abs(target_product_util - baseline_util) >= 0.0005:
       override["utilization_rate"] = round(target_product_util, 6)
     if override:
-      overrides[product_name] = override
+      overrides[product_key] = override
   return overrides
+
+
+def _effective_product_basis_from_patch(
+  *,
+  product_driver_basis: Sequence[Dict[str, Any]],
+  year1_patch: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  effective: List[Dict[str, Any]] = []
+  patch = year1_patch if isinstance(year1_patch, dict) else {}
+  product_overrides = patch.get("product_overrides") if isinstance(patch, dict) else {}
+  product_overrides = product_overrides if isinstance(product_overrides, dict) else {}
+  for item in product_driver_basis:
+    if not isinstance(item, dict):
+      continue
+    next_item = _clone(item)
+    override = product_overrides.get(str(item.get("product_key") or "").strip())
+    override = override if isinstance(override, dict) else {}
+    unit_price = max(0.0, _safe_float(override.get("unit_price")) or _safe_float(next_item.get("unit_price")))
+    periods = max(0.0, _safe_float(next_item.get("operating_periods_per_year")))
+    capacity = max(0.0, _safe_float(next_item.get("units_per_period_capacity")))
+    avg_units = max(
+      0.0,
+      _safe_float(override.get("avg_units_per_period_year1"))
+      or _safe_float(next_item.get("avg_units_per_period_year1")),
+    )
+    util = _normalize_ratio(override.get("utilization_rate"))
+    if util is not None and capacity > 0:
+      avg_units = capacity * util
+    elif util is None:
+      util = _normalize_ratio(next_item.get("utilization_rate"))
+      if util is None and capacity > 0 and avg_units > 0:
+        util = max(0.0, min(1.0, avg_units / max(capacity, 1e-9)))
+    next_item["unit_price"] = unit_price
+    next_item["avg_units_per_period_year1"] = avg_units
+    next_item["utilization_rate"] = util
+    next_item["annual_units"] = avg_units * periods
+    next_item["annual_capacity_units"] = capacity * periods
+    next_item["annual_revenue"] = next_item["annual_units"] * unit_price
+    effective.append(next_item)
+  return effective
+
+
+def _normalize_child_first_year1_patch(
+  *,
+  year1_patch: Dict[str, Any],
+  direct_inputs: Dict[str, Any],
+) -> Dict[str, Any]:
+  next_patch = _clone(year1_patch or {})
+  if str(direct_inputs.get("solve_mode") or "").strip().lower() != "child_first":
+    return next_patch
+  product_driver_basis = direct_inputs.get("product_driver_basis")
+  product_driver_basis = product_driver_basis if isinstance(product_driver_basis, list) else []
+  if not product_driver_basis:
+    return next_patch
+
+  effective_basis = _effective_product_basis_from_patch(
+    product_driver_basis=product_driver_basis,
+    year1_patch=next_patch,
+  )
+  effective_price = _safe_float(_weighted_product_price(effective_basis) or direct_inputs.get("current_price"))
+  effective_util = _normalize_ratio(_weighted_product_utilization(effective_basis) or direct_inputs.get("current_util")) or 0.0
+  explicit_target_price = _safe_float(next_patch.get("unit_price"))
+  explicit_target_util = _normalize_ratio(next_patch.get("utilization_rate"))
+  target_price = explicit_target_price if explicit_target_price > 0 else effective_price
+  target_util = explicit_target_util if explicit_target_util is not None else effective_util
+  target_units_total = (
+    sum(max(0.0, _safe_float(item.get("annual_capacity_units"))) for item in effective_basis) * target_util
+    if explicit_target_util is not None
+    else sum(max(0.0, _safe_float(item.get("annual_units"))) for item in effective_basis)
+  )
+  product_overrides = _build_product_overrides_from_targets(
+    product_driver_basis=product_driver_basis,
+    target_price=target_price,
+    target_util=target_util,
+    current_price=effective_price,
+    current_util=effective_util,
+    target_units_total=target_units_total,
+  )
+  next_patch.pop("unit_price", None)
+  next_patch.pop("utilization_rate", None)
+  if product_overrides:
+    existing = next_patch.get("product_overrides")
+    existing = existing if isinstance(existing, dict) else {}
+    merged = dict(existing)
+    merged.update(product_overrides)
+    next_patch["product_overrides"] = merged
+  return next_patch
 
 
 def _exact_patches_from_solution(
@@ -3029,6 +3801,7 @@ def _exact_patches_from_solution(
   target_util = _normalize_ratio(solution.get("utilization_rate"))
   product_driver_basis = direct_inputs.get("product_driver_basis") if isinstance(direct_inputs, dict) else []
   product_driver_basis = product_driver_basis if isinstance(product_driver_basis, list) else []
+  solve_mode = str(direct_inputs.get("solve_mode") or "parent_fallback").strip().lower()
 
   target_marketing = round(_safe_float(solution.get("marketing_total_year1")), 2)
   constraint_profile = direct_inputs.get("constraint_profile") if isinstance(direct_inputs, dict) else {}
@@ -3038,7 +3811,7 @@ def _exact_patches_from_solution(
   target_units = max(0.0, capacity_units * (target_util or current_util))
   target_support_units = round(_safe_float(solution.get("marketing_support_units_year1")), 2)
 
-  if product_driver_basis:
+  if solve_mode == "child_first" and product_driver_basis:
     product_overrides = _build_product_overrides_from_targets(
       product_driver_basis=product_driver_basis,
       target_price=target_price if target_price > 0 else current_price,
@@ -3091,6 +3864,10 @@ def _exact_patches_from_solution(
   target_opex_total_ratio = _safe_float(solution.get("other_opex_total_ratio"))
   if target_opex_total_ratio > 0:
     solver_meta["opex_total_ratio_target"] = round(target_opex_total_ratio, 6)
+  marketing_min_total = max(0.0, _safe_float(direct_inputs.get("marketing_min")))
+  marketing_max_total = max(marketing_min_total, _safe_float(direct_inputs.get("marketing_upper")))
+  solver_meta["marketing_min_total"] = round(marketing_min_total, 2)
+  solver_meta["marketing_max_total"] = round(marketing_max_total, 2)
 
   role_months = solution.get("role_months") if isinstance(solution, dict) else {}
   role_year1_payroll = solution.get("role_year1_payroll") if isinstance(solution, dict) else {}
@@ -3182,6 +3959,8 @@ def build_consistency_solver_state(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]] = None,
+  normalized_traits: Optional[Dict[str, Any]] = None,
+  benchmark_payload: Optional[Dict[str, Any]] = None,
   constraint_engine_state: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   baseline_financials = _clone(financials_json or {})
@@ -3251,6 +4030,7 @@ def build_consistency_solver_state(
   selected_target_label = "constraint_envelope"
   selected_target_amount = 0.0
   selected_target_ceiling = None
+  baseline_blocking_count = len(_blocking_constraint_violations(constraint_engine_state))
   current_ebitda_margin = (
     _safe_float((baseline_summary or {}).get("ebitda")) / baseline_revenue
     if baseline_revenue > 0
@@ -3308,12 +4088,17 @@ def build_consistency_solver_state(
     signature = _scenario_signature(exact_patches)
     if not signature or signature in seen_signatures:
       return None
+    profile_id = str(solution.get("profile_id") or profile.get("profile_id") or "").strip()
+    archetype_meta = _scenario_archetype_meta(profile_id)
     candidate = _build_candidate_from_exact_patches(
       scenario_id=str(len(target_list) + 1),
       baseline_summary=baseline_summary,
       baseline_state=baseline_state,
       marketing_model_json=marketing_model_json,
       exact_patches=exact_patches,
+      archetype=archetype_meta["archetype"],
+      archetype_display=archetype_meta["display"],
+      dominant_tradeoff=archetype_meta["tradeoff"],
       constraint_engine_state=constraint_engine_state,
       baseline_realism_distance=baseline_realism_distance,
       target_ebitda_min=target_ebitda_min,
@@ -3321,12 +4106,42 @@ def build_consistency_solver_state(
     )
     if not candidate:
       return None
-    candidate["solution_profile_id"] = str(solution.get("profile_id") or "")
+    candidate["solution_profile_id"] = profile_id
+    candidate["archetype"] = archetype_meta["archetype"]
+    candidate["archetype_display"] = archetype_meta["display"]
+    candidate["dominant_tradeoff"] = archetype_meta["tradeoff"]
     candidate["enforce_blocking_bands"] = bool(solution.get("enforce_blocking_bands"))
     candidate["distortion_components"] = dict(solution.get("distortion_components") or {})
     candidate["distortion_total"] = _safe_float(solution.get("distortion_total"))
     candidate["family_raw_components"] = dict(solution.get("family_raw_components") or {})
     candidate["max_family_move"] = _safe_float(solution.get("max_family_move"))
+    lever_summary = _build_lever_summary(
+      exact_patches=exact_patches,
+      family_raw_components=candidate["family_raw_components"],
+    )
+    candidate["lever_summary"] = lever_summary
+    candidate["meaningful_families"] = list(lever_summary.get("meaningful_families") or [])
+    candidate["meaningful_lever_count"] = int(max(0, _safe_int(lever_summary.get("meaningful_lever_count")) or 0))
+    candidate["coordination_score"] = _safe_float(lever_summary.get("coordination_score"))
+    if _nontrivial_repair_required(
+      baseline_realism_distance=baseline_realism_distance,
+      target_ebitda_min=target_ebitda_min,
+      target_ebitda_max=target_ebitda_max,
+      baseline_blocking_count=baseline_blocking_count,
+    ) and _safe_float(candidate.get("meaningful_lever_count")) < 2:
+      return None
+    scenario_forecast = _build_scenario_forecast_bundle(
+      baseline_state=baseline_state,
+      exact_patches=exact_patches,
+      remaining_violations=candidate.get("remaining_violations") or [],
+      constraint_engine_state=constraint_engine_state,
+      normalized_traits=normalized_traits,
+      benchmark_payload=benchmark_payload,
+    )
+    candidate["scenario_forecast"] = scenario_forecast
+    candidate["forecast_engine_state"] = _clone((scenario_forecast or {}).get("forecast_engine_state") or {})
+    candidate["forecast_quarters"] = _clone((scenario_forecast or {}).get("forecast_quarters") or [])
+    candidate["forecast_summary"] = _clone((scenario_forecast or {}).get("forecast_summary") or {})
     seen_signatures.add(signature)
     target_list.append(candidate)
     return candidate
@@ -3407,55 +4222,27 @@ def build_consistency_solver_state(
   if zero_blocker_scenarios:
     scenarios = zero_blocker_scenarios
 
-  profile_priority = {
-    "balanced": 0,
-    "operations_first": 1,
-    "growth_first": 2,
-    "profit_first": 3,
-    "lean_survival": 4,
-  }
-  scenarios.sort(
-    key=lambda item: (
-      _safe_float(item.get("remaining_blocking_count")),
-      _safe_float(item.get("remaining_violation_count")),
-      profile_priority.get(str(item.get("solution_profile_id") or "").strip(), 99),
-      _safe_float(item.get("realism_distance")),
-      _safe_float(item.get("target_distance")),
-      _safe_float(item.get("distortion_total")) or _safe_float(item.get("disruption_score")),
-      -abs(_safe_float(item.get("ebitda"))),
+  scenarios = _select_client_ready_scenarios(scenarios, state_model=state_model)
+
+  if not scenarios:
+    return _build_blocking_solver_state(
+      baseline_summary=baseline_summary,
+      state_model=state_model,
+      constraint_engine_state=constraint_engine_state,
+      baseline_realism_distance=baseline_realism_distance,
+      blocking_reason="no_client_ready_scenarios",
     )
-  )
-  materially_distinct: List[Dict[str, Any]] = []
-  used_profiles = set()
-  for candidate in scenarios:
-    profile_id = str(candidate.get("solution_profile_id") or "").strip()
-    if profile_id in used_profiles:
-      continue
-    if any(not _materially_distinct_candidate(candidate, existing) for existing in materially_distinct):
-      continue
-    materially_distinct.append(candidate)
-    used_profiles.add(profile_id)
-    if len(materially_distinct) >= MAX_SCENARIOS:
-      break
-  if len(materially_distinct) < MAX_SCENARIOS:
-    for candidate in scenarios:
-      if any(candidate is existing for existing in materially_distinct):
-        continue
-      if any(not _materially_distinct_candidate(candidate, existing) for existing in materially_distinct):
-        continue
-      materially_distinct.append(candidate)
-      if len(materially_distinct) >= MAX_SCENARIOS:
-        break
-  scenarios = materially_distinct[:MAX_SCENARIOS]
 
   normalized_selected: List[Dict[str, Any]] = []
   for index, candidate in enumerate(scenarios, start=1):
     normalized = dict(candidate)
     normalized["scenario_id"] = str(index)
+    normalized["presentation_issues"] = list(normalized.get("presentation_issues") or [])
     normalized_selected.append(normalized)
 
   return {
     "status": "awaiting_choice",
+    "solve_mode": str(state_model.get("solve_mode") or "parent_fallback"),
     "target_metric": "year1_realism",
     "search_mode": "direct_pulp",
     "loss_threshold_ratio": LOSS_THRESHOLD_RATIO,
@@ -3526,6 +4313,15 @@ def apply_consistency_solver_choice(
     if util_ratio is not None:
       exact_patches.setdefault("financials_year1_patch", {})
       exact_patches["financials_year1_patch"]["utilization_rate"] = util_ratio
+
+  direct_inputs = _build_direct_solver_inputs(state_model=state_model or {}) if isinstance(state_model, dict) else None
+  if isinstance(direct_inputs, dict):
+    year1_patch = exact_patches.get("financials_year1_patch")
+    if isinstance(year1_patch, dict) and year1_patch:
+      exact_patches["financials_year1_patch"] = _normalize_child_first_year1_patch(
+        year1_patch=year1_patch,
+        direct_inputs=direct_inputs,
+      )
 
   if overrides.get("marketing_reduction_percent") is not None:
     current_marketing = _safe_float((financials_json or {}).get("marketing_total_year1"))

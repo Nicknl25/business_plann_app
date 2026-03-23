@@ -860,6 +860,12 @@ def _start_consistency_solver_if_needed(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
+    normalized_traits=(
+      constraint_bundle.get("normalized_traits") if isinstance(constraint_bundle, dict) else None
+    ),
+    benchmark_payload=(
+      constraint_bundle.get("benchmark_payload") if isinstance(constraint_bundle, dict) else None
+    ),
     constraint_engine_state=(
       constraint_bundle.get("constraint_engine_state") if isinstance(constraint_bundle, dict) else None
     ),
