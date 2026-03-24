@@ -70,6 +70,12 @@ FALLBACK_LEVELS: Tuple[str, ...] = (
   "generic",
 )
 
+CONSTRAINT_CLASSES: Tuple[str, ...] = (
+  "hard",
+  "soft",
+  "context",
+)
+
 
 def normalized_traits_schema() -> Dict[str, Any]:
   return {
@@ -79,7 +85,13 @@ def normalized_traits_schema() -> Dict[str, Any]:
       "contract_version": {"type": "string"},
       "traits_version": {"type": ["string", "null"]},
       "naics_6": {"type": ["string", "null"]},
+      "business_type": {"type": ["string", "null"]},
+      "industry": {"type": ["string", "null"]},
       "sector": {"type": ["string", "null"]},
+      "classification_source": {
+        "type": ["string", "null"],
+        "enum": [None, "persisted_business_type", "none"],
+      },
       "customer_type": {"type": ["string", "null"], "enum": [None, "b2b", "b2c", "mixed"]},
       "sales_modality": {
         "type": ["string", "null"],
@@ -107,7 +119,10 @@ def normalized_traits_schema() -> Dict[str, Any]:
       "contract_version",
       "traits_version",
       "naics_6",
+      "business_type",
+      "industry",
       "sector",
+      "classification_source",
       "customer_type",
       "sales_modality",
       "capacity_driver",
@@ -201,6 +216,7 @@ def constraint_engine_output_schema() -> Dict[str, Any]:
       "constraint_id": {"type": "string"},
       "metric": {"type": "string"},
       "bound_type": {"type": "string", "enum": ["hard", "soft", "prior"]},
+      "constraint_class": {"type": "string", "enum": list(CONSTRAINT_CLASSES)},
       "source_type": {"type": "string", "enum": ["fact", "trait", "naics", "alpha", "generic"]},
       "confidence_score": {"type": "number"},
       "explanation": {"type": "string"},
@@ -210,6 +226,7 @@ def constraint_engine_output_schema() -> Dict[str, Any]:
       "constraint_id",
       "metric",
       "bound_type",
+      "constraint_class",
       "source_type",
       "confidence_score",
       "explanation",
@@ -246,6 +263,9 @@ def constraint_engine_output_schema() -> Dict[str, Any]:
       "solver_mutable_levers": {"type": "array", "items": {"type": "string"}},
       "solver_protected_facts": {"type": "array", "items": {"type": "string"}},
       "violations": {"type": "array", "items": {"type": "string", "enum": list(VIOLATION_CODES)}},
+      "hard_violation_codes": {"type": "array", "items": {"type": "string", "enum": list(VIOLATION_CODES)}},
+      "soft_violation_codes": {"type": "array", "items": {"type": "string", "enum": list(VIOLATION_CODES)}},
+      "context_violation_codes": {"type": "array", "items": {"type": "string", "enum": list(VIOLATION_CODES)}},
       "constraints": {"type": "array", "items": constraint},
       "findings": {"type": "array", "items": {"type": "object"}},
       "current_metrics": {"type": ["object", "null"]},
@@ -268,6 +288,9 @@ def constraint_engine_output_schema() -> Dict[str, Any]:
       "solver_mutable_levers",
       "solver_protected_facts",
       "violations",
+      "hard_violation_codes",
+      "soft_violation_codes",
+      "context_violation_codes",
       "constraints",
       "findings",
     ],

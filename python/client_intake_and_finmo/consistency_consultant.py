@@ -222,77 +222,33 @@ def consistency_solver_proposal_message(
   solver_state: Dict[str, Any],
 
 ) -> str:
-
-  api_key = _require_openai_key()
-
-  model = _openai_model()
-
-  business = {
-    "name": intake_context.get("business_name"),
-    "start_date": intake_context.get("business_start_date"),
-  }
-  shared_context = dict(intake_context.get("shared_context") or {})
-  operating_model = dict(shared_context.get("operating_model") or intake_context.get("operating_model_json") or {})
-  target_market = dict(shared_context.get("target_market") or intake_context.get("target_market_json") or {})
-
-  payload = {
-    "model": model,
-    "input": [
-      {
-        "role": "system",
-        "content": (
-          "You are presenting Year-1 plan options to the client.\n"
-          "Assume the client has already reviewed the Year-1 table.\n"
-          "The numbers are already calculated. Do not recalculate them. Do not invent new options.\n"
-          "Use the provided scenario labels, EBITDA, net income, and loss percentages exactly as supplied.\n"
-          "Keep this extremely tight: one short sentence, then a numbered list of the options, then one short question.\n"
-          "Make each option mostly numeric. Lead with EBITDA and net income. Keep the text after that minimal.\n"
-          "Do not explain backend logic. Do not explain realism envelopes. Do not explain why the solver did anything.\n"
-          "Do not use internal jargon like controller-built, structural gap, viability, optimization engine, benchmark, NAICS, Alpha, or burn rate.\n"
-          "Do not show a table. Do not restate the existing table in prose. Do not write long rationale paragraphs.\n"
-          "Use plain labels like price, utilization, marketing, payroll, hiring timing, COGS, and opex only when needed.\n"
-          "If solver_state.structural_gap is true, say only: 'These are the strongest current options.'"
-        ),
-      },
-      {
-        "role": "user",
-        "content": json.dumps(
-          {
-            "business": business,
-            "operating_model": {
-              "business_type": operating_model.get("business_type"),
-              "business_stage": operating_model.get("business_stage"),
-              "business_naics_6": operating_model.get("business_naics_6"),
-              "unit_name": operating_model.get("unit_name"),
-              "unit_description": operating_model.get("unit_description"),
-              "sales_modality": operating_model.get("sales_modality"),
-              "shipping_method": operating_model.get("shipping_method"),
-              "geographic_scope": operating_model.get("geographic_scope"),
-            },
-            "target_market": {
-              "consumer_type": target_market.get("consumer_type"),
-              "target_market_summary": target_market.get("target_market_summary"),
-              "marketing_plan_summary": target_market.get("marketing_plan_summary"),
-            },
-            "solver_state": solver_state,
-          },
-          ensure_ascii=False,
-        ),
-      },
-    ],
-  }
-
-  url = "https://api.openai.com/v1/responses"
-
-  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-  resp = _post_openai(url=url, headers=headers, payload=payload)
-
-  if resp.status_code >= 400:
-
-    raise RuntimeError(_format_openai_error(resp))
-
-  return _parse_responses_text(resp.json())
+  del intake_context
+  scenarios = solver_state.get("client_scenarios") if isinstance(solver_state, dict) else None
+  if not isinstance(scenarios, list) or not scenarios:
+    scenarios = []
+  structural_gap = bool((solver_state or {}).get("structural_gap")) if isinstance(solver_state, dict) else False
+  intro = "These are the strongest current options." if structural_gap else "Here are your strategic options."
+  lines = [intro]
+  for index, scenario in enumerate(scenarios, start=1):
+    if not isinstance(scenario, dict):
+      continue
+    year1 = ((scenario.get("key_metrics") or {}).get("year_1") or {}) if isinstance(scenario.get("key_metrics"), dict) else {}
+    year5 = ((scenario.get("key_metrics") or {}).get("year_5") or {}) if isinstance(scenario.get("key_metrics"), dict) else {}
+    tradeoff = scenario.get("tradeoff") if isinstance(scenario.get("tradeoff"), dict) else {}
+    lines.append(
+      (
+        f"{index}. {str(scenario.get('scenario_name') or '').strip()}\n"
+        f"{str(scenario.get('summary') or '').strip()}\n"
+        f"Year 1: Revenue {year1.get('revenue')} | EBITDA {year1.get('ebitda')} | EBITDA margin {year1.get('ebitda_margin')} | "
+        f"Payroll {year1.get('payroll')} | Marketing {year1.get('marketing')} | Utilization {year1.get('utilization')}\n"
+        f"Year 5: Revenue {year5.get('revenue')} | EBITDA {year5.get('ebitda')} | EBITDA margin {year5.get('ebitda_margin')} | "
+        f"Payroll {year5.get('payroll')} | Marketing {year5.get('marketing')} | Utilization {year5.get('utilization')}\n"
+        f"Upside: {str(tradeoff.get('upside') or '').strip()} Downside: {str(tradeoff.get('downside') or '').strip()}\n"
+        f"Confidence: {str(scenario.get('confidence') or '').strip()}"
+      ).strip()
+    )
+  lines.append("Which option number do you want, or what one numeric change do you want?")
+  return "\n\n".join([line for line in lines if str(line or "").strip()]).strip()
 
 
 
@@ -357,7 +313,9 @@ def interpret_consistency_solver_reply(
 
     return {}
 
-  scenarios = solver_state.get("scenarios") if isinstance(solver_state, dict) else None
+  scenarios = solver_state.get("client_scenarios") if isinstance(solver_state, dict) else None
+  if not isinstance(scenarios, list) or not scenarios:
+    scenarios = solver_state.get("scenarios") if isinstance(solver_state, dict) else None
 
   if not isinstance(scenarios, list) or not scenarios:
 
@@ -392,7 +350,11 @@ def interpret_consistency_solver_reply(
         "content": json.dumps(
           {
             "assistant_message": str(last_assistant or "").strip(),
-            "solver_state": solver_state,
+            "solver_state": {
+              "status": solver_state.get("status") if isinstance(solver_state, dict) else None,
+              "structural_gap": solver_state.get("structural_gap") if isinstance(solver_state, dict) else None,
+              "client_scenarios": scenarios,
+            },
             "user_message": str(user_message or "").strip(),
           },
           ensure_ascii=False,
@@ -527,6 +489,10 @@ def consistency_chat_turn(
   conversation_messages: List[Dict[str, str]],
 
 ) -> Dict[str, Any]:
+  del intake_context, conversation_messages
+  # Legacy consistency chat is disabled. The live intake path now uses the
+  # deterministic table-review -> solver flow in intake_consult.py.
+  return {"assistant_message": "", "finalize_ready": True}
 
   """
 

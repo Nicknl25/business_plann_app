@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from typing import Any, Dict, List, Optional
 
 try:
@@ -23,19 +25,10 @@ except Exception:
 
 FORECAST_ENGINE_VERSION = "forecast-engine/v3"
 FORECAST_QUARTERS = 20
-BLOCKING_YEAR1_VIOLATIONS = {
-  "ebitda_margin_too_low",
-  "ebitda_margin_too_high",
+DEFAULT_HARD_YEAR1_VIOLATIONS = {
   "capacity_unsupported",
-  "revenue_out_of_range",
-  "gross_margin_too_low",
-  "gross_margin_too_high",
   "payroll_too_light",
-  "payroll_too_heavy",
-  "opex_too_light",
-  "opex_too_heavy",
   "utilization_too_low",
-  "utilization_too_high",
 }
 
 
@@ -83,6 +76,17 @@ def _midpoint(band: Any, fallback: Optional[float] = None) -> Optional[float]:
   return fallback
 
 
+def _band_quantile(band: Any, quantile: float, fallback: Optional[float] = None) -> Optional[float]:
+  if not isinstance(band, dict):
+    return fallback
+  low = _band_min(band)
+  high = _band_max(band)
+  if low is not None and high is not None:
+    q = _clamp(quantile, 0.0, 1.0)
+    return low + ((high - low) * q)
+  return _midpoint(band, fallback)
+
+
 def _band_min(band: Any) -> Optional[float]:
   return _to_float((band or {}).get("min")) if isinstance(band, dict) else None
 
@@ -118,6 +122,60 @@ def _days_band_from_point(point: Optional[float], width: float) -> Dict[str, Opt
   return {"min": round(low, 2), "max": round(high, 2)}
 
 
+def _band_present(band: Any) -> bool:
+  return _band_min(band) is not None or _band_max(band) is not None
+
+
+def _resolve_target_band(
+  *,
+  engine_band: Any,
+  benchmark_band: Any,
+  fallback_point: Optional[float],
+  fallback_width: float,
+  benchmark_confidence: float,
+) -> Dict[str, Any]:
+  engine_has = _band_present(engine_band)
+  benchmark_has = _band_present(benchmark_band)
+  fallback_band = _ratio_band_from_point(fallback_point, fallback_width)
+  if engine_has and benchmark_has:
+    weight = _clamp(benchmark_confidence * 0.45, 0.0, 0.45)
+    base_low = _band_min(engine_band)
+    base_high = _band_max(engine_band)
+    bench_low = _band_min(benchmark_band)
+    bench_high = _band_max(benchmark_band)
+    low = _lerp(base_low, bench_low, weight)
+    high = _lerp(base_high, bench_high, weight)
+    if low is None:
+      low = base_low if base_low is not None else bench_low
+    if high is None:
+      high = base_high if base_high is not None else bench_high
+    if low is None or high is None:
+      blended = fallback_band
+    else:
+      blended = {
+        "min": round(min(low, high), 6),
+        "max": round(max(low, high), 6),
+      }
+    return {"band": blended, "source": "hybrid"}
+  if engine_has:
+    return {
+      "band": {
+        "min": round(_band_min(engine_band), 6) if _band_min(engine_band) is not None else None,
+        "max": round(_band_max(engine_band), 6) if _band_max(engine_band) is not None else None,
+      },
+      "source": "constraint_engine",
+    }
+  if benchmark_has:
+    return {
+      "band": {
+        "min": round(_band_min(benchmark_band), 6) if _band_min(benchmark_band) is not None else None,
+        "max": round(_band_max(benchmark_band), 6) if _band_max(benchmark_band) is not None else None,
+      },
+      "source": "alpha",
+    }
+  return {"band": fallback_band, "source": "constraint_engine"}
+
+
 def _blend_band(
   base_band: Any,
   target_band: Any,
@@ -144,6 +202,211 @@ def _blend_band(
     "min": round(low, 6) if low is not None else None,
     "max": round(high, 6) if high is not None else None,
   }
+
+
+def _scenario_growth_targets(
+  *,
+  scenario_strategy: Optional[Dict[str, Any]],
+  normalized_traits: Optional[Dict[str, Any]],
+  benchmark_growth_path: List[float],
+  benchmark_confidence: float,
+) -> List[float]:
+  strategy = scenario_strategy if isinstance(scenario_strategy, dict) else {}
+  traits = normalized_traits if isinstance(normalized_traits, dict) else {}
+  archetype = str(strategy.get("archetype") or "operations").strip().lower()
+  demand_posture = str(strategy.get("demand_posture") or "").strip().lower()
+  staffing_posture = str(strategy.get("staffing_posture") or "").strip().lower()
+  cost_posture = str(strategy.get("cost_posture") or "").strip().lower()
+  business_stage = str(traits.get("business_stage") or "").strip().lower()
+  capacity_driver = str(traits.get("capacity_driver") or "").strip().lower()
+  sales_modality = str(traits.get("sales_modality") or "").strip().lower()
+  scenario_base = 0.012
+  if archetype == "growth":
+    scenario_base = 0.022
+  elif archetype == "efficiency":
+    scenario_base = 0.008
+  if business_stage == "startup":
+    scenario_base += 0.01
+  elif business_stage == "operating":
+    scenario_base += 0.002
+  if sales_modality == "online":
+    scenario_base += 0.004
+  elif sales_modality in {"local_service", "project_based"}:
+    scenario_base -= 0.002
+  if capacity_driver == "system":
+    scenario_base += 0.003
+  elif capacity_driver == "labor":
+    scenario_base -= 0.001
+  del benchmark_growth_path, benchmark_confidence
+  confidence_floor = 0.008
+  if demand_posture == "preserve":
+    posture_boost = 0.008
+  elif demand_posture == "reduce":
+    posture_boost = -0.004
+  else:
+    posture_boost = 0.002
+  if staffing_posture == "add_support":
+    posture_boost += 0.003
+  elif staffing_posture == "delay":
+    posture_boost -= 0.002
+  if cost_posture == "tighten":
+    posture_boost -= 0.002
+  year1 = max(confidence_floor, scenario_base + posture_boost)
+  year2 = max(confidence_floor * 0.9, year1 * 0.75)
+  year3 = max(confidence_floor * 0.85, year2 * 0.72)
+  year4 = max(confidence_floor * 0.8, year3 * 0.68)
+  year5 = max(confidence_floor * 0.75, year4 * 0.65)
+  annual_targets = [year1, year2, year3, year4, year5]
+  quarterly_targets: List[float] = []
+  for annual in annual_targets:
+    quarter_rate = max(0.0, annual / 4.0)
+    quarterly_targets.extend([quarter_rate] * 4)
+  return quarterly_targets[:FORECAST_QUARTERS]
+
+
+def _months_to_quarter(value: Any) -> int:
+  months = max(0, int(round(_to_float(value) or 0.0)))
+  return max(1, (months // 3) + 1)
+
+
+def _parse_milestones(raw: Any) -> List[Dict[str, Any]]:
+  if raw is None:
+    return []
+  if isinstance(raw, list):
+    return [item for item in raw if isinstance(item, dict)]
+  if isinstance(raw, str):
+    try:
+      parsed = json.loads(raw)
+    except Exception:
+      return []
+    if isinstance(parsed, list):
+      return [item for item in parsed if isinstance(item, dict)]
+  return []
+
+
+def _event_year1_weight(activation_quarter: int) -> float:
+  active_quarters = max(0, 5 - max(1, activation_quarter))
+  return active_quarters / 4.0
+
+
+def _build_forecast_events(
+  *,
+  ops: Dict[str, Any],
+  people: Dict[str, Any],
+  traits: Dict[str, Any],
+  strategy: Dict[str, Any],
+  current_metrics: Dict[str, Any],
+  base_quarter_capacity_units: float,
+  current_marketing_ratio: Optional[float],
+) -> List[Dict[str, Any]]:
+  events: List[Dict[str, Any]] = []
+  archetype = str(strategy.get("archetype") or "operations").strip().lower()
+  demand_posture = str(strategy.get("demand_posture") or "").strip().lower()
+  staffing_posture = str(strategy.get("staffing_posture") or "").strip().lower()
+  cost_posture = str(strategy.get("cost_posture") or "").strip().lower()
+  sales_modality = str(traits.get("sales_modality") or "").strip().lower()
+  capacity_driver = str(traits.get("capacity_driver") or "").strip().lower()
+
+  role_month_units = max(0.0, _to_float((current_metrics or {}).get("units_per_active_role_month")) or 0.0)
+  if role_month_units <= 0:
+    active_role_months = max(0.0, _to_float((current_metrics or {}).get("active_role_months_year1")) or 0.0)
+    capacity_units_year1 = max(0.0, _to_float((current_metrics or {}).get("capacity_units_year1")) or 0.0)
+    if active_role_months > 0 and capacity_units_year1 > 0:
+      role_month_units = capacity_units_year1 / max(active_role_months, 1e-9)
+
+  for collection_name in ("people", "inferred_roles"):
+    for role in (people or {}).get(collection_name) or []:
+      if not isinstance(role, dict):
+        continue
+      annual_wage = max(0.0, _to_float(role.get("annual_wage")) or 0.0)
+      months_until_hire = _to_float(role.get("months_until_hire"))
+      if annual_wage <= 0 or months_until_hire is None or months_until_hire <= 0:
+        continue
+      activation_quarter = _months_to_quarter(months_until_hire)
+      events.append(
+        {
+          "event_type": "hire_activate",
+          "activation_quarter": activation_quarter,
+          "quarter_payroll_delta": annual_wage / 4.0,
+          "quarter_capacity_delta": max(0.0, role_month_units * 3.0),
+          "role_title": str(role.get("role_title") or role.get("full_name") or "Role").strip() or "Role",
+        }
+      )
+
+  if demand_posture == "preserve" or archetype == "growth":
+    marketing_activation_quarter = 1 if sales_modality in {"online", "retail"} else 2
+    marketing_ratio_delta = max(0.005, (current_marketing_ratio or 0.02) * (0.25 if archetype == "growth" else 0.15))
+    growth_bonus_delta = 0.008 if archetype == "growth" else 0.004
+    events.append(
+      {
+        "event_type": "marketing_ramp",
+        "activation_quarter": marketing_activation_quarter,
+        "marketing_ratio_delta": marketing_ratio_delta,
+        "growth_bonus_delta": growth_bonus_delta,
+      }
+    )
+
+  for milestone in _parse_milestones((ops or {}).get("milestones")):
+    activation_quarter = _months_to_quarter(milestone.get("timing_months_max"))
+    if activation_quarter <= 0:
+      continue
+    capacity_ratio = 0.12 if capacity_driver in {"system", "space", "equipment"} else 0.06
+    if staffing_posture == "add_support":
+      capacity_ratio = max(capacity_ratio, 0.1)
+    if cost_posture == "tighten":
+      capacity_ratio = max(0.04, capacity_ratio * 0.8)
+    demand_bonus = 0.004 if demand_posture == "preserve" or archetype == "growth" else 0.001
+    marketing_delta = 0.003 if sales_modality in {"online", "retail"} and archetype == "growth" else 0.0
+    events.append(
+      {
+        "event_type": "milestone_unlock",
+        "activation_quarter": activation_quarter,
+        "quarter_capacity_delta": max(0.0, base_quarter_capacity_units * capacity_ratio),
+        "growth_bonus_delta": demand_bonus,
+        "marketing_ratio_delta": marketing_delta,
+        "description": str(milestone.get("description") or "").strip() or "Milestone",
+      }
+    )
+
+  events.sort(key=lambda item: int(item.get("activation_quarter") or 1))
+  return events
+
+
+def _yearly_from_quarters(quarters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  years: List[Dict[str, Any]] = []
+  for year_index in range(5):
+    start = year_index * 4
+    year_quarters = [
+      quarter for quarter in quarters[start:start + 4]
+      if isinstance(quarter, dict)
+    ]
+    if not year_quarters:
+      continue
+    revenue = sum(_nonneg(q.get("revenue")) for q in year_quarters)
+    cogs = sum(_nonneg(q.get("cogs")) for q in year_quarters)
+    payroll = sum(_nonneg(q.get("payroll")) for q in year_quarters)
+    marketing = sum(_nonneg(q.get("marketing")) for q in year_quarters)
+    opex = sum(_nonneg(q.get("opex")) for q in year_quarters)
+    ebitda = sum((_to_float(q.get("ebitda")) or 0.0) for q in year_quarters)
+    utilization_values = [
+      _normalize_ratio(q.get("utilization"))
+      for q in year_quarters
+      if _normalize_ratio(q.get("utilization")) is not None
+    ]
+    years.append(
+      {
+        "year_index": year_index + 1,
+        "period_label": f"Year {year_index + 1}",
+        "revenue": round(revenue, 2),
+        "cogs": round(cogs, 2),
+        "payroll": round(payroll, 2),
+        "marketing": round(marketing, 2),
+        "opex": round(opex, 2),
+        "ebitda": round(ebitda, 2),
+        "utilization": round(sum(utilization_values) / len(utilization_values), 6) if utilization_values else None,
+      }
+    )
+  return years
 
 
 def _required_units_year1(financials_year1_json: Dict[str, Any]) -> float:
@@ -376,10 +639,17 @@ def _quarter_violations(
 
 def _blocking_constraint_violations(constraint_engine_state: Optional[Dict[str, Any]]) -> List[str]:
   state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  explicit = [
+    str(code or "").strip()
+    for code in (state.get("hard_violation_codes") or [])
+    if str(code or "").strip()
+  ]
+  if explicit:
+    return explicit
   return [
     str(code or "").strip()
     for code in (state.get("violations") or [])
-    if str(code or "").strip() in BLOCKING_YEAR1_VIOLATIONS
+    if str(code or "").strip() in DEFAULT_HARD_YEAR1_VIOLATIONS
   ]
 
 
@@ -395,10 +665,12 @@ def build_forecast_engine_bundle(
   normalized_traits: Optional[Dict[str, Any]] = None,
   benchmark_payload: Optional[Dict[str, Any]] = None,
   constraint_engine_state: Optional[Dict[str, Any]] = None,
+  scenario_strategy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  del target_market_json, people_json
+  del target_market_json
   context = shared_context if isinstance(shared_context, dict) else {}
   ops = operating_model_json if isinstance(operating_model_json, dict) else dict(context.get("operating_model") or {})
+  people = people_json if isinstance(people_json, dict) else dict(context.get("people_capability") or context.get("people_json") or {})
   financials = financials_json if isinstance(financials_json, dict) else dict(context.get("financials") or {})
   year1 = (
     financials_year1_json
@@ -425,12 +697,17 @@ def build_forecast_engine_bundle(
       "engine_version": FORECAST_ENGINE_VERSION,
       "quarter_count": FORECAST_QUARTERS,
       "benchmark_confidence_score": round(_clamp(_to_float((benchmark or {}).get("confidence_score")) or 0.0, 0.0, 1.0), 3),
+      "forecast_confidence": round(_clamp(_to_float((engine_state or {}).get("constraint_confidence_score")) or 0.0, 0.0, 1.0), 3),
       "fallback_level": str((benchmark or {}).get("fallback_level") or "generic"),
+      "convergence_source": "constraint_engine",
+      "convergence_strength": 0.0,
       "status": "blocked_unresolved_year1",
       "blocking_violations": blocking_violations,
       "explanation": "Forecast engine did not run because Year 1 remains outside the enforced realism envelope.",
       "benchmark_summary": benchmark,
       "convergence_policy": convergence_policy,
+      "forecast_years": [],
+      "scenario_strategy": scenario_strategy if isinstance(scenario_strategy, dict) else {},
       "traits": traits,
     }
     versions = engine_versions_payload()
@@ -439,6 +716,7 @@ def build_forecast_engine_bundle(
     return {
       "forecast_engine_state": forecast_engine_state,
       "forecast_quarters": [],
+      "forecast_years": [],
       "engine_versions": versions,
     }
 
@@ -483,8 +761,14 @@ def build_forecast_engine_bundle(
 
   current_wc_days = _working_capital_days_from_financials(financials, summary)
   benchmark_confidence = _clamp(_to_float((benchmark or {}).get("confidence_score")) or 0.0, 0.0, 1.0)
+  constraint_confidence = _clamp(_to_float((engine_state or {}).get("constraint_confidence_score")) or 0.0, 0.0, 1.0)
   fallback_level = str((benchmark or {}).get("fallback_level") or "generic")
-  growth_path = [float(v) for v in ((benchmark or {}).get("revenue_growth_path") or []) if _to_float(v) is not None]
+  benchmark_growth_path = [float(v) for v in ((benchmark or {}).get("revenue_growth_path") or []) if _to_float(v) is not None]
+  strategy = scenario_strategy if isinstance(scenario_strategy, dict) else {}
+  archetype = str(strategy.get("archetype") or "operations").strip().lower()
+  demand_posture = str(strategy.get("demand_posture") or "").strip().lower()
+  staffing_posture = str(strategy.get("staffing_posture") or "").strip().lower()
+  cost_posture = str(strategy.get("cost_posture") or "").strip().lower()
 
   benchmark_gross_margin_band = (benchmark or {}).get("gross_margin_band") or {}
   benchmark_ebitda_margin_band = (benchmark or {}).get("ebitda_margin_band") or {}
@@ -509,7 +793,122 @@ def build_forecast_engine_bundle(
   utilization_band = (engine_state.get("utilization_range") if isinstance(engine_state, dict) else {}) or {}
   gross_margin_band = (engine_state.get("gross_margin_band") if isinstance(engine_state, dict) else {}) or {}
   ebitda_margin_band = (engine_state.get("ebitda_margin_band") if isinstance(engine_state, dict) else {}) or {}
-  target_utilization = _midpoint(utilization_band, utilization)
+  payroll_intensity_band = (engine_state.get("payroll_intensity_band") if isinstance(engine_state, dict) else {}) or {}
+  opex_intensity_band = (engine_state.get("opex_intensity_band") if isinstance(engine_state, dict) else {}) or {}
+  resolved_utilization = _resolve_target_band(
+    engine_band=utilization_band,
+    benchmark_band=utilization_band,
+    fallback_point=utilization,
+    fallback_width=0.06,
+    benchmark_confidence=0.0,
+  )
+  resolved_gross_margin = _resolve_target_band(
+    engine_band=gross_margin_band,
+    benchmark_band=benchmark_gross_margin_band,
+    fallback_point=current_gross_margin,
+    fallback_width=0.06,
+    benchmark_confidence=benchmark_confidence,
+  )
+  resolved_ebitda_margin = _resolve_target_band(
+    engine_band=ebitda_margin_band,
+    benchmark_band=benchmark_ebitda_margin_band,
+    fallback_point=current_ebitda_ratio,
+    fallback_width=0.05,
+    benchmark_confidence=benchmark_confidence,
+  )
+  resolved_payroll_ratio = _resolve_target_band(
+    engine_band=payroll_intensity_band,
+    benchmark_band=benchmark_payroll_band,
+    fallback_point=current_payroll_ratio,
+    fallback_width=0.05,
+    benchmark_confidence=benchmark_confidence,
+  )
+  resolved_opex_ratio = _resolve_target_band(
+    engine_band=opex_intensity_band,
+    benchmark_band=benchmark_opex_band,
+    fallback_point=current_opex_ratio,
+    fallback_width=0.05,
+    benchmark_confidence=benchmark_confidence,
+  )
+  resolved_capex_ratio = _resolve_target_band(
+    engine_band={},
+    benchmark_band=benchmark_capex_band,
+    fallback_point=current_capex_ratio,
+    fallback_width=0.02,
+    benchmark_confidence=benchmark_confidence,
+  )
+  resolved_dep_ratio = _resolve_target_band(
+    engine_band={},
+    benchmark_band=benchmark_dep_band,
+    fallback_point=current_dep_ratio,
+    fallback_width=0.01,
+    benchmark_confidence=benchmark_confidence,
+  )
+  source_priority = {"constraint_engine": 3, "hybrid": 2, "alpha": 1}
+  primary_sources = [
+    str(resolved_gross_margin.get("source") or "constraint_engine"),
+    str(resolved_payroll_ratio.get("source") or "constraint_engine"),
+    str(resolved_opex_ratio.get("source") or "constraint_engine"),
+    str(resolved_utilization.get("source") or "constraint_engine"),
+  ]
+  convergence_source = max(primary_sources, key=lambda item: source_priority.get(item, 0))
+  gross_target_q = 0.52
+  ebitda_target_q = 0.5
+  payroll_target_q = 0.5
+  opex_target_q = 0.48
+  util_target_q = 0.55
+  if archetype == "growth":
+    gross_target_q = 0.42
+    ebitda_target_q = 0.75
+    payroll_target_q = 0.7
+    opex_target_q = 0.62
+    util_target_q = 0.64
+  elif archetype == "efficiency":
+    gross_target_q = 0.78
+    ebitda_target_q = 0.25
+    payroll_target_q = 0.32
+    opex_target_q = 0.2
+    util_target_q = 0.5
+  if demand_posture == "reduce":
+    util_target_q = min(util_target_q, 0.48)
+    opex_target_q = min(opex_target_q, 0.42)
+  elif demand_posture == "preserve":
+    util_target_q = max(util_target_q, 0.58)
+  if staffing_posture == "add_support":
+    payroll_target_q = max(payroll_target_q, 0.72)
+  elif staffing_posture == "delay":
+    payroll_target_q = min(payroll_target_q, 0.42)
+  if cost_posture == "tighten":
+    gross_target_q = max(gross_target_q, 0.7)
+    ebitda_target_q = min(0.35, ebitda_target_q)
+    opex_target_q = min(opex_target_q, 0.24)
+  elif cost_posture == "protect":
+    opex_target_q = max(opex_target_q, 0.55)
+  target_utilization = _band_quantile(resolved_utilization.get("band"), util_target_q, utilization)
+  target_gross_margin = _band_quantile(resolved_gross_margin.get("band"), gross_target_q, benchmark_gross_margin)
+  target_ebitda_margin = _band_quantile(resolved_ebitda_margin.get("band"), ebitda_target_q, benchmark_ebitda_margin)
+  target_payroll_ratio = _band_quantile(resolved_payroll_ratio.get("band"), payroll_target_q, benchmark_payroll_ratio)
+  target_opex_ratio = _band_quantile(resolved_opex_ratio.get("band"), opex_target_q, benchmark_opex_ratio)
+  target_capex_ratio = _midpoint(resolved_capex_ratio.get("band"), benchmark_capex_ratio)
+  target_dep_ratio = _midpoint(resolved_dep_ratio.get("band"), benchmark_dep_ratio)
+  growth_path = _scenario_growth_targets(
+    scenario_strategy=scenario_strategy,
+    normalized_traits=traits,
+    benchmark_growth_path=benchmark_growth_path,
+    benchmark_confidence=benchmark_confidence,
+  )
+  forecast_confidence = round(_clamp((constraint_confidence * 0.65) + (benchmark_confidence * 0.35), 0.0, 1.0), 3)
+  convergence_strength = _clamp(
+    ((_to_float(convergence_policy.get("global_convergence_strength")) or 0.0) * 0.7)
+    + (forecast_confidence * 0.3),
+    0.0,
+    1.0,
+  )
+  if archetype == "growth":
+    convergence_strength *= 0.72
+  elif archetype == "efficiency":
+    convergence_strength *= 1.16
+  convergence_strength = _clamp(convergence_strength, 0.0, 1.0)
 
   annual_capacity_units = max(
     child_annual_capacity,
@@ -525,12 +924,17 @@ def build_forecast_engine_bundle(
       "engine_version": FORECAST_ENGINE_VERSION,
       "quarter_count": FORECAST_QUARTERS,
       "benchmark_confidence_score": benchmark_confidence,
+      "forecast_confidence": round(_clamp((constraint_confidence * 0.65) + (benchmark_confidence * 0.35), 0.0, 1.0), 3),
       "fallback_level": fallback_level,
+      "convergence_source": "constraint_engine",
+      "convergence_strength": 0.0,
       "status": "insufficient_data",
       "explanation": "Forecast engine could not build quarter states because Year-1 revenue drivers are incomplete.",
       "starting_state": summary,
       "benchmark_summary": benchmark,
       "convergence_policy": convergence_policy,
+      "forecast_years": [],
+      "scenario_strategy": scenario_strategy if isinstance(scenario_strategy, dict) else {},
     }
     versions = engine_versions_payload()
     versions["forecast_engine_version"] = FORECAST_ENGINE_VERSION
@@ -538,12 +942,13 @@ def build_forecast_engine_bundle(
     return {
       "forecast_engine_state": forecast_engine_state,
       "forecast_quarters": [],
+      "forecast_years": [],
       "engine_versions": versions,
     }
 
   quarterly_revenue = annual_revenue / 4.0
   quarterly_interest = annual_interest / 4.0
-  growth_tolerance = 0.015 + ((1.0 - (_to_float(convergence_policy.get("global_convergence_strength")) or 0.0)) * 0.05)
+  growth_tolerance = 0.015 + ((1.0 - convergence_strength) * 0.05)
 
   quarters: List[Dict[str, Any]] = []
   previous_revenue = quarterly_revenue
@@ -562,24 +967,105 @@ def build_forecast_engine_bundle(
         "utilization_rate": _normalize_ratio(item.get("utilization_rate")),
       }
     )
+  current_metrics = (engine_state.get("current_metrics") if isinstance(engine_state, dict) else {}) or {}
+  base_quarter_capacity_units = sum(max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) for item in product_states)
+  if base_quarter_capacity_units <= 0:
+    base_quarter_capacity_units = max(0.0, annual_capacity_units / 4.0)
+  timed_events = _build_forecast_events(
+    ops=ops,
+    people=people,
+    traits=traits,
+    strategy=strategy,
+    current_metrics=current_metrics if isinstance(current_metrics, dict) else {},
+    base_quarter_capacity_units=base_quarter_capacity_units,
+    current_marketing_ratio=current_marketing_ratio,
+  )
+  year1_event_payroll = 0.0
+  year1_event_capacity = 0.0
+  year1_event_marketing_ratio = 0.0
+  year1_event_growth_bonus = 0.0
+  for event in timed_events:
+    weight = _event_year1_weight(int(event.get("activation_quarter") or 1))
+    year1_event_payroll += max(0.0, _to_float(event.get("quarter_payroll_delta")) or 0.0) * weight
+    year1_event_capacity += max(0.0, _to_float(event.get("quarter_capacity_delta")) or 0.0) * weight
+    year1_event_marketing_ratio += (_to_float(event.get("marketing_ratio_delta")) or 0.0) * weight
+    year1_event_growth_bonus += (_to_float(event.get("growth_bonus_delta")) or 0.0) * weight
+  current_marketing_ratio_state = max(0.0, (current_marketing_ratio or 0.0) - year1_event_marketing_ratio)
+  current_growth_bonus = -year1_event_growth_bonus
+  current_structural_payroll_floor = max(0.0, (annual_payroll / 4.0) - year1_event_payroll)
+  if product_states and year1_event_capacity > 0:
+    total_capacity = sum(max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) for item in product_states)
+    for item in product_states:
+      share = (max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) / max(total_capacity, 1e-9)) if total_capacity > 0 else (1.0 / max(len(product_states), 1))
+      item["quarter_capacity_units"] = max(0.0, (max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) - (year1_event_capacity * share)))
+  base_parent_quarter_capacity_units = max(1e-9, (annual_capacity_units / 4.0) - year1_event_capacity)
+  next_event_index = 0
+  identity_distance = (
+    abs(gross_target_q - 0.5)
+    + abs(ebitda_target_q - 0.5)
+    + abs(payroll_target_q - 0.5)
+    + abs(opex_target_q - 0.5)
+    + abs(util_target_q - 0.5)
+  )
 
   for quarter_index in range(FORECAST_QUARTERS):
     quarter_number = quarter_index + 1
-    revenue_progress = _policy_progress(convergence_policy, "revenue_growth", quarter_number)
-    gross_progress = _policy_progress(convergence_policy, "gross_margin", quarter_number)
-    ebitda_progress = _policy_progress(convergence_policy, "ebitda_margin", quarter_number)
-    payroll_progress = _policy_progress(convergence_policy, "payroll_intensity", quarter_number)
-    opex_progress = _policy_progress(convergence_policy, "opex_intensity", quarter_number)
-    capex_progress = _policy_progress(convergence_policy, "capex_percent_revenue", quarter_number)
-    dep_progress = _policy_progress(convergence_policy, "depreciation_percent_revenue", quarter_number)
-    wc_progress = _policy_progress(convergence_policy, "working_capital", quarter_number)
-    utilization_progress = _policy_progress(convergence_policy, "utilization", quarter_number)
+    while next_event_index < len(timed_events) and int(timed_events[next_event_index].get("activation_quarter") or 1) == quarter_number:
+      event = timed_events[next_event_index]
+      current_structural_payroll_floor += max(0.0, _to_float(event.get("quarter_payroll_delta")) or 0.0)
+      current_marketing_ratio_state = max(0.0, current_marketing_ratio_state + (_to_float(event.get("marketing_ratio_delta")) or 0.0))
+      current_growth_bonus += (_to_float(event.get("growth_bonus_delta")) or 0.0)
+      capacity_delta = max(0.0, _to_float(event.get("quarter_capacity_delta")) or 0.0)
+      if capacity_delta > 0 and product_states:
+        total_capacity = sum(max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) for item in product_states)
+        for item in product_states:
+          share = (max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) / max(total_capacity, 1e-9)) if total_capacity > 0 else (1.0 / max(len(product_states), 1))
+          item["quarter_capacity_units"] = max(0.0, max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) + (capacity_delta * share))
+      else:
+        base_parent_quarter_capacity_units += capacity_delta
+      next_event_index += 1
 
-    benchmark_growth = _growth_at(growth_path, quarter_index, 0.01)
-    growth_seed = benchmark_growth * _policy_initial_weight(convergence_policy, "revenue_growth")
-    realized_growth = _lerp(growth_seed, benchmark_growth, revenue_progress) or benchmark_growth
+    convergence_adjustment = convergence_strength
+    if quarter_number >= 9 and archetype == "growth":
+      convergence_adjustment *= 0.88
+    elif quarter_number >= 9 and archetype == "efficiency":
+      convergence_adjustment *= 1.05
+    if identity_distance < 0.5 and quarter_number >= 9:
+      convergence_adjustment *= 0.9
+    convergence_adjustment = _clamp(convergence_adjustment, 0.0, 1.0)
+    revenue_progress = min(1.0, _policy_progress(convergence_policy, "revenue_growth", quarter_number) * convergence_adjustment)
+    gross_progress = min(1.0, _policy_progress(convergence_policy, "gross_margin", quarter_number) * convergence_adjustment)
+    ebitda_progress = min(1.0, _policy_progress(convergence_policy, "ebitda_margin", quarter_number) * convergence_adjustment)
+    payroll_progress = min(1.0, _policy_progress(convergence_policy, "payroll_intensity", quarter_number) * convergence_adjustment)
+    opex_progress = min(1.0, _policy_progress(convergence_policy, "opex_intensity", quarter_number) * convergence_adjustment)
+    capex_progress = min(1.0, _policy_progress(convergence_policy, "capex_percent_revenue", quarter_number) * convergence_adjustment)
+    dep_progress = min(1.0, _policy_progress(convergence_policy, "depreciation_percent_revenue", quarter_number) * convergence_adjustment)
+    wc_progress = min(1.0, _policy_progress(convergence_policy, "working_capital", quarter_number) * convergence_adjustment)
+    utilization_progress = min(1.0, _policy_progress(convergence_policy, "utilization", quarter_number) * convergence_adjustment)
 
-    price_growth = min(0.015, max(0.0, benchmark_growth * 0.25))
+    if product_states:
+      current_capacity_basis = sum(max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) for item in product_states)
+      current_units_basis = sum(max(0.0, _to_float(item.get("quarter_units")) or 0.0) for item in product_states)
+    else:
+      current_capacity_basis = max(0.0, base_parent_quarter_capacity_units)
+      current_units_basis = max(0.0, previous_revenue / max(previous_price, 1e-9))
+    current_util_state = current_units_basis / max(current_capacity_basis, 1e-9) if current_capacity_basis > 0 else 0.0
+    upper_util_band = _band_max(resolved_utilization.get("band"))
+    if upper_util_band is None:
+      upper_util_band = target_utilization
+    capacity_expansion_ratio = (current_capacity_basis / max(base_quarter_capacity_units, 1e-9)) - 1.0
+
+    scenario_growth = max(0.0, _growth_at(growth_path, quarter_index, 0.01) + current_growth_bonus)
+    if quarter_number >= 12 and upper_util_band is not None and upper_util_band > 0:
+      util_pressure = _clamp((current_util_state - (upper_util_band * 0.9)) / max(upper_util_band * 0.1, 1e-9), 0.0, 1.0)
+      capacity_stall = _clamp(1.0 - max(0.0, capacity_expansion_ratio) / 0.12, 0.0, 1.0)
+      maturity_progress = _clamp((quarter_number - 11) / 9.0, 0.0, 1.0)
+      saturation_damping = 1.0 - min(0.28, util_pressure * capacity_stall * maturity_progress * 0.28)
+      scenario_growth *= saturation_damping
+    growth_seed = scenario_growth * _policy_initial_weight(convergence_policy, "revenue_growth")
+    realized_growth = _lerp(growth_seed, scenario_growth, revenue_progress) or scenario_growth
+
+    price_growth = min(0.015, max(0.0, scenario_growth * 0.25))
     price_seed = price_growth * 0.5
     realized_price_growth = _lerp(price_seed, price_growth, revenue_progress) or price_seed
 
@@ -647,24 +1133,24 @@ def build_forecast_engine_bundle(
       quarter_revenue = previous_revenue * (1.0 + realized_growth) if quarter_index > 0 else previous_revenue
       quarter_price = previous_price * (1.0 + realized_price_growth) if quarter_index > 0 else previous_price
       quarter_units = quarter_revenue / max(quarter_price, 1e-9)
-      implied_capacity_units = max(annual_capacity_units / 4.0, quarter_units / max(target_util or 0.5, 1e-9))
+      implied_capacity_units = max(base_parent_quarter_capacity_units, quarter_units / max(target_util or 0.5, 1e-9))
       quarter_utilization = quarter_units / max(implied_capacity_units, 1e-9)
 
     dynamic_gross_band = _blend_band(
-      gross_margin_band,
-      benchmark_gross_margin_band,
+      resolved_gross_margin.get("band"),
+      resolved_gross_margin.get("band"),
       progress=gross_progress,
       expansion=_policy_expansion(convergence_policy, "gross_margin"),
     )
     dynamic_ebitda_band = _blend_band(
-      ebitda_margin_band,
-      benchmark_ebitda_margin_band,
+      resolved_ebitda_margin.get("band"),
+      resolved_ebitda_margin.get("band"),
       progress=ebitda_progress,
       expansion=_policy_expansion(convergence_policy, "ebitda_margin"),
     )
     dynamic_util_band = _blend_band(
-      utilization_band,
-      utilization_band,
+      resolved_utilization.get("band"),
+      resolved_utilization.get("band"),
       progress=utilization_progress,
       expansion=1.0,
     )
@@ -689,18 +1175,34 @@ def build_forecast_engine_bundle(
       ),
     }
 
-    quarter_gross_margin = _lerp(current_gross_margin, benchmark_gross_margin, gross_progress)
-    quarter_payroll_ratio = _lerp(current_payroll_ratio, benchmark_payroll_ratio, payroll_progress)
-    quarter_opex_ratio = _lerp(current_opex_ratio, benchmark_opex_ratio, opex_progress)
-    quarter_marketing_ratio = current_marketing_ratio
-    quarter_capex_ratio = _lerp(current_capex_ratio, benchmark_capex_ratio, capex_progress)
-    quarter_dep_ratio = _lerp(current_dep_ratio, benchmark_dep_ratio, dep_progress)
+    quarter_gross_margin = _lerp(current_gross_margin, target_gross_margin, gross_progress)
+    quarter_payroll_ratio = _lerp(current_payroll_ratio, target_payroll_ratio, payroll_progress)
+    quarter_opex_ratio = _lerp(current_opex_ratio, target_opex_ratio, opex_progress)
+    quarter_marketing_ratio = current_marketing_ratio_state
+    quarter_capex_ratio = _lerp(current_capex_ratio, target_capex_ratio, capex_progress)
+    quarter_dep_ratio = _lerp(current_dep_ratio, target_dep_ratio, dep_progress)
     quarter_dso = _lerp(current_wc_days.get("dso"), benchmark_dso, wc_progress)
     quarter_dpo = _lerp(current_wc_days.get("dpo"), benchmark_dpo, wc_progress)
     quarter_inventory_days = _lerp(current_wc_days.get("inventory_days"), benchmark_inventory_days, wc_progress)
+    if archetype == "growth":
+      quarter_payroll_ratio = _lerp(current_payroll_ratio, target_payroll_ratio, min(1.0, payroll_progress * 0.85))
+      quarter_opex_ratio = _lerp(current_opex_ratio, target_opex_ratio, min(1.0, opex_progress * 0.8))
+    elif archetype == "efficiency":
+      quarter_payroll_ratio = _lerp(current_payroll_ratio, target_payroll_ratio, min(1.0, payroll_progress * 1.15))
+      quarter_opex_ratio = _lerp(current_opex_ratio, target_opex_ratio, min(1.0, opex_progress * 1.2))
+      quarter_gross_margin = _lerp(current_gross_margin, target_gross_margin, min(1.0, gross_progress * 1.15))
+    elif staffing_posture in {"add_support", "rebalance"}:
+      quarter_payroll_ratio = _lerp(current_payroll_ratio, target_payroll_ratio, min(1.0, payroll_progress * 1.05))
+    if demand_posture == "reduce":
+      quarter_marketing_ratio = _lerp(current_marketing_ratio, max(0.0, current_marketing_ratio * 0.85), min(1.0, revenue_progress))
+    elif demand_posture == "preserve":
+      quarter_marketing_ratio = _lerp(current_marketing_ratio, current_marketing_ratio, revenue_progress)
+    if cost_posture == "tighten":
+      quarter_opex_ratio = _lerp(current_opex_ratio, target_opex_ratio, min(1.0, opex_progress * 1.2))
 
     quarter_cogs = quarter_revenue * max(0.0, 1.0 - (quarter_gross_margin if quarter_gross_margin is not None else 0.0))
-    quarter_payroll = quarter_revenue * max(0.0, quarter_payroll_ratio if quarter_payroll_ratio is not None else 0.0)
+    ratio_payroll = quarter_revenue * max(0.0, quarter_payroll_ratio if quarter_payroll_ratio is not None else 0.0)
+    quarter_payroll = max(ratio_payroll, current_structural_payroll_floor)
     quarter_marketing = quarter_revenue * max(0.0, quarter_marketing_ratio if quarter_marketing_ratio is not None else 0.0)
     quarter_opex = quarter_revenue * max(0.0, quarter_opex_ratio if quarter_opex_ratio is not None else 0.0)
     quarter_ebitda = quarter_revenue - quarter_cogs - quarter_payroll - quarter_marketing - quarter_opex
@@ -720,7 +1222,7 @@ def build_forecast_engine_bundle(
       ebitda_margin=quarter_ebitda_margin,
       utilization=quarter_utilization,
       realized_growth=realized_growth,
-      benchmark_growth=benchmark_growth,
+      benchmark_growth=scenario_growth,
       growth_tolerance=growth_tolerance,
       working_capital_days=working_capital_days,
       gross_margin_band=dynamic_gross_band,
@@ -765,6 +1267,7 @@ def build_forecast_engine_bundle(
         "working_capital": working_capital,
         "capex": round(quarter_capex, 2),
         "depreciation": round(quarter_depreciation, 2),
+        "active_event_count": next_event_index,
         "realism_check_status": status,
         "constraint_violations": violations,
         "convergence_progress": round(quarter_convergence_progress, 6),
@@ -780,7 +1283,10 @@ def build_forecast_engine_bundle(
     "engine_version": FORECAST_ENGINE_VERSION,
     "quarter_count": FORECAST_QUARTERS,
     "benchmark_confidence_score": round(benchmark_confidence, 3),
+    "forecast_confidence": forecast_confidence,
     "fallback_level": fallback_level,
+    "convergence_source": convergence_source,
+    "convergence_strength": round(convergence_strength, 6),
     "status": "ready",
     "starting_state": {
       "annual_revenue": round(annual_revenue, 2),
@@ -795,12 +1301,17 @@ def build_forecast_engine_bundle(
       "utilization": round(utilization, 6) if utilization is not None else None,
     },
     "target_state": {
-      "gross_margin": round(benchmark_gross_margin, 6) if benchmark_gross_margin is not None else None,
-      "ebitda_margin": round(benchmark_ebitda_margin, 6) if benchmark_ebitda_margin is not None else None,
-      "payroll_intensity": round(benchmark_payroll_ratio, 6) if benchmark_payroll_ratio is not None else None,
-      "opex_intensity": round(benchmark_opex_ratio, 6) if benchmark_opex_ratio is not None else None,
-      "capex_percent_revenue": round(benchmark_capex_ratio, 6) if benchmark_capex_ratio is not None else None,
-      "depreciation_percent_revenue": round(benchmark_dep_ratio, 6) if benchmark_dep_ratio is not None else None,
+      "gross_margin_band": resolved_gross_margin.get("band"),
+      "gross_margin": round(target_gross_margin, 6) if target_gross_margin is not None else None,
+      "ebitda_margin_band": resolved_ebitda_margin.get("band"),
+      "ebitda_margin": round(target_ebitda_margin, 6) if target_ebitda_margin is not None else None,
+      "payroll_intensity_band": resolved_payroll_ratio.get("band"),
+      "payroll_intensity": round(target_payroll_ratio, 6) if target_payroll_ratio is not None else None,
+      "opex_intensity_band": resolved_opex_ratio.get("band"),
+      "opex_intensity": round(target_opex_ratio, 6) if target_opex_ratio is not None else None,
+      "utilization_range": resolved_utilization.get("band"),
+      "capex_percent_revenue": round(target_capex_ratio, 6) if target_capex_ratio is not None else None,
+      "depreciation_percent_revenue": round(target_dep_ratio, 6) if target_dep_ratio is not None else None,
       "dso": round(benchmark_dso, 2) if benchmark_dso is not None else None,
       "dpo": round(benchmark_dpo, 2) if benchmark_dpo is not None else None,
       "inventory_days": round(benchmark_inventory_days, 2) if benchmark_inventory_days is not None else None,
@@ -808,6 +1319,8 @@ def build_forecast_engine_bundle(
     "convergence_policy": convergence_policy,
     "last_quarter_summary": quarters[-1] if quarters else {},
     "revenue_growth_path_used": growth_path,
+    "scenario_strategy": strategy,
+    "forecast_years": _yearly_from_quarters(quarters),
     "traits": traits,
   }
 
@@ -817,5 +1330,6 @@ def build_forecast_engine_bundle(
   return {
     "forecast_engine_state": forecast_engine_state,
     "forecast_quarters": quarters,
+    "forecast_years": list(forecast_engine_state.get("forecast_years") or []),
     "engine_versions": versions,
   }

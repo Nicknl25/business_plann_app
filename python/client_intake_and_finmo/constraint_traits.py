@@ -8,7 +8,7 @@ except Exception:
   from client_intake_and_finmo.planning_contract import PLANNING_CONTRACT_VERSION  # type: ignore
 
 
-CONSTRAINT_TRAITS_VERSION = "constraint-traits/v1"
+CONSTRAINT_TRAITS_VERSION = "constraint-traits/v3"
 
 
 def _clean_text(value: Any) -> str:
@@ -24,87 +24,30 @@ def _normalize_naics_6(value: Any) -> Optional[str]:
   return digits[:6] if len(digits) >= 6 else None
 
 
-def _lookup_naics_from_business_type(conn, business_type: Any) -> Optional[str]:
-  token = _clean_text(business_type)
-  if not token or conn is None:
-    return None
-  cur = conn.cursor(dictionary=True)
-  try:
-    cur.execute("SELECT business_types, naics_6 FROM naics_master WHERE business_types IS NOT NULL")
-    for row in cur.fetchall() or []:
-      if not isinstance(row, dict):
-        continue
-      raw = row.get("business_types") or ""
-      values = [_clean_text(part) for part in str(raw).split(",") if _clean_text(part)]
-      if token in values:
-        code = _normalize_naics_6(row.get("naics_6"))
-        if code:
-          return code
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
-  return None
-
-
-def _lookup_sector_from_naics(conn, naics_6: Optional[str]) -> Optional[str]:
-  if conn is None or not naics_6:
-    return None
-  cur = conn.cursor(dictionary=True)
-  try:
-    for level in range(min(6, len(naics_6)), 1, -1):
-      code = naics_6[:level]
-      cur.execute(
-        """
-        SELECT ami.sector, COUNT(*) AS match_count
-        FROM alpha_match_naics_industry ami
-        WHERE ami.naics_code IS NOT NULL
-          AND TRIM(ami.naics_code) <> ''
-          AND ami.naics_code LIKE CONCAT(%s, '%%')
-          AND ami.sector IS NOT NULL
-          AND TRIM(ami.sector) <> ''
-        GROUP BY ami.sector
-        ORDER BY match_count DESC, ami.sector ASC
-        LIMIT 1
-        """,
-        (code,),
-      )
-      row = cur.fetchone()
-      if isinstance(row, dict):
-        value = _clean_text(row.get("sector"))
-        if value:
-          return value
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
-  prefix = naics_6[:2]
-  if len(prefix) != 2:
-    return None
-  cur = conn.cursor(dictionary=True)
-  try:
-    cur.execute(
-      """
-      SELECT display_name
-      FROM industry_types
-      WHERE naics_code = %s
-      ORDER BY id ASC
-      LIMIT 1
-      """,
-      (prefix,),
-    )
-    row = cur.fetchone()
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
-  if isinstance(row, dict):
-    value = _clean_text(row.get("display_name"))
-    return value or None
-  return None
+def resolve_business_classification(
+  *,
+  conn=None,
+  shared_context: Optional[Dict[str, Any]] = None,
+  operating_model: Optional[Dict[str, Any]] = None,
+  business_type: Optional[str] = None,
+  naics_6: Optional[str] = None,
+) -> Dict[str, Any]:
+  del conn
+  context = shared_context if isinstance(shared_context, dict) else {}
+  ops = operating_model if isinstance(operating_model, dict) else dict(context.get("operating_model") or {})
+  persisted_business_type = _clean_text(business_type or ops.get("business_type")) or None
+  normalized_naics = _normalize_naics_6(naics_6 or ops.get("business_naics_6"))
+  if not normalized_naics and not persisted_business_type:
+    return {
+      "naics_6": None,
+      "business_type": None,
+      "source": "none",
+    }
+  return {
+    "naics_6": normalized_naics,
+    "business_type": persisted_business_type,
+    "source": "persisted_business_type" if (normalized_naics or persisted_business_type) else "none",
+  }
 
 
 def _normalize_customer_type(value: Any) -> Optional[str]:
@@ -270,16 +213,22 @@ def extract_normalized_traits(
     fulfillment_json if isinstance(fulfillment_json, dict) else dict(context.get("fulfillment_json") or {})
   )
 
-  naics_6 = _normalize_naics_6(ops.get("business_naics_6"))
-  if not naics_6:
-    naics_6 = _lookup_naics_from_business_type(conn, ops.get("business_type"))
-  sector = _lookup_sector_from_naics(conn, naics_6)
+  classification = resolve_business_classification(
+    conn=conn,
+    shared_context=context,
+    operating_model=ops,
+  )
+  naics_6 = _normalize_naics_6(classification.get("naics_6"))
+  business_type = _clean_text(classification.get("business_type")) or None
 
   traits = {
     "contract_version": PLANNING_CONTRACT_VERSION,
     "traits_version": CONSTRAINT_TRAITS_VERSION,
     "naics_6": naics_6,
-    "sector": sector,
+    "business_type": business_type,
+    "industry": None,
+    "sector": None,
+    "classification_source": str(classification.get("source") or "none"),
     "customer_type": _normalize_customer_type(market.get("consumer_type") or ops.get("consumer_type")),
     "sales_modality": _normalize_sales_modality(ops.get("sales_modality")),
     "capacity_driver": _normalize_capacity_driver(ops.get("capacity_driver")),

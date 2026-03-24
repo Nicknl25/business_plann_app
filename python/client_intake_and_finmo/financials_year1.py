@@ -104,6 +104,33 @@ def _cadence_driver_schema(cadence: str) -> Dict[str, str]:
   }
 
 
+def _cadence_authoritative_field_names(cadence: str) -> Dict[str, str]:
+  cadence = _normalize_cadence(cadence)
+  if cadence == "monthly":
+    return {
+      "avg_units_key": "avg_units_per_month_year1",
+      "periods_key": "operating_months_per_year",
+      "capacity_key": "units_per_month_capacity",
+      "volume_semantics": "average monthly delivered units",
+      "capacity_interpretation": "monthly throughput capacity",
+    }
+  if cadence == "contract":
+    return {
+      "avg_units_key": "avg_active_units_year1",
+      "periods_key": "annual_turns_per_year",
+      "capacity_key": "concurrent_capacity_units",
+      "volume_semantics": "average active concurrent units",
+      "capacity_interpretation": "concurrent active-load capacity",
+    }
+  return {
+    "avg_units_key": "avg_units_per_week_year1",
+    "periods_key": "operating_weeks_per_year",
+    "capacity_key": "units_per_week_capacity",
+    "volume_semantics": "average weekly delivered units",
+    "capacity_interpretation": "weekly throughput capacity",
+  }
+
+
 def _pluralize(label: str, value: Any) -> str:
   count = _to_float(value)
   if count is None:
@@ -155,9 +182,16 @@ def _build_default_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]
           "unit_cadence": unit_cadence,
           "unit_price": operating_model.get("unit_price"),
           "units_per_week_capacity": operating_model.get("units_per_week_capacity"),
+          "units_per_month_capacity": operating_model.get("units_per_month_capacity"),
+          "concurrent_capacity_units": operating_model.get("concurrent_capacity_units"),
           "units_per_period_capacity": units_per_period_capacity,
           "avg_units_per_week_year1": operating_model.get("avg_units_per_week_year1"),
+          "avg_units_per_month_year1": operating_model.get("avg_units_per_month_year1"),
+          "avg_active_units_year1": operating_model.get("avg_active_units_year1"),
           "avg_units_per_period_year1": operating_model.get("avg_units_per_period_year1"),
+          "operating_weeks_per_year": operating_model.get("operating_weeks_per_year"),
+          "operating_months_per_year": operating_model.get("operating_months_per_year"),
+          "annual_turns_per_year": operating_model.get("annual_turns_per_year"),
           "operating_periods_per_year": operating_model.get("operating_periods_per_year"),
           "utilization_rate": operating_model.get("utilization_rate"),
         }
@@ -199,16 +233,51 @@ def _build_base_lobs(operating_model: Dict[str, Any]) -> List[Dict[str, Any]]:
           "unit_cadence": unit_cadence,
           "unit_price": product.get("unit_price"),
           "units_per_week_capacity": product.get("units_per_week_capacity"),
+          "units_per_month_capacity": (
+            product.get("units_per_month_capacity")
+            if product.get("units_per_month_capacity") is not None
+            else operating_model.get("units_per_month_capacity")
+          ),
+          "concurrent_capacity_units": (
+            product.get("concurrent_capacity_units")
+            if product.get("concurrent_capacity_units") is not None
+            else operating_model.get("concurrent_capacity_units")
+          ),
           "units_per_period_capacity": units_per_period_capacity,
           "avg_units_per_week_year1": (
             product.get("avg_units_per_week_year1")
             if product.get("avg_units_per_week_year1") is not None
             else operating_model.get("avg_units_per_week_year1")
           ),
+          "avg_units_per_month_year1": (
+            product.get("avg_units_per_month_year1")
+            if product.get("avg_units_per_month_year1") is not None
+            else operating_model.get("avg_units_per_month_year1")
+          ),
+          "avg_active_units_year1": (
+            product.get("avg_active_units_year1")
+            if product.get("avg_active_units_year1") is not None
+            else operating_model.get("avg_active_units_year1")
+          ),
           "avg_units_per_period_year1": (
             product.get("avg_units_per_period_year1")
             if product.get("avg_units_per_period_year1") is not None
             else operating_model.get("avg_units_per_period_year1")
+          ),
+          "operating_weeks_per_year": (
+            product.get("operating_weeks_per_year")
+            if product.get("operating_weeks_per_year") is not None
+            else operating_model.get("operating_weeks_per_year")
+          ),
+          "operating_months_per_year": (
+            product.get("operating_months_per_year")
+            if product.get("operating_months_per_year") is not None
+            else operating_model.get("operating_months_per_year")
+          ),
+          "annual_turns_per_year": (
+            product.get("annual_turns_per_year")
+            if product.get("annual_turns_per_year") is not None
+            else operating_model.get("annual_turns_per_year")
           ),
           "operating_periods_per_year": product.get("operating_periods_per_year")
           if product.get("operating_periods_per_year") is not None
@@ -331,27 +400,18 @@ def _derive_realized_volume_and_utilization(
   utilization_rate: Optional[float],
   avg_units_per_period_year1: Optional[float],
 ) -> Tuple[float, Optional[float]]:
-  cadence = _normalize_cadence(unit_cadence)
   capacity = _nonnegative(_to_float(units_per_period_capacity)) or 0.0
   utilization = _normalize_utilization(utilization_rate)
   avg_units = _nonnegative(_to_float(avg_units_per_period_year1))
 
-  # Utilization is only meaningful when capacity exists. It expresses the share of
-  # weekly/monthly capacity used, or the share of concurrent contract load filled.
-  if utilization is not None and capacity > 0:
-    realized = utilization * capacity
-    return float(realized), float(utilization)
-
   if avg_units is not None:
     if capacity > 0:
-      utilization = avg_units / capacity
-      utilization = min(max(utilization, 0.0), 1.0)
+      utilization = min(max(avg_units / capacity, 0.0), 1.0)
     return float(avg_units), utilization
 
-  # Missing realized volume should stay explicit. Defaulting to full capacity makes
-  # Year-1 math look filled-in when the child drivers are actually incomplete.
-  if cadence == "contract":
-    return 0.0, (0.0 if capacity > 0 else None)
+  if utilization is not None and capacity > 0:
+    return float(utilization * capacity), float(utilization)
+
   return 0.0, (0.0 if capacity > 0 else None)
 
 
@@ -368,6 +428,7 @@ def _apply_canonical_period_fields(
   cadence = _normalize_cadence(unit_cadence)
   annual_units_year1 = float(avg_units_per_period_year1 * operating_periods_per_year)
   revenue_total_year1 = float(annual_units_year1 * unit_price)
+  authoritative = _cadence_authoritative_field_names(cadence)
 
   out["unit_cadence"] = cadence
   out["unit_price"] = float(unit_price)
@@ -377,6 +438,15 @@ def _apply_canonical_period_fields(
   out["annual_units_year1"] = annual_units_year1
   out["revenue_total_year1"] = revenue_total_year1
   out["driver_schema"] = _cadence_driver_schema(cadence)
+  out["cadence_metadata"] = {
+    "cadence_type": cadence,
+    "authoritative_avg_units_field": authoritative["avg_units_key"],
+    "authoritative_periods_field": authoritative["periods_key"],
+    "authoritative_capacity_field": authoritative["capacity_key"],
+    "capacity_interpretation": authoritative["capacity_interpretation"],
+    "volume_semantics": authoritative["volume_semantics"],
+    "operating_periods_per_year": float(operating_periods_per_year),
+  }
 
   if utilization_rate is not None:
     out["utilization_rate"] = float(utilization_rate)
@@ -389,20 +459,25 @@ def _apply_canonical_period_fields(
   out.pop("operating_weeks_per_year", None)
   out.pop("avg_units_per_month_year1", None)
   out.pop("operating_months_per_year", None)
+  out.pop("units_per_month_capacity", None)
   out.pop("avg_active_units_year1", None)
   out.pop("annual_turns_per_year", None)
   out.pop("annual_completed_units_year1", None)
+  out.pop("concurrent_capacity_units", None)
 
   if cadence == "weekly":
     out["avg_units_per_week_year1"] = float(avg_units_per_period_year1)
     out["operating_weeks_per_year"] = float(operating_periods_per_year)
+    out["units_per_week_capacity"] = float(units_per_period_capacity)
   elif cadence == "monthly":
     out["avg_units_per_month_year1"] = float(avg_units_per_period_year1)
     out["operating_months_per_year"] = float(operating_periods_per_year)
+    out["units_per_month_capacity"] = float(units_per_period_capacity)
   elif cadence == "contract":
     out["avg_active_units_year1"] = float(avg_units_per_period_year1)
     out["annual_turns_per_year"] = float(operating_periods_per_year)
     out["annual_completed_units_year1"] = annual_units_year1
+    out["concurrent_capacity_units"] = float(units_per_period_capacity)
 
   return out
 
@@ -421,66 +496,171 @@ def _apply_product_drivers(
   unit_price = _apply_override_value(global_override.get("unit_price"), unit_price)
   unit_price = _nonnegative(_to_float(unit_price)) or 0.0
 
-  units_per_week_capacity = _apply_override_value(
-    override.get("units_per_week_capacity"), base_product.get("units_per_week_capacity")
-  )
-  units_per_week_capacity = _apply_override_value(
-    global_override.get("units_per_week_capacity"), units_per_week_capacity
-  )
-  units_per_week_capacity = _nonnegative(_to_float(units_per_week_capacity)) or 0.0
-
-  units_per_period_capacity = _apply_override_value(
-    override.get("units_per_period_capacity"), base_product.get("units_per_period_capacity")
-  )
-  units_per_period_capacity = _apply_override_value(
-    global_override.get("units_per_period_capacity"), units_per_period_capacity
-  )
-  units_per_period_capacity = _nonnegative(_to_float(units_per_period_capacity))
-  if units_per_period_capacity is None:
-    units_per_period_capacity = units_per_week_capacity
-
-  operating_periods_per_year = _apply_override_value(
-    override.get("operating_periods_per_year"), base_product.get("operating_periods_per_year")
-  )
-  operating_periods_per_year = _apply_override_value(
-    global_override.get("operating_periods_per_year"), operating_periods_per_year
-  )
-  operating_periods_per_year = _nonnegative(_to_float(operating_periods_per_year))
-  if operating_periods_per_year is None or operating_periods_per_year <= 0:
-    legacy_weeks = _apply_override_value(
-      override.get("operating_weeks_per_year"), global_override.get("operating_weeks_per_year")
-    )
-    legacy_weeks = _nonnegative(_to_float(legacy_weeks))
-    if legacy_weeks is not None and legacy_weeks > 0 and unit_cadence == "weekly":
-      operating_periods_per_year = legacy_weeks
-    else:
-      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
-
   utilization_rate = _apply_override_value(
     override.get("utilization_rate"), base_product.get("utilization_rate")
   )
   utilization_rate = _apply_override_value(global_override.get("utilization_rate"), utilization_rate)
   utilization_rate = _normalize_utilization(utilization_rate)
 
-  avg_units_per_period_year1 = _apply_override_value(
-    override.get("avg_units_per_period_year1"), base_product.get("avg_units_per_period_year1")
-  )
-  avg_units_per_period_year1 = _apply_override_value(
-    global_override.get("avg_units_per_period_year1"), avg_units_per_period_year1
-  )
-  avg_units_per_period_year1 = _nonnegative(_to_float(avg_units_per_period_year1))
-  if avg_units_per_period_year1 is None:
-    legacy_avg = _apply_override_value(
+  if unit_cadence == "weekly":
+    units_per_period_capacity = _apply_override_value(
+      override.get("units_per_week_capacity"), base_product.get("units_per_week_capacity")
+    )
+    units_per_period_capacity = _apply_override_value(
+      global_override.get("units_per_week_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      base_product.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      override.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      global_override.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _nonnegative(_to_float(units_per_period_capacity)) or 0.0
+
+    operating_periods_per_year = _apply_override_value(
+      override.get("operating_weeks_per_year"), base_product.get("operating_weeks_per_year")
+    )
+    operating_periods_per_year = _apply_override_value(
+      global_override.get("operating_weeks_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      base_product.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      override.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      global_override.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _nonnegative(_to_float(operating_periods_per_year))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
+
+    avg_units_per_period_year1 = _apply_override_value(
       override.get("avg_units_per_week_year1"), base_product.get("avg_units_per_week_year1")
     )
-    legacy_avg = _apply_override_value(
-      global_override.get("avg_units_per_week_year1"), legacy_avg
+    avg_units_per_period_year1 = _apply_override_value(
+      global_override.get("avg_units_per_week_year1"), avg_units_per_period_year1
     )
-    legacy_avg = _nonnegative(_to_float(legacy_avg))
-    if legacy_avg is not None and unit_cadence == "weekly":
-      avg_units_per_period_year1 = legacy_avg
-    else:
-      avg_units_per_period_year1 = None
+    avg_units_per_period_year1 = _apply_override_value(
+      base_product.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      override.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      global_override.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _nonnegative(_to_float(avg_units_per_period_year1))
+  elif unit_cadence == "monthly":
+    units_per_period_capacity = _apply_override_value(
+      override.get("units_per_month_capacity"), base_product.get("units_per_month_capacity")
+    )
+    units_per_period_capacity = _apply_override_value(
+      global_override.get("units_per_month_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      base_product.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      override.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      global_override.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _nonnegative(_to_float(units_per_period_capacity)) or 0.0
+
+    operating_periods_per_year = _apply_override_value(
+      override.get("operating_months_per_year"), base_product.get("operating_months_per_year")
+    )
+    operating_periods_per_year = _apply_override_value(
+      global_override.get("operating_months_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      base_product.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      override.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      global_override.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _nonnegative(_to_float(operating_periods_per_year))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
+
+    avg_units_per_period_year1 = _apply_override_value(
+      override.get("avg_units_per_month_year1"), base_product.get("avg_units_per_month_year1")
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      global_override.get("avg_units_per_month_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      base_product.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      override.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      global_override.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _nonnegative(_to_float(avg_units_per_period_year1))
+  else:
+    units_per_period_capacity = _apply_override_value(
+      override.get("concurrent_capacity_units"), base_product.get("concurrent_capacity_units")
+    )
+    units_per_period_capacity = _apply_override_value(
+      global_override.get("concurrent_capacity_units"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      base_product.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      override.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _apply_override_value(
+      global_override.get("units_per_period_capacity"), units_per_period_capacity
+    )
+    units_per_period_capacity = _nonnegative(_to_float(units_per_period_capacity)) or 0.0
+
+    operating_periods_per_year = _apply_override_value(
+      override.get("annual_turns_per_year"), base_product.get("annual_turns_per_year")
+    )
+    operating_periods_per_year = _apply_override_value(
+      global_override.get("annual_turns_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      base_product.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      override.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _apply_override_value(
+      global_override.get("operating_periods_per_year"), operating_periods_per_year
+    )
+    operating_periods_per_year = _nonnegative(_to_float(operating_periods_per_year))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
+
+    avg_units_per_period_year1 = _apply_override_value(
+      override.get("avg_active_units_year1"), base_product.get("avg_active_units_year1")
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      global_override.get("avg_active_units_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      base_product.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      override.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _apply_override_value(
+      global_override.get("avg_units_per_period_year1"), avg_units_per_period_year1
+    )
+    avg_units_per_period_year1 = _nonnegative(_to_float(avg_units_per_period_year1))
 
   avg_units_per_period_year1, utilization_rate = _derive_realized_volume_and_utilization(
     unit_cadence=unit_cadence,
@@ -490,7 +670,6 @@ def _apply_product_drivers(
   )
 
   out = dict(base_product)
-  out["units_per_week_capacity"] = float(units_per_week_capacity)
   return _apply_canonical_period_fields(
     out=out,
     unit_cadence=unit_cadence,
@@ -566,6 +745,14 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
     next_product["units_per_week_capacity"] = _nonnegative(
       _to_float(patch.get("units_per_week_capacity"))
     ) or 0.0
+  if "units_per_month_capacity" in patch:
+    next_product["units_per_month_capacity"] = _nonnegative(
+      _to_float(patch.get("units_per_month_capacity"))
+    ) or 0.0
+  if "concurrent_capacity_units" in patch:
+    next_product["concurrent_capacity_units"] = _nonnegative(
+      _to_float(patch.get("concurrent_capacity_units"))
+    ) or 0.0
   if "units_per_period_capacity" in patch:
     next_product["units_per_period_capacity"] = _nonnegative(
       _to_float(patch.get("units_per_period_capacity"))
@@ -574,6 +761,14 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
     next_product["operating_weeks_per_year"] = _nonnegative(
       _to_float(patch.get("operating_weeks_per_year"))
     ) or 0.0
+  if "operating_months_per_year" in patch:
+    next_product["operating_months_per_year"] = _nonnegative(
+      _to_float(patch.get("operating_months_per_year"))
+    ) or 0.0
+  if "annual_turns_per_year" in patch:
+    next_product["annual_turns_per_year"] = _nonnegative(
+      _to_float(patch.get("annual_turns_per_year"))
+    ) or 0.0
   if "operating_periods_per_year" in patch:
     next_product["operating_periods_per_year"] = _nonnegative(
       _to_float(patch.get("operating_periods_per_year"))
@@ -581,6 +776,14 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
   if "avg_units_per_week_year1" in patch:
     next_product["avg_units_per_week_year1"] = _nonnegative(
       _to_float(patch.get("avg_units_per_week_year1"))
+    ) or 0.0
+  if "avg_units_per_month_year1" in patch:
+    next_product["avg_units_per_month_year1"] = _nonnegative(
+      _to_float(patch.get("avg_units_per_month_year1"))
+    ) or 0.0
+  if "avg_active_units_year1" in patch:
+    next_product["avg_active_units_year1"] = _nonnegative(
+      _to_float(patch.get("avg_active_units_year1"))
     ) or 0.0
   if "avg_units_per_period_year1" in patch:
     next_product["avg_units_per_period_year1"] = _nonnegative(
@@ -592,28 +795,52 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
       next_product["utilization_rate"] = util
 
   unit_cadence = _normalize_cadence(next_product.get("unit_cadence"))
-  units_per_week_capacity = _nonnegative(_to_float(next_product.get("units_per_week_capacity"))) or 0.0
-  units_per_period_capacity = _nonnegative(_to_float(next_product.get("units_per_period_capacity")))
-  if units_per_period_capacity is None:
-    units_per_period_capacity = units_per_week_capacity
-
-  operating_periods_per_year = _nonnegative(_to_float(next_product.get("operating_periods_per_year")))
-  if operating_periods_per_year is None or operating_periods_per_year <= 0:
-    legacy_weeks = _nonnegative(_to_float(next_product.get("operating_weeks_per_year")))
-    if legacy_weeks is not None and legacy_weeks > 0 and unit_cadence == "weekly":
-      operating_periods_per_year = legacy_weeks
-    else:
-      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
-
   unit_price = _nonnegative(_to_float(next_product.get("unit_price"))) or 0.0
-
-  avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_units_per_period_year1")))
-  if avg_units_per_period_year1 is None:
-    legacy_avg = _nonnegative(_to_float(next_product.get("avg_units_per_week_year1")))
-    if legacy_avg is not None and unit_cadence == "weekly":
-      avg_units_per_period_year1 = legacy_avg
-    else:
-      avg_units_per_period_year1 = None
+  if unit_cadence == "weekly":
+    units_per_period_capacity = _nonnegative(
+      _to_float(next_product.get("units_per_week_capacity"))
+    )
+    if units_per_period_capacity is None:
+      units_per_period_capacity = _nonnegative(_to_float(next_product.get("units_per_period_capacity")))
+    units_per_period_capacity = units_per_period_capacity or 0.0
+    operating_periods_per_year = _nonnegative(_to_float(next_product.get("operating_weeks_per_year")))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _nonnegative(_to_float(next_product.get("operating_periods_per_year")))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
+    avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_units_per_week_year1")))
+    if avg_units_per_period_year1 is None:
+      avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_units_per_period_year1")))
+  elif unit_cadence == "monthly":
+    units_per_period_capacity = _nonnegative(
+      _to_float(next_product.get("units_per_month_capacity"))
+    )
+    if units_per_period_capacity is None:
+      units_per_period_capacity = _nonnegative(_to_float(next_product.get("units_per_period_capacity")))
+    units_per_period_capacity = units_per_period_capacity or 0.0
+    operating_periods_per_year = _nonnegative(_to_float(next_product.get("operating_months_per_year")))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _nonnegative(_to_float(next_product.get("operating_periods_per_year")))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
+    avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_units_per_month_year1")))
+    if avg_units_per_period_year1 is None:
+      avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_units_per_period_year1")))
+  else:
+    units_per_period_capacity = _nonnegative(
+      _to_float(next_product.get("concurrent_capacity_units"))
+    )
+    if units_per_period_capacity is None:
+      units_per_period_capacity = _nonnegative(_to_float(next_product.get("units_per_period_capacity")))
+    units_per_period_capacity = units_per_period_capacity or 0.0
+    operating_periods_per_year = _nonnegative(_to_float(next_product.get("annual_turns_per_year")))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _nonnegative(_to_float(next_product.get("operating_periods_per_year")))
+    if operating_periods_per_year is None or operating_periods_per_year <= 0:
+      operating_periods_per_year = _cadence_periods_per_year(unit_cadence)
+    avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_active_units_year1")))
+    if avg_units_per_period_year1 is None:
+      avg_units_per_period_year1 = _nonnegative(_to_float(next_product.get("avg_units_per_period_year1")))
 
   avg_units_per_period_year1, utilization_rate = _derive_realized_volume_and_utilization(
     unit_cadence=unit_cadence,
@@ -622,7 +849,6 @@ def _apply_patch_to_product(product: Dict[str, Any], patch: Dict[str, Any]) -> D
     avg_units_per_period_year1=avg_units_per_period_year1,
   )
 
-  next_product["units_per_week_capacity"] = float(units_per_week_capacity)
   return _apply_canonical_period_fields(
     out=next_product,
     unit_cadence=unit_cadence,
@@ -664,10 +890,16 @@ def apply_revenue_driver_patch(
         "unit_cadence",
         "unit_price",
         "units_per_week_capacity",
+        "units_per_month_capacity",
+        "concurrent_capacity_units",
         "units_per_period_capacity",
         "avg_units_per_week_year1",
+        "avg_units_per_month_year1",
+        "avg_active_units_year1",
         "avg_units_per_period_year1",
         "operating_weeks_per_year",
+        "operating_months_per_year",
+        "annual_turns_per_year",
         "operating_periods_per_year",
         "utilization_rate",
       )
@@ -795,12 +1027,27 @@ def _build_utilization_summary(financials_year1_json: Dict[str, Any], *, max_ite
       unit_label = str(product.get("unit_name") or "").strip() or "units"
       cadence = _normalize_cadence(product.get("unit_cadence"))
       period_label = _cadence_label(cadence)
-      avg_units_val = _to_float(product.get("avg_units_per_period_year1"))
-      if avg_units_val is None:
+      if cadence == "contract":
+        avg_units_val = _to_float(product.get("avg_active_units_year1"))
+        if avg_units_val is None:
+          avg_units_val = _to_float(product.get("avg_units_per_period_year1"))
+        capacity_val = _to_float(product.get("concurrent_capacity_units"))
+        if capacity_val is None:
+          capacity_val = _to_float(product.get("units_per_period_capacity"))
+      elif cadence == "monthly":
+        avg_units_val = _to_float(product.get("avg_units_per_month_year1"))
+        if avg_units_val is None:
+          avg_units_val = _to_float(product.get("avg_units_per_period_year1"))
+        capacity_val = _to_float(product.get("units_per_month_capacity"))
+        if capacity_val is None:
+          capacity_val = _to_float(product.get("units_per_period_capacity"))
+      else:
         avg_units_val = _to_float(product.get("avg_units_per_week_year1"))
-      capacity_val = _to_float(product.get("units_per_period_capacity"))
-      if capacity_val is None:
+        if avg_units_val is None:
+          avg_units_val = _to_float(product.get("avg_units_per_period_year1"))
         capacity_val = _to_float(product.get("units_per_week_capacity"))
+        if capacity_val is None:
+          capacity_val = _to_float(product.get("units_per_period_capacity"))
       utilization_rate = _normalize_utilization(product.get("utilization_rate"))
 
       if avg_units_val is None and capacity_val is None and utilization_rate is None:
@@ -1009,15 +1256,25 @@ def build_revenue_driver_signature(financials_year1_json: Dict[str, Any]) -> str
       {
         "unit_cadence": cadence,
         "driver_schema": _cadence_driver_schema(cadence),
+        "cadence_metadata": financials_year1_json.get("cadence_metadata"),
         "unit_price": _normalize_driver_value(financials_year1_json.get("unit_price")),
         "units_per_week_capacity": _normalize_driver_value(
           financials_year1_json.get("units_per_week_capacity")
+        ),
+        "units_per_month_capacity": _normalize_driver_value(
+          financials_year1_json.get("units_per_month_capacity")
+        ),
+        "concurrent_capacity_units": _normalize_driver_value(
+          financials_year1_json.get("concurrent_capacity_units")
         ),
         "units_per_period_capacity": _normalize_driver_value(
           financials_year1_json.get("units_per_period_capacity")
         ),
         "avg_units_per_week_year1": _normalize_driver_value(
           financials_year1_json.get("avg_units_per_week_year1")
+        ),
+        "avg_units_per_month_year1": _normalize_driver_value(
+          financials_year1_json.get("avg_units_per_month_year1")
         ),
         "avg_units_per_period_year1": _normalize_driver_value(
           financials_year1_json.get("avg_units_per_period_year1")
@@ -1054,15 +1311,25 @@ def build_revenue_driver_signature(financials_year1_json: Dict[str, Any]) -> str
           "product_name": product_name,
           "unit_cadence": cadence,
           "driver_schema": _cadence_driver_schema(cadence),
+          "cadence_metadata": product.get("cadence_metadata"),
           "unit_price": _normalize_driver_value(product.get("unit_price")),
           "units_per_week_capacity": _normalize_driver_value(
             product.get("units_per_week_capacity")
+          ),
+          "units_per_month_capacity": _normalize_driver_value(
+            product.get("units_per_month_capacity")
+          ),
+          "concurrent_capacity_units": _normalize_driver_value(
+            product.get("concurrent_capacity_units")
           ),
           "units_per_period_capacity": _normalize_driver_value(
             product.get("units_per_period_capacity")
           ),
           "avg_units_per_week_year1": _normalize_driver_value(
             product.get("avg_units_per_week_year1")
+          ),
+          "avg_units_per_month_year1": _normalize_driver_value(
+            product.get("avg_units_per_month_year1")
           ),
           "avg_units_per_period_year1": _normalize_driver_value(
             product.get("avg_units_per_period_year1")

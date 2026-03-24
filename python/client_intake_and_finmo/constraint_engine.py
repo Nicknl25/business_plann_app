@@ -61,6 +61,16 @@ def _nonneg(value: Any) -> float:
   return max(0.0, _to_float(value) or 0.0)
 
 
+def _safe_int(value: Any) -> Optional[int]:
+  raw = _to_float(value)
+  if raw is None:
+    return None
+  try:
+    return int(round(raw))
+  except Exception:
+    return None
+
+
 def _normalize_ratio(value: Any) -> Optional[float]:
   raw = _to_float(value)
   if raw is None:
@@ -318,6 +328,76 @@ def _derived_year1_payroll_from_people(people_json: Dict[str, Any]) -> float:
   return round(total, 2)
 
 
+def _role_month_support_metrics(people_json: Dict[str, Any]) -> Dict[str, float]:
+  fixed_active_role_months = 0.0
+  baseline_adjustable_active_months = 0.0
+  adjustable_role_month_cost_floor_total = 0.0
+  fixed_people_payroll = 0.0
+
+  for person in (people_json or {}).get("people") or []:
+    if not isinstance(person, dict):
+      continue
+    annual_wage = max(0.0, _to_float(person.get("annual_wage")) or 0.0)
+    if annual_wage <= 0:
+      continue
+    fixed_people_payroll += annual_wage
+    fixed_active_role_months += 12.0
+
+  for role in (people_json or {}).get("inferred_roles") or []:
+    if not isinstance(role, dict):
+      continue
+    annual_wage = max(0.0, _to_float(role.get("annual_wage")) or 0.0)
+    if annual_wage <= 0:
+      continue
+    months_until_hire = max(0, min(12, _safe_int(role.get("months_until_hire")) or 0))
+    active_months = max(0.0, 12.0 - float(months_until_hire))
+    if active_months <= 0:
+      continue
+    baseline_adjustable_active_months += active_months
+    adjustable_role_month_cost_floor_total += (annual_wage / 12.0) * active_months
+
+  return {
+    "fixed_people_payroll": round(fixed_people_payroll, 2),
+    "fixed_active_role_months": round(fixed_active_role_months, 2),
+    "baseline_adjustable_active_months": round(baseline_adjustable_active_months, 2),
+    "adjustable_role_month_cost_floor": round(
+      (adjustable_role_month_cost_floor_total / baseline_adjustable_active_months)
+      if baseline_adjustable_active_months > 0
+      else 0.0,
+      6,
+    ),
+  }
+
+
+def _required_structural_payroll_from_structure(
+  *,
+  units: float,
+  people_payroll_floor: float,
+  structural_payroll_floor: float,
+  payroll_support_basis: str,
+  units_per_active_role_month: float,
+  fixed_active_role_months: float,
+  adjustable_role_month_cost_floor: float,
+  units_per_payroll_dollar: float,
+) -> float:
+  basis = str(payroll_support_basis or "").strip().lower()
+  if basis == "role_months" and units_per_active_role_month > 0 and adjustable_role_month_cost_floor > 0:
+    required_adjustable_active_months = max(
+      0.0,
+      (max(0.0, units) / units_per_active_role_month) - max(0.0, fixed_active_role_months),
+    )
+    return max(
+      structural_payroll_floor,
+      people_payroll_floor + (adjustable_role_month_cost_floor * required_adjustable_active_months),
+    )
+  if basis == "payroll" and units_per_payroll_dollar > 0:
+    return max(
+      structural_payroll_floor,
+      max(0.0, units) / units_per_payroll_dollar,
+    )
+  return structural_payroll_floor
+
+
 def _default_payroll_center(traits: Dict[str, Any]) -> float:
   driver = str(traits.get("capacity_driver") or "").strip().lower()
   return {
@@ -462,6 +542,37 @@ def _trait_utilization_band(*, traits: Dict[str, Any], current_util: Optional[fl
   return _clamp_band(lower, high, floor=0.0, ceiling=1.0)
 
 
+def _hard_utilization_floor(
+  *,
+  traits: Dict[str, Any],
+  utilization_band: Dict[str, Any],
+) -> Optional[float]:
+  stage = str(traits.get("business_stage") or "").strip().lower()
+  driver = str(traits.get("capacity_driver") or "").strip().lower()
+  modality = str(traits.get("sales_modality") or "").strip().lower()
+  cadence = str(traits.get("unit_cadence") or "").strip().lower()
+  if driver != "labor" or stage not in {"operating", "growth", "mature"}:
+    return None
+  floor = {
+    "local_service": 0.45,
+    "project_based": 0.42,
+    "retail": 0.35,
+    "hybrid": 0.38,
+    "manufacturing": 0.36,
+    "online": 0.30,
+  }.get(modality, 0.35)
+  if cadence in {"contract", "project"}:
+    floor += 0.05
+  if stage == "growth":
+    floor += 0.03
+  elif stage == "mature":
+    floor += 0.05
+  band_min = _band_value_min(utilization_band)
+  if band_min is not None:
+    floor = max(floor, band_min)
+  return round(min(0.90, max(0.0, floor)), 6)
+
+
 def _benchmark_or_trait_band(
   benchmark_band: Dict[str, Any],
   trait_band: Dict[str, Any],
@@ -517,6 +628,7 @@ def _add_violation(
   violations: List[str],
   *,
   code: str,
+  constraint_class: str,
   metric: str,
   actual: Any,
   bound_min: Any = None,
@@ -531,6 +643,7 @@ def _add_violation(
   findings.append(
     {
       "code": code,
+      "constraint_class": str(constraint_class or "soft").strip() or "soft",
       "metric": metric,
       "severity": severity,
       "actual": actual,
@@ -546,6 +659,7 @@ def _constraint_item(
   constraint_id: str,
   metric: str,
   bound_type: str,
+  constraint_class: str,
   source_type: str,
   confidence_score: float,
   explanation: str,
@@ -554,6 +668,7 @@ def _constraint_item(
     "constraint_id": constraint_id,
     "metric": metric,
     "bound_type": bound_type,
+    "constraint_class": str(constraint_class or "soft").strip() or "soft",
     "source_type": source_type,
     "confidence_score": round(max(0.0, min(1.0, confidence_score)), 3),
     "explanation": explanation,
@@ -628,17 +743,17 @@ def build_constraint_engine_bundle(
 
   capacity_units = sum(max(0.0, _to_float(item.get("annual_capacity_units")) or 0.0) for item in child_basis if isinstance(item, dict))
   if capacity_units <= 0:
-    if current_util is not None and current_util > 0 and current_units > 0:
-      capacity_units = current_units / max(current_util, 1e-9)
+    per_period_capacity = _nonneg(_top_level_driver_value(year1, "units_per_period_capacity") or ops.get("units_per_period_capacity"))
+    periods = _nonneg(_top_level_driver_value(year1, "operating_periods_per_year") or year1.get("operating_periods_per_year"))
+    if per_period_capacity > 0 and periods > 0:
+      capacity_units = per_period_capacity * periods
     else:
-      per_period_capacity = _nonneg(_top_level_driver_value(year1, "units_per_period_capacity") or ops.get("units_per_period_capacity"))
-      periods = _nonneg(_top_level_driver_value(year1, "operating_periods_per_year") or year1.get("operating_periods_per_year"))
-      if per_period_capacity > 0 and periods > 0:
-        capacity_units = per_period_capacity * periods
-      else:
-        week_capacity = _nonneg(_top_level_driver_value(year1, "units_per_week_capacity") or ops.get("units_per_week_capacity"))
-        weeks = _nonneg(_top_level_driver_value(year1, "operating_weeks_per_year") or year1.get("operating_weeks_per_year") or 52)
+      week_capacity = _nonneg(_top_level_driver_value(year1, "units_per_week_capacity") or ops.get("units_per_week_capacity"))
+      weeks = _nonneg(_top_level_driver_value(year1, "operating_weeks_per_year") or year1.get("operating_weeks_per_year") or 52)
+      if week_capacity > 0 and weeks > 0:
         capacity_units = week_capacity * weeks
+      elif current_util is not None and current_util > 0 and current_units > 0:
+        capacity_units = current_units / max(current_util, 1e-9)
 
   demand_supported_units = None
   for key in ("expected_units_year1", "required_units_year1", "expected_customers_or_clients_year1", "reachable_market"):
@@ -648,6 +763,10 @@ def build_constraint_engine_bundle(
       break
 
   utilization_band = _trait_utilization_band(traits=traits, current_util=current_util)
+  hard_utilization_floor = _hard_utilization_floor(
+    traits=traits,
+    utilization_band=utilization_band,
+  )
   util_max = _band_value_max(utilization_band) or 1.0
   util_min = _band_value_min(utilization_band) or 0.0
   supportable_units_max = capacity_units * util_max if capacity_units > 0 else current_units
@@ -697,13 +816,18 @@ def build_constraint_engine_bundle(
     "inventory_days": {"min": None, "max": None},
   }
   trait_confidence = 0.15
-  populated_traits = len([key for key in ("naics_6", "sector", "customer_type", "sales_modality", "capacity_driver", "unit_cadence", "geographic_scope", "business_stage", "fulfillment_shape") if traits.get(key)])
+  populated_traits = len([key for key in ("naics_6", "business_type", "customer_type", "sales_modality", "capacity_driver", "unit_cadence", "geographic_scope", "business_stage", "fulfillment_shape") if traits.get(key)])
   trait_confidence += min(0.35, populated_traits * 0.04)
   constraint_confidence_score = round(min(0.95, 0.5 * benchmark_confidence + 0.5 * trait_confidence), 3)
 
   active_role_months = 0.0
   current_people_count = 0
   planned_roles_count = 0
+  role_month_support = _role_month_support_metrics(people or {})
+  fixed_people_payroll = max(0.0, _to_float(role_month_support.get("fixed_people_payroll")) or 0.0)
+  fixed_active_role_months = max(0.0, _to_float(role_month_support.get("fixed_active_role_months")) or 0.0)
+  baseline_adjustable_active_months = max(0.0, _to_float(role_month_support.get("baseline_adjustable_active_months")) or 0.0)
+  adjustable_role_month_cost_floor = max(0.0, _to_float(role_month_support.get("adjustable_role_month_cost_floor")) or 0.0)
   for person in (people or {}).get("people") or []:
     if not isinstance(person, dict):
       continue
@@ -719,6 +843,9 @@ def build_constraint_engine_bundle(
   workload_required_payroll = 0.0
   required_fte = 0.0
   revenue_per_fte = None
+  payroll_support_basis = "floor"
+  units_per_active_role_month = 0.0
+  units_per_payroll_dollar = 0.0
   if str(traits.get("capacity_driver") or "").strip().lower() == "labor" and fte_equivalent > 0 and current_revenue > 0:
     thresholds = _labor_workload_thresholds(traits)
     max_revenue_per_fte = max(1.0, _to_float(thresholds.get("max_revenue_per_fte")) or 1.0)
@@ -730,11 +857,27 @@ def build_constraint_engine_bundle(
     )
     workload_required_payroll = required_fte * implied_comp_per_fte
     revenue_per_fte = current_revenue / max(fte_equivalent, 1e-9)
-  people_payroll_floor = _derived_year1_payroll_from_people(people)
+  people_payroll_floor = fixed_people_payroll
+  if active_role_months > 0 and current_units > 0 and adjustable_role_month_cost_floor > 0:
+    payroll_support_basis = "role_months"
+    units_per_active_role_month = current_units / max(active_role_months, 1e-9)
+  elif people_payroll_floor > 0 and current_units > 0:
+    payroll_support_basis = "payroll"
+    units_per_payroll_dollar = current_units / max(people_payroll_floor, 1e-9)
+  structural_payroll_floor = max(people_payroll_floor, workload_required_payroll)
+  structural_payroll_base = people_payroll_floor
   structural_payroll_floor = max(
-    people_payroll_floor,
-    workload_required_payroll,
-    (current_revenue * (_band_value_min(payroll_intensity_band) or 0.0)),
+    structural_payroll_floor,
+    _required_structural_payroll_from_structure(
+      units=current_units,
+      people_payroll_floor=people_payroll_floor,
+      structural_payroll_floor=structural_payroll_floor,
+      payroll_support_basis=payroll_support_basis,
+      units_per_active_role_month=units_per_active_role_month,
+      fixed_active_role_months=fixed_active_role_months,
+      adjustable_role_month_cost_floor=adjustable_role_month_cost_floor,
+      units_per_payroll_dollar=units_per_payroll_dollar,
+    ),
   )
 
   violations: List[str] = []
@@ -745,6 +888,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="capacity_unsupported",
+      constraint_class="hard",
       metric="units",
       actual=round(current_units, 2),
       bound_max=supportable_unit_range["max"],
@@ -756,6 +900,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="demand_unsupported",
+      constraint_class="context",
       metric="units",
       actual=round(current_units, 2),
       bound_max=round(demand_supported_units, 2),
@@ -768,6 +913,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="revenue_out_of_range",
+      constraint_class="soft",
       metric="revenue",
       actual=round(current_revenue, 2),
       bound_max=supportable_revenue_range["max"],
@@ -781,6 +927,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="gross_margin_too_high",
+      constraint_class="soft",
       metric="gross_margin",
       actual=round(current_gross_margin, 6),
       bound_max=gross_max,
@@ -791,6 +938,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="gross_margin_too_low",
+      constraint_class="soft",
       metric="gross_margin",
       actual=round(current_gross_margin, 6),
       bound_min=gross_min,
@@ -804,6 +952,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="ebitda_margin_too_high",
+      constraint_class="soft",
       metric="ebitda_margin",
       actual=round(current_ebitda_margin, 6),
       bound_max=ebitda_max,
@@ -814,6 +963,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="ebitda_margin_too_low",
+      constraint_class="soft",
       metric="ebitda_margin",
       actual=round(current_ebitda_margin, 6),
       bound_min=ebitda_min,
@@ -826,14 +976,15 @@ def build_constraint_engine_bundle(
     current_payroll > 0
     and structural_payroll_floor > 0
     and current_payroll < (structural_payroll_floor * 0.97)
-  ) or (current_payroll_ratio is not None and payroll_min is not None and current_payroll_ratio < payroll_min - 0.01):
+  ):
     _add_violation(
       findings,
       violations,
       code="payroll_too_light",
+      constraint_class="hard",
       metric="payroll_intensity",
       actual=round(current_payroll_ratio, 6) if current_payroll_ratio is not None else None,
-      bound_min=round(max(payroll_min or 0.0, (structural_payroll_floor / max(current_revenue, 1.0))), 6) if current_revenue > 0 else payroll_min,
+      bound_min=round((structural_payroll_floor / max(current_revenue, 1.0)), 6) if current_revenue > 0 else None,
       explanation="Payroll support is below the structural requirement implied by the current workload, staffing basis, and Year-1 labor model.",
     )
   if current_payroll_ratio is not None and payroll_max is not None and current_payroll_ratio > payroll_max + 0.01:
@@ -841,6 +992,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="payroll_too_heavy",
+      constraint_class="soft",
       metric="payroll_intensity",
       actual=round(current_payroll_ratio, 6),
       bound_max=payroll_max,
@@ -856,6 +1008,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="marketing_too_low",
+      constraint_class="soft",
       metric="marketing_intensity",
       actual=round(current_marketing_ratio, 6),
       bound_min=marketing_min,
@@ -867,6 +1020,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="marketing_too_high",
+      constraint_class="soft",
       metric="marketing_intensity",
       actual=round(current_marketing_ratio, 6),
       bound_max=marketing_max,
@@ -877,6 +1031,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="opex_too_light",
+      constraint_class="soft",
       metric="opex_intensity",
       actual=round(current_opex_ratio, 6),
       bound_min=opex_min,
@@ -887,6 +1042,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="opex_too_heavy",
+      constraint_class="soft",
       metric="opex_intensity",
       actual=round(current_opex_ratio, 6),
       bound_max=opex_max,
@@ -898,16 +1054,29 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="utilization_too_high",
+      constraint_class="soft",
       metric="utilization_rate",
       actual=round(current_util, 6),
       bound_max=util_max,
       explanation="Utilization is above the trait-derived realism band for the current stage and capacity model.",
     )
-  if current_util is not None and current_units > 0 and current_util < util_min - 0.01:
+  if current_util is not None and hard_utilization_floor is not None and current_units > 0 and current_util < hard_utilization_floor - 0.01:
     _add_violation(
       findings,
       violations,
       code="utilization_too_low",
+      constraint_class="hard",
+      metric="utilization_rate",
+      actual=round(current_util, 6),
+      bound_min=hard_utilization_floor,
+      explanation="Utilization is below the hard credibility floor for the current operating labor model and makes the Year-1 plan operationally unrealistic.",
+    )
+  elif current_util is not None and current_units > 0 and current_util < util_min - 0.01:
+    _add_violation(
+      findings,
+      violations,
+      code="utilization_too_low",
+      constraint_class="soft",
       metric="utilization_rate",
       actual=round(current_util, 6),
       bound_min=util_min,
@@ -919,6 +1088,7 @@ def build_constraint_engine_bundle(
       findings,
       violations,
       code="benchmark_low_confidence",
+      constraint_class="context",
       metric="benchmark_confidence",
       actual=benchmark_confidence,
       severity="info",
@@ -927,17 +1097,28 @@ def build_constraint_engine_bundle(
 
   constraints = [
     _constraint_item(
-      constraint_id="supportable_unit_range",
+      constraint_id="capacity_support",
       metric="units",
       bound_type="hard",
+      constraint_class="hard",
       source_type="fact",
       confidence_score=max(constraint_confidence_score, 0.6),
       explanation="Supportable unit range comes from persisted Year-1 volume, capacity, utilization, and demand-support facts.",
     ),
     _constraint_item(
+      constraint_id="workload_payroll_support",
+      metric="payroll_support",
+      bound_type="hard",
+      constraint_class="hard",
+      source_type="fact",
+      confidence_score=max(constraint_confidence_score, 0.6),
+      explanation="Workload support requires Year-1 payroll and staffing structure to credibly support the planned delivery load.",
+    ),
+    _constraint_item(
       constraint_id="supportable_revenue_range",
       metric="revenue",
       bound_type="soft",
+      constraint_class="soft",
       source_type="fact",
       confidence_score=max(constraint_confidence_score, 0.55),
       explanation="Supportable revenue range is derived from supportable units and the current persisted price assumption.",
@@ -946,6 +1127,7 @@ def build_constraint_engine_bundle(
       constraint_id="demand_supported_units",
       metric="units",
       bound_type="soft",
+      constraint_class="context",
       source_type="fact",
       confidence_score=max(constraint_confidence_score, 0.45),
       explanation="Demand-supported units reflect the currently modeled Year-1 demand support and should shape solver choices without acting as a universal hard cap when demand-building levers are still mutable.",
@@ -954,6 +1136,7 @@ def build_constraint_engine_bundle(
       constraint_id="gross_margin_band",
       metric="gross_margin",
       bound_type="soft" if gross_margin_source == "alpha" else "prior",
+      constraint_class="soft",
       source_type=gross_margin_source,
       confidence_score=max(constraint_confidence_score, benchmark_confidence if gross_margin_source == "alpha" else trait_confidence),
       explanation="Gross margin band uses Alpha benchmark data when available and falls back to a current-state band when benchmark coverage is limited.",
@@ -962,6 +1145,7 @@ def build_constraint_engine_bundle(
       constraint_id="ebitda_margin_band",
       metric="ebitda_margin",
       bound_type="soft" if ebitda_source == "alpha" else "prior",
+      constraint_class="soft",
       source_type=ebitda_source,
       confidence_score=max(constraint_confidence_score, benchmark_confidence if ebitda_source == "alpha" else trait_confidence),
       explanation="EBITDA margin band is the core realism envelope for detecting unsupported downside and upside profitability.",
@@ -970,6 +1154,7 @@ def build_constraint_engine_bundle(
       constraint_id="payroll_intensity_band",
       metric="payroll_intensity",
       bound_type="soft" if payroll_source == "alpha" else "prior",
+      constraint_class="soft",
       source_type=payroll_source,
       confidence_score=max(constraint_confidence_score, benchmark_confidence if payroll_source == "alpha" else trait_confidence),
       explanation="Payroll intensity band uses benchmarks when present and otherwise falls back to trait-derived operating priors.",
@@ -978,6 +1163,7 @@ def build_constraint_engine_bundle(
       constraint_id="marketing_intensity_band",
       metric="marketing_intensity",
       bound_type="soft",
+      constraint_class="soft",
       source_type="trait",
       confidence_score=trait_confidence,
       explanation="Marketing intensity corridor is trait-driven and bounded by business model and compatible operating-expense realism.",
@@ -986,6 +1172,7 @@ def build_constraint_engine_bundle(
       constraint_id="opex_intensity_band",
       metric="opex_intensity",
       bound_type="soft" if opex_source == "alpha" else "prior",
+      constraint_class="soft",
       source_type=opex_source,
       confidence_score=max(constraint_confidence_score, benchmark_confidence if opex_source == "alpha" else trait_confidence),
       explanation="Operating expense intensity band uses Alpha benchmark data when available and falls back to deterministic trait priors otherwise.",
@@ -994,11 +1181,40 @@ def build_constraint_engine_bundle(
       constraint_id="utilization_range",
       metric="utilization_rate",
       bound_type="soft",
+      constraint_class="soft",
       source_type="trait",
       confidence_score=trait_confidence,
       explanation="Utilization range is trait-derived from business stage and capacity model and is used to evaluate whether the Year-1 operating load is plausible.",
     ),
   ]
+  if hard_utilization_floor is not None:
+    constraints.insert(
+      2,
+      _constraint_item(
+        constraint_id="utilization_hard_floor",
+        metric="utilization_rate",
+        bound_type="hard",
+        constraint_class="hard",
+        source_type="trait",
+        confidence_score=trait_confidence,
+        explanation="Operating labor-driven businesses must stay above a hard utilization credibility floor for Year 1.",
+      ),
+    )
+  hard_violation_codes = sorted({
+    str(item.get("code") or "").strip()
+    for item in findings
+    if str(item.get("constraint_class") or "").strip() == "hard" and str(item.get("code") or "").strip()
+  })
+  soft_violation_codes = sorted({
+    str(item.get("code") or "").strip()
+    for item in findings
+    if str(item.get("constraint_class") or "").strip() == "soft" and str(item.get("code") or "").strip()
+  })
+  context_violation_codes = sorted({
+    str(item.get("code") or "").strip()
+    for item in findings
+    if str(item.get("constraint_class") or "").strip() == "context" and str(item.get("code") or "").strip()
+  })
 
   engine_state = {
     "contract_version": PLANNING_CONTRACT_VERSION,
@@ -1018,6 +1234,9 @@ def build_constraint_engine_bundle(
     "solver_mutable_levers": list(SOLVER_MUTABLE_LEVERS),
     "solver_protected_facts": list(SOLVER_PROTECTED_FACTS),
     "violations": violations,
+    "hard_violation_codes": hard_violation_codes,
+    "soft_violation_codes": soft_violation_codes,
+    "context_violation_codes": context_violation_codes,
     "constraints": constraints,
     "findings": findings,
     "current_metrics": {
@@ -1036,6 +1255,15 @@ def build_constraint_engine_bundle(
       "weighted_child_utilization_rate": round(_weighted_child_utilization(child_basis), 6) if has_child_metrics and _weighted_child_utilization(child_basis) is not None else None,
       "people_payroll_floor": round(people_payroll_floor, 2),
       "structural_payroll_floor": round(structural_payroll_floor, 2),
+      "structural_payroll_base": round(structural_payroll_base, 2),
+      "workload_payroll_per_unit": 0.0,
+      "payroll_support_basis": payroll_support_basis,
+      "fixed_active_role_months": round(fixed_active_role_months, 2),
+      "baseline_adjustable_active_months": round(baseline_adjustable_active_months, 2),
+      "adjustable_role_month_cost_floor": round(adjustable_role_month_cost_floor, 6),
+      "units_per_active_role_month": round(units_per_active_role_month, 6),
+      "units_per_payroll_dollar": round(units_per_payroll_dollar, 8),
+      "hard_utilization_floor": hard_utilization_floor,
       "active_role_months_year1": round(active_role_months, 2),
       "fte_equivalent_year1": round(fte_equivalent, 4),
       "revenue_per_fte_year1": round(revenue_per_fte, 2) if revenue_per_fte is not None else None,

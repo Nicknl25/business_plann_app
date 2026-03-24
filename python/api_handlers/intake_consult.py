@@ -619,6 +619,15 @@ def _get_pending_consistency_solver_state(financials_json: Dict[str, Any]) -> Op
   return state
 
 
+def _get_blocking_consistency_solver_state(financials_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+  state = (financials_json or {}).get("_consistency_solver_state")
+  if not isinstance(state, dict):
+    return None
+  if str(state.get("status") or "").strip() != "blocking_unresolved":
+    return None
+  return state
+
+
 CONSISTENCY_TABLE_REVIEW_QUESTION = (
   "Does this Year-1 summary look right, or do you want to change anything before I check whether the plan needs any final adjustment?"
 )
@@ -5438,7 +5447,6 @@ def post_intake_consult_handler(*, app, request):
       build_revenue_constraints_snippet,
       build_revenue_math_line,
     )
-    from consistency_consultant import consistency_chat_turn  # type: ignore
     from api_handlers.fact_propagation import propagate_shared_facts
     from api_handlers.revenue_guardrail_state import acknowledge_signature, get_acknowledged_signature
   except Exception as exc:
@@ -5681,14 +5689,12 @@ def post_intake_consult_handler(*, app, request):
           financials_year1_json=financials_year1_json,
         )
       elif focus == "consistency":
-        turn = consistency_chat_turn(
-          intake_context=_attach_consistency_financial_context(
-            intake_context,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-          ),
-          conversation_messages=turn_messages,
-        ) or {}
+        assistant_text, financials_json = _start_consistency_table_review(
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        )
+        turn = {"assistant_message": assistant_text}
       else:
         turn = {"assistant_message": "Continue."}
 
@@ -6488,6 +6494,39 @@ def post_intake_consult_handler(*, app, request):
       if str(focus).strip().lower() == "consistency"
       else None
     )
+    blocking_consistency_solver = (
+      _get_blocking_consistency_solver_state(financials_json)
+      if str(focus).strip().lower() == "consistency"
+      else None
+    )
+    if blocking_consistency_solver and not starting:
+      assistant_text = _build_consistency_blocking_message(blocking_consistency_solver)
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        operating_model_json=ops_json,
+        target_market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=_refresh_marketing_model(),
+        active_focus="consistency",
+        business_facts=business_facts,
+        consistency_passed=False,
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": "consistency",
+          "awaiting_confirmation": False,
+          "done": False,
+          "action": "continue",
+          "assistant_message": assistant_text,
+        }
+      )
     if pending_consistency_solver and not starting:
       try:
         try:
@@ -7574,28 +7613,16 @@ def post_intake_consult_handler(*, app, request):
         elif followup_focus == "consistency":
           if assistant_text:
             assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I'm going to re-run a brief consistency check to make sure everything still lines up.".strip()
-          followup_turn = consistency_chat_turn(
-            intake_context=_attach_consistency_financial_context(
-              intake_context_followup,
-              financials_json=financials_json,
-              financials_year1_json=financials_year1_json,
-            ),
-            conversation_messages=[*messages, user_msg],
+          review_text, financials_json = _start_consistency_table_review(
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            forecast_quarters=(shared_context or {}).get("forecast_quarters"),
           )
-          if bool(followup_turn.get("finalize_ready", False)):
-            review_text, financials_json = _start_consistency_table_review(
-              financials_json=financials_json,
-              financials_year1_json=financials_year1_json,
-              forecast_quarters=(shared_context or {}).get("forecast_quarters"),
-            )
-            followup_turn["assistant_message"] = review_text
-            followup_turn["finalize_ready"] = False
-            consistency_passed_out = False
-            completed_out = False
-            active_focus_out = "consistency"
-            status_out = "in_progress"
-          else:
-            active_focus_out = "consistency"
+          followup_turn = {"assistant_message": review_text}
+          consistency_passed_out = False
+          completed_out = False
+          active_focus_out = "consistency"
+          status_out = "in_progress"
         else:
           followup_turn = {"assistant_message": ""}
 
@@ -7997,14 +8024,11 @@ def post_intake_consult_handler(*, app, request):
         )
         next_assistant = str(financials_turn.get("assistant_message") or "").strip()
       elif next_focus == "consistency":
-        next_assistant = consistency_chat_turn(
-          intake_context=_attach_consistency_financial_context(
-            intake_context_next,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-          ),
-          conversation_messages=turn_messages,
-        )["assistant_message"]
+        next_assistant, financials_json = _start_consistency_table_review(
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        )
       else:
         next_assistant = "Continue."
 
@@ -8016,10 +8040,7 @@ def post_intake_consult_handler(*, app, request):
       elif next_focus == "financials":
         transition = "Great, let's move on to Financials."
       elif next_focus == "consistency":
-        transition = (
-          "Thanks for confirming. I'm going to do one quick consistency pass across the plan "
-          "to make sure the numbers, staffing, timing, and milestones all fit together."
-        )
+        transition = "Thanks for confirming. Here is the final Year 1 review."
       if transition:
         next_assistant = f"{transition}\n\n{next_assistant}".strip() if next_assistant else transition
 
@@ -8185,14 +8206,12 @@ def post_intake_consult_handler(*, app, request):
         financials_year1_json=financials_year1_json,
       )
     elif focus == "consistency":
-      turn = consistency_chat_turn(
-        intake_context=_attach_consistency_financial_context(
-          intake_context,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-        ),
-        conversation_messages=[*messages, user_msg],
+      assistant_text, financials_json = _start_consistency_table_review(
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        forecast_quarters=(shared_context or {}).get("forecast_quarters"),
       )
+      turn = {"assistant_message": assistant_text, "finalize_ready": False}
     else:
       turn = {"assistant_message": "Continue.", "finalize_ready": False}
 
@@ -8572,14 +8591,12 @@ def post_intake_consult_handler(*, app, request):
             financials_year1_json=financials_year1_json,
           )
         elif focus == "consistency":
-          followup_turn = consistency_chat_turn(
-            intake_context=_attach_consistency_financial_context(
-              intake_context,
-              financials_json=financials_json,
-              financials_year1_json=financials_year1_json,
-            ),
-            conversation_messages=followup_messages,
+          followup_text, financials_json = _start_consistency_table_review(
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            forecast_quarters=(shared_context or {}).get("forecast_quarters"),
           )
+          followup_turn = {"assistant_message": followup_text}
         else:
           followup_turn = {"assistant_message": ""}
         followup_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
@@ -8697,90 +8714,48 @@ def post_intake_consult_handler(*, app, request):
         "fulfillment_json": fulfillment_json,
       }
       intake_context_next["financials_year1_json"] = financials_year1_json
-      consistency_turn = consistency_chat_turn(
-        intake_context=_attach_consistency_financial_context(
-          intake_context_next,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-        ),
-        conversation_messages=turn_messages,
-      ) or {}
-      next_assistant = sanitize_fact_template(str(consistency_turn.get("assistant_message") or "").strip())
-      if bool(consistency_turn.get("finalize_ready", False)):
-        review_text, financials_json = _start_consistency_table_review(
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
-        )
-        assistant_final = (
-          "Thanks for confirming. I'm going to do one quick consistency pass across the plan "
-          "to make sure the numbers, staffing, timing, and milestones all fit together.\n\n"
-          f"{review_text}"
-        ).strip()
-        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
-          conn=conn,
-          intake_context=_build_consistency_runtime_context(
-            client_id=client_id,
-            draft_id=str(draft_id).strip(),
-            business_facts=business_facts,
-            business_stage_hint=business_stage_hint,
-            current_date_iso=current_date_iso,
-            shared_context=shared_context,
-            ops_json=ops_json,
-            market_json=market_json,
-            people_json=people_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            fulfillment_json=fulfillment_json,
-            marketing_model_json=_refresh_marketing_model(),
-          ),
+      review_text, financials_json = _start_consistency_table_review(
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+      )
+      assistant_final = (
+        "Thanks for confirming. I’m doing one final Year 1 review before I lock the plan.\n\n"
+        f"{review_text}"
+      ).strip()
+      persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+        conn=conn,
+        intake_context=_build_consistency_runtime_context(
+          client_id=client_id,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          business_stage_hint=business_stage_hint,
+          current_date_iso=current_date_iso,
+          shared_context=shared_context,
           ops_json=ops_json,
           market_json=market_json,
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
+          fulfillment_json=fulfillment_json,
           marketing_model_json=_refresh_marketing_model(),
-        )
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
-          marketing_model_json=_refresh_marketing_model(),
-          active_focus="consistency",
-          confirmations={"financials": True},
-          business_facts=business_facts,
-          consistency_passed=False,
-          flat_fields=_finalize_flag_field("financials", True),
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "consistency",
-            "awaiting_confirmation": False,
-            "done": False,
-            "action": "continue",
-            "assistant_message": assistant_final,
-          }
-        )
-
-      assistant_final = (
-        "Thanks for confirming. I'm going to do one quick consistency pass across the plan "
-        "to make sure the numbers, staffing, timing, and milestones all fit together.\n\n"
-        f"{next_assistant}"
-      ).strip()
+        ),
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=_refresh_marketing_model(),
+      )
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
+        **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
         marketing_model_json=_refresh_marketing_model(),
-        active_focus=next_focus,
+        active_focus="consistency",
         confirmations={"financials": True},
         business_facts=business_facts,
         consistency_passed=False,
@@ -8791,7 +8766,7 @@ def post_intake_consult_handler(*, app, request):
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "active_focus": next_focus,
+          "active_focus": "consistency",
           "awaiting_confirmation": False,
           "done": False,
           "action": "continue",

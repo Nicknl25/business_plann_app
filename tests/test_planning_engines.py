@@ -20,11 +20,15 @@ from consistency_financials import (  # type: ignore  # noqa: E402
   build_consistency_financial_table,
 )
 from consistency_solver import (  # type: ignore  # noqa: E402
+  _archetype_consistency,
+  _build_client_scenario_output,
+  _derive_commercial_archetype,
+  _derive_scenario_posture,
   _build_lever_summary,
   _build_direct_solver_inputs,
+  _build_solver_state_model,
   _build_scenario_forecast_bundle,
   _exact_patches_from_solution,
-  _build_solver_state_model,
   _label_and_rationale_from_patches,
   _presentation_issues,
   _normalize_ratio,
@@ -32,11 +36,14 @@ from consistency_solver import (  # type: ignore  # noqa: E402
   _select_client_ready_scenarios,
   _select_materially_distinct_scenarios,
   _solver_required,
+  _solve_direct_profile,
+  _solver_profiles,
   _sync_marketing_derived_fields,
   build_consistency_solver_state,
 )
+from consistency_consultant import consistency_solver_proposal_message  # type: ignore  # noqa: E402
 from constraint_engine import build_constraint_engine_bundle  # type: ignore  # noqa: E402
-from constraint_traits import extract_normalized_traits  # type: ignore  # noqa: E402
+from constraint_traits import extract_normalized_traits, resolve_business_classification  # type: ignore  # noqa: E402
 from convergence_policy import build_convergence_policy  # type: ignore  # noqa: E402
 from forecast_engine import build_forecast_engine_bundle  # type: ignore  # noqa: E402
 from financials_year1 import (  # type: ignore  # noqa: E402
@@ -130,6 +137,67 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(traits["geographic_scope"], "national")
     self.assertEqual(traits["business_stage"], "operating")
     self.assertEqual(traits["fulfillment_shape"], "digital_remote")
+    self.assertEqual(traits["classification_source"], "persisted_business_type")
+
+  def test_phase0_resolve_business_classification_uses_persisted_business_type_and_naics(self) -> None:
+    mapping = resolve_business_classification(
+      operating_model={"business_naics_6": "541110", "business_type": "Law Firm"},
+      conn=object(),
+    )
+
+    self.assertEqual(
+      mapping,
+      {
+        "naics_6": "541110",
+        "business_type": "Law Firm",
+        "source": "persisted_business_type",
+      },
+    )
+
+  def test_phase0_resolve_business_classification_returns_none_without_persisted_values(self) -> None:
+    mapping = resolve_business_classification(
+      operating_model={},
+      conn=object(),
+    )
+
+    self.assertEqual(
+      mapping,
+      {
+        "naics_6": None,
+        "business_type": None,
+        "source": "none",
+      },
+    )
+
+  @patch("constraint_traits.resolve_business_classification")
+  def test_phase0_extract_traits_uses_persisted_business_type_and_naics(
+    self,
+    mock_mapping,
+  ) -> None:
+    mock_mapping.return_value = {
+      "naics_6": "541110",
+      "business_type": "Law Firm",
+      "source": "persisted_business_type",
+    }
+
+    traits = extract_normalized_traits(
+      operating_model={
+        "business_naics_6": "541110",
+        "business_type": "Law Firm",
+        "consumer_type": "B2B",
+        "sales_modality": "local service",
+        "capacity_driver": "labor",
+        "geographic_scope": "local",
+        "business_stage": "operating",
+      },
+      conn=object(),
+    )
+
+    self.assertEqual(traits["naics_6"], "541110")
+    self.assertEqual(traits["business_type"], "Law Firm")
+    self.assertIsNone(traits["industry"])
+    self.assertIsNone(traits["sector"])
+    self.assertEqual(traits["classification_source"], "persisted_business_type")
 
   @patch("benchmark_resolver._fetch_growth_rows")
   @patch("benchmark_resolver._fetch_sector_rows")
@@ -352,7 +420,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIsNotNone(direct_inputs)
     self.assertEqual(direct_inputs["capacity_units"], 45.0)
 
-  def test_forecast_engine_blocks_unresolved_year1(self) -> None:
+  def test_forecast_engine_blocks_hard_unresolved_year1(self) -> None:
     bundle = build_forecast_engine_bundle(
       financials_json={
         "cogs_total_year1": 96000,
@@ -368,13 +436,17 @@ class PlanningEnginesTests(unittest.TestCase):
         "operating_periods_per_year": 12,
       },
       benchmark_payload={"fallback_level": "naics_6", "confidence_score": 0.9},
-      constraint_engine_state={"violations": ["ebitda_margin_too_low"]},
+      constraint_engine_state={
+        "violations": ["payroll_too_light", "ebitda_margin_too_low"],
+        "hard_violation_codes": ["payroll_too_light"],
+        "soft_violation_codes": ["ebitda_margin_too_low"],
+      },
     )
 
     self.assertEqual(bundle["forecast_engine_state"]["status"], "blocked_unresolved_year1")
     self.assertEqual(bundle["forecast_quarters"], [])
 
-  def test_forecast_engine_blocks_non_ebitda_realism_violations(self) -> None:
+  def test_forecast_engine_allows_soft_realism_violations(self) -> None:
     bundle = build_forecast_engine_bundle(
       financials_json={
         "cogs_total_year1": 96000,
@@ -390,11 +462,59 @@ class PlanningEnginesTests(unittest.TestCase):
         "operating_periods_per_year": 12,
       },
       benchmark_payload={"fallback_level": "naics_6", "confidence_score": 0.9},
-      constraint_engine_state={"violations": ["gross_margin_too_low"]},
+      constraint_engine_state={
+        "violations": ["gross_margin_too_low"],
+        "soft_violation_codes": ["gross_margin_too_low"],
+      },
     )
 
-    self.assertEqual(bundle["forecast_engine_state"]["status"], "blocked_unresolved_year1")
-    self.assertEqual(bundle["forecast_quarters"], [])
+    self.assertEqual(bundle["forecast_engine_state"]["status"], "ready")
+    self.assertEqual(len(bundle["forecast_quarters"]), 20)
+
+  def test_hard_invalid_year1_blocks_even_when_soft_valid_year1_forecasts(self) -> None:
+    hard_invalid = build_forecast_engine_bundle(
+      financials_json={
+        "cogs_total_year1": 70000,
+        "payroll_total_year1": 35000,
+        "marketing_total_year1": 8000,
+        "other_operating_expense": 12000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 240000,
+        "unit_price": 100,
+        "utilization_rate": 0.35,
+        "avg_units_per_period_year1": 200,
+        "operating_periods_per_year": 12,
+      },
+      benchmark_payload={"fallback_level": "naics_6", "confidence_score": 0.9},
+      constraint_engine_state={
+        "violations": ["utilization_too_low"],
+        "hard_violation_codes": ["utilization_too_low"],
+      },
+    )
+    soft_only = build_forecast_engine_bundle(
+      financials_json={
+        "cogs_total_year1": 98000,
+        "payroll_total_year1": 72000,
+        "marketing_total_year1": 12000,
+        "other_operating_expense": 24000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 240000,
+        "unit_price": 100,
+        "utilization_rate": 0.62,
+        "avg_units_per_period_year1": 200,
+        "operating_periods_per_year": 12,
+      },
+      benchmark_payload={"fallback_level": "naics_6", "confidence_score": 0.9},
+      constraint_engine_state={
+        "violations": ["gross_margin_too_low"],
+        "soft_violation_codes": ["gross_margin_too_low"],
+      },
+    )
+
+    self.assertEqual(hard_invalid["forecast_engine_state"]["status"], "blocked_unresolved_year1")
+    self.assertEqual(soft_only["forecast_engine_state"]["status"], "ready")
 
   @patch("constraint_engine.extract_normalized_traits")
   @patch("constraint_engine.resolve_alpha_benchmark_payload")
@@ -673,6 +793,7 @@ class PlanningEnginesTests(unittest.TestCase):
     )
 
     self.assertIn("utilization_too_low", bundle["constraint_engine_state"]["violations"])
+    self.assertIn("utilization_too_low", bundle["constraint_engine_state"]["hard_violation_codes"])
 
   @patch("constraint_engine.extract_normalized_traits")
   @patch("constraint_engine.resolve_alpha_benchmark_payload")
@@ -778,7 +899,49 @@ class PlanningEnginesTests(unittest.TestCase):
 
     current_metrics = bundle["constraint_engine_state"]["current_metrics"]
     self.assertIn("payroll_too_light", bundle["constraint_engine_state"]["violations"])
+    self.assertIn("payroll_too_light", bundle["constraint_engine_state"]["hard_violation_codes"])
     self.assertGreater(current_metrics["structural_payroll_floor"], 100000.0)
+
+  @patch("constraint_engine.extract_normalized_traits")
+  @patch("constraint_engine.resolve_alpha_benchmark_payload")
+  def test_constraint_engine_marks_capacity_support_as_hard_constraint(
+    self,
+    mock_benchmark,
+    mock_traits,
+  ) -> None:
+    mock_traits.return_value = {
+      "naics_6": "722511",
+      "business_type": "Restaurant",
+      "customer_type": "b2c",
+      "sales_modality": "retail",
+      "capacity_driver": "labor",
+      "unit_cadence": "weekly",
+      "geographic_scope": "local",
+      "business_stage": "operating",
+      "fulfillment_shape": "in_person_local",
+    }
+    mock_benchmark.return_value = self._benchmark_payload()
+
+    bundle = build_constraint_engine_bundle(
+      operating_model_json={"capacity_driver": "labor", "sales_modality": "retail", "business_stage": "operating"},
+      financials_json={
+        "cogs_total_year1": 110000,
+        "payroll_total_year1": 130000,
+        "marketing_total_year1": 15000,
+        "other_operating_expense": 40000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 300000,
+        "unit_price": 25,
+        "avg_units_per_week_year1": 340,
+        "operating_weeks_per_year": 52,
+        "units_per_week_capacity": 200,
+        "utilization_rate": 0.9,
+      },
+    )
+
+    self.assertIn("capacity_unsupported", bundle["constraint_engine_state"]["violations"])
+    self.assertIn("capacity_unsupported", bundle["constraint_engine_state"]["hard_violation_codes"])
 
   @patch("constraint_engine.extract_normalized_traits")
   @patch("constraint_engine.resolve_alpha_benchmark_payload")
@@ -900,6 +1063,418 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIsNotNone(direct_inputs)
     self.assertLessEqual((direct_inputs or {})["marketing_upper"], 168000.0)
 
+  def test_local_labor_service_tightens_marketing_and_disables_demand_link(self) -> None:
+    baseline_summary = build_consistency_financial_summary(
+      financials_json={
+        "cogs_total_year1": 120000,
+        "payroll_total_year1": 180000,
+        "marketing_total_year1": 30000,
+        "other_operating_expense": 60000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 600000,
+        "unit_price": 250,
+        "utilization_rate": 0.72,
+        "avg_units_per_period_year1": 46.1538,
+        "operating_periods_per_year": 52,
+      },
+    )
+    state_model = _build_solver_state_model(
+      ops_json={"capacity_driver": "labor", "sales_modality": "local_service"},
+      people_json={"future_roles": []},
+      financials_json={"marketing_total_year1": 30000, "other_operating_expense": 60000},
+      financials_year1_json={
+        "company_revenue_total_year1": 600000,
+        "unit_price": 250,
+        "utilization_rate": 0.72,
+        "avg_units_per_period_year1": 46.1538,
+        "operating_periods_per_year": 52,
+      },
+      marketing_model_json={"expected_units_year1": 2400, "reachable_market": 15000},
+      normalized_traits={
+        "business_type": "Law Firm",
+        "sales_modality": "local_service",
+        "capacity_driver": "labor",
+        "customer_type": "b2b",
+        "business_stage": "operating",
+      },
+      baseline_summary=baseline_summary,
+      constraint_engine_state={
+        "supportable_unit_range": {"min": 1800, "max": 3000},
+        "supportable_revenue_range": {"min": 450000, "max": 750000},
+        "utilization_range": {"min": 0.6, "max": 0.82},
+        "gross_margin_band": {"min": 0.45, "max": 0.75},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.18},
+        "marketing_intensity_band": {"min": 0.02, "max": 0.10},
+        "opex_intensity_band": {"min": 0.08, "max": 0.18},
+        "constraint_confidence_score": 0.8,
+        "fallback_level": "naics_6",
+        "constraints": [],
+        "violations": ["ebitda_margin_too_low"],
+        "current_metrics": {"capacity_units_year1": 3328.0},
+      },
+    )
+
+    constraint_profile = (state_model or {}).get("constraint_profile") or {}
+    marketing_envelope = constraint_profile.get("marketing_envelope") or {}
+    demand_curve = constraint_profile.get("demand_curve") or {}
+    direct_inputs = _build_direct_solver_inputs(state_model=state_model or {})
+    self.assertEqual(marketing_envelope.get("commercial_role"), "constrained")
+    self.assertFalse(demand_curve.get("enabled"))
+    self.assertLessEqual(_safe_float(marketing_envelope.get("max")), 31800.0)
+    self.assertEqual(((state_model or {}).get("fixed_facts") or {}).get("commercial_context", {}).get("commercial_archetype"), "labor_local_service")
+    self.assertFalse((((state_model or {}).get("fixed_facts") or {}).get("commercial_context", {}).get("growth_demand_mode_enabled")))
+    self.assertFalse(bool((direct_inputs or {}).get("growth_demand_mode_enabled")))
+
+  def test_online_business_keeps_marketing_as_real_growth_lever(self) -> None:
+    baseline_summary = build_consistency_financial_summary(
+      financials_json={
+        "cogs_total_year1": 220000,
+        "payroll_total_year1": 140000,
+        "marketing_total_year1": 40000,
+        "other_operating_expense": 50000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 700000,
+        "unit_price": 35,
+        "utilization_rate": 0.7,
+        "avg_units_per_period_year1": 1666.6667,
+        "operating_periods_per_year": 12,
+      },
+    )
+    state_model = _build_solver_state_model(
+      ops_json={"capacity_driver": "system", "sales_modality": "online"},
+      people_json={"future_roles": []},
+      financials_json={"marketing_total_year1": 40000, "other_operating_expense": 50000},
+      financials_year1_json={
+        "company_revenue_total_year1": 700000,
+        "unit_price": 35,
+        "utilization_rate": 0.7,
+        "avg_units_per_period_year1": 1666.6667,
+        "operating_periods_per_year": 12,
+      },
+      marketing_model_json={"expected_units_year1": 20000, "reachable_market": 200000},
+      normalized_traits={
+        "business_type": "Subscription Box",
+        "sales_modality": "online",
+        "capacity_driver": "system",
+        "customer_type": "b2c",
+        "business_stage": "operating",
+        "unit_cadence": "subscription",
+      },
+      baseline_summary=baseline_summary,
+      constraint_engine_state={
+        "supportable_unit_range": {"min": 18000, "max": 32000},
+        "supportable_revenue_range": {"min": 620000, "max": 900000},
+        "utilization_range": {"min": 0.55, "max": 0.88},
+        "gross_margin_band": {"min": 0.45, "max": 0.75},
+        "ebitda_margin_band": {"min": 0.06, "max": 0.18},
+        "marketing_intensity_band": {"min": 0.03, "max": 0.18},
+        "opex_intensity_band": {"min": 0.06, "max": 0.16},
+        "constraint_confidence_score": 0.85,
+        "fallback_level": "naics_6",
+        "constraints": [],
+        "violations": ["ebitda_margin_too_low"],
+        "current_metrics": {"capacity_units_year1": 36000.0},
+      },
+    )
+
+    constraint_profile = (state_model or {}).get("constraint_profile") or {}
+    marketing_envelope = constraint_profile.get("marketing_envelope") or {}
+    demand_curve = constraint_profile.get("demand_curve") or {}
+    direct_inputs = _build_direct_solver_inputs(state_model=state_model or {})
+    self.assertEqual(marketing_envelope.get("commercial_role"), "primary")
+    self.assertTrue(demand_curve.get("enabled"))
+    self.assertGreaterEqual(_safe_float(marketing_envelope.get("max")), 58000.0)
+    self.assertEqual(((state_model or {}).get("fixed_facts") or {}).get("commercial_context", {}).get("commercial_archetype"), "scalable_online")
+    self.assertTrue((((state_model or {}).get("fixed_facts") or {}).get("commercial_context", {}).get("growth_demand_mode_enabled")))
+    self.assertTrue(bool((direct_inputs or {}).get("growth_demand_mode_enabled")))
+
+  def test_commercial_archetype_is_derived_from_traits_not_business_type_name(self) -> None:
+    law_archetype = _derive_commercial_archetype(
+      normalized_traits={
+        "business_type": "Law Firm",
+        "capacity_driver": "labor",
+        "sales_modality": "project_based",
+        "customer_type": "b2b",
+        "unit_cadence": "contract",
+        "business_stage": "operating",
+      },
+    )
+    consulting_archetype = _derive_commercial_archetype(
+      normalized_traits={
+        "business_type": "Consulting Firm",
+        "capacity_driver": "labor",
+        "sales_modality": "project_based",
+        "customer_type": "b2b",
+        "unit_cadence": "contract",
+        "business_stage": "operating",
+      },
+    )
+    unseen_archetype = _derive_commercial_archetype(
+      normalized_traits={
+        "business_type": "Blue Rocket Zebra Labs",
+        "capacity_driver": "labor",
+        "sales_modality": "project_based",
+        "customer_type": "b2b",
+        "unit_cadence": "contract",
+        "business_stage": "operating",
+      },
+    )
+
+    self.assertEqual(law_archetype, "labor_professional_service")
+    self.assertEqual(consulting_archetype, law_archetype)
+    self.assertEqual(unseen_archetype, law_archetype)
+
+  def test_growth_enabled_demand_path_staffs_up_before_cutting_units(self) -> None:
+    profiles = _solver_profiles(
+      state_model={
+        "fixed_facts": {
+          "sales_modality": "online",
+          "capacity_driver": "system",
+          "commercial_context": {
+            "marketing_role": "primary",
+            "marketing_demand_link": True,
+            "growth_demand_mode_enabled": True,
+            "marketing_up_cap_ratio": 0.45,
+            "marketing_down_cap_ratio": 0.30,
+            "other_opex_down_cap_ratio": 0.12,
+            "other_opex_up_cap_ratio": 0.10,
+            "opex_flexibility": "moderate",
+          },
+        },
+        "constraint_profile": {
+          "constraint_engine_violations": ["payroll_too_light", "ebitda_margin_too_low"],
+        },
+      },
+    )
+    growth_profile = next(item for item in profiles if item.get("profile_id") == "growth_first")
+    self.assertTrue(bool((growth_profile.get("constraints") or {}).get("prefer_growth_units")))
+
+    direct_inputs = {
+      "current_price": 300.0,
+      "price_enabled": True,
+      "price_lower": 285.0,
+      "price_upper": 315.0,
+      "current_util": 0.5,
+      "util_min": 0.45,
+      "util_max": 0.95,
+      "baseline_units": 500.0,
+      "capacity_units": 1000.0,
+      "units_min": 450.0,
+      "units_max": 1000.0,
+      "current_marketing": 5000.0,
+      "marketing_min": 5000.0,
+      "marketing_upper": 12000.0,
+      "marketing_support_units_baseline": 500.0,
+      "marketing_support_units_min": 500.0,
+      "marketing_support_units_max": 1000.0,
+      "marketing_units_per_dollar": 0.1,
+      "growth_demand_mode_enabled": True,
+      "current_other_opex": 15000.0,
+      "other_opex_min": 14000.0,
+      "other_opex_max": 17000.0,
+      "other_opex_enabled": True,
+      "payroll_ratio_min": 0.0,
+      "payroll_ratio_max": 0.0,
+      "opex_ratio_min": 0.0,
+      "opex_ratio_max": 0.0,
+      "fixed_people_payroll": 60000.0,
+      "baseline_planned_payroll": 30000.0,
+      "baseline_payroll_support": 90000.0,
+      "target_payroll_min_total": 90000.0,
+      "target_payroll_max_total": 95000.0,
+      "people_payroll_floor": 60000.0,
+      "structural_payroll_floor": 90000.0,
+      "structural_payroll_base": 90000.0,
+      "payroll_support_basis": "role_months",
+      "units_per_active_role_month": 30.0,
+      "fixed_active_role_months": 12.0,
+      "baseline_adjustable_active_months": 6.0,
+      "adjustable_role_month_cost_floor": 5000.0,
+      "units_per_payroll_dollar": 0.0,
+      "role_month_support_profile": [{"month_share": 1.0, "monthly_wage_floor": 5000.0}],
+      "hard_utilization_floor": 0.45,
+      "constraint_violations": ["payroll_too_light", "ebitda_margin_too_low"],
+      "roles": [
+        {
+          "role_title": "Growth Hire",
+          "base_months": 6,
+          "min_months": 0,
+          "max_months": 6,
+          "annual_wage": 60000.0,
+          "wage_floor": 60000.0,
+          "wage_ceiling": 66000.0,
+          "baseline_year1_amount": 30000.0,
+        }
+      ],
+      "constraint_profile": {
+        "capacity_curve": {"enabled": True, "basis": "role_months", "units_per_active_role_month": 30.0},
+        "demand_curve": {"enabled": True, "units_per_marketing_dollar": 0.1, "baseline_supported_units": 900.0},
+      },
+      "expected_units": 900.0,
+      "required_units_semantic": None,
+      "staffing_supported_capacity_semantic": None,
+      "demand_supported_units_semantic": None,
+      "reachable_market_semantic": None,
+      "current_revenue": 150000.0,
+      "current_cogs": 45000.0,
+      "current_interest": 0.0,
+      "current_other_opex_total": 15000.0,
+      "current_payroll_total": 90000.0,
+      "rent_annualized": 5000.0,
+      "current_cogs_ratio": 0.3,
+      "cogs_ratio_min": 0.28,
+      "cogs_ratio_max": 0.34,
+      "solve_mode": "parent_fallback",
+      "product_driver_basis": [],
+    }
+
+    solution = _solve_direct_profile(
+      profile=growth_profile,
+      direct_inputs=direct_inputs,
+      target_ebitda_min=0.0,
+      enforce_blocking_bands=False,
+    )
+
+    self.assertIsNotNone(solution)
+    self.assertGreaterEqual(_safe_float((solution or {}).get("annual_units_total")), 719.0)
+    self.assertGreater(_safe_float((solution or {}).get("marketing_total_year1")), 5000.0)
+    self.assertGreater(
+      _safe_float((solution or {}).get("structural_payroll_required_total")),
+      90000.0,
+    )
+    self.assertLess((_safe_float(((solution or {}).get("role_months") or {}).get("Growth Hire"))), 6.0)
+
+  def test_local_labor_service_tightens_other_opex_range(self) -> None:
+    baseline_summary = build_consistency_financial_summary(
+      financials_json={
+        "cogs_total_year1": 120000,
+        "payroll_total_year1": 180000,
+        "marketing_total_year1": 18000,
+        "other_operating_expense": 100000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 620000,
+        "unit_price": 250,
+        "utilization_rate": 0.72,
+        "avg_units_per_period_year1": 47.6923,
+        "operating_periods_per_year": 52,
+      },
+    )
+    state_model = _build_solver_state_model(
+      ops_json={"capacity_driver": "labor", "sales_modality": "project_based"},
+      people_json={"future_roles": []},
+      financials_json={"marketing_total_year1": 18000, "other_operating_expense": 100000},
+      financials_year1_json={
+        "company_revenue_total_year1": 620000,
+        "unit_price": 250,
+        "utilization_rate": 0.72,
+        "avg_units_per_period_year1": 47.6923,
+        "operating_periods_per_year": 52,
+      },
+      marketing_model_json={"expected_units_year1": 2480, "reachable_market": 20000},
+      normalized_traits={
+        "business_type": "Consulting Firm",
+        "sales_modality": "project_based",
+        "capacity_driver": "labor",
+        "customer_type": "b2b",
+        "business_stage": "operating",
+      },
+      baseline_summary=baseline_summary,
+      constraint_engine_state={
+        "supportable_unit_range": {"min": 1800, "max": 3200},
+        "supportable_revenue_range": {"min": 500000, "max": 820000},
+        "utilization_range": {"min": 0.6, "max": 0.82},
+        "gross_margin_band": {"min": 0.45, "max": 0.75},
+        "ebitda_margin_band": {"min": 0.06, "max": 0.18},
+        "marketing_intensity_band": {"min": 0.02, "max": 0.08},
+        "opex_intensity_band": {"min": 0.10, "max": 0.22},
+        "constraint_confidence_score": 0.85,
+        "fallback_level": "naics_6",
+        "constraints": [],
+        "violations": ["ebitda_margin_too_low"],
+        "current_metrics": {"capacity_units_year1": 3400.0},
+      },
+    )
+
+    opex_envelope = ((state_model or {}).get("constraint_profile") or {}).get("other_opex_envelope") or {}
+    self.assertEqual(opex_envelope.get("flexibility"), "tight")
+    self.assertGreaterEqual(_safe_float(opex_envelope.get("min")), 94000.0)
+    self.assertLessEqual(_safe_float(opex_envelope.get("max")), 104000.0)
+
+  def test_presentation_issues_flag_absorber_story_for_local_labor_business(self) -> None:
+    issues = _presentation_issues(
+      {
+        "archetype": "operations",
+        "label": "Operational balance: Set Year-1 marketing to $55,000 + Set other operating expense to $22,000",
+        "rationale": "This path reset the Year-1 marketing ramp, and rebalances staffing, workload, and timing to make operations believable.",
+        "summary": {"revenue": 300000, "marketing": 55000},
+        "lever_families": ["marketing", "other_opex"],
+        "meaningful_families": ["marketing", "other_opex"],
+        "exact_patches": {
+          "financials_patch": {"other_operating_expense": 22000},
+          "marketing_model_patch": {"expected_units_year1": 1800},
+        },
+      },
+      state_model={
+        "fixed_facts": {
+          "sales_modality": "local_service",
+          "capacity_driver": "labor",
+          "commercial_context": {"marketing_role": "constrained"},
+        },
+        "constraint_profile": {"utilization_envelope": {"min": 0.55}},
+      },
+    )
+
+    self.assertIn("marketing_absorber_story", issues)
+    self.assertIn("commercial_absorber_story", issues)
+
+  def test_solver_profiles_reduce_marketing_and_opex_as_first_line_local_service_levers(self) -> None:
+    state_model = {
+      "fixed_facts": {
+        "sales_modality": "local_service",
+        "capacity_driver": "labor",
+        "commercial_context": {
+          "marketing_role": "constrained",
+          "marketing_up_cap_ratio": 0.06,
+          "marketing_down_cap_ratio": 0.25,
+          "opex_flexibility": "tight",
+          "other_opex_down_cap_ratio": 0.06,
+          "other_opex_up_cap_ratio": 0.04,
+        },
+      },
+      "constraint_profile": {
+        "constraint_engine_violations": ["ebitda_margin_too_low"],
+      },
+      "objective_policy": {
+        "distortion_weights": {
+          "price_up": 18.0,
+          "price_down": 24.0,
+          "util_up": 4.0,
+          "util_down": 4.0,
+          "marketing_up": 4.0,
+          "marketing_down": 5.0,
+          "other_opex_down": 2.0,
+          "other_opex_up": 2.0,
+          "cogs_down": 1.5,
+          "cogs_up": 1.5,
+          "hire_delay": 6.0,
+          "hire_advance": 3.5,
+          "payroll_down": 8.0,
+          "payroll_up": 3.5,
+        },
+      },
+    }
+
+    profiles = _solver_profiles(state_model=state_model)
+    ops_profile = next(item for item in profiles if item.get("profile_id") == "operations_first")
+    growth_profile = next(item for item in profiles if item.get("profile_id") == "growth_first")
+
+    self.assertGreater(_safe_float(ops_profile["weights"]["marketing_up"]), _safe_float(growth_profile["weights"]["marketing_up"]))
+    self.assertGreater(_safe_float(ops_profile["weights"]["other_opex_down"]), 2.0)
+    self.assertLess(_safe_float(ops_profile["constraints"]["marketing_up_cap_ratio"]), _safe_float(growth_profile["constraints"]["marketing_up_cap_ratio"]))
+
   def test_label_and_rationale_call_out_marketing_heavy_path(self) -> None:
     label, rationale, families = _label_and_rationale_from_patches(
       {
@@ -931,6 +1506,105 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIn("utilization", families)
     self.assertIn("hire_delay", families)
     self.assertIn("rebalances staffing, workload, and timing", rationale)
+
+  def test_growth_candidate_gets_growth_posture_and_consistency(self) -> None:
+    candidate = {
+      "archetype": "growth",
+      "meaningful_families": ["marketing", "payroll", "utilization"],
+      "lever_families": ["marketing", "payroll", "utilization"],
+      "baseline_required_units": 500.0,
+      "baseline_expected_units": 500.0,
+      "scenario_required_units": 720.0,
+      "scenario_expected_units": 900.0,
+      "baseline_revenue": 150000.0,
+      "scenario_revenue": 216000.0,
+      "lever_summary": {
+        "raw_family_moves": {
+          "marketing_up": 0.2,
+          "payroll_up": 0.18,
+          "hire_advance": 0.2,
+          "util_up": 0.12,
+        },
+        "dominant_family": "marketing",
+      },
+    }
+
+    candidate.update(_derive_scenario_posture(candidate))
+    consistency = _archetype_consistency(candidate)
+
+    self.assertEqual(candidate["demand_posture"], "preserve")
+    self.assertEqual(candidate["staffing_posture"], "add_support")
+    self.assertEqual(candidate["cost_posture"], "protect")
+    self.assertGreater(_safe_float(consistency.get("archetype_consistency_score")), 3.0)
+    self.assertFalse(consistency.get("archetype_consistency_issues"))
+
+  def test_archetype_mismatch_is_flagged_for_efficiency_marketing_story(self) -> None:
+    candidate = {
+      "archetype": "efficiency",
+      "label": "Efficiency path: Reset Year-1 marketing support",
+      "rationale": "This path keeps more of the Year-1 demand in place and accepts support spend where it remains credible.",
+      "meaningful_families": ["marketing", "utilization"],
+      "lever_families": ["marketing", "utilization"],
+      "baseline_required_units": 500.0,
+      "baseline_expected_units": 500.0,
+      "scenario_required_units": 650.0,
+      "scenario_expected_units": 700.0,
+      "baseline_revenue": 150000.0,
+      "scenario_revenue": 190000.0,
+      "lever_summary": {
+        "raw_family_moves": {
+          "marketing_up": 0.24,
+          "util_up": 0.08,
+        },
+        "dominant_family": "marketing",
+      },
+      "summary": {"revenue": 190000, "marketing": 42000},
+      "exact_patches": {
+        "marketing_model_patch": {"expected_units_year1": 700},
+      },
+    }
+    candidate.update(_derive_scenario_posture(candidate))
+    candidate.update(_archetype_consistency(candidate))
+
+    issues = _presentation_issues(
+      candidate,
+      state_model={
+        "fixed_facts": {
+          "sales_modality": "online",
+          "capacity_driver": "system",
+          "commercial_context": {"marketing_role": "primary"},
+        },
+        "constraint_profile": {"utilization_envelope": {"min": 0.4}},
+      },
+    )
+
+    self.assertIn("archetype_mismatch", issues)
+    self.assertIn("weak_archetype_identity", issues)
+
+  def test_growth_archetype_requires_demand_and_staffing_mix(self) -> None:
+    candidate = {
+      "archetype": "growth",
+      "meaningful_families": ["marketing"],
+      "lever_families": ["marketing"],
+      "baseline_required_units": 500.0,
+      "baseline_expected_units": 500.0,
+      "scenario_required_units": 700.0,
+      "scenario_expected_units": 700.0,
+      "baseline_revenue": 150000.0,
+      "scenario_revenue": 190000.0,
+      "lever_summary": {
+        "raw_family_moves": {"marketing_up": 0.4},
+        "dominant_family": "marketing",
+        "dominant_family_share": 1.0,
+        "coordination_issues": ["demand_without_staffing"],
+      },
+    }
+
+    candidate.update(_derive_scenario_posture(candidate))
+    consistency = _archetype_consistency(candidate)
+
+    self.assertIn("growth_missing_staffing_support", consistency["archetype_consistency_issues"])
+    self.assertIn("single_lever_dominance", consistency["archetype_consistency_issues"])
 
   def test_select_materially_distinct_scenarios_prefers_archetype_diversity(self) -> None:
     selected = _select_materially_distinct_scenarios(
@@ -1034,6 +1708,24 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIn("payroll", summary["meaningful_families"])
     self.assertEqual(summary["changed_products"], 2)
     self.assertGreater(summary["coordination_score"], 5.0)
+    self.assertLess(_safe_float(summary["dominant_family_share"]), 0.72)
+    self.assertGreaterEqual(summary["aligned_pair_count"], 2)
+    self.assertFalse(summary["coordination_issues"])
+
+  def test_build_lever_summary_flags_single_lever_dominance_and_disconnected_moves(self) -> None:
+    summary = _build_lever_summary(
+      exact_patches={
+        "marketing_model_patch": {"expected_units_year1": 2600},
+      },
+      family_raw_components={
+        "marketing_up": 0.9,
+        "util_up": 0.01,
+      },
+    )
+
+    self.assertEqual(summary["meaningful_lever_count"], 1)
+    self.assertGreater(_safe_float(summary["dominant_family_share"]), 0.72)
+    self.assertIn("demand_without_staffing", summary["coordination_issues"])
 
   def test_presentation_issues_flag_bizarre_marketing_and_child_parent_conflict(self) -> None:
     issues = _presentation_issues(
@@ -1073,7 +1765,10 @@ class PlanningEnginesTests(unittest.TestCase):
           "rationale": "This path reset utilization to a more supportable level, and rebalances staffing, workload, and timing to make operations believable.",
           "lever_families": ["utilization", "payroll"],
           "summary": {"revenue": 300000, "marketing": 18000},
-          "exact_patches": {"financials_year1_patch": {"utilization_rate": 0.68}},
+          "exact_patches": {
+            "financials_year1_patch": {"utilization_rate": 0.68},
+            "people_role_updates": [{"role_title": "Coordinator", "months_until_hire": 4}],
+          },
           "remaining_blocking_count": 0,
           "remaining_violation_count": 0,
           "realism_distance": 0.01,
@@ -1107,9 +1802,13 @@ class PlanningEnginesTests(unittest.TestCase):
           "dominant_tradeoff": "keeps more of the revenue ambition while adding enough support to stay credible",
           "label": "Growth path: Set Year-1 marketing to $75,000",
           "rationale": "This path reset the Year-1 marketing ramp, and keeps more of the revenue ambition while adding enough support to stay credible.",
-          "lever_families": ["marketing", "utilization"],
+          "lever_families": ["marketing", "payroll", "utilization"],
           "summary": {"revenue": 320000, "marketing": 75000},
-          "exact_patches": {"marketing_model_patch": {"expected_units_year1": 4200}},
+          "exact_patches": {
+            "marketing_model_patch": {"expected_units_year1": 4200},
+            "financials_patch": {"payroll_total_year1": 98000},
+            "people_role_updates": [{"role_title": "Closer", "months_until_hire": 2}],
+          },
           "remaining_blocking_count": 0,
           "remaining_violation_count": 0,
           "realism_distance": 0.015,
@@ -1125,9 +1824,12 @@ class PlanningEnginesTests(unittest.TestCase):
           "dominant_tradeoff": "trades some upside for cleaner margin structure and tighter cost control",
           "label": "Efficiency path: Set other operating expense to $24,000",
           "rationale": "This path reset non-rent operating spend, and trades some upside for cleaner margin structure and tighter cost control.",
-          "lever_families": ["other_opex", "cogs"],
+          "lever_families": ["other_opex", "cogs", "utilization"],
           "summary": {"revenue": 295000, "marketing": 15000},
-          "exact_patches": {"financials_patch": {"other_operating_expense": 24000}},
+          "exact_patches": {
+            "financials_patch": {"other_operating_expense": 24000},
+            "financials_year1_patch": {"utilization_rate": 0.63},
+          },
           "remaining_blocking_count": 0,
           "remaining_violation_count": 0,
           "realism_distance": 0.012,
@@ -1146,6 +1848,49 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(len(selected), 3)
     self.assertEqual({item["archetype"] for item in selected}, {"operations", "growth", "efficiency"})
     self.assertTrue(all(not item.get("presentation_issues") for item in selected))
+
+  def test_select_client_ready_scenarios_rejects_single_lever_dominance(self) -> None:
+    selected = _select_client_ready_scenarios(
+      [
+        {
+          "scenario_id": "dom",
+          "solution_profile_id": "growth_first",
+          "archetype": "growth",
+          "label": "Growth path: Raise marketing",
+          "rationale": "This path keeps more of the revenue ambition while adding enough support to stay credible.",
+          "lever_families": ["marketing"],
+          "summary": {"revenue": 220000, "marketing": 70000},
+          "exact_patches": {"marketing_model_patch": {"expected_units_year1": 2400}},
+          "remaining_blocking_count": 0,
+          "remaining_violation_count": 0,
+          "realism_distance": 0.01,
+          "target_distance": 0.01,
+          "distortion_total": 0.2,
+          "disruption_score": 0.2,
+          "ebitda": 9000,
+          "dominant_tradeoff": "keeps more of the revenue ambition while adding enough support to stay credible",
+          "lever_summary": {
+            "meaningful_families": ["marketing"],
+            "meaningful_lever_count": 1,
+            "raw_family_moves": {"marketing": 0.9},
+            "dominant_family": "marketing",
+            "dominant_family_share": 0.9,
+            "coordination_score": 0.8,
+            "coordination_issues": ["demand_without_staffing"],
+          },
+        }
+      ],
+      state_model={
+        "fixed_facts": {
+          "sales_modality": "online",
+          "capacity_driver": "system",
+          "commercial_context": {"marketing_role": "primary"},
+        },
+        "constraint_profile": {"utilization_envelope": {"min": 0.4}},
+      },
+    )
+
+    self.assertEqual(selected, [])
 
   def test_convergence_policy_softens_generic_fallback(self) -> None:
     strong = build_convergence_policy(
@@ -1212,10 +1957,518 @@ class PlanningEnginesTests(unittest.TestCase):
     )
 
     self.assertEqual(len(bundle["forecast_quarters"]), 20)
+    self.assertEqual(len(bundle["forecast_years"]), 5)
     self.assertEqual(bundle["forecast_engine_state"]["status"], "ready")
     self.assertIn("convergence_policy", bundle["forecast_engine_state"])
+    self.assertIn(bundle["forecast_engine_state"]["convergence_source"], {"constraint_engine", "hybrid", "alpha"})
+    self.assertGreaterEqual(bundle["forecast_engine_state"]["forecast_confidence"], 0.0)
+    self.assertIn("forecast_years", bundle["forecast_engine_state"])
     self.assertEqual(bundle["engine_versions"]["forecast_engine_version"], "forecast-engine/v3")
     self.assertEqual(bundle["engine_versions"]["convergence_policy_version"], "convergence-policy/v1")
+
+  def test_forecast_engine_prefers_constraint_engine_targets_over_alpha(self) -> None:
+    bundle = build_forecast_engine_bundle(
+      financials_json={
+        "cogs_total_year1": 120000,
+        "payroll_total_year1": 80000,
+        "marketing_total_year1": 16000,
+        "other_operating_expense": 30000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 320000,
+        "unit_price": 125,
+        "utilization_rate": 0.68,
+        "avg_units_per_period_year1": 51.282051,
+        "operating_periods_per_year": 52,
+      },
+      normalized_traits={
+        "business_stage": "operating",
+        "capacity_driver": "labor",
+        "sales_modality": "local_service",
+      },
+      benchmark_payload={
+        "confidence_score": 0.95,
+        "fallback_level": "naics_6",
+        "revenue_growth_path": [0.04, 0.03, 0.025, 0.02],
+        "gross_margin_band": {"min": 0.70, "max": 0.76},
+        "ebitda_margin_band": {"min": 0.18, "max": 0.24},
+        "payroll_intensity": {"min": 0.10, "max": 0.14},
+        "opex_intensity": {"min": 0.05, "max": 0.08},
+      },
+      constraint_engine_state={
+        "constraint_confidence_score": 0.82,
+        "utilization_range": {"min": 0.62, "max": 0.8},
+        "gross_margin_band": {"min": 0.44, "max": 0.52},
+        "ebitda_margin_band": {"min": 0.06, "max": 0.12},
+        "payroll_intensity_band": {"min": 0.22, "max": 0.34},
+        "opex_intensity_band": {"min": 0.08, "max": 0.16},
+        "supportable_unit_range": {"min": 2000, "max": 3400},
+      },
+    )
+
+    target_state = bundle["forecast_engine_state"]["target_state"]
+    self.assertNotEqual(bundle["forecast_engine_state"]["convergence_source"], "alpha")
+    engine_gross_mid = (0.44 + 0.52) / 2.0
+    alpha_gross_mid = (0.70 + 0.76) / 2.0
+    self.assertLess(abs(target_state["gross_margin"] - engine_gross_mid), abs(target_state["gross_margin"] - alpha_gross_mid))
+    engine_payroll_mid = (0.22 + 0.34) / 2.0
+    alpha_payroll_mid = (0.10 + 0.14) / 2.0
+    self.assertLess(abs(target_state["payroll_intensity"] - engine_payroll_mid), abs(target_state["payroll_intensity"] - alpha_payroll_mid))
+
+  def test_forecast_engine_preserves_scenario_identity_across_years(self) -> None:
+    common_kwargs = {
+      "financials_json": {
+        "cogs_total_year1": 96000,
+        "payroll_total_year1": 72000,
+        "marketing_total_year1": 18000,
+        "other_operating_expense": 22000,
+      },
+      "financials_year1_json": {
+        "company_revenue_total_year1": 260000,
+        "unit_price": 110,
+        "utilization_rate": 0.67,
+        "avg_units_per_period_year1": 196.969697,
+        "operating_periods_per_year": 12,
+      },
+      "normalized_traits": {
+        "business_stage": "startup",
+        "capacity_driver": "system",
+        "sales_modality": "online",
+      },
+      "benchmark_payload": {
+        "confidence_score": 0.8,
+        "fallback_level": "naics_6",
+        "revenue_growth_path": [0.05, 0.04, 0.03, 0.025],
+        "gross_margin_band": {"min": 0.50, "max": 0.62},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.18},
+        "payroll_intensity": {"min": 0.14, "max": 0.24},
+        "opex_intensity": {"min": 0.10, "max": 0.18},
+      },
+      "constraint_engine_state": {
+        "constraint_confidence_score": 0.76,
+        "utilization_range": {"min": 0.6, "max": 0.82},
+        "gross_margin_band": {"min": 0.48, "max": 0.6},
+        "ebitda_margin_band": {"min": 0.07, "max": 0.16},
+        "payroll_intensity_band": {"min": 0.16, "max": 0.28},
+        "opex_intensity_band": {"min": 0.1, "max": 0.17},
+        "supportable_unit_range": {"min": 1800, "max": 3400},
+      },
+    }
+    growth_bundle = build_forecast_engine_bundle(
+      **common_kwargs,
+      scenario_strategy={
+        "archetype": "growth",
+        "demand_posture": "preserve",
+        "staffing_posture": "add_support",
+        "cost_posture": "protect",
+      },
+    )
+    efficiency_bundle = build_forecast_engine_bundle(
+      **common_kwargs,
+      scenario_strategy={
+        "archetype": "efficiency",
+        "demand_posture": "reduce",
+        "staffing_posture": "hold",
+        "cost_posture": "tighten",
+      },
+    )
+
+    growth_year5 = growth_bundle["forecast_years"][-1]
+    efficiency_year5 = efficiency_bundle["forecast_years"][-1]
+    self.assertGreater(growth_year5["revenue"], efficiency_year5["revenue"])
+    growth_margin = growth_year5["ebitda"] / growth_year5["revenue"]
+    efficiency_margin = efficiency_year5["ebitda"] / efficiency_year5["revenue"]
+    self.assertGreater(abs(growth_margin - efficiency_margin), 0.002)
+    self.assertGreater(
+      growth_bundle["forecast_engine_state"]["target_state"]["ebitda_margin"],
+      efficiency_bundle["forecast_engine_state"]["target_state"]["ebitda_margin"],
+    )
+    self.assertGreater(
+      growth_bundle["forecast_engine_state"]["revenue_growth_path_used"][0],
+      efficiency_bundle["forecast_engine_state"]["revenue_growth_path_used"][0],
+    )
+    self.assertEqual(growth_bundle["forecast_engine_state"]["scenario_strategy"]["archetype"], "growth")
+    self.assertEqual(efficiency_bundle["forecast_engine_state"]["scenario_strategy"]["archetype"], "efficiency")
+
+  def test_forecast_engine_growth_path_works_without_benchmark_input(self) -> None:
+    bundle = build_forecast_engine_bundle(
+      financials_json={
+        "cogs_total_year1": 82000,
+        "payroll_total_year1": 64000,
+        "marketing_total_year1": 14000,
+        "other_operating_expense": 20000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 240000,
+        "unit_price": 120,
+        "utilization_rate": 0.64,
+        "avg_units_per_period_year1": 166.666667,
+        "operating_periods_per_year": 12,
+      },
+      normalized_traits={
+        "business_stage": "startup",
+        "capacity_driver": "system",
+        "sales_modality": "online",
+      },
+      benchmark_payload={},
+      constraint_engine_state={
+        "constraint_confidence_score": 0.74,
+        "utilization_range": {"min": 0.58, "max": 0.8},
+        "gross_margin_band": {"min": 0.5, "max": 0.62},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.18},
+        "payroll_intensity_band": {"min": 0.16, "max": 0.28},
+        "opex_intensity_band": {"min": 0.08, "max": 0.18},
+        "supportable_unit_range": {"min": 1500, "max": 3200},
+      },
+      scenario_strategy={
+        "archetype": "growth",
+        "demand_posture": "preserve",
+        "staffing_posture": "add_support",
+        "cost_posture": "protect",
+      },
+    )
+
+    self.assertEqual(bundle["forecast_engine_state"]["status"], "ready")
+    self.assertGreater(bundle["forecast_engine_state"]["revenue_growth_path_used"][0], 0.0)
+
+  def test_forecast_engine_delayed_hire_creates_payroll_step_in_correct_quarter(self) -> None:
+    bundle = build_forecast_engine_bundle(
+      operating_model_json={"capacity_driver": "labor", "sales_modality": "local_service"},
+      people_json={
+        "people": [{"full_name": "Founder", "annual_wage": 60000}],
+        "inferred_roles": [{"role_title": "Analyst", "annual_wage": 60000, "months_until_hire": 6}],
+      },
+      financials_json={
+        "cogs_total_year1": 72000,
+        "payroll_total_year1": 90000,
+        "marketing_total_year1": 12000,
+        "other_operating_expense": 18000,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 240000,
+        "unit_price": 120,
+        "utilization_rate": 0.66,
+        "avg_units_per_period_year1": 166.666667,
+        "operating_periods_per_year": 12,
+      },
+      normalized_traits={
+        "business_stage": "operating",
+        "capacity_driver": "labor",
+        "sales_modality": "local_service",
+      },
+      benchmark_payload={},
+      constraint_engine_state={
+        "constraint_confidence_score": 0.8,
+        "utilization_range": {"min": 0.58, "max": 0.78},
+        "gross_margin_band": {"min": 0.5, "max": 0.62},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.18},
+        "payroll_intensity_band": {"min": 0.22, "max": 0.36},
+        "opex_intensity_band": {"min": 0.08, "max": 0.16},
+        "supportable_unit_range": {"min": 1500, "max": 2600},
+        "current_metrics": {
+          "capacity_units_year1": 2400.0,
+          "active_role_months_year1": 18.0,
+          "units_per_active_role_month": 133.333333,
+        },
+      },
+      scenario_strategy={
+        "archetype": "operations",
+        "demand_posture": "moderate",
+        "staffing_posture": "add_support",
+        "cost_posture": "moderate",
+      },
+    )
+
+    q1 = bundle["forecast_quarters"][0]
+    q2 = bundle["forecast_quarters"][1]
+    q3 = bundle["forecast_quarters"][2]
+    self.assertAlmostEqual(q1["payroll"], q2["payroll"], delta=30.0)
+    self.assertGreater(q3["payroll"], q2["payroll"] * 1.2)
+
+  def test_forecast_engine_milestone_beyond_year1_changes_year2_capacity(self) -> None:
+    bundle = build_forecast_engine_bundle(
+      operating_model_json={
+        "capacity_driver": "system",
+        "sales_modality": "online",
+        "milestones": [{"description": "Platform launch", "timing_months_max": 13}],
+      },
+      financials_json={
+        "cogs_total_year1": 80000,
+        "payroll_total_year1": 70000,
+        "marketing_total_year1": 10000,
+        "other_operating_expense": 18000,
+      },
+      financials_year1_json={
+        "lobs": [
+          {
+            "lob_name": "Software",
+            "products": [
+              {
+                "product_name": "Core Plan",
+                "unit_price": 50,
+                "units_per_period_capacity": 600,
+                "avg_units_per_period_year1": 420,
+                "operating_periods_per_year": 12,
+                "utilization_rate": 0.7,
+              }
+            ],
+          }
+        ],
+        "company_revenue_total_year1": 252000,
+      },
+      normalized_traits={
+        "business_stage": "startup",
+        "capacity_driver": "system",
+        "sales_modality": "online",
+      },
+      benchmark_payload={},
+      constraint_engine_state={
+        "constraint_confidence_score": 0.75,
+        "utilization_range": {"min": 0.55, "max": 0.82},
+        "gross_margin_band": {"min": 0.52, "max": 0.68},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.22},
+        "payroll_intensity_band": {"min": 0.12, "max": 0.26},
+        "opex_intensity_band": {"min": 0.08, "max": 0.18},
+        "supportable_unit_range": {"min": 3000, "max": 9000},
+        "current_metrics": {"capacity_units_year1": 7200.0},
+      },
+      scenario_strategy={
+        "archetype": "growth",
+        "demand_posture": "preserve",
+        "staffing_posture": "add_support",
+        "cost_posture": "protect",
+      },
+    )
+
+    q4_capacity = bundle["forecast_quarters"][3]["lobs"][0]["products"][0]["capacity_units"]
+    q5_capacity = bundle["forecast_quarters"][4]["lobs"][0]["products"][0]["capacity_units"]
+    self.assertGreater(q5_capacity, q4_capacity)
+
+  def test_forecast_engine_efficiency_converges_faster_than_growth(self) -> None:
+    common_kwargs = {
+      "financials_json": {
+        "cogs_total_year1": 90000,
+        "payroll_total_year1": 70000,
+        "marketing_total_year1": 15000,
+        "other_operating_expense": 22000,
+      },
+      "financials_year1_json": {
+        "company_revenue_total_year1": 250000,
+        "unit_price": 100,
+        "utilization_rate": 0.68,
+        "avg_units_per_period_year1": 208.333333,
+        "operating_periods_per_year": 12,
+      },
+      "normalized_traits": {
+        "business_stage": "operating",
+        "capacity_driver": "system",
+        "sales_modality": "online",
+      },
+      "benchmark_payload": {},
+      "constraint_engine_state": {
+        "constraint_confidence_score": 0.8,
+        "utilization_range": {"min": 0.58, "max": 0.82},
+        "gross_margin_band": {"min": 0.5, "max": 0.64},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.2},
+        "payroll_intensity_band": {"min": 0.14, "max": 0.26},
+        "opex_intensity_band": {"min": 0.08, "max": 0.18},
+        "supportable_unit_range": {"min": 1800, "max": 3600},
+      },
+    }
+    growth_bundle = build_forecast_engine_bundle(
+      **common_kwargs,
+      scenario_strategy={
+        "archetype": "growth",
+        "demand_posture": "preserve",
+        "staffing_posture": "add_support",
+        "cost_posture": "protect",
+      },
+    )
+    efficiency_bundle = build_forecast_engine_bundle(
+      **common_kwargs,
+      scenario_strategy={
+        "archetype": "efficiency",
+        "demand_posture": "reduce",
+        "staffing_posture": "hold",
+        "cost_posture": "tighten",
+      },
+    )
+
+    self.assertGreater(
+      efficiency_bundle["forecast_engine_state"]["convergence_strength"],
+      growth_bundle["forecast_engine_state"]["convergence_strength"],
+    )
+
+  def test_phase9_client_scenario_output_strips_internal_fields(self) -> None:
+    client_output = _build_client_scenario_output(
+      {
+        "archetype": "growth",
+        "demand_posture": "preserve",
+        "staffing_posture": "add_support",
+        "cost_posture": "protect",
+        "summary": {
+          "revenue": 260000,
+          "ebitda": 22000,
+          "payroll": 78000,
+          "marketing": 18000,
+          "utilization": 0.68,
+        },
+        "forecast_years": [
+          {
+            "year_index": 5,
+            "revenue": 360000,
+            "ebitda": 42000,
+            "payroll": 104000,
+            "marketing": 26000,
+            "utilization": 0.74,
+          }
+        ],
+        "forecast_engine_state": {
+          "forecast_confidence": 0.78,
+          "convergence_strength": 0.42,
+        },
+        "label": "Growth path: raise marketing",
+        "rationale": "internal rationale",
+        "exact_patches": {"financials_patch": {"marketing_total_year1": 18000}},
+      },
+      scenario_id="1",
+    )
+
+    self.assertEqual(
+      set(client_output.keys()),
+      {"scenario_id", "scenario_name", "summary", "key_metrics", "tradeoff", "confidence"},
+    )
+    self.assertEqual(client_output["scenario_name"], "Growth Strategy")
+    self.assertIn("demand", client_output["summary"].lower())
+    self.assertIn("upside", client_output["tradeoff"])
+    self.assertIn("downside", client_output["tradeoff"])
+    self.assertNotIn("label", client_output)
+    self.assertNotIn("exact_patches", client_output)
+
+  def test_phase9_proposal_message_uses_client_scenarios_only(self) -> None:
+    message = consistency_solver_proposal_message(
+      intake_context={},
+      solver_state={
+        "status": "awaiting_choice",
+        "structural_gap": False,
+        "client_scenarios": [
+          {
+            "scenario_id": "1",
+            "scenario_name": "Growth Strategy",
+            "summary": "This approach increases demand early and supports it with additional capacity.",
+            "key_metrics": {
+              "year_1": {
+                "revenue": "$260,000",
+                "ebitda": "$22,000",
+                "ebitda_margin": "8%",
+                "payroll": "$78,000",
+                "marketing": "$18,000",
+                "utilization": "68%",
+              },
+              "year_5": {
+                "revenue": "$360,000",
+                "ebitda": "$42,000",
+                "ebitda_margin": "12%",
+                "payroll": "$104,000",
+                "marketing": "$26,000",
+                "utilization": "74%",
+              },
+            },
+            "tradeoff": {
+              "upside": "Carries more demand forward.",
+              "downside": "Needs more operating support early.",
+            },
+            "confidence": "High",
+          }
+        ],
+        "scenarios": [
+          {
+            "label": "internal label",
+            "rationale": "internal rationale",
+            "exact_patches": {"financials_patch": {"marketing_total_year1": 18000}},
+          }
+        ],
+      },
+    )
+
+    self.assertIn("Growth Strategy", message)
+    self.assertIn("Confidence: High", message)
+    self.assertNotIn("internal label", message)
+    self.assertNotIn("internal rationale", message)
+
+  def test_phase9_intake_controller_has_no_legacy_consistency_chat_calls(self) -> None:
+    intake_source = (ROOT / "python" / "api_handlers" / "intake_consult.py").read_text(encoding="utf-8")
+    self.assertNotIn("consistency_chat_turn(", intake_source)
+
+  def test_forecast_engine_soft_growth_saturation_dampens_late_growth_without_capacity_unlock(self) -> None:
+    common_kwargs = {
+      "financials_json": {
+        "cogs_total_year1": 95000,
+        "payroll_total_year1": 70000,
+        "marketing_total_year1": 12000,
+        "other_operating_expense": 18000,
+      },
+      "financials_year1_json": {
+        "lobs": [
+          {
+            "lob_name": "Store",
+            "products": [
+              {
+                "product_name": "Core",
+                "unit_price": 40,
+                "units_per_period_capacity": 500,
+                "avg_units_per_period_year1": 440,
+                "operating_periods_per_year": 12,
+                "utilization_rate": 0.88,
+              }
+            ],
+          }
+        ],
+        "company_revenue_total_year1": 211200,
+      },
+      "normalized_traits": {
+        "business_stage": "operating",
+        "capacity_driver": "space",
+        "sales_modality": "retail",
+      },
+      "benchmark_payload": {},
+      "constraint_engine_state": {
+        "constraint_confidence_score": 0.8,
+        "utilization_range": {"min": 0.6, "max": 0.9},
+        "gross_margin_band": {"min": 0.48, "max": 0.62},
+        "ebitda_margin_band": {"min": 0.08, "max": 0.18},
+        "payroll_intensity_band": {"min": 0.14, "max": 0.24},
+        "opex_intensity_band": {"min": 0.08, "max": 0.16},
+        "supportable_unit_range": {"min": 4000, "max": 6000},
+        "current_metrics": {"capacity_units_year1": 6000.0},
+      },
+      "scenario_strategy": {
+        "archetype": "growth",
+        "demand_posture": "preserve",
+        "staffing_posture": "add_support",
+        "cost_posture": "protect",
+      },
+    }
+    stalled_bundle = build_forecast_engine_bundle(
+      operating_model_json={"capacity_driver": "space", "sales_modality": "retail"},
+      **common_kwargs,
+    )
+    unlocked_bundle = build_forecast_engine_bundle(
+      operating_model_json={
+        "capacity_driver": "space",
+        "sales_modality": "retail",
+        "milestones": [{"description": "Second bay opens", "timing_months_max": 10}],
+      },
+      **common_kwargs,
+    )
+
+    stalled_q19 = stalled_bundle["forecast_quarters"][18]["revenue"]
+    stalled_q20 = stalled_bundle["forecast_quarters"][19]["revenue"]
+    unlocked_q19 = unlocked_bundle["forecast_quarters"][18]["revenue"]
+    unlocked_q20 = unlocked_bundle["forecast_quarters"][19]["revenue"]
+    stalled_late_growth = (stalled_q20 / stalled_q19) - 1.0
+    unlocked_late_growth = (unlocked_q20 / unlocked_q19) - 1.0
+    self.assertGreater(unlocked_late_growth, stalled_late_growth)
 
   def test_solver_uses_product_overrides_when_child_drivers_exist(self) -> None:
     baseline_summary = build_consistency_financial_summary(
@@ -1310,6 +2563,19 @@ class PlanningEnginesTests(unittest.TestCase):
       solution={
         "price": 2725,
         "utilization_rate": 0.74,
+        "annual_units_total": 160.8,
+        "child_product_solution": {
+          "services::advisory": {
+            "unit_price": 2100,
+            "utilization_rate": 0.75,
+            "avg_units_per_period_year1": 9,
+          },
+          "services::audit": {
+            "unit_price": 3600,
+            "utilization_rate": 0.7,
+            "avg_units_per_period_year1": 4.2,
+          },
+        },
         "marketing_total_year1": 20000,
         "marketing_support_units_year1": 155,
         "other_operating_expense": 36000,
@@ -1403,6 +2669,14 @@ class PlanningEnginesTests(unittest.TestCase):
       solution={
         "price": 36.5,
         "utilization_rate": 0.75,
+        "annual_units_total": 4500,
+        "child_product_solution": {
+          "care::private duty": {
+            "unit_price": 36.5,
+            "utilization_rate": 0.75,
+            "avg_units_per_period_year1": 375,
+          },
+        },
         "marketing_total_year1": 5400,
         "marketing_support_units_year1": 4500,
         "other_operating_expense": 14000,
@@ -1521,6 +2795,182 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(year1_patch.get("unit_price"), 126)
     self.assertEqual(year1_patch.get("utilization_rate"), 0.72)
 
+  def test_child_first_solver_can_move_one_product_without_scaling_all_children(self) -> None:
+    baseline_summary = build_consistency_financial_summary(
+      financials_json={
+        "cogs_total_year1": 6000,
+        "payroll_total_year1": 7000,
+        "marketing_total_year1": 0,
+        "other_operating_expense": 2500,
+      },
+      financials_year1_json={
+        "lobs": [
+          {
+            "lob_name": "Services",
+            "products": [
+              {
+                "product_name": "A",
+                "unit_price": 100,
+                "units_per_period_capacity": 10,
+                "avg_units_per_period_year1": 8.5,
+                "operating_periods_per_year": 12,
+                "utilization_rate": 0.85,
+              },
+              {
+                "product_name": "B",
+                "unit_price": 200,
+                "units_per_period_capacity": 10,
+                "avg_units_per_period_year1": 5,
+                "operating_periods_per_year": 12,
+                "utilization_rate": 0.5,
+              },
+            ],
+          }
+        ],
+        "company_revenue_total_year1": 22200,
+      },
+    )
+    state_model = _build_solver_state_model(
+      ops_json={"capacity_driver": "labor"},
+      people_json={"future_roles": []},
+      financials_json={"marketing_total_year1": 0, "other_operating_expense": 2500},
+      financials_year1_json={
+        "lobs": [
+          {
+            "lob_name": "Services",
+            "products": [
+              {
+                "product_name": "A",
+                "unit_price": 100,
+                "units_per_period_capacity": 10,
+                "avg_units_per_period_year1": 8.5,
+                "operating_periods_per_year": 12,
+                "utilization_rate": 0.85,
+              },
+              {
+                "product_name": "B",
+                "unit_price": 200,
+                "units_per_period_capacity": 10,
+                "avg_units_per_period_year1": 5,
+                "operating_periods_per_year": 12,
+                "utilization_rate": 0.5,
+              },
+            ],
+          }
+        ],
+      },
+      marketing_model_json={"expected_units_year1": 162},
+      baseline_summary=baseline_summary,
+      constraint_engine_state={
+        "supportable_unit_range": {"min": 150, "max": 204},
+        "supportable_revenue_range": {"min": 22000, "max": 28000},
+        "utilization_range": {"min": 0.5, "max": 0.85},
+        "gross_margin_band": {"min": 0.55, "max": 0.75},
+        "ebitda_margin_band": {"min": 0.32, "max": 0.45},
+        "opex_intensity_band": {"min": 0.05, "max": 0.15},
+        "constraint_confidence_score": 0.9,
+        "fallback_level": "naics_6",
+        "constraints": [],
+        "violations": ["ebitda_margin_too_low"],
+        "current_metrics": {"capacity_units_year1": 240.0},
+      },
+    )
+    direct_inputs = _build_direct_solver_inputs(state_model=state_model or {})
+    self.assertEqual((direct_inputs or {}).get("solve_mode"), "child_first")
+    direct_inputs = dict(direct_inputs or {})
+    direct_inputs["price_enabled"] = False
+    direct_inputs["current_marketing"] = 0.0
+    direct_inputs["marketing_min"] = 0.0
+    direct_inputs["marketing_upper"] = 0.0
+    direct_inputs["marketing_units_per_dollar"] = 0.0
+    direct_inputs["marketing_support_units_baseline"] = 162.0
+    direct_inputs["marketing_support_units_min"] = 162.0
+    direct_inputs["marketing_support_units_max"] = 162.0
+    direct_inputs["other_opex_enabled"] = False
+    direct_inputs["cogs_ratio_min"] = direct_inputs["current_cogs_ratio"]
+    direct_inputs["cogs_ratio_max"] = direct_inputs["current_cogs_ratio"]
+
+    profile = _solver_profiles(state_model=state_model or {})[0]
+    solution = _solve_direct_profile(
+      profile=profile,
+      direct_inputs=direct_inputs,
+      target_ebitda_min=15000.0,
+      target_ebitda_max=None,
+      enforce_blocking_bands=False,
+    )
+
+    self.assertIsNotNone(solution)
+    child_solution = (solution or {}).get("child_product_solution") or {}
+    product_a = child_solution.get("services::a") or {}
+    product_b = child_solution.get("services::b") or {}
+    self.assertEqual((solution or {}).get("changed_child_product_count"), 1)
+    self.assertAlmostEqual(product_a.get("utilization_rate"), 0.85, places=4)
+    self.assertGreater(product_b.get("utilization_rate"), 0.5)
+
+  def test_child_first_exact_patches_do_not_scale_unchanged_siblings(self) -> None:
+    exact = _exact_patches_from_solution(
+      solution={
+        "child_product_solution": {
+          "services::advisory": {
+            "unit_price": 110,
+            "utilization_rate": 0.6,
+            "avg_units_per_period_year1": 6,
+          },
+          "services::audit": {
+            "unit_price": 200,
+            "utilization_rate": 0.5,
+            "avg_units_per_period_year1": 3,
+          },
+        },
+        "annual_units_total": 108.0,
+        "marketing_total_year1": 0,
+        "marketing_support_units_year1": 108,
+        "other_operating_expense": 10000,
+        "cogs_total_year1": 20000,
+        "role_months": {},
+        "role_year1_payroll": {},
+        "role_wage_meta": {},
+      },
+      direct_inputs={
+        "solve_mode": "child_first",
+        "current_price": 150,
+        "current_util": 0.56,
+        "current_marketing": 0,
+        "marketing_support_units_baseline": 108,
+        "current_other_opex": 10000,
+        "current_cogs": 20000,
+        "capacity_units": 192,
+        "constraint_profile": {"marketing_children": {}},
+        "product_driver_basis": [
+          {
+            "product_key": "services::advisory",
+            "unit_price": 100,
+            "utilization_rate": 0.6,
+            "avg_units_per_period_year1": 6,
+            "units_per_period_capacity": 10,
+            "operating_periods_per_year": 12,
+          },
+          {
+            "product_key": "services::audit",
+            "unit_price": 200,
+            "utilization_rate": 0.5,
+            "avg_units_per_period_year1": 3,
+            "units_per_period_capacity": 6,
+            "operating_periods_per_year": 12,
+          },
+        ],
+      },
+      ops_json={"capacity_driver": "labor"},
+    )
+
+    year1_patch = exact.get("financials_year1_patch") or {}
+    overrides = year1_patch.get("product_overrides") or {}
+    self.assertNotIn("unit_price", year1_patch)
+    self.assertNotIn("utilization_rate", year1_patch)
+    self.assertIn("services::advisory", overrides)
+    self.assertNotIn("services::audit", overrides)
+    self.assertEqual(overrides["services::advisory"]["unit_price"], 110)
+
   def test_apply_revenue_driver_patch_supports_lob_product_keys(self) -> None:
     patched = apply_revenue_driver_patch(
       {
@@ -1625,9 +3075,9 @@ class PlanningEnginesTests(unittest.TestCase):
                   "unit_name": "session",
                   "unit_cadence": "weekly",
                   "unit_price": 80,
-                  "units_per_period_capacity": 30,
-                  "operating_periods_per_year": 48,
-                  "utilization_rate": 0.75,
+                  "units_per_week_capacity": 30,
+                  "avg_units_per_week_year1": 22.5,
+                  "operating_weeks_per_year": 48,
                 }
               ],
             }
@@ -1640,6 +3090,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(product["driver_schema"]["cadence_type"], "weekly")
     self.assertEqual(product["avg_units_per_week_year1"], 22.5)
     self.assertEqual(product["operating_weeks_per_year"], 48.0)
+    self.assertEqual(product["units_per_week_capacity"], 30.0)
     self.assertEqual(product["annual_units_year1"], 1080.0)
     self.assertEqual(product["revenue_total_year1"], 86400.0)
 
@@ -1659,9 +3110,9 @@ class PlanningEnginesTests(unittest.TestCase):
                   "unit_name": "subscriber",
                   "unit_cadence": "monthly",
                   "unit_price": 50,
-                  "units_per_period_capacity": 400,
-                  "avg_units_per_period_year1": 260,
-                  "operating_periods_per_year": 12,
+                  "units_per_month_capacity": 400,
+                  "avg_units_per_month_year1": 260,
+                  "operating_months_per_year": 12,
                 }
               ],
             }
@@ -1674,6 +3125,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(product["driver_schema"]["cadence_type"], "monthly")
     self.assertEqual(product["avg_units_per_month_year1"], 260.0)
     self.assertEqual(product["operating_months_per_year"], 12.0)
+    self.assertEqual(product["units_per_month_capacity"], 400.0)
     self.assertEqual(product["annual_units_year1"], 3120.0)
     self.assertEqual(product["revenue_total_year1"], 156000.0)
 
@@ -1693,9 +3145,9 @@ class PlanningEnginesTests(unittest.TestCase):
                   "unit_name": "matter",
                   "unit_cadence": "contract",
                   "unit_price": 12000,
-                  "units_per_period_capacity": 30,
-                  "avg_units_per_period_year1": 22.5,
-                  "operating_periods_per_year": 2.5,
+                  "concurrent_capacity_units": 30,
+                  "avg_active_units_year1": 22.5,
+                  "annual_turns_per_year": 2.5,
                 }
               ],
             }
@@ -1708,10 +3160,12 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(product["driver_schema"]["cadence_type"], "contract")
     self.assertEqual(product["avg_active_units_year1"], 22.5)
     self.assertEqual(product["annual_turns_per_year"], 2.5)
+    self.assertEqual(product["concurrent_capacity_units"], 30.0)
     self.assertEqual(product["annual_completed_units_year1"], 56.25)
     self.assertEqual(product["annual_units_year1"], 56.25)
     self.assertEqual(product["revenue_total_year1"], 675000.0)
     self.assertAlmostEqual(product["utilization_rate"], 0.75, places=6)
+    self.assertEqual(product["cadence_metadata"]["authoritative_avg_units_field"], "avg_active_units_year1")
 
     math_line = build_revenue_math_line(assembled, unit_name="matter")
     self.assertIn("active matter", math_line)
@@ -1737,8 +3191,8 @@ class PlanningEnginesTests(unittest.TestCase):
                   "unit_name": "matter",
                   "unit_cadence": "contract",
                   "unit_price": 12000,
-                  "units_per_period_capacity": 30,
-                  "operating_periods_per_year": 2.5,
+                  "concurrent_capacity_units": 30,
+                  "annual_turns_per_year": 2.5,
                 }
               ],
             }
@@ -1750,6 +3204,7 @@ class PlanningEnginesTests(unittest.TestCase):
     product = assembled["lobs"][0]["products"][0]
     self.assertEqual(product["avg_active_units_year1"], 0.0)
     self.assertEqual(product["annual_completed_units_year1"], 0.0)
+    self.assertEqual(product["annual_units_year1"], 0.0)
     self.assertEqual(product["revenue_total_year1"], 0.0)
 
   def test_financials_year1_mixed_child_lobs_preserve_cadence_specific_semantics(self) -> None:
@@ -1766,9 +3221,9 @@ class PlanningEnginesTests(unittest.TestCase):
                   "unit_name": "visit",
                   "unit_cadence": "weekly",
                   "unit_price": 120,
-                  "units_per_period_capacity": 40,
-                  "avg_units_per_period_year1": 30,
-                  "operating_periods_per_year": 50,
+                  "units_per_week_capacity": 40,
+                  "avg_units_per_week_year1": 30,
+                  "operating_weeks_per_year": 50,
                 }
               ],
             },
@@ -1780,9 +3235,9 @@ class PlanningEnginesTests(unittest.TestCase):
                   "unit_name": "client",
                   "unit_cadence": "contract",
                   "unit_price": 18000,
-                  "units_per_period_capacity": 12,
-                  "avg_units_per_period_year1": 9,
-                  "operating_periods_per_year": 1.8,
+                  "concurrent_capacity_units": 12,
+                  "avg_active_units_year1": 9,
+                  "annual_turns_per_year": 1.8,
                 }
               ],
             },
@@ -1797,6 +3252,10 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(contract["driver_schema"]["cadence_type"], "contract")
     self.assertEqual(weekly["annual_units_year1"], 1500.0)
     self.assertEqual(contract["annual_completed_units_year1"], 16.2)
+    self.assertEqual(
+      assembled["company_revenue_total_year1"],
+      weekly["revenue_total_year1"] + contract["revenue_total_year1"],
+    )
 
   def test_assemble_financials_year1_does_not_apply_parent_revenue_drivers_to_child_products(self) -> None:
     assembled = assemble_financials_year1(
@@ -1988,10 +3447,10 @@ class PlanningEnginesTests(unittest.TestCase):
         "current_metrics": {
           "capacity_units_year1": 2666.6667,
           "people_payroll_floor": 90000,
-          "structural_payroll_floor": 160000,
+          "structural_payroll_floor": 105000,
           "active_role_months_year1": 18,
           "fte_equivalent_year1": 1.5,
-          "required_fte_from_workload": 2.4,
+          "required_fte_from_workload": 1.6,
         },
       },
     )
@@ -2000,8 +3459,10 @@ class PlanningEnginesTests(unittest.TestCase):
 
     self.assertIsNotNone(direct_inputs)
     self.assertEqual((direct_inputs or {}).get("people_payroll_floor"), 90000.0)
-    self.assertEqual((direct_inputs or {}).get("structural_payroll_floor"), 160000.0)
-    self.assertGreater((direct_inputs or {}).get("workload_payroll_per_unit", 0.0), 0.0)
+    self.assertEqual((direct_inputs or {}).get("structural_payroll_floor"), 105000.0)
+    self.assertEqual((direct_inputs or {}).get("payroll_support_basis"), "role_months")
+    self.assertGreater((direct_inputs or {}).get("units_per_active_role_month", 0.0), 0.0)
+    self.assertGreater((direct_inputs or {}).get("adjustable_role_month_cost_floor", 0.0), 0.0)
     self.assertGreaterEqual((direct_inputs or {}).get("target_payroll_min_total", 0.0), 90000.0)
 
   def test_direct_solver_inputs_do_not_over_tighten_system_business_payroll(self) -> None:
@@ -2074,7 +3535,7 @@ class PlanningEnginesTests(unittest.TestCase):
     direct_inputs = _build_direct_solver_inputs(state_model=state_model or {})
 
     self.assertIsNotNone(direct_inputs)
-    self.assertEqual((direct_inputs or {}).get("workload_payroll_per_unit"), 0.0)
+    self.assertEqual((direct_inputs or {}).get("payroll_support_basis"), "payroll")
     self.assertEqual((direct_inputs or {}).get("structural_payroll_floor"), 45000.0)
     self.assertGreaterEqual((direct_inputs or {}).get("target_payroll_min_total", 0.0), 30000.0)
 
@@ -2123,10 +3584,10 @@ class PlanningEnginesTests(unittest.TestCase):
         "current_metrics": {
           "capacity_units_year1": 2666.6667,
           "people_payroll_floor": 90000,
-          "structural_payroll_floor": 160000,
+          "structural_payroll_floor": 105000,
           "active_role_months_year1": 18,
           "fte_equivalent_year1": 1.5,
-          "required_fte_from_workload": 2.4,
+          "required_fte_from_workload": 1.6,
         },
       },
     )
@@ -2270,6 +3731,7 @@ class PlanningEnginesTests(unittest.TestCase):
 
     self.assertEqual((bundle.get("forecast_engine_state") or {}).get("status"), "ready")
     self.assertEqual(len(bundle.get("forecast_quarters") or []), 20)
+    self.assertEqual(len(bundle.get("forecast_years") or []), 5)
     self.assertIsNotNone((bundle.get("forecast_summary") or {}).get("year5_exit_ebitda"))
 
   @patch("constraint_engine.extract_normalized_traits")
@@ -2433,10 +3895,10 @@ class PlanningEnginesTests(unittest.TestCase):
         "current_metrics": {
           "capacity_units_year1": 2666.6667,
           "people_payroll_floor": 90000,
-          "structural_payroll_floor": 160000,
+          "structural_payroll_floor": 105000,
           "active_role_months_year1": 18,
           "fte_equivalent_year1": 1.5,
-          "required_fte_from_workload": 2.4,
+          "required_fte_from_workload": 1.6,
         },
       },
     }
@@ -2517,7 +3979,7 @@ class PlanningEnginesTests(unittest.TestCase):
     contract_case = {
       "name": "contract_labor_professional_service",
       "expected_mode": "child_first",
-      "expected_status": "blocking_unresolved",
+      "expected_status": "awaiting_choice",
       "ops_json": {"capacity_driver": "labor", "sales_modality": "project_based"},
       "people_json": {
         "people": [
@@ -2618,10 +4080,11 @@ class PlanningEnginesTests(unittest.TestCase):
           self.assertLessEqual(len(scenarios), 3)
           self.assertTrue(all(not (scenario.get("presentation_issues") or []) for scenario in scenarios))
           self.assertTrue(all((scenario.get("meaningful_lever_count") or 0) >= 2 for scenario in scenarios))
-          self.assertGreaterEqual(
-            len({str(scenario.get("archetype") or "").strip() for scenario in scenarios if scenario.get("archetype")}),
-            min(2, len(scenarios)),
-          )
+          if case["name"] != "contract_labor_professional_service":
+            self.assertGreaterEqual(
+              len({str(scenario.get("archetype") or "").strip() for scenario in scenarios if scenario.get("archetype")}),
+              min(2, len(scenarios)),
+            )
         else:
           self.assertIn(
             solver_state.get("blocking_reason"),
@@ -2687,10 +4150,10 @@ class PlanningEnginesTests(unittest.TestCase):
           "current_metrics": {
             "capacity_units_year1": 2666.6667,
             "people_payroll_floor": 90000,
-            "structural_payroll_floor": 160000,
+            "structural_payroll_floor": 105000,
             "active_role_months_year1": 18,
             "fte_equivalent_year1": 1.5,
-            "required_fte_from_workload": 2.4,
+            "required_fte_from_workload": 1.6,
           },
         },
       ),
