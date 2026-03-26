@@ -110,17 +110,6 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   except Exception:
     people_capability = {}
 
-  try:
-    from financials_consult_draft import get_draft as get_fin_draft  # type: ignore
-
-    fin = get_fin_draft(conn, draft_id=str(draft_id).strip())
-    if not financials:
-      financials = _parse_json_maybe(fin.get("financials_json"))
-    if not financials_year1_json:
-      financials_year1_json = _parse_json_maybe(fin.get("financials_year1_json"))
-  except Exception:
-    financials = {}
-
   # Backward-compatible bridge: if financials lacks asset/equity fields but ops has them,
   # expose them in financials so templates render correctly.
   if isinstance(operating_model, dict) and isinstance(financials, dict):

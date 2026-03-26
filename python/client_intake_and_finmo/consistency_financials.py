@@ -62,13 +62,14 @@ def build_consistency_financial_summary(
   if cogs <= 0:
     cogs = _safe_float(financials.get("current_cogs"))
   gross_profit = revenue - cogs
+  # The controller-owned Year-1 payroll field is the most trustworthy value
+  # when staffing assumptions and modeled payroll diverge.
   payroll = _safe_float(
-    financials.get("payroll_total_year1")
+    financials.get("current_payroll")
+    or financials.get("payroll_total_year1")
     or year1.get("company_payroll_total_year1")
     or year1.get("payroll_total_year1")
   )
-  if payroll <= 0:
-    payroll = _safe_float(financials.get("current_payroll"))
   marketing = _safe_float(
     financials.get("marketing_total_year1")
     or year1.get("company_marketing_total_year1")

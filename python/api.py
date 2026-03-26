@@ -199,30 +199,6 @@ def create_app() -> Flask:
 
     return post_target_market_consult_handler(app=app, request=request)
 
-  @app.route("/api/financials-consult/session", methods=["POST", "OPTIONS"])
-  def post_financials_consult_session():
-    """
-    Ensure a durable Financials draft exists for an existing intake draft_id.
-    """
-    from api_handlers.financials_consult import post_financials_consult_session_handler
-
-    return post_financials_consult_session_handler(app=app, request=request)
-
-  @app.route("/api/financials-consult/draft", methods=["GET", "OPTIONS"])
-  def get_financials_consult_draft():
-    from api_handlers.financials_consult import get_financials_consult_draft_handler
-
-    return get_financials_consult_draft_handler(app=app, request=request)
-
-  @app.route("/api/financials-consult", methods=["POST", "OPTIONS"])
-  def post_financials_consult():
-    """
-    GPT-led financials intake consult (iterative).
-    """
-    from api_handlers.financials_consult import post_financials_consult_handler
-
-    return post_financials_consult_handler(app=app, request=request)
-
   @app.route("/api/shared-context", methods=["GET", "OPTIONS"])
   def get_shared_context():
     """

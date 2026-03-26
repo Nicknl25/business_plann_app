@@ -47,8 +47,180 @@ _ENGINE_JSON_COLUMNS = (
   "constraint_engine_state_json",
   "forecast_engine_state_json",
   "forecast_quarters_json",
+  "consistency_modified_plan_json",
+  "consistency_gpt_governance_json",
+  "consistency_controller_contract_json",
+  "consistency_solver_execution_json",
   "engine_versions_json",
 )
+
+_CONSISTENCY_COMPLETION_TRIGGER_INSERT = "trg_consistency_completion_guard_bi_v1"
+_CONSISTENCY_COMPLETION_TRIGGER_UPDATE = "trg_consistency_completion_guard_bu_v1"
+
+
+def _parse_json_payload(raw: Any) -> Any:
+  if raw is None:
+    return None
+  if isinstance(raw, (dict, list)):
+    return raw
+  try:
+    return json.loads(str(raw))
+  except Exception:
+    return None
+
+
+def _is_valid_consistency_modified_plan_payload(payload: Any) -> bool:
+  data = _parse_json_payload(payload)
+  if not isinstance(data, dict) or not data:
+    return False
+  quarter_driver_path = data.get("quarter_driver_path")
+  forecast_years = data.get("forecast_years")
+  resolution_summary = data.get("resolution_summary")
+  if not isinstance(quarter_driver_path, list) or not quarter_driver_path:
+    return False
+  if not isinstance(forecast_years, list) or not forecast_years:
+    return False
+  if not isinstance(resolution_summary, dict) or not resolution_summary:
+    return False
+  return True
+
+
+def _consistency_completion_requested(
+  *,
+  status: Optional[str],
+  active_focus: Optional[str],
+  consistency_passed: Optional[bool],
+  completed: bool,
+) -> bool:
+  if completed:
+    return True
+  if consistency_passed is True:
+    return True
+  if str(active_focus or "").strip().lower() == "done":
+    return True
+  if str(status or "").strip().lower() == "completed":
+    return True
+  return False
+
+
+def _enforce_consistency_completion_payload(
+  *,
+  row: Dict[str, Any],
+  status: Optional[str],
+  active_focus: Optional[str],
+  consistency_passed: Optional[bool],
+  completed: bool,
+  consistency_modified_plan_json: Optional[Dict[str, Any]],
+) -> None:
+  if not _consistency_completion_requested(
+    status=status,
+    active_focus=active_focus,
+    consistency_passed=consistency_passed,
+    completed=completed,
+  ):
+    return
+  payload = (
+    consistency_modified_plan_json
+    if consistency_modified_plan_json is not None
+    else _parse_json_payload(row.get("consistency_modified_plan_json"))
+  )
+  if not _is_valid_consistency_modified_plan_payload(payload):
+    raise RuntimeError("consistency_completion_requires_modified_plan")
+
+
+def _trigger_exists(conn, trigger_name: str) -> bool:
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      SELECT 1
+      FROM INFORMATION_SCHEMA.TRIGGERS
+      WHERE TRIGGER_SCHEMA = DATABASE()
+        AND TRIGGER_NAME = %s
+      LIMIT 1
+      """,
+      (trigger_name,),
+    )
+    return bool(cur.fetchone())
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
+def _ensure_consistency_completion_triggers(conn) -> None:
+  trigger_specs = (
+    (
+      _CONSISTENCY_COMPLETION_TRIGGER_INSERT,
+      "BEFORE INSERT",
+      """
+      CREATE TRIGGER {trigger_name}
+      BEFORE INSERT ON intake_consult_drafts
+      FOR EACH ROW
+      BEGIN
+        IF (
+          COALESCE(NEW.consistency_passed, 0) = 1
+          OR LOWER(COALESCE(NEW.active_focus, '')) = 'done'
+          OR LOWER(COALESCE(NEW.status, '')) = 'completed'
+          OR NEW.completed_at IS NOT NULL
+        ) AND (
+          NEW.consistency_modified_plan_json IS NULL
+          OR JSON_VALID(NEW.consistency_modified_plan_json) = 0
+          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.quarter_driver_path[0]') IS NULL
+          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.forecast_years[0]') IS NULL
+          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.resolution_summary') IS NULL
+        ) THEN
+          SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'consistency_completion_requires_modified_plan';
+        END IF;
+      END
+      """,
+    ),
+    (
+      _CONSISTENCY_COMPLETION_TRIGGER_UPDATE,
+      "BEFORE UPDATE",
+      """
+      CREATE TRIGGER {trigger_name}
+      BEFORE UPDATE ON intake_consult_drafts
+      FOR EACH ROW
+      BEGIN
+        IF (
+          COALESCE(NEW.consistency_passed, 0) = 1
+          OR LOWER(COALESCE(NEW.active_focus, '')) = 'done'
+          OR LOWER(COALESCE(NEW.status, '')) = 'completed'
+          OR NEW.completed_at IS NOT NULL
+        ) AND (
+          NEW.consistency_modified_plan_json IS NULL
+          OR JSON_VALID(NEW.consistency_modified_plan_json) = 0
+          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.quarter_driver_path[0]') IS NULL
+          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.forecast_years[0]') IS NULL
+          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.resolution_summary') IS NULL
+        ) THEN
+          SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'consistency_completion_requires_modified_plan';
+        END IF;
+      END
+      """,
+    ),
+  )
+  for trigger_name, _timing, ddl_template in trigger_specs:
+    if _trigger_exists(conn, trigger_name):
+      continue
+    cur = conn.cursor()
+    try:
+      cur.execute(ddl_template.format(trigger_name=trigger_name))
+      conn.commit()
+    except Exception:
+      try:
+        conn.rollback()
+      except Exception:
+        pass
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
 
 
 def ensure_table(conn) -> None:
@@ -86,6 +258,10 @@ def ensure_table(conn) -> None:
         constraint_engine_state_json LONGTEXT NULL,
         forecast_engine_state_json LONGTEXT NULL,
         forecast_quarters_json LONGTEXT NULL,
+        consistency_modified_plan_json LONGTEXT NULL,
+        consistency_gpt_governance_json LONGTEXT NULL,
+        consistency_controller_contract_json LONGTEXT NULL,
+        consistency_solver_execution_json LONGTEXT NULL,
         engine_versions_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
@@ -162,6 +338,14 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN forecast_engine_state_json LONGTEXT NULL")
   if "forecast_quarters_json" not in cols:
     alterations.append("ADD COLUMN forecast_quarters_json LONGTEXT NULL")
+  if "consistency_modified_plan_json" not in cols:
+    alterations.append("ADD COLUMN consistency_modified_plan_json LONGTEXT NULL")
+  if "consistency_gpt_governance_json" not in cols:
+    alterations.append("ADD COLUMN consistency_gpt_governance_json LONGTEXT NULL")
+  if "consistency_controller_contract_json" not in cols:
+    alterations.append("ADD COLUMN consistency_controller_contract_json LONGTEXT NULL")
+  if "consistency_solver_execution_json" not in cols:
+    alterations.append("ADD COLUMN consistency_solver_execution_json LONGTEXT NULL")
   if "engine_versions_json" not in cols:
     alterations.append("ADD COLUMN engine_versions_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
@@ -194,6 +378,8 @@ def ensure_table(conn) -> None:
         cur2.close()
       except Exception:
         pass
+
+  _ensure_consistency_completion_triggers(conn)
 
 
 def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
@@ -280,6 +466,10 @@ def _render_messages_for_storage(
   constraint_engine_state_json: Optional[Dict[str, Any]] = None,
   forecast_engine_state_json: Optional[Dict[str, Any]] = None,
   forecast_quarters_json: Optional[List[Dict[str, Any]]] = None,
+  consistency_modified_plan_json: Optional[Dict[str, Any]] = None,
+  consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
+  consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
+  consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
   engine_versions_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
@@ -331,6 +521,26 @@ def _render_messages_for_storage(
       if forecast_engine_state_json is not None
       else _parse_json_object(row.get("forecast_engine_state_json"))
     ),
+    "consistency_modified_plan": (
+      consistency_modified_plan_json
+      if consistency_modified_plan_json is not None
+      else _parse_json_object(row.get("consistency_modified_plan_json"))
+    ),
+    "consistency_gpt_governance": (
+      consistency_gpt_governance_json
+      if consistency_gpt_governance_json is not None
+      else _parse_json_object(row.get("consistency_gpt_governance_json"))
+    ),
+    "consistency_controller_contract": (
+      consistency_controller_contract_json
+      if consistency_controller_contract_json is not None
+      else _parse_json_object(row.get("consistency_controller_contract_json"))
+    ),
+    "consistency_solver_execution": (
+      consistency_solver_execution_json
+      if consistency_solver_execution_json is not None
+      else _parse_json_object(row.get("consistency_solver_execution_json"))
+    ),
     "engine_versions": (
       engine_versions_json if engine_versions_json is not None else _parse_json_object(row.get("engine_versions_json"))
     ),
@@ -376,6 +586,10 @@ def append_messages(
   constraint_engine_state_json: Optional[Dict[str, Any]] = None,
   forecast_engine_state_json: Optional[Dict[str, Any]] = None,
   forecast_quarters_json: Optional[List[Dict[str, Any]]] = None,
+  consistency_modified_plan_json: Optional[Dict[str, Any]] = None,
+  consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
+  consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
+  consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
   engine_versions_json: Optional[Dict[str, Any]] = None,
   pending_ops_milestone_json: Optional[Any] = None,
   fulfillment_json: Optional[Dict[str, Any]] = None,
@@ -387,6 +601,14 @@ def append_messages(
   completed: bool = False,
 ) -> Dict[str, Any]:
   row = get_draft(conn, draft_id=draft_id)
+  _enforce_consistency_completion_payload(
+    row=row,
+    status=status,
+    active_focus=active_focus,
+    consistency_passed=consistency_passed,
+    completed=completed,
+    consistency_modified_plan_json=consistency_modified_plan_json,
+  )
   messages = _parse_messages(row.get("messages_json"))
   messages.extend(new_messages)
   messages = _render_messages_for_storage(
@@ -403,6 +625,10 @@ def append_messages(
     constraint_engine_state_json=constraint_engine_state_json,
     forecast_engine_state_json=forecast_engine_state_json,
     forecast_quarters_json=forecast_quarters_json,
+    consistency_modified_plan_json=consistency_modified_plan_json,
+    consistency_gpt_governance_json=consistency_gpt_governance_json,
+    consistency_controller_contract_json=consistency_controller_contract_json,
+    consistency_solver_execution_json=consistency_solver_execution_json,
     engine_versions_json=engine_versions_json,
     business_facts=business_facts,
   )
@@ -463,6 +689,22 @@ def append_messages(
   if forecast_quarters_json is not None:
     set_parts.append("forecast_quarters_json = %s")
     values.append(json.dumps(forecast_quarters_json, ensure_ascii=False))
+
+  if consistency_modified_plan_json is not None:
+    set_parts.append("consistency_modified_plan_json = %s")
+    values.append(json.dumps(consistency_modified_plan_json, ensure_ascii=False))
+
+  if consistency_gpt_governance_json is not None:
+    set_parts.append("consistency_gpt_governance_json = %s")
+    values.append(json.dumps(consistency_gpt_governance_json, ensure_ascii=False))
+
+  if consistency_controller_contract_json is not None:
+    set_parts.append("consistency_controller_contract_json = %s")
+    values.append(json.dumps(consistency_controller_contract_json, ensure_ascii=False))
+
+  if consistency_solver_execution_json is not None:
+    set_parts.append("consistency_solver_execution_json = %s")
+    values.append(json.dumps(consistency_solver_execution_json, ensure_ascii=False))
 
   if engine_versions_json is not None:
     set_parts.append("engine_versions_json = %s")
@@ -552,6 +794,10 @@ def append_messages(
       "constraint_engine_state_json",
       "forecast_engine_state_json",
       "forecast_quarters_json",
+      "consistency_modified_plan_json",
+      "consistency_gpt_governance_json",
+      "consistency_controller_contract_json",
+      "consistency_solver_execution_json",
       "engine_versions_json",
       "pending_ops_milestone_json",
       "fulfillment_json",

@@ -7,6 +7,11 @@ try:
 except Exception:
   from client_intake_and_finmo.planning_contract import PLANNING_CONTRACT_VERSION  # type: ignore
 
+try:
+  from solver_trace import trace_lazy  # type: ignore
+except Exception:
+  from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+
 
 CONSTRAINT_TRAITS_VERSION = "constraint-traits/v3"
 
@@ -241,4 +246,15 @@ def extract_normalized_traits(
       fulfillment_json=fulfillment,
     ),
   }
+  trace_lazy(
+    "TRAITS",
+    "Normalized trait extraction",
+    lambda: {
+      "classification": classification,
+      "traits": traits,
+      "ops_keys": sorted(list(ops.keys())),
+      "market_keys": sorted(list(market.keys())),
+      "year1_has_lobs": bool(year1.get("lobs")),
+    },
+  )
   return traits

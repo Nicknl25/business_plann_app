@@ -40,6 +40,11 @@ except Exception:
     engine_versions_payload,
   )
 
+try:
+  from solver_trace import trace_lazy  # type: ignore
+except Exception:
+  from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+
 
 CONSTRAINT_ENGINE_VERSION = "constraint-engine/v1"
 
@@ -360,6 +365,7 @@ def _role_month_support_metrics(people_json: Dict[str, Any]) -> Dict[str, float]
     "fixed_people_payroll": round(fixed_people_payroll, 2),
     "fixed_active_role_months": round(fixed_active_role_months, 2),
     "baseline_adjustable_active_months": round(baseline_adjustable_active_months, 2),
+    "baseline_adjustable_payroll_total": round(adjustable_role_month_cost_floor_total, 2),
     "adjustable_role_month_cost_floor": round(
       (adjustable_role_month_cost_floor_total / baseline_adjustable_active_months)
       if baseline_adjustable_active_months > 0
@@ -367,6 +373,66 @@ def _role_month_support_metrics(people_json: Dict[str, Any]) -> Dict[str, float]
       6,
     ),
   }
+
+
+def _effective_role_month_support_metrics(
+  *,
+  people_json: Dict[str, Any],
+  current_payroll: float,
+) -> Dict[str, float]:
+  base = _role_month_support_metrics(people_json)
+  fixed_people_payroll_nominal = max(0.0, _to_float(base.get("fixed_people_payroll")) or 0.0)
+  fixed_active_role_months = max(0.0, _to_float(base.get("fixed_active_role_months")) or 0.0)
+  baseline_adjustable_active_months = max(0.0, _to_float(base.get("baseline_adjustable_active_months")) or 0.0)
+  baseline_adjustable_payroll_total = max(0.0, _to_float(base.get("baseline_adjustable_payroll_total")) or 0.0)
+  adjustable_role_month_cost_floor = max(0.0, _to_float(base.get("adjustable_role_month_cost_floor")) or 0.0)
+  current_payroll = max(0.0, _to_float(current_payroll) or 0.0)
+
+  effective_fixed_people_payroll = fixed_people_payroll_nominal
+  effective_adjustable_payroll_total = baseline_adjustable_payroll_total
+  effective_adjustable_active_months = baseline_adjustable_active_months
+  effective_role_activation_ratio = 1.0 if baseline_adjustable_payroll_total > 0 else 0.0
+
+  if current_payroll > 0:
+    effective_fixed_people_payroll = min(fixed_people_payroll_nominal, current_payroll)
+    if baseline_adjustable_payroll_total > 0:
+      effective_adjustable_payroll_total = max(
+        0.0,
+        min(
+          baseline_adjustable_payroll_total,
+          current_payroll - effective_fixed_people_payroll,
+        ),
+      )
+      effective_role_activation_ratio = max(
+        0.0,
+        min(1.0, effective_adjustable_payroll_total / baseline_adjustable_payroll_total),
+      )
+      effective_adjustable_active_months = baseline_adjustable_active_months * effective_role_activation_ratio
+    else:
+      effective_adjustable_payroll_total = 0.0
+      effective_adjustable_active_months = 0.0
+      effective_role_activation_ratio = 0.0
+
+  grounded = dict(base)
+  grounded.update(
+    {
+      "fixed_people_payroll": round(effective_fixed_people_payroll, 2),
+      "fixed_active_role_months": round(fixed_active_role_months, 2),
+      "baseline_adjustable_active_months": round(effective_adjustable_active_months, 2),
+      "baseline_adjustable_payroll_total": round(effective_adjustable_payroll_total, 2),
+      "adjustable_role_month_cost_floor": round(
+        (effective_adjustable_payroll_total / effective_adjustable_active_months)
+        if effective_adjustable_active_months > 0
+        else adjustable_role_month_cost_floor,
+        6,
+      ),
+      "role_activation_ratio": round(effective_role_activation_ratio, 6),
+      "nominal_fixed_people_payroll": round(fixed_people_payroll_nominal, 2),
+      "nominal_adjustable_payroll_total": round(baseline_adjustable_payroll_total, 2),
+      "nominal_adjustable_active_months": round(baseline_adjustable_active_months, 2),
+    }
+  )
+  return grounded
 
 
 def _required_structural_payroll_from_structure(
@@ -823,10 +889,14 @@ def build_constraint_engine_bundle(
   active_role_months = 0.0
   current_people_count = 0
   planned_roles_count = 0
-  role_month_support = _role_month_support_metrics(people or {})
+  role_month_support = _effective_role_month_support_metrics(
+    people_json=people or {},
+    current_payroll=current_payroll,
+  )
   fixed_people_payroll = max(0.0, _to_float(role_month_support.get("fixed_people_payroll")) or 0.0)
   fixed_active_role_months = max(0.0, _to_float(role_month_support.get("fixed_active_role_months")) or 0.0)
   baseline_adjustable_active_months = max(0.0, _to_float(role_month_support.get("baseline_adjustable_active_months")) or 0.0)
+  baseline_adjustable_payroll_total = max(0.0, _to_float(role_month_support.get("baseline_adjustable_payroll_total")) or 0.0)
   adjustable_role_month_cost_floor = max(0.0, _to_float(role_month_support.get("adjustable_role_month_cost_floor")) or 0.0)
   for person in (people or {}).get("people") or []:
     if not isinstance(person, dict):
@@ -837,8 +907,7 @@ def build_constraint_engine_bundle(
     if not isinstance(role, dict):
       continue
     planned_roles_count += 1
-    months_until_hire = int(max(0, min(12, round(_to_float(role.get("months_until_hire")) or 0.0))))
-    active_role_months += max(0, 12 - months_until_hire)
+  active_role_months += baseline_adjustable_active_months
   fte_equivalent = active_role_months / 12.0
   workload_required_payroll = 0.0
   required_fte = 0.0
@@ -852,7 +921,7 @@ def build_constraint_engine_bundle(
     required_fte = current_revenue / max_revenue_per_fte
     implied_comp_per_fte = max(
       (current_payroll / max(fte_equivalent, 1e-9)) if current_payroll > 0 else 0.0,
-      (_derived_year1_payroll_from_people(people) / max(fte_equivalent, 1e-9)) if fte_equivalent > 0 else 0.0,
+      ((fixed_people_payroll + baseline_adjustable_payroll_total) / max(fte_equivalent, 1e-9)) if fte_equivalent > 0 else 0.0,
       _default_compensation_per_fte(traits),
     )
     workload_required_payroll = required_fte * implied_comp_per_fte
@@ -1260,7 +1329,9 @@ def build_constraint_engine_bundle(
       "payroll_support_basis": payroll_support_basis,
       "fixed_active_role_months": round(fixed_active_role_months, 2),
       "baseline_adjustable_active_months": round(baseline_adjustable_active_months, 2),
+      "baseline_adjustable_payroll_total": round(baseline_adjustable_payroll_total, 2),
       "adjustable_role_month_cost_floor": round(adjustable_role_month_cost_floor, 6),
+      "role_activation_ratio": round(_to_float(role_month_support.get("role_activation_ratio")) or 0.0, 6),
       "units_per_active_role_month": round(units_per_active_role_month, 6),
       "units_per_payroll_dollar": round(units_per_payroll_dollar, 8),
       "hard_utilization_floor": hard_utilization_floor,
@@ -1278,6 +1349,47 @@ def build_constraint_engine_bundle(
   versions["constraint_traits_version"] = CONSTRAINT_TRAITS_VERSION
   versions["benchmark_resolver_version"] = BENCHMARK_RESOLVER_VERSION
   versions["constraint_engine_version"] = CONSTRAINT_ENGINE_VERSION
+
+  trace_lazy(
+    "CONSTRAINTS",
+    "Constraint engine bundle",
+    lambda: {
+      "traits": traits,
+      "benchmark_payload": benchmark,
+      "summary": summary,
+      "derived": {
+        "child_metric_count": len(child_basis),
+        "current_units": round(current_units, 2),
+        "current_price": round(current_price, 2),
+        "current_utilization": round(current_util, 6) if current_util is not None else None,
+        "capacity_units": round(capacity_units, 2),
+        "demand_supported_units": round(demand_supported_units, 2) if demand_supported_units is not None else None,
+        "current_cogs": round(current_cogs, 2),
+        "current_payroll": round(current_payroll, 2),
+        "current_marketing": round(current_marketing, 2),
+        "current_other_opex": round(current_other_opex, 2),
+        "current_gross_margin": round(current_gross_margin, 6) if current_gross_margin is not None else None,
+        "current_ebitda_margin": round(current_ebitda_margin, 6) if current_ebitda_margin is not None else None,
+        "people_payroll_floor": round(people_payroll_floor, 2),
+        "structural_payroll_floor": round(structural_payroll_floor, 2),
+        "required_fte_from_workload": round(required_fte, 4),
+        "hard_utilization_floor": hard_utilization_floor,
+      },
+      "bands": {
+        "supportable_unit_range": supportable_unit_range,
+        "supportable_revenue_range": supportable_revenue_range,
+        "gross_margin_band": gross_margin_band,
+        "ebitda_margin_band": ebitda_margin_band,
+        "payroll_intensity_band": payroll_intensity_band,
+        "marketing_intensity_band": marketing_intensity_band,
+        "opex_intensity_band": opex_intensity_band,
+        "utilization_range": utilization_band,
+      },
+      "findings": findings,
+      "constraints": constraints,
+      "engine_state": engine_state,
+    },
+  )
 
   return {
     "normalized_traits": traits,

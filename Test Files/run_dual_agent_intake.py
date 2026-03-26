@@ -28,6 +28,8 @@ except Exception:
 OPENAI_URL = "https://api.openai.com/v1/responses"
 _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 US_EASTERN = ZoneInfo("America/New_York")
+DEFAULT_TEST_RUNS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs"
+DEFAULT_TEST_RUNS_DATA_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data"
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 OPS_FACT_FIELDS = {
@@ -409,8 +411,14 @@ class _SimulatorMetricsStore:
       cur.close()
 
 
-def _post_json(url: str, payload: Dict[str, Any], *, timeout: int = 240) -> Dict[str, Any]:
-  resp = requests.post(url, json=payload, timeout=timeout)
+def _post_json(
+  url: str,
+  payload: Dict[str, Any],
+  *,
+  timeout: int = 240,
+  headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+  resp = requests.post(url, json=payload, timeout=timeout, headers=headers)
   try:
     data = resp.json()
   except Exception:
@@ -808,6 +816,16 @@ def _eastern_now() -> datetime:
   return datetime.now(US_EASTERN)
 
 
+def _build_run_artifact_path(*, output_dir: str, seed: str, written_at: datetime) -> str:
+  date_part = written_at.strftime("%m-%d-%Y")
+  scenario_part = _safe_filename_part(seed)
+  return os.path.join(output_dir, f"{date_part} -- {scenario_part}.txt")
+
+
+def _build_run_artifact_filename(*, seed: str, written_at: datetime) -> str:
+  return os.path.basename(_build_run_artifact_path(output_dir="", seed=seed, written_at=written_at))
+
+
 def _save_run_report(
   *,
   output_dir: str,
@@ -817,13 +835,12 @@ def _save_run_report(
   draft_id: Optional[str],
   status: str,
   stop_reason: str,
+  written_at: Optional[datetime] = None,
 ) -> Optional[str]:
   try:
     os.makedirs(output_dir, exist_ok=True)
-    now = _eastern_now()
-    date_part = now.strftime("%m-%d-%Y")
-    scenario_part = _safe_filename_part(seed)
-    path = os.path.join(output_dir, f"{date_part} -- {scenario_part}.txt")
+    now = written_at or _eastern_now()
+    path = _build_run_artifact_path(output_dir=output_dir, seed=seed, written_at=now)
 
     lines: List[str] = []
     lines.append(f"Test Run: {seed}")
@@ -849,6 +866,85 @@ def _save_run_report(
       else:
         lines.append(f"{role}: {content}")
       lines.append("")
+
+    with open(path, "w", encoding="utf-8") as handle:
+      handle.write("\n".join(lines).rstrip() + "\n")
+    return path
+  except Exception:
+    return None
+
+
+def _fetch_persisted_state_snapshot(*, base_url: str, draft_id: Optional[str]) -> Dict[str, Any]:
+  if not str(draft_id or "").strip():
+    return {
+      "status": "missing_draft_id",
+      "detail": "No draft_id was available, so persisted state could not be fetched.",
+    }
+
+  draft_id_value = str(draft_id).strip()
+  debug_url = f"{base_url}/debug/state/{draft_id_value}"
+  try:
+    payload = _get_json(debug_url, {})
+    return {
+      "status": "ok",
+      "source": "debug/state",
+      "payload": payload,
+    }
+  except Exception as exc:
+    fallback_url = f"{base_url}/api/intake-consult/draft"
+    try:
+      fallback = _get_json(fallback_url, {"draft_id": draft_id_value})
+      return {
+        "status": "fallback",
+        "source": "api/intake-consult/draft",
+        "detail": f"Primary persisted-state fetch failed: {exc}",
+        "payload": fallback,
+      }
+    except Exception as fallback_exc:
+      return {
+        "status": "error",
+        "source": "debug/state",
+        "detail": str(exc),
+        "fallback_error": str(fallback_exc),
+      }
+
+
+def _save_persisted_state_report(
+  *,
+  base_url: str,
+  output_dir: str,
+  seed: str,
+  bootstrap: Optional[Bootstrap],
+  draft_id: Optional[str],
+  client_id: Optional[str],
+  status: str,
+  stop_reason: str,
+  written_at: Optional[datetime] = None,
+) -> Optional[str]:
+  try:
+    os.makedirs(output_dir, exist_ok=True)
+    now = written_at or _eastern_now()
+    path = _build_run_artifact_path(output_dir=output_dir, seed=seed, written_at=now)
+    snapshot = _fetch_persisted_state_snapshot(base_url=base_url, draft_id=draft_id)
+
+    lines: List[str] = []
+    lines.append(f"Test Run: {seed}")
+    lines.append(f"Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    if bootstrap:
+      lines.append(f"Bootstrapped Business: {bootstrap.business_name}")
+      lines.append(f"Business Start Date: {bootstrap.business_start_date}")
+      lines.append(f"Address: {bootstrap.address}")
+    if draft_id:
+      lines.append(f"Draft ID: {draft_id}")
+    if client_id:
+      lines.append(f"Client ID: {client_id}")
+    lines.append(f"Status: {status}")
+    lines.append(f"Stop Reason: {stop_reason}")
+    lines.append("")
+    lines.append("Persisted State")
+    lines.append("---------------")
+    lines.append("")
+    lines.append(json.dumps(snapshot, indent=2, ensure_ascii=False, default=str))
 
     with open(path, "w", encoding="utf-8") as handle:
       handle.write("\n".join(lines).rstrip() + "\n")
@@ -901,6 +997,7 @@ def _run_single_seed(
   model: str,
   max_turns: int,
   output_dir: str,
+  persisted_output_dir: str,
   business_start_date_override: Optional[str],
 ) -> int:
   api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -920,6 +1017,7 @@ def _run_single_seed(
   client_id: Optional[str] = None
   run_id = uuid.uuid4().hex
   run_started_at = _eastern_now()
+  trace_file_name = _build_run_artifact_filename(seed=seed, written_at=run_started_at)
   run_started_perf = time.perf_counter()
   metrics = _SimulatorMetricsStore()
   metrics.create_run(
@@ -932,6 +1030,7 @@ def _run_single_seed(
   )
 
   def _persist_report(*, status: str, stop_reason: str) -> None:
+    written_at = _eastern_now()
     path = _save_run_report(
       output_dir=output_dir,
       seed=seed,
@@ -940,9 +1039,23 @@ def _run_single_seed(
       draft_id=draft_id,
       status=status,
       stop_reason=stop_reason,
+      written_at=written_at,
     )
     if path:
       print(f"Saved run report: {path}")
+    persisted_path = _save_persisted_state_report(
+      base_url=base_url,
+      output_dir=persisted_output_dir,
+      seed=seed,
+      bootstrap=bootstrap,
+      draft_id=draft_id,
+      client_id=client_id,
+      status=status,
+      stop_reason=stop_reason,
+      written_at=written_at,
+    )
+    if persisted_path:
+      print(f"Saved persisted state report: {persisted_path}")
 
   def _finish_metrics(*, status: str, stop_reason: str, total_turns: int) -> None:
     metrics.finish_run(
@@ -986,8 +1099,12 @@ def _run_single_seed(
       "address_country": bootstrap.address_country,
       "message": "",
     }
+    trace_headers = {
+      "X-Solver-Trace-Run-Name": trace_file_name,
+      "X-Solver-Trace-Reset": "1",
+    }
     started = time.perf_counter()
-    response = _post_json(f"{base_url}/api/intake-consult", seed_payload)
+    response = _post_json(f"{base_url}/api/intake-consult", seed_payload, headers=trace_headers)
     initial_app_response_ms = int(round((time.perf_counter() - started) * 1000.0))
     metrics.update_run_session(
       run_id=run_id,
@@ -1090,6 +1207,7 @@ def _run_single_seed(
           "client_id": client_id,
           "message": reply,
         },
+        headers={"X-Solver-Trace-Run-Name": trace_file_name},
       )
       app_response_ms = int(round((time.perf_counter() - app_response_started) * 1000.0))
       metrics.insert_turn(
@@ -1151,7 +1269,11 @@ def main() -> int:
   )
   parser.add_argument(
     "--output-dir",
-    default=r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs",
+    default=DEFAULT_TEST_RUNS_DIR,
+  )
+  parser.add_argument(
+    "--persisted-output-dir",
+    default=DEFAULT_TEST_RUNS_DATA_DIR,
   )
   args = parser.parse_args()
   business_start_date_override = str(args.business_start_date or "").strip()
@@ -1172,6 +1294,7 @@ def main() -> int:
       model=args.model,
       max_turns=args.max_turns,
       output_dir=args.output_dir,
+      persisted_output_dir=args.persisted_output_dir,
       business_start_date_override=business_start_date_override or None,
     )
     if result != 0:

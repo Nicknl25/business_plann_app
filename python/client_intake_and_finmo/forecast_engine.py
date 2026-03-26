@@ -22,6 +22,11 @@ try:
 except Exception:
   from client_intake_and_finmo.planning_contract import PLANNING_CONTRACT_VERSION, engine_versions_payload  # type: ignore
 
+try:
+  from solver_trace import trace_lazy  # type: ignore
+except Exception:
+  from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+
 
 FORECAST_ENGINE_VERSION = "forecast-engine/v3"
 FORECAST_QUARTERS = 20
@@ -262,6 +267,134 @@ def _scenario_growth_targets(
     quarter_rate = max(0.0, annual / 4.0)
     quarterly_targets.extend([quarter_rate] * 4)
   return quarterly_targets[:FORECAST_QUARTERS]
+
+
+def _default_forecast_orchestration(
+  *,
+  strategy: Dict[str, Any],
+  traits: Dict[str, Any],
+) -> Dict[str, Any]:
+  archetype = str(strategy.get("archetype") or "operations").strip().lower()
+  demand_posture = str(strategy.get("demand_posture") or ("preserve" if archetype == "growth" else "moderate")).strip().lower()
+  staffing_posture = str(strategy.get("staffing_posture") or ("add_support" if archetype == "growth" else "rebalance")).strip().lower()
+  cost_posture = str(strategy.get("cost_posture") or ("tighten" if archetype == "efficiency" else "moderate")).strip().lower()
+  capacity_driver = str(traits.get("capacity_driver") or "").strip().lower()
+  later_capacity_release = 1.05 if capacity_driver in {"system", "space", "equipment"} else 1.0
+  phase_rows = [
+    (1, 4, 1.0, 0.8, 0.0, 0.0, 0.0, 0.0, 1.0),
+    (5, 8, 1.0 if archetype != "efficiency" else 0.92, 0.92, 0.001, 0.0, 0.0, 0.0, 1.0),
+    (9, 12, 0.96 if archetype == "growth" else 1.0, 0.95 if archetype != "efficiency" else 1.05, 0.001, 0.0, 0.0, 0.0, 1.0),
+    (13, 16, 0.9 if archetype == "efficiency" else 0.95, 1.02 if archetype == "efficiency" else 0.92, 0.0, -0.01 if archetype == "efficiency" else 0.0, 0.0, -0.01 if cost_posture == "tighten" else 0.0, later_capacity_release),
+    (17, 20, 0.86 if archetype == "efficiency" else 0.92, 1.08 if archetype == "efficiency" else 0.88, 0.0, -0.015 if archetype == "efficiency" else 0.0, -0.002 if demand_posture == "reduce" else 0.0, -0.015 if cost_posture == "tighten" else 0.0, later_capacity_release),
+  ]
+  quarter_policies = []
+  for quarter_start, quarter_end, growth_mult, convergence_mult, marketing_bias, payroll_bias, util_bias, opex_bias, capacity_release in phase_rows:
+    quarter_policies.append(
+      {
+        "quarter_start": quarter_start,
+        "quarter_end": quarter_end,
+        "demand_posture": demand_posture,
+        "staffing_posture": staffing_posture,
+        "cost_posture": cost_posture,
+        "growth_multiplier": growth_mult,
+        "convergence_multiplier": convergence_mult,
+        "price_growth_bias": 0.001 if archetype == "growth" else 0.0,
+        "utilization_target_bias": util_bias,
+        "marketing_ratio_bias": marketing_bias,
+        "opex_ratio_bias": opex_bias,
+        "payroll_ratio_bias": payroll_bias,
+        "capacity_release_multiplier": capacity_release,
+        "active_levers": [],
+      }
+    )
+  return {
+    "orchestration_summary": f"{archetype} orchestration across the 20-quarter path",
+    "quarter_policies": quarter_policies,
+    "role_timing_overrides": [],
+    "milestone_timing_overrides": [],
+    "event_response": {
+      "hire_capacity_multiplier": 1.0,
+      "hire_growth_bonus_delta": 0.001 if archetype == "growth" else 0.0,
+      "marketing_growth_multiplier": 1.1 if demand_posture == "preserve" else 1.0,
+      "milestone_capacity_multiplier": 1.0,
+      "milestone_growth_multiplier": 1.0,
+    },
+  }
+
+
+def _forecast_orchestration(
+  *,
+  scenario_strategy: Optional[Dict[str, Any]],
+  normalized_traits: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  strategy = scenario_strategy if isinstance(scenario_strategy, dict) else {}
+  traits = normalized_traits if isinstance(normalized_traits, dict) else {}
+  default = _default_forecast_orchestration(strategy=strategy, traits=traits)
+  raw = strategy.get("forecast_orchestration") if isinstance(strategy.get("forecast_orchestration"), dict) else {}
+  if not isinstance(raw, dict) or not raw:
+    return default
+  merged = dict(default)
+  for key in ("orchestration_summary", "role_timing_overrides", "milestone_timing_overrides", "event_response", "quarter_policies"):
+    if raw.get(key) is not None:
+      merged[key] = raw.get(key)
+  return merged
+
+
+def _quarter_policy_for(orchestration: Dict[str, Any], quarter_number: int) -> Dict[str, Any]:
+  policies = orchestration.get("quarter_policies") if isinstance(orchestration.get("quarter_policies"), list) else []
+  for policy in policies:
+    if not isinstance(policy, dict):
+      continue
+    start = max(1, int(_to_float(policy.get("quarter_start")) or 1))
+    end = max(start, int(_to_float(policy.get("quarter_end")) or start))
+    if start <= quarter_number <= end:
+      return policy
+  return {}
+
+
+def _apply_orchestration_to_events(
+  events: List[Dict[str, Any]],
+  orchestration: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  role_overrides = {
+    str((item or {}).get("role_title") or "").strip().lower(): max(0.0, _to_float((item or {}).get("months_until_activate")) or 0.0)
+    for item in (orchestration.get("role_timing_overrides") or [])
+    if isinstance(item, dict) and str((item or {}).get("role_title") or "").strip()
+  }
+  milestone_overrides = {
+    str((item or {}).get("description") or "").strip().lower(): max(0.0, _to_float((item or {}).get("months_until_activate")) or 0.0)
+    for item in (orchestration.get("milestone_timing_overrides") or [])
+    if isinstance(item, dict) and str((item or {}).get("description") or "").strip()
+  }
+  response = orchestration.get("event_response") if isinstance(orchestration.get("event_response"), dict) else {}
+  hire_capacity_multiplier = max(0.0, _to_float(response.get("hire_capacity_multiplier")) or 1.0)
+  hire_growth_bonus_delta = _to_float(response.get("hire_growth_bonus_delta")) or 0.0
+  marketing_growth_multiplier = max(0.0, _to_float(response.get("marketing_growth_multiplier")) or 1.0)
+  milestone_capacity_multiplier = max(0.0, _to_float(response.get("milestone_capacity_multiplier")) or 1.0)
+  milestone_growth_multiplier = max(0.0, _to_float(response.get("milestone_growth_multiplier")) or 1.0)
+  adjusted: List[Dict[str, Any]] = []
+  for event in events:
+    if not isinstance(event, dict):
+      continue
+    next_event = dict(event)
+    event_type = str(event.get("event_type") or "").strip().lower()
+    if event_type == "hire_activate":
+      role_title = str(event.get("role_title") or "").strip().lower()
+      if role_title in role_overrides:
+        next_event["activation_quarter"] = _months_to_quarter(role_overrides[role_title])
+      next_event["quarter_capacity_delta"] = max(0.0, (_to_float(next_event.get("quarter_capacity_delta")) or 0.0) * hire_capacity_multiplier)
+      next_event["growth_bonus_delta"] = (_to_float(next_event.get("growth_bonus_delta")) or 0.0) + hire_growth_bonus_delta
+    elif event_type == "marketing_ramp":
+      next_event["growth_bonus_delta"] = (_to_float(next_event.get("growth_bonus_delta")) or 0.0) * marketing_growth_multiplier
+    elif event_type == "milestone_unlock":
+      description = str(event.get("description") or "").strip().lower()
+      if description in milestone_overrides:
+        next_event["activation_quarter"] = _months_to_quarter(milestone_overrides[description])
+      next_event["quarter_capacity_delta"] = max(0.0, (_to_float(next_event.get("quarter_capacity_delta")) or 0.0) * milestone_capacity_multiplier)
+      next_event["growth_bonus_delta"] = (_to_float(next_event.get("growth_bonus_delta")) or 0.0) * milestone_growth_multiplier
+    adjusted.append(next_event)
+  adjusted.sort(key=lambda item: int(item.get("activation_quarter") or 1))
+  return adjusted
 
 
 def _months_to_quarter(value: Any) -> int:
@@ -690,35 +823,7 @@ def build_forecast_engine_bundle(
     benchmark_payload=benchmark,
   )
   blocking_violations = _blocking_constraint_violations(engine_state)
-
-  if blocking_violations:
-    forecast_engine_state = {
-      "contract_version": PLANNING_CONTRACT_VERSION,
-      "engine_version": FORECAST_ENGINE_VERSION,
-      "quarter_count": FORECAST_QUARTERS,
-      "benchmark_confidence_score": round(_clamp(_to_float((benchmark or {}).get("confidence_score")) or 0.0, 0.0, 1.0), 3),
-      "forecast_confidence": round(_clamp(_to_float((engine_state or {}).get("constraint_confidence_score")) or 0.0, 0.0, 1.0), 3),
-      "fallback_level": str((benchmark or {}).get("fallback_level") or "generic"),
-      "convergence_source": "constraint_engine",
-      "convergence_strength": 0.0,
-      "status": "blocked_unresolved_year1",
-      "blocking_violations": blocking_violations,
-      "explanation": "Forecast engine did not run because Year 1 remains outside the enforced realism envelope.",
-      "benchmark_summary": benchmark,
-      "convergence_policy": convergence_policy,
-      "forecast_years": [],
-      "scenario_strategy": scenario_strategy if isinstance(scenario_strategy, dict) else {},
-      "traits": traits,
-    }
-    versions = engine_versions_payload()
-    versions["forecast_engine_version"] = FORECAST_ENGINE_VERSION
-    versions["convergence_policy_version"] = CONVERGENCE_POLICY_VERSION
-    return {
-      "forecast_engine_state": forecast_engine_state,
-      "forecast_quarters": [],
-      "forecast_years": [],
-      "engine_versions": versions,
-    }
+  blocked_year1 = bool(blocking_violations)
 
   summary = build_consistency_financial_summary(
     financials_json=financials,
@@ -769,6 +874,10 @@ def build_forecast_engine_bundle(
   demand_posture = str(strategy.get("demand_posture") or "").strip().lower()
   staffing_posture = str(strategy.get("staffing_posture") or "").strip().lower()
   cost_posture = str(strategy.get("cost_posture") or "").strip().lower()
+  orchestration = _forecast_orchestration(
+    scenario_strategy=scenario_strategy,
+    normalized_traits=traits,
+  )
 
   benchmark_gross_margin_band = (benchmark or {}).get("gross_margin_band") or {}
   benchmark_ebitda_margin_band = (benchmark or {}).get("ebitda_margin_band") or {}
@@ -939,6 +1048,11 @@ def build_forecast_engine_bundle(
     versions = engine_versions_payload()
     versions["forecast_engine_version"] = FORECAST_ENGINE_VERSION
     versions["convergence_policy_version"] = CONVERGENCE_POLICY_VERSION
+    trace_lazy(
+      "FORECAST",
+      "Scenario forecast insufficient data",
+      lambda: forecast_engine_state,
+    )
     return {
       "forecast_engine_state": forecast_engine_state,
       "forecast_quarters": [],
@@ -980,6 +1094,7 @@ def build_forecast_engine_bundle(
     base_quarter_capacity_units=base_quarter_capacity_units,
     current_marketing_ratio=current_marketing_ratio,
   )
+  timed_events = _apply_orchestration_to_events(timed_events, orchestration)
   year1_event_payroll = 0.0
   year1_event_capacity = 0.0
   year1_event_marketing_ratio = 0.0
@@ -1010,6 +1125,10 @@ def build_forecast_engine_bundle(
 
   for quarter_index in range(FORECAST_QUARTERS):
     quarter_number = quarter_index + 1
+    quarter_policy = _quarter_policy_for(orchestration, quarter_number)
+    quarter_demand_posture = str(quarter_policy.get("demand_posture") or demand_posture).strip().lower()
+    quarter_staffing_posture = str(quarter_policy.get("staffing_posture") or staffing_posture).strip().lower()
+    quarter_cost_posture = str(quarter_policy.get("cost_posture") or cost_posture).strip().lower()
     while next_event_index < len(timed_events) and int(timed_events[next_event_index].get("activation_quarter") or 1) == quarter_number:
       event = timed_events[next_event_index]
       current_structural_payroll_floor += max(0.0, _to_float(event.get("quarter_payroll_delta")) or 0.0)
@@ -1030,6 +1149,7 @@ def build_forecast_engine_bundle(
       convergence_adjustment *= 0.88
     elif quarter_number >= 9 and archetype == "efficiency":
       convergence_adjustment *= 1.05
+    convergence_adjustment *= max(0.1, _to_float(quarter_policy.get("convergence_multiplier")) or 1.0)
     if identity_distance < 0.5 and quarter_number >= 9:
       convergence_adjustment *= 0.9
     convergence_adjustment = _clamp(convergence_adjustment, 0.0, 1.0)
@@ -1056,6 +1176,7 @@ def build_forecast_engine_bundle(
     capacity_expansion_ratio = (current_capacity_basis / max(base_quarter_capacity_units, 1e-9)) - 1.0
 
     scenario_growth = max(0.0, _growth_at(growth_path, quarter_index, 0.01) + current_growth_bonus)
+    scenario_growth *= max(0.0, _to_float(quarter_policy.get("growth_multiplier")) or 1.0)
     if quarter_number >= 12 and upper_util_band is not None and upper_util_band > 0:
       util_pressure = _clamp((current_util_state - (upper_util_band * 0.9)) / max(upper_util_band * 0.1, 1e-9), 0.0, 1.0)
       capacity_stall = _clamp(1.0 - max(0.0, capacity_expansion_ratio) / 0.12, 0.0, 1.0)
@@ -1066,10 +1187,13 @@ def build_forecast_engine_bundle(
     realized_growth = _lerp(growth_seed, scenario_growth, revenue_progress) or scenario_growth
 
     price_growth = min(0.015, max(0.0, scenario_growth * 0.25))
+    price_growth = max(0.0, price_growth + (_to_float(quarter_policy.get("price_growth_bias")) or 0.0))
     price_seed = price_growth * 0.5
     realized_price_growth = _lerp(price_seed, price_growth, revenue_progress) or price_seed
 
     target_util = _lerp(utilization, target_utilization, utilization_progress)
+    if target_util is not None:
+      target_util = max(0.0, min(1.0, target_util + (_to_float(quarter_policy.get("utilization_target_bias")) or 0.0)))
     target_util = _normalize_ratio(target_util) if target_util is not None else utilization
     quarter_products: List[Dict[str, Any]] = []
     unit_growth = realized_growth - realized_price_growth
@@ -1127,6 +1251,7 @@ def build_forecast_engine_bundle(
       quarter_revenue = total_product_revenue
       quarter_units = total_product_units
       implied_capacity_units = max(total_product_capacity, quarter_units / max(target_util or 0.5, 1e-9), 1e-9)
+      implied_capacity_units *= max(0.1, _to_float(quarter_policy.get("capacity_release_multiplier")) or 1.0)
       quarter_utilization = quarter_units / max(implied_capacity_units, 1e-9)
       quarter_price = quarter_revenue / max(quarter_units, 1e-9) if quarter_units > 0 else previous_price
     else:
@@ -1134,6 +1259,7 @@ def build_forecast_engine_bundle(
       quarter_price = previous_price * (1.0 + realized_price_growth) if quarter_index > 0 else previous_price
       quarter_units = quarter_revenue / max(quarter_price, 1e-9)
       implied_capacity_units = max(base_parent_quarter_capacity_units, quarter_units / max(target_util or 0.5, 1e-9))
+      implied_capacity_units *= max(0.1, _to_float(quarter_policy.get("capacity_release_multiplier")) or 1.0)
       quarter_utilization = quarter_units / max(implied_capacity_units, 1e-9)
 
     dynamic_gross_band = _blend_band(
@@ -1191,14 +1317,17 @@ def build_forecast_engine_bundle(
       quarter_payroll_ratio = _lerp(current_payroll_ratio, target_payroll_ratio, min(1.0, payroll_progress * 1.15))
       quarter_opex_ratio = _lerp(current_opex_ratio, target_opex_ratio, min(1.0, opex_progress * 1.2))
       quarter_gross_margin = _lerp(current_gross_margin, target_gross_margin, min(1.0, gross_progress * 1.15))
-    elif staffing_posture in {"add_support", "rebalance"}:
+    elif quarter_staffing_posture in {"add_support", "rebalance"}:
       quarter_payroll_ratio = _lerp(current_payroll_ratio, target_payroll_ratio, min(1.0, payroll_progress * 1.05))
-    if demand_posture == "reduce":
+    if quarter_demand_posture == "reduce":
       quarter_marketing_ratio = _lerp(current_marketing_ratio, max(0.0, current_marketing_ratio * 0.85), min(1.0, revenue_progress))
-    elif demand_posture == "preserve":
+    elif quarter_demand_posture == "preserve":
       quarter_marketing_ratio = _lerp(current_marketing_ratio, current_marketing_ratio, revenue_progress)
-    if cost_posture == "tighten":
+    if quarter_cost_posture == "tighten":
       quarter_opex_ratio = _lerp(current_opex_ratio, target_opex_ratio, min(1.0, opex_progress * 1.2))
+    quarter_marketing_ratio = max(0.0, (quarter_marketing_ratio if quarter_marketing_ratio is not None else 0.0) + (_to_float(quarter_policy.get("marketing_ratio_bias")) or 0.0))
+    quarter_opex_ratio = max(0.0, (quarter_opex_ratio if quarter_opex_ratio is not None else 0.0) + (_to_float(quarter_policy.get("opex_ratio_bias")) or 0.0))
+    quarter_payroll_ratio = max(0.0, (quarter_payroll_ratio if quarter_payroll_ratio is not None else 0.0) + (_to_float(quarter_policy.get("payroll_ratio_bias")) or 0.0))
 
     quarter_cogs = quarter_revenue * max(0.0, 1.0 - (quarter_gross_margin if quarter_gross_margin is not None else 0.0))
     ratio_payroll = quarter_revenue * max(0.0, quarter_payroll_ratio if quarter_payroll_ratio is not None else 0.0)
@@ -1288,6 +1417,13 @@ def build_forecast_engine_bundle(
     "convergence_source": convergence_source,
     "convergence_strength": round(convergence_strength, 6),
     "status": "ready",
+    "year1_warning_status": "blocked_unresolved_year1" if blocked_year1 else "ready",
+    "blocking_violations": list(blocking_violations),
+    "explanation": (
+      "Year 1 remains outside the enforced realism envelope, but the baseline Year 1-5 forecast is still shown."
+      if blocked_year1
+      else "Forecast ready."
+    ),
     "starting_state": {
       "annual_revenue": round(annual_revenue, 2),
       "annual_units": round(annual_units, 2),
@@ -1320,6 +1456,7 @@ def build_forecast_engine_bundle(
     "last_quarter_summary": quarters[-1] if quarters else {},
     "revenue_growth_path_used": growth_path,
     "scenario_strategy": strategy,
+    "forecast_orchestration": orchestration,
     "forecast_years": _yearly_from_quarters(quarters),
     "traits": traits,
   }
@@ -1327,6 +1464,19 @@ def build_forecast_engine_bundle(
   versions = engine_versions_payload()
   versions["forecast_engine_version"] = FORECAST_ENGINE_VERSION
   versions["convergence_policy_version"] = CONVERGENCE_POLICY_VERSION
+  trace_lazy(
+    "FORECAST",
+    "Scenario forecast blocked" if blocked_year1 else "Scenario forecast ready",
+    lambda: {
+      "scenario_strategy": scenario_strategy or {},
+      "traits": traits,
+      "starting_state": forecast_engine_state.get("starting_state") or {},
+      "target_state": forecast_engine_state.get("target_state") or {},
+      "forecast_engine_state": forecast_engine_state,
+      "first_quarter": quarters[0] if quarters else {},
+      "last_quarter": quarters[-1] if quarters else {},
+    },
+  )
   return {
     "forecast_engine_state": forecast_engine_state,
     "forecast_quarters": quarters,

@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from flask import jsonify
 
 logger = logging.getLogger(__name__)
 import requests
+from intake_consult_draft import append_messages, get_draft
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -139,6 +141,245 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     _normalize_unit_dict(ops_obj)
 
   return ops_obj
+
+
+def _count_ops_products(ops_obj: Any) -> int:
+  if not isinstance(ops_obj, dict):
+    return 0
+  total = 0
+  lob_models = ops_obj.get("lob_models")
+  if not isinstance(lob_models, list):
+    return 0
+  for lob in lob_models:
+    if not isinstance(lob, dict):
+      continue
+    products = lob.get("products")
+    if not isinstance(products, list):
+      continue
+    total += sum(1 for product in products if isinstance(product, dict))
+  return total
+
+
+def _extract_single_compact_number(text: Any) -> Optional[float]:
+  blob = str(text or "").strip()
+  if not blob:
+    return None
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
+  values: List[float] = []
+  for tok in tokens:
+    cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
+    if not match:
+      continue
+    try:
+      value = float(match.group(1))
+    except Exception:
+      continue
+    suffix = str(match.group(2) or "").strip().lower()
+    if suffix == "k":
+      value *= 1000.0
+    elif suffix == "m":
+      value *= 1000000.0
+    values.append(value)
+  if len(values) != 1:
+    return None
+  value = float(values[0])
+  return value if value > 0 else None
+
+
+def _extract_single_compact_number_allow_zero(text: Any) -> Optional[float]:
+  blob = str(text or "").strip()
+  if not blob:
+    return None
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
+  values: List[float] = []
+  for tok in tokens:
+    cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
+    if not match:
+      continue
+    try:
+      value = float(match.group(1))
+    except Exception:
+      continue
+    suffix = str(match.group(2) or "").strip().lower()
+    if suffix == "k":
+      value *= 1000.0
+    elif suffix == "m":
+      value *= 1000000.0
+    values.append(value)
+  if not values:
+    return None
+  unique_values: List[float] = []
+  for value in values:
+    if not any(abs(value - existing) < 1e-9 for existing in unique_values):
+      unique_values.append(value)
+  if len(unique_values) != 1:
+    return None
+  value = float(unique_values[0])
+  return value if value >= 0 else None
+
+
+def _looks_like_capacity_prompt(text: Any) -> bool:
+  prompt = str(text or "").strip().lower()
+  if not prompt:
+    return False
+  if "how many" not in prompt and "capacity" not in prompt:
+    return False
+  if "can you handle" in prompt and ("fully booked" in prompt or "busy month" in prompt or "busy week" in prompt):
+    return True
+  if "to make planning realistic" in prompt and ("fully busy" in prompt or "fully booked" in prompt):
+    return True
+  if "operationally stretched" in prompt or "over-crowded" in prompt:
+    return True
+  return False
+
+
+def _capacity_field_for_cadence(cadence: Any) -> Tuple[str, str]:
+  cadence_norm = str(cadence or "").strip().lower()
+  if cadence_norm == "weekly":
+    return "units_per_week_capacity", "week"
+  if cadence_norm in {"monthly", "contract"}:
+    return "units_per_period_capacity", "month"
+  return "units_per_period_capacity", "period"
+
+
+def _find_missing_capacity_target(
+  snapshot_obj: Any,
+  *,
+  fallback_ops: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+  if not isinstance(snapshot_obj, dict):
+    return None
+  fallback = fallback_ops if isinstance(fallback_ops, dict) else {}
+  lob_models = snapshot_obj.get("lob_models")
+  if isinstance(lob_models, list):
+    for lob_index, lob in enumerate(lob_models):
+      if not isinstance(lob, dict):
+        continue
+      products = lob.get("products")
+      if not isinstance(products, list):
+        continue
+      for product_index, product in enumerate(products):
+        if not isinstance(product, dict):
+          continue
+        if not _is_missing_number_value(product.get("units_per_period_capacity")) or not _is_missing_number_value(
+          product.get("units_per_week_capacity")
+        ):
+          continue
+        cadence = (
+          product.get("unit_cadence")
+          or snapshot_obj.get("unit_cadence")
+          or fallback.get("unit_cadence")
+        )
+        field, period_label = _capacity_field_for_cadence(cadence)
+        label = str(
+          product.get("product_name")
+          or product.get("unit_name")
+          or snapshot_obj.get("unit_name")
+          or fallback.get("unit_name")
+          or "this offering"
+        ).strip()
+        return {
+          "kind": "product",
+          "lob_index": lob_index,
+          "product_index": product_index,
+          "field": field,
+          "period_label": period_label,
+          "label": label,
+        }
+  if _is_missing_number_value(snapshot_obj.get("units_per_period_capacity")) and _is_missing_number_value(
+    snapshot_obj.get("units_per_week_capacity")
+  ):
+    cadence = snapshot_obj.get("unit_cadence") or fallback.get("unit_cadence")
+    field, period_label = _capacity_field_for_cadence(cadence)
+    label = str(snapshot_obj.get("unit_name") or fallback.get("unit_name") or "units").strip() or "units"
+    return {
+      "kind": "top_level",
+      "field": field,
+      "period_label": period_label,
+      "label": label,
+    }
+  return None
+
+
+def _build_capacity_target_question(target: Dict[str, Any]) -> str:
+  period_label = str(target.get("period_label") or "period").strip() or "period"
+  label = str(target.get("label") or "units").strip() or "units"
+  if str(target.get("kind") or "").strip() == "product":
+    return (
+      f"To make planning realistic for {label}, in a fully busy {period_label}, "
+      f"about how many {label} can you handle?"
+    ).strip()
+  return (
+    f"To make planning realistic, in a fully busy {period_label}, "
+    f"about how many {label} can you handle?"
+  ).strip()
+
+
+def _apply_capacity_target_value(snapshot_obj: Any, target: Dict[str, Any], value: float) -> Dict[str, Any]:
+  next_snapshot = json.loads(json.dumps(snapshot_obj if isinstance(snapshot_obj, dict) else {}))
+  field = str(target.get("field") or "").strip()
+  if not field:
+    return _normalize_ops_capacity_compat(next_snapshot)
+  if str(target.get("kind") or "").strip() == "product":
+    try:
+      lob_index = int(target.get("lob_index"))
+      product_index = int(target.get("product_index"))
+      next_snapshot["lob_models"][lob_index]["products"][product_index][field] = float(value)
+    except Exception:
+      return _normalize_ops_capacity_compat(next_snapshot)
+  else:
+    next_snapshot[field] = float(value)
+  return _normalize_ops_capacity_compat(next_snapshot)
+
+
+def _apply_capacity_snapshot_to_ops_json(
+  ops_json: Dict[str, Any],
+  snapshot_obj: Dict[str, Any],
+  target: Dict[str, Any],
+) -> Dict[str, Any]:
+  patch_obj: Dict[str, Any] = {}
+  if isinstance(snapshot_obj.get("lob_models"), list):
+    patch_obj["lob_models"] = snapshot_obj.get("lob_models")
+  field = str(target.get("field") or "").strip()
+  if field and field in snapshot_obj:
+    patch_obj[field] = snapshot_obj.get(field)
+  return _apply_model_ops_patch(dict(ops_json or {}), patch_obj)
+
+
+def _infer_capacity_field_from_prompt(*, last_assistant: str, ops_json: Dict[str, Any]) -> Optional[str]:
+  prompt = str(last_assistant or "").strip().lower()
+  cadence = str((ops_json or {}).get("unit_cadence") or "").strip().lower()
+  if "fully booked week" in prompt:
+    return "units_per_week_capacity"
+  if "fully booked month" in prompt or "fully booked period" in prompt:
+    return "units_per_period_capacity"
+  if cadence == "weekly":
+    return "units_per_week_capacity"
+  if cadence in {"monthly", "contract"}:
+    return "units_per_period_capacity"
+  return None
+
+
+def _capacity_confirm_prompt_patch(
+  *,
+  last_assistant: str,
+  user_message: str,
+  ops_json: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  prompt = str(last_assistant or "").strip().lower()
+  if "just to confirm your capacity:" not in prompt or "fully booked" not in prompt:
+    return None
+  if _count_ops_products(ops_json) > 1:
+    return None
+  value = _extract_single_compact_number(user_message)
+  if value is None:
+    return None
+  field = _infer_capacity_field_from_prompt(last_assistant=last_assistant, ops_json=ops_json or {})
+  if not field:
+    return None
+  return {field: float(value)}
 
 
 def _apply_model_ops_patch(ops_json: Any, patch_obj: Any) -> Any:
@@ -628,62 +869,151 @@ def _get_blocking_consistency_solver_state(financials_json: Dict[str, Any]) -> O
   return state
 
 
-CONSISTENCY_TABLE_REVIEW_QUESTION = (
-  "Does this Year-1 summary look right, or do you want to change anything before I check whether the plan needs any final adjustment?"
-)
+def _parse_consistency_solver_reply(
+  *,
+  user_message: str,
+  solver_state: Dict[str, Any],
+) -> Dict[str, Any]:
+  text = str(user_message or "").strip()
+  if not text or not isinstance(solver_state, dict):
+    return {}
+  scenarios = solver_state.get("client_scenarios")
+  if not isinstance(scenarios, list) or not scenarios:
+    scenarios = solver_state.get("scenarios")
+  if not isinstance(scenarios, list) or not scenarios:
+    return {}
 
+  normalized = text.lower()
+  selected_index: Optional[int] = None
+  keyed_match = re.search(r"\b(?:option|scenario|strategy|path)\s*(\d{1,2})\b", normalized)
+  if keyed_match:
+    try:
+      selected_index = int(keyed_match.group(1))
+    except Exception:
+      selected_index = None
+  elif re.fullmatch(r"\s*\d{1,2}\s*", text):
+    try:
+      selected_index = int(text.strip())
+    except Exception:
+      selected_index = None
+  else:
+    for idx, scenario in enumerate(scenarios, start=1):
+      if not isinstance(scenario, dict):
+        continue
+      name = str(scenario.get("scenario_name") or "").strip().lower()
+      if name and name in normalized:
+        selected_index = idx
+        break
 
-def _is_pending_consistency_table_review(financials_json: Dict[str, Any]) -> bool:
-  return str((financials_json or {}).get("_consistency_close_stage") or "").strip().lower() == "table_review"
+  if selected_index is None or selected_index < 1 or selected_index > len(scenarios):
+    if "?" in text or normalized.startswith(("what", "why", "how", "which")):
+      return {"intent_type": "ask_question"}
+    if any(token in normalized for token in ("none", "reject", "neither", "start over", "different option")):
+      return {"intent_type": "reject_all"}
+    return {}
+
+  scenario = scenarios[selected_index - 1] if isinstance(scenarios[selected_index - 1], dict) else {}
+  scenario_id = str(
+    scenario.get("scenario_id")
+    or scenario.get("id")
+    or selected_index
+  ).strip()
+  override_payload: Dict[str, Any] = {
+    "unit_price_absolute": None,
+    "price_change_percent": None,
+    "utilization_percent": None,
+    "marketing_total_year1_absolute": None,
+    "marketing_reduction_percent": None,
+    "other_opex_absolute": None,
+    "other_opex_reduction_percent": None,
+    "role_title": None,
+    "months_until_hire": None,
+    "milestone_timing_months_max": None,
+  }
+
+  percent_patterns = {
+    "price_change_percent": r"\b(?:price|pricing)[^%\n\r]{0,30}?(-?\d+(?:\.\d+)?)\s*%",
+    "utilization_percent": r"\butil(?:ization)?[^%\n\r]{0,30}?(\d+(?:\.\d+)?)\s*%",
+    "marketing_reduction_percent": r"\bmarketing[^%\n\r]{0,30}?(?:cut|reduce|lower|down)[^%\n\r]{0,20}?(\d+(?:\.\d+)?)\s*%",
+    "other_opex_reduction_percent": r"\b(?:other\s+)?opex[^%\n\r]{0,30}?(?:cut|reduce|lower|down)[^%\n\r]{0,20}?(\d+(?:\.\d+)?)\s*%",
+  }
+  for key, pattern in percent_patterns.items():
+    match = re.search(pattern, normalized)
+    if not match:
+      continue
+    try:
+      override_payload[key] = float(match.group(1))
+    except Exception:
+      override_payload[key] = None
+
+  money_patterns = {
+    "unit_price_absolute": r"\b(?:price|pricing)[^\n\r$]{0,20}?\$([\d,]+(?:\.\d+)?)",
+    "marketing_total_year1_absolute": r"\bmarketing[^\n\r$]{0,20}?\$([\d,]+(?:\.\d+)?)",
+    "other_opex_absolute": r"\b(?:other\s+)?opex[^\n\r$]{0,20}?\$([\d,]+(?:\.\d+)?)",
+  }
+  for key, pattern in money_patterns.items():
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+      continue
+    try:
+      override_payload[key] = float(str(match.group(1)).replace(",", ""))
+    except Exception:
+      override_payload[key] = None
+
+  hire_match = re.search(
+    r"\b(?:hire|hiring|delay|push|move)[^.\n\r]{0,40}?(?:to|by|in)?\s*(\d+(?:\.\d+)?)\s*(?:months?|mos?)\b",
+    normalized,
+  )
+  if hire_match:
+    try:
+      override_payload["months_until_hire"] = float(hire_match.group(1))
+    except Exception:
+      override_payload["months_until_hire"] = None
+
+  milestone_match = re.search(
+    r"\bmilestone[^.\n\r]{0,40}?(?:within|by|in|under|max)?\s*(\d+(?:\.\d+)?)\s*(?:months?|mos?)\b",
+    normalized,
+  )
+  if milestone_match:
+    try:
+      override_payload["milestone_timing_months_max"] = float(milestone_match.group(1))
+    except Exception:
+      override_payload["milestone_timing_months_max"] = None
+
+  role_match = re.search(
+    r"\b(?:hire|hiring|delay|push|move)\s+([a-z][a-z0-9 &/-]{1,60}?)(?:\s+(?:to|by|in)\s+\d+\s*(?:months?|mos?))?\b",
+    normalized,
+  )
+  if role_match:
+    role_title = str(role_match.group(1) or "").strip(" .,:;")
+    override_payload["role_title"] = role_title or None
+
+  has_override = any(value is not None for value in override_payload.values())
+  return {
+    "intent_type": "modify_option" if has_override else "select_option",
+    "selected_scenario_id": scenario_id,
+    **override_payload,
+  }
 
 
 def _clear_consistency_solver_state(financials_json: Dict[str, Any]) -> Dict[str, Any]:
   next_financials = dict(financials_json or {})
   next_financials.pop("_consistency_solver_state", None)
+  next_financials.pop("_consistency_close_stage", None)
   return next_financials
 
-
-def _build_consistency_table_review_message(
+def _build_consistency_initial_table(
   *,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
-  forecast_quarters: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
   ctx = _attach_consistency_financial_context(
-    {
-      "forecast_quarters": forecast_quarters or [],
-    },
+    {},
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
   )
   table_markdown = str(ctx.get("consistency_financial_table_markdown") or "").strip()
-  if not table_markdown:
-    return CONSISTENCY_TABLE_REVIEW_QUESTION
-  intro = "Year 1 numbers:"
-  if forecast_quarters:
-    intro = "Year 1 numbers and quarterly EBITDA forecast:"
-  return (
-    f"{intro}\n\n"
-    f"{table_markdown}\n\n"
-    f"{CONSISTENCY_TABLE_REVIEW_QUESTION}"
-  ).strip()
-
-
-def _start_consistency_table_review(
-  *,
-  financials_json: Dict[str, Any],
-  financials_year1_json: Dict[str, Any],
-  forecast_quarters: Optional[List[Dict[str, Any]]] = None,
-) -> Tuple[str, Dict[str, Any]]:
-  next_financials = dict(financials_json or {})
-  next_financials.pop("_consistency_solver_state", None)
-  next_financials["_consistency_close_stage"] = "table_review"
-  assistant_text = _build_consistency_table_review_message(
-    financials_json=next_financials,
-    financials_year1_json=financials_year1_json,
-    forecast_quarters=forecast_quarters,
-  )
-  return assistant_text, next_financials
+  return table_markdown
 
 
 def _build_consistency_runtime_context(
@@ -735,6 +1065,25 @@ def _build_constraint_bundle_for_persistence(
   marketing_model_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   try:
+    context = intake_context if isinstance(intake_context, dict) else {}
+    try:
+      from solver_trace import reset_solver_trace_stage, trace_lazy  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import reset_solver_trace_stage, trace_lazy  # type: ignore
+    reset_solver_trace_stage()
+    trace_lazy(
+      "INPUTS",
+      "Persisted state entering planning pipeline",
+      lambda: {
+        "operating_model_json": ops_json or {},
+        "target_market_json": market_json or {},
+        "people_json": people_json or {},
+        "financials_json": financials_json or {},
+        "financials_year1_json": financials_year1_json or {},
+        "marketing_model_json": marketing_model_json or {},
+        "fulfillment_json": context.get("fulfillment_json") if isinstance(context, dict) else {},
+      },
+    )
     try:
       from constraint_engine import build_constraint_engine_bundle  # type: ignore
     except Exception:
@@ -743,7 +1092,6 @@ def _build_constraint_bundle_for_persistence(
       from forecast_engine import build_forecast_engine_bundle  # type: ignore
     except Exception:
       from client_intake_and_finmo.forecast_engine import build_forecast_engine_bundle  # type: ignore
-    context = intake_context if isinstance(intake_context, dict) else {}
     constraint_bundle = build_constraint_engine_bundle(
       conn=conn,
       shared_context=context.get("shared_context") if isinstance(context, dict) else {},
@@ -786,6 +1134,16 @@ def _build_constraint_bundle_for_persistence(
           continue
         base_versions[key] = value
       merged_bundle["engine_versions"] = base_versions
+    trace_lazy(
+      "DERIVED",
+      "Constraint and forecast bundles",
+      lambda: {
+        "normalized_traits": merged_bundle.get("normalized_traits") or {},
+        "benchmark_payload": merged_bundle.get("benchmark_payload") or {},
+        "constraint_engine_state": merged_bundle.get("constraint_engine_state") or {},
+        "forecast_engine_state": merged_bundle.get("forecast_engine_state") or {},
+      },
+    )
     return merged_bundle
   except Exception:
     return {}
@@ -803,32 +1161,1037 @@ def _constraint_bundle_append_kwargs(bundle: Optional[Dict[str, Any]]) -> Dict[s
   }
 
 
-def _build_consistency_viable_close_message(
+def _constraint_bundle_response_kwargs(bundle: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = bundle if isinstance(bundle, dict) else {}
+  return {
+    "forecast_engine_state": payload.get("forecast_engine_state") or {},
+    "forecast_quarters": payload.get("forecast_quarters") or [],
+    "engine_versions": payload.get("engine_versions") or {},
+  }
+
+
+def _refresh_shared_forecast_context(
+  shared_context: Optional[Dict[str, Any]],
+  bundle: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  updated = dict(shared_context or {})
+  payload = bundle if isinstance(bundle, dict) else {}
+  updated["forecast_engine_state"] = payload.get("forecast_engine_state") or {}
+  updated["forecast_quarters"] = payload.get("forecast_quarters") or []
+  updated["engine_versions"] = payload.get("engine_versions") or {}
+  return updated
+
+
+def _humanize_business_descriptor(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+) -> str:
+  fixed_facts = (((solver_state or {}).get("state_model") or {}).get("fixed_facts") or {}) if isinstance(((solver_state or {}).get("state_model") or {}), dict) else {}
+  fixed_facts = fixed_facts if isinstance(fixed_facts, dict) else {}
+  business_type = str(fixed_facts.get("business_type") or "").strip()
+  if business_type:
+    return business_type
+  commercial_context = fixed_facts.get("commercial_context") if isinstance(fixed_facts.get("commercial_context"), dict) else {}
+  archetype = str((commercial_context or {}).get("commercial_archetype") or "").strip().replace("_", " ")
+  if archetype:
+    return archetype
+  return "business"
+
+
+def _build_quarterly_projection_table(forecast_quarters: Optional[List[Dict[str, Any]]]) -> str:
+  try:
+    try:
+      from consistency_financials import _build_quarterly_ebitda_forecast_table  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.consistency_financials import _build_quarterly_ebitda_forecast_table  # type: ignore
+  except Exception:
+    return ""
+  return str(_build_quarterly_ebitda_forecast_table(forecast_quarters or []) or "").strip()
+
+
+def _describe_modified_levers(scenario: Optional[Dict[str, Any]]) -> str:
+  scenario_obj = scenario if isinstance(scenario, dict) else {}
+  families = [
+    str(item or "").strip()
+    for item in (scenario_obj.get("lever_families") or scenario_obj.get("meaningful_families") or [])
+    if str(item or "").strip()
+  ]
+  label_map = {
+    "price": "pricing",
+    "utilization": "utilization",
+    "marketing": "marketing",
+    "staffing": "staffing",
+    "payroll": "staffing support",
+    "opex": "operating expense",
+    "cogs": "cost structure",
+    "milestone": "timing",
+  }
+  labels = [label_map.get(item, item.replace("_", " ")) for item in families]
+  labels = [item for item in labels if item]
+  if not labels:
+    return "the operating path"
+  if len(labels) == 1:
+    return labels[0]
+  if len(labels) == 2:
+    return f"{labels[0]} and {labels[1]}"
+  return ", ".join(labels[:-1]) + f", and {labels[-1]}"
+
+
+def _build_consistency_finalized_message(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+  initial_table_markdown: str,
+  modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+) -> str:
+  quarter_table = _build_quarterly_projection_table(modified_forecast_quarters)
+  business_descriptor = _humanize_business_descriptor(solver_state=solver_state)
+  scenario_obj = selected_scenario if isinstance(selected_scenario, dict) else {}
+  client_output = scenario_obj.get("client_output") if isinstance(scenario_obj.get("client_output"), dict) else {}
+  scenario_summary = str(client_output.get("summary") or "").strip()
+  dominant_tradeoff = str(
+    scenario_obj.get("dominant_tradeoff")
+    or client_output.get("scenario_name")
+    or "the most viable path"
+  ).strip()
+  modified_levers = _describe_modified_levers(scenario_obj)
+  explanation = (
+    f"The Initial Projections table shows the original Year 1 plan captured during intake. "
+    f"The Modified Quarterly Projections table shows the revised quarter-by-quarter path that best aligns this {business_descriptor} with a realistic operating structure. "
+    f"We adjusted {modified_levers} so the business follows the most viable path for this type of operation; {scenario_summary.lower() if scenario_summary else dominant_tradeoff.lower()}. "
+    f"At this stage, moving materially away from this path would reduce realism and internal consistency. Intake is now complete. You may submit the plan."
+  )
+  sections = ["Initial Projections", "", initial_table_markdown.strip(), "", "Modified Quarterly Projections"]
+  if quarter_table:
+    sections.extend(["", quarter_table])
+  sections.extend(["", explanation.strip()])
+  return "\n".join([section for section in sections if section is not None]).strip()
+
+
+def _build_consistency_financial_summary_safe(
   *,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
-) -> str:
-  summary_ctx = _attach_consistency_financial_context(
-    {},
+) -> Dict[str, Any]:
+  try:
+    try:
+      from consistency_financials import build_consistency_financial_summary  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.consistency_financials import build_consistency_financial_summary  # type: ignore
+    summary = build_consistency_financial_summary(
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+    )
+    return summary if isinstance(summary, dict) else {}
+  except Exception:
+    return {}
+
+
+def _rollup_forecast_years_from_quarters(
+  forecast_quarters: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+  quarters = [quarter for quarter in (forecast_quarters or []) if isinstance(quarter, dict)]
+  if not quarters:
+    return []
+  years: List[Dict[str, Any]] = []
+  for year_index in range(5):
+    year_quarters = quarters[year_index * 4:(year_index + 1) * 4]
+    if not year_quarters:
+      continue
+    utilization_values = [
+      _safe_float(quarter.get("utilization"))
+      for quarter in year_quarters
+      if _safe_float(quarter.get("utilization")) is not None
+    ]
+    years.append(
+      {
+        "year_index": year_index + 1,
+        "period_label": f"Year {year_index + 1}",
+        "revenue": round(sum(_safe_float(quarter.get("revenue")) or 0.0 for quarter in year_quarters), 2),
+        "cogs": round(sum(_safe_float(quarter.get("cogs")) or 0.0 for quarter in year_quarters), 2),
+        "payroll": round(sum(_safe_float(quarter.get("payroll")) or 0.0 for quarter in year_quarters), 2),
+        "marketing": round(sum(_safe_float(quarter.get("marketing")) or 0.0 for quarter in year_quarters), 2),
+        "opex": round(sum(_safe_float(quarter.get("opex")) or 0.0 for quarter in year_quarters), 2),
+        "ebitda": round(sum(_safe_float(quarter.get("ebitda")) or 0.0 for quarter in year_quarters), 2),
+        "net_income": round(sum(_safe_float(quarter.get("net_income")) or 0.0 for quarter in year_quarters), 2),
+        "utilization": (
+          round(sum(value for value in utilization_values if value is not None) / len(utilization_values), 6)
+          if utilization_values
+          else None
+        ),
+      }
+    )
+  return years
+
+
+def _build_consistency_modified_plan_payload(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+  constraint_bundle: Optional[Dict[str, Any]],
+  initial_ops_json: Dict[str, Any],
+  initial_market_json: Dict[str, Any],
+  initial_people_json: Dict[str, Any],
+  initial_financials_json: Dict[str, Any],
+  initial_financials_year1_json: Dict[str, Any],
+  initial_marketing_model_json: Dict[str, Any],
+  modified_ops_json: Dict[str, Any],
+  modified_market_json: Dict[str, Any],
+  modified_people_json: Dict[str, Any],
+  modified_financials_json: Dict[str, Any],
+  modified_financials_year1_json: Dict[str, Any],
+  modified_marketing_model_json: Dict[str, Any],
+  modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+  scenario_obj = selected_scenario if isinstance(selected_scenario, dict) else {}
+  bundle = constraint_bundle if isinstance(constraint_bundle, dict) else {}
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  state_model = solver_obj.get("state_model") if isinstance(solver_obj.get("state_model"), dict) else {}
+  fixed_facts = state_model.get("fixed_facts") if isinstance(state_model.get("fixed_facts"), dict) else {}
+  forecast_engine_state = (
+    scenario_obj.get("forecast_engine_state")
+    if isinstance(scenario_obj.get("forecast_engine_state"), dict)
+    else bundle.get("forecast_engine_state")
+  )
+  forecast_engine_state = forecast_engine_state if isinstance(forecast_engine_state, dict) else {}
+  forecast_years = forecast_engine_state.get("forecast_years") if isinstance(forecast_engine_state.get("forecast_years"), list) else []
+  if not forecast_years:
+    forecast_years = _rollup_forecast_years_from_quarters(modified_forecast_quarters)
+  quarter_driver_path: List[Dict[str, Any]] = []
+  quarter_rollups: List[Dict[str, Any]] = []
+  child_first = False
+  for quarter in modified_forecast_quarters or []:
+    if not isinstance(quarter, dict):
+      continue
+    driver_row = copy.deepcopy(quarter)
+    lobs = driver_row.get("lobs")
+    child_first = child_first or (isinstance(lobs, list) and len(lobs) > 0)
+    driver_row["source_level"] = "child_rollup" if isinstance(lobs, list) and lobs else "parent_only"
+    quarter_driver_path.append(driver_row)
+    rollup_row = {k: copy.deepcopy(v) for k, v in quarter.items() if k != "lobs"}
+    rollup_row["source_level"] = driver_row["source_level"]
+    quarter_rollups.append(rollup_row)
+
+  if not child_first:
+    child_first = bool(
+      isinstance(modified_financials_year1_json.get("lobs"), list) and modified_financials_year1_json.get("lobs")
+    )
+
+  scenario_client_output = scenario_obj.get("client_output") if isinstance(scenario_obj.get("client_output"), dict) else {}
+  modified_year1_summary = _build_consistency_financial_summary_safe(
+    financials_json=modified_financials_json,
+    financials_year1_json=modified_financials_year1_json,
+  )
+  initial_year1_summary = _build_consistency_financial_summary_safe(
+    financials_json=initial_financials_json,
+    financials_year1_json=initial_financials_year1_json,
+  )
+
+  return {
+    "contract_version": "consistency_modified_plan_v1",
+    "source": "scenario" if scenario_obj else "baseline_forecast",
+    "child_first": bool(child_first),
+    "business_context": {
+      "business_type": str(fixed_facts.get("business_type") or modified_ops_json.get("business_type") or "").strip(),
+      "business_stage": str(
+        fixed_facts.get("business_stage")
+        or modified_ops_json.get("business_stage")
+        or (((bundle.get("normalized_traits") or {}) if isinstance(bundle.get("normalized_traits"), dict) else {}).get("business_stage"))
+        or ""
+      ).strip(),
+      "capacity_driver": str(fixed_facts.get("capacity_driver") or modified_ops_json.get("capacity_driver") or "").strip(),
+      "sales_modality": str(fixed_facts.get("sales_modality") or modified_ops_json.get("sales_modality") or "").strip(),
+      "customer_type": str(fixed_facts.get("customer_type") or modified_ops_json.get("customer_type") or "").strip(),
+      "unit_cadence": str(fixed_facts.get("unit_cadence") or modified_ops_json.get("unit_cadence") or "").strip(),
+    },
+    "scenario": {
+      "scenario_id": scenario_obj.get("scenario_id"),
+      "strategy_id": scenario_obj.get("strategy_id"),
+      "archetype": scenario_obj.get("archetype"),
+      "dominant_tradeoff": scenario_obj.get("dominant_tradeoff"),
+      "demand_posture": scenario_obj.get("demand_posture"),
+      "staffing_posture": scenario_obj.get("staffing_posture"),
+      "cost_posture": scenario_obj.get("cost_posture"),
+      "scenario_name": scenario_client_output.get("scenario_name"),
+      "summary": scenario_client_output.get("summary"),
+      "tradeoff": scenario_client_output.get("tradeoff"),
+      "confidence": scenario_client_output.get("confidence"),
+    },
+    "initial_plan": {
+      "operating_model": copy.deepcopy(initial_ops_json or {}),
+      "target_market": copy.deepcopy(initial_market_json or {}),
+      "people": copy.deepcopy(initial_people_json or {}),
+      "financials": copy.deepcopy(initial_financials_json or {}),
+      "financials_year1": copy.deepcopy(initial_financials_year1_json or {}),
+      "marketing_model": copy.deepcopy(initial_marketing_model_json or {}),
+      "year1_summary": initial_year1_summary,
+    },
+    "modified_plan": {
+      "operating_model": copy.deepcopy(modified_ops_json or {}),
+      "target_market": copy.deepcopy(modified_market_json or {}),
+      "people": copy.deepcopy(modified_people_json or {}),
+      "financials": copy.deepcopy(modified_financials_json or {}),
+      "financials_year1": copy.deepcopy(modified_financials_year1_json or {}),
+      "marketing_model": copy.deepcopy(modified_marketing_model_json or {}),
+      "year1_summary": modified_year1_summary,
+    },
+    "year1_modified_state": copy.deepcopy((forecast_years[0] if forecast_years else modified_year1_summary) or {}),
+    "quarter_driver_path": quarter_driver_path,
+    "quarter_rollups": quarter_rollups,
+    "forecast_years": copy.deepcopy(forecast_years or []),
+    "forecast_meta": {
+      "forecast_confidence": forecast_engine_state.get("forecast_confidence"),
+      "convergence_source": forecast_engine_state.get("convergence_source"),
+      "convergence_strength": forecast_engine_state.get("convergence_strength"),
+      "year1_warning_status": forecast_engine_state.get("year1_warning_status"),
+      "blocking_violations": copy.deepcopy(forecast_engine_state.get("blocking_violations") or []),
+      "forecast_orchestration": copy.deepcopy(forecast_engine_state.get("forecast_orchestration") or {}),
+      "scenario_strategy": copy.deepcopy(forecast_engine_state.get("scenario_strategy") or {}),
+    },
+    "timed_events": {
+      "role_timing_overrides": copy.deepcopy(
+        ((forecast_engine_state.get("forecast_orchestration") or {}) if isinstance(forecast_engine_state.get("forecast_orchestration"), dict) else {}).get("role_timing_overrides") or []
+      ),
+      "milestone_timing_overrides": copy.deepcopy(
+        ((forecast_engine_state.get("forecast_orchestration") or {}) if isinstance(forecast_engine_state.get("forecast_orchestration"), dict) else {}).get("milestone_timing_overrides") or []
+      ),
+      "event_response": copy.deepcopy(
+        ((forecast_engine_state.get("forecast_orchestration") or {}) if isinstance(forecast_engine_state.get("forecast_orchestration"), dict) else {}).get("event_response") or {}
+      ),
+    },
+  }
+
+
+def _normalized_violation_codes(values: Any) -> List[str]:
+  codes: List[str] = []
+  seen = set()
+  for item in values or []:
+    code = str(item or "").strip()
+    if not code or code in seen:
+      continue
+    seen.add(code)
+    codes.append(code)
+  return codes
+
+
+def _quarter_violation_codes(
+  forecast_quarters: Optional[List[Dict[str, Any]]],
+) -> List[str]:
+  combined: List[str] = []
+  for quarter in forecast_quarters or []:
+    if not isinstance(quarter, dict):
+      continue
+    combined.extend(quarter.get("constraint_violations") or [])
+  return _normalized_violation_codes(combined)
+
+
+def _build_violation_resolution_summary(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+  constraint_bundle: Optional[Dict[str, Any]],
+  modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  scenario_obj = selected_scenario if isinstance(selected_scenario, dict) else {}
+  bundle = constraint_bundle if isinstance(constraint_bundle, dict) else {}
+  constraint_engine_state = bundle.get("constraint_engine_state") if isinstance(bundle.get("constraint_engine_state"), dict) else {}
+  forecast_engine_state = (
+    scenario_obj.get("forecast_engine_state")
+    if isinstance(scenario_obj.get("forecast_engine_state"), dict)
+    else bundle.get("forecast_engine_state")
+  )
+  forecast_engine_state = forecast_engine_state if isinstance(forecast_engine_state, dict) else {}
+
+  baseline_violations = _normalized_violation_codes(
+    (constraint_engine_state.get("violations") or [])
+    or (solver_obj.get("constraint_violations") or [])
+    or (solver_obj.get("blocking_violations") or [])
+  )
+  scenario_remaining = _normalized_violation_codes(scenario_obj.get("remaining_violations") or [])
+  scenario_remaining_blocking = _normalized_violation_codes(
+    scenario_obj.get("remaining_blocking_violations") or []
+  )
+  forecast_blocking = _normalized_violation_codes(forecast_engine_state.get("blocking_violations") or [])
+  quarter_violations = _quarter_violation_codes(modified_forecast_quarters)
+
+  final_violations = _normalized_violation_codes(
+    scenario_remaining or quarter_violations or forecast_blocking
+  )
+  final_blocking_violations = _normalized_violation_codes(
+    scenario_remaining_blocking or forecast_blocking
+  )
+  resolved_violations = [
+    code for code in baseline_violations
+    if code not in set(final_violations)
+  ]
+  remaining_violations = list(final_violations)
+
+  if not baseline_violations and not remaining_violations:
+    status = "no_errors"
+    display = "no errors"
+  elif not remaining_violations:
+    status = "cleared"
+    display = "cleared"
+  elif not final_blocking_violations:
+    status = "soft_issues_remaining"
+    display = "soft issues remaining"
+  else:
+    status = "hard_issues_remaining"
+    display = "hard issues remaining"
+
+  return {
+    "status": status,
+    "display_status": display,
+    "baseline_violations": baseline_violations,
+    "resolved_violations": resolved_violations,
+    "remaining_violations": remaining_violations,
+    "remaining_blocking_violations": final_blocking_violations,
+    "all_cleared": not remaining_violations,
+    "hard_cleared": not final_blocking_violations,
+  }
+
+
+def _require_consistency_modified_plan(closeout: Any) -> Dict[str, Any]:
+  payload = (
+    closeout.get("consistency_modified_plan_json")
+    if isinstance(closeout, dict)
+    else None
+  )
+  if isinstance(payload, dict) and payload:
+    return payload
+  raise RuntimeError("consistency_modified_plan_missing")
+
+
+def _consistency_trace_scenario_summary(scenario: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  if not isinstance(scenario, dict):
+    return {}
+  return {
+    "scenario_id": scenario.get("scenario_id"),
+    "strategy_id": scenario.get("strategy_id"),
+    "strategy_name": scenario.get("strategy_name"),
+    "strategy_source": scenario.get("strategy_source"),
+    "label": scenario.get("label"),
+    "rationale": scenario.get("rationale"),
+    "archetype": scenario.get("archetype"),
+    "archetype_display": scenario.get("archetype_display"),
+    "dominant_tradeoff": scenario.get("dominant_tradeoff"),
+    "allowed_levers": copy.deepcopy(scenario.get("allowed_levers") or []),
+    "relationship_rules": copy.deepcopy(scenario.get("relationship_rules") or []),
+    "remaining_violations": copy.deepcopy(scenario.get("remaining_violations") or []),
+    "remaining_blocking_violations": copy.deepcopy(scenario.get("remaining_blocking_violations") or []),
+    "realism_distance": scenario.get("realism_distance"),
+    "target_distance": scenario.get("target_distance"),
+    "lever_summary": copy.deepcopy(scenario.get("lever_summary") or {}),
+    "contract_diagnostics": copy.deepcopy(scenario.get("contract_diagnostics") or {}),
+    "forecast_orchestration": copy.deepcopy(scenario.get("forecast_orchestration") or {}),
+    "exact_patches": copy.deepcopy(scenario.get("exact_patches") or {}),
+    "summary": copy.deepcopy(scenario.get("summary") or {}),
+  }
+
+
+def _consistency_trace_contract_summary(bundle: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  if not isinstance(bundle, dict):
+    return {}
+  profile = bundle.get("profile") if isinstance(bundle.get("profile"), dict) else {}
+  diagnostics = bundle.get("diagnostics") if isinstance(bundle.get("diagnostics"), dict) else {}
+  direct_inputs = bundle.get("direct_inputs") if isinstance(bundle.get("direct_inputs"), dict) else {}
+  return {
+    "strategy_id": str(profile.get("strategy_id") or profile.get("profile_id") or diagnostics.get("strategy_id") or "").strip(),
+    "strategy_name": str(profile.get("strategy_name") or profile.get("profile_id") or "").strip(),
+    "strategy_source": str(profile.get("strategy_source") or diagnostics.get("strategy_source") or "").strip(),
+    "allowed_levers": copy.deepcopy(profile.get("allowed_levers") or diagnostics.get("allowed_levers") or []),
+    "relationship_rules": copy.deepcopy(profile.get("relationship_rules") or []),
+    "forecast_orchestration": copy.deepcopy(profile.get("forecast_orchestration") or {}),
+    "contract_diagnostics": copy.deepcopy(diagnostics),
+    "contract_inputs": {
+      "target_payroll_min_total": direct_inputs.get("target_payroll_min_total"),
+      "target_payroll_max_total": direct_inputs.get("target_payroll_max_total"),
+      "structural_payroll_floor": direct_inputs.get("structural_payroll_floor"),
+      "marketing_min": direct_inputs.get("marketing_min"),
+      "marketing_upper": direct_inputs.get("marketing_upper"),
+      "other_opex_min": direct_inputs.get("other_opex_min"),
+      "other_opex_max": direct_inputs.get("other_opex_max"),
+      "price_lower": direct_inputs.get("price_lower"),
+      "price_upper": direct_inputs.get("price_upper"),
+      "util_min": direct_inputs.get("util_min"),
+      "util_max": direct_inputs.get("util_max"),
+      "units_min": direct_inputs.get("units_min"),
+      "units_max": direct_inputs.get("units_max"),
+    },
+  }
+
+
+def _build_consistency_gpt_governance_payload(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  state_model = solver_obj.get("state_model") if isinstance(solver_obj.get("state_model"), dict) else {}
+  strategy_layer = state_model.get("strategy_layer") if isinstance(state_model.get("strategy_layer"), dict) else {}
+  diagnosis = strategy_layer.get("diagnosis") if isinstance(strategy_layer.get("diagnosis"), dict) else {}
+  strategy_selection = strategy_layer.get("strategy_selection") if isinstance(strategy_layer.get("strategy_selection"), dict) else {}
+  strategies = [copy.deepcopy(item) for item in (strategy_layer.get("strategies") or []) if isinstance(item, dict)]
+  return {
+    "contract_version": "consistency_gpt_governance_v1",
+    "required_at_runtime": True,
+    "status": solver_obj.get("status"),
+    "blocking_reason": solver_obj.get("blocking_reason"),
+    "strategy_layer_source": strategy_layer.get("source"),
+    "primary_drivers": copy.deepcopy(strategy_layer.get("primary_drivers") or []),
+    "diagnosis": copy.deepcopy(diagnosis),
+    "strategy_selection": copy.deepcopy(strategy_selection),
+    "selected_strategies": strategies,
+    "governed_attempt_count": int(solver_obj.get("governed_attempt_count") or 0),
+    "retry_attempts": copy.deepcopy(solver_obj.get("strategy_retry_attempts") or []),
+    "selected_scenario": _consistency_trace_scenario_summary(selected_scenario),
+  }
+
+
+def _build_consistency_controller_contract_payload(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  scenarios = [
+    _consistency_trace_scenario_summary(item)
+    for item in (solver_obj.get("scenarios") or [])
+    if isinstance(item, dict)
+  ]
+  attempted_contracts = [
+    _consistency_trace_contract_summary(item)
+    for item in (solver_obj.get("attempted_contract_bundles") or [])
+    if isinstance(item, dict)
+  ]
+  return {
+    "contract_version": "consistency_controller_contract_v1",
+    "status": solver_obj.get("status"),
+    "selection_mode": solver_obj.get("selection_mode"),
+    "solve_mode": solver_obj.get("solve_mode"),
+    "search_mode": solver_obj.get("search_mode"),
+    "selected_target_label": solver_obj.get("selected_target_label"),
+    "selected_target_ebitda_min": solver_obj.get("selected_target_ebitda_min"),
+    "selected_target_ebitda_max": solver_obj.get("selected_target_ebitda_max"),
+    "governed_attempt_count": int(solver_obj.get("governed_attempt_count") or 0),
+    "retry_attempts": copy.deepcopy(solver_obj.get("strategy_retry_attempts") or []),
+    "selected_scenario": _consistency_trace_scenario_summary(selected_scenario),
+    "scenario_contracts": scenarios or attempted_contracts,
+  }
+
+
+def _build_consistency_solver_execution_payload(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  scenarios = [
+    _consistency_trace_scenario_summary(item)
+    for item in (solver_obj.get("scenarios") or [])
+    if isinstance(item, dict)
+  ]
+  attempted_scenarios = [
+    _consistency_trace_scenario_summary(item)
+    for item in (solver_obj.get("attempted_scenarios") or [])
+    if isinstance(item, dict)
+  ]
+  return {
+    "contract_version": "consistency_solver_execution_v1",
+    "status": solver_obj.get("status"),
+    "blocking_reason": solver_obj.get("blocking_reason"),
+    "blocking_violations": copy.deepcopy(solver_obj.get("blocking_violations") or []),
+    "selection_mode": solver_obj.get("selection_mode"),
+    "solve_mode": solver_obj.get("solve_mode"),
+    "search_mode": solver_obj.get("search_mode"),
+    "structural_gap": solver_obj.get("structural_gap"),
+    "baseline_summary": copy.deepcopy(solver_obj.get("baseline_summary") or {}),
+    "baseline_loss_pct": solver_obj.get("baseline_loss_pct"),
+    "governed_attempt_count": int(solver_obj.get("governed_attempt_count") or 0),
+    "retry_attempts": copy.deepcopy(solver_obj.get("strategy_retry_attempts") or []),
+    "scenario_count": len(scenarios),
+    "attempted_scenario_count": len(attempted_scenarios),
+    "selected_scenario": _consistency_trace_scenario_summary(selected_scenario),
+    "scenarios": scenarios,
+    "attempted_scenarios": attempted_scenarios,
+  }
+
+
+def _persist_consistency_governance_artifacts(
+  *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+  active_focus: str = "consistency",
+  constraint_bundle: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  gpt_governance_json = _build_consistency_gpt_governance_payload(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+  )
+  controller_contract_json = _build_consistency_controller_contract_payload(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+  )
+  solver_execution_json = _build_consistency_solver_execution_payload(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+  )
+  try:
+    try:
+      from solver_trace import trace_lazy  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+    trace_lazy(
+      "GPT_GOVERNANCE",
+      "Real-time GPT governance payload",
+      lambda: gpt_governance_json,
+    )
+    trace_lazy(
+      "CONTROLLER_CONTRACT",
+      "Real-time controller contract payload",
+      lambda: controller_contract_json,
+    )
+    trace_lazy(
+      "SOLVER_EXECUTION",
+      "Real-time solver execution payload",
+      lambda: solver_execution_json,
+    )
+  except Exception:
+    pass
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[],
+    active_focus=str(active_focus or "consistency").strip() or "consistency",
+    business_facts=business_facts,
+    consistency_gpt_governance_json=gpt_governance_json,
+    consistency_controller_contract_json=controller_contract_json,
+    consistency_solver_execution_json=solver_execution_json,
+    **_constraint_bundle_append_kwargs(constraint_bundle or {}),
+  ) if hasattr(conn, "cursor") else None
+  return gpt_governance_json, controller_contract_json, solver_execution_json
+
+
+def _run_consistency_closeout(
+  *,
+  conn,
+  client_id: str,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  business_stage_hint: Optional[str],
+  current_date_iso: str,
+  shared_context: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  initial_ops_json = copy.deepcopy(ops_json if isinstance(ops_json, dict) else {})
+  initial_market_json = copy.deepcopy(market_json if isinstance(market_json, dict) else {})
+  initial_people_json = copy.deepcopy(people_json if isinstance(people_json, dict) else {})
+  initial_financials_json = copy.deepcopy(financials_json if isinstance(financials_json, dict) else {})
+  initial_financials_year1_json = copy.deepcopy(
+    financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  )
+  initial_marketing_model_json = copy.deepcopy(
+    marketing_model_json if isinstance(marketing_model_json, dict) else {}
+  )
+  initial_table_markdown = _build_consistency_initial_table(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
   )
-  summary_obj = summary_ctx.get("consistency_financial_summary") if isinstance(summary_ctx, dict) else {}
-  final_net_income = _format_currency((summary_obj or {}).get("net_income"))
-  final_ebitda = _format_currency((summary_obj or {}).get("ebitda"))
-  return f"Updated Year 1 EBITDA: {final_ebitda}. Net income: {final_net_income}."
+  consistency_runtime_context = _build_consistency_runtime_context(
+    client_id=client_id,
+    draft_id=str(draft_id).strip(),
+    business_facts=business_facts,
+    business_stage_hint=business_stage_hint,
+    current_date_iso=current_date_iso,
+    shared_context=shared_context,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+    marketing_model_json=marketing_model_json,
+  )
+  solver_state, constraint_bundle = _start_consistency_solver_if_needed(
+    intake_context=consistency_runtime_context,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+  )
+  gpt_governance_json: Dict[str, Any] = {}
+  controller_contract_json: Dict[str, Any] = {}
+  solver_execution_json: Dict[str, Any] = {}
+  if isinstance(solver_state, dict):
+    gpt_governance_json, controller_contract_json, solver_execution_json = _persist_consistency_governance_artifacts(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      business_facts=business_facts,
+      solver_state=solver_state,
+      selected_scenario=None,
+      active_focus="consistency",
+      constraint_bundle=constraint_bundle,
+    )
+  selected_scenario: Optional[Dict[str, Any]] = None
+  modified_forecast_quarters: List[Dict[str, Any]] = []
+  updated_shared_context = dict(shared_context or {})
+  updated_ops_json = dict(ops_json or {})
+  updated_market_json = dict(market_json or {})
+  updated_people_json = dict(people_json or {})
+  updated_financials_json = _clear_consistency_solver_state(financials_json)
+  updated_financials_year1_json = dict(financials_year1_json or {})
+  updated_marketing_model_json = dict(marketing_model_json or {})
+
+  if isinstance(solver_state, dict) and (solver_state.get("scenarios") or []):
+    selected_scenario_id = str((((solver_state.get("scenarios") or [])[0]) or {}).get("scenario_id") or "1").strip() or "1"
+    applied_solver = _apply_consistency_solver_choice(
+      selected_scenario_id=selected_scenario_id,
+      overrides={},
+      ops_json=updated_ops_json,
+      market_json=updated_market_json,
+      people_json=updated_people_json,
+      financials_json=updated_financials_json,
+      financials_year1_json=updated_financials_year1_json,
+      marketing_model_json=updated_marketing_model_json,
+      solver_state_override=solver_state,
+    )
+    if applied_solver:
+      updated_ops_json = dict(applied_solver.get("ops_json") or updated_ops_json)
+      updated_people_json = _sync_people_state_after_consistency(
+        people_json=dict(applied_solver.get("people_json") or updated_people_json)
+      )
+      updated_financials_json = _clear_consistency_solver_state(
+        dict(applied_solver.get("financials_json") or updated_financials_json)
+      )
+      updated_financials_year1_json = dict(
+        applied_solver.get("financials_year1_json") or updated_financials_year1_json
+      )
+      updated_marketing_model_json = dict(
+        applied_solver.get("marketing_model_json") or updated_marketing_model_json
+      )
+      selected_scenario = applied_solver.get("scenario") if isinstance(applied_solver, dict) else {}
+
+      updated_shared_context["operating_model"] = updated_ops_json
+      updated_shared_context["target_market"] = updated_market_json
+      updated_shared_context["people_capability"] = updated_people_json
+      updated_shared_context["financials"] = updated_financials_json
+      updated_shared_context["financials_year1"] = updated_financials_year1_json
+
+      updated_market_json, updated_marketing_model_json = _sync_marketing_state_after_consistency(
+        intake_context={
+          "business_name": business_facts.get("name"),
+          "business_start_date": business_facts.get("start_date"),
+          "shared_context": updated_shared_context,
+          "operating_model_json": updated_ops_json,
+          "target_market_json": updated_market_json,
+          "financials_json": updated_financials_json,
+          "financials_year1_json": updated_financials_year1_json,
+        },
+        market_json=updated_market_json,
+        financials_json=updated_financials_json,
+        financials_year1_json=updated_financials_year1_json,
+        marketing_model_json=updated_marketing_model_json,
+        scenario_context={
+          "scenario_label": selected_scenario.get("label") if isinstance(selected_scenario, dict) else None,
+          "scenario_rationale": selected_scenario.get("rationale") if isinstance(selected_scenario, dict) else None,
+          "lever_families": (
+            selected_scenario.get("lever_families")
+            if isinstance(selected_scenario, dict)
+            else []
+          ),
+        },
+        rewrite_narrative=True,
+      )
+      updated_shared_context["target_market"] = updated_market_json
+      updated_shared_context["marketing"] = updated_marketing_model_json
+      constraint_bundle = _build_constraint_bundle_for_persistence(
+        conn=conn,
+        intake_context=_build_consistency_runtime_context(
+          client_id=client_id,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          business_stage_hint=business_stage_hint,
+          current_date_iso=current_date_iso,
+          shared_context=updated_shared_context,
+          ops_json=updated_ops_json,
+          market_json=updated_market_json,
+          people_json=updated_people_json,
+          financials_json=updated_financials_json,
+          financials_year1_json=updated_financials_year1_json,
+          fulfillment_json=fulfillment_json,
+          marketing_model_json=updated_marketing_model_json,
+        ),
+        ops_json=updated_ops_json,
+        market_json=updated_market_json,
+        people_json=updated_people_json,
+        financials_json=updated_financials_json,
+        financials_year1_json=updated_financials_year1_json,
+        marketing_model_json=updated_marketing_model_json,
+      )
+      modified_forecast_quarters = [
+        q for q in (
+          (selected_scenario or {}).get("forecast_quarters")
+          or constraint_bundle.get("forecast_quarters")
+          or []
+        )
+        if isinstance(q, dict)
+      ]
+      if isinstance(solver_state, dict):
+        gpt_governance_json, controller_contract_json, solver_execution_json = _persist_consistency_governance_artifacts(
+          conn=conn,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          solver_state=solver_state,
+          selected_scenario=selected_scenario,
+          active_focus="consistency",
+          constraint_bundle=constraint_bundle,
+        )
+
+  if isinstance(solver_state, dict) and not isinstance(selected_scenario, dict):
+    raise RuntimeError("consistency_governed_scenario_missing")
+
+  consistency_modified_plan_json = _build_consistency_modified_plan_payload(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+    constraint_bundle=constraint_bundle,
+    initial_ops_json=initial_ops_json,
+    initial_market_json=initial_market_json,
+    initial_people_json=initial_people_json,
+    initial_financials_json=initial_financials_json,
+    initial_financials_year1_json=initial_financials_year1_json,
+    initial_marketing_model_json=initial_marketing_model_json,
+    modified_ops_json=updated_ops_json,
+    modified_market_json=updated_market_json,
+    modified_people_json=updated_people_json,
+    modified_financials_json=updated_financials_json,
+    modified_financials_year1_json=updated_financials_year1_json,
+    modified_marketing_model_json=updated_marketing_model_json,
+    modified_forecast_quarters=modified_forecast_quarters,
+  )
+  resolution_summary = _build_violation_resolution_summary(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+    constraint_bundle=constraint_bundle,
+    modified_forecast_quarters=modified_forecast_quarters,
+  )
+  consistency_modified_plan_json["resolution_summary"] = resolution_summary
+  try:
+    try:
+      from solver_trace import trace_lazy  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+    trace_lazy(
+      "MODIFIED_PLAN",
+      "Consistency modified plan payload",
+      lambda: consistency_modified_plan_json,
+    )
+    trace_lazy(
+      "GPT_GOVERNANCE",
+      "Consistency GPT governance payload",
+      lambda: gpt_governance_json,
+    )
+    trace_lazy(
+      "CONTROLLER_CONTRACT",
+      "Consistency controller contract payload",
+      lambda: controller_contract_json,
+    )
+    trace_lazy(
+      "SOLVER_EXECUTION",
+      "Consistency solver execution payload",
+      lambda: solver_execution_json,
+    )
+    trace_lazy(
+      "CONSISTENCY",
+      "Violation resolution summary",
+      lambda: resolution_summary,
+    )
+  except Exception:
+    pass
+  updated_shared_context["consistency_modified_plan"] = consistency_modified_plan_json
+  updated_shared_context["consistency_gpt_governance"] = gpt_governance_json
+  updated_shared_context["consistency_controller_contract"] = controller_contract_json
+  updated_shared_context["consistency_solver_execution"] = solver_execution_json
+
+  assistant_text = _build_consistency_finalized_message(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+    initial_table_markdown=initial_table_markdown,
+    modified_forecast_quarters=modified_forecast_quarters,
+  )
+  return {
+    "assistant_text": assistant_text,
+    "solver_state": solver_state,
+    "selected_scenario": selected_scenario,
+    "constraint_bundle": constraint_bundle,
+    "shared_context": updated_shared_context,
+    "ops_json": updated_ops_json,
+    "market_json": updated_market_json,
+    "people_json": updated_people_json,
+    "financials_json": updated_financials_json,
+    "financials_year1_json": updated_financials_year1_json,
+    "marketing_model_json": updated_marketing_model_json,
+    "consistency_modified_plan_json": consistency_modified_plan_json,
+    "consistency_gpt_governance_json": gpt_governance_json,
+    "consistency_controller_contract_json": controller_contract_json,
+    "consistency_solver_execution_json": solver_execution_json,
+  }
 
 
-def _build_consistency_blocking_message(solver_state: Dict[str, Any]) -> str:
-  violations = [
-    str(code or "").strip().replace("_", " ")
-    for code in (solver_state.get("blocking_violations") or [])
-    if str(code or "").strip()
-  ]
-  if violations:
-    joined = ", ".join(violations[:3])
-    return f"Year 1 is still blocked: {joined}."
-  return "Year 1 is still blocked."
+def _financials_ready_for_consistency(
+  financials_json: Dict[str, Any],
+  *,
+  guardrail_triggered: bool = False,
+) -> bool:
+  return (not guardrail_triggered) and _next_financials_stage(financials_json) is None
+
+
+def _build_financials_completion_turn(*, acknowledgement: str = "") -> Dict[str, Any]:
+  message = "Thanks. I have everything I need for financials, and I’m moving into the consistency pass now."
+  if str(acknowledgement or "").strip():
+    message = f"{str(acknowledgement).strip()}\n\n{message}".strip()
+  return {
+    "assistant_message": message,
+    "finalize_ready": False,
+    "transition_to_consistency": True,
+  }
+
+
+def _persist_and_reload_financials_progress(
+  *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[],
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+    active_focus="financials",
+    business_facts=business_facts,
+  )
+  persisted = get_draft(conn, draft_id=str(draft_id).strip())
+  return (
+    _parse_json_dict(persisted.get("financials_json")),
+    _parse_json_dict(persisted.get("financials_year1_json")),
+    _parse_json_dict(persisted.get("marketing_model_json")),
+  )
+
+
+def _advance_persisted_financials_stage(
+  *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  financials_chat_turn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  shared_context: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  marketing_model_json: Optional[Dict[str, Any]] = None,
+  acknowledgement: str = "",
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  persisted_financials, persisted_year1, persisted_marketing = _persist_and_reload_financials_progress(
+    conn=conn,
+    draft_id=draft_id,
+    business_facts=business_facts,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json or {},
+  )
+  next_stage = _next_financials_stage(persisted_financials)
+  if next_stage:
+    next_context = dict(intake_context or {})
+    next_context["financials_json"] = persisted_financials
+    next_shared = dict(shared_context or {})
+    next_shared["financials"] = persisted_financials
+    if isinstance(persisted_marketing, dict) and persisted_marketing:
+      next_shared["marketing"] = persisted_marketing
+    next_context["shared_context"] = next_shared
+    next_context["financials_active_stage"] = next_stage
+    next_turn = financials_chat_turn(
+      intake_context=next_context,
+      conversation_messages=conversation_messages,
+    ) or {}
+    if str(acknowledgement or "").strip():
+      next_text = str(next_turn.get("assistant_message") or "").strip()
+      next_turn["assistant_message"] = (
+        f"{str(acknowledgement).strip()}\n\n{next_text}".strip()
+        if next_text
+        else str(acknowledgement).strip()
+      )
+    next_financials = _sync_pending_revenue_adjustment_state(
+      persisted_financials,
+      persisted_year1,
+      next_turn.get("revenue_adjudication") if isinstance(next_turn, dict) else None,
+    )
+    return next_turn, next_financials, persisted_marketing
+
+  completion_turn = _build_financials_completion_turn(acknowledgement=acknowledgement)
+  next_financials = _sync_pending_revenue_adjustment_state(
+    persisted_financials,
+    persisted_year1,
+    completion_turn.get("revenue_adjudication") if isinstance(completion_turn, dict) else None,
+  )
+  return completion_turn, next_financials, persisted_marketing
+
+
+def _maybe_run_consistency_closeout(
+  *,
+  focus_hint: Optional[str],
+  guardrail_triggered: bool,
+  conn,
+  client_id: str,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  business_stage_hint: Optional[str],
+  current_date_iso: str,
+  shared_context: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  focus_normalized = str(focus_hint or "").strip().lower()
+  if focus_normalized != "consistency":
+    return None
+  return _run_consistency_closeout(
+    conn=conn,
+    client_id=client_id,
+    draft_id=draft_id,
+    business_facts=business_facts,
+    business_stage_hint=business_stage_hint,
+    current_date_iso=current_date_iso,
+    shared_context=shared_context,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+    marketing_model_json=marketing_model_json,
+  )
 
 
 def _start_consistency_solver_if_needed(
@@ -840,7 +2203,14 @@ def _start_consistency_solver_if_needed(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
-) -> Tuple[Optional[str], Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  try:
+    try:
+      from solver_trace import trace_lazy  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+  except Exception:
+    trace_lazy = None  # type: ignore
   constraint_bundle: Dict[str, Any] = _build_constraint_bundle_for_persistence(
     intake_context=intake_context,
     ops_json=ops_json,
@@ -850,18 +2220,19 @@ def _start_consistency_solver_if_needed(
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
   )
+  if isinstance(intake_context, dict):
+    intake_context["shared_context"] = _refresh_shared_forecast_context(
+      intake_context.get("shared_context") if isinstance(intake_context, dict) else {},
+      constraint_bundle,
+    )
 
   try:
     try:
       from consistency_solver import build_consistency_solver_state  # type: ignore
     except Exception:
       from client_intake_and_finmo.consistency_solver import build_consistency_solver_state  # type: ignore
-    try:
-      from consistency_consultant import consistency_solver_proposal_message  # type: ignore
-    except Exception:
-      from client_intake_and_finmo.consistency_consultant import consistency_solver_proposal_message  # type: ignore
   except Exception:
-    return None, financials_json, constraint_bundle
+    return None, constraint_bundle
 
   solver_state = build_consistency_solver_state(
     ops_json=ops_json,
@@ -880,37 +2251,28 @@ def _start_consistency_solver_if_needed(
     ),
   )
   if not isinstance(solver_state, dict):
-    return None, financials_json, constraint_bundle
+    return None, constraint_bundle
 
-  if str(solver_state.get("status") or "").strip() == "blocking_unresolved":
-    assistant_text = _build_consistency_blocking_message(solver_state)
-    next_financials = dict(financials_json or {})
-    next_financials.pop("_consistency_close_stage", None)
-    next_financials["_consistency_solver_state"] = solver_state
-    return assistant_text, next_financials, constraint_bundle
-
-  if not (solver_state.get("scenarios") or []):
-    return None, financials_json, constraint_bundle
-
-  solver_context = _attach_consistency_financial_context(
-    intake_context,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-  )
-  try:
-    proposal_text = consistency_solver_proposal_message(
-      intake_context=solver_context,
-      solver_state=solver_state,
+  if trace_lazy:
+    trace_lazy(
+      "FINAL",
+      "Solver state built",
+      lambda: {
+        "status": solver_state.get("status"),
+        "solve_mode": solver_state.get("solve_mode"),
+        "blocking_reason": solver_state.get("blocking_reason"),
+        "blocking_violations": solver_state.get("blocking_violations") or [],
+        "baseline_summary": solver_state.get("baseline_summary") or {},
+        "baseline_realism_distance": solver_state.get("baseline_realism_distance"),
+        "selected_target_label": solver_state.get("selected_target_label"),
+        "selected_target_ebitda_min": solver_state.get("selected_target_ebitda_min"),
+        "selected_target_ebitda_max": solver_state.get("selected_target_ebitda_max"),
+        "scenario_count": len(solver_state.get("scenarios") or []),
+        "client_scenario_count": len(solver_state.get("client_scenarios") or []),
+      },
     )
-  except Exception:
-    return None, financials_json, constraint_bundle
 
-  assistant_text = proposal_text.strip()
-
-  next_financials = dict(financials_json or {})
-  next_financials.pop("_consistency_close_stage", None)
-  next_financials["_consistency_solver_state"] = solver_state
-  return assistant_text, next_financials, constraint_bundle
+  return solver_state, constraint_bundle
 
 
 def _apply_consistency_solver_choice(
@@ -923,8 +2285,9 @@ def _apply_consistency_solver_choice(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
+  solver_state_override: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-  solver_state = _get_pending_consistency_solver_state(financials_json)
+  solver_state = solver_state_override if isinstance(solver_state_override, dict) else _get_pending_consistency_solver_state(financials_json)
   if not solver_state:
     return None
 
@@ -1025,6 +2388,7 @@ def _sync_marketing_state_after_consistency(
   scenario_context: Optional[Dict[str, Any]] = None,
   rewrite_narrative: bool = False,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+  del intake_context, scenario_context, rewrite_narrative
   next_market = dict(market_json or {})
   next_marketing_model = dict(marketing_model_json or {})
 
@@ -1037,36 +2401,6 @@ def _sync_marketing_state_after_consistency(
   ):
     if (financials_json or {}).get(key) is not None:
       next_marketing_model[key] = (financials_json or {}).get(key)
-
-  if rewrite_narrative:
-    try:
-      try:
-        from consistency_consultant import rewrite_marketing_state_after_consistency  # type: ignore
-      except Exception:
-        from client_intake_and_finmo.consistency_consultant import rewrite_marketing_state_after_consistency  # type: ignore
-
-      rewrite_context = _attach_consistency_financial_context(
-        dict(intake_context or {}),
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-      )
-      rewrite_context["target_market_json"] = next_market
-      rewrite_context["marketing_model_json"] = next_marketing_model
-      rewritten = rewrite_marketing_state_after_consistency(
-        intake_context=rewrite_context,
-        existing_marketing_plan_summary=str(next_market.get("marketing_plan_summary") or "").strip(),
-        existing_marketing_basis_summary=str(next_marketing_model.get("marketing_basis_summary") or "").strip(),
-        scenario_context=scenario_context or {},
-      )
-      if isinstance(rewritten, dict):
-        plan_summary = str(rewritten.get("marketing_plan_summary") or "").strip()
-        basis_summary = str(rewritten.get("marketing_basis_summary") or "").strip()
-        if plan_summary:
-          next_market["marketing_plan_summary"] = sanitize_fact_template(plan_summary)
-        if basis_summary:
-          next_marketing_model["marketing_basis_summary"] = sanitize_fact_template(basis_summary)
-    except Exception:
-      pass
 
   return next_market, next_marketing_model
 
@@ -2520,6 +3854,9 @@ def _build_future_rent_message(
 
 def _maybe_handle_financials_monthly_rent_turn(
   *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
   interpret_monthly_rent_reply,
   interpret_future_rent_reply,
   financials_chat_turn,
@@ -2575,6 +3912,9 @@ def _maybe_handle_financials_monthly_rent_turn(
   next_stage = _next_financials_stage(next_financials)
   if next_stage == "future_rent_expected":
     future_turn, next_financials = _maybe_handle_financials_future_rent_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
       interpret_future_rent_reply=interpret_future_rent_reply,
       financials_chat_turn=financials_chat_turn,
       intake_context=next_intake_context,
@@ -2587,24 +3927,26 @@ def _maybe_handle_financials_monthly_rent_turn(
     )
     if future_turn is not None:
       return future_turn, next_financials
-  if next_stage:
-    next_intake_context["financials_active_stage"] = next_stage
-  else:
-    next_intake_context.pop("financials_active_stage", None)
-  turn = financials_chat_turn(
+  turn, next_financials, _ = _advance_persisted_financials_stage(
+    conn=conn,
+    draft_id=draft_id,
+    business_facts=business_facts,
+    financials_chat_turn=financials_chat_turn,
     intake_context=next_intake_context,
     conversation_messages=conversation_messages,
-  ) or {}
-  next_financials = _sync_pending_revenue_adjustment_state(
-    next_financials,
-    financials_year1_json,
-    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+    shared_context=next_shared_context,
+    financials_json=next_financials,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
   )
   return turn, next_financials
 
 
 def _maybe_handle_financials_future_rent_turn(
   *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
   interpret_future_rent_reply,
   financials_chat_turn,
   intake_context: Dict[str, Any],
@@ -2654,19 +3996,17 @@ def _maybe_handle_financials_future_rent_turn(
   next_intake_context = dict(intake_context or {})
   next_intake_context["financials_json"] = next_financials
   next_intake_context["shared_context"] = next_shared_context
-  next_stage = _next_financials_stage(next_financials)
-  if next_stage:
-    next_intake_context["financials_active_stage"] = next_stage
-  else:
-    next_intake_context.pop("financials_active_stage", None)
-  turn = financials_chat_turn(
+  turn, next_financials, _ = _advance_persisted_financials_stage(
+    conn=conn,
+    draft_id=draft_id,
+    business_facts=business_facts,
+    financials_chat_turn=financials_chat_turn,
     intake_context=next_intake_context,
     conversation_messages=conversation_messages,
-  ) or {}
-  next_financials = _sync_pending_revenue_adjustment_state(
-    next_financials,
-    financials_year1_json,
-    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+    shared_context=next_shared_context,
+    financials_json=next_financials,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
   )
   return turn, next_financials
 
@@ -2692,6 +4032,9 @@ def _normalize_initial_lease_reply(reply: Dict[str, Any]) -> Optional[str]:
 
 def _maybe_handle_financials_initial_lease_turn(
   *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
   interpret_initial_lease_reply,
   financials_chat_turn,
   intake_context: Dict[str, Any],
@@ -2735,19 +4078,17 @@ def _maybe_handle_financials_initial_lease_turn(
   next_intake_context = dict(intake_context or {})
   next_intake_context["financials_json"] = next_financials
   next_intake_context["shared_context"] = next_shared_context
-  next_stage = _next_financials_stage(next_financials)
-  if next_stage:
-    next_intake_context["financials_active_stage"] = next_stage
-  else:
-    next_intake_context.pop("financials_active_stage", None)
-  turn = financials_chat_turn(
+  turn, next_financials, _ = _advance_persisted_financials_stage(
+    conn=conn,
+    draft_id=draft_id,
+    business_facts=business_facts,
+    financials_chat_turn=financials_chat_turn,
     intake_context=next_intake_context,
     conversation_messages=conversation_messages,
-  ) or {}
-  next_financials = _sync_pending_revenue_adjustment_state(
-    next_financials,
-    financials_year1_json,
-    turn.get("revenue_adjudication") if isinstance(turn, dict) else None,
+    shared_context=next_shared_context,
+    financials_json=next_financials,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
   )
   return turn, next_financials
 
@@ -3047,6 +4388,9 @@ def _maybe_handle_financials_marketing_turn(
   next_stage = _next_financials_stage(next_financials)
   if next_stage == "monthly_rent_expense":
     rent_turn, next_financials = _maybe_handle_financials_monthly_rent_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
       interpret_monthly_rent_reply=interpret_monthly_rent_reply,
       interpret_future_rent_reply=interpret_future_rent_reply,
       financials_chat_turn=financials_chat_turn,
@@ -3240,6 +4584,9 @@ def _maybe_handle_financials_cogs_turn(
       return payroll_turn, next_financials
   if next_stage == "initial_lease":
     lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
       interpret_initial_lease_reply=interpret_initial_lease_reply,
       financials_chat_turn=financials_chat_turn,
       intake_context=next_intake_context,
@@ -3335,14 +4682,196 @@ def _next_financials_stage(financials_json: Dict[str, Any]) -> Optional[str]:
   return None
 
 
-_CONTROLLER_OWNED_FINANCIALS_STAGES = {
-  "cogs",
-  "current_payroll",
-  "marketing",
-  "monthly_rent_expense",
-  "future_rent_expected",
-  "initial_lease",
+def _financials_stage_is_controller_owned(stage_name: Optional[str]) -> bool:
+  return bool(str(stage_name or "").strip())
+
+
+_GENERIC_FINANCIALS_SCALAR_FIELDS = {
+  "owner_compensation",
+  "other_operating_expense",
+  "current_num_employees",
+  "current_capex",
+  "initial_assets",
+  "initial_equity",
+  "total_debt_outstanding",
+  "other_monthly_debt_payments",
+  "annual_interest_payment",
+  "annual_principal_payment",
+  "cash_on_hand",
+  "ar_balance",
+  "ap_balance",
+  "inventory_balance",
 }
+
+_GENERIC_FINANCIALS_ZERO_WORDS = (
+  "0",
+  "zero",
+  "none",
+  "nothing",
+  "no",
+  "nope",
+  "nil",
+  "n/a",
+  "not applicable",
+  "not owed",
+  "did not owe",
+  "don't owe",
+  "do not owe",
+  "no unpaid",
+)
+
+_GENERIC_FINANCIALS_FIELD_LABELS = {
+  "owner_compensation": "owner compensation",
+  "other_operating_expense": "other operating expense",
+  "current_num_employees": "current employee count",
+  "current_capex": "current capital spending",
+  "initial_assets": "initial assets already in the business",
+  "initial_equity": "money invested so far",
+  "total_debt_outstanding": "total debt outstanding",
+  "other_monthly_debt_payments": "other monthly debt payments",
+  "annual_interest_payment": "annual interest payment",
+  "annual_principal_payment": "annual principal payment",
+  "cash_on_hand": "cash on hand",
+  "ar_balance": "accounts receivable",
+  "ap_balance": "accounts payable",
+  "inventory_balance": "inventory balance",
+}
+
+
+def _is_generic_financials_scalar_stage(stage_name: Optional[str]) -> bool:
+  return str(stage_name or "").strip() in _GENERIC_FINANCIALS_SCALAR_FIELDS
+
+
+def _extract_financials_scalar_stage_value(stage_name: str, user_message: Any) -> Optional[float]:
+  text = str(user_message or "").strip()
+  if not text:
+    return None
+  numeric_value = _extract_single_compact_number_allow_zero(text)
+  if numeric_value is not None:
+    return numeric_value
+  normalized = re.sub(r"[^a-z0-9\s]", " ", text.lower())
+  normalized = re.sub(r"\s+", " ", normalized).strip()
+  if not normalized:
+    return None
+  for token in _GENERIC_FINANCIALS_ZERO_WORDS:
+    if token in normalized:
+      return 0.0
+  return None
+
+
+def _build_financials_scalar_stage_acknowledgement(stage_name: str, value: float) -> str:
+  label = _GENERIC_FINANCIALS_FIELD_LABELS.get(stage_name, stage_name.replace("_", " "))
+  if stage_name == "current_num_employees":
+    return f"Got it - I'll use {int(round(value))} for {label}."
+  return f"Got it - I'll use {_format_currency(value)} for {label}."
+
+
+def _build_financials_scalar_stage_clarifier(stage_name: str) -> str:
+  label = _GENERIC_FINANCIALS_FIELD_LABELS.get(stage_name, stage_name.replace("_", " "))
+  if stage_name == "current_num_employees":
+    return f"What number should I record for {label}? A whole number is fine."
+  return f"What amount should I record for {label}? A rough number is fine, and 0 is okay if that is correct."
+
+
+def _maybe_handle_financials_generic_patch_turn(
+  *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  route_intent,
+  financials_chat_turn,
+  intake_context: Dict[str, Any],
+  conversation_messages: List[Dict[str, str]],
+  shared_context: Dict[str, Any],
+  last_assistant: str,
+  user_message: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  active_stage: Optional[str],
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+  next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  stage_name = str(active_stage or "").strip()
+  if not stage_name or not str(user_message or "").strip():
+    return None, next_financials
+  try:
+    from fact_templates import sanitize_fact_template as _sanitize_fact_template  # type: ignore
+  except Exception:
+    def _sanitize_fact_template(value: str) -> str:
+      return str(value or "")
+
+  if _is_generic_financials_scalar_stage(stage_name):
+    stage_value = _extract_financials_scalar_stage_value(stage_name, user_message)
+    if stage_value is not None:
+      updated_financials = dict(next_financials)
+      updated_financials[stage_name] = int(round(stage_value)) if stage_name == "current_num_employees" else float(stage_value)
+      updated_financials = _ensure_financials_stage_defaults(updated_financials)
+      acknowledgement = _build_financials_scalar_stage_acknowledgement(stage_name, float(updated_financials.get(stage_name) or 0.0))
+      next_context = dict(intake_context or {})
+      next_context["financials_json"] = updated_financials
+      next_shared = dict(shared_context or {})
+      next_shared["financials"] = updated_financials
+      next_context["shared_context"] = next_shared
+      next_turn, updated_financials, _ = _advance_persisted_financials_stage(
+        conn=conn,
+        draft_id=draft_id,
+        business_facts=business_facts,
+        financials_chat_turn=financials_chat_turn,
+        intake_context=next_context,
+        conversation_messages=conversation_messages,
+        shared_context=next_shared,
+        financials_json=updated_financials,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
+        acknowledgement=acknowledgement,
+      )
+      next_turn["assistant_message"] = _sanitize_fact_template(str(next_turn.get("assistant_message") or "").strip())
+      return next_turn, updated_financials
+    return {
+      "assistant_message": _build_financials_scalar_stage_clarifier(stage_name),
+      "finalize_ready": False,
+    }, next_financials
+
+  routed = route_intent(
+    consult_type="financials",
+    user_message=str(user_message).strip(),
+    baseline_json=next_financials,
+    shared_context=shared_context,
+    recent_messages=conversation_messages[-30:] if conversation_messages else [],
+    active_focus="financials",
+  )
+  action = str(routed.get("action") or "").strip()
+  assistant_message = _sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
+  patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
+
+  if action == "edit_patch" and patch:
+    updated_financials = dict(next_financials)
+    updated_financials.update(patch)
+    updated_financials = _ensure_financials_stage_defaults(updated_financials)
+    next_context = dict(intake_context or {})
+    next_context["financials_json"] = updated_financials
+    next_shared = dict(shared_context or {})
+    next_shared["financials"] = updated_financials
+    next_context["shared_context"] = next_shared
+    next_turn, updated_financials, _ = _advance_persisted_financials_stage(
+      conn=conn,
+      draft_id=draft_id,
+      business_facts=business_facts,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=next_context,
+      conversation_messages=conversation_messages,
+      shared_context=next_shared,
+      financials_json=updated_financials,
+      financials_year1_json=financials_year1_json,
+      marketing_model_json=dict((shared_context or {}).get("marketing") or {}),
+      acknowledgement=assistant_message or "Got it.",
+    )
+    next_turn["assistant_message"] = _sanitize_fact_template(str(next_turn.get("assistant_message") or "").strip())
+    return next_turn, updated_financials
+
+  if action in {"confirm_clarify", "answer_readonly", "continue_chat"} and assistant_message:
+    return {"assistant_message": assistant_message, "finalize_ready": False}, next_financials
+
+  return None, next_financials
 
 
 def _extract_ops_proposal_patch(
@@ -3399,6 +4928,7 @@ def _fallback_ops_followup_question(ops_json: Dict[str, Any]) -> str:
 def _run_financials_turn_and_sync(
   *,
   financials_chat_turn,
+  route_intent,
   interpret_cogs_reply,
   interpret_monthly_rent_reply,
   interpret_future_rent_reply,
@@ -3507,6 +5037,9 @@ def _run_financials_turn_and_sync(
       return marketing_turn, next_financials
   if active_stage == "monthly_rent_expense":
     rent_turn, next_financials = _maybe_handle_financials_monthly_rent_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
       interpret_monthly_rent_reply=interpret_monthly_rent_reply,
       interpret_future_rent_reply=interpret_future_rent_reply,
       financials_chat_turn=financials_chat_turn,
@@ -3522,6 +5055,9 @@ def _run_financials_turn_and_sync(
       return rent_turn, next_financials
   if active_stage == "future_rent_expected":
     future_rent_turn, next_financials = _maybe_handle_financials_future_rent_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
       interpret_future_rent_reply=interpret_future_rent_reply,
       financials_chat_turn=financials_chat_turn,
       intake_context=_stage_context(active_stage, next_financials),
@@ -3536,6 +5072,9 @@ def _run_financials_turn_and_sync(
       return future_rent_turn, next_financials
   if active_stage == "initial_lease":
     lease_turn, next_financials = _maybe_handle_financials_initial_lease_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
       interpret_initial_lease_reply=interpret_initial_lease_reply,
       financials_chat_turn=financials_chat_turn,
       intake_context=_stage_context(active_stage, next_financials),
@@ -3548,6 +5087,24 @@ def _run_financials_turn_and_sync(
     )
     if lease_turn is not None:
       return lease_turn, next_financials
+  if active_stage:
+    generic_turn, next_financials = _maybe_handle_financials_generic_patch_turn(
+      conn=conn,
+      draft_id=str((intake_context or {}).get("draft_id") or "").strip(),
+      business_facts=business_facts,
+      route_intent=route_intent,
+      financials_chat_turn=financials_chat_turn,
+      intake_context=_stage_context(active_stage, next_financials),
+      conversation_messages=conversation_messages,
+      shared_context=shared_context,
+      last_assistant=last_assistant,
+      user_message=user_message,
+      financials_json=next_financials,
+      financials_year1_json=financials_year1_json,
+      active_stage=active_stage,
+    )
+    if generic_turn is not None:
+      return generic_turn, next_financials
 
   turn = financials_chat_turn(
     intake_context=_stage_context(active_stage, next_financials),
@@ -5290,6 +6847,9 @@ def get_intake_consult_draft_handler(*, app, request):
         "constraint_engine_state_json": draft.get("constraint_engine_state_json"),
         "forecast_engine_state_json": draft.get("forecast_engine_state_json"),
         "forecast_quarters_json": draft.get("forecast_quarters_json"),
+        "consistency_gpt_governance_json": draft.get("consistency_gpt_governance_json"),
+        "consistency_controller_contract_json": draft.get("consistency_controller_contract_json"),
+        "consistency_solver_execution_json": draft.get("consistency_solver_execution_json"),
         "engine_versions_json": draft.get("engine_versions_json"),
       }
     )
@@ -5335,6 +6895,10 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
     "constraint_engine_state_json",
     "forecast_engine_state_json",
     "forecast_quarters_json",
+    "consistency_modified_plan_json",
+    "consistency_gpt_governance_json",
+    "consistency_controller_contract_json",
+    "consistency_solver_execution_json",
     "engine_versions_json",
     "pending_ops_milestone_json",
     "fulfillment_json",
@@ -5416,6 +6980,10 @@ def post_intake_consult_handler(*, app, request):
     from api_handlers.shared_context import build_shared_context  # type: ignore
     from fact_templates import sanitize_fact_template  # type: ignore
     from intent_router import route_intent  # type: ignore
+    try:
+      from solver_trace import configure_solver_trace_run, trace_values  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import configure_solver_trace_run, trace_values  # type: ignore
 
     from intake_consultant import consultant_chat_turn, consultant_finalize  # type: ignore
     from target_market_consultant import target_market_chat_turn, target_market_finalize  # type: ignore
@@ -5452,6 +7020,22 @@ def post_intake_consult_handler(*, app, request):
   except Exception as exc:
     app.logger.exception("Failed to import unified intake helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
+
+  trace_run_name = str(request.headers.get("X-Solver-Trace-Run-Name") or "").strip()
+  trace_reset_raw = str(request.headers.get("X-Solver-Trace-Reset") or "").strip().lower()
+  configure_solver_trace_run(
+    trace_run_name,
+    reset_file=trace_reset_raw in {"1", "true", "yes", "on"},
+  )
+  trace_values(
+    "REQUEST",
+    "Intake consult request received",
+    draft_id=str(draft_id).strip(),
+    trace_run_name=trace_run_name,
+    trace_reset=trace_reset_raw in {"1", "true", "yes", "on"},
+    starting=starting,
+    has_message=bool(message),
+  )
 
   conn = get_mysql_connection()
   try:
@@ -5576,6 +7160,198 @@ def post_intake_consult_handler(*, app, request):
       shared_context["marketing"] = marketing_model_json
       return marketing_model_json
 
+    def _persist_consistency_completion(
+      *,
+      closeout: Dict[str, Any],
+      new_messages: List[Dict[str, str]],
+      ops_value: Dict[str, Any],
+      market_value: Dict[str, Any],
+      people_value: Dict[str, Any],
+      financials_value: Dict[str, Any],
+      financials_year1_value: Dict[str, Any],
+      marketing_value: Dict[str, Any],
+      persisted_constraint_bundle: Dict[str, Any],
+      confirmations_value: Optional[Dict[str, bool]] = None,
+      flat_fields_value: Optional[Dict[str, Any]] = None,
+      include_fulfillment: bool = False,
+    ) -> Dict[str, Any]:
+      consistency_modified_plan_json = _require_consistency_modified_plan(closeout)
+      consistency_gpt_governance_json = (
+        closeout.get("consistency_gpt_governance_json")
+        if isinstance(closeout.get("consistency_gpt_governance_json"), dict)
+        else {}
+      )
+      consistency_controller_contract_json = (
+        closeout.get("consistency_controller_contract_json")
+        if isinstance(closeout.get("consistency_controller_contract_json"), dict)
+        else {}
+      )
+      consistency_solver_execution_json = (
+        closeout.get("consistency_solver_execution_json")
+        if isinstance(closeout.get("consistency_solver_execution_json"), dict)
+        else {}
+      )
+      return _persist_consistency_modified_plan_completion(
+        new_messages=new_messages,
+        ops_value=ops_value,
+        market_value=market_value,
+        people_value=people_value,
+        financials_value=financials_value,
+        financials_year1_value=financials_year1_value,
+        marketing_value=marketing_value,
+        persisted_constraint_bundle=persisted_constraint_bundle,
+        consistency_modified_plan_json=consistency_modified_plan_json,
+        consistency_gpt_governance_json=consistency_gpt_governance_json,
+        consistency_controller_contract_json=consistency_controller_contract_json,
+        consistency_solver_execution_json=consistency_solver_execution_json,
+        confirmations_value=confirmations_value,
+        flat_fields_value=flat_fields_value,
+        include_fulfillment=include_fulfillment,
+      )
+
+    def _persist_consistency_modified_plan_completion(
+      *,
+      new_messages: List[Dict[str, str]],
+      ops_value: Dict[str, Any],
+      market_value: Dict[str, Any],
+      people_value: Dict[str, Any],
+      financials_value: Dict[str, Any],
+      financials_year1_value: Dict[str, Any],
+      marketing_value: Dict[str, Any],
+      persisted_constraint_bundle: Dict[str, Any],
+      consistency_modified_plan_json: Dict[str, Any],
+      consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
+      consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
+      consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
+      confirmations_value: Optional[Dict[str, bool]] = None,
+      flat_fields_value: Optional[Dict[str, Any]] = None,
+      include_fulfillment: bool = False,
+    ) -> Dict[str, Any]:
+      if not isinstance(consistency_modified_plan_json, dict) or not consistency_modified_plan_json:
+        raise RuntimeError("consistency_modified_plan_missing")
+      if not isinstance(consistency_gpt_governance_json, dict) or not consistency_gpt_governance_json:
+        raise RuntimeError("consistency_gpt_governance_missing")
+      if not isinstance(consistency_controller_contract_json, dict) or not consistency_controller_contract_json:
+        raise RuntimeError("consistency_controller_contract_missing")
+      if not isinstance(consistency_solver_execution_json, dict) or not consistency_solver_execution_json:
+        raise RuntimeError("consistency_solver_execution_missing")
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=new_messages,
+        operating_model_json=ops_value,
+        target_market_json=market_value,
+        people_json=people_value,
+        financials_json=financials_value,
+        financials_year1_json=financials_year1_value,
+        **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
+        consistency_modified_plan_json=consistency_modified_plan_json,
+        consistency_gpt_governance_json=consistency_gpt_governance_json,
+        consistency_controller_contract_json=consistency_controller_contract_json,
+        consistency_solver_execution_json=consistency_solver_execution_json,
+        fulfillment_json=fulfillment_json if include_fulfillment else None,
+        marketing_model_json=marketing_value,
+        active_focus="done",
+        confirmations=confirmations_value,
+        business_facts=business_facts,
+        consistency_passed=True,
+        status="completed",
+        completed=True,
+        flat_fields=flat_fields_value,
+      )
+      persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
+      persisted_modified = _parse_json_value(persisted_draft.get("consistency_modified_plan_json"))
+      if not isinstance(persisted_modified, dict) or not persisted_modified:
+        raise RuntimeError("consistency_modified_plan_persist_failed")
+      if not isinstance(persisted_modified.get("quarter_driver_path"), list) or not persisted_modified.get("quarter_driver_path"):
+        raise RuntimeError("consistency_modified_plan_missing_quarter_driver_path")
+      if not isinstance(persisted_modified.get("forecast_years"), list) or not persisted_modified.get("forecast_years"):
+        raise RuntimeError("consistency_modified_plan_missing_forecast_years")
+      if not isinstance(persisted_modified.get("resolution_summary"), dict) or not persisted_modified.get("resolution_summary"):
+        raise RuntimeError("consistency_modified_plan_missing_resolution_summary")
+      if not isinstance(_parse_json_value(persisted_draft.get("consistency_gpt_governance_json")), dict) or not _parse_json_value(persisted_draft.get("consistency_gpt_governance_json")):
+        raise RuntimeError("consistency_gpt_governance_persist_failed")
+      if not isinstance(_parse_json_value(persisted_draft.get("consistency_controller_contract_json")), dict) or not _parse_json_value(persisted_draft.get("consistency_controller_contract_json")):
+        raise RuntimeError("consistency_controller_contract_persist_failed")
+      if not isinstance(_parse_json_value(persisted_draft.get("consistency_solver_execution_json")), dict) or not _parse_json_value(persisted_draft.get("consistency_solver_execution_json")):
+        raise RuntimeError("consistency_solver_execution_persist_failed")
+      return persisted_modified
+
+    def _transition_financials_to_consistency_via_sql(
+      *,
+      ops_value: Dict[str, Any],
+      market_value: Dict[str, Any],
+      people_value: Dict[str, Any],
+      financials_value: Dict[str, Any],
+      financials_year1_value: Dict[str, Any],
+      marketing_value: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+      append_messages(
+        conn,
+        draft_id=str(draft_id).strip(),
+        new_messages=[],
+        operating_model_json=ops_value,
+        target_market_json=market_value,
+        people_json=people_value,
+        financials_json=financials_value,
+        financials_year1_json=financials_year1_value,
+        marketing_model_json=marketing_value,
+        active_focus="consistency",
+        business_facts=business_facts,
+      )
+      persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
+      persisted_row = dict((persisted_draft or {}).get("row") or {})
+      persisted_ops = dict(persisted_row.get("operating_model_json") or ops_value)
+      persisted_market = dict(persisted_row.get("target_market_json") or market_value)
+      persisted_people = dict(persisted_row.get("people_json") or people_value)
+      persisted_financials = dict(persisted_row.get("financials_json") or financials_value)
+      persisted_financials_year1 = dict(
+        persisted_row.get("financials_year1_json") or financials_year1_value
+      )
+      persisted_marketing = dict(persisted_row.get("marketing_model_json") or marketing_value)
+      if not _financials_ready_for_consistency(
+        persisted_financials,
+        guardrail_triggered=guardrail_triggered,
+      ):
+        raise RuntimeError("financials_not_ready_for_consistency_from_sql")
+      persisted_shared_context = dict(shared_context or {})
+      persisted_shared_context["operating_model"] = persisted_ops
+      persisted_shared_context["target_market"] = persisted_market
+      persisted_shared_context["people_capability"] = persisted_people
+      persisted_shared_context["financials"] = persisted_financials
+      persisted_shared_context["financials_year1"] = persisted_financials_year1
+      persisted_shared_context["marketing"] = persisted_marketing
+      closeout = _maybe_run_consistency_closeout(
+        focus_hint="consistency",
+        guardrail_triggered=guardrail_triggered,
+        conn=conn,
+        client_id=client_id,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        business_stage_hint=business_stage_hint,
+        current_date_iso=current_date_iso,
+        shared_context=persisted_shared_context,
+        ops_json=persisted_ops,
+        market_json=persisted_market,
+        people_json=persisted_people,
+        financials_json=persisted_financials,
+        financials_year1_json=persisted_financials_year1,
+        fulfillment_json=fulfillment_json,
+        marketing_model_json=persisted_marketing,
+      )
+      if not isinstance(closeout, dict):
+        raise RuntimeError("consistency_closeout_not_ready")
+      return (
+        closeout,
+        persisted_ops,
+        persisted_market,
+        persisted_people,
+        persisted_financials,
+        persisted_financials_year1,
+        persisted_marketing,
+        persisted_shared_context,
+      )
+
     _refresh_marketing_model()
     revenue_math_line = build_revenue_math_line(
       financials_year1_json,
@@ -5668,6 +7444,7 @@ def post_intake_consult_handler(*, app, request):
       elif focus == "financials":
         turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          route_intent=route_intent,
           interpret_cogs_reply=interpret_cogs_reply,
           interpret_monthly_rent_reply=interpret_monthly_rent_reply,
           interpret_future_rent_reply=interpret_future_rent_reply,
@@ -5689,12 +7466,36 @@ def post_intake_consult_handler(*, app, request):
           financials_year1_json=financials_year1_json,
         )
       elif focus == "consistency":
-        assistant_text, financials_json = _start_consistency_table_review(
+        closeout = _maybe_run_consistency_closeout(
+          focus_hint=focus,
+          guardrail_triggered=False,
+          conn=conn,
+          client_id=client_id,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          business_stage_hint=business_stage_hint,
+          current_date_iso=current_date_iso,
+          shared_context=shared_context,
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
-          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+          fulfillment_json=fulfillment_json,
+          marketing_model_json=_refresh_marketing_model(),
         )
-        turn = {"assistant_message": assistant_text}
+        if not isinstance(closeout, dict):
+          raise RuntimeError("consistency_closeout_not_ready")
+        ops_json = dict(closeout.get("ops_json") or ops_json)
+        market_json = dict(closeout.get("market_json") or market_json)
+        people_json = dict(closeout.get("people_json") or people_json)
+        financials_json = dict(closeout.get("financials_json") or financials_json)
+        financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+        marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+        shared_context = dict(closeout.get("shared_context") or shared_context)
+        _require_consistency_modified_plan(closeout)
+        turn = {"assistant_message": closeout.get("assistant_text") or "Continue."}
+        focus = "done"
       else:
         turn = {"assistant_message": "Continue."}
 
@@ -5711,16 +7512,35 @@ def post_intake_consult_handler(*, app, request):
           force=True,
         )
 
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[{"role": "assistant", "content": assistant_text}],
-        target_market_json=market_json if focus == "market" else None,
-        financials_json=financials_json if focus == "financials" else None,
-        marketing_model_json=_refresh_marketing_model(),
-        active_focus=focus,
-        business_facts=business_facts,
-      )
+      if focus == "done":
+        _persist_consistency_completion(
+          closeout=closeout,
+          new_messages=[{"role": "assistant", "content": assistant_text}],
+          ops_value=ops_json,
+          market_value=market_json,
+          people_value=people_json,
+          financials_value=financials_json,
+          financials_year1_value=financials_year1_json,
+          marketing_value=marketing_model_json,
+          persisted_constraint_bundle=dict(closeout.get("constraint_bundle") or {}),
+        )
+      else:
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[{"role": "assistant", "content": assistant_text}],
+          operating_model_json=ops_json if focus == "done" else None,
+          target_market_json=market_json if focus in {"market", "done"} else None,
+          people_json=people_json if focus == "done" else None,
+          financials_json=financials_json if focus in {"financials", "done"} else None,
+          financials_year1_json=financials_year1_json if focus == "done" else None,
+          marketing_model_json=marketing_model_json if focus == "done" else _refresh_marketing_model(),
+          active_focus=focus,
+          business_facts=business_facts,
+          consistency_passed=bool(focus == "done"),
+          status="completed" if focus == "done" else None,
+          completed=bool(focus == "done"),
+        )
 
       return jsonify(
         {
@@ -6218,27 +8038,32 @@ def post_intake_consult_handler(*, app, request):
         }
       )
 
-    pending_consistency_table_review = (
-      _is_pending_consistency_table_review(financials_json)
+    pending_consistency_solver = (
+      _get_pending_consistency_solver_state(financials_json)
       if str(focus).strip().lower() == "consistency"
-      else False
+      else None
     )
-    if pending_consistency_table_review and not starting:
-      table_intent = route_intent(
-        consult_type="unified",
-        user_message=message,
-        baseline_json=baseline_json,
-        shared_context=shared_context_for_router,
-        recent_messages=recent_messages,
-        confirm_question_override=CONSISTENCY_TABLE_REVIEW_QUESTION,
-        active_focus="consistency",
+    blocking_consistency_solver = (
+      _get_blocking_consistency_solver_state(financials_json)
+      if str(focus).strip().lower() == "consistency"
+      else None
+    )
+    if blocking_consistency_solver and not starting:
+      initial_table_markdown = str(blocking_consistency_solver.get("baseline_table_markdown") or "").strip()
+      baseline_bundle = (
+        ((blocking_consistency_solver.get("state_model") or {}).get("baseline_forecast_bundle") or {})
+        if isinstance((blocking_consistency_solver.get("state_model") or {}), dict)
+        else {}
       )
-      table_action = str(table_intent.get("action") or "").strip()
-      table_patch = table_intent.get("patch") if isinstance(table_intent.get("patch"), dict) else None
-      if table_action == "confirm_proceed":
-        financials_json = dict(financials_json or {})
-        financials_json.pop("_consistency_close_stage", None)
-        consistency_runtime_context = _build_consistency_runtime_context(
+      modified_forecast_quarters = [
+        q for q in ((baseline_bundle.get("forecast_quarters") if isinstance(baseline_bundle, dict) else []) or [])
+        if isinstance(q, dict)
+      ]
+      financials_json = dict(financials_json or {})
+      financials_json.pop("_consistency_solver_state", None)
+      persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+        conn=conn,
+        intake_context=_build_consistency_runtime_context(
           client_id=client_id,
           draft_id=str(draft_id).strip(),
           business_facts=business_facts,
@@ -6252,158 +8077,99 @@ def post_intake_consult_handler(*, app, request):
           financials_year1_json=financials_year1_json,
           fulfillment_json=fulfillment_json,
           marketing_model_json=marketing_model_json,
-        )
-        solver_assistant, financials_json, constraint_bundle = _start_consistency_solver_if_needed(
-          intake_context=consistency_runtime_context,
-          ops_json=ops_json,
-          market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          marketing_model_json=marketing_model_json,
-        )
-        if solver_assistant:
-          append_messages(
-            conn,
-            draft_id=str(draft_id).strip(),
-            new_messages=[user_msg, {"role": "assistant", "content": solver_assistant}],
-            operating_model_json=ops_json,
-            target_market_json=market_json,
-            people_json=people_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            **_constraint_bundle_append_kwargs(constraint_bundle),
-            marketing_model_json=_refresh_marketing_model(),
-            active_focus="consistency",
-            business_facts=business_facts,
-            consistency_passed=False,
-          )
-          return jsonify(
-            {
-              "status": "ok",
-              "draft_id": str(draft_id).strip(),
-              "client_id": client_id,
-              "active_focus": "consistency",
-              "awaiting_confirmation": False,
-              "done": False,
-              "action": "continue",
-              "assistant_message": solver_assistant,
-            }
-          )
-
-        assistant_text = _build_consistency_viable_close_message(
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-        )
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          operating_model_json=ops_json,
-          target_market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          **_constraint_bundle_append_kwargs(constraint_bundle),
-          marketing_model_json=_refresh_marketing_model(),
-          active_focus="done",
-          business_facts=business_facts,
-          consistency_passed=True,
-          status="completed",
-          completed=True,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "done",
-            "awaiting_confirmation": False,
-            "done": True,
-            "action": "consistency_passed",
-            "assistant_message": assistant_text,
-          }
-        )
-
-      if table_action == "edit_patch" and table_patch:
-        table_patch = _normalize_unscoped_patch(table_patch, focus="consistency")
-        business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
-          table_patch,
-          business_facts=business_facts,
-          ops_json=ops_json,
-          market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          fulfillment_json=fulfillment_json,
-        )
-        if any(
-          str(key or "").strip() in {
-            "marketing_total_year1",
-            "marketing_percent_of_revenue",
-            "financials.marketing_total_year1",
-            "financials.marketing_percent_of_revenue",
-          }
-          for key in table_patch.keys()
-        ):
-          financials_json = _sync_marketing_field_family(
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            marketing_model_json=marketing_model_json,
-          )
-          try:
-            shared_context = dict(shared_context or {})
-            shared_context["operating_model"] = ops_json
-            shared_context["target_market"] = market_json
-            shared_context["people_capability"] = people_json
-            shared_context["financials"] = financials_json
-            shared_context["financials_year1"] = financials_year1_json
-          except Exception:
-            pass
-          market_json, marketing_model_json = _sync_marketing_state_after_consistency(
-            intake_context=_build_consistency_runtime_context(
-              client_id=client_id,
-              draft_id=str(draft_id).strip(),
-              business_facts=business_facts,
-              business_stage_hint=business_stage_hint,
-              current_date_iso=current_date_iso,
-              shared_context=shared_context,
-              ops_json=ops_json,
-              market_json=market_json,
-              people_json=people_json,
-              financials_json=financials_json,
-              financials_year1_json=financials_year1_json,
-              fulfillment_json=fulfillment_json,
-              marketing_model_json=marketing_model_json,
-            ),
-            market_json=market_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            marketing_model_json=_refresh_marketing_model(),
-            scenario_context={
-              "lever_families": ["marketing"],
-              "source": "consistency_table_review_edit_patch",
-            },
-            rewrite_narrative=True,
-          )
-        try:
-          shared_context = dict(shared_context or {})
-          shared_context["operating_model"] = ops_json
-          shared_context["target_market"] = market_json
-          shared_context["people_capability"] = people_json
-          shared_context["financials"] = financials_json
-          base_year1 = assemble_financials_year1(shared_context, None)
-          if _year1_drivers_conflict(financials_year1_json, base_year1):
-            financials_year1_json = base_year1
-          else:
-            financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
-          shared_context["financials_year1"] = financials_year1_json
-        except Exception:
-          pass
-
-        assistant_text, financials_json = _start_consistency_table_review(
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        ),
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=marketing_model_json,
+      )
+      consistency_modified_plan_json = _build_consistency_modified_plan_payload(
+        solver_state=blocking_consistency_solver,
+        selected_scenario=None,
+        constraint_bundle=persisted_constraint_bundle,
+        initial_ops_json=ops_json,
+        initial_market_json=market_json,
+        initial_people_json=people_json,
+        initial_financials_json=financials_json,
+        initial_financials_year1_json=financials_year1_json,
+        initial_marketing_model_json=marketing_model_json,
+        modified_ops_json=ops_json,
+        modified_market_json=market_json,
+        modified_people_json=people_json,
+        modified_financials_json=financials_json,
+        modified_financials_year1_json=financials_year1_json,
+        modified_marketing_model_json=marketing_model_json,
+        modified_forecast_quarters=modified_forecast_quarters,
+      )
+      assistant_text = _build_consistency_finalized_message(
+        solver_state=blocking_consistency_solver,
+        selected_scenario=None,
+        initial_table_markdown=initial_table_markdown,
+        modified_forecast_quarters=modified_forecast_quarters,
+      )
+      blocking_gpt_governance_json, blocking_controller_contract_json, blocking_solver_execution_json = _persist_consistency_governance_artifacts(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        solver_state=blocking_consistency_solver,
+        selected_scenario=None,
+        active_focus="consistency",
+        constraint_bundle=persisted_constraint_bundle,
+      )
+      _persist_consistency_modified_plan_completion(
+        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        ops_value=ops_json,
+        market_value=market_json,
+        people_value=people_json,
+        financials_value=financials_json,
+        financials_year1_value=financials_year1_json,
+        marketing_value=_refresh_marketing_model(),
+        persisted_constraint_bundle=persisted_constraint_bundle,
+        consistency_modified_plan_json=consistency_modified_plan_json,
+        consistency_gpt_governance_json=blocking_gpt_governance_json,
+        consistency_controller_contract_json=blocking_controller_contract_json,
+        consistency_solver_execution_json=blocking_solver_execution_json,
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "draft_id": str(draft_id).strip(),
+          "client_id": client_id,
+          "active_focus": "done",
+          "awaiting_confirmation": False,
+          "done": True,
+          "action": "consistency_passed",
+          "assistant_message": assistant_text,
+        }
+      )
+    if pending_consistency_solver and not starting:
+      selected_scenario_id = str((((pending_consistency_solver.get("scenarios") or [])[0]) or {}).get("scenario_id") or "1").strip() or "1"
+      applied_solver = _apply_consistency_solver_choice(
+        selected_scenario_id=selected_scenario_id,
+        overrides={},
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        marketing_model_json=marketing_model_json,
+        solver_state_override=pending_consistency_solver,
+      )
+      if applied_solver:
+        ops_json = dict(applied_solver.get("ops_json") or ops_json)
+        people_json = dict(applied_solver.get("people_json") or people_json)
+        financials_json = dict(applied_solver.get("financials_json") or financials_json)
+        financials_year1_json = dict(applied_solver.get("financials_year1_json") or financials_year1_json)
+        marketing_model_json = dict(applied_solver.get("marketing_model_json") or marketing_model_json)
+        selected_scenario = applied_solver.get("scenario") if isinstance(applied_solver, dict) else {}
+        initial_table_markdown = str((pending_consistency_solver.get("baseline_table_markdown") or "")).strip()
+        assistant_text = _build_consistency_finalized_message(
+          solver_state=pending_consistency_solver,
+          selected_scenario=selected_scenario,
+          initial_table_markdown=initial_table_markdown,
+          modified_forecast_quarters=[q for q in ((selected_scenario or {}).get("forecast_quarters") or []) if isinstance(q, dict)],
         )
         persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
           conn=conn,
@@ -6420,150 +8186,8 @@ def post_intake_consult_handler(*, app, request):
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
             fulfillment_json=fulfillment_json,
-            marketing_model_json=marketing_model_json if isinstance(marketing_model_json, dict) else _refresh_marketing_model(),
+            marketing_model_json=marketing_model_json,
           ),
-          ops_json=ops_json,
-          market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          marketing_model_json=marketing_model_json if isinstance(marketing_model_json, dict) else _refresh_marketing_model(),
-        )
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          operating_model_json=ops_json,
-          target_market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
-          marketing_model_json=marketing_model_json if isinstance(marketing_model_json, dict) else _refresh_marketing_model(),
-          active_focus="consistency",
-          business_facts=business_facts,
-          consistency_passed=False,
-          status="in_progress",
-          completed=False,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "consistency",
-            "awaiting_confirmation": False,
-            "done": False,
-            "action": "edit_patch",
-            "assistant_message": assistant_text,
-          }
-        )
-
-      assistant_text = CONSISTENCY_TABLE_REVIEW_QUESTION
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        operating_model_json=ops_json,
-        target_market_json=market_json,
-        people_json=people_json,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=_refresh_marketing_model(),
-        active_focus="consistency",
-        business_facts=business_facts,
-        consistency_passed=False,
-        status="in_progress",
-        completed=False,
-      )
-      return jsonify(
-        {
-          "status": "ok",
-          "draft_id": str(draft_id).strip(),
-          "client_id": client_id,
-          "active_focus": "consistency",
-          "awaiting_confirmation": False,
-          "done": False,
-          "action": "continue",
-          "assistant_message": assistant_text,
-        }
-      )
-
-    pending_consistency_solver = (
-      _get_pending_consistency_solver_state(financials_json)
-      if str(focus).strip().lower() == "consistency"
-      else None
-    )
-    blocking_consistency_solver = (
-      _get_blocking_consistency_solver_state(financials_json)
-      if str(focus).strip().lower() == "consistency"
-      else None
-    )
-    if blocking_consistency_solver and not starting:
-      assistant_text = _build_consistency_blocking_message(blocking_consistency_solver)
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        operating_model_json=ops_json,
-        target_market_json=market_json,
-        people_json=people_json,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=_refresh_marketing_model(),
-        active_focus="consistency",
-        business_facts=business_facts,
-        consistency_passed=False,
-      )
-      return jsonify(
-        {
-          "status": "ok",
-          "draft_id": str(draft_id).strip(),
-          "client_id": client_id,
-          "active_focus": "consistency",
-          "awaiting_confirmation": False,
-          "done": False,
-          "action": "continue",
-          "assistant_message": assistant_text,
-        }
-      )
-    if pending_consistency_solver and not starting:
-      try:
-        try:
-          from consistency_consultant import interpret_consistency_solver_reply  # type: ignore
-        except Exception:
-          from client_intake_and_finmo.consistency_consultant import interpret_consistency_solver_reply  # type: ignore
-      except Exception:
-        interpret_consistency_solver_reply = None  # type: ignore
-
-      solver_reply = (
-        interpret_consistency_solver_reply(
-          user_message=message,
-          last_assistant=last_assistant,
-          solver_state=pending_consistency_solver,
-        )
-        if interpret_consistency_solver_reply
-        else {}
-      )
-      solver_intent_type = str(solver_reply.get("intent_type") or "").strip()
-      selected_scenario_id = str(solver_reply.get("selected_scenario_id") or "").strip()
-      override_payload = {
-        "unit_price_absolute": solver_reply.get("unit_price_absolute"),
-        "price_change_percent": solver_reply.get("price_change_percent"),
-        "utilization_percent": solver_reply.get("utilization_percent"),
-        "marketing_total_year1_absolute": solver_reply.get("marketing_total_year1_absolute"),
-        "marketing_reduction_percent": solver_reply.get("marketing_reduction_percent"),
-        "other_opex_absolute": solver_reply.get("other_opex_absolute"),
-        "other_opex_reduction_percent": solver_reply.get("other_opex_reduction_percent"),
-        "role_title": solver_reply.get("role_title"),
-        "months_until_hire": solver_reply.get("months_until_hire"),
-        "milestone_timing_months_max": solver_reply.get("milestone_timing_months_max"),
-      }
-
-      if solver_intent_type in {"select_option", "modify_option"} and selected_scenario_id:
-        applied_solver = _apply_consistency_solver_choice(
-          selected_scenario_id=selected_scenario_id,
-          overrides=override_payload,
           ops_json=ops_json,
           market_json=market_json,
           people_json=people_json,
@@ -6571,161 +8195,61 @@ def post_intake_consult_handler(*, app, request):
           financials_year1_json=financials_year1_json,
           marketing_model_json=marketing_model_json,
         )
-        if applied_solver:
-          ops_json = dict(applied_solver.get("ops_json") or ops_json)
-          people_json = dict(applied_solver.get("people_json") or people_json)
-          financials_json = dict(applied_solver.get("financials_json") or financials_json)
-          financials_year1_json = dict(applied_solver.get("financials_year1_json") or financials_year1_json)
-          marketing_model_json = dict(applied_solver.get("marketing_model_json") or marketing_model_json)
-          people_json = _sync_people_state_after_consistency(people_json=people_json)
-          try:
-            shared_context = dict(shared_context or {})
-            shared_context["operating_model"] = ops_json
-            shared_context["target_market"] = market_json
-            shared_context["people_capability"] = people_json
-            shared_context["financials"] = financials_json
-            shared_context["financials_year1"] = financials_year1_json
-          except Exception:
-            pass
-          selected_scenario = applied_solver.get("scenario") if isinstance(applied_solver, dict) else {}
-          lever_families = (
-            selected_scenario.get("lever_families")
-            if isinstance(selected_scenario, dict)
-            else []
-          )
-          rewrite_marketing_narrative = bool(
-            isinstance(lever_families, list) and bool(set(lever_families) & {"marketing", "utilization", "price"})
-          ) or any(
-            override_payload.get(key) is not None
-            for key in (
-              "marketing_total_year1_absolute",
-              "marketing_reduction_percent",
-              "utilization_percent",
-              "price_change_percent",
-              "unit_price_absolute",
-            )
-          )
-          market_json, marketing_model_json = _sync_marketing_state_after_consistency(
-            intake_context={
-              "business_name": business_facts.get("name"),
-              "business_start_date": business_facts.get("start_date"),
-              "shared_context": shared_context,
-              "operating_model_json": ops_json,
-              "target_market_json": market_json,
-              "financials_json": financials_json,
-              "financials_year1_json": financials_year1_json,
-            },
-            market_json=market_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            marketing_model_json=_refresh_marketing_model(),
-            scenario_context={
-              "scenario_label": selected_scenario.get("label") if isinstance(selected_scenario, dict) else None,
-              "scenario_rationale": selected_scenario.get("rationale") if isinstance(selected_scenario, dict) else None,
-              "lever_families": lever_families if isinstance(lever_families, list) else [],
-            },
-            rewrite_narrative=rewrite_marketing_narrative,
-          )
-          shared_context["target_market"] = market_json
-          shared_context["marketing"] = marketing_model_json
-          summary_ctx = _attach_consistency_financial_context(
-            {
-              "shared_context": shared_context,
-            },
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-          )
-          summary_obj = summary_ctx.get("consistency_financial_summary") if isinstance(summary_ctx, dict) else {}
-          final_ebitda = _format_currency((summary_obj or {}).get("ebitda"))
-          final_net_income = _format_currency((summary_obj or {}).get("net_income"))
-          assistant_text = f"Updated Year 1 EBITDA: {final_ebitda}. Net income: {final_net_income}."
-          persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
-            conn=conn,
-            intake_context=_build_consistency_runtime_context(
-              client_id=client_id,
-              draft_id=str(draft_id).strip(),
-              business_facts=business_facts,
-              business_stage_hint=business_stage_hint,
-              current_date_iso=current_date_iso,
-              shared_context=shared_context,
-              ops_json=ops_json,
-              market_json=market_json,
-              people_json=people_json,
-              financials_json=financials_json,
-              financials_year1_json=financials_year1_json,
-              fulfillment_json=fulfillment_json,
-              marketing_model_json=marketing_model_json,
-            ),
-            ops_json=ops_json,
-            market_json=market_json,
-            people_json=people_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            marketing_model_json=marketing_model_json,
-          )
-          append_messages(
-            conn,
-            draft_id=str(draft_id).strip(),
-            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-            operating_model_json=ops_json,
-            target_market_json=market_json,
-            people_json=people_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
-            marketing_model_json=marketing_model_json,
-            active_focus="done",
-            business_facts=business_facts,
-            consistency_passed=True,
-            status="completed",
-            completed=True,
-          )
-          return jsonify(
-            {
-              "status": "ok",
-              "draft_id": str(draft_id).strip(),
-              "client_id": client_id,
-              "active_focus": "done",
-              "awaiting_confirmation": False,
-              "done": True,
-              "action": "consistency_passed",
-              "assistant_message": assistant_text,
-            }
-          )
-
-      assistant_text = (
-        "Which option number do you want, or what one numeric change do you want?"
-      )
-      if solver_intent_type == "ask_question":
-        assistant_text = (
-          "The numbers are already recalculated. Which option number do you want, or what one numeric change do you want?"
+        financials_json.pop("_consistency_solver_state", None)
+        consistency_modified_plan_json = _build_consistency_modified_plan_payload(
+          solver_state=pending_consistency_solver,
+          selected_scenario=selected_scenario,
+          constraint_bundle=persisted_constraint_bundle,
+          initial_ops_json=ops_json,
+          initial_market_json=market_json,
+          initial_people_json=people_json,
+          initial_financials_json=financials_json,
+          initial_financials_year1_json=financials_year1_json,
+          initial_marketing_model_json=marketing_model_json,
+          modified_ops_json=ops_json,
+          modified_market_json=market_json,
+          modified_people_json=people_json,
+          modified_financials_json=financials_json,
+          modified_financials_year1_json=financials_year1_json,
+          modified_marketing_model_json=marketing_model_json,
+          modified_forecast_quarters=[q for q in ((selected_scenario or {}).get("forecast_quarters") or []) if isinstance(q, dict)],
         )
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
-        new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        operating_model_json=ops_json,
-        target_market_json=market_json,
-        people_json=people_json,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=_refresh_marketing_model(),
-        active_focus="consistency",
-        business_facts=business_facts,
-        consistency_passed=False,
-      )
-      return jsonify(
-        {
-          "status": "ok",
-          "draft_id": str(draft_id).strip(),
-          "client_id": client_id,
-          "active_focus": "consistency",
-          "awaiting_confirmation": False,
-          "done": False,
-          "action": "continue",
-          "assistant_message": assistant_text,
-        }
-      )
+        pending_gpt_governance_json, pending_controller_contract_json, pending_solver_execution_json = _persist_consistency_governance_artifacts(
+          conn=conn,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          solver_state=pending_consistency_solver,
+          selected_scenario=selected_scenario,
+          active_focus="consistency",
+          constraint_bundle=persisted_constraint_bundle,
+        )
+        _persist_consistency_modified_plan_completion(
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          ops_value=ops_json,
+          market_value=market_json,
+          people_value=people_json,
+          financials_value=financials_json,
+          financials_year1_value=financials_year1_json,
+          marketing_value=marketing_model_json,
+          persisted_constraint_bundle=persisted_constraint_bundle,
+          consistency_modified_plan_json=consistency_modified_plan_json,
+          consistency_gpt_governance_json=pending_gpt_governance_json,
+          consistency_controller_contract_json=pending_controller_contract_json,
+          consistency_solver_execution_json=pending_solver_execution_json,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "done",
+            "awaiting_confirmation": False,
+            "done": True,
+            "action": "consistency_passed",
+            "assistant_message": assistant_text,
+            **_constraint_bundle_response_kwargs(persisted_constraint_bundle),
+          }
+        )
 
     if competitive_intent_override:
       action = str(competitive_intent_override.get("action") or "").strip()
@@ -6754,7 +8278,7 @@ def post_intake_consult_handler(*, app, request):
       patch = None
     elif (
       str(focus).strip().lower() == "financials"
-      and str(current_financials_stage or "").strip() in _CONTROLLER_OWNED_FINANCIALS_STAGES
+      and _financials_stage_is_controller_owned(current_financials_stage)
     ):
       action = "continue_chat"
       router_msg = ""
@@ -7207,6 +8731,7 @@ def post_intake_consult_handler(*, app, request):
 
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          route_intent=route_intent,
           interpret_cogs_reply=interpret_cogs_reply,
           interpret_monthly_rent_reply=interpret_monthly_rent_reply,
           interpret_future_rent_reply=interpret_future_rent_reply,
@@ -7353,66 +8878,59 @@ def post_intake_consult_handler(*, app, request):
       completed_out = False
       confirm_question_live = _detect_confirm_question(last_assistant)
 
-      if str(focus).strip().lower() == "consistency" and pending_consistency_table_review:
-        financials_json = dict(financials_json or {})
-        financials_json.pop("_consistency_solver_state", None)
-        assistant_text, financials_json = _start_consistency_table_review(
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
-        )
-        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+      if str(focus).strip().lower() == "consistency":
+        closeout = _maybe_run_consistency_closeout(
+          focus_hint=focus,
+          guardrail_triggered=guardrail_triggered,
           conn=conn,
-          intake_context=_build_consistency_runtime_context(
-            client_id=client_id,
-            draft_id=str(draft_id).strip(),
-            business_facts=business_facts,
-            business_stage_hint=business_stage_hint,
-            current_date_iso=current_date_iso,
-            shared_context=shared_context,
-            ops_json=ops_json,
-            market_json=market_json,
-            people_json=people_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            fulfillment_json=fulfillment_json,
-            marketing_model_json=_refresh_marketing_model(),
-          ),
+          client_id=client_id,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          business_stage_hint=business_stage_hint,
+          current_date_iso=current_date_iso,
+          shared_context=shared_context,
           ops_json=ops_json,
           market_json=market_json,
           people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
-          marketing_model_json=_refresh_marketing_model(),
-        )
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          operating_model_json=ops_json,
-          target_market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
           fulfillment_json=fulfillment_json,
           marketing_model_json=_refresh_marketing_model(),
-          active_focus="consistency",
-          business_facts=business_facts,
-          consistency_passed=False,
-          status="in_progress",
-          completed=False,
+        )
+        if not isinstance(closeout, dict):
+          raise RuntimeError("consistency_closeout_not_ready")
+        assistant_text = str(closeout.get("assistant_text") or "").strip()
+        ops_json = dict(closeout.get("ops_json") or ops_json)
+        market_json = dict(closeout.get("market_json") or market_json)
+        people_json = dict(closeout.get("people_json") or people_json)
+        financials_json = dict(closeout.get("financials_json") or financials_json)
+        financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+        marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+        shared_context = dict(closeout.get("shared_context") or shared_context)
+        persisted_constraint_bundle = dict(closeout.get("constraint_bundle") or {})
+        _persist_consistency_completion(
+          closeout=closeout,
+          new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+          ops_value=ops_json,
+          market_value=market_json,
+          people_value=people_json,
+          financials_value=financials_json,
+          financials_year1_value=financials_year1_json,
+          marketing_value=_refresh_marketing_model(),
+          persisted_constraint_bundle=persisted_constraint_bundle,
+          include_fulfillment=True,
         )
         return jsonify(
           {
             "status": "ok",
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
-            "active_focus": "consistency",
+            "active_focus": "done",
             "awaiting_confirmation": False,
-            "done": False,
-            "action": "edit_patch",
+            "done": True,
+            "action": "consistency_passed",
             "assistant_message": assistant_text,
+            **_constraint_bundle_response_kwargs(persisted_constraint_bundle),
           }
         )
 
@@ -7452,6 +8970,7 @@ def post_intake_consult_handler(*, app, request):
 
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          route_intent=route_intent,
           interpret_cogs_reply=interpret_cogs_reply,
           interpret_monthly_rent_reply=interpret_monthly_rent_reply,
           interpret_future_rent_reply=interpret_future_rent_reply,
@@ -7562,13 +9081,6 @@ def post_intake_consult_handler(*, app, request):
         intake_context_followup["revenue_guardrail_product_signals"] = guardrail_signals.get("product_signals") or []
 
         followup_focus = active_focus_out if active_focus_out != "done" else focus
-        if (
-          followup_focus == "financials"
-          and _next_financials_stage(financials_json) is None
-          and not guardrail_triggered
-        ):
-          followup_focus = "consistency"
-          active_focus_out = "consistency"
         if followup_focus == "market":
           consumer_type = str((ops_json or {}).get("consumer_type") or "consumer").strip().lower()
           if consumer_type not in ("consumer", "b2b", "mixed"):
@@ -7590,6 +9102,7 @@ def post_intake_consult_handler(*, app, request):
         elif followup_focus == "financials":
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
+            route_intent=route_intent,
             interpret_cogs_reply=interpret_cogs_reply,
             interpret_monthly_rent_reply=interpret_monthly_rent_reply,
             interpret_future_rent_reply=interpret_future_rent_reply,
@@ -7610,19 +9123,63 @@ def post_intake_consult_handler(*, app, request):
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
           )
+          if bool((followup_turn or {}).get("transition_to_consistency")):
+            closeout, ops_json, market_json, people_json, financials_json, financials_year1_json, marketing_model_json, shared_context = _transition_financials_to_consistency_via_sql(
+              ops_value=ops_json,
+              market_value=market_json,
+              people_value=people_json,
+              financials_value=financials_json,
+              financials_year1_value=financials_year1_json,
+              marketing_value=_refresh_marketing_model(),
+            )
+            ops_json = dict(closeout.get("ops_json") or ops_json)
+            market_json = dict(closeout.get("market_json") or market_json)
+            people_json = dict(closeout.get("people_json") or people_json)
+            financials_json = dict(closeout.get("financials_json") or financials_json)
+            financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+            marketing_model_json = dict(closeout.get("marketing_model_json") or marketing_model_json)
+            shared_context = dict(closeout.get("shared_context") or shared_context)
+            followup_turn = {"assistant_message": closeout.get("assistant_text") or ""}
+            consistency_passed_out = True
+            completed_out = True
+            active_focus_out = "done"
+            status_out = "completed"
+            followup_focus = "consistency"
         elif followup_focus == "consistency":
           if assistant_text:
-            assistant_text = f"{assistant_text}\n\nQuick check: since we changed a key fact, I'm going to re-run a brief consistency check to make sure everything still lines up.".strip()
-          review_text, financials_json = _start_consistency_table_review(
+            assistant_text = f"{assistant_text}\n\nI re-ran the final consistency pass to keep the plan realistic and internally aligned.".strip()
+          closeout = _maybe_run_consistency_closeout(
+            focus_hint=followup_focus,
+            guardrail_triggered=guardrail_triggered,
+            conn=conn,
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
-            forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=_refresh_marketing_model(),
           )
-          followup_turn = {"assistant_message": review_text}
-          consistency_passed_out = False
-          completed_out = False
-          active_focus_out = "consistency"
-          status_out = "in_progress"
+          if not isinstance(closeout, dict):
+            raise RuntimeError("consistency_closeout_not_ready")
+          ops_json = dict(closeout.get("ops_json") or ops_json)
+          market_json = dict(closeout.get("market_json") or market_json)
+          people_json = dict(closeout.get("people_json") or people_json)
+          financials_json = dict(closeout.get("financials_json") or financials_json)
+          financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+          marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+          shared_context = dict(closeout.get("shared_context") or shared_context)
+          followup_turn = {"assistant_message": closeout.get("assistant_text") or ""}
+          consistency_passed_out = True
+          completed_out = True
+          active_focus_out = "done"
+          status_out = "completed"
         else:
           followup_turn = {"assistant_message": ""}
 
@@ -7835,6 +9392,34 @@ def post_intake_consult_handler(*, app, request):
       if focus == "market":
         assistant_text = _strip_acs_codes(assistant_text)
 
+      consistency_response_bundle = (
+        _build_constraint_bundle_for_persistence(
+          conn=conn,
+          intake_context=_build_consistency_runtime_context(
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=_refresh_marketing_model(),
+          ),
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
+          financials_json=financials_json,
+          financials_year1_json=financials_year1_json,
+          marketing_model_json=_refresh_marketing_model(),
+        )
+        if str(focus).strip().lower() == "consistency" or str(active_focus_out).strip().lower() in {"consistency", "done"}
+        else {}
+      )
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -7844,36 +9429,7 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json if people_patch_applied else None,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
-        **(
-          _constraint_bundle_append_kwargs(
-            _build_constraint_bundle_for_persistence(
-              conn=conn,
-              intake_context=_build_consistency_runtime_context(
-                client_id=client_id,
-                draft_id=str(draft_id).strip(),
-                business_facts=business_facts,
-                business_stage_hint=business_stage_hint,
-                current_date_iso=current_date_iso,
-                shared_context=shared_context,
-                ops_json=ops_json,
-                market_json=market_json,
-                people_json=people_json,
-                financials_json=financials_json,
-                financials_year1_json=financials_year1_json,
-                fulfillment_json=fulfillment_json,
-                marketing_model_json=_refresh_marketing_model(),
-              ),
-              ops_json=ops_json,
-              market_json=market_json,
-              people_json=people_json,
-              financials_json=financials_json,
-              financials_year1_json=financials_year1_json,
-              marketing_model_json=_refresh_marketing_model(),
-            )
-          )
-          if str(focus).strip().lower() == "consistency" or str(active_focus_out).strip().lower() in {"consistency", "done"}
-          else {}
-        ),
+        **_constraint_bundle_append_kwargs(consistency_response_bundle),
         fulfillment_json=fulfillment_json,
         marketing_model_json=_refresh_marketing_model(),
         active_focus=active_focus_out,
@@ -7898,67 +9454,61 @@ def post_intake_consult_handler(*, app, request):
           "done": bool(active_focus_out == "done"),
           "action": action_out,
           "assistant_message": assistant_text,
+          **_constraint_bundle_response_kwargs(consistency_response_bundle),
         }
       )
 
     if action == "confirm_proceed":
-      if str(focus).strip().lower() == "consistency":
-        assistant_text, financials_json = _start_consistency_table_review(
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
-        )
-        persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
-          conn=conn,
-          intake_context=_build_consistency_runtime_context(
-            client_id=client_id,
-            draft_id=str(draft_id).strip(),
-            business_facts=business_facts,
-            business_stage_hint=business_stage_hint,
-            current_date_iso=current_date_iso,
-            shared_context=shared_context,
-            ops_json=ops_json,
-            market_json=market_json,
-            people_json=people_json,
-            financials_json=financials_json,
-            financials_year1_json=financials_year1_json,
-            fulfillment_json=fulfillment_json,
-            marketing_model_json=_refresh_marketing_model(),
-          ),
-          ops_json=ops_json,
-          market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          marketing_model_json=_refresh_marketing_model(),
-        )
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
+      closeout = _maybe_run_consistency_closeout(
+        focus_hint=focus,
+        guardrail_triggered=guardrail_triggered,
+        conn=conn,
+        client_id=client_id,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        business_stage_hint=business_stage_hint,
+        current_date_iso=current_date_iso,
+        shared_context=shared_context,
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        fulfillment_json=fulfillment_json,
+        marketing_model_json=_refresh_marketing_model(),
+      )
+      if isinstance(closeout, dict):
+        assistant_text = str(closeout.get("assistant_text") or "").strip()
+        ops_json = dict(closeout.get("ops_json") or ops_json)
+        market_json = dict(closeout.get("market_json") or market_json)
+        people_json = dict(closeout.get("people_json") or people_json)
+        financials_json = dict(closeout.get("financials_json") or financials_json)
+        financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+        marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+        shared_context = dict(closeout.get("shared_context") or shared_context)
+        persisted_constraint_bundle = dict(closeout.get("constraint_bundle") or {})
+        _persist_consistency_completion(
+          closeout=closeout,
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-          operating_model_json=ops_json,
-          target_market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
-          marketing_model_json=_refresh_marketing_model(),
-          active_focus="consistency",
-          business_facts=business_facts,
-          consistency_passed=False,
-          status="in_progress",
-          completed=False,
+          ops_value=ops_json,
+          market_value=market_json,
+          people_value=people_json,
+          financials_value=financials_json,
+          financials_year1_value=financials_year1_json,
+          marketing_value=marketing_model_json,
+          persisted_constraint_bundle=persisted_constraint_bundle,
         )
         return jsonify(
           {
             "status": "ok",
             "draft_id": str(draft_id).strip(),
             "client_id": client_id,
-            "active_focus": "consistency",
+            "active_focus": "done",
             "awaiting_confirmation": False,
-            "done": False,
-            "action": "continue",
+            "done": True,
+            "action": "consistency_passed",
             "assistant_message": assistant_text,
+            **_constraint_bundle_response_kwargs(persisted_constraint_bundle),
           }
         )
       confirmations: Dict[str, bool] = {focus: True}
@@ -7967,6 +9517,7 @@ def post_intake_consult_handler(*, app, request):
       # Generate the first question for the next focus immediately.
       start_instruction = _start_instruction_for_focus(next_focus)
       turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
+      next_constraint_bundle: Dict[str, Any] = {}
       intake_context_next: Dict[str, Any] = {
         "client_id": client_id,
         "draft_id": str(draft_id).strip(),
@@ -8002,6 +9553,7 @@ def post_intake_consult_handler(*, app, request):
       elif next_focus == "financials":
         financials_turn, financials_json = _run_financials_turn_and_sync(
           financials_chat_turn=financials_chat_turn,
+          route_intent=route_intent,
           interpret_cogs_reply=interpret_cogs_reply,
           interpret_monthly_rent_reply=interpret_monthly_rent_reply,
           interpret_future_rent_reply=interpret_future_rent_reply,
@@ -8024,11 +9576,36 @@ def post_intake_consult_handler(*, app, request):
         )
         next_assistant = str(financials_turn.get("assistant_message") or "").strip()
       elif next_focus == "consistency":
-        next_assistant, financials_json = _start_consistency_table_review(
+        closeout = _maybe_run_consistency_closeout(
+          focus_hint=next_focus,
+          guardrail_triggered=guardrail_triggered,
+          conn=conn,
+          client_id=client_id,
+          draft_id=str(draft_id).strip(),
+          business_facts=business_facts,
+          business_stage_hint=business_stage_hint,
+          current_date_iso=current_date_iso,
+          shared_context=shared_context,
+          ops_json=ops_json,
+          market_json=market_json,
+          people_json=people_json,
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
-          forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+          fulfillment_json=fulfillment_json,
+          marketing_model_json=_refresh_marketing_model(),
         )
+        if not isinstance(closeout, dict):
+          raise RuntimeError("consistency_closeout_not_ready")
+        next_assistant = str(closeout.get("assistant_text") or "").strip()
+        ops_json = dict(closeout.get("ops_json") or ops_json)
+        market_json = dict(closeout.get("market_json") or market_json)
+        people_json = dict(closeout.get("people_json") or people_json)
+        financials_json = dict(closeout.get("financials_json") or financials_json)
+        financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+        marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+        shared_context = dict(closeout.get("shared_context") or shared_context)
+        next_constraint_bundle = dict(closeout.get("constraint_bundle") or {})
+        next_focus = "done"
       else:
         next_assistant = "Continue."
 
@@ -8039,8 +9616,8 @@ def post_intake_consult_handler(*, app, request):
         transition = "Great, let's move on to Human Resources."
       elif next_focus == "financials":
         transition = "Great, let's move on to Financials."
-      elif next_focus == "consistency":
-        transition = "Thanks for confirming. Here is the final Year 1 review."
+      elif next_focus == "done":
+        transition = ""
       if transition:
         next_assistant = f"{transition}\n\n{next_assistant}".strip() if next_assistant else transition
 
@@ -8060,12 +9637,19 @@ def post_intake_consult_handler(*, app, request):
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": next_assistant}],
         confirmations=confirmations,
-        marketing_model_json=_refresh_marketing_model(),
+        operating_model_json=ops_json if next_focus == "done" else None,
+        marketing_model_json=marketing_model_json if next_focus == "done" else _refresh_marketing_model(),
         active_focus=next_focus,
         business_facts=business_facts,
-        target_market_json=market_json if next_focus == "market" else None,
-        financials_json=financials_json if next_focus == "financials" else None,
+        target_market_json=market_json if next_focus in {"market", "done"} else None,
+        people_json=people_json if next_focus == "done" else None,
+        financials_json=financials_json if next_focus in {"financials", "done"} else None,
+        financials_year1_json=financials_year1_json if next_focus == "done" else None,
+        **(_constraint_bundle_append_kwargs(next_constraint_bundle) if next_focus == "done" else {}),
         flat_fields=_finalize_flag_field(focus, False),
+        consistency_passed=bool(next_focus == "done"),
+        status="completed" if next_focus == "done" else None,
+        completed=bool(next_focus == "done"),
       )
 
       return jsonify(
@@ -8078,6 +9662,7 @@ def post_intake_consult_handler(*, app, request):
           "done": bool(next_focus == "done"),
           "action": "confirm_proceed",
           "assistant_message": next_assistant,
+          **(_constraint_bundle_response_kwargs(next_constraint_bundle) if next_focus == "done" else {}),
         }
       )
 
@@ -8185,6 +9770,7 @@ def post_intake_consult_handler(*, app, request):
     elif focus == "financials":
       turn, financials_json = _run_financials_turn_and_sync(
         financials_chat_turn=financials_chat_turn,
+        route_intent=route_intent,
         interpret_cogs_reply=interpret_cogs_reply,
         interpret_monthly_rent_reply=interpret_monthly_rent_reply,
         interpret_future_rent_reply=interpret_future_rent_reply,
@@ -8206,12 +9792,38 @@ def post_intake_consult_handler(*, app, request):
         financials_year1_json=financials_year1_json,
       )
     elif focus == "consistency":
-      assistant_text, financials_json = _start_consistency_table_review(
+      closeout = _maybe_run_consistency_closeout(
+        focus_hint=focus,
+        guardrail_triggered=guardrail_triggered,
+        conn=conn,
+        client_id=client_id,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        business_stage_hint=business_stage_hint,
+        current_date_iso=current_date_iso,
+        shared_context=shared_context,
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
-        forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+        fulfillment_json=fulfillment_json,
+        marketing_model_json=_refresh_marketing_model(),
       )
-      turn = {"assistant_message": assistant_text, "finalize_ready": False}
+      if not isinstance(closeout, dict):
+        raise RuntimeError("consistency_closeout_not_ready")
+      ops_json = dict(closeout.get("ops_json") or ops_json)
+      market_json = dict(closeout.get("market_json") or market_json)
+      people_json = dict(closeout.get("people_json") or people_json)
+      financials_json = dict(closeout.get("financials_json") or financials_json)
+      financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+      marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+      shared_context = dict(closeout.get("shared_context") or shared_context)
+      turn = {
+        "assistant_message": str(closeout.get("assistant_text") or "").strip(),
+        "finalize_ready": True,
+        "constraint_bundle": dict(closeout.get("constraint_bundle") or {}),
+      }
     else:
       turn = {"assistant_message": "Continue.", "finalize_ready": False}
 
@@ -8306,41 +9918,8 @@ def post_intake_consult_handler(*, app, request):
       ops_restatement_meta_touched = True
     if str(focus).strip().lower() == "people" and review_ready and not finalize_ready:
       finalize_ready = True
-    if str(focus).strip().lower() == "financials" and guardrail_triggered:
+    if str(focus).strip().lower() == "financials":
       finalize_ready = False
-    if str(focus).strip().lower() == "financials" and finalize_ready:
-      remaining_stage = _next_financials_stage(financials_json)
-      if remaining_stage:
-        finalize_ready = False
-        stage_turn, financials_json = _run_financials_turn_and_sync(
-          financials_chat_turn=financials_chat_turn,
-          interpret_cogs_reply=interpret_cogs_reply,
-          interpret_monthly_rent_reply=interpret_monthly_rent_reply,
-          interpret_future_rent_reply=interpret_future_rent_reply,
-          estimate_cogs_percent_from_context=estimate_cogs_percent_from_context,
-          interpret_payroll_reply=interpret_payroll_reply,
-          validate_payroll_setup=validate_payroll_setup,
-          estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
-          interpret_marketing_reply=interpret_marketing_reply,
-          validate_marketing_setup=validate_marketing_setup,
-          interpret_initial_lease_reply=interpret_initial_lease_reply,
-          conn=conn,
-          intake_context=intake_context,
-          conversation_messages=[*messages, user_msg],
-          business_facts=business_facts,
-          shared_context=shared_context,
-          last_assistant="",
-          user_message="",
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-        )
-        assistant_text = sanitize_fact_template(str((stage_turn or {}).get("assistant_message") or "").strip())
-        assistant_text = _append_constraints_snippet(
-          assistant_text,
-          revenue_constraints_snippet,
-          messages,
-          force=True,
-        )
 
     if str(focus).strip().lower() == "ops" and assistant_text:
       question_count = assistant_text.count("?")
@@ -8429,24 +10008,55 @@ def post_intake_consult_handler(*, app, request):
           return _missing_number(obj.get("utilization_rate"))
 
         if _final_obj_missing_capacity(gate_obj):
-          cadence = str(
-            (gate_obj or {}).get("unit_cadence")
-            or (ops_json or {}).get("unit_cadence")
-            or "weekly"
-          ).strip().lower()
-          period_label = "week"
-          if cadence == "monthly":
-            period_label = "month"
-          elif cadence == "contract":
-            # Financials treat "contract" cadence as 12 periods/year; ask for a per-month capacity.
-            period_label = "month"
-          unit_name = str((gate_obj or {}).get("unit_name") or (ops_json or {}).get("unit_name") or "unit").strip()
-          if not unit_name:
-            unit_name = "unit"
-          assistant_text = (
-            f"To make planning realistic, on a fully busy {period_label}, about how many {unit_name}s do you expect you can handle?"
-          ).strip()
-          finalize_ready = False
+          capacity_target = _find_missing_capacity_target(gate_obj, fallback_ops=ops_json)
+          captured_capacity = False
+          numeric_capacity_value = _extract_single_compact_number(message)
+          if (
+            capacity_target
+            and numeric_capacity_value is not None
+            and _looks_like_capacity_prompt(last_assistant)
+          ):
+            updated_gate_obj = _apply_capacity_target_value(
+              gate_obj,
+              capacity_target,
+              float(numeric_capacity_value),
+            )
+            ops_json = _apply_capacity_snapshot_to_ops_json(
+              ops_json,
+              updated_gate_obj,
+              capacity_target,
+            )
+            shared_context = dict(shared_context or {})
+            shared_context["operating_model"] = ops_json
+            intake_context = dict(intake_context or {})
+            intake_context["shared_context"] = shared_context
+            intake_context["operating_model_json"] = ops_json
+            gate_context = dict(gate_context or {})
+            gate_context["shared_context"] = shared_context
+            gate_context["operating_model_json"] = ops_json
+            try:
+              business_type_candidates = (ops_json or {}).get("business_type_candidates")
+              if isinstance(business_type_candidates, list):
+                intake_context["business_type_candidates"] = business_type_candidates
+            except Exception:
+              pass
+            follow_up_turn = consultant_chat_turn(
+              intake_context=intake_context,
+              conversation_messages=[*messages, user_msg],
+            ) or {}
+            assistant_text = sanitize_fact_template(
+              str((follow_up_turn or {}).get("assistant_message") or "").strip()
+            )
+            finalize_ready = bool(follow_up_turn.get("finalize_ready"))
+            captured_capacity = True
+          if not captured_capacity:
+            if capacity_target:
+              assistant_text = _build_capacity_target_question(capacity_target)
+            else:
+              assistant_text = (
+                "To make planning realistic, in a fully busy period, about how many units do you expect you can handle?"
+              ).strip()
+            finalize_ready = False
         elif _final_obj_missing_utilization(gate_obj):
           def _first_product_missing_utilization(obj: Any) -> Optional[Dict[str, Any]]:
             if not isinstance(obj, dict):
@@ -8570,6 +10180,7 @@ def post_intake_consult_handler(*, app, request):
         elif focus == "financials":
           followup_turn, financials_json = _run_financials_turn_and_sync(
             financials_chat_turn=financials_chat_turn,
+            route_intent=route_intent,
             interpret_cogs_reply=interpret_cogs_reply,
             interpret_monthly_rent_reply=interpret_monthly_rent_reply,
             interpret_future_rent_reply=interpret_future_rent_reply,
@@ -8591,12 +10202,38 @@ def post_intake_consult_handler(*, app, request):
             financials_year1_json=financials_year1_json,
           )
         elif focus == "consistency":
-          followup_text, financials_json = _start_consistency_table_review(
+          closeout = _maybe_run_consistency_closeout(
+            focus_hint=focus,
+            guardrail_triggered=guardrail_triggered,
+            conn=conn,
+            client_id=client_id,
+            draft_id=str(draft_id).strip(),
+            business_facts=business_facts,
+            business_stage_hint=business_stage_hint,
+            current_date_iso=current_date_iso,
+            shared_context=shared_context,
+            ops_json=ops_json,
+            market_json=market_json,
+            people_json=people_json,
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
-            forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=_refresh_marketing_model(),
           )
-          followup_turn = {"assistant_message": followup_text}
+          if not isinstance(closeout, dict):
+            raise RuntimeError("consistency_closeout_not_ready")
+          ops_json = dict(closeout.get("ops_json") or ops_json)
+          market_json = dict(closeout.get("market_json") or market_json)
+          people_json = dict(closeout.get("people_json") or people_json)
+          financials_json = dict(closeout.get("financials_json") or financials_json)
+          financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+          marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+          shared_context = dict(closeout.get("shared_context") or shared_context)
+          followup_turn = {
+            "assistant_message": closeout.get("assistant_text") or "",
+            "finalize_ready": True,
+            "constraint_bundle": dict(closeout.get("constraint_bundle") or {}),
+          }
         else:
           followup_turn = {"assistant_message": ""}
         followup_text = sanitize_fact_template(str(followup_turn.get("assistant_message") or "").strip())
@@ -8623,154 +10260,101 @@ def post_intake_consult_handler(*, app, request):
         pass
 
     if focus == "consistency" and finalize_ready:
-      assistant_text, financials_json = _start_consistency_table_review(
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        forecast_quarters=(shared_context or {}).get("forecast_quarters"),
-      )
-      persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
+      closeout = _maybe_run_consistency_closeout(
+        focus_hint=focus,
+        guardrail_triggered=guardrail_triggered,
         conn=conn,
-        intake_context=_build_consistency_runtime_context(
-          client_id=client_id,
-          draft_id=str(draft_id).strip(),
-          business_facts=business_facts,
-          business_stage_hint=business_stage_hint,
-          current_date_iso=current_date_iso,
-          shared_context=shared_context,
-          ops_json=ops_json,
-          market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          fulfillment_json=fulfillment_json,
-          marketing_model_json=_refresh_marketing_model(),
-        ),
+        client_id=client_id,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        business_stage_hint=business_stage_hint,
+        current_date_iso=current_date_iso,
+        shared_context=shared_context,
         ops_json=ops_json,
         market_json=market_json,
         people_json=people_json,
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
+        fulfillment_json=fulfillment_json,
         marketing_model_json=_refresh_marketing_model(),
       )
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
+      if not isinstance(closeout, dict):
+        raise RuntimeError("consistency_closeout_not_ready")
+      assistant_text = str(closeout.get("assistant_text") or "").strip()
+      ops_json = dict(closeout.get("ops_json") or ops_json)
+      market_json = dict(closeout.get("market_json") or market_json)
+      people_json = dict(closeout.get("people_json") or people_json)
+      financials_json = dict(closeout.get("financials_json") or financials_json)
+      financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+      marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
+      shared_context = dict(closeout.get("shared_context") or shared_context)
+      persisted_constraint_bundle = dict(closeout.get("constraint_bundle") or {})
+      _persist_consistency_completion(
+        closeout=closeout,
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
-        operating_model_json=ops_json,
-        target_market_json=market_json,
-        people_json=people_json,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
-        marketing_model_json=_refresh_marketing_model(),
-        active_focus="consistency",
-        business_facts=business_facts,
-        consistency_passed=False,
-        status="in_progress",
-        completed=False,
+        ops_value=ops_json,
+        market_value=market_json,
+        people_value=people_json,
+        financials_value=financials_json,
+        financials_year1_value=financials_year1_json,
+        marketing_value=marketing_model_json,
+        persisted_constraint_bundle=persisted_constraint_bundle,
       )
       return jsonify(
         {
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "active_focus": "consistency",
+          "active_focus": "done",
           "awaiting_confirmation": False,
-          "done": False,
-          "action": "continue",
+          "done": True,
+          "action": "consistency_passed",
           "assistant_message": assistant_text,
+          **_constraint_bundle_response_kwargs(persisted_constraint_bundle),
         }
       )
-    if (
-      str(focus).strip().lower() == "financials"
-      and not guardrail_triggered
-      and _next_financials_stage(financials_json) is None
-    ):
-      try:
-        shared_context = dict(shared_context or {})
-        shared_context["operating_model"] = ops_json
-        shared_context["target_market"] = market_json
-        shared_context["people_capability"] = people_json
-        shared_context["financials"] = financials_json
-      except Exception:
-        pass
-
-      next_focus = "consistency"
-      start_instruction = _start_instruction_for_focus(next_focus)
-      turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
-      intake_context_next: Dict[str, Any] = {
-        "client_id": client_id,
-        "draft_id": str(draft_id).strip(),
-        "business_name": business_facts.get("name"),
-        "business_start_date": business_facts.get("start_date"),
-        "address": business_facts.get("address"),
-        "current_date": current_date_iso,
-        "business_stage_hint": business_stage_hint,
-        "shared_context": shared_context,
-        "operating_model_json": ops_json,
-        "target_market_json": market_json,
-        "people_json": people_json,
-        "financials_json": financials_json,
-        "fulfillment_json": fulfillment_json,
-      }
-      intake_context_next["financials_year1_json"] = financials_year1_json
-      review_text, financials_json = _start_consistency_table_review(
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        forecast_quarters=(shared_context or {}).get("forecast_quarters"),
+    if str(focus).strip().lower() == "financials" and bool(turn.get("transition_to_consistency")):
+      closeout, ops_json, market_json, people_json, financials_json, financials_year1_json, marketing_model_json, shared_context = _transition_financials_to_consistency_via_sql(
+        ops_value=ops_json,
+        market_value=market_json,
+        people_value=people_json,
+        financials_value=financials_json,
+        financials_year1_value=financials_year1_json,
+        marketing_value=_refresh_marketing_model(),
       )
-      assistant_final = (
-        "Thanks for confirming. I’m doing one final Year 1 review before I lock the plan.\n\n"
-        f"{review_text}"
-      ).strip()
-      persisted_constraint_bundle = _build_constraint_bundle_for_persistence(
-        conn=conn,
-        intake_context=_build_consistency_runtime_context(
-          client_id=client_id,
-          draft_id=str(draft_id).strip(),
-          business_facts=business_facts,
-          business_stage_hint=business_stage_hint,
-          current_date_iso=current_date_iso,
-          shared_context=shared_context,
-          ops_json=ops_json,
-          market_json=market_json,
-          people_json=people_json,
-          financials_json=financials_json,
-          financials_year1_json=financials_year1_json,
-          fulfillment_json=fulfillment_json,
-          marketing_model_json=_refresh_marketing_model(),
-        ),
-        ops_json=ops_json,
-        market_json=market_json,
-        people_json=people_json,
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        marketing_model_json=_refresh_marketing_model(),
-      )
-      append_messages(
-        conn,
-        draft_id=str(draft_id).strip(),
+      assistant_final = str(closeout.get("assistant_text") or "").strip()
+      ops_json = dict(closeout.get("ops_json") or ops_json)
+      market_json = dict(closeout.get("market_json") or market_json)
+      people_json = dict(closeout.get("people_json") or people_json)
+      financials_json = dict(closeout.get("financials_json") or financials_json)
+      financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
+      marketing_model_json = dict(closeout.get("marketing_model_json") or marketing_model_json)
+      shared_context = dict(closeout.get("shared_context") or shared_context)
+      persisted_constraint_bundle = dict(closeout.get("constraint_bundle") or {})
+      _persist_consistency_completion(
+        closeout=closeout,
         new_messages=[user_msg, {"role": "assistant", "content": assistant_final}],
-        financials_json=financials_json,
-        financials_year1_json=financials_year1_json,
-        **_constraint_bundle_append_kwargs(persisted_constraint_bundle),
-        marketing_model_json=_refresh_marketing_model(),
-        active_focus="consistency",
-        confirmations={"financials": True},
-        business_facts=business_facts,
-        consistency_passed=False,
-        flat_fields=_finalize_flag_field("financials", True),
+        ops_value=ops_json,
+        market_value=market_json,
+        people_value=people_json,
+        financials_value=financials_json,
+        financials_year1_value=financials_year1_json,
+        marketing_value=marketing_model_json,
+        persisted_constraint_bundle=persisted_constraint_bundle,
+        confirmations_value={"financials": True},
+        flat_fields_value=_finalize_flag_field("financials", True),
       )
       return jsonify(
         {
           "status": "ok",
           "draft_id": str(draft_id).strip(),
           "client_id": client_id,
-          "active_focus": "consistency",
+          "active_focus": "done",
           "awaiting_confirmation": False,
-          "done": False,
-          "action": "continue",
+          "done": True,
+          "action": "consistency_passed",
           "assistant_message": assistant_final,
+          **_constraint_bundle_response_kwargs(persisted_constraint_bundle),
         }
       )
     if not finalize_ready:
@@ -9340,3 +10924,4 @@ def post_intake_consult_handler(*, app, request):
       conn.close()
     except Exception:
       pass
+
