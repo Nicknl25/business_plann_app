@@ -63,15 +63,23 @@ def _openai_model() -> str:
   ).strip() or "gpt-5.1"
 
 
-def _openai_timeout_seconds() -> int:
+def _timeout_env_int(name: str, default: int) -> int:
   _load_root_env()
-  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
-  if raw:
-    try:
-      return max(30, int(raw))
-    except Exception:
-      return 180
-  return 180
+  raw = (os.getenv(name) or "").strip()
+  if not raw:
+    return default
+  try:
+    return max(15, int(raw))
+  except Exception:
+    return default
+
+
+def _openai_timeout_seconds(kind: str = "default") -> int:
+  if kind == "audit":
+    return _timeout_env_int("CONSISTENCY_GPT_AUDIT_TIMEOUT_SECONDS", 45)
+  if kind == "strategy":
+    return _timeout_env_int("CONSISTENCY_GPT_STRATEGY_TIMEOUT_SECONDS", 75)
+  return _timeout_env_int("OPENAI_HTTP_TIMEOUT_SECONDS", 180)
 
 
 def _strategy_layer_enabled() -> bool:
@@ -89,24 +97,32 @@ def _format_openai_error(resp: requests.Response) -> str:
   return f"OpenAI API error {resp.status_code}: {resp.text[:500]}"
 
 
-def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
-  timeout = _openai_timeout_seconds()
+def _post_openai(
+  *,
+  url: str,
+  headers: Dict[str, str],
+  payload: Dict[str, Any],
+  timeout_seconds: Optional[int] = None,
+  max_attempts: int = 3,
+) -> requests.Response:
+  timeout = max(15, int(timeout_seconds or _openai_timeout_seconds()))
+  attempts = max(1, int(max_attempts or 1))
   last_exc: Optional[Exception] = None
-  for attempt in range(3):
+  for attempt in range(attempts):
     try:
       resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-      if resp.status_code in _RETRYABLE_STATUS and attempt < 2:
+      if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
         time.sleep(0.75 * (2**attempt))
         continue
       return resp
     except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
       last_exc = exc
-      if attempt >= 2:
+      if attempt >= attempts - 1:
         raise
       time.sleep(0.75 * (2**attempt))
     except requests.exceptions.ConnectionError as exc:
       last_exc = exc
-      if attempt >= 2:
+      if attempt >= attempts - 1:
         raise
       time.sleep(0.75 * (2**attempt))
   if last_exc:
@@ -206,8 +222,10 @@ def _forecast_orchestration_schema(*, required: bool) -> Dict[str, Any]:
           "properties": {
             "description": {"type": "string"},
             "months_until_activate": {"type": ["number", "null"]},
+            "target_quarter": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+            "activation_condition": {"type": ["string", "null"]},
           },
-          "required": ["description", "months_until_activate"],
+          "required": ["description", "months_until_activate", "target_quarter", "activation_condition"],
         },
       },
       "event_response": {
@@ -240,6 +258,76 @@ def _forecast_orchestration_schema(*, required: bool) -> Dict[str, Any]:
   return schema
 
 
+def _quarter_plan_schema(*, fields: Dict[str, Any], required_fields: List[str]) -> Dict[str, Any]:
+  return {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "quarter_start": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+        "quarter_end": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+        **fields,
+      },
+      "required": ["quarter_start", "quarter_end"] + required_fields,
+    },
+  }
+
+
+def _hiring_release_plan_schema() -> Dict[str, Any]:
+  return {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "role_scope": {"type": "string"},
+        "quarter_start": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+        "quarter_end": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+        "months_until_activate": {"type": ["number", "null"]},
+        "staffing_posture": {"type": ["string", "null"]},
+        "capacity_effect": {"type": ["string", "null"]},
+        "rationale": {"type": "string"},
+      },
+      "required": [
+        "role_scope",
+        "quarter_start",
+        "quarter_end",
+        "months_until_activate",
+        "staffing_posture",
+        "capacity_effect",
+        "rationale",
+      ],
+    },
+  }
+
+
+def _milestone_activation_plan_schema() -> Dict[str, Any]:
+  return {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "description": {"type": "string"},
+        "target_quarter": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+        "activation_condition": {"type": ["string", "null"]},
+        "capacity_multiplier": {"type": ["number", "null"]},
+        "growth_multiplier": {"type": ["number", "null"]},
+        "rationale": {"type": "string"},
+      },
+      "required": [
+        "description",
+        "target_quarter",
+        "activation_condition",
+        "capacity_multiplier",
+        "growth_multiplier",
+        "rationale",
+      ],
+    },
+  }
+
+
 def _schema() -> Dict[str, Any]:
   return {
     "name": "consistency_strategy_selection",
@@ -267,6 +355,8 @@ def _schema() -> Dict[str, Any]:
           "type": "string",
           "enum": ["light", "moderate", "strong"],
         },
+        "viability_blueprint_summary": {"type": "string"},
+        "scaling_model_summary": {"type": "string"},
         "required_lever_families": {
           "type": "array",
           "items": {"type": "string"},
@@ -363,65 +453,72 @@ def _schema() -> Dict[str, Any]:
           },
           "maxItems": 8,
         },
-        "selected_strategy_ids": {
-          "type": "array",
-          "items": {"type": "string"},
-          "minItems": 1,
-          "maxItems": 2,
-        },
-        "strategy_overrides": {
+        "lever_family_plan": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-              "strategy_id": {"type": "string"},
-              "allowed_levers": {
-                "type": ["array", "null"],
+              "family": {"type": "string"},
+              "direction": {"type": ["string", "null"], "enum": ["up", "down", "mixed", "hold", None]},
+              "intensity": {"type": ["string", "null"], "enum": ["light", "moderate", "strong", None]},
+              "quarter_start": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+              "quarter_end": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+              "dependencies": {
+                "type": "array",
                 "items": {"type": "string"},
+                "maxItems": 6,
               },
-              "constraints": {
-                "type": ["object", "null"],
-                "additionalProperties": {
-                  "type": ["number", "boolean", "null"],
-                },
-              },
-              "forecast_orchestration": _forecast_orchestration_schema(required=False),
+              "rationale": {"type": "string"},
             },
-            "required": ["strategy_id", "allowed_levers", "constraints", "forecast_orchestration"],
+            "required": [
+              "family",
+              "direction",
+              "intensity",
+              "quarter_start",
+              "quarter_end",
+              "dependencies",
+              "rationale",
+            ],
           },
+          "maxItems": 12,
         },
-        "global_overrides": {
-          "type": ["object", "null"],
-          "additionalProperties": False,
-          "properties": {
-            "price_min_ratio": {"type": ["number", "null"]},
-            "price_max_ratio": {"type": ["number", "null"]},
-            "util_min": {"type": ["number", "null"]},
-            "util_max": {"type": ["number", "null"]},
-            "marketing_up_cap_ratio": {"type": ["number", "null"]},
-            "marketing_down_cap_ratio": {"type": ["number", "null"]},
-            "other_opex_down_cap_ratio": {"type": ["number", "null"]},
-            "other_opex_up_cap_ratio": {"type": ["number", "null"]},
-            "cogs_ratio_min": {"type": ["number", "null"]},
-            "cogs_ratio_max": {"type": ["number", "null"]},
-            "marketing_role": {"type": ["string", "null"]},
-            "opex_flexibility": {"type": ["string", "null"]},
+        "capacity_release_plan": _quarter_plan_schema(
+          fields={
+            "capacity_posture": {"type": ["string", "null"]},
+            "capacity_release_multiplier": {"type": ["number", "null"]},
+            "trigger": {"type": ["string", "null"]},
+            "rationale": {"type": "string"},
           },
-          "required": [
-            "price_min_ratio",
-            "price_max_ratio",
-            "util_min",
-            "util_max",
-            "marketing_up_cap_ratio",
-            "marketing_down_cap_ratio",
-            "other_opex_down_cap_ratio",
-            "other_opex_up_cap_ratio",
-            "cogs_ratio_min",
-            "cogs_ratio_max",
-            "marketing_role",
-            "opex_flexibility",
-          ],
+          required_fields=["capacity_posture", "capacity_release_multiplier", "trigger", "rationale"],
+        ),
+        "hiring_release_plan": _hiring_release_plan_schema(),
+        "demand_build_plan": _quarter_plan_schema(
+          fields={
+            "demand_posture": {"type": ["string", "null"]},
+            "marketing_ratio_bias": {"type": ["number", "null"]},
+            "growth_multiplier": {"type": ["number", "null"]},
+            "rationale": {"type": "string"},
+          },
+          required_fields=["demand_posture", "marketing_ratio_bias", "growth_multiplier", "rationale"],
+        ),
+        "milestone_activation_plan": _milestone_activation_plan_schema(),
+        "support_overhead_plan": _quarter_plan_schema(
+          fields={
+            "cost_posture": {"type": ["string", "null"]},
+            "opex_ratio_bias": {"type": ["number", "null"]},
+            "payroll_ratio_bias": {"type": ["number", "null"]},
+            "rationale": {"type": "string"},
+          },
+          required_fields=["cost_posture", "opex_ratio_bias", "payroll_ratio_bias", "rationale"],
+        ),
+        "outer_year_margin_logic": {"type": "string"},
+        "governed_forecast_orchestration": _forecast_orchestration_schema(required=True),
+        "selected_strategy_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "maxItems": 2,
         },
         "baseline_forecast_orchestration": _forecast_orchestration_schema(required=True),
         "expected_year1_ebitda_margin_min": {"type": ["number", "null"]},
@@ -435,18 +532,175 @@ def _schema() -> Dict[str, Any]:
         "severity_class",
         "severity_reason",
         "minimum_package_strength",
+        "viability_blueprint_summary",
+        "scaling_model_summary",
         "required_lever_families",
         "forbidden_lever_families",
         "controller_directives",
         "target_margin_path",
         "target_posture",
         "coordinated_lever_packages",
+        "lever_family_plan",
+        "capacity_release_plan",
+        "hiring_release_plan",
+        "demand_build_plan",
+        "milestone_activation_plan",
+        "support_overhead_plan",
+        "outer_year_margin_logic",
+        "governed_forecast_orchestration",
         "selected_strategy_ids",
-        "strategy_overrides",
-        "global_overrides",
         "baseline_forecast_orchestration",
         "expected_year1_ebitda_margin_min",
         "expected_year1_ebitda_margin_max",
+      ],
+    },
+  }
+
+
+def _translation_audit_schema() -> Dict[str, Any]:
+  return {
+    "name": "consistency_controller_translation_audit",
+    "schema": {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": {
+        "captured_correctly": {"type": "boolean"},
+        "audit_status": {"type": "string", "enum": ["accepted", "accepted_with_minor_notes", "rejected_translation"]},
+        "missing_intents": {
+          "type": "array",
+          "items": {"type": "string"},
+          "maxItems": 12,
+        },
+        "distorted_intents": {
+          "type": "array",
+          "items": {"type": "string"},
+          "maxItems": 12,
+        },
+        "introduced_conflicts": {
+          "type": "array",
+          "items": {"type": "string"},
+          "maxItems": 12,
+        },
+        "required_corrections": {
+          "type": "array",
+          "items": {"type": "string"},
+          "maxItems": 12,
+        },
+        "replacement_forecast_orchestration": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "orchestration_summary": {"type": "string"},
+            "quarter_policies": {
+              "type": "array",
+              "maxItems": 24,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "quarter_start": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "quarter_end": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "demand_posture": {"type": "string"},
+                  "staffing_posture": {"type": "string"},
+                  "cost_posture": {"type": "string"},
+                  "growth_multiplier": {"type": "number"},
+                  "convergence_multiplier": {"type": "number"},
+                  "price_growth_bias": {"type": "number"},
+                  "utilization_target_bias": {"type": "number"},
+                  "marketing_ratio_bias": {"type": "number"},
+                  "opex_ratio_bias": {"type": "number"},
+                  "payroll_ratio_bias": {"type": "number"},
+                  "capacity_release_multiplier": {"type": "number"},
+                  "active_levers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 12,
+                  },
+                },
+                "required": [
+                  "quarter_start",
+                  "quarter_end",
+                  "demand_posture",
+                  "staffing_posture",
+                  "cost_posture",
+                  "growth_multiplier",
+                  "convergence_multiplier",
+                  "price_growth_bias",
+                  "utilization_target_bias",
+                  "marketing_ratio_bias",
+                  "opex_ratio_bias",
+                  "payroll_ratio_bias",
+                  "capacity_release_multiplier",
+                  "active_levers",
+                ],
+              },
+            },
+            "role_timing_overrides": {
+              "type": "array",
+              "maxItems": 40,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "role_title": {"type": "string"},
+                  "months_until_activate": {"type": "integer", "minimum": 0, "maximum": 240},
+                },
+                "required": ["role_title", "months_until_activate"],
+              },
+            },
+            "milestone_timing_overrides": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "description": {"type": "string"},
+                  "months_until_activate": {"type": "integer", "minimum": 0, "maximum": 240},
+                  "target_quarter": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "activation_condition": {"type": "string"},
+                },
+                "required": ["description", "months_until_activate", "target_quarter", "activation_condition"],
+              },
+            },
+            "event_response": {
+              "type": "object",
+              "additionalProperties": False,
+              "properties": {
+                "hire_capacity_multiplier": {"type": "number"},
+                "hire_growth_bonus_delta": {"type": "number"},
+                "marketing_growth_multiplier": {"type": "number"},
+                "milestone_capacity_multiplier": {"type": "number"},
+                "milestone_growth_multiplier": {"type": "number"},
+              },
+              "required": [
+                "hire_capacity_multiplier",
+                "hire_growth_bonus_delta",
+                "marketing_growth_multiplier",
+                "milestone_capacity_multiplier",
+                "milestone_growth_multiplier",
+              ],
+            },
+          },
+          "required": [
+            "orchestration_summary",
+            "quarter_policies",
+            "role_timing_overrides",
+            "milestone_timing_overrides",
+            "event_response",
+          ],
+        },
+        "notes": {"type": "string"},
+      },
+      "required": [
+        "captured_correctly",
+        "audit_status",
+        "missing_intents",
+        "distorted_intents",
+        "introduced_conflicts",
+        "required_corrections",
+        "replacement_forecast_orchestration",
+        "notes",
       ],
     },
   }
@@ -515,24 +769,42 @@ def advise_consistency_strategy_selection(
       "You must explain the business model assessment, secondary causes, required lever families, forbidden lever families, coordinated lever packages, controller directives, and target posture.\n"
       "You must classify case severity as mild, moderate, or severe and explain why in severity_reason.\n"
       "You must also set minimum_package_strength to light, moderate, or strong.\n"
+      "You must also provide viability_blueprint_summary explaining the operating reset in plain business terms.\n"
+      "You must also provide scaling_model_summary explaining how this business should actually scale over 20 quarters once Year 1 is stabilized.\n"
       "You must also return a numeric target_margin_path for Years 1, 2, and 3 that reflects a believable path to viability for this business type and stage.\n"
       "Your target_margin_path must be plausibly reachable by the lever package you return. Do not state a Year 1-3 path that your own package cannot support.\n"
       "Required lever families are the levers that must move together for this business to become believable.\n"
       "Forbidden lever families are levers that should stay mostly untouched for this case.\n"
+      "You must also return lever_family_plan: a family-by-family plan with direction, intensity, sequencing, dependencies, and rationale. This is the main operating blueprint the controller will translate into numbers.\n"
+      "You must also return capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, and outer_year_margin_logic.\n"
+      "These are not optional. They are the real operating-growth architecture for the business.\n"
+      "You must also return governed_forecast_orchestration: this is the near-final quarter-policy object the controller will validate and normalize.\n"
+      "Make governed_forecast_orchestration the direct operational expression of your intent across all 20 quarters.\n"
+      "Do not leave governed_forecast_orchestration empty. Do not rely on controller to invent quarter logic later.\n"
+      "Every required_lever_family must appear in lever_family_plan.\n"
       "Controller directives tell the numeric translation layer how strictly to preserve causal links like staffing-to-capacity, price-to-demand, and marketing-to-demand.\n"
       "Set controller_directives.aggression_level to low, moderate, or high based on how broken the business is.\n"
       "If the case is badly broken, set escalate_on_retry=true and require a higher minimum_meaningful_levers / minimum_package_count.\n"
       "If deterministic_diagnosis includes severity_class=severe, you must return a severe blueprint: aggression_level=high, escalate_on_retry=true, minimum_package_strength=strong, minimum_meaningful_levers>=4, minimum_package_count>=2, and at least one strong coordinated package.\n"
       "For severe cases, do not return a polite or modest plan. Return a strong but realistic multi-lever restructuring path.\n"
+      "For severe cases, lever_family_plan must cover at least four meaningful business families, include at least one revenue-side family and at least one staffing/cost family, and include both an early-phase action and an outer-year action.\n"
+      "Use intensity to decide when to go big versus when to chill: severe cases require strong moves where needed, while mild cases should preserve more of the original plan.\n"
       "Target posture should describe what Year 1, Year 2, and Year 3 should broadly feel like for EBITDA and the operating model.\n"
       "Coordinated lever packages must include expected_effects and minimum_strength, not just lever names.\n"
       "For severe cases, coordinated packages must move multiple business families together and should usually include pricing, cost structure, staffing/capacity timing, and demand/utilization pacing unless a family is clearly not relevant.\n"
+      "When payroll or staffing is a blocker, do not treat founder pay, key-person pay, or planned roles as sacred.\n"
+      "If compensation is economically unrealistic, you may cut it, defer it, or phase it back in later.\n"
+      "If inferred or planned roles are not actually supportable, push them out well into Year 2 or later, reduce their compensation, or remove the need for them by changing the operating shape.\n"
+      "If you reduce or defer staffing or compensation, the rest of the business must still make sense: capacity, utilization, demand pacing, support overhead, and growth should all stay coherent.\n"
       "Choose strategies that keep the business believable, preserve the original plan where possible, and avoid extreme moves.\n"
-      "For each selected strategy, you may tighten or widen the provided constraints and allowed levers, but stay believable.\n"
-      "Use strategy_overrides to feed solver the right bounds for this business shape.\n"
-      "Use global_overrides when the whole business realism envelope should shift before solving.\n"
+      "Do not return raw numeric solver caps or global envelope overrides.\n"
+      "Your job is to prescribe business logic, aggressiveness, sequencing, dependencies, and target posture.\n"
+      "The controller will translate that business blueprint into numeric solver ranges.\n"
       "You must also orchestrate the full 20-quarter forecast path.\n"
-      "Return baseline_forecast_orchestration for the current plan and, where needed, strategy-specific forecast_orchestration in strategy_overrides.\n"
+      "Return baseline_forecast_orchestration for the current plan.\n"
+      "The current-plan orchestration is not enough. Your new plans must specify when capacity expands, when roles release, when demand should build, when milestones should activate, and when support overhead should step up because scale is real.\n"
+      "Encode those same decisions directly inside governed_forecast_orchestration.quarter_policies, role_timing_overrides, milestone_timing_overrides, and event_response.\n"
+      "Do not just return a flat cost reset. Design the business operating path quarter by quarter.\n"
       "These quarter policies must govern the whole business, not just payroll: demand, pricing, utilization, staffing, marketing, opex, cogs, capacity, and timed events.\n"
       "Preserve child-first behavior whenever child products exist; parent-level behavior should emerge from children, not replace them.\n"
       "If roles or milestones are not supposed to activate until later, delay them explicitly in role_timing_overrides or milestone_timing_overrides.\n"
@@ -540,16 +812,12 @@ def advise_consistency_strategy_selection(
       "Use both the persisted business data and your broader knowledge of what similar businesses typically look like.\n"
       "The SQL state is the starting plan, not the truth, so recognize when persisted revenue, margins, staffing efficiency, or growth are implausible.\n"
       "Business type and business stage matter materially when deciding what is realistic.\n"
-      "Constraint values should remain bounded and realistic. Examples include price_up_cap_ratio, util_down_cap_ratio, units_min_ratio,\n"
-      "marketing_up_cap_ratio, marketing_min_ratio, marketing_max_ratio, payroll_up_max_ratio, payroll_down_max_ratio,\n"
-      "hire_delay_max_months_total, hire_advance_max_months_total, utilization_min_ratio, utilization_max_ratio,\n"
-      "other_opex_down_cap_ratio, other_opex_up_cap_ratio, cogs_down_cap_ratio, cogs_up_cap_ratio, prefer_growth_units.\n"
-      "Global overrides can adjust price_min_ratio, price_max_ratio, util_min, util_max, marketing and opex cap ratios, cogs ratio range,\n"
-      "and commercial posture like marketing_role or opex_flexibility.\n"
       "If EBITDA is weak, provide a realistic Year-1 expected EBITDA margin range that reflects what a repaired but still believable Year 1 should look like.\n"
       "Do not force mature margins. For difficult or early-stage businesses, a slightly negative or near-break-even Year 1 can still be reasonable.\n"
       "If a business is badly broken, do not rely on a single lever. Return a coordinated multi-lever package unless a single-lever repair is truly believable.\n"
       "Use solver_feedback carefully. On retry, do not just rename the same weak strategy. Change the lever package, bounds, timing, or target path enough to materially improve solvability.\n"
+      "If solver_feedback.escalation_required is true, the prior attempts still produced all-negative degrading five-year paths. In that case, do not repeat the same strategy story. Materially strengthen the operating plan, growth architecture, and target posture.\n"
+      "When solver_feedback.escalation_required is true, a flat negative or worsening five-year path is unacceptable.\n"
       "Return JSON only."
     ),
     (
@@ -590,7 +858,13 @@ def advise_consistency_strategy_selection(
     url = "https://api.openai.com/v1/responses"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     try:
-      resp = _post_openai(url=url, headers=headers, payload=payload)
+      resp = _post_openai(
+        url=url,
+        headers=headers,
+        payload=payload,
+        timeout_seconds=_openai_timeout_seconds("strategy"),
+        max_attempts=2,
+      )
       if resp.status_code >= 400:
         last_error = _format_openai_error(resp)
         continue
@@ -610,3 +884,67 @@ def advise_consistency_strategy_selection(
     "error": "strategy_advisor_no_selection",
     "error_detail": str(last_error or "unknown"),
   }
+
+
+def audit_consistency_controller_translation(
+  *,
+  strategy_selection: Dict[str, Any],
+  translated_contract: Dict[str, Any],
+  translated_modified_state: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  if not _strategy_layer_enabled():
+    return {}
+  try:
+    api_key = _require_openai_key()
+  except Exception:
+    return {}
+  payload = {
+    "strategy_selection": strategy_selection or {},
+    "translated_contract": translated_contract or {},
+    "translated_modified_state": translated_modified_state or {},
+  }
+  schema = _translation_audit_schema()
+  request_payload = {
+    "model": _openai_model(),
+    "input": [
+      {
+        "role": "system",
+        "content": (
+          "You are auditing a controller translation for a business-plan realism engine.\n"
+          "Your only job is to decide whether the persisted controller translation preserved GPT intent.\n"
+          "Do not redesign the business. Do not create a new strategy. Only audit translation fidelity.\n"
+          "Check whether required directions, timing, growth architecture, hiring release, milestone activation, support-overhead logic, and forbidden moves were preserved.\n"
+          "Reject the translation if it introduces opposite-direction conflicts, loses staged hiring or milestone intent, or produces quarter logic that clearly contradicts the original plan.\n"
+          "If you reject the translation, you must also return replacement_forecast_orchestration using the controller/forecast language.\n"
+          "That replacement must directly encode the corrected quarter_policies, role_timing_overrides, milestone_timing_overrides, and event_response needed to preserve the original GPT intent.\n"
+          "If the translation is acceptable, return an empty but valid replacement_forecast_orchestration object with empty arrays and neutral event_response.\n"
+          "Return JSON only."
+        ),
+      },
+      {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": schema["name"],
+        "schema": schema["schema"],
+        "strict": True,
+      }
+    },
+  }
+  url = "https://api.openai.com/v1/responses"
+  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+  try:
+    resp = _post_openai(
+      url=url,
+      headers=headers,
+      payload=request_payload,
+      timeout_seconds=_openai_timeout_seconds("audit"),
+      max_attempts=1,
+    )
+    if resp.status_code >= 400:
+      return {"error": _format_openai_error(resp)}
+    parsed = _parse_json_response(resp.json())
+  except Exception as exc:
+    return {"error": str(exc)}
+  return parsed if isinstance(parsed, dict) else {}

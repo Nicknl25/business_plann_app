@@ -111,6 +111,105 @@ def _lerp(start: Optional[float], end: Optional[float], progress: float) -> Opti
   return start + ((end - start) * p)
 
 
+def _round_number(value: Any, digits: int = 6) -> Optional[float]:
+  raw = _to_float(value)
+  if raw is None:
+    return None
+  return round(raw, digits)
+
+
+def _delta_number(current: Any, previous: Any, digits: int = 2) -> Optional[float]:
+  current_num = _to_float(current)
+  previous_num = _to_float(previous)
+  if current_num is None or previous_num is None:
+    return None
+  return round(current_num - previous_num, digits)
+
+
+def _lever_impact_descriptor(lever: str) -> Dict[str, Any]:
+  token = str(lever or "").strip().lower()
+  mapping: Dict[str, Dict[str, Any]] = {
+    "price_up": {
+      "lever": "price_up",
+      "immediate_effects": ["price_growth_bias"],
+      "downstream_effects": ["price", "revenue", "gross_profit", "ebitda"],
+    },
+    "price_down": {
+      "lever": "price_down",
+      "immediate_effects": ["price_growth_bias"],
+      "downstream_effects": ["price", "revenue", "gross_profit", "ebitda"],
+    },
+    "util_up": {
+      "lever": "util_up",
+      "immediate_effects": ["utilization_target_bias", "growth_multiplier"],
+      "downstream_effects": ["units", "revenue", "capacity", "cogs", "ebitda"],
+    },
+    "util_down": {
+      "lever": "util_down",
+      "immediate_effects": ["utilization_target_bias", "growth_multiplier"],
+      "downstream_effects": ["units", "revenue", "capacity", "cogs", "ebitda"],
+    },
+    "marketing_up": {
+      "lever": "marketing_up",
+      "immediate_effects": ["marketing_ratio_bias", "growth_multiplier"],
+      "downstream_effects": ["marketing", "demand", "units", "revenue", "ebitda"],
+    },
+    "marketing_down": {
+      "lever": "marketing_down",
+      "immediate_effects": ["marketing_ratio_bias", "growth_multiplier"],
+      "downstream_effects": ["marketing", "demand", "units", "revenue", "ebitda"],
+    },
+    "other_opex_up": {
+      "lever": "other_opex_up",
+      "immediate_effects": ["opex_ratio_bias"],
+      "downstream_effects": ["opex", "support_capacity", "ebitda"],
+    },
+    "other_opex_down": {
+      "lever": "other_opex_down",
+      "immediate_effects": ["opex_ratio_bias"],
+      "downstream_effects": ["opex", "support_capacity", "ebitda"],
+    },
+    "payroll_up": {
+      "lever": "payroll_up",
+      "immediate_effects": ["payroll_ratio_bias", "capacity_release_multiplier", "growth_multiplier"],
+      "downstream_effects": ["payroll", "capacity", "utilization", "revenue", "ebitda"],
+    },
+    "payroll_down": {
+      "lever": "payroll_down",
+      "immediate_effects": ["payroll_ratio_bias", "capacity_release_multiplier", "growth_multiplier"],
+      "downstream_effects": ["payroll", "capacity", "utilization", "revenue", "ebitda"],
+    },
+    "hire_advance": {
+      "lever": "hire_advance",
+      "immediate_effects": ["capacity_release_multiplier", "growth_multiplier"],
+      "downstream_effects": ["capacity", "payroll", "units", "revenue", "ebitda"],
+    },
+    "hire_delay": {
+      "lever": "hire_delay",
+      "immediate_effects": ["capacity_release_multiplier", "growth_multiplier"],
+      "downstream_effects": ["capacity", "payroll", "units", "revenue", "ebitda"],
+    },
+    "cogs_up": {
+      "lever": "cogs_up",
+      "immediate_effects": ["gross_margin_path"],
+      "downstream_effects": ["cogs", "gross_profit", "ebitda"],
+    },
+    "cogs_down": {
+      "lever": "cogs_down",
+      "immediate_effects": ["gross_margin_path"],
+      "downstream_effects": ["cogs", "gross_profit", "ebitda"],
+    },
+  }
+  return mapping.get(
+    token,
+    {
+      "lever": token,
+      "immediate_effects": [],
+      "downstream_effects": [],
+    },
+  )
+
+
 def _ratio_band_from_point(point: Optional[float], width: float) -> Dict[str, Optional[float]]:
   if point is None:
     return {"min": None, "max": None}
@@ -1085,6 +1184,14 @@ def build_forecast_engine_bundle(
   base_quarter_capacity_units = sum(max(0.0, _to_float(item.get("quarter_capacity_units")) or 0.0) for item in product_states)
   if base_quarter_capacity_units <= 0:
     base_quarter_capacity_units = max(0.0, annual_capacity_units / 4.0)
+  previous_units = sum(max(0.0, _to_float(item.get("quarter_units")) or 0.0) for item in product_states) or (annual_units / 4.0)
+  previous_capacity_units = base_quarter_capacity_units
+  previous_utilization = utilization
+  previous_cogs = annual_cogs / 4.0
+  previous_payroll = annual_payroll / 4.0
+  previous_marketing = annual_marketing / 4.0
+  previous_opex = annual_opex / 4.0
+  previous_ebitda = annual_ebitda / 4.0
   timed_events = _build_forecast_events(
     ops=ops,
     people=people,
@@ -1379,6 +1486,44 @@ def build_forecast_engine_bundle(
       revenue_progress + gross_progress + ebitda_progress + payroll_progress + opex_progress + wc_progress
     ) / 6.0
 
+    active_levers = list(quarter_policy.get("active_levers") or [])
+    lever_impacts = [_lever_impact_descriptor(item) for item in active_levers]
+    policy_effects = {
+      "growth_multiplier": _round_number(quarter_policy.get("growth_multiplier"), 6),
+      "convergence_multiplier": _round_number(quarter_policy.get("convergence_multiplier"), 6),
+      "price_growth_bias": _round_number(quarter_policy.get("price_growth_bias"), 6),
+      "utilization_target_bias": _round_number(quarter_policy.get("utilization_target_bias"), 6),
+      "marketing_ratio_bias": _round_number(quarter_policy.get("marketing_ratio_bias"), 6),
+      "opex_ratio_bias": _round_number(quarter_policy.get("opex_ratio_bias"), 6),
+      "payroll_ratio_bias": _round_number(quarter_policy.get("payroll_ratio_bias"), 6),
+      "capacity_release_multiplier": _round_number(quarter_policy.get("capacity_release_multiplier"), 6),
+    }
+    driver_state = {
+      "price": round(quarter_price, 2),
+      "units": round(quarter_units, 2),
+      "capacity_units": round(implied_capacity_units, 2),
+      "utilization": round(quarter_utilization, 6) if quarter_utilization is not None else None,
+      "gross_margin_ratio": round(quarter_gm_ratio, 6) if quarter_gm_ratio is not None else None,
+      "payroll_ratio": round(quarter_payroll_ratio, 6) if quarter_payroll_ratio is not None else None,
+      "marketing_ratio": round(quarter_marketing_ratio, 6) if quarter_marketing_ratio is not None else None,
+      "opex_ratio": round(quarter_opex_ratio, 6) if quarter_opex_ratio is not None else None,
+      "realized_growth": round(realized_growth, 6),
+      "realized_price_growth": round(realized_price_growth, 6),
+      "target_utilization": round(target_util, 6) if target_util is not None else None,
+    }
+    downstream_impacts = {
+      "revenue_delta": _delta_number(quarter_revenue, previous_revenue),
+      "units_delta": _delta_number(quarter_units, previous_units),
+      "capacity_units_delta": _delta_number(implied_capacity_units, previous_capacity_units),
+      "price_delta": _delta_number(quarter_price, previous_price),
+      "utilization_delta": _delta_number(quarter_utilization, previous_utilization, 6),
+      "cogs_delta": _delta_number(quarter_cogs, previous_cogs),
+      "payroll_delta": _delta_number(quarter_payroll, previous_payroll),
+      "marketing_delta": _delta_number(quarter_marketing, previous_marketing),
+      "opex_delta": _delta_number(quarter_opex, previous_opex),
+      "ebitda_delta": _delta_number(quarter_ebitda, previous_ebitda),
+    }
+
     quarters.append(
       {
         "quarter_index": quarter_number,
@@ -1393,6 +1538,12 @@ def build_forecast_engine_bundle(
         "cogs": round(quarter_cogs, 2),
         "ebitda": round(quarter_ebitda, 2),
         "net_income": round(quarter_net_income, 2),
+        "capacity_units": round(implied_capacity_units, 2),
+        "active_levers": active_levers,
+        "policy_effects": policy_effects,
+        "lever_impacts": lever_impacts,
+        "driver_state": driver_state,
+        "downstream_impacts": downstream_impacts,
         "working_capital": working_capital,
         "capex": round(quarter_capex, 2),
         "depreciation": round(quarter_depreciation, 2),
@@ -1406,6 +1557,14 @@ def build_forecast_engine_bundle(
 
     previous_revenue = quarter_revenue
     previous_price = quarter_price
+    previous_units = quarter_units
+    previous_capacity_units = implied_capacity_units
+    previous_utilization = quarter_utilization
+    previous_cogs = quarter_cogs
+    previous_payroll = quarter_payroll
+    previous_marketing = quarter_marketing
+    previous_opex = quarter_opex
+    previous_ebitda = quarter_ebitda
 
   forecast_engine_state = {
     "contract_version": PLANNING_CONTRACT_VERSION,

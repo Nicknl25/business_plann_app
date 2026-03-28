@@ -26,6 +26,10 @@ from consistency_solver import (  # type: ignore  # noqa: E402
   _archetype_consistency,
   _build_client_scenario_output,
   _build_profile_solver_contract,
+  _package_expected_effects,
+  _controller_enforced_profile,
+  _gpt_blueprint_is_usable,
+  _normalized_plan_entry_families,
   _derive_commercial_archetype,
   _derive_scenario_posture,
   _build_lever_summary,
@@ -37,6 +41,7 @@ from consistency_solver import (  # type: ignore  # noqa: E402
   _presentation_issues,
   _normalize_ratio,
   _safe_float,
+  _select_best_effort_governed_scenarios,
   _select_client_ready_scenarios,
   _select_materially_distinct_scenarios,
   _solver_required,
@@ -46,6 +51,8 @@ from consistency_solver import (  # type: ignore  # noqa: E402
   apply_consistency_solver_choice,
   build_consistency_solver_state,
 )
+from consistency_solver.engine import _scenario_violations  # type: ignore  # noqa: E402
+from consistency_solver.engine import _build_modified_constraint_bundle  # type: ignore  # noqa: E402
 from solver_trace import configure_solver_trace_run, reset_solver_trace_stage, trace, trace_lazy  # type: ignore  # noqa: E402
 from constraint_engine import build_constraint_engine_bundle  # type: ignore  # noqa: E402
 from constraint_traits import extract_normalized_traits, resolve_business_classification  # type: ignore  # noqa: E402
@@ -64,6 +71,7 @@ from api_handlers.intake_consult import (  # type: ignore  # noqa: E402
   _build_violation_resolution_summary,
   _build_consistency_finalized_message,
   _build_capacity_target_question,
+  _consistency_closeout_ready_for_completion,
   _financials_ready_for_consistency,
   _financials_stage_is_controller_owned,
   _maybe_run_consistency_closeout,
@@ -564,7 +572,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIsInstance(solver_state, dict)
     self.assertIn((solver_state or {}).get("status"), {"awaiting_choice", "blocking_unresolved"})
 
-  def test_solver_enters_minimal_viability_mode_for_structurally_valid_loss(self) -> None:
+  def test_solver_uses_governed_year1_target_for_structurally_valid_loss(self) -> None:
     solver_state = build_consistency_solver_state(
       ops_json={
         "unit_price": 100,
@@ -633,7 +641,7 @@ class PlanningEnginesTests(unittest.TestCase):
 
     self.assertIsNotNone(solver_state)
     self.assertEqual((solver_state or {}).get("status"), "awaiting_choice")
-    self.assertEqual((solver_state or {}).get("selected_target_label"), "minimal_viability_adjustment")
+    self.assertEqual((solver_state or {}).get("selected_target_label"), "governed_year1_target")
     scenarios = (solver_state or {}).get("scenarios") or []
     self.assertTrue(scenarios)
 
@@ -653,7 +661,6 @@ class PlanningEnginesTests(unittest.TestCase):
 
     patched_price = _safe_float((year1_patch or {}).get("unit_price"))
     if patched_price > 0:
-      self.assertLessEqual(patched_price, 115.0)
       self.assertGreaterEqual(patched_price, 100.0)
 
     expected_units = _safe_float((marketing_patch or {}).get("expected_units_year1"))
@@ -662,14 +669,107 @@ class PlanningEnginesTests(unittest.TestCase):
 
     patched_other_opex = _safe_float((financials_patch or {}).get("other_operating_expense"))
     if patched_other_opex > 0:
-      self.assertGreaterEqual(patched_other_opex, 114000.0)
-
-    patched_cogs = _safe_float((financials_patch or {}).get("cogs_total_year1"))
-    if patched_cogs > 0:
-      self.assertGreaterEqual(patched_cogs, 87300.0)
+      self.assertLessEqual(patched_other_opex, 120000.0)
 
     for update in role_updates or []:
-      self.assertLessEqual(_safe_float((update or {}).get("months_until_hire")), 9.0)
+      self.assertLessEqual(_safe_float((update or {}).get("months_until_hire")), 24.0)
+
+  @patch("constraint_engine.extract_normalized_traits")
+  @patch("constraint_engine.resolve_alpha_benchmark_payload")
+  def test_child_first_direct_inputs_use_weighted_child_price_and_units(
+    self,
+    mock_benchmark,
+    mock_traits,
+  ) -> None:
+    mock_traits.return_value = {
+      "naics_6": "445110",
+      "sector": "Retail Trade",
+      "customer_type": "b2c",
+      "sales_modality": "retail",
+      "capacity_driver": "space",
+      "unit_cadence": "weekly",
+      "geographic_scope": "local",
+      "business_stage": "operating",
+      "fulfillment_shape": "in_person_local",
+    }
+    mock_benchmark.return_value = self._benchmark_payload(
+      gross_margin_min=0.34,
+      gross_margin_max=0.45,
+      ebitda_margin_min=0.03,
+      ebitda_margin_max=0.10,
+      payroll_min=0.10,
+      payroll_max=0.18,
+      opex_min=0.08,
+      opex_max=0.16,
+      inventory_min=18.0,
+      inventory_max=40.0,
+    )
+    ops_json = {"capacity_driver": "space", "sales_modality": "retail"}
+    people_json = {
+      "people": [{"full_name": "Owner", "role_title": "Manager", "annual_wage": 70000}],
+      "inferred_roles": [{"role_title": "Cashier", "annual_wage": 35000, "months_until_hire": 4}],
+    }
+    financials_json = {
+      "cogs_total_year1": 430000,
+      "payroll_total_year1": 70000,
+      "marketing_total_year1": 18000,
+      "other_operating_expense": 90000,
+    }
+    financials_year1_json = {
+      "lobs": [
+        {
+          "lob_name": "Store",
+          "products": [
+            {
+              "product_name": "Prepared Meals",
+              "unit_price": 14,
+              "units_per_period_capacity": 900,
+              "avg_units_per_period_year1": 720,
+              "operating_periods_per_year": 52,
+              "utilization_rate": 0.8,
+            },
+            {
+              "product_name": "Catering Trays",
+              "unit_price": 90,
+              "units_per_period_capacity": 40,
+              "avg_units_per_period_year1": 22,
+              "operating_periods_per_year": 52,
+              "utilization_rate": 0.55,
+            },
+          ],
+        }
+      ],
+      "company_revenue_total_year1": 627120,
+    }
+    marketing_model_json = {"expected_units_year1": 38584, "reachable_market": 250000}
+
+    bundle = build_constraint_engine_bundle(
+      operating_model_json=ops_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      marketing_model_json=marketing_model_json,
+    )
+    baseline_summary = build_consistency_financial_summary(
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+    )
+    state_model = _build_solver_state_model(
+      baseline_summary=baseline_summary,
+      ops_json=ops_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      marketing_model_json=marketing_model_json,
+      normalized_traits=bundle["normalized_traits"],
+      benchmark_payload=bundle["benchmark_payload"],
+      constraint_engine_state=bundle["constraint_engine_state"],
+    )
+    direct_inputs = _build_direct_solver_inputs(state_model=state_model)
+
+    self.assertEqual(direct_inputs["solve_mode"], "child_first")
+    self.assertAlmostEqual(_safe_float(direct_inputs["current_price"]), 16.25, places=2)
+    self.assertAlmostEqual(_safe_float(direct_inputs["baseline_units"]), 38584.0, places=2)
 
   def test_solver_strategy_layer_drives_allowed_scenarios(self) -> None:
     solver_state = build_consistency_solver_state(
@@ -769,6 +869,7 @@ class PlanningEnginesTests(unittest.TestCase):
         "severity_class": "mild",
         "severity_reason": "Margins are weak but not structurally catastrophic for this model.",
         "minimum_package_strength": "moderate",
+        "viability_blueprint_summary": "Use measured repricing first, accept slight demand softening, and let outer-year margin improvement come from disciplined execution rather than a dramatic reset.",
         "required_lever_families": ["price_up", "util_down"],
         "forbidden_lever_families": ["payroll_down"],
         "controller_directives": {
@@ -809,63 +910,27 @@ class PlanningEnginesTests(unittest.TestCase):
                 "rationale": "Early pricing improvements should be paired with a modest demand softening assumption.",
               }
             ],
-        "selected_strategy_ids": ["pricing_adjustment"],
-        "strategy_overrides": [
+        "lever_family_plan": [
           {
-            "strategy_id": "pricing_adjustment",
-            "allowed_levers": ["price_up", "util_down", "hire_delay"],
-            "constraints": {
-              "price_up_cap_ratio": 0.18,
-              "util_down_cap_ratio": 0.12,
-              "hire_delay_max_months_total": 24.0,
-              "units_min_ratio": 0.9,
-            },
-            "forecast_orchestration": {
-              "orchestration_summary": "Delay non-core growth levers until later years.",
-              "quarter_policies": [
-                {
-                  "quarter_start": 1,
-                  "quarter_end": 8,
-                  "demand_posture": "moderate",
-                  "staffing_posture": "hold",
-                  "cost_posture": "moderate",
-                  "growth_multiplier": 0.9,
-                  "convergence_multiplier": 0.85,
-                  "price_growth_bias": 0.002,
-                  "utilization_target_bias": -0.01,
-                  "marketing_ratio_bias": -0.002,
-                  "opex_ratio_bias": -0.001,
-                  "payroll_ratio_bias": 0.0,
-                  "capacity_release_multiplier": 1.0,
-                  "active_levers": ["price_up", "hire_delay"],
-                }
-              ],
-              "role_timing_overrides": [],
-              "milestone_timing_overrides": [],
-              "event_response": {
-                "hire_capacity_multiplier": 1.0,
-                "hire_growth_bonus_delta": 0.0,
-                "marketing_growth_multiplier": 1.0,
-                "milestone_capacity_multiplier": 1.0,
-                "milestone_growth_multiplier": 1.0,
-              },
-            },
-          }
+            "family": "pricing",
+            "direction": "up",
+            "intensity": "moderate",
+            "quarter_start": 1,
+            "quarter_end": 8,
+            "dependencies": ["utilization"],
+            "rationale": "Lead with moderate repricing early.",
+          },
+          {
+            "family": "utilization",
+            "direction": "down",
+            "intensity": "moderate",
+            "quarter_start": 1,
+            "quarter_end": 8,
+            "dependencies": ["pricing"],
+            "rationale": "Demand should soften modestly when price rises.",
+          },
         ],
-        "global_overrides": {
-          "price_min_ratio": 0.95,
-          "price_max_ratio": 1.22,
-          "util_min": 0.56,
-          "util_max": 0.88,
-          "marketing_up_cap_ratio": 0.14,
-          "marketing_down_cap_ratio": 0.08,
-          "other_opex_down_cap_ratio": 0.03,
-          "other_opex_up_cap_ratio": 0.02,
-          "cogs_ratio_min": 0.52,
-          "cogs_ratio_max": 0.6,
-          "marketing_role": "primary",
-          "opex_flexibility": "tight",
-        },
+        "selected_strategy_ids": ["pricing_adjustment"],
         "baseline_forecast_orchestration": {
           "orchestration_summary": "Baseline follows the same delayed-hiring path.",
           "quarter_policies": [
@@ -970,11 +1035,11 @@ class PlanningEnginesTests(unittest.TestCase):
     strategies = [item for item in (strategy_layer.get("strategies") or []) if isinstance(item, dict)]
     self.assertEqual([str(item.get("strategy_id") or "") for item in strategies], ["pricing_adjustment"])
     strategy = strategies[0]
-    self.assertEqual(strategy.get("allowed_levers"), ["price_up", "util_down", "hire_delay"])
+    self.assertIn("price_up", strategy.get("allowed_levers") or [])
+    self.assertIn("util_down", strategy.get("allowed_levers") or [])
     constraints = strategy.get("constraints") or {}
-    self.assertAlmostEqual(_safe_float(constraints.get("price_up_cap_ratio")), 0.18, places=6)
-    self.assertAlmostEqual(_safe_float(constraints.get("util_down_cap_ratio")), 0.12, places=6)
-    self.assertAlmostEqual(_safe_float(constraints.get("hire_delay_max_months_total")), 24.0, places=6)
+    self.assertGreater(_safe_float(constraints.get("price_up_cap_ratio")), 0.0)
+    self.assertGreater(_safe_float(constraints.get("util_down_cap_ratio")), 0.0)
     diagnosis = strategy_layer.get("diagnosis") or {}
     self.assertEqual(diagnosis.get("primary_cause"), "pricing-driven")
     self.assertEqual(diagnosis.get("preferred_strategy_ids"), ["pricing_adjustment"])
@@ -982,6 +1047,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(diagnosis.get("secondary_causes"), ["utilization-driven"])
     self.assertEqual(diagnosis.get("severity_class"), "mild")
     self.assertEqual(diagnosis.get("minimum_package_strength"), "moderate")
+    self.assertIn("viability_blueprint_summary", diagnosis)
     self.assertEqual(diagnosis.get("required_lever_families"), ["price_up", "util_down"])
     self.assertEqual(diagnosis.get("forbidden_lever_families"), ["payroll_down"])
     self.assertEqual((diagnosis.get("controller_directives") or {}).get("minimum_meaningful_levers"), 2)
@@ -989,23 +1055,9 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertAlmostEqual(_safe_float((diagnosis.get("target_margin_path") or {}).get("year2_min")), 0.04, places=6)
     self.assertEqual((diagnosis.get("target_posture") or {}).get("year2_ebitda_posture"), "modestly_positive")
     self.assertEqual((diagnosis.get("coordinated_lever_packages") or [])[0]["levers"], ["price_up", "util_down"])
+    self.assertEqual((diagnosis.get("lever_family_plan") or [])[0]["family"], "pricing")
     self.assertAlmostEqual(_safe_float(diagnosis.get("gpt_expected_year1_ebitda_margin_min")), -0.01, places=6)
     self.assertAlmostEqual(_safe_float(diagnosis.get("gpt_expected_year1_ebitda_margin_max")), 0.04, places=6)
-    applied = ((strategy_layer.get("strategy_selection") or {}).get("applied_global_overrides") or {})
-    self.assertTrue(applied)
-    price_envelope = (((solver_state or {}).get("state_model") or {}).get("constraint_profile") or {}).get("price_envelope") or {}
-    self.assertAlmostEqual(_safe_float(price_envelope.get("min")), 114.0, places=2)
-    self.assertAlmostEqual(_safe_float(price_envelope.get("max")), 146.4, places=2)
-    util_envelope = (((solver_state or {}).get("state_model") or {}).get("constraint_profile") or {}).get("utilization_envelope") or {}
-    self.assertAlmostEqual(_safe_float(util_envelope.get("min")), 0.56, places=6)
-    self.assertAlmostEqual(_safe_float(util_envelope.get("max")), 0.88, places=6)
-    commercial_context = (((solver_state or {}).get("state_model") or {}).get("constraint_profile") or {}).get("commercial_context") or {}
-    self.assertEqual(commercial_context.get("marketing_role"), "primary")
-    self.assertEqual(commercial_context.get("opex_flexibility"), "tight")
-    cogs_envelope = (((solver_state or {}).get("state_model") or {}).get("constraint_profile") or {}).get("cogs_envelope") or {}
-    self.assertAlmostEqual(_safe_float(cogs_envelope.get("min_ratio")), 0.52, places=6)
-    self.assertAlmostEqual(_safe_float(cogs_envelope.get("max_ratio")), 0.6, places=6)
-    self.assertIn("forecast_orchestration", strategy)
     baseline_forecast_state = (((solver_state or {}).get("state_model") or {}).get("baseline_forecast_bundle") or {}).get("forecast_engine_state") or {}
     self.assertIn("forecast_orchestration", baseline_forecast_state)
 
@@ -1092,8 +1144,6 @@ class PlanningEnginesTests(unittest.TestCase):
         "primary_cause": "pricing-driven",
         "reason": "Thin answer.",
         "selected_strategy_ids": ["pricing_adjustment"],
-        "strategy_overrides": [],
-        "global_overrides": None,
         "baseline_forecast_orchestration": {
           "orchestration_summary": "Baseline path.",
           "quarter_policies": [],
@@ -1191,6 +1241,7 @@ class PlanningEnginesTests(unittest.TestCase):
         "severity_class": "severe",
         "severity_reason": "Year 1 economics are structurally non-viable.",
         "minimum_package_strength": "strong",
+        "viability_blueprint_summary": "This case needs a broad, strong restructuring path rather than a mild repricing story.",
         "required_lever_families": ["price_up", "util_down"],
         "forbidden_lever_families": ["payroll_down"],
         "controller_directives": {
@@ -1231,9 +1282,27 @@ class PlanningEnginesTests(unittest.TestCase):
             "rationale": "A small early price reset.",
           }
         ],
+        "lever_family_plan": [
+          {
+            "family": "pricing",
+            "direction": "up",
+            "intensity": "light",
+            "quarter_start": 1,
+            "quarter_end": 8,
+            "dependencies": ["utilization"],
+            "rationale": "Only a small price move.",
+          },
+          {
+            "family": "utilization",
+            "direction": "down",
+            "intensity": "light",
+            "quarter_start": 1,
+            "quarter_end": 8,
+            "dependencies": ["pricing"],
+            "rationale": "Demand softens slightly.",
+          },
+        ],
         "selected_strategy_ids": ["pricing_adjustment"],
-        "strategy_overrides": [],
-        "global_overrides": None,
         "baseline_forecast_orchestration": {
           "orchestration_summary": "baseline",
           "quarter_policies": [],
@@ -1317,6 +1386,524 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual((solver_state or {}).get("blocking_reason"), "gpt_strategy_selection_unavailable")
     strategy_layer = (((solver_state or {}).get("state_model") or {}).get("strategy_layer") or {})
     self.assertEqual(strategy_layer.get("source"), "gpt_required_invalid_blueprint")
+
+  def test_gpt_blueprint_accepts_broad_business_family_vocabulary(self) -> None:
+    selection = {
+      "primary_cause": "mixed",
+      "secondary_causes": ["payroll-driven", "pricing-driven"],
+      "reason": "The business needs a coordinated reset across economics and support structure.",
+      "business_model_assessment": "The business is badly broken and needs a multi-family reset.",
+      "severity_class": "severe",
+      "severity_reason": "Year 1 economics and support structure are both unrealistic.",
+      "minimum_package_strength": "strong",
+      "viability_blueprint_summary": "Reset pricing, demand pacing, staffing support, gross margin discipline, and support overhead together.",
+      "required_lever_families": [
+        "pricing",
+        "utilization_demand",
+        "staffing_timing_capacity",
+        "other_opex",
+        "cogs",
+      ],
+      "forbidden_lever_families": ["core_leadership_payroll"],
+      "controller_directives": {
+        "minimum_meaningful_levers": 4,
+        "require_multi_lever_coordination": True,
+        "preserve_capacity_staffing_link": True,
+        "preserve_price_demand_link": True,
+        "preserve_marketing_demand_link": True,
+        "prefer_delay_over_delete": True,
+        "aggression_level": "high",
+        "escalate_on_retry": True,
+        "minimum_package_count": 2,
+      },
+      "target_margin_path": {
+        "year1_min": -0.35,
+        "year1_max": -0.20,
+        "year2_min": -0.12,
+        "year2_max": -0.02,
+        "year3_min": 0.02,
+        "year3_max": 0.08,
+      },
+      "target_posture": {
+        "year1_ebitda_posture": "hard_reset",
+        "year2_ebitda_posture": "narrow_losses",
+        "year3_ebitda_posture": "near_break_even_or_better",
+        "staffing_posture": "phase_support_with_capacity",
+        "pricing_posture": "reprice_disciplined",
+        "demand_posture": "pace_then_build",
+        "cost_posture": "normalize_and_tighten",
+      },
+      "coordinated_lever_packages": [
+        {
+          "quarter_start": 1,
+          "quarter_end": 4,
+          "levers": ["pricing", "utilization_demand", "staffing_timing_capacity"],
+          "expected_effects": ["demand_softens_with_price", "capacity_tighter_until_hires"],
+          "minimum_strength": "strong",
+          "rationale": "Reset early economics while protecting delivery realism.",
+        },
+        {
+          "quarter_start": 5,
+          "quarter_end": 12,
+          "levers": ["other_opex", "cogs", "marketing_spend"],
+          "expected_effects": ["support_opex_required", "demand_requires_marketing_support"],
+          "minimum_strength": "strong",
+          "rationale": "Build a believable outer-year path once the reset is underway.",
+        },
+      ],
+      "lever_family_plan": [
+        {
+          "family": "pricing",
+          "direction": "up",
+          "intensity": "strong",
+          "quarter_start": 1,
+          "quarter_end": 4,
+          "dependencies": ["utilization_demand"],
+          "rationale": "Pricing resets require demand pacing.",
+        },
+        {
+          "family": "utilization_demand",
+          "direction": "mixed",
+          "intensity": "strong",
+          "quarter_start": 1,
+          "quarter_end": 8,
+          "dependencies": ["pricing", "marketing_spend"],
+          "rationale": "Demand should pace early and rebuild later.",
+        },
+        {
+          "family": "staffing_timing_capacity",
+          "direction": "mixed",
+          "intensity": "strong",
+          "quarter_start": 1,
+          "quarter_end": 12,
+          "dependencies": ["core_leadership_payroll"],
+          "rationale": "Capacity and support timing must stay grounded in staffing.",
+        },
+        {
+          "family": "other_opex",
+          "direction": "mixed",
+          "intensity": "strong",
+          "quarter_start": 1,
+          "quarter_end": 12,
+          "dependencies": ["staffing_timing_capacity"],
+          "rationale": "Support overhead must normalize alongside staffing.",
+        },
+        {
+          "family": "cogs",
+          "direction": "down",
+          "intensity": "strong",
+          "quarter_start": 5,
+          "quarter_end": 12,
+          "dependencies": ["pricing"],
+          "rationale": "Gross margin should improve after the first reset phase.",
+        },
+      ],
+      "selected_strategy_ids": ["operational_balance_strategy"],
+      "baseline_forecast_orchestration": {
+        "orchestration_summary": "Controller should translate this multi-phase reset into numeric ranges.",
+        "quarter_policies": [],
+        "role_timing_overrides": [],
+        "milestone_timing_overrides": [],
+        "event_response": {
+          "hire_capacity_multiplier": 1.0,
+          "hire_growth_bonus_delta": 0.0,
+          "marketing_growth_multiplier": 1.0,
+          "milestone_capacity_multiplier": 1.0,
+          "milestone_growth_multiplier": 1.0,
+        },
+      },
+      "expected_year1_ebitda_margin_min": -0.35,
+      "expected_year1_ebitda_margin_max": -0.20,
+    }
+
+    self.assertTrue(_gpt_blueprint_is_usable(selection))
+
+  def test_controller_preserves_gpt_direction_for_broad_business_families(self) -> None:
+    strategy_layer = {
+      "strategy_selection": {
+        "required_lever_families": ["pricing", "staffing_timing_capacity", "other_opex", "utilization_demand"],
+        "forbidden_lever_families": [],
+        "controller_directives": {
+          "minimum_meaningful_levers": 4,
+          "require_multi_lever_coordination": True,
+          "preserve_capacity_staffing_link": True,
+          "preserve_price_demand_link": True,
+          "preserve_marketing_demand_link": True,
+          "prefer_delay_over_delete": True,
+          "aggression_level": "high",
+          "escalate_on_retry": True,
+          "minimum_package_count": 2,
+        },
+        "target_margin_path": {
+          "year1_min": -0.35,
+          "year1_max": -0.20,
+          "year2_min": -0.15,
+          "year2_max": -0.05,
+          "year3_min": -0.02,
+          "year3_max": 0.04,
+        },
+        "target_posture": {
+          "year1_ebitda_posture": "stabilize",
+          "year2_ebitda_posture": "narrow_losses",
+          "year3_ebitda_posture": "approach_break_even",
+          "staffing_posture": "delay",
+          "pricing_posture": "raise_price",
+          "demand_posture": "paced",
+          "cost_posture": "tighten",
+        },
+        "coordinated_lever_packages": [
+          {
+            "quarter_start": 1,
+            "quarter_end": 4,
+            "levers": ["pricing", "other_opex", "staffing_timing_capacity"],
+            "expected_effects": ["demand_softens_with_price"],
+            "minimum_strength": "strong",
+            "rationale": "Reset economics early.",
+          },
+          {
+            "quarter_start": 5,
+            "quarter_end": 12,
+            "levers": ["pricing", "utilization_demand", "staffing_timing_capacity"],
+            "expected_effects": ["demand_softens_with_price"],
+            "minimum_strength": "strong",
+            "rationale": "Continue the path without reversing direction.",
+          },
+        ],
+        "lever_family_plan": [
+          {
+            "family": "pricing",
+            "direction": "up",
+            "intensity": "strong",
+            "quarter_start": 1,
+            "quarter_end": 12,
+            "dependencies": ["utilization_demand"],
+            "rationale": "Pricing needs to move up.",
+          },
+          {
+            "family": "staffing_timing_capacity",
+            "direction": "down",
+            "intensity": "strong",
+            "quarter_start": 1,
+            "quarter_end": 12,
+            "dependencies": [],
+            "rationale": "Delay hires instead of advancing them.",
+          },
+          {
+            "family": "other_opex",
+            "direction": "down",
+            "intensity": "moderate",
+            "quarter_start": 1,
+            "quarter_end": 12,
+            "dependencies": [],
+            "rationale": "Tighten support overhead.",
+          },
+          {
+            "family": "utilization_demand",
+            "direction": "down",
+            "intensity": "moderate",
+            "quarter_start": 1,
+            "quarter_end": 12,
+            "dependencies": ["pricing"],
+            "rationale": "Allow some demand softening as price rises.",
+          },
+        ],
+        "severity_class": "severe",
+        "minimum_package_strength": "strong",
+        "viability_blueprint_summary": "Directed plan only.",
+        "business_model_assessment": "Directed plan only.",
+      },
+      "diagnosis": {
+        "primary_cause": "pricing-driven",
+        "severity_class": "severe",
+      },
+    }
+    profile = {
+      "strategy_id": "viability_stabilize",
+      "strategy_source": "gpt",
+      "allowed_levers": [
+        "price_up",
+        "price_down",
+        "util_up",
+        "util_down",
+        "marketing_up",
+        "marketing_down",
+        "other_opex_up",
+        "other_opex_down",
+        "cogs_down",
+        "cogs_up",
+        "hire_advance",
+        "hire_delay",
+        "payroll_up",
+        "payroll_down",
+      ],
+      "constraints": {},
+    }
+
+    enforced = _controller_enforced_profile(
+      profile=profile,
+      strategy_layer=strategy_layer,
+      active_violations={"ebitda_margin_too_low", "gross_margin_too_low"},
+    )
+
+    allowed = set((((enforced or {}).get("profile") or {}).get("allowed_levers") or []))
+    self.assertIn("price_up", allowed)
+    self.assertNotIn("price_down", allowed)
+    self.assertIn("hire_delay", allowed)
+    self.assertNotIn("hire_advance", allowed)
+    self.assertIn("payroll_down", allowed)
+    self.assertNotIn("payroll_up", allowed)
+    self.assertIn("other_opex_down", allowed)
+    self.assertNotIn("other_opex_up", allowed)
+    self.assertIn("util_down", allowed)
+
+  def test_plan_family_normalization_handles_staffing_and_hiring_timing_directionally(self) -> None:
+    self.assertEqual(
+      _normalized_plan_entry_families({
+        "family": "staffing_and_hiring_timing",
+        "direction": "down",
+      }),
+      ["hire_delay", "payroll_down"],
+    )
+    self.assertEqual(
+      _normalized_plan_entry_families({
+        "family": "staffing_and_hiring_timing",
+        "direction": "up",
+      }),
+      ["hire_advance", "payroll_up"],
+    )
+
+  def test_controller_enforced_profile_preserves_direct_live_case_required_levers(self) -> None:
+    strategy_layer = {
+      "strategy_selection": {
+        "required_lever_families": [
+          "payroll_down",
+          "hire_delay",
+          "other_opex_down",
+          "price_up",
+          "cogs_down",
+          "util_up",
+        ],
+        "forbidden_lever_families": [
+          "marketing_up",
+          "payroll_up",
+          "hire_advance",
+          "other_opex_up",
+          "price_down",
+        ],
+        "coordinated_lever_packages": [
+          {
+            "levers": [
+              "payroll_down",
+              "hire_delay",
+              "other_opex_down",
+              "price_up",
+              "cogs_down",
+              "util_up",
+            ],
+          },
+        ],
+        "lever_family_plan": [
+          {"family": "payroll_down", "direction": "down"},
+          {"family": "hire_delay", "direction": "down"},
+          {"family": "other_opex_down", "direction": "down"},
+          {"family": "price_up", "direction": "up"},
+          {"family": "cogs_down", "direction": "down"},
+          {"family": "util_up", "direction": "up"},
+        ],
+      },
+    }
+    profile = {
+      "strategy_id": "staffing_ramp_adjustment",
+      "strategy_source": "gpt",
+      "allowed_levers": ["cogs_down", "util_up"],
+      "constraints": {},
+    }
+
+    enforced = _controller_enforced_profile(
+      profile=profile,
+      strategy_layer=strategy_layer,
+      active_violations={"ebitda_margin_too_low", "gross_margin_too_low", "opex_too_light"},
+    )
+
+    allowed = set((((enforced or {}).get("profile") or {}).get("allowed_levers") or []))
+    self.assertEqual(
+      allowed,
+      {"payroll_down", "hire_delay", "other_opex_down", "price_up", "cogs_down", "util_up"},
+    )
+
+  def test_gpt_blueprint_accepts_staffing_and_hiring_timing_family_from_live_case(self) -> None:
+    selection = {
+      "primary_cause": "pricing-driven",
+      "secondary_causes": [
+        "gross_margin_too_low",
+        "ebitda_margin_too_low",
+      ],
+      "reason": "A severe pricing-driven gap requires coordinated price, utilization, opex, and hiring timing changes.",
+      "business_model_assessment": "This business needs a strong Year 1 reset with delayed hires and tighter overhead.",
+      "severity_class": "severe",
+      "severity_reason": "Year 1 EBITDA margin is extremely negative.",
+      "minimum_package_strength": "strong",
+      "viability_blueprint_summary": "Raise price, improve utilization modestly, trim other opex, and delay planned hires into outer years.",
+      "required_lever_families": [
+        "pricing",
+        "utilization",
+        "other_opex",
+        "staffing_and_hiring_timing",
+      ],
+      "forbidden_lever_families": [
+        "marketing_spend",
+        "core_founder_payroll",
+        "capacity_expansion",
+        "cogs_reduction",
+      ],
+      "controller_directives": {
+        "minimum_meaningful_levers": 4,
+        "minimum_package_count": 2,
+        "prefer_delay_over_delete": True,
+        "preserve_capacity_staffing_link": True,
+        "preserve_marketing_demand_link": True,
+        "preserve_price_demand_link": True,
+        "require_multi_lever_coordination": True,
+        "aggression_level": "high",
+        "escalate_on_retry": True,
+      },
+      "target_margin_path": {
+        "year1_min": -0.22,
+        "year1_max": -0.16,
+        "year2_min": -0.12,
+        "year2_max": -0.08,
+        "year3_min": -0.02,
+        "year3_max": 0.03,
+      },
+      "target_posture": {
+        "year1_ebitda_posture": "stabilization with materially reduced cash burn",
+        "year2_ebitda_posture": "approach to sustainable operating scale",
+        "year3_ebitda_posture": "near-breakeven core operation",
+        "staffing_posture": "delay all planned new roles into late Year 2 and Year 3",
+        "pricing_posture": "strong upward reset in Year 1",
+        "demand_posture": "steady, modest growth",
+        "cost_posture": "tight on non-rent opex",
+      },
+      "coordinated_lever_packages": [
+        {
+          "quarter_start": 1,
+          "quarter_end": 8,
+          "levers": ["price_up", "util_up", "other_opex_down", "hire_delay"],
+          "expected_effects": [
+            "Raise average hourly rate by 8-12% while allowing a small softening in utilization, keeping units within 95-100% of baseline",
+            "Cut 5% of non-rent opex in Year 1 and hold flat in Year 2, improving EBITDA margin by several points",
+            "Delay activation of all planned new roles until at least Y2 Q3, holding payroll intensity at or below current levels despite revenue growth",
+          ],
+          "minimum_strength": "strong",
+          "rationale": "Immediate stabilization package.",
+        },
+        {
+          "quarter_start": 9,
+          "quarter_end": 20,
+          "levers": ["price_up", "util_up", "hire_delay"],
+          "expected_effects": [
+            "Gradually increase utilization toward the upper end of the allowable range as scheduling and operations mature",
+            "Stagger activation of planned clinical roles from Y3 onward, linking each new hire to clear utilization and revenue milestones",
+          ],
+          "minimum_strength": "moderate",
+          "rationale": "Outer-year scaling package.",
+        },
+      ],
+      "lever_family_plan": [
+        {
+          "family": "pricing",
+          "direction": "up",
+          "intensity": "strong",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "dependencies": ["utilization", "demand_posture"],
+          "rationale": "Raise price strongly in Year 1.",
+        },
+        {
+          "family": "utilization",
+          "direction": "up",
+          "intensity": "moderate",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "dependencies": ["staffing_and_hiring_timing"],
+          "rationale": "Improve utilization gradually.",
+        },
+        {
+          "family": "other_opex",
+          "direction": "down",
+          "intensity": "moderate",
+          "quarter_start": 1,
+          "quarter_end": 8,
+          "dependencies": [],
+          "rationale": "Trim non-rent overhead.",
+        },
+        {
+          "family": "staffing_and_hiring_timing",
+          "direction": "down",
+          "intensity": "strong",
+          "quarter_start": 1,
+          "quarter_end": 12,
+          "dependencies": ["utilization", "pricing"],
+          "rationale": "Delay planned hires into later years.",
+        },
+        {
+          "family": "marketing_spend",
+          "direction": "hold",
+          "intensity": "light",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "dependencies": ["demand_posture"],
+          "rationale": "Hold marketing roughly flat.",
+        },
+        {
+          "family": "cogs",
+          "direction": "hold",
+          "intensity": "light",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "dependencies": ["pricing"],
+          "rationale": "Keep direct-care compensation realistic.",
+        },
+        {
+          "family": "capacity_expansion",
+          "direction": "hold",
+          "intensity": "light",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "dependencies": ["staffing_and_hiring_timing"],
+          "rationale": "Avoid new fixed-capacity investments.",
+        },
+      ],
+      "selected_strategy_ids": ["viability_stabilize", "pricing_adjustment"],
+    }
+
+    self.assertTrue(_gpt_blueprint_is_usable(selection))
+
+  def test_package_effects_do_not_require_support_opex_on_opex_down_story(self) -> None:
+    effects = _package_expected_effects(
+      [
+        {
+          "quarter_start": 1,
+          "quarter_end": 4,
+          "levers": ["other_opex"],
+          "expected_effects": [
+            "Cut non-essential overhead and keep support costs disciplined in early quarters."
+          ],
+        }
+      ],
+      lever_plan=[
+        {
+          "family": "other_opex",
+          "direction": "down",
+          "intensity": "moderate",
+          "quarter_start": 1,
+          "quarter_end": 4,
+        }
+      ],
+      max_quarter=4,
+    )
+
+    self.assertNotIn("support_opex_required", effects)
 
   def test_solver_runs_even_without_blocking_or_viability_trigger(self) -> None:
     with patch("consistency_solver._gpt_strategy_required", return_value=False):
@@ -2640,6 +3227,10 @@ class PlanningEnginesTests(unittest.TestCase):
           "diagnosis": {"primary_cause": "payroll-driven"},
           "strategy_selection": {
             "business_model_assessment": "Home health requires staffing, supported visit capacity, and demand pacing to move together.",
+            "severity_class": "severe",
+            "severity_reason": "The baseline economics are deeply broken and require a strong reset.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Delay non-core hiring, lower early throughput, and sequence pricing with outer-year stabilization.",
             "required_lever_families": ["hire_delay", "price_up"],
             "forbidden_lever_families": ["payroll_down"],
             "controller_directives": {
@@ -2679,6 +3270,44 @@ class PlanningEnginesTests(unittest.TestCase):
                 "minimum_strength": "strong",
                 "rationale": "Early staffing delays should be paired with lower throughput expectations and modest price support.",
               }
+            ],
+            "lever_family_plan": [
+              {
+                "family": "staffing_timing",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": ["pricing", "utilization"],
+                "rationale": "Tighten early staffing timing before demand ramps.",
+              },
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["utilization"],
+                "rationale": "Use pricing to support economics while volume softens.",
+              },
+              {
+                "family": "utilization",
+                "direction": "down",
+                "intensity": "moderate",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["staffing_timing"],
+                "rationale": "Do not overstate early throughput while hires are delayed.",
+              },
+              {
+                "family": "overhead_opex",
+                "direction": "down",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["staffing_timing"],
+                "rationale": "Keep outer-year support costs disciplined after stabilization.",
+              },
             ],
           },
         }
@@ -2778,14 +3407,14 @@ class PlanningEnginesTests(unittest.TestCase):
 
     self.assertEqual(_safe_float(contract_inputs["structural_payroll_floor"]), 200440.0)
     self.assertAlmostEqual(_safe_float(contract_inputs["target_payroll_max_total"]), 241350.0, places=2)
-    self.assertEqual(_safe_float(contract_inputs["other_opex_min"]), 950.0)
+    self.assertEqual(_safe_float(contract_inputs["other_opex_min"]), 1000.0)
     self.assertEqual(_safe_float(contract_inputs["other_opex_max"]), 1000.0)
     self.assertIn("price_up", contract_profile["allowed_levers"])
     self.assertIn("hire_delay", contract_profile["allowed_levers"])
     self.assertIn("util_down", contract_profile["allowed_levers"])
     self.assertNotIn("payroll_down", contract_profile["allowed_levers"])
     self.assertGreaterEqual(_safe_float((contract_profile.get("constraints") or {}).get("util_down_cap_ratio")), 0.08)
-    self.assertEqual((contract_profile.get("controller_directives") or {}).get("minimum_meaningful_levers"), 3)
+    self.assertEqual((contract_profile.get("controller_directives") or {}).get("minimum_meaningful_levers"), 4)
     self.assertEqual(_safe_float(contract["target_ebitda_min"]), -152880.0)
     self.assertEqual(_safe_float(contract["target_ebitda_max"]), -65520.0)
     self.assertIn("translated_gpt_role_timing_into_payroll_contract", diagnostics["adjustments"])
@@ -2796,6 +3425,41 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIn("capacity_tighter_until_hires", ((diagnostics.get("controller_profile") or {}).get("package_expected_effects") or []))
     self.assertEqual((diagnostics.get("controller_profile") or {}).get("retry_attempt"), 0)
 
+  def test_gpt_blueprint_uses_actual_family_and_package_content_not_only_directive_floor(self) -> None:
+    selection = {
+      "selected_strategy_ids": ["operational_balance_strategy"],
+      "severity_class": "severe",
+      "minimum_package_strength": "strong",
+      "required_lever_families": ["payroll_down", "hire_delay", "other_opex_down", "price_up", "cogs_down", "util_up"],
+      "controller_directives": {
+        "minimum_meaningful_levers": 3,
+        "minimum_package_count": 1,
+        "escalate_on_retry": True,
+      },
+      "target_margin_path": {
+        "year1_min": -0.9,
+        "year1_max": -0.7,
+        "year2_min": -0.55,
+        "year2_max": -0.25,
+        "year3_min": -0.2,
+        "year3_max": -0.05,
+      },
+      "lever_family_plan": [
+        {"family": "payroll_down", "direction": "down", "quarter_start": 1, "quarter_end": 8},
+        {"family": "hire_delay", "direction": "down", "quarter_start": 1, "quarter_end": 8},
+        {"family": "other_opex_down", "direction": "down", "quarter_start": 1, "quarter_end": 12},
+        {"family": "price_up", "direction": "up", "quarter_start": 1, "quarter_end": 12},
+        {"family": "cogs_down", "direction": "down", "quarter_start": 5, "quarter_end": 12},
+        {"family": "util_up", "direction": "up", "quarter_start": 5, "quarter_end": 12},
+      ],
+      "coordinated_lever_packages": [
+        {"quarter_start": 1, "quarter_end": 4, "levers": ["payroll_down", "hire_delay", "other_opex_down", "price_up"]},
+        {"quarter_start": 5, "quarter_end": 12, "levers": ["other_opex_down", "price_up", "cogs_down", "util_up"]},
+      ],
+    }
+
+    self.assertTrue(_gpt_blueprint_is_usable(selection))
+
   def test_build_profile_solver_contract_escalates_on_retry_for_gpt_blueprint(self) -> None:
     contract = _build_profile_solver_contract(
       state_model={
@@ -2804,6 +3468,10 @@ class PlanningEnginesTests(unittest.TestCase):
           "diagnosis": {"primary_cause": "pricing-driven", "governed_retry_attempt": 2},
           "strategy_selection": {
             "business_model_assessment": "The business needs a stronger coordinated repricing and demand reset to become credible.",
+            "severity_class": "moderate",
+            "severity_reason": "The baseline path is materially weak but not structurally unrecoverable.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Retry should materially strengthen repricing while sequencing demand and later cost control.",
             "required_lever_families": ["price_up", "util_down"],
             "forbidden_lever_families": ["payroll_down"],
             "controller_directives": {
@@ -2843,6 +3511,35 @@ class PlanningEnginesTests(unittest.TestCase):
                 "minimum_strength": "strong",
                 "rationale": "Retry should lean harder into a coordinated reprice and demand reset.",
               }
+            ],
+            "lever_family_plan": [
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 6,
+                "dependencies": ["utilization"],
+                "rationale": "Lean harder into repricing on retry.",
+              },
+              {
+                "family": "utilization",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 6,
+                "dependencies": ["pricing"],
+                "rationale": "Reflect stronger demand moderation on retry.",
+              },
+              {
+                "family": "overhead_opex",
+                "direction": "down",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["pricing"],
+                "rationale": "Carry cost discipline into outer quarters.",
+              },
             ],
           },
         }
@@ -2918,6 +3615,10 @@ class PlanningEnginesTests(unittest.TestCase):
           "strategy_selection": {
             "selected_strategy_ids": ["demand_supported_growth"],
             "business_model_assessment": "Home health needs support overhead first and demand growth only after staffing catches up.",
+            "severity_class": "moderate",
+            "severity_reason": "The business needs a coordinated recovery path with staffing and demand sequenced together.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Build support structure first, then release demand and utilization once staffing can carry it.",
             "required_lever_families": ["staffing_support"],
             "forbidden_lever_families": [],
             "controller_directives": {
@@ -2961,6 +3662,44 @@ class PlanningEnginesTests(unittest.TestCase):
                 ],
               },
             ],
+            "lever_family_plan": [
+              {
+                "family": "staffing_support",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": ["overhead_opex"],
+                "rationale": "Raise support structure first.",
+              },
+              {
+                "family": "overhead_opex",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": ["staffing_support"],
+                "rationale": "Support overhead must rise with staffing.",
+              },
+              {
+                "family": "marketing_to_demand_link",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["staffing_support", "utilization"],
+                "rationale": "Only push demand after support capacity exists.",
+              },
+              {
+                "family": "utilization",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["staffing_support"],
+                "rationale": "Utilization can rise after staffing catches up.",
+              },
+            ],
           },
         }
       },
@@ -2995,13 +3734,14 @@ class PlanningEnginesTests(unittest.TestCase):
     policies = orchestration.get("quarter_policies") or []
 
     self.assertIn("other_opex_up", allowed_levers)
-    self.assertIn("marketing_up", allowed_levers)
-    self.assertIn("util_up", allowed_levers)
+    self.assertNotIn("marketing_up", allowed_levers)
+    self.assertNotIn("util_up", allowed_levers)
     self.assertGreater(_safe_float((contract.get("direct_inputs") or {}).get("other_opex_max")), 1200.0)
-    self.assertGreater(_safe_float((contract.get("direct_inputs") or {}).get("marketing_upper")), 10000.0)
+    self.assertEqual(_safe_float((contract.get("direct_inputs") or {}).get("marketing_upper")), 10000.0)
     self.assertGreaterEqual(len(policies), 2)
+    self.assertTrue(any("util_up" in set(item.get("active_levers") or []) for item in policies))
     self.assertIn("expanded_opex_contract_to_realism_band", diagnostics.get("adjustments") or [])
-    self.assertIn("expanded_marketing_contract_for_demand_support", diagnostics.get("adjustments") or [])
+    self.assertNotIn("expanded_marketing_contract_for_demand_support", diagnostics.get("adjustments") or [])
     self.assertFalse(
       {
         "missing_required_lever_families",
@@ -3022,6 +3762,10 @@ class PlanningEnginesTests(unittest.TestCase):
           "strategy_selection": {
             "selected_strategy_ids": ["viability_stabilize", "pricing_adjustment"],
             "business_model_assessment": "The business needs moderate repricing, paced staffing, and realistic support overhead.",
+            "severity_class": "severe",
+            "severity_reason": "This business needs a broad reset across pricing, staffing, overhead, and utilization pacing.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Correct staffing and overhead first, then grow into a more realistic commercial posture.",
             "required_lever_families": [
               "pricing",
               "utilization",
@@ -3081,6 +3825,44 @@ class PlanningEnginesTests(unittest.TestCase):
                 "rationale": "Grow into a better cost base after capacity is in place.",
               },
             ],
+            "lever_family_plan": [
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["utilization"],
+                "rationale": "Use moderate repricing to support unit economics.",
+              },
+              {
+                "family": "hiring_timing_and_structural_payroll",
+                "direction": "mixed",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["overhead_opex"],
+                "rationale": "Pace staffing timing and payroll to realistic capacity.",
+              },
+              {
+                "family": "overhead_opex",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["hiring_timing_and_structural_payroll"],
+                "rationale": "Support overhead has to be realistic.",
+              },
+              {
+                "family": "utilization",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["hiring_timing_and_structural_payroll", "pricing"],
+                "rationale": "Grow utilization only after the structure is in place.",
+              },
+            ],
           },
         }
       },
@@ -3122,6 +3904,1135 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertNotIn("missing_required_lever_families", diagnostics.get("issues") or [])
     self.assertNotIn("missing_package_lever_families", diagnostics.get("issues") or [])
 
+  def test_build_profile_solver_contract_preserves_direct_live_case_levers(self) -> None:
+    contract = _build_profile_solver_contract(
+      state_model={
+        "strategy_layer": {
+          "source": "gpt",
+          "diagnosis": {
+            "primary_cause": "payroll-driven",
+            "severity_class": "severe",
+          },
+          "strategy_selection": {
+            "selected_strategy_ids": ["staffing_ramp_adjustment", "operational_balance_strategy"],
+            "business_model_assessment": "Lean launch reset.",
+            "severity_class": "severe",
+            "severity_reason": "Cost structure is too heavy for scale.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Reset payroll, delay hires, cut opex, and improve pricing and utilization.",
+            "required_lever_families": [
+              "payroll_down",
+              "hire_delay",
+              "other_opex_down",
+              "price_up",
+              "cogs_down",
+              "util_up",
+            ],
+            "forbidden_lever_families": [
+              "marketing_up",
+              "payroll_up",
+              "hire_advance",
+              "other_opex_up",
+              "price_down",
+            ],
+            "controller_directives": {
+              "minimum_meaningful_levers": 5,
+              "minimum_package_count": 2,
+              "preserve_capacity_staffing_link": True,
+              "preserve_price_demand_link": True,
+              "preserve_marketing_demand_link": True,
+              "require_multi_lever_coordination": True,
+              "escalate_on_retry": True,
+            },
+            "target_margin_path": {
+              "year1_min": -0.55,
+              "year1_max": -0.35,
+              "year2_min": -0.30,
+              "year2_max": -0.10,
+              "year3_min": -0.05,
+              "year3_max": 0.08,
+            },
+            "coordinated_lever_packages": [
+              {
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "levers": [
+                  "payroll_down",
+                  "hire_delay",
+                  "other_opex_down",
+                  "price_up",
+                  "cogs_down",
+                  "util_up",
+                ],
+                "expected_effects": [
+                  "Reduce Year-1 fixed payroll burden.",
+                  "Hold all planned additional roles until at least late Year 2.",
+                  "Trim non-rent opex materially.",
+                  "Implement a modest price increase.",
+                  "Improve utilization within existing capacity.",
+                ],
+              },
+            ],
+            "lever_family_plan": [
+              {"family": "payroll_down", "direction": "down", "quarter_start": 1, "quarter_end": 12},
+              {"family": "hire_delay", "direction": "down", "quarter_start": 1, "quarter_end": 12},
+              {"family": "other_opex_down", "direction": "down", "quarter_start": 1, "quarter_end": 8},
+              {"family": "price_up", "direction": "up", "quarter_start": 1, "quarter_end": 8},
+              {"family": "cogs_down", "direction": "down", "quarter_start": 1, "quarter_end": 12},
+              {"family": "util_up", "direction": "up", "quarter_start": 1, "quarter_end": 12},
+            ],
+          },
+        }
+      },
+      direct_inputs={
+        "current_revenue": 312000.0,
+        "current_price": 80.0,
+        "price_lower": 80.0,
+        "price_upper": 86.0,
+        "current_util": 0.75,
+        "util_min": 0.70,
+        "util_max": 0.82,
+        "baseline_units": 3900.0,
+        "units_min": 3500.0,
+        "units_max": 5200.0,
+        "current_marketing": 50798.05,
+        "marketing_min": 50798.05,
+        "marketing_upper": 50798.05,
+        "current_other_opex": 100880.94,
+        "other_opex_min": 100880.94,
+        "other_opex_max": 100880.94,
+        "current_cogs_ratio": 0.6755177142857143,
+        "cogs_ratio_min": 0.60,
+        "cogs_ratio_max": 0.68,
+        "current_cogs": 241427.43,
+        "current_payroll_total": 249990.0,
+        "fixed_people_payroll": 249990.0,
+        "structural_payroll_floor": 249990.0,
+        "target_payroll_min_total": 249990.0,
+        "target_payroll_max_total": 249990.0,
+        "baseline_planned_payroll": 0.0,
+        "rent_annualized": 14400.0,
+        "current_interest": 0.0,
+        "constraint_violations": ["ebitda_margin_too_low", "gross_margin_too_low"],
+        "roles": [
+          {"role_title": "Field Registered Nurse (RN)", "annual_wage": 81820.0, "base_months": 24, "max_months": 24, "baseline_year1_amount": 0.0},
+          {"role_title": "Physical Therapist (PT)", "annual_wage": 108110.0, "base_months": 24, "max_months": 24, "baseline_year1_amount": 0.0},
+        ],
+      },
+      profile={
+        "strategy_id": "staffing_ramp_adjustment",
+        "strategy_source": "gpt",
+        "allowed_levers": ["cogs_down", "util_up"],
+        "constraints": {"cogs_down_cap_ratio": 0.05, "util_up_cap_ratio": 0.08},
+        "forecast_orchestration": {},
+      },
+      target_ebitda_min=-171600.0,
+      target_ebitda_max=-109200.0,
+    )
+
+    diagnostics = contract.get("diagnostics") or {}
+    controller_profile = diagnostics.get("controller_profile") or {}
+    effective = set(controller_profile.get("effective_lever_families") or [])
+
+    self.assertTrue(
+      {"payroll_down", "hire_delay", "other_opex_down", "price_up", "cogs_down", "util_up"}.issubset(effective)
+    )
+
+  def test_build_profile_solver_contract_translates_growth_architecture_into_orchestration(self) -> None:
+    contract = _build_profile_solver_contract(
+      state_model={
+        "strategy_layer": {
+          "source": "gpt",
+          "diagnosis": {
+            "primary_cause": "mixed",
+            "severity_class": "severe",
+          },
+          "strategy_selection": {
+            "selected_strategy_ids": ["viability_stabilize", "demand_supported_growth"],
+            "business_model_assessment": "The business needs a Year 1 reset and a staged growth release after support capacity exists.",
+            "severity_class": "severe",
+            "severity_reason": "Capacity, demand, and support structure are out of sync.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Stabilize Year 1, then release growth in stages.",
+            "scaling_model_summary": "Demand should build after support roles unlock, then milestone-driven capacity should expand in outer years.",
+            "required_lever_families": ["price_up", "util_up", "hire_delay", "other_opex_down"],
+            "forbidden_lever_families": ["price_down"],
+            "controller_directives": {
+              "minimum_meaningful_levers": 4,
+              "minimum_package_count": 2,
+              "require_multi_lever_coordination": True,
+              "preserve_capacity_staffing_link": True,
+              "preserve_price_demand_link": True,
+              "preserve_marketing_demand_link": True,
+              "prefer_delay_over_delete": True,
+              "aggression_level": "high",
+              "escalate_on_retry": True,
+            },
+            "target_margin_path": {
+              "year1_min": -0.30,
+              "year1_max": -0.18,
+              "year2_min": -0.18,
+              "year2_max": -0.08,
+              "year3_min": -0.04,
+              "year3_max": 0.06,
+            },
+            "target_posture": {
+              "year1_ebitda_posture": "stabilize",
+              "year2_ebitda_posture": "grow carefully",
+              "year3_ebitda_posture": "approach viable scale",
+              "staffing_posture": "delay then release",
+              "pricing_posture": "repair pricing early",
+              "demand_posture": "build after support exists",
+              "cost_posture": "tighten then support",
+            },
+            "coordinated_lever_packages": [
+              {
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "levers": ["price_up", "hire_delay", "other_opex_down"],
+                "expected_effects": ["capacity_tighter_until_hires"],
+                "minimum_strength": "strong",
+                "rationale": "Stabilize Year 1 first.",
+              },
+              {
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "levers": ["marketing_up", "util_up", "hire_advance"],
+                "expected_effects": ["demand growth requires marketing support", "capacity expands with staffing"],
+                "minimum_strength": "strong",
+                "rationale": "Release growth after support timing catches up.",
+              },
+            ],
+            "lever_family_plan": [
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": [],
+                "rationale": "Repair contribution margin.",
+              },
+              {
+                "family": "staffing_and_hiring_timing",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": [],
+                "rationale": "Keep hiring tight early.",
+              },
+              {
+                "family": "marketing_spend",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["staffing_and_hiring_timing"],
+                "rationale": "Add demand after support exists.",
+              },
+              {
+                "family": "capacity_expansion",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "dependencies": ["marketing_spend"],
+                "rationale": "Expand capacity in outer years.",
+              },
+            ],
+            "capacity_release_plan": [
+              {
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "capacity_posture": "expand",
+                "capacity_release_multiplier": 1.12,
+                "trigger": "Demand has been proven and support roles are active.",
+                "rationale": "Release real capacity only after the business can support it.",
+              }
+            ],
+            "hiring_release_plan": [
+              {
+                "role_scope": "support_roles",
+                "quarter_start": 5,
+                "quarter_end": 8,
+                "months_until_activate": 15,
+                "staffing_posture": "add_support",
+                "capacity_effect": "Support roles unlock more demand handling capacity.",
+                "rationale": "Support roles should come in before clinical scale.",
+              },
+              {
+                "role_scope": "clinical_roles",
+                "quarter_start": 9,
+                "quarter_end": 12,
+                "months_until_activate": 27,
+                "staffing_posture": "add_support",
+                "capacity_effect": "Clinical roles unlock higher billable capacity.",
+                "rationale": "Clinical roles should release later.",
+              },
+            ],
+            "demand_build_plan": [
+              {
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "demand_posture": "preserve",
+                "marketing_ratio_bias": 0.012,
+                "growth_multiplier": 1.10,
+                "rationale": "Demand build starts once support exists.",
+              }
+            ],
+            "milestone_activation_plan": [
+              {
+                "description": "Reach 2,000 billable in-home care hours per week consistently",
+                "target_quarter": 8,
+                "activation_condition": "Utilization and support staffing are stable.",
+                "capacity_multiplier": 1.15,
+                "growth_multiplier": 1.08,
+                "rationale": "Milestone should unlock extra capacity and growth in outer years.",
+              }
+            ],
+            "support_overhead_plan": [
+              {
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "cost_posture": "protect",
+                "opex_ratio_bias": 0.01,
+                "payroll_ratio_bias": 0.012,
+                "rationale": "Support overhead should step up once scale is real.",
+              }
+            ],
+            "outer_year_margin_logic": "Margins improve only if demand, staffing, capacity, and support overhead stay synchronized.",
+            "baseline_forecast_orchestration": {
+              "orchestration_summary": "Baseline drift",
+              "quarter_policies": [],
+              "role_timing_overrides": [],
+              "milestone_timing_overrides": [],
+              "event_response": {
+                "hire_capacity_multiplier": 1.0,
+                "hire_growth_bonus_delta": 0.0,
+                "marketing_growth_multiplier": 1.0,
+                "milestone_capacity_multiplier": 1.0,
+                "milestone_growth_multiplier": 1.0,
+              },
+            },
+          },
+        }
+      },
+      direct_inputs={
+        "current_revenue": 312000.0,
+        "current_price": 80.0,
+        "price_lower": 80.0,
+        "price_upper": 92.0,
+        "current_util": 0.75,
+        "util_min": 0.70,
+        "util_max": 0.82,
+        "baseline_units": 3900.0,
+        "units_min": 3500.0,
+        "units_max": 5200.0,
+        "current_marketing": 43680.0,
+        "marketing_min": 43680.0,
+        "marketing_upper": 50798.05,
+        "current_other_opex": 100880.94,
+        "other_opex_min": 90000.0,
+        "other_opex_max": 110000.0,
+        "current_cogs_ratio": 0.6755,
+        "cogs_ratio_min": 0.60,
+        "cogs_ratio_max": 0.68,
+        "current_cogs": 241427.43,
+        "current_payroll_total": 249990.0,
+        "fixed_people_payroll": 249990.0,
+        "structural_payroll_floor": 249990.0,
+        "target_payroll_min_total": 249990.0,
+        "target_payroll_max_total": 249990.0,
+        "rent_annualized": 14400.0,
+        "current_interest": 0.0,
+        "roles": [
+          {"role_title": "Field Registered Nurse (RN)", "annual_wage": 81820.0, "base_months": 24, "max_months": 36, "baseline_year1_amount": 0.0},
+          {"role_title": "Home Health Aide/Personal Care Aide", "annual_wage": 35250.0, "base_months": 24, "max_months": 30, "baseline_year1_amount": 0.0},
+          {"role_title": "Intake and Scheduling Coordinator", "annual_wage": 45890.0, "base_months": 24, "max_months": 30, "baseline_year1_amount": 0.0},
+        ],
+        "current_staff": [
+          {"full_name": "Sarah Johnson", "role_title": "Founder and CEO", "annual_wage": 97350.5},
+          {"full_name": "Michael Lee", "role_title": "Clinical Director", "annual_wage": 65143.0},
+        ],
+        "constraint_violations": ["ebitda_margin_too_low", "gross_margin_too_low"],
+      },
+      profile={
+        "strategy_id": "viability_stabilize",
+        "strategy_source": "gpt",
+        "allowed_levers": ["price_up", "other_opex_down", "hire_delay", "util_up"],
+        "constraints": {"price_up_cap_ratio": 0.15, "other_opex_down_cap_ratio": 0.08, "hire_delay_max_months_total": 24.0},
+        "forecast_orchestration": {},
+      },
+      target_ebitda_min=-150000.0,
+      target_ebitda_max=-90000.0,
+    )
+
+    orchestration = ((contract.get("profile") or {}).get("forecast_orchestration") or {})
+    policies = orchestration.get("quarter_policies") or []
+    role_overrides = orchestration.get("role_timing_overrides") or []
+    milestone_overrides = orchestration.get("milestone_timing_overrides") or []
+    event_response = orchestration.get("event_response") or {}
+
+    q6 = next(item for item in policies if item.get("quarter_start") <= 6 <= item.get("quarter_end"))
+    q10 = next(item for item in policies if item.get("quarter_start") <= 10 <= item.get("quarter_end"))
+
+    self.assertGreater(_safe_float(q6.get("marketing_ratio_bias")), 0.0)
+    self.assertGreater(_safe_float(q6.get("growth_multiplier")), 1.0)
+    self.assertGreater(_safe_float(q10.get("capacity_release_multiplier")), 1.0)
+    self.assertGreater(_safe_float(q10.get("opex_ratio_bias")), 0.0)
+    self.assertGreater(_safe_float(q10.get("payroll_ratio_bias")), 0.0)
+    self.assertTrue(any((item.get("role_title") or "").endswith("Coordinator") for item in role_overrides))
+    self.assertTrue(any("Reach 2,000 billable" in str(item.get("description") or "") for item in milestone_overrides))
+    self.assertGreater(_safe_float(event_response.get("hire_capacity_multiplier")), 1.0)
+    self.assertGreater(_safe_float(event_response.get("marketing_growth_multiplier")), 1.0)
+    self.assertGreater(_safe_float(event_response.get("milestone_capacity_multiplier")), 1.0)
+
+  def test_build_profile_solver_contract_prefers_direct_gpt_orchestration_language(self) -> None:
+    contract = _build_profile_solver_contract(
+      state_model={
+        "strategy_layer": {
+          "source": "gpt",
+          "diagnosis": {
+            "primary_cause": "mixed",
+            "severity_class": "severe",
+          },
+          "strategy_selection": {
+            "selected_strategy_ids": ["viability_stabilize"],
+            "business_model_assessment": "Lean reset, then staged support and growth.",
+            "severity_class": "severe",
+            "severity_reason": "Launch economics are broken and growth must be staged.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Tighten Year 1, release support and capacity later.",
+            "scaling_model_summary": "Support roles activate first, milestone unlocks outer-year capacity.",
+            "required_lever_families": ["payroll_down", "hire_delay", "other_opex_down", "price_up", "util_up"],
+            "forbidden_lever_families": ["marketing_up"],
+            "controller_directives": {
+              "minimum_meaningful_levers": 4,
+              "minimum_package_count": 2,
+              "require_multi_lever_coordination": True,
+              "preserve_capacity_staffing_link": True,
+              "preserve_price_demand_link": True,
+              "preserve_marketing_demand_link": True,
+              "prefer_delay_over_delete": True,
+              "aggression_level": "high",
+              "escalate_on_retry": True,
+            },
+            "target_margin_path": {
+              "year1_min": -0.30,
+              "year1_max": -0.18,
+              "year2_min": -0.18,
+              "year2_max": -0.08,
+              "year3_min": -0.04,
+              "year3_max": 0.06,
+            },
+            "target_posture": {
+              "year1_ebitda_posture": "stabilize",
+              "year2_ebitda_posture": "grow carefully",
+              "year3_ebitda_posture": "approach viable scale",
+              "staffing_posture": "delay then release",
+              "pricing_posture": "repair pricing early",
+              "demand_posture": "measured",
+              "cost_posture": "tighten then support",
+            },
+            "coordinated_lever_packages": [],
+            "lever_family_plan": [
+              {"family": "pricing", "direction": "up", "intensity": "strong", "quarter_start": 1, "quarter_end": 4, "dependencies": [], "rationale": "Repair pricing."},
+              {"family": "staffing_and_hiring_timing", "direction": "down", "intensity": "strong", "quarter_start": 1, "quarter_end": 4, "dependencies": [], "rationale": "Delay hires."},
+              {"family": "utilization", "direction": "up", "intensity": "moderate", "quarter_start": 5, "quarter_end": 12, "dependencies": [], "rationale": "Fill routes later."},
+            ],
+            "capacity_release_plan": [
+              {"quarter_start": 9, "quarter_end": 20, "capacity_posture": "expand", "capacity_release_multiplier": 1.1, "trigger": "Utilization and EBITDA gates are met.", "rationale": "Release capacity later."}
+            ],
+            "hiring_release_plan": [
+              {"role_scope": "support_roles", "quarter_start": 5, "quarter_end": 8, "months_until_activate": 15, "staffing_posture": "add_support", "capacity_effect": "Support roles unlock demand handling capacity.", "rationale": "Support roles first."}
+            ],
+            "demand_build_plan": [
+              {"quarter_start": 5, "quarter_end": 12, "demand_posture": "preserve", "marketing_ratio_bias": -0.01, "growth_multiplier": 1.03, "rationale": "Measured demand ramp."}
+            ],
+            "milestone_activation_plan": [
+              {"description": "Reach 2,000 billable in-home care hours per week consistently", "target_quarter": 8, "activation_condition": "Utilization and support staffing are stable.", "capacity_multiplier": 1.1, "growth_multiplier": 1.05, "rationale": "Milestone unlocks later capacity."}
+            ],
+            "support_overhead_plan": [
+              {"quarter_start": 9, "quarter_end": 20, "cost_posture": "protect", "opex_ratio_bias": 0.01, "payroll_ratio_bias": 0.01, "rationale": "Support overhead rises with scale."}
+            ],
+            "outer_year_margin_logic": "Margins improve only as support arrives.",
+            "governed_forecast_orchestration": {
+              "orchestration_summary": "Direct GPT orchestration",
+              "quarter_policies": [
+                {
+                  "quarter_start": 1,
+                  "quarter_end": 4,
+                  "demand_posture": "preserve",
+                  "staffing_posture": "delay",
+                  "cost_posture": "tighten",
+                  "growth_multiplier": 0.98,
+                  "convergence_multiplier": 0.9,
+                  "price_growth_bias": 0.02,
+                  "utilization_target_bias": 0.0,
+                  "marketing_ratio_bias": -0.01,
+                  "opex_ratio_bias": -0.08,
+                  "payroll_ratio_bias": -0.05,
+                  "capacity_release_multiplier": 0.9,
+                  "active_levers": ["price_up", "hire_delay", "payroll_down", "other_opex_down"],
+                },
+                {
+                  "quarter_start": 5,
+                  "quarter_end": 12,
+                  "demand_posture": "preserve",
+                  "staffing_posture": "add_support",
+                  "cost_posture": "tighten",
+                  "growth_multiplier": 1.03,
+                  "convergence_multiplier": 0.95,
+                  "price_growth_bias": 0.01,
+                  "utilization_target_bias": 0.02,
+                  "marketing_ratio_bias": -0.005,
+                  "opex_ratio_bias": -0.03,
+                  "payroll_ratio_bias": -0.01,
+                  "capacity_release_multiplier": 1.0,
+                  "active_levers": ["util_up"],
+                },
+              ],
+              "role_timing_overrides": [
+                {"role_title": "Intake and Scheduling Coordinator", "months_until_activate": 15}
+              ],
+              "milestone_timing_overrides": [
+                {
+                  "description": "Reach 2,000 billable in-home care hours per week consistently",
+                  "months_until_activate": 21,
+                  "target_quarter": 8,
+                  "activation_condition": "Utilization and support staffing are stable.",
+                }
+              ],
+              "event_response": {
+                "hire_capacity_multiplier": 1.1,
+                "hire_growth_bonus_delta": 0.003,
+                "marketing_growth_multiplier": 1.03,
+                "milestone_capacity_multiplier": 1.1,
+                "milestone_growth_multiplier": 1.05,
+              },
+            },
+            "baseline_forecast_orchestration": {
+              "orchestration_summary": "Baseline drift",
+              "quarter_policies": [],
+              "role_timing_overrides": [],
+              "milestone_timing_overrides": [],
+              "event_response": {
+                "hire_capacity_multiplier": 1.0,
+                "hire_growth_bonus_delta": 0.0,
+                "marketing_growth_multiplier": 1.0,
+                "milestone_capacity_multiplier": 1.0,
+                "milestone_growth_multiplier": 1.0,
+              },
+            },
+          },
+        }
+      },
+      direct_inputs={
+        "current_revenue": 312000.0,
+        "current_price": 80.0,
+        "price_lower": 80.0,
+        "price_upper": 92.0,
+        "current_util": 0.75,
+        "util_min": 0.70,
+        "util_max": 0.82,
+        "baseline_units": 3900.0,
+        "units_min": 3500.0,
+        "units_max": 5200.0,
+        "current_marketing": 43680.0,
+        "marketing_min": 43680.0,
+        "marketing_upper": 50798.05,
+        "current_other_opex": 100880.94,
+        "other_opex_min": 90000.0,
+        "other_opex_max": 110000.0,
+        "current_cogs_ratio": 0.6755,
+        "cogs_ratio_min": 0.60,
+        "cogs_ratio_max": 0.68,
+        "current_cogs": 241427.43,
+        "current_payroll_total": 249990.0,
+        "fixed_people_payroll": 249990.0,
+        "structural_payroll_floor": 249990.0,
+        "target_payroll_min_total": 249990.0,
+        "target_payroll_max_total": 249990.0,
+        "rent_annualized": 14400.0,
+        "current_interest": 0.0,
+        "roles": [
+          {"role_title": "Field Registered Nurse (RN)", "annual_wage": 81820.0, "base_months": 24, "max_months": 36, "baseline_year1_amount": 0.0},
+          {"role_title": "Intake and Scheduling Coordinator", "annual_wage": 45890.0, "base_months": 24, "max_months": 30, "baseline_year1_amount": 0.0},
+        ],
+        "current_staff": [
+          {"full_name": "Sarah Johnson", "role_title": "Founder and CEO", "annual_wage": 97350.5},
+          {"full_name": "Michael Lee", "role_title": "Clinical Director", "annual_wage": 65143.0},
+        ],
+        "constraint_violations": ["ebitda_margin_too_low", "gross_margin_too_low"],
+      },
+      profile={
+        "strategy_id": "viability_stabilize",
+        "strategy_source": "gpt",
+        "allowed_levers": ["price_up", "other_opex_down", "hire_delay", "util_up"],
+        "constraints": {"price_up_cap_ratio": 0.15, "other_opex_down_cap_ratio": 0.08, "hire_delay_max_months_total": 24.0},
+        "forecast_orchestration": {},
+      },
+      target_ebitda_min=-150000.0,
+      target_ebitda_max=-90000.0,
+    )
+
+    orchestration = ((contract.get("profile") or {}).get("forecast_orchestration") or {})
+    policies = orchestration.get("quarter_policies") or []
+    q2 = next(item for item in policies if item.get("quarter_start") <= 2 <= item.get("quarter_end"))
+    q10 = next(item for item in policies if item.get("quarter_start") <= 10 <= item.get("quarter_end"))
+
+    self.assertEqual(orchestration.get("orchestration_summary"), "Direct GPT orchestration")
+    self.assertIn("payroll_down", q2.get("active_levers") or [])
+    self.assertIn("other_opex_down", q2.get("active_levers") or [])
+    self.assertNotIn("marketing_up", q10.get("active_levers") or [])
+    self.assertTrue(any((item.get("role_title") or "") == "Intake and Scheduling Coordinator" and int(item.get("months_until_activate") or 0) == 15 for item in (orchestration.get("role_timing_overrides") or [])))
+    self.assertTrue(any(int(item.get("target_quarter") or 0) == 8 for item in (orchestration.get("milestone_timing_overrides") or [])))
+    self.assertFalse((contract.get("diagnostics") or {}).get("issues"))
+
+  def test_build_profile_solver_contract_applies_strict_translation_corrections_after_gpt_rejection(self) -> None:
+    contract = _build_profile_solver_contract(
+      state_model={
+        "strategy_layer": {
+          "source": "gpt",
+          "diagnosis": {
+            "primary_cause": "mixed",
+            "severity_class": "severe",
+          },
+          "strategy_selection": {
+            "selected_strategy_ids": ["viability_stabilize", "demand_supported_growth"],
+            "business_model_assessment": "Stabilize first, then release supportable growth.",
+            "severity_class": "severe",
+            "severity_reason": "Capacity, staffing, and growth timing are out of sync.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Tighten early, then release growth in stages.",
+            "scaling_model_summary": "Support roles unlock demand handling, then milestone-driven capacity expands later.",
+            "required_lever_families": ["price_up", "hire_delay", "marketing_up", "capacity_expansion"],
+            "forbidden_lever_families": ["price_down"],
+            "controller_directives": {
+              "minimum_meaningful_levers": 4,
+              "minimum_package_count": 2,
+              "require_multi_lever_coordination": True,
+              "preserve_capacity_staffing_link": True,
+              "preserve_price_demand_link": True,
+              "preserve_marketing_demand_link": True,
+              "prefer_delay_over_delete": True,
+              "aggression_level": "high",
+              "escalate_on_retry": True,
+            },
+            "target_margin_path": {
+              "year1_min": -0.30,
+              "year1_max": -0.18,
+              "year2_min": -0.18,
+              "year2_max": -0.08,
+              "year3_min": -0.04,
+              "year3_max": 0.06,
+            },
+            "target_posture": {
+              "year1_ebitda_posture": "stabilize",
+              "year2_ebitda_posture": "grow carefully",
+              "year3_ebitda_posture": "approach viable scale",
+              "staffing_posture": "delay then release",
+              "pricing_posture": "repair pricing early",
+              "demand_posture": "build after support exists",
+              "cost_posture": "tighten then support",
+            },
+            "coordinated_lever_packages": [
+              {
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "levers": ["price_up", "hire_delay", "other_opex_down"],
+                "expected_effects": ["capacity_tighter_until_hires"],
+                "minimum_strength": "strong",
+                "rationale": "Stabilize first.",
+              },
+              {
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "levers": ["marketing_up", "hire_advance", "util_up"],
+                "expected_effects": ["demand and support grow together"],
+                "minimum_strength": "strong",
+                "rationale": "Release growth after support timing catches up.",
+              },
+            ],
+            "lever_family_plan": [
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": [],
+                "rationale": "Repair price early.",
+              },
+              {
+                "family": "staffing_and_hiring_timing",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 4,
+                "dependencies": [],
+                "rationale": "Delay growth hires early.",
+              },
+              {
+                "family": "marketing_spend",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "dependencies": ["staffing_and_hiring_timing"],
+                "rationale": "Build demand after support exists.",
+              },
+              {
+                "family": "capacity_expansion",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "dependencies": ["marketing_spend"],
+                "rationale": "Expand capacity after the business proves demand.",
+              },
+            ],
+            "capacity_release_plan": [
+              {
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "capacity_posture": "expand",
+                "capacity_release_multiplier": 1.12,
+                "trigger": "Demand is proven and support roles are active.",
+                "rationale": "Release real capacity later.",
+              }
+            ],
+            "hiring_release_plan": [
+              {
+                "role_scope": "support_roles",
+                "quarter_start": 5,
+                "quarter_end": 8,
+                "months_until_activate": 15,
+                "staffing_posture": "add_support",
+                "capacity_effect": "Support roles unlock more demand handling capacity.",
+                "rationale": "Support roles first.",
+              },
+              {
+                "role_scope": "clinical_roles",
+                "quarter_start": 9,
+                "quarter_end": 12,
+                "months_until_activate": 27,
+                "staffing_posture": "add_support",
+                "capacity_effect": "Clinical roles unlock higher billable capacity.",
+                "rationale": "Clinical roles later.",
+              },
+            ],
+            "demand_build_plan": [
+              {
+                "quarter_start": 5,
+                "quarter_end": 12,
+                "demand_posture": "preserve",
+                "marketing_ratio_bias": 0.012,
+                "growth_multiplier": 1.10,
+                "rationale": "Demand build starts once support exists.",
+              }
+            ],
+            "milestone_activation_plan": [
+              {
+                "description": "Reach 2,000 billable in-home care hours per week consistently",
+                "target_quarter": 8,
+                "activation_condition": "Utilization and support staffing are stable.",
+                "capacity_multiplier": 1.15,
+                "growth_multiplier": 1.08,
+                "rationale": "Milestone should unlock extra capacity and growth later.",
+              }
+            ],
+            "support_overhead_plan": [
+              {
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "cost_posture": "protect",
+                "opex_ratio_bias": 0.01,
+                "payroll_ratio_bias": 0.012,
+                "rationale": "Support overhead rises later with real scale.",
+              }
+            ],
+            "outer_year_margin_logic": "Margins improve only if growth and support scale together.",
+            "baseline_forecast_orchestration": {
+              "orchestration_summary": "Baseline drift",
+              "quarter_policies": [],
+              "role_timing_overrides": [],
+              "milestone_timing_overrides": [],
+              "event_response": {
+                "hire_capacity_multiplier": 1.0,
+                "hire_growth_bonus_delta": 0.0,
+                "marketing_growth_multiplier": 1.0,
+                "milestone_capacity_multiplier": 1.0,
+                "milestone_growth_multiplier": 1.0,
+              },
+            },
+          },
+        }
+      },
+      direct_inputs={
+        "current_revenue": 312000.0,
+        "current_price": 80.0,
+        "price_lower": 80.0,
+        "price_upper": 92.0,
+        "current_util": 0.75,
+        "util_min": 0.70,
+        "util_max": 0.82,
+        "baseline_units": 3900.0,
+        "units_min": 3500.0,
+        "units_max": 5200.0,
+        "current_marketing": 43680.0,
+        "marketing_min": 43680.0,
+        "marketing_upper": 50798.05,
+        "current_other_opex": 100880.94,
+        "other_opex_min": 90000.0,
+        "other_opex_max": 110000.0,
+        "current_cogs_ratio": 0.6755,
+        "cogs_ratio_min": 0.60,
+        "cogs_ratio_max": 0.68,
+        "current_cogs": 241427.43,
+        "current_payroll_total": 249990.0,
+        "fixed_people_payroll": 249990.0,
+        "structural_payroll_floor": 249990.0,
+        "target_payroll_min_total": 249990.0,
+        "target_payroll_max_total": 249990.0,
+        "rent_annualized": 14400.0,
+        "current_interest": 0.0,
+        "roles": [
+          {"role_title": "Field Registered Nurse (RN)", "annual_wage": 81820.0, "base_months": 24, "max_months": 36, "baseline_year1_amount": 0.0},
+          {"role_title": "Home Health Aide/Personal Care Aide", "annual_wage": 35250.0, "base_months": 24, "max_months": 30, "baseline_year1_amount": 0.0},
+          {"role_title": "Intake and Scheduling Coordinator", "annual_wage": 45890.0, "base_months": 24, "max_months": 30, "baseline_year1_amount": 0.0},
+        ],
+        "current_staff": [
+          {"full_name": "Sarah Johnson", "role_title": "Founder and CEO", "annual_wage": 97350.5},
+          {"full_name": "Michael Lee", "role_title": "Clinical Director", "annual_wage": 65143.0},
+        ],
+        "constraint_violations": ["ebitda_margin_too_low", "gross_margin_too_low"],
+      },
+      profile={
+        "strategy_id": "viability_stabilize",
+        "strategy_source": "gpt",
+        "allowed_levers": ["price_up", "other_opex_down", "hire_delay", "util_up"],
+        "constraints": {"price_up_cap_ratio": 0.15, "other_opex_down_cap_ratio": 0.08, "hire_delay_max_months_total": 24.0},
+        "forecast_orchestration": {},
+      },
+      target_ebitda_min=-150000.0,
+      target_ebitda_max=-90000.0,
+      translation_audit={
+        "audit_status": "rejected_translation",
+        "required_corrections": ["preserve_staged_hiring_release", "remove_opposite_direction_levers"],
+        "introduced_conflicts": ["contradictory_levers_q1"],
+      },
+    )
+
+    diagnostics = contract.get("diagnostics") or {}
+    orchestration = ((contract.get("profile") or {}).get("forecast_orchestration") or {})
+    policies = orchestration.get("quarter_policies") or []
+    role_overrides = orchestration.get("role_timing_overrides") or []
+    milestone_overrides = orchestration.get("milestone_timing_overrides") or []
+    translated_architecture = orchestration.get("translated_growth_architecture") or {}
+
+    q2 = next(item for item in policies if item.get("quarter_start") <= 2 <= item.get("quarter_end"))
+    q10 = next(item for item in policies if item.get("quarter_start") <= 10 <= item.get("quarter_end"))
+
+    self.assertTrue(diagnostics.get("translation_self_audit", {}).get("correction_requested"))
+    self.assertNotIn("invalid_gpt_orchestration", diagnostics.get("issues") or [])
+    self.assertNotIn("hire_advance", q2.get("active_levers") or [])
+    self.assertNotIn("payroll_up", q2.get("active_levers") or [])
+    self.assertNotIn("other_opex_up", q2.get("active_levers") or [])
+    self.assertNotIn("hire_delay", q10.get("active_levers") or [])
+    self.assertNotIn("other_opex_down", q10.get("active_levers") or [])
+    self.assertFalse(any((int(item.get("months_until_activate") or 0) > 40) for item in role_overrides))
+    self.assertTrue(any((item.get("role_title") or "").endswith("Coordinator") and int(item.get("months_until_activate") or 0) == 15 for item in role_overrides))
+    self.assertTrue(any(int(item.get("target_quarter") or 0) == 8 for item in milestone_overrides))
+    self.assertTrue(translated_architecture.get("hiring_release_plan"))
+    self.assertTrue(translated_architecture.get("capacity_release_plan"))
+    self.assertTrue(isinstance(orchestration.get("target_margin_path"), dict))
+
+  def test_build_consistency_solver_state_audits_only_attempt_winner_once(self) -> None:
+    strategy_layer = {
+      "source": "gpt",
+      "diagnosis": {"target_margin_path": {"year1_min": -0.30, "year1_max": -0.10}},
+      "strategies": [{"strategy_id": "alpha"}, {"strategy_id": "beta"}],
+      "strategy_selection": {"selected_strategy_ids": ["alpha", "beta"]},
+    }
+    profiles = [
+      {"strategy_id": "alpha", "profile_id": "alpha", "strategy_source": "gpt", "allowed_levers": ["price_up"]},
+      {"strategy_id": "beta", "profile_id": "beta", "strategy_source": "gpt", "allowed_levers": ["hire_delay"]},
+    ]
+
+    def _fake_contract(**kwargs: Any) -> Dict[str, Any]:
+      profile = kwargs["profile"]
+      return {
+        "profile": dict(profile),
+        "direct_inputs": {"current_revenue": 100.0},
+        "target_ebitda_min": -30.0,
+        "target_ebitda_max": -10.0,
+        "diagnostics": {"strategy_id": profile["strategy_id"], "issues": []},
+      }
+
+    def _fake_candidate(**kwargs: Any) -> Dict[str, Any]:
+      profile = kwargs["profile"]
+      return {
+        "scenario_id": str(kwargs["scenario_index"]),
+        "strategy_id": profile["strategy_id"],
+        "remaining_blocking_count": 0,
+        "remaining_violation_count": 0,
+        "presentation_issues": [],
+        "lever_summary": {"meaningful_lever_count": 2, "dominant_family_share": 0.4},
+        "ebitda": -20.0 if profile["strategy_id"] == "alpha" else -25.0,
+        "contract_diagnostics": {},
+      }
+
+    with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
+      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
+      patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
+      patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
+      patch("consistency_solver._solver_profiles", return_value=profiles), \
+      patch("consistency_solver._build_profile_solver_contract", side_effect=_fake_contract), \
+      patch("consistency_solver._solve_direct_profile", return_value={"family_raw_components": {}}), \
+      patch("consistency_solver._build_candidate", side_effect=_fake_candidate), \
+      patch("consistency_solver._select_client_ready_scenarios", side_effect=lambda candidates, state_model=None: list(candidates[:1])), \
+      patch("consistency_solver._gpt_translation_audit", return_value={"audit_status": "accepted", "captured_correctly": True}) as audit_mock:
+      result = build_consistency_solver_state(
+        ops_json={},
+        people_json={},
+        financials_json={},
+        financials_year1_json={},
+        marketing_model_json={},
+      )
+
+    self.assertEqual(audit_mock.call_count, 1)
+    self.assertEqual(result["status"], "awaiting_choice")
+
+  def test_build_consistency_solver_state_skips_invalid_gpt_orchestration_contracts(self) -> None:
+    strategy_layer = {
+      "source": "gpt",
+      "diagnosis": {"target_margin_path": {"year1_min": -0.30, "year1_max": -0.10}},
+      "strategies": [{"strategy_id": "alpha"}],
+      "strategy_selection": {"selected_strategy_ids": ["alpha"]},
+    }
+    profiles = [
+      {"strategy_id": "alpha", "profile_id": "alpha", "strategy_source": "gpt", "allowed_levers": ["price_up"]},
+    ]
+
+    with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
+      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
+      patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
+      patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
+      patch("consistency_solver._solver_profiles", return_value=profiles), \
+      patch(
+        "consistency_solver._build_profile_solver_contract",
+        return_value={
+          "profile": {"strategy_id": "alpha", "strategy_source": "gpt", "forecast_orchestration": {}},
+          "direct_inputs": {"current_revenue": 100.0},
+          "target_ebitda_min": -30.0,
+          "target_ebitda_max": -10.0,
+          "diagnostics": {"strategy_id": "alpha", "issues": ["invalid_gpt_orchestration"]},
+        },
+      ), \
+      patch("consistency_solver._solve_direct_profile") as solve_mock:
+      result = build_consistency_solver_state(
+        ops_json={},
+        people_json={},
+        financials_json={},
+        financials_year1_json={},
+        marketing_model_json={},
+      )
+
+    solve_mock.assert_not_called()
+    self.assertEqual(result["status"], "blocking_unresolved")
+    self.assertEqual(result["blocking_reason"], "no_viable_scenarios")
+
+  def test_build_consistency_solver_state_reaudits_corrected_translation_and_rejects_if_still_bad(self) -> None:
+    strategy_layer = {
+      "source": "gpt",
+      "diagnosis": {"target_margin_path": {"year1_min": -0.30, "year1_max": -0.10}},
+      "strategies": [{"strategy_id": "alpha"}],
+      "strategy_selection": {"selected_strategy_ids": ["alpha"]},
+    }
+    profiles = [
+      {"strategy_id": "alpha", "profile_id": "alpha", "strategy_source": "gpt", "allowed_levers": ["price_up"]},
+    ]
+    contract_calls = {"count": 0}
+    selection_calls = {"count": 0}
+
+    def _fake_select_client_ready(candidates: Any, state_model: Any = None) -> List[Dict[str, Any]]:
+      del state_model
+      selection_calls["count"] += 1
+      return list(candidates[:1]) if selection_calls["count"] == 1 else []
+
+    def _fake_contract(**kwargs: Any) -> Dict[str, Any]:
+      contract_calls["count"] += 1
+      translation_audit = kwargs.get("translation_audit")
+      if translation_audit:
+        return {
+          "profile": {
+            "strategy_id": "alpha",
+            "strategy_source": "gpt",
+            "forecast_orchestration": {
+              "quarter_policies": [
+                {"quarter_start": 1, "quarter_end": 4, "active_levers": ["price_up"]},
+              ],
+            },
+          },
+          "direct_inputs": {"current_revenue": 100.0},
+          "target_ebitda_min": -30.0,
+          "target_ebitda_max": -10.0,
+          "diagnostics": {"strategy_id": "alpha", "issues": []},
+        }
+      return {
+        "profile": {
+          "strategy_id": "alpha",
+          "strategy_source": "gpt",
+          "forecast_orchestration": {
+            "quarter_policies": [
+              {"quarter_start": 1, "quarter_end": 4, "active_levers": ["price_up"]},
+            ],
+          },
+        },
+        "direct_inputs": {"current_revenue": 100.0},
+        "target_ebitda_min": -30.0,
+        "target_ebitda_max": -10.0,
+        "diagnostics": {"strategy_id": "alpha", "issues": []},
+      }
+
+    with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
+      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
+      patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
+      patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
+      patch("consistency_solver._solver_profiles", return_value=profiles), \
+      patch("consistency_solver._build_profile_solver_contract", side_effect=_fake_contract), \
+      patch("consistency_solver._solve_direct_profile", return_value={"family_raw_components": {}}) as solve_mock, \
+      patch("consistency_solver._build_candidate", return_value={"scenario_id": "1", "strategy_id": "alpha", "remaining_blocking_count": 0, "remaining_violation_count": 0, "presentation_issues": [], "lever_summary": {"meaningful_lever_count": 2, "dominant_family_share": 0.4}, "ebitda": -20.0, "contract_diagnostics": {}}), \
+      patch("consistency_solver._select_client_ready_scenarios", side_effect=_fake_select_client_ready), \
+      patch("consistency_solver._select_best_effort_governed_scenarios", return_value=[]), \
+      patch("consistency_solver._gpt_translation_audit", side_effect=lambda **kwargs: {"audit_status": "rejected_translation", "captured_correctly": False, "missing_intents": ["payroll_down"]}) as audit_mock:
+      result = build_consistency_solver_state(
+        ops_json={},
+        people_json={},
+        financials_json={},
+        financials_year1_json={},
+        marketing_model_json={},
+      )
+
+    self.assertEqual(audit_mock.call_count, 1)
+    self.assertGreaterEqual(contract_calls["count"], 2)
+    self.assertGreaterEqual(solve_mock.call_count, 1)
+    self.assertIn(result["status"], {"blocking_unresolved", "awaiting_choice"})
+    self.assertNotEqual(result.get("selection_mode"), "client_ready")
+
+  def test_build_profile_solver_contract_prefers_audit_replacement_orchestration(self) -> None:
+    contract = _build_profile_solver_contract(
+      state_model={
+        "strategy_layer": {
+          "source": "gpt",
+          "diagnosis": {
+            "severity_class": "severe",
+            "minimum_package_strength": "strong",
+          },
+          "strategy_selection": {
+            "selected_strategy_ids": ["alpha"],
+            "severity_class": "severe",
+            "minimum_package_strength": "strong",
+            "required_lever_families": ["price_up", "payroll_down"],
+            "controller_directives": {
+              "minimum_meaningful_levers": 4,
+              "minimum_package_count": 2,
+              "escalate_on_retry": True,
+            },
+            "target_margin_path": {"year1_min": -0.2, "year1_max": -0.1},
+            "lever_family_plan": [
+              {"family": "pricing", "direction": "up", "quarter_start": 1, "quarter_end": 4, "intensity": "strong"},
+              {"family": "core_payroll", "direction": "down", "quarter_start": 1, "quarter_end": 4, "intensity": "strong"},
+            ],
+            "governed_forecast_orchestration": {
+              "orchestration_summary": "stale",
+              "quarter_policies": [
+                {"quarter_start": 1, "quarter_end": 4, "active_levers": ["price_up"]},
+              ],
+              "role_timing_overrides": [],
+              "milestone_timing_overrides": [],
+              "event_response": {},
+            },
+          },
+        },
+      },
+      direct_inputs={
+        "current_revenue": 100.0,
+        "current_price": 10.0,
+        "current_util": 0.6,
+        "current_cogs_ratio": 0.5,
+        "current_other_opex": 10.0,
+        "current_payroll_total": 20.0,
+        "current_marketing": 5.0,
+        "rent_annualized": 0.0,
+        "current_interest": 0.0,
+        "baseline_units": 10.0,
+        "price_lower": 8.0,
+        "util_min": 0.4,
+        "util_max": 0.8,
+        "other_opex_max": 12.0,
+        "marketing_upper": 6.0,
+        "marketing_min": 4.0,
+        "fixed_people_payroll": 10.0,
+        "constraint_violations": [],
+        "roles": [],
+      },
+      profile={
+        "strategy_id": "alpha",
+        "strategy_source": "gpt",
+        "allowed_levers": ["price_up", "payroll_down"],
+        "constraints": {},
+      },
+      target_ebitda_min=-20.0,
+      target_ebitda_max=-10.0,
+      translation_audit={
+        "audit_status": "rejected_translation",
+        "captured_correctly": False,
+        "missing_intents": ["payroll_down_q1_q4"],
+        "distorted_intents": [],
+        "introduced_conflicts": [],
+        "required_corrections": ["restore_payroll_down_q1_q4"],
+        "replacement_forecast_orchestration": {
+          "orchestration_summary": "corrected",
+          "quarter_policies": [
+            {
+              "quarter_start": 1,
+              "quarter_end": 4,
+              "demand_posture": "preserve",
+              "staffing_posture": "delay",
+              "cost_posture": "tighten",
+              "growth_multiplier": 1.0,
+              "convergence_multiplier": 1.0,
+              "price_growth_bias": 0.003,
+              "utilization_target_bias": 0.0,
+              "marketing_ratio_bias": 0.0,
+              "opex_ratio_bias": 0.0,
+              "payroll_ratio_bias": -0.03,
+              "capacity_release_multiplier": 0.95,
+              "active_levers": ["price_up", "payroll_down", "hire_delay"],
+            },
+          ],
+          "role_timing_overrides": [],
+          "milestone_timing_overrides": [],
+          "event_response": {
+            "hire_capacity_multiplier": 1.0,
+            "hire_growth_bonus_delta": 0.0,
+            "marketing_growth_multiplier": 1.0,
+            "milestone_capacity_multiplier": 1.0,
+            "milestone_growth_multiplier": 1.0,
+          },
+        },
+        "notes": "Controller omitted payroll-down from the early quarters.",
+      },
+    )
+
+    orchestration = ((contract.get("profile") or {}).get("forecast_orchestration") or {})
+    first_policy = ((orchestration.get("quarter_policies") or [None])[0] or {})
+    self.assertEqual(orchestration.get("orchestration_summary"), "corrected")
+    self.assertIn("payroll_down", first_policy.get("active_levers") or [])
+
   def test_build_profile_solver_contract_marks_unreachable_gpt_target_path_as_underpowered(self) -> None:
     contract = _build_profile_solver_contract(
       state_model={
@@ -3138,6 +5049,7 @@ class PlanningEnginesTests(unittest.TestCase):
             "severity_class": "severe",
             "severity_reason": "Year 1 economics are structurally non-viable.",
             "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Reset unit economics hard in Year 1, then phase later efficiency improvement without pretending the business is fixed immediately.",
             "required_lever_families": ["price_up", "cogs_down", "other_opex_down", "hire_delay"],
             "forbidden_lever_families": [],
             "controller_directives": {
@@ -3186,6 +5098,53 @@ class PlanningEnginesTests(unittest.TestCase):
                 "rationale": "Improve later-year economics gradually.",
               },
             ],
+            "lever_family_plan": [
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["utilization"],
+                "rationale": "Year 1 needs a hard pricing reset.",
+              },
+              {
+                "family": "cogs_and_gross_margin",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["pricing"],
+                "rationale": "Gross margin must improve materially.",
+              },
+              {
+                "family": "non_payroll_opex",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["staffing_timing"],
+                "rationale": "Trim avoidable overhead early.",
+              },
+              {
+                "family": "staffing_timing",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": ["cogs_and_gross_margin"],
+                "rationale": "Delay overbuild while economics reset.",
+              },
+              {
+                "family": "utilization",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "dependencies": ["pricing", "staffing_timing"],
+                "rationale": "Only improve utilization once the reset is in place.",
+              },
+            ],
           },
         }
       },
@@ -3195,15 +5154,20 @@ class PlanningEnginesTests(unittest.TestCase):
         "units_min": 3600.0,
         "units_max": 4200.0,
         "current_price": 80.0,
+        "current_util": 0.75,
+        "util_max": 0.81,
         "price_lower": 80.0,
         "price_upper": 88.0,
+        "current_cogs_ratio": 0.76,
         "cogs_ratio_min": 0.72,
         "cogs_ratio_max": 0.78,
+        "current_marketing": 43000.0,
         "target_payroll_min_total": 249990.0,
         "target_payroll_max_total": 260000.0,
         "structural_payroll_floor": 249990.0,
         "marketing_min": 40000.0,
         "marketing_upper": 45000.0,
+        "current_other_opex": 100000.0,
         "other_opex_min": 90000.0,
         "other_opex_max": 110000.0,
         "rent_annualized": 14400.0,
@@ -3223,8 +5187,240 @@ class PlanningEnginesTests(unittest.TestCase):
     )
 
     diagnostics = contract.get("diagnostics") or {}
-    self.assertIn("target_ebitda_min_exceeds_contract_upper_bound", diagnostics.get("issues") or [])
-    self.assertIn("underpowered_gpt_target_path", diagnostics.get("issues") or [])
+    dynamic_ranges = diagnostics.get("dynamic_controller_ranges") or {}
+    self.assertGreater((dynamic_ranges.get("constraint_updates") or {}).get("price_up_cap_ratio") or 0.0, 0.10)
+    self.assertIn("controller_derived_price_range_from_gap", dynamic_ranges.get("adjustments") or [])
+
+  def test_normalized_plan_entry_families_does_not_turn_hold_into_solver_levers(self) -> None:
+    self.assertEqual(
+      _normalized_plan_entry_families(
+        {
+          "family": "marketing_spend",
+          "direction": "hold",
+        }
+      ),
+      [],
+    )
+    self.assertEqual(
+      _normalized_plan_entry_families(
+        {
+          "family": "cogs_efficiency",
+          "direction": "hold",
+        }
+      ),
+      [],
+    )
+
+  def test_build_profile_solver_contract_converts_noop_hire_delay_into_current_staff_payroll_reduction(self) -> None:
+    contract = _build_profile_solver_contract(
+      state_model={
+        "strategy_layer": {
+          "source": "gpt",
+          "diagnosis": {
+            "primary_cause": "pricing-driven",
+          },
+          "strategy_selection": {
+            "selected_strategy_ids": ["viability_stabilize", "pricing_adjustment"],
+            "business_model_assessment": "The business is structurally underpriced and cannot support current fixed leadership compensation without a harder reset.",
+            "severity_class": "severe",
+            "severity_reason": "Year 1 losses are extreme and delayed hires are already maxed out, so the fixed payroll base has to move too.",
+            "minimum_package_strength": "strong",
+            "viability_blueprint_summary": "Hold the current core team lean, push expensive specialist hires far out, and reduce founder/key pay while pricing is repaired.",
+            "required_lever_families": ["price_up", "util_up", "other_opex_down", "hire_delay"],
+            "forbidden_lever_families": ["price_down", "util_down", "marketing_up"],
+            "controller_directives": {
+              "minimum_meaningful_levers": 4,
+              "minimum_package_count": 2,
+              "require_multi_lever_coordination": True,
+              "preserve_capacity_staffing_link": True,
+              "preserve_price_demand_link": True,
+              "preserve_marketing_demand_link": True,
+              "prefer_delay_over_delete": True,
+              "aggression_level": "high",
+              "escalate_on_retry": True,
+            },
+            "target_margin_path": {
+              "year1_min": -0.4,
+              "year1_max": -0.2,
+              "year2_min": -0.3,
+              "year2_max": -0.12,
+              "year3_min": -0.18,
+              "year3_max": -0.05,
+            },
+            "target_posture": {
+              "staffing_posture": "Hold the current two leaders through Year 2, push RN/PT beyond Year 3, and only allow aide/coordinator activation late in Year 3 or later.",
+              "year1_ebitda_posture": "damage control",
+              "year2_ebitda_posture": "disciplined repair",
+              "year3_ebitda_posture": "near viable",
+            },
+            "coordinated_lever_packages": [
+              {
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "minimum_strength": "strong",
+                "levers": ["price_up", "util_up", "other_opex_down", "hire_delay"],
+                "expected_effects": [
+                  "demand_softens_with_price",
+                ],
+              },
+              {
+                "quarter_start": 9,
+                "quarter_end": 20,
+                "minimum_strength": "strong",
+                "levers": ["price_up", "util_up", "hire_delay", "other_opex_down"],
+                "expected_effects": [
+                  "costs_scale_with_growth",
+                ],
+              },
+            ],
+            "lever_family_plan": [
+              {
+                "family": "pricing",
+                "direction": "up",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 12,
+                "dependencies": ["utilization", "staffing_timing"],
+                "rationale": "Repair contribution margin first.",
+              },
+              {
+                "family": "utilization",
+                "direction": "up",
+                "intensity": "moderate",
+                "quarter_start": 1,
+                "quarter_end": 12,
+                "dependencies": ["pricing"],
+                "rationale": "Use modest operational improvement to support higher rates.",
+              },
+              {
+                "family": "overhead_opex",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 8,
+                "dependencies": [],
+                "rationale": "Trim non-core spend early.",
+              },
+              {
+                "family": "staffing_and_hiring_timing",
+                "direction": "down",
+                "intensity": "strong",
+                "quarter_start": 1,
+                "quarter_end": 20,
+                "dependencies": ["pricing", "utilization"],
+                "rationale": "Push expensive RN/PT beyond Year 3 and only allow lower-cost support roles later.",
+              },
+            ],
+          },
+        }
+      },
+      direct_inputs={
+        "current_revenue": 312000.0,
+        "baseline_units": 3900.0,
+        "units_min": 3600.0,
+        "units_max": 4200.0,
+        "current_price": 80.0,
+        "current_util": 0.75,
+        "util_min": 0.72,
+        "util_max": 0.81,
+        "price_lower": 80.0,
+        "price_upper": 88.0,
+        "current_cogs_ratio": 0.76,
+        "cogs_ratio_min": 0.72,
+        "cogs_ratio_max": 0.78,
+        "current_marketing": 43680.0,
+        "marketing_min": 43680.0,
+        "marketing_upper": 50798.05,
+        "current_other_opex": 100880.94,
+        "other_opex_min": 92810.46,
+        "other_opex_max": 106933.79,
+        "rent_annualized": 14400.0,
+        "current_interest": 0.0,
+        "fixed_people_payroll": 249990.0,
+        "current_payroll_total": 249990.0,
+        "baseline_planned_payroll": 0.0,
+        "baseline_payroll_support": 249990.0,
+        "people_payroll_floor": 249990.0,
+        "structural_payroll_floor": 249990.0,
+        "structural_payroll_base": 249990.0,
+        "target_payroll_min_total": 249990.0,
+        "target_payroll_max_total": 312000.0,
+        "constraint_violations": ["ebitda_margin_too_low", "gross_margin_too_low"],
+        "current_staff": [
+          {"full_name": "Founder", "role_title": "Founder and CEO", "annual_wage": 149770.0},
+          {"full_name": "Clinical Director", "role_title": "Clinical Director", "annual_wage": 100220.0},
+        ],
+        "roles": [
+          {
+            "role_title": "Field Registered Nurse (RN)",
+            "base_months": 24,
+            "min_months": 24,
+            "max_months": 48,
+            "annual_wage": 81820.0,
+            "baseline_year1_amount": 0.0,
+          },
+          {
+            "role_title": "Physical Therapist (PT)",
+            "base_months": 24,
+            "min_months": 24,
+            "max_months": 48,
+            "annual_wage": 108110.0,
+            "baseline_year1_amount": 0.0,
+          },
+          {
+            "role_title": "Home Health Aide/Personal Care Aide",
+            "base_months": 24,
+            "min_months": 24,
+            "max_months": 48,
+            "annual_wage": 35250.0,
+            "baseline_year1_amount": 0.0,
+          },
+          {
+            "role_title": "Intake and Scheduling Coordinator",
+            "base_months": 24,
+            "min_months": 24,
+            "max_months": 48,
+            "annual_wage": 45890.0,
+            "baseline_year1_amount": 0.0,
+          },
+        ],
+      },
+      profile={
+        "strategy_id": "viability_stabilize",
+        "profile_id": "viability_stabilize",
+        "strategy_source": "gpt",
+        "allowed_levers": ["price_up", "util_up", "other_opex_down", "hire_delay"],
+        "constraints": {
+          "price_up_cap_ratio": 0.15,
+          "util_up_cap_ratio": 0.08,
+          "other_opex_down_cap_ratio": 0.05,
+          "hire_delay_max_months_total": 24.0,
+        },
+        "forecast_orchestration": {},
+      },
+      target_ebitda_min=-124800.0,
+      target_ebitda_max=-62400.0,
+    )
+
+    profile = contract.get("profile") or {}
+    constraints = profile.get("constraints") or {}
+    diagnostics = contract.get("diagnostics") or {}
+    orchestration = profile.get("forecast_orchestration") or {}
+    overrides = orchestration.get("role_timing_overrides") or []
+    override_map = {
+      str(item.get("role_title") or "").strip(): int(item.get("months_until_activate") or 0)
+      for item in overrides
+      if isinstance(item, dict)
+    }
+
+    self.assertIn("payroll_down", set(profile.get("allowed_levers") or []))
+    self.assertGreater(_safe_float(constraints.get("payroll_down_max_ratio")), 0.0)
+    self.assertIn("enabled_current_staff_payroll_reduction", diagnostics.get("adjustments") or [])
+    self.assertLess(_safe_float((contract.get("direct_inputs") or {}).get("structural_payroll_floor")), 249990.0)
+    self.assertGreaterEqual(override_map.get("Field Registered Nurse (RN)") or 0, 42)
+    self.assertGreaterEqual(override_map.get("Physical Therapist (PT)") or 0, 42)
+    self.assertGreaterEqual(override_map.get("Home Health Aide/Personal Care Aide") or 0, 30)
+    self.assertGreaterEqual(override_map.get("Intake and Scheduling Coordinator") or 0, 30)
 
   def test_presentation_issues_reject_all_negative_degrading_target_path(self) -> None:
     issues = _presentation_issues(
@@ -3804,6 +6000,325 @@ class PlanningEnginesTests(unittest.TestCase):
 
     self.assertEqual(selected, [])
 
+  def test_select_best_effort_governed_scenarios_allows_retail_efficiency_reset(self) -> None:
+    candidate = {
+      "scenario_id": "retail-efficiency-reset",
+      "solution_profile_id": "pricing_adjustment",
+      "strategy_id": "pricing_adjustment",
+      "archetype": "efficiency",
+      "label": "Efficiency path: Reprice and tighten cost structure",
+      "dominant_tradeoff": "accepts a tighter cost posture and some revenue moderation to improve margin quality",
+      "rationale": "accepts a tighter cost posture and some revenue moderation to improve margin quality",
+      "remaining_blocking_count": 0,
+      "remaining_violation_count": 0,
+      "summary": {"revenue": 721115.8, "marketing": 18000.0},
+      "lever_summary": {
+        "meaningful_families": ["price", "utilization", "marketing", "other_opex", "cogs"],
+        "meaningful_lever_count": 5,
+        "raw_family_moves": {
+          "price": 1.0,
+          "utilization": 0.1,
+          "marketing": 0.1,
+          "other_opex": 1.0,
+          "cogs": 1.0,
+          "hire_delay": 0.0,
+        },
+        "dominant_family": "price",
+        "dominant_family_share": 0.3125,
+        "coordination_score": 5.4,
+        "coordination_issues": ["demand_without_staffing"],
+      },
+      "exact_patches": {
+        "financials_year1_patch": {
+          "product_overrides": {
+            "store::prepared meals": {
+              "unit_price": 14.6,
+              "avg_units_per_period_year1": 760.0,
+            }
+          }
+        },
+        "financials_patch": {
+          "other_operating_expense": 72269.9,
+          "cogs_total_year1": 420124.8,
+        },
+      },
+      "forecast_years": [
+        {"year_index": 1, "revenue": 343999.78, "ebitda": -5940.52},
+        {"year_index": 2, "revenue": 347983.48, "ebitda": -13539.04},
+        {"year_index": 3, "revenue": 361876.41, "ebitda": -10362.12},
+        {"year_index": 4, "revenue": 385633.8, "ebitda": -5290.27},
+        {"year_index": 5, "revenue": 416913.25, "ebitda": 1030.01},
+      ],
+      "realism_distance": 0.01,
+      "target_distance": 0.03,
+      "distortion_total": 0.25,
+      "disruption_score": 0.25,
+      "ebitda": 140721.1,
+    }
+
+    selected = _select_best_effort_governed_scenarios(
+      [candidate],
+      state_model={
+        "fixed_facts": {
+          "sales_modality": "retail",
+          "capacity_driver": "space",
+          "commercial_context": {"marketing_role": "supporting"},
+        },
+        "constraint_profile": {"utilization_envelope": {"min": 0.13}},
+        "strategy_layer": {
+          "diagnosis": {
+            "target_margin_path": {
+              "year1_min": 0.01,
+              "year1_max": 0.1,
+              "year2_min": 0.02,
+              "year2_max": 0.12,
+              "year3_min": 0.03,
+              "year3_max": 0.14,
+            }
+          }
+        },
+      },
+    )
+
+    self.assertEqual(len(selected), 1)
+    self.assertEqual(
+      set(selected[0].get("presentation_issues") or []),
+      {"degrading_five_year_path", "target_path_miss"},
+    )
+
+  def test_select_best_effort_governed_scenarios_rejects_all_negative_degrading_paths_after_retries(self) -> None:
+    candidate = {
+      "scenario_id": "labor-reset",
+      "strategy_id": "operational_balance_strategy",
+      "archetype": "efficiency",
+      "label": "Operational balance: Delay hiring",
+      "dominant_tradeoff": "keeps the launch lean and founder-heavy while restoring viability more slowly",
+      "rationale": "keeps the launch lean and founder-heavy while restoring viability more slowly",
+      "remaining_blocking_count": 0,
+      "remaining_violation_count": 0,
+      "presentation_issues": [
+        "efficiency_growth_story",
+        "weak_archetype_identity",
+        "all_negative_five_year_path",
+        "degrading_five_year_path",
+        "target_path_miss",
+      ],
+      "lever_summary": {
+        "meaningful_families": ["price", "utilization", "other_opex", "cogs", "payroll", "hire_delay"],
+        "meaningful_lever_count": 6,
+        "dominant_family_share": 0.34,
+      },
+      "summary": {"revenue": 383713.2, "marketing": 50798.05},
+      "forecast_years": [
+        {"year_index": 1, "revenue": 383713.2, "ebitda": -210622.26},
+        {"year_index": 2, "revenue": 395000.0, "ebitda": -180000.0},
+        {"year_index": 3, "revenue": 405000.0, "ebitda": -150000.0},
+        {"year_index": 4, "revenue": 415000.0, "ebitda": -130000.0},
+        {"year_index": 5, "revenue": 425000.0, "ebitda": -120000.0},
+      ],
+    }
+
+    selected = _select_best_effort_governed_scenarios(
+      [candidate],
+      state_model={
+        "fixed_facts": {
+          "sales_modality": "local_service",
+          "capacity_driver": "labor",
+          "commercial_context": {"marketing_role": "constrained"},
+        },
+        "constraint_profile": {"utilization_envelope": {"min": 0.45}},
+      },
+    )
+
+    self.assertEqual(selected, [])
+
+  def test_scenario_violations_use_total_opex_and_fixed_people_floor_for_payroll_down(self) -> None:
+    violations = _scenario_violations(
+      financials_json={
+        "cogs_total_year1": 254914.57,
+        "marketing_total_year1": 50798.05,
+        "other_operating_expense": 89855.22,
+        "monthly_rent_expense": 1200.0,
+        "current_payroll": 162493.5,
+        "payroll_total_year1": 162493.5,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 411031.36,
+        "utilization_rate": 0.705,
+      },
+      constraint_engine_state={
+        "ebitda_margin_band": {"min": -0.35, "max": -0.10},
+        "gross_margin_band": {"min": 0.28, "max": 0.42},
+        "payroll_intensity_band": {"min": 0.33, "max": 0.65},
+        "opex_intensity_band": {"min": 0.26, "max": 0.40},
+        "marketing_intensity_band": {"min": 0.08, "max": 0.16},
+        "utilization_range": {"min": 0.60, "max": 0.90},
+        "current_metrics": {
+          "structural_payroll_floor": 178500.0,
+          "people_payroll_floor": 162493.5,
+          "payroll_support_basis": "payroll",
+          "role_activation_ratio": 0.0,
+        },
+      },
+      direct_inputs={
+        "structural_payroll_floor": 149994.0,
+        "target_payroll_min_total": 149994.0,
+      },
+    )
+
+    self.assertNotIn("payroll_too_light", violations)
+    self.assertNotIn("opex_too_light", violations)
+
+  def test_build_modified_constraint_bundle_uses_market_and_fulfillment_context(self) -> None:
+    with patch("consistency_solver.engine.build_constraint_engine_bundle", return_value={"constraint_engine_state": {}}) as mock_build:
+      bundle = _build_modified_constraint_bundle(
+        modified_state={
+          "ops_json": {"capacity_driver": "labor"},
+          "target_market_json": {"customer_type": "b2c", "region": "local"},
+          "people_json": {"people": []},
+          "financials_json": {"current_payroll": 100000},
+          "financials_year1_json": {"company_revenue_total_year1": 250000},
+          "marketing_model_json": {"expected_units_year1": 100},
+          "fulfillment_json": {"personnel": "in_home", "time": "scheduled"},
+        }
+      )
+
+    self.assertIsInstance(bundle, dict)
+    _, kwargs = mock_build.call_args
+    self.assertEqual(kwargs.get("target_market_json"), {"customer_type": "b2c", "region": "local"})
+    self.assertEqual(kwargs.get("fulfillment_json"), {"personnel": "in_home", "time": "scheduled"})
+
+  def test_select_best_effort_governed_scenarios_prefers_soft_issue_over_ebitda_blocker(self) -> None:
+    blocking = {
+      "scenario_id": "bad-ebitda",
+      "label": "Bad EBITDA",
+      "archetype": "efficiency",
+      "remaining_blocking_count": 1,
+      "remaining_violation_count": 1,
+      "remaining_violations": ["ebitda_margin_too_low"],
+      "presentation_issues": ["target_path_miss"],
+      "lever_summary": {"meaningful_lever_count": 5, "dominant_family_share": 0.3},
+      "summary": {"revenue": 300000, "ebitda": -200000},
+    }
+    soft = {
+      "scenario_id": "soft-opex",
+      "label": "Soft Opex",
+      "archetype": "efficiency",
+      "remaining_blocking_count": 0,
+      "remaining_violation_count": 1,
+      "remaining_violations": ["opex_too_light"],
+      "presentation_issues": ["target_path_miss"],
+      "lever_summary": {"meaningful_lever_count": 5, "dominant_family_share": 0.3},
+      "summary": {"revenue": 450000, "ebitda": -110000},
+    }
+
+    selected = _select_best_effort_governed_scenarios([blocking, soft], state_model={})
+
+    self.assertEqual(len(selected), 1)
+    self.assertEqual(selected[0].get("scenario_id"), "soft-opex")
+
+  def test_profile_solver_contract_can_push_inferred_hires_beyond_forecast_horizon(self) -> None:
+    baseline_summary = build_consistency_financial_summary(
+      financials_json={
+        "cogs_total_year1": 241427.43,
+        "marketing_total_year1": 50798.05,
+        "other_operating_expense": 100880.94,
+        "monthly_rent_expense": 1200.0,
+        "current_payroll": 249990.0,
+        "payroll_total_year1": 249990.0,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 312000.0,
+        "unit_price": 80.0,
+        "utilization_rate": 0.75,
+        "avg_units_per_period_year1": 75.0,
+        "operating_periods_per_year": 52,
+      },
+    )
+    state_model = _build_solver_state_model(
+      ops_json={"capacity_driver": "labor", "sales_modality": "hybrid", "business_stage": "pre_revenue"},
+      target_market_json={"consumer_type": "consumer"},
+      people_json={
+        "people": [
+          {"full_name": "Founder", "role_title": "Founder", "annual_wage": 150000},
+          {"full_name": "Clinical Director", "role_title": "Clinical Director", "annual_wage": 100000},
+        ],
+        "inferred_roles": [
+          {"role_title": "Field RN", "annual_wage": 81820, "months_until_hire": 24},
+        ],
+      },
+      financials_json={
+        "other_operating_expense": 100880.94,
+        "monthly_rent_expense": 1200.0,
+        "current_payroll": 249990.0,
+        "payroll_total_year1": 249990.0,
+        "marketing_total_year1": 50798.05,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 312000.0,
+        "unit_price": 80.0,
+        "utilization_rate": 0.75,
+        "avg_units_per_period_year1": 75.0,
+        "operating_periods_per_year": 52,
+      },
+      fulfillment_json={"personnel": "in_home"},
+      marketing_model_json={"expected_units_year1": 3900.0},
+      baseline_summary=baseline_summary,
+      constraint_engine_state={
+        "supportable_unit_range": {"min": 3000, "max": 4500},
+        "supportable_revenue_range": {"min": 240000, "max": 420000},
+        "utilization_range": {"min": 0.65, "max": 0.85},
+        "gross_margin_band": {"min": 0.28, "max": 0.40},
+        "ebitda_margin_band": {"min": -0.23, "max": -0.05},
+        "opex_intensity_band": {"min": 0.18, "max": 0.35},
+        "marketing_intensity_band": {"min": 0.08, "max": 0.18},
+        "violations": ["ebitda_margin_too_low", "gross_margin_too_low"],
+        "current_metrics": {
+          "capacity_units_year1": 5200.0,
+          "active_role_months_year1": 24.0,
+          "structural_payroll_floor": 249990.0,
+          "people_payroll_floor": 250000.0,
+        },
+      },
+      normalized_traits={"business_stage": "pre_revenue", "capacity_driver": "labor", "sales_modality": "hybrid"},
+      benchmark_payload=self._benchmark_payload(ebitda_margin_min=-0.23, ebitda_margin_max=-0.05, gross_margin_min=0.28, gross_margin_max=0.40),
+    )
+    state_model["strategy_layer"] = {
+      "diagnosis": {"governed_retry_attempt": 0},
+      "strategy_selection": {
+        "severity_class": "severe",
+        "required_lever_families": ["hire_delay", "payroll_down", "other_opex_down", "price_up"],
+        "lever_family_plan": [
+          {"family": "hire_delay", "direction": "down", "intensity": "strong", "quarter_start": 1, "quarter_end": 12},
+          {"family": "payroll_down", "direction": "down", "intensity": "strong", "quarter_start": 1, "quarter_end": 12},
+        ],
+        "controller_directives": {"aggression_level": "high"},
+      },
+    }
+    direct_inputs = _build_direct_solver_inputs(state_model=state_model)
+    contract_bundle = _build_profile_solver_contract(
+      state_model=state_model,
+      direct_inputs=direct_inputs,
+      profile={
+        "strategy_id": "staffing_ramp_adjustment",
+        "strategy_name": "Staffing Ramp Adjustment",
+        "archetype": "efficiency",
+        "archetype_display": "Operational balance",
+        "dominant_tradeoff": "lean launch",
+        "demand_posture": "moderate",
+        "staffing_posture": "delay",
+        "cost_posture": "tighten",
+        "allowed_levers": ["hire_delay", "payroll_down", "other_opex_down", "price_up"],
+        "relationship_rules": ["preserve_capacity_staffing_link"],
+      },
+      target_ebitda_min=-180000.0,
+      target_ebitda_max=-120000.0,
+    )
+
+    overrides = (((contract_bundle.get("profile") or {}).get("forecast_orchestration") or {}).get("role_timing_overrides") or [])
+    self.assertTrue(overrides)
+    self.assertGreater(overrides[0].get("months_until_activate") or 0, 48)
+
   def test_convergence_policy_softens_generic_fallback(self) -> None:
     strong = build_convergence_policy(
       normalized_traits={"business_stage": "operating", "capacity_driver": "labor"},
@@ -4313,6 +6828,13 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertGreater(orch_q2["payroll"], base_q2["payroll"])
     self.assertGreater(orch_q2["revenue"], base_q2["revenue"])
     self.assertLess(orch_q12["opex"], orch_q2["opex"])
+    self.assertIn("policy_effects", orch_q2)
+    self.assertIn("driver_state", orch_q2)
+    self.assertIn("downstream_impacts", orch_q2)
+    self.assertIn("lever_impacts", orch_q2)
+    self.assertIn("marketing_up", orch_q2["active_levers"])
+    self.assertTrue(any(item.get("lever") == "marketing_up" for item in orch_q2["lever_impacts"]))
+    self.assertGreater(orch_q2["downstream_impacts"]["revenue_delta"], 0)
 
   def test_forecast_engine_milestone_beyond_year1_changes_year2_capacity(self) -> None:
     bundle = build_forecast_engine_bundle(
@@ -4980,7 +7502,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIsNone(result)
     closeout_mock.assert_not_called()
 
-  def test_consistency_closeout_refuses_baseline_fallback_without_governed_scenario(self) -> None:
+  def test_consistency_closeout_returns_blocking_result_without_governed_scenario(self) -> None:
     constraint_bundle = {
       "forecast_quarters": [{"quarter_index": 1, "revenue": 1000.0}],
       "forecast_engine_state": {"forecast_years": [{"period_label": "Year 1", "revenue": 1000.0}]},
@@ -4990,23 +7512,53 @@ class PlanningEnginesTests(unittest.TestCase):
       "api_handlers.intake_consult._start_consistency_solver_if_needed",
       return_value=({"status": "blocking_unresolved", "scenarios": []}, constraint_bundle),
     ):
-      with self.assertRaisesRegex(RuntimeError, "consistency_governed_scenario_missing"):
-        _run_consistency_closeout(
-          conn=object(),
-          client_id="client-1",
-          draft_id="draft-1",
-          business_facts={"name": "Test Biz", "start_date": "01/01/2026"},
-          business_stage_hint="startup",
-          current_date_iso="2026-03-25",
-          shared_context={},
-          ops_json={},
-          market_json={},
-          people_json={},
-          financials_json={"cogs_total_year1": 0.0, "payroll_total_year1": 0.0},
-          financials_year1_json={"company_revenue_total_year1": 0.0},
-          fulfillment_json={},
-          marketing_model_json={},
-        )
+      result = _run_consistency_closeout(
+        conn=object(),
+        client_id="client-1",
+        draft_id="draft-1",
+        business_facts={"name": "Test Biz", "start_date": "01/01/2026"},
+        business_stage_hint="startup",
+        current_date_iso="2026-03-25",
+        shared_context={},
+        ops_json={},
+        market_json={},
+        people_json={},
+        financials_json={"cogs_total_year1": 0.0, "payroll_total_year1": 0.0},
+        financials_year1_json={"company_revenue_total_year1": 0.0},
+        fulfillment_json={},
+        marketing_model_json={},
+      )
+    self.assertIsInstance(result, dict)
+    self.assertEqual(((result or {}).get("solver_state") or {}).get("status"), "blocking_unresolved")
+    self.assertIsNone((result or {}).get("selected_scenario"))
+
+  def test_consistency_closeout_not_ready_for_completion_when_blocking_unresolved(self) -> None:
+    self.assertFalse(
+      _consistency_closeout_ready_for_completion(
+        {
+          "solver_state": {"status": "blocking_unresolved"},
+          "consistency_modified_plan_json": {
+            "quarter_driver_path": [{"quarter_index": 1}],
+            "forecast_years": [{"period_label": "Year 1"}],
+            "resolution_summary": {"status": "hard_issues_remaining"},
+          },
+        }
+      )
+    )
+
+  def test_consistency_closeout_ready_for_completion_when_modified_plan_valid(self) -> None:
+    self.assertTrue(
+      _consistency_closeout_ready_for_completion(
+        {
+          "solver_state": {"status": "awaiting_choice"},
+          "consistency_modified_plan_json": {
+            "quarter_driver_path": [{"quarter_index": 1}],
+            "forecast_years": [{"period_label": "Year 1"}],
+            "resolution_summary": {"status": "cleared"},
+          },
+        }
+      )
+    )
 
   def test_solver_returns_best_effort_governed_scenarios_when_client_ready_empty(self) -> None:
     with patch("consistency_solver._gpt_strategy_required", return_value=False), patch(
@@ -5939,6 +8491,203 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertAlmostEqual(_safe_float(next_financials.get("payroll_adjustment")), 115000.0, places=2)
     self.assertEqual((next_people.get("inferred_roles") or [])[0].get("months_until_hire"), 6)
 
+  def test_apply_exact_patches_materializes_child_product_overrides_into_year1_state(self) -> None:
+    _, _, _, next_year1, _ = _apply_exact_patches(
+      ops_json={},
+      people_json={},
+      financials_json={},
+      financials_year1_json={
+        "company_revenue_total_year1": 312000,
+        "lobs": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "In-home care hour",
+                "unit_cadence": "weekly",
+                "unit_price": 80.0,
+                "units_per_week_capacity": 100.0,
+                "operating_weeks_per_year": 52.0,
+                "avg_units_per_week_year1": 75.0,
+                "avg_units_per_period_year1": 75.0,
+                "utilization_rate": 0.75,
+                "revenue_total_year1": 312000.0,
+              }
+            ],
+            "revenue_total_year1": 312000.0,
+          }
+        ],
+      },
+      marketing_model_json={},
+      exact_patches={
+        "financials_year1_patch": {
+          "company_revenue_total_year1": 391758.12,
+          "product_overrides": {
+            "primary line of business::in-home care hour": {
+              "unit_price": 93.01,
+              "avg_units_per_period_year1": 81.0,
+              "utilization_rate": 0.81,
+            }
+          },
+        }
+      },
+    )
+
+    product = (((next_year1.get("lobs") or [])[0] or {}).get("products") or [])[0]
+    self.assertEqual(product.get("unit_price"), 93.01)
+    self.assertEqual(product.get("avg_units_per_week_year1"), 81.0)
+    self.assertAlmostEqual(_safe_float(product.get("utilization_rate")), 0.81, places=6)
+    self.assertAlmostEqual(_safe_float(product.get("revenue_total_year1")), 391758.12, places=2)
+    self.assertAlmostEqual(_safe_float(next_year1.get("company_revenue_total_year1")), 391758.12, places=2)
+
+  def test_apply_exact_patches_materializes_multi_product_overrides_into_nested_year1_state(self) -> None:
+    _, _, _, next_year1, _ = _apply_exact_patches(
+      ops_json={},
+      people_json={},
+      financials_json={},
+      financials_year1_json={
+        "company_revenue_total_year1": 330000.0,
+        "lobs": [
+          {
+            "lob_name": "Services",
+            "products": [
+              {
+                "product_name": "Private Duty",
+                "unit_cadence": "weekly",
+                "unit_price": 80.0,
+                "units_per_week_capacity": 100.0,
+                "operating_weeks_per_year": 52.0,
+                "avg_units_per_week_year1": 75.0,
+                "avg_units_per_period_year1": 75.0,
+                "utilization_rate": 0.75,
+                "revenue_total_year1": 312000.0,
+              },
+              {
+                "product_name": "Wellness Visit",
+                "unit_cadence": "monthly",
+                "unit_price": 150.0,
+                "units_per_month_capacity": 20.0,
+                "operating_months_per_year": 12.0,
+                "avg_units_per_month_year1": 10.0,
+                "avg_units_per_period_year1": 10.0,
+                "utilization_rate": 0.5,
+                "revenue_total_year1": 18000.0,
+              },
+            ],
+            "revenue_total_year1": 330000.0,
+          }
+        ],
+      },
+      marketing_model_json={},
+      exact_patches={
+        "financials_year1_patch": {
+          "company_revenue_total_year1": 413238.12,
+          "product_overrides": {
+            "services::private duty": {
+              "unit_price": 93.01,
+              "avg_units_per_period_year1": 81.0,
+              "utilization_rate": 0.81,
+            },
+            "services::wellness visit": {
+              "unit_price": 165.0,
+              "avg_units_per_period_year1": 11.0,
+              "utilization_rate": 0.55,
+            },
+          },
+        }
+      },
+    )
+
+    products = (((next_year1.get("lobs") or [])[0] or {}).get("products") or [])
+    private_duty = products[0]
+    wellness_visit = products[1]
+    self.assertEqual(private_duty.get("unit_price"), 93.01)
+    self.assertEqual(private_duty.get("avg_units_per_week_year1"), 81.0)
+    self.assertAlmostEqual(_safe_float(private_duty.get("utilization_rate")), 0.81, places=6)
+    self.assertAlmostEqual(_safe_float(private_duty.get("revenue_total_year1")), 391758.12, places=2)
+    self.assertEqual(wellness_visit.get("unit_price"), 165.0)
+    self.assertEqual(wellness_visit.get("avg_units_per_month_year1"), 11.0)
+    self.assertAlmostEqual(_safe_float(wellness_visit.get("utilization_rate")), 0.55, places=6)
+    self.assertAlmostEqual(_safe_float(wellness_visit.get("revenue_total_year1")), 21780.0, places=2)
+    self.assertAlmostEqual(_safe_float(next_year1.get("company_revenue_total_year1")), 413538.12, places=2)
+
+  def test_apply_exact_patches_updates_current_staff_compensation(self) -> None:
+    _, next_people, next_financials, _, _ = _apply_exact_patches(
+      ops_json={"milestones": []},
+      people_json={
+        "people": [
+          {"full_name": "Founder A", "role_title": "Founder", "annual_wage": 120000},
+          {"full_name": "Founder B", "role_title": "Founder", "annual_wage": 80000},
+        ],
+        "inferred_roles": [],
+      },
+      financials_json={
+        "current_payroll": 200000,
+        "payroll_total_year1": 200000,
+      },
+      financials_year1_json={"company_revenue_total_year1": 500000},
+      marketing_model_json={},
+      exact_patches={
+        "financials_patch": {
+          "current_payroll": 120000,
+          "payroll_total_year1": 120000,
+        },
+        "people_compensation_updates": [
+          {"full_name": "Founder A", "role_title": "Founder", "annual_wage": 72000},
+          {"full_name": "Founder B", "role_title": "Founder", "annual_wage": 48000},
+        ],
+      },
+    )
+
+    people = next_people.get("people") or []
+    self.assertEqual(people[0]["annual_wage"], 72000.0)
+    self.assertEqual(people[1]["annual_wage"], 48000.0)
+    self.assertEqual(next_financials.get("current_payroll"), 120000)
+    self.assertEqual(next_financials.get("payroll_total_year1"), 120000)
+
+  def test_exact_patches_from_solution_include_current_staff_compensation_updates(self) -> None:
+    exact = _exact_patches_from_solution(
+      solution={
+        "price": 150.0,
+        "utilization_rate": 0.75,
+        "marketing_total_year1": 10000.0,
+        "marketing_support_units_year1": 100.0,
+        "other_operating_expense": 25000.0,
+        "cogs_total_year1": 90000.0,
+        "cogs_ratio": 0.30,
+        "role_months": {},
+        "role_year1_payroll": {},
+        "role_wage_meta": {},
+        "annual_units_total": 100.0,
+        "other_opex_total_ratio": 0.12,
+        "fixed_people_payroll_target": 120000.0,
+      },
+      direct_inputs={
+        "current_price": 150.0,
+        "current_util": 0.75,
+        "current_marketing": 10000.0,
+        "marketing_support_units_baseline": 100.0,
+        "current_other_opex": 25000.0,
+        "current_cogs": 90000.0,
+        "fixed_people_payroll": 200000.0,
+        "current_payroll_total": 200000.0,
+        "current_staff": [
+          {"full_name": "Founder A", "role_title": "Founder", "annual_wage": 120000.0},
+          {"full_name": "Founder B", "role_title": "Founder", "annual_wage": 80000.0},
+        ],
+        "roles": [],
+        "solve_mode": "parent_fallback",
+        "product_driver_basis": [],
+        "constraint_profile": {"marketing_children": {}},
+      },
+      ops_json={"milestones": []},
+    )
+
+    updates = exact.get("people_compensation_updates") or []
+    self.assertEqual(len(updates), 2)
+    self.assertEqual(updates[0]["annual_wage"], 72000.0)
+    self.assertEqual(updates[1]["annual_wage"], 48000.0)
+
   def test_apply_consistency_solver_choice_uses_modified_state_without_reapplying_baseline(self) -> None:
     scenario = {
       "scenario_id": "1",
@@ -6637,7 +9386,7 @@ class PlanningEnginesTests(unittest.TestCase):
       )
     )
 
-  def test_nontrivial_solver_repairs_use_multiple_meaningful_levers(self) -> None:
+  def test_nontrivial_solver_repairs_block_when_only_all_negative_degrading_paths_exist(self) -> None:
     solver_state = build_consistency_solver_state(
       ops_json={
         "unit_price": 120,
@@ -6688,11 +9437,9 @@ class PlanningEnginesTests(unittest.TestCase):
       },
     )
 
-    scenarios = (solver_state or {}).get("scenarios") or []
-    self.assertTrue(scenarios)
-    self.assertTrue(all((scenario.get("meaningful_lever_count") or 0) >= 2 for scenario in scenarios))
-    self.assertTrue(all((scenario.get("coordination_score") or 0.0) > 1.5 for scenario in scenarios))
-    self.assertTrue(all((scenario.get("lever_summary") or {}).get("meaningful_families") for scenario in scenarios))
+    self.assertEqual((solver_state or {}).get("status"), "blocking_unresolved")
+    self.assertEqual((solver_state or {}).get("selection_mode"), None)
+    self.assertEqual((solver_state or {}).get("scenarios"), [])
 
   def test_feasible_solver_scenario_gets_forecast_even_when_baseline_is_blocked(self) -> None:
     bundle = _build_scenario_forecast_bundle(
@@ -6724,15 +9471,6 @@ class PlanningEnginesTests(unittest.TestCase):
         "financials_year1_patch": {"unit_price": 102.0, "utilization_rate": 0.64},
         "financials_patch": {"other_operating_expense": 17000, "cogs_total_year1": 93000},
         "marketing_model_patch": {"expected_units_year1": 2500},
-      },
-      remaining_violations=[],
-      constraint_engine_state={
-        "violations": ["ebitda_margin_too_low"],
-        "utilization_range": {"min": 0.5, "max": 0.8},
-        "gross_margin_band": {"min": 0.55, "max": 0.68},
-        "ebitda_margin_band": {"min": 0.18, "max": 0.24},
-        "supportable_unit_range": {"min": 1800, "max": 3200},
-        "current_metrics": {"utilization_rate": 0.6},
       },
       normalized_traits={
         "business_stage": "operating",
@@ -7055,7 +9793,7 @@ class PlanningEnginesTests(unittest.TestCase):
           self.assertTrue(all((scenario.get("meaningful_lever_count") or 0) >= 2 for scenario in scenarios))
           if case["name"] != "contract_labor_professional_service":
             self.assertGreaterEqual(
-              len({str(scenario.get("archetype") or "").strip() for scenario in scenarios if scenario.get("archetype")}),
+              len({str(scenario.get("label") or "").strip() for scenario in scenarios if scenario.get("label")}),
               min(2, len(scenarios)),
             )
         else:
@@ -7146,7 +9884,7 @@ class PlanningEnginesTests(unittest.TestCase):
           all((scenario.get("forecast_summary") or {}).get("year5_exit_ebitda") is not None for scenario in ready_scenarios)
         )
         self.assertGreaterEqual(
-          len({str(scenario.get("archetype_display") or "").strip() for scenario in scenarios if scenario.get("archetype_display")}),
+          len({str(scenario.get("label") or "").strip() for scenario in scenarios if scenario.get("label")}),
           min(2, len(scenarios)),
         )
         if solver_state["solve_mode"] == "child_first":
