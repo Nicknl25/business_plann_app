@@ -2064,11 +2064,23 @@ def _sync_consistency_finmo_artifacts(
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
       marketing_model_json=marketing_model_json,
+      model_input_json_override=(
+        (selected_scenario.get("model_input_json") if isinstance(selected_scenario.get("model_input_json"), dict) else {})
+        if isinstance(selected_scenario, dict) else {}
+      ),
       controller_input_seed=controller_input_seed or [],
       forecast_quarters=modified_forecast_quarters or [],
       calibration_spec=(
-        (selected_scenario.get("controller_calibration_request") if isinstance(selected_scenario.get("controller_calibration_request"), dict) else {})
-        or (selected_scenario.get("finmo_calibration_spec") if isinstance(selected_scenario, dict) else {})
+        {}
+        if (
+          isinstance(selected_scenario, dict)
+          and isinstance(selected_scenario.get("model_input_json"), dict)
+          and bool(selected_scenario.get("model_input_json"))
+        )
+        else (
+          (selected_scenario.get("controller_calibration_request") if isinstance(selected_scenario.get("controller_calibration_request"), dict) else {})
+          or (selected_scenario.get("finmo_calibration_spec") if isinstance(selected_scenario, dict) else {})
+        )
       ),
     )
   except Exception:
@@ -2076,6 +2088,26 @@ def _sync_consistency_finmo_artifacts(
   model_input_json = result.get("model_input_json") if isinstance(result.get("model_input_json"), dict) else {}
   finmo_json = result.get("finmo_json") if isinstance(result.get("finmo_json"), dict) else {}
   return model_input_json, finmo_json
+
+
+def _best_attempted_consistency_candidate(solver_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  attempted = [
+    item for item in ((solver_state or {}).get("attempted_scenarios") or [])
+    if isinstance(item, dict)
+  ]
+  if not attempted:
+    return {}
+  ranked = sorted(
+    attempted,
+    key=lambda item: (
+      int(max(0, _safe_int(item.get("remaining_blocking_count")))),
+      int(max(0, _safe_int(item.get("remaining_violation_count")))),
+      len(item.get("presentation_issues") or []),
+      -1.0 * _safe_float((((item.get("forecast_years") or [None])[0]) or {}).get("ebitda")),
+    ),
+  )
+  best = ranked[0] if ranked else {}
+  return best if isinstance(best, dict) else {}
 
 
 def _run_consistency_closeout(
@@ -2304,6 +2336,31 @@ def _run_consistency_closeout(
     and str(solver_state.get("status") or "").strip() == "blocking_unresolved"
     and not isinstance(selected_scenario, dict)
   ):
+    attempted_candidate = _best_attempted_consistency_candidate(solver_state)
+    attempted_modified_state = (
+      (attempted_candidate.get("modified_state") or {})
+      if isinstance(attempted_candidate.get("modified_state"), dict) else {}
+    )
+    if attempted_candidate:
+      model_input_json, finmo_json = _sync_consistency_finmo_artifacts(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        ops_json=(attempted_modified_state.get("ops_json") if isinstance(attempted_modified_state.get("ops_json"), dict) else updated_ops_json),
+        people_json=(attempted_modified_state.get("people_json") if isinstance(attempted_modified_state.get("people_json"), dict) else updated_people_json),
+        financials_json=(attempted_modified_state.get("financials_json") if isinstance(attempted_modified_state.get("financials_json"), dict) else updated_financials_json),
+        financials_year1_json=(attempted_modified_state.get("financials_year1_json") if isinstance(attempted_modified_state.get("financials_year1_json"), dict) else updated_financials_year1_json),
+        marketing_model_json=(attempted_modified_state.get("marketing_model_json") if isinstance(attempted_modified_state.get("marketing_model_json"), dict) else updated_marketing_model_json),
+        controller_input_seed=[
+          item for item in ((attempted_candidate.get("controller_input_seed") or []))
+          if isinstance(item, dict)
+        ],
+        modified_forecast_quarters=[
+          item for item in ((attempted_candidate.get("forecast_quarters") or []))
+          if isinstance(item, dict)
+        ],
+        selected_scenario=attempted_candidate,
+      )
     resolution_summary = _build_violation_resolution_summary(
       solver_state=solver_state,
       selected_scenario=selected_scenario,
@@ -2349,6 +2406,8 @@ def _run_consistency_closeout(
     updated_shared_context["consistency_controller_contract"] = controller_contract_json
     updated_shared_context["consistency_solver_execution"] = solver_execution_json
     updated_shared_context["consistency_resolution_summary"] = resolution_summary
+    updated_shared_context["model_input_json"] = model_input_json
+    updated_shared_context["finmo_json"] = finmo_json
     return {
       "assistant_text": _build_consistency_blocked_message(
         solver_state=solver_state,
@@ -2368,8 +2427,8 @@ def _run_consistency_closeout(
       "consistency_gpt_governance_json": gpt_governance_json,
       "consistency_controller_contract_json": controller_contract_json,
       "consistency_solver_execution_json": solver_execution_json,
-      "model_input_json": {},
-      "finmo_json": {},
+      "model_input_json": model_input_json,
+      "finmo_json": finmo_json,
     }
 
   if not consistency_modified_plan_json:

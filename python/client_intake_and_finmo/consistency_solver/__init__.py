@@ -506,33 +506,34 @@ def build_consistency_solver_state(
       if isinstance(current_strategy_layer.get("strategy_selection"), dict)
       else {}
     )
-    for scenario_index, profile in enumerate(_solver_profiles(state_model=state_model), start=1):
+    profiles = [item for item in _solver_profiles(state_model=state_model) if isinstance(item, dict)]
+    primary_profile = _clone(profiles[0]) if profiles else {}
+    if primary_profile:
       contract_bundle = _build_profile_solver_contract(
         state_model=state_model,
         direct_inputs=direct_inputs,
-        profile=profile,
+        profile=primary_profile,
         target_ebitda_min=target_ebitda_min,
         target_ebitda_max=target_ebitda_max,
       )
       attempted_contract_bundles.append(contract_bundle)
       diagnostics = (contract_bundle.get("diagnostics") or {}) if isinstance(contract_bundle.get("diagnostics"), dict) else {}
-      if "invalid_gpt_orchestration" in set(diagnostics.get("issues") or []):
-        continue
-      candidate = build_controller_finmo_candidate(
-        profile=contract_bundle.get("profile") or {},
-        contract_bundle=contract_bundle,
-        state_model=state_model,
-        scenario_index=len(attempted_scenarios) + scenario_index,
-      )
-      attempt_candidates.append(candidate)
-      attempt_records.append(
-        {
-          "profile": _clone(profile),
-          "contract_bundle": contract_bundle,
-          "solution": {},
-          "candidate": candidate,
-        }
-      )
+      if "invalid_gpt_orchestration" not in set(diagnostics.get("issues") or []):
+        candidate = build_controller_finmo_candidate(
+          profile=contract_bundle.get("profile") or {},
+          contract_bundle=contract_bundle,
+          state_model=state_model,
+          scenario_index=len(attempted_scenarios) + 1,
+        )
+        attempt_candidates.append(candidate)
+        attempt_records.append(
+          {
+            "profile": _clone(primary_profile),
+            "contract_bundle": contract_bundle,
+            "solution": {},
+            "candidate": candidate,
+          }
+        )
     provisional_audit_target: Optional[Dict[str, Any]] = None
     provisional_client_ready = _select_client_ready_scenarios(attempt_candidates, state_model=state_model)
     if provisional_client_ready:

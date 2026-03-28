@@ -801,6 +801,130 @@ def _resolve_finmo_calibration_shell(
     wb.close()
 
 
+def _execute_finmo_calibration_shell(
+  *,
+  finmo_path: str,
+  calibration_shell: Dict[str, Any],
+) -> Dict[str, Any]:
+  shell = calibration_shell if isinstance(calibration_shell, dict) else {}
+  goal_seek_requests: List[Dict[str, Any]] = []
+  for request in [item for item in (shell.get("goal_seek_requests") or []) if isinstance(item, dict)]:
+    objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
+    changing_cells = [item for item in (request.get("changing_input_cells") or []) if isinstance(item, dict)]
+    goal_value = _goal_value_from_band((((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}).get("goal_band") or {}))
+    if not objective_cell or not changing_cells or goal_value is None:
+      continue
+    goal_seek_requests.append(
+      {
+        "request_id": str(request.get("request_id") or "").strip(),
+        "objective_cell": objective_cell,
+        "changing_input_cell": changing_cells[0],
+        "goal_value": goal_value,
+      }
+    )
+  solver_requests: List[Dict[str, Any]] = []
+  for request in [item for item in (shell.get("solver_requests") or []) if isinstance(item, dict)]:
+    objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
+    changing_cells = [item for item in (request.get("changing_input_cells") or []) if isinstance(item, dict)]
+    if not objective_cell or not changing_cells:
+      continue
+    goal_band = (((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}).get("goal_band") or {})
+    solver_requests.append(
+      {
+        "request_id": str(request.get("request_id") or "").strip(),
+        "objective_cell": objective_cell,
+        "changing_input_cells": changing_cells,
+        "target_value": _goal_value_from_band(goal_band if isinstance(goal_band, dict) else {}),
+        "goal_band": _clone(goal_band if isinstance(goal_band, dict) else {}),
+        "constraints": [item for item in (request.get("constraints") or []) if isinstance(item, dict)],
+      }
+    )
+  if not goal_seek_requests and not solver_requests:
+    return {"goal_seek_results": [], "solver_results": []}
+
+  workbook_path = _normalize_finmo_path(finmo_path)
+  payload = {
+    "goal_seek_requests": goal_seek_requests,
+    "solver_requests": solver_requests,
+  }
+  payload_json = json.dumps(payload)
+  script = (
+    "$path = " + json.dumps(workbook_path) + ";"
+    "$payload = @'\n" + payload_json + "\n'@ | ConvertFrom-Json -Depth 100;"
+    "$excel = New-Object -ComObject Excel.Application;"
+    "$excel.Visible = $false;"
+    "$excel.DisplayAlerts = $false;"
+    "$goalResults = New-Object System.Collections.ArrayList;"
+    "$solverResults = New-Object System.Collections.ArrayList;"
+    "$wb = $null;"
+    "try {"
+    "$solver = $excel.AddIns.Item('Solver Add-in');"
+    "if ($solver -and -not $solver.Installed) { $solver.Installed = $true }"
+    "$wb = $excel.Workbooks.Open($path, $false, $false);"
+    "foreach ($request in $payload.goal_seek_requests) {"
+    "  $objectiveParts = $request.objective_cell.cell.ToString() -split '(?<=\\D)(?=\\d)';"
+    "  $objectiveRange = $wb.Worksheets.Item($request.objective_cell.sheet).Range($request.objective_cell.cell);"
+    "  $changingRange = $wb.Worksheets.Item($request.changing_input_cell.sheet).Range($request.changing_input_cell.cell);"
+    "  $result = $objectiveRange.GoalSeek([double]$request.goal_value, $changingRange);"
+    "  $excel.CalculateFullRebuild();"
+    "  [void]$goalResults.Add(@{ request_id = $request.request_id; success = [bool]$result; goal_value = [double]$request.goal_value });"
+    "}"
+    "foreach ($request in $payload.solver_requests) {"
+    "  $excel.Run('Solver.xlam!SolverReset');"
+    "  $objectiveSpec = \"'\" + $request.objective_cell.sheet + \"'!\" + $request.objective_cell.cell;"
+    "  $changeSpec = (($request.changing_input_cells | ForEach-Object { \"'\" + $_.sheet + \"'!\" + $_.cell }) -join ',');"
+    "  if ($request.target_value -ne $null) {"
+    "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 3, [double]$request.target_value, $changeSpec);"
+    "  } else {"
+    "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 2, $null, $changeSpec);"
+    "  }"
+    "  if ($request.goal_band.min -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 3, [double]$request.goal_band.min) }"
+    "  if ($request.goal_band.max -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 1, [double]$request.goal_band.max) }"
+    "  foreach ($constraint in $request.constraints) {"
+    "    if (-not $constraint.cell) { continue }"
+    "    $parts = $constraint.cell.ToString().Split('!');"
+    "    $constraintSpec = \"'\" + $parts[0] + \"'!\" + $parts[1];"
+    "    $excel.Run('Solver.xlam!SolverAdd', $constraintSpec, [int]$constraint.relation, $constraint.value);"
+    "  }"
+    "  $solveResult = $excel.Run('Solver.xlam!SolverSolve', $true);"
+    "  $excel.Run('Solver.xlam!SolverFinish', 1);"
+    "  $excel.CalculateFullRebuild();"
+    "  [void]$solverResults.Add(@{ request_id = $request.request_id; success = [bool]$solveResult; solver_result = $solveResult.ToString() });"
+    "}"
+    "$wb.Save();"
+    "$wb.Close($true);"
+    "Write-Output (@{ goal_seek_results = $goalResults; solver_results = $solverResults } | ConvertTo-Json -Compress -Depth 100);"
+    "} finally {"
+    "if ($wb) { try { $wb.Close($false) } catch {} }"
+    "$excel.Quit();"
+    "}"
+  )
+  try:
+    completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
+  except subprocess.CalledProcessError as exc:
+    return {
+      "goal_seek_results": [],
+      "solver_results": [],
+      "success": False,
+      "error": str(exc.stderr or exc.stdout or exc),
+    }
+  except Exception as exc:
+    return {
+      "goal_seek_results": [],
+      "solver_results": [],
+      "success": False,
+      "error": str(exc),
+    }
+  try:
+    parsed = json.loads(str(completed.stdout or "").strip() or "{}")
+  except Exception:
+    parsed = {}
+  if isinstance(parsed, dict):
+    parsed.setdefault("success", True)
+    return parsed
+  return {"goal_seek_results": [], "solver_results": [], "success": False, "error": "invalid_calibration_response"}
+
+
 def _recalculate_excel_workbook(finmo_path: str) -> None:
   workbook_path = _normalize_finmo_path(finmo_path)
   script = (
@@ -1027,6 +1151,7 @@ def sync_consistency_state_to_finmo(
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
   marketing_model_json: Optional[Dict[str, Any]],
+  model_input_json_override: Optional[Dict[str, Any]] = None,
   controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
   forecast_quarters: Sequence[Dict[str, Any]],
   calibration_spec: Optional[Dict[str, Any]] = None,
@@ -1039,18 +1164,22 @@ def sync_consistency_state_to_finmo(
   path = _normalize_finmo_path(finmo_path)
   if not Path(path).exists():
     raise FileNotFoundError(f"Finmo workbook not found at {path}")
-  baseline_input = _read_model_input_json(path)
-  model_input_json = _build_model_input_overlay(
-    baseline_model_input=baseline_input,
-    business_facts=business_facts or {},
-    financials_json=financials_json or {},
-    controller_input_seed=controller_input_seed,
-    forecast_quarters=forecast_quarters,
-  )
+  if isinstance(model_input_json_override, dict) and model_input_json_override:
+    model_input_json = _clone(model_input_json_override)
+  else:
+    baseline_input = _read_model_input_json(path)
+    model_input_json = _build_model_input_overlay(
+      baseline_model_input=baseline_input,
+      business_facts=business_facts or {},
+      financials_json=financials_json or {},
+      controller_input_seed=controller_input_seed,
+      forecast_quarters=forecast_quarters,
+    )
   _write_model_input_json_to_workbook(path, model_input_json)
   _recalculate_excel_workbook(path)
   written_model_input_json = _read_model_input_json(path)
   finmo_json = _read_finmo_json(path)
+  calibration_results: Dict[str, Any] = {}
   if isinstance(calibration_spec, dict) and calibration_spec:
     resolved_shell = _resolve_finmo_calibration_shell(
       finmo_path=path,
@@ -1058,8 +1187,16 @@ def sync_consistency_state_to_finmo(
       finmo_json=finmo_json,
       calibration_spec=calibration_spec,
     )
+    calibration_results = _execute_finmo_calibration_shell(
+      finmo_path=path,
+      calibration_shell=resolved_shell,
+    )
+    written_model_input_json = _read_model_input_json(path)
+    finmo_json = _read_finmo_json(path)
     written_model_input_json["calibration_shell"] = _clone(resolved_shell)
+    written_model_input_json["calibration_results"] = _clone(calibration_results)
     finmo_json["calibration_shell"] = _clone(resolved_shell)
+    finmo_json["calibration_results"] = _clone(calibration_results)
   return {
     "finmo_path": path,
     "model_input_json": written_model_input_json,

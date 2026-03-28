@@ -320,6 +320,7 @@ def _hydrate_replay_draft(
     "updated_at",
     "completed_at",
     "submitted_at",
+    "finmo_path",
   }
   payload: Dict[str, Any] = {}
   for key, value in source_row.items():
@@ -345,6 +346,8 @@ def _hydrate_replay_draft(
   payload["consistency_controller_contract_json"] = None
   payload["consistency_solver_execution_json"] = None
   payload["engine_versions_json"] = None
+  payload["model_input_json"] = None
+  payload["finmo_json"] = None
   payload["financials_json"] = _clean_financials_for_replay(source_row.get("financials_json"))
 
   set_parts: List[str] = []
