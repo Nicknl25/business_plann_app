@@ -1020,6 +1020,7 @@ def _build_consistency_runtime_context(
   *,
   client_id: str,
   draft_id: str,
+  finmo_path: Optional[str],
   business_facts: Dict[str, Any],
   business_stage_hint: Optional[str],
   current_date_iso: str,
@@ -1035,6 +1036,7 @@ def _build_consistency_runtime_context(
   ctx: Dict[str, Any] = {
     "client_id": client_id,
     "draft_id": str(draft_id).strip(),
+    "finmo_path": str(finmo_path or "").strip(),
     "business_name": business_facts.get("name"),
     "business_start_date": business_facts.get("start_date"),
     "address": business_facts.get("address"),
@@ -1209,6 +1211,25 @@ def _build_quarterly_projection_table(forecast_quarters: Optional[List[Dict[str,
   return str(_build_quarterly_ebitda_forecast_table(forecast_quarters or []) or "").strip()
 
 
+def _build_consistency_forecast_view_from_finmo_safe(
+  finmo_json: Optional[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+  try:
+    try:
+      from finmo_bridge import build_consistency_forecast_view_from_finmo  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.finmo_bridge import build_consistency_forecast_view_from_finmo  # type: ignore
+  except Exception:
+    return [], []
+  try:
+    result = build_consistency_forecast_view_from_finmo(finmo_json if isinstance(finmo_json, dict) else {})
+  except Exception:
+    return [], []
+  quarter_driver_path = [item for item in ((result.get("quarter_driver_path") or []) if isinstance(result, dict) else []) if isinstance(item, dict)]
+  forecast_years = [item for item in ((result.get("forecast_years") or []) if isinstance(result, dict) else []) if isinstance(item, dict)]
+  return quarter_driver_path, forecast_years
+
+
 def _describe_modified_levers(scenario: Optional[Dict[str, Any]]) -> str:
   scenario_obj = scenario if isinstance(scenario, dict) else {}
   families = [
@@ -1243,7 +1264,12 @@ def _build_consistency_finalized_message(
   selected_scenario: Optional[Dict[str, Any]],
   initial_table_markdown: str,
   modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+  finmo_json: Optional[Dict[str, Any]] = None,
 ) -> str:
+  if isinstance(finmo_json, dict) and finmo_json:
+    finmo_quarters, _ = _build_consistency_forecast_view_from_finmo_safe(finmo_json)
+    if finmo_quarters:
+      modified_forecast_quarters = finmo_quarters
   quarter_table = _build_quarterly_projection_table(modified_forecast_quarters)
   business_descriptor = _humanize_business_descriptor(solver_state=solver_state)
   scenario_obj = selected_scenario if isinstance(selected_scenario, dict) else {}
@@ -1374,6 +1400,7 @@ def _build_consistency_modified_plan_payload(
   modified_financials_year1_json: Dict[str, Any],
   modified_marketing_model_json: Dict[str, Any],
   modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+  finmo_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   scenario_obj = selected_scenario if isinstance(selected_scenario, dict) else {}
   bundle = constraint_bundle if isinstance(constraint_bundle, dict) else {}
@@ -1386,7 +1413,12 @@ def _build_consistency_modified_plan_payload(
     else bundle.get("forecast_engine_state")
   )
   forecast_engine_state = forecast_engine_state if isinstance(forecast_engine_state, dict) else {}
-  forecast_years = forecast_engine_state.get("forecast_years") if isinstance(forecast_engine_state.get("forecast_years"), list) else []
+  finmo_quarters, finmo_years = _build_consistency_forecast_view_from_finmo_safe(finmo_json)
+  if finmo_quarters:
+    modified_forecast_quarters = finmo_quarters
+  forecast_years = finmo_years if finmo_years else (
+    forecast_engine_state.get("forecast_years") if isinstance(forecast_engine_state.get("forecast_years"), list) else []
+  )
   if not forecast_years:
     forecast_years = _rollup_forecast_years_from_quarters(modified_forecast_quarters)
   quarter_driver_path: List[Dict[str, Any]] = []
@@ -1472,6 +1504,7 @@ def _build_consistency_modified_plan_payload(
     "quarter_rollups": quarter_rollups,
     "forecast_years": copy.deepcopy(forecast_years or []),
     "forecast_meta": {
+      "financial_authority": "finmo" if finmo_years else "forecast_engine",
       "forecast_confidence": forecast_engine_state.get("forecast_confidence"),
       "convergence_source": forecast_engine_state.get("convergence_source"),
       "convergence_strength": forecast_engine_state.get("convergence_strength"),
@@ -1479,6 +1512,9 @@ def _build_consistency_modified_plan_payload(
       "blocking_violations": copy.deepcopy(forecast_engine_state.get("blocking_violations") or []),
       "forecast_orchestration": copy.deepcopy(forecast_engine_state.get("forecast_orchestration") or {}),
       "scenario_strategy": copy.deepcopy(forecast_engine_state.get("scenario_strategy") or {}),
+      "finmo_accounting_check": copy.deepcopy(
+        (finmo_json.get("accounting_check") if isinstance(finmo_json, dict) else {}) or {}
+      ),
     },
     "timed_events": {
       "role_timing_overrides": copy.deepcopy(
@@ -1949,6 +1985,8 @@ def _persist_and_reload_consistency_modified_state(
   consistency_gpt_governance_json: Dict[str, Any],
   consistency_controller_contract_json: Dict[str, Any],
   consistency_solver_execution_json: Dict[str, Any],
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
   constraint_bundle: Optional[Dict[str, Any]] = None,
   active_focus: str = "consistency",
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], List[Dict[str, Any]]]:
@@ -1964,6 +2002,8 @@ def _persist_and_reload_consistency_modified_state(
     consistency_gpt_governance_json=consistency_gpt_governance_json,
     consistency_controller_contract_json=consistency_controller_contract_json,
     consistency_solver_execution_json=consistency_solver_execution_json,
+    model_input_json=model_input_json,
+    finmo_json=finmo_json,
     **_constraint_bundle_append_kwargs(constraint_bundle or {}),
   ) if hasattr(conn, "cursor") else None
   persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
@@ -1986,77 +2026,56 @@ def _persist_and_reload_consistency_modified_state(
   )
 
 
-def _rebuild_consistency_forecast_from_persisted_modified_state(
+def _sync_consistency_finmo_artifacts(
   *,
-  intake_context: Dict[str, Any],
-  selected_scenario: Optional[Dict[str, Any]],
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
   ops_json: Dict[str, Any],
-  market_json: Dict[str, Any],
   people_json: Dict[str, Any],
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
+  controller_input_seed: Optional[List[Dict[str, Any]]],
+  modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+  selected_scenario: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   try:
     try:
-      from forecast_engine import build_forecast_engine_bundle  # type: ignore
+      from finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
     except Exception:
-      from client_intake_and_finmo.forecast_engine import build_forecast_engine_bundle  # type: ignore
+      from client_intake_and_finmo.finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
   except Exception:
-    return selected_scenario, {}, [], {}
+    return {}, {}
 
-  refreshed_constraint_bundle = _build_constraint_bundle_for_persistence(
-    intake_context=intake_context,
-    ops_json=ops_json,
-    market_json=market_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    marketing_model_json=marketing_model_json,
-  )
-  scenario_obj = copy.deepcopy(selected_scenario) if isinstance(selected_scenario, dict) else None
-  scenario_strategy = {}
-  if isinstance(scenario_obj, dict):
-    scenario_strategy = (
-      ((scenario_obj.get("forecast_engine_state") or {}) if isinstance(scenario_obj.get("forecast_engine_state"), dict) else {}).get("scenario_strategy")
-      or {}
-    )
-    if not isinstance(scenario_strategy, dict):
-      scenario_strategy = {}
-  forecast_bundle = build_forecast_engine_bundle(
-    shared_context=(intake_context.get("shared_context") if isinstance(intake_context, dict) else {}) or {},
-    operating_model_json=ops_json or {},
-    target_market_json=market_json or {},
-    people_json=people_json or {},
-    financials_json=financials_json or {},
-    financials_year1_json=financials_year1_json or {},
-    marketing_model_json=marketing_model_json or {},
-    normalized_traits=(refreshed_constraint_bundle.get("normalized_traits") if isinstance(refreshed_constraint_bundle, dict) else None),
-    benchmark_payload=(refreshed_constraint_bundle.get("benchmark_payload") if isinstance(refreshed_constraint_bundle, dict) else None),
-    constraint_engine_state=(refreshed_constraint_bundle.get("constraint_engine_state") if isinstance(refreshed_constraint_bundle, dict) else None),
-    scenario_strategy=scenario_strategy,
-  )
-  forecast_state = forecast_bundle.get("forecast_engine_state") if isinstance(forecast_bundle.get("forecast_engine_state"), dict) else {}
-  forecast_quarters = [copy.deepcopy(q) for q in (forecast_bundle.get("forecast_quarters") or []) if isinstance(q, dict)]
-  forecast_years = [copy.deepcopy(y) for y in (forecast_state.get("forecast_years") or []) if isinstance(y, dict)]
-  if isinstance(scenario_obj, dict):
-    scenario_obj["modified_state"] = {
-      "ops_json": copy.deepcopy(ops_json or {}),
-      "target_market_json": copy.deepcopy(market_json or {}),
-      "people_json": copy.deepcopy(people_json or {}),
-      "financials_json": copy.deepcopy(financials_json or {}),
-      "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
-      "fulfillment_json": copy.deepcopy((intake_context.get("fulfillment_json") if isinstance(intake_context, dict) else {}) or {}),
-      "marketing_model_json": copy.deepcopy(marketing_model_json or {}),
-    }
-    scenario_obj["forecast_quarters"] = forecast_quarters
-    scenario_obj["forecast_years"] = forecast_years
-    scenario_obj["forecast_engine_state"] = copy.deepcopy(forecast_state)
-    scenario_obj["summary"] = _build_consistency_financial_summary_safe(
+  try:
+    draft_row = get_draft(conn, draft_id=str(draft_id).strip())
+  except Exception:
+    return {}, {}
+  finmo_path = str(draft_row.get("finmo_path") or "").strip()
+  if not finmo_path:
+    return {}, {}
+  try:
+    result = sync_consistency_state_to_finmo(
+      finmo_path=finmo_path,
+      business_facts=business_facts,
+      ops_json=ops_json,
+      people_json=people_json,
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
+      marketing_model_json=marketing_model_json,
+      controller_input_seed=controller_input_seed or [],
+      forecast_quarters=modified_forecast_quarters or [],
+      calibration_spec=(
+        (selected_scenario.get("controller_calibration_request") if isinstance(selected_scenario.get("controller_calibration_request"), dict) else {})
+        or (selected_scenario.get("finmo_calibration_spec") if isinstance(selected_scenario, dict) else {})
+      ),
     )
-  return scenario_obj, refreshed_constraint_bundle, forecast_quarters, forecast_state
+  except Exception:
+    return {}, {}
+  model_input_json = result.get("model_input_json") if isinstance(result.get("model_input_json"), dict) else {}
+  finmo_json = result.get("finmo_json") if isinstance(result.get("finmo_json"), dict) else {}
+  return model_input_json, finmo_json
 
 
 def _run_consistency_closeout(
@@ -2076,6 +2095,10 @@ def _run_consistency_closeout(
   fulfillment_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
 ) -> Dict[str, Any]:
+  try:
+    persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
+  except Exception:
+    persisted_draft = {}
   initial_ops_json = copy.deepcopy(ops_json if isinstance(ops_json, dict) else {})
   initial_market_json = copy.deepcopy(market_json if isinstance(market_json, dict) else {})
   initial_people_json = copy.deepcopy(people_json if isinstance(people_json, dict) else {})
@@ -2093,6 +2116,7 @@ def _run_consistency_closeout(
   consistency_runtime_context = _build_consistency_runtime_context(
     client_id=client_id,
     draft_id=str(draft_id).strip(),
+    finmo_path=str((persisted_draft or {}).get("finmo_path") or "").strip(),
     business_facts=business_facts,
     business_stage_hint=business_stage_hint,
     current_date_iso=current_date_iso,
@@ -2137,6 +2161,8 @@ def _run_consistency_closeout(
   updated_financials_year1_json = dict(financials_year1_json or {})
   updated_marketing_model_json = dict(marketing_model_json or {})
   consistency_modified_plan_json: Dict[str, Any] = {}
+  model_input_json: Dict[str, Any] = {}
+  finmo_json: Dict[str, Any] = {}
 
   if isinstance(solver_state, dict) and (solver_state.get("scenarios") or []):
     selected_scenario_id = str((((solver_state.get("scenarios") or [])[0]) or {}).get("scenario_id") or "1").strip() or "1"
@@ -2192,6 +2218,25 @@ def _run_consistency_closeout(
           active_focus="consistency",
           constraint_bundle=constraint_bundle,
         )
+      model_input_json, finmo_json = _sync_consistency_finmo_artifacts(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        ops_json=updated_ops_json,
+        people_json=updated_people_json,
+        financials_json=updated_financials_json,
+        financials_year1_json=updated_financials_year1_json,
+        marketing_model_json=updated_marketing_model_json,
+        controller_input_seed=[
+          item for item in (((selected_scenario or {}).get("controller_input_seed") or []))
+          if isinstance(item, dict)
+        ],
+        modified_forecast_quarters=modified_forecast_quarters,
+        selected_scenario=selected_scenario if isinstance(selected_scenario, dict) else None,
+      )
+      finmo_quarter_driver_path, _finmo_forecast_years = _build_consistency_forecast_view_from_finmo_safe(finmo_json)
+      if finmo_quarter_driver_path:
+        modified_forecast_quarters = finmo_quarter_driver_path
       consistency_modified_plan_json = _build_consistency_modified_plan_payload(
         solver_state=solver_state,
         selected_scenario=selected_scenario,
@@ -2209,6 +2254,7 @@ def _run_consistency_closeout(
         modified_financials_year1_json=updated_financials_year1_json,
         modified_marketing_model_json=updated_marketing_model_json,
         modified_forecast_quarters=modified_forecast_quarters,
+        finmo_json=finmo_json,
       )
       consistency_modified_plan_json["resolution_summary"] = _build_violation_resolution_summary(
         solver_state=solver_state,
@@ -2233,6 +2279,8 @@ def _run_consistency_closeout(
         consistency_gpt_governance_json=gpt_governance_json,
         consistency_controller_contract_json=controller_contract_json,
         consistency_solver_execution_json=solver_execution_json,
+        model_input_json=model_input_json,
+        finmo_json=finmo_json,
         constraint_bundle=constraint_bundle,
         active_focus="consistency",
       )
@@ -2320,6 +2368,8 @@ def _run_consistency_closeout(
       "consistency_gpt_governance_json": gpt_governance_json,
       "consistency_controller_contract_json": controller_contract_json,
       "consistency_solver_execution_json": solver_execution_json,
+      "model_input_json": {},
+      "finmo_json": {},
     }
 
   if not consistency_modified_plan_json:
@@ -2340,6 +2390,7 @@ def _run_consistency_closeout(
       modified_financials_year1_json=updated_financials_year1_json,
       modified_marketing_model_json=updated_marketing_model_json,
       modified_forecast_quarters=modified_forecast_quarters,
+      finmo_json=finmo_json,
     )
     consistency_modified_plan_json["resolution_summary"] = _build_violation_resolution_summary(
       solver_state=solver_state,
@@ -2397,12 +2448,15 @@ def _run_consistency_closeout(
   updated_shared_context["consistency_gpt_governance"] = gpt_governance_json
   updated_shared_context["consistency_controller_contract"] = controller_contract_json
   updated_shared_context["consistency_solver_execution"] = solver_execution_json
+  updated_shared_context["model_input_json"] = model_input_json
+  updated_shared_context["finmo_json"] = finmo_json
 
   assistant_text = _build_consistency_finalized_message(
     solver_state=solver_state,
     selected_scenario=selected_scenario,
     initial_table_markdown=initial_table_markdown,
     modified_forecast_quarters=modified_forecast_quarters,
+    finmo_json=finmo_json,
   )
   return {
     "assistant_text": assistant_text,
@@ -2420,6 +2474,8 @@ def _run_consistency_closeout(
     "consistency_gpt_governance_json": gpt_governance_json,
     "consistency_controller_contract_json": controller_contract_json,
     "consistency_solver_execution_json": solver_execution_json,
+    "model_input_json": model_input_json,
+    "finmo_json": finmo_json,
   }
 
 
@@ -2625,6 +2681,12 @@ def _start_consistency_solver_if_needed(
     constraint_engine_state=(
       constraint_bundle.get("constraint_engine_state") if isinstance(constraint_bundle, dict) else None
     ),
+    finmo_path=str((intake_context or {}).get("finmo_path") or "").strip(),
+    business_facts={
+      "name": (intake_context or {}).get("business_name"),
+      "start_date": (intake_context or {}).get("business_start_date"),
+      "address": (intake_context or {}).get("address"),
+    },
   )
   if not isinstance(solver_state, dict):
     return None, constraint_bundle
@@ -7271,6 +7333,8 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
     "constraint_engine_state_json",
     "forecast_engine_state_json",
     "forecast_quarters_json",
+    "model_input_json",
+    "finmo_json",
     "consistency_modified_plan_json",
     "consistency_gpt_governance_json",
     "consistency_controller_contract_json",
@@ -7567,6 +7631,16 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(closeout.get("consistency_solver_execution_json"), dict)
         else {}
       )
+      model_input_json = (
+        closeout.get("model_input_json")
+        if isinstance(closeout.get("model_input_json"), dict)
+        else {}
+      )
+      finmo_json = (
+        closeout.get("finmo_json")
+        if isinstance(closeout.get("finmo_json"), dict)
+        else {}
+      )
       return _persist_consistency_modified_plan_completion(
         new_messages=new_messages,
         ops_value=ops_value,
@@ -7580,6 +7654,8 @@ def post_intake_consult_handler(*, app, request):
         consistency_gpt_governance_json=consistency_gpt_governance_json,
         consistency_controller_contract_json=consistency_controller_contract_json,
         consistency_solver_execution_json=consistency_solver_execution_json,
+        model_input_json=model_input_json,
+        finmo_json=finmo_json,
         confirmations_value=confirmations_value,
         flat_fields_value=flat_fields_value,
         include_fulfillment=include_fulfillment,
@@ -7626,6 +7702,16 @@ def post_intake_consult_handler(*, app, request):
           if isinstance(closeout.get("consistency_solver_execution_json"), dict)
           else {}
         ),
+        model_input_json=(
+          closeout.get("model_input_json")
+          if isinstance(closeout.get("model_input_json"), dict)
+          else {}
+        ),
+        finmo_json=(
+          closeout.get("finmo_json")
+          if isinstance(closeout.get("finmo_json"), dict)
+          else {}
+        ),
         fulfillment_json=fulfillment_json if include_fulfillment else None,
         active_focus="consistency",
         confirmations=confirmations_value,
@@ -7651,6 +7737,8 @@ def post_intake_consult_handler(*, app, request):
       consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
       consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
       consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
+      model_input_json: Optional[Dict[str, Any]] = None,
+      finmo_json: Optional[Dict[str, Any]] = None,
       confirmations_value: Optional[Dict[str, bool]] = None,
       flat_fields_value: Optional[Dict[str, Any]] = None,
       include_fulfillment: bool = False,
@@ -7677,6 +7765,8 @@ def post_intake_consult_handler(*, app, request):
         consistency_gpt_governance_json=consistency_gpt_governance_json,
         consistency_controller_contract_json=consistency_controller_contract_json,
         consistency_solver_execution_json=consistency_solver_execution_json,
+        model_input_json=model_input_json,
+        finmo_json=finmo_json,
         fulfillment_json=fulfillment_json if include_fulfillment else None,
         marketing_model_json=marketing_value,
         active_focus="done",

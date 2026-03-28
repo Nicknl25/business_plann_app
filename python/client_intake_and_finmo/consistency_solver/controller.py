@@ -452,6 +452,8 @@ def _build_solver_state_model(
   constraint_engine_state: Optional[Dict[str, Any]],
   normalized_traits: Optional[Dict[str, Any]] = None,
   benchmark_payload: Optional[Dict[str, Any]] = None,
+  finmo_path: Optional[str] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   normalized_traits = normalized_traits if isinstance(normalized_traits, dict) else {}
   benchmark_payload = benchmark_payload if isinstance(benchmark_payload, dict) else {}
@@ -551,6 +553,8 @@ def _build_solver_state_model(
       ),
       "current_staff": _clone([item for item in (people_json.get("people") or []) if isinstance(item, dict)]),
       "constraint_engine_state": _clone(state),
+      "finmo_path": str(finmo_path or "").strip(),
+      "business_facts": _clone(business_facts or {}),
     },
     "constraint_profile": {
       "constraint_engine_violations": list(state.get("violations") or []),

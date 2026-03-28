@@ -37,6 +37,7 @@ from .controller import (
   _gpt_blueprint_is_usable,
   _solver_profiles,
 )
+from .finmo_controller import build_controller_finmo_candidate
 from .engine import (
   MAX_SCENARIOS,
   _build_candidate,
@@ -46,7 +47,6 @@ from .engine import (
   _select_best_effort_governed_scenarios,
   _select_client_ready_scenarios,
   _select_materially_distinct_scenarios,
-  _solve_direct_profile,
   _solver_required,
 )
 from .patches import (
@@ -423,6 +423,8 @@ def build_consistency_solver_state(
   normalized_traits: Optional[Dict[str, Any]] = None,
   benchmark_payload: Optional[Dict[str, Any]] = None,
   constraint_engine_state: Optional[Dict[str, Any]] = None,
+  finmo_path: Optional[str] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
   baseline_summary = build_consistency_financial_summary(
     financials_json=financials_json,
@@ -443,6 +445,8 @@ def build_consistency_solver_state(
     constraint_engine_state=constraint_engine_state,
     normalized_traits=normalized_traits,
     benchmark_payload=benchmark_payload,
+    finmo_path=finmo_path,
+    business_facts=business_facts,
   )
   baseline_forecast_bundle = build_forecast_engine_bundle(
     operating_model_json=ops_json,
@@ -454,6 +458,8 @@ def build_consistency_solver_state(
     benchmark_payload=benchmark_payload or {},
     constraint_engine_state=constraint_engine_state or {},
   )
+  baseline_forecast_bundle = _clone(baseline_forecast_bundle)
+  state_model["baseline_forecast_bundle"] = baseline_forecast_bundle
   strategy_layer = _build_strategy_layer(
     state_model=state_model,
     baseline_summary=baseline_summary,
@@ -463,7 +469,6 @@ def build_consistency_solver_state(
     baseline_forecast_bundle=baseline_forecast_bundle,
   )
   state_model["strategy_layer"] = strategy_layer
-  state_model["baseline_forecast_bundle"] = baseline_forecast_bundle
   direct_inputs = _build_direct_solver_inputs(state_model=state_model)
   if not direct_inputs:
     return _build_blocking_solver_state(
@@ -513,18 +518,8 @@ def build_consistency_solver_state(
       diagnostics = (contract_bundle.get("diagnostics") or {}) if isinstance(contract_bundle.get("diagnostics"), dict) else {}
       if "invalid_gpt_orchestration" in set(diagnostics.get("issues") or []):
         continue
-      solution = _solve_direct_profile(
+      candidate = build_controller_finmo_candidate(
         profile=contract_bundle.get("profile") or {},
-        direct_inputs=contract_bundle.get("direct_inputs") or {},
-        target_ebitda_min=contract_bundle.get("target_ebitda_min"),
-        target_ebitda_max=contract_bundle.get("target_ebitda_max"),
-        enforce_blocking_bands=True,
-      )
-      if not isinstance(solution, dict):
-        continue
-      candidate = _build_candidate(
-        profile=contract_bundle.get("profile") or {},
-        solution=solution,
         contract_bundle=contract_bundle,
         state_model=state_model,
         scenario_index=len(attempted_scenarios) + scenario_index,
@@ -534,7 +529,7 @@ def build_consistency_solver_state(
         {
           "profile": _clone(profile),
           "contract_bundle": contract_bundle,
-          "solution": solution,
+          "solution": {},
           "candidate": candidate,
         }
       )
@@ -544,9 +539,18 @@ def build_consistency_solver_state(
       provisional_id = str((provisional_client_ready[0] or {}).get("scenario_id") or "").strip()
       provisional_audit_target = next((item for item in attempt_records if str((((item.get("candidate") or {}) if isinstance(item.get("candidate"), dict) else {}).get("scenario_id") or "")).strip() == provisional_id), None)
     else:
-      provisional_best_effort = _select_best_effort_governed_scenarios(attempt_candidates, state_model=state_model)
-      if provisional_best_effort:
-        provisional_id = str((provisional_best_effort[0] or {}).get("scenario_id") or "").strip()
+      provisional_candidates = [
+        item for item in _select_materially_distinct_scenarios(
+          [
+            candidate for candidate in attempt_candidates
+            if isinstance(candidate, dict)
+            and _safe_int(candidate.get("remaining_blocking_count")) <= 0
+          ]
+        )
+        if isinstance(item, dict)
+      ]
+      if provisional_candidates:
+        provisional_id = str((provisional_candidates[0] or {}).get("scenario_id") or "").strip()
         provisional_audit_target = next((item for item in attempt_records if str((((item.get("candidate") or {}) if isinstance(item.get("candidate"), dict) else {}).get("scenario_id") or "")).strip() == provisional_id), None)
     if provisional_audit_target and str((((provisional_audit_target.get("profile") or {}) if isinstance(provisional_audit_target.get("profile"), dict) else {}).get("strategy_source") or "")).strip().lower() == "gpt":
       contract_bundle = (provisional_audit_target.get("contract_bundle") or {}) if isinstance(provisional_audit_target.get("contract_bundle"), dict) else {}
@@ -595,28 +599,20 @@ def build_consistency_solver_state(
           or bool(corrected_self_audit.get("missing_required_translations"))
           or bool(corrected_self_audit.get("conflicting_roles"))
         ):
-          corrected_solution = None
+          corrected_candidate = None
         else:
-          corrected_solution = _solve_direct_profile(
+          corrected_candidate = build_controller_finmo_candidate(
             profile=corrected_bundle.get("profile") or {},
-            direct_inputs=corrected_bundle.get("direct_inputs") or {},
-            target_ebitda_min=corrected_bundle.get("target_ebitda_min"),
-            target_ebitda_max=corrected_bundle.get("target_ebitda_max"),
-            enforce_blocking_bands=True,
-          )
-        if isinstance(corrected_solution, dict):
-          corrected_candidate = _build_candidate(
-            profile=corrected_bundle.get("profile") or {},
-            solution=corrected_solution,
             contract_bundle=corrected_bundle,
             state_model=state_model,
             scenario_index=_safe_int(((provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}).get("scenario_id")),
           )
+        if isinstance(corrected_candidate, dict):
           old_candidate = (provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}
           old_id = str(old_candidate.get("scenario_id") or "").strip()
           attempt_candidates = [corrected_candidate if str((item.get("scenario_id") or "")).strip() == old_id else item for item in attempt_candidates]
           provisional_audit_target["contract_bundle"] = corrected_bundle
-          provisional_audit_target["solution"] = corrected_solution
+          provisional_audit_target["solution"] = {}
           provisional_audit_target["candidate"] = corrected_candidate
         else:
           corrected_diagnostics["issues"] = _unique_strings(list(corrected_diagnostics.get("issues") or []) + ["gpt_translation_rejected"])
@@ -669,16 +665,18 @@ def build_consistency_solver_state(
         strategy_retry_attempts=retry_attempts,
       )
   if not selected:
-    selected = _select_best_effort_governed_scenarios(attempted_scenarios, state_model=state_model)
+    governed_projection_candidates = [
+      item for item in attempted_scenarios
+      if isinstance(item, dict)
+      and _safe_int(item.get("remaining_blocking_count")) <= 0
+      and not {
+        "all_negative_five_year_path",
+        "degrading_five_year_path",
+      }.issubset(set(item.get("presentation_issues") or []))
+    ]
+    selected = _select_materially_distinct_scenarios(governed_projection_candidates)
     if selected:
-      selection_mode = "best_effort_governed"
-    else:
-      selected = _build_governed_rescue_scenarios(
-        state_model=state_model,
-        attempted_candidates=attempted_scenarios,
-      )
-      if selected:
-        selection_mode = "best_effort_governed"
+      selection_mode = "governed_projection"
   if not selected:
     return _build_blocking_solver_state(
       baseline_summary=baseline_summary,
@@ -787,7 +785,6 @@ __all__ = [
   "_select_best_effort_governed_scenarios",
   "_select_client_ready_scenarios",
   "_select_materially_distinct_scenarios",
-  "_solve_direct_profile",
   "_solver_profiles",
   "_solver_required",
   "_sync_marketing_derived_fields",

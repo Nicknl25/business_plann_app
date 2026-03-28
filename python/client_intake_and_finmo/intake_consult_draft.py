@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -47,6 +48,8 @@ _ENGINE_JSON_COLUMNS = (
   "constraint_engine_state_json",
   "forecast_engine_state_json",
   "forecast_quarters_json",
+  "model_input_json",
+  "finmo_json",
   "consistency_modified_plan_json",
   "consistency_gpt_governance_json",
   "consistency_controller_contract_json",
@@ -258,6 +261,9 @@ def ensure_table(conn) -> None:
         constraint_engine_state_json LONGTEXT NULL,
         forecast_engine_state_json LONGTEXT NULL,
         forecast_quarters_json LONGTEXT NULL,
+        finmo_path LONGTEXT NULL,
+        model_input_json LONGTEXT NULL,
+        finmo_json LONGTEXT NULL,
         consistency_modified_plan_json LONGTEXT NULL,
         consistency_gpt_governance_json LONGTEXT NULL,
         consistency_controller_contract_json LONGTEXT NULL,
@@ -338,6 +344,12 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN forecast_engine_state_json LONGTEXT NULL")
   if "forecast_quarters_json" not in cols:
     alterations.append("ADD COLUMN forecast_quarters_json LONGTEXT NULL")
+  if "finmo_path" not in cols:
+    alterations.append("ADD COLUMN finmo_path LONGTEXT NULL")
+  if "model_input_json" not in cols:
+    alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
+  if "finmo_json" not in cols:
+    alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
   if "consistency_modified_plan_json" not in cols:
     alterations.append("ADD COLUMN consistency_modified_plan_json LONGTEXT NULL")
   if "consistency_gpt_governance_json" not in cols:
@@ -386,16 +398,21 @@ def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
   ensure_table(conn)
   draft_id = uuid.uuid4().hex
   now = _utc_now_str()
+  finmo_path = _bootstrap_consult_finmo_path(
+    client_id=client_id,
+    created_at=now,
+    business_name="",
+  )
   cur = conn.cursor()
   try:
     cur.execute(
       """
       INSERT INTO intake_consult_drafts
-        (draft_id, client_id, status, messages_json, created_at, updated_at)
+        (draft_id, client_id, status, messages_json, created_at, updated_at, finmo_path)
       VALUES
-        (%s, %s, 'in_progress', %s, %s, %s)
+        (%s, %s, 'in_progress', %s, %s, %s, %s)
       """,
-      (draft_id, client_id, json.dumps([], ensure_ascii=False), now, now),
+      (draft_id, client_id, json.dumps([], ensure_ascii=False), now, now, finmo_path),
     )
     conn.commit()
   finally:
@@ -403,7 +420,12 @@ def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
       cur.close()
     except Exception:
       pass
-  return {"draft_id": draft_id, "client_id": client_id, "status": "in_progress"}
+  return {
+    "draft_id": draft_id,
+    "client_id": client_id,
+    "status": "in_progress",
+    "finmo_path": finmo_path,
+  }
 
 
 def get_draft(conn, *, draft_id: str) -> Dict[str, Any]:
@@ -451,6 +473,37 @@ def _parse_json_object(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
+def _bootstrap_consult_finmo_path(
+  *,
+  client_id: str,
+  created_at: Any,
+  business_name: str = "",
+) -> Optional[str]:
+  template_path = str(os.getenv("FINMO") or "").strip()
+  client_finmo_dir = str(os.getenv("CLIENT_FINMO") or "").strip()
+  if not template_path or not client_finmo_dir:
+    return None
+  try:
+    from intake_submission import create_client_finmo_workbook  # type: ignore
+  except Exception:
+    try:
+      from client_intake_and_finmo.intake_submission import create_client_finmo_workbook  # type: ignore
+    except Exception:
+      return None
+  try:
+    copied = create_client_finmo_workbook(
+      template_path=template_path,
+      client_finmo_dir=client_finmo_dir,
+      business_name=str(business_name or "").strip(),
+      created_at=created_at,
+      client_id=str(client_id or "").strip(),
+    )
+  except Exception:
+    return None
+  cleaned = str(copied or "").strip()
+  return cleaned or None
+
+
 def _render_messages_for_storage(
   *,
   row: Dict[str, Any],
@@ -471,6 +524,8 @@ def _render_messages_for_storage(
   consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
   consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
   engine_versions_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
   try:
@@ -520,6 +575,12 @@ def _render_messages_for_storage(
       forecast_engine_state_json
       if forecast_engine_state_json is not None
       else _parse_json_object(row.get("forecast_engine_state_json"))
+    ),
+    "model_input_json": (
+      model_input_json if model_input_json is not None else _parse_json_object(row.get("model_input_json"))
+    ),
+    "finmo_json": (
+      finmo_json if finmo_json is not None else _parse_json_object(row.get("finmo_json"))
     ),
     "consistency_modified_plan": (
       consistency_modified_plan_json
@@ -591,6 +652,9 @@ def append_messages(
   consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
   consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
   engine_versions_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  finmo_path: Optional[str] = None,
   pending_ops_milestone_json: Optional[Any] = None,
   fulfillment_json: Optional[Dict[str, Any]] = None,
   active_focus: Optional[str] = None,
@@ -630,6 +694,8 @@ def append_messages(
     consistency_controller_contract_json=consistency_controller_contract_json,
     consistency_solver_execution_json=consistency_solver_execution_json,
     engine_versions_json=engine_versions_json,
+    model_input_json=model_input_json,
+    finmo_json=finmo_json,
     business_facts=business_facts,
   )
 
@@ -690,6 +756,14 @@ def append_messages(
     set_parts.append("forecast_quarters_json = %s")
     values.append(json.dumps(forecast_quarters_json, ensure_ascii=False))
 
+  if model_input_json is not None:
+    set_parts.append("model_input_json = %s")
+    values.append(json.dumps(model_input_json, ensure_ascii=False))
+
+  if finmo_json is not None:
+    set_parts.append("finmo_json = %s")
+    values.append(json.dumps(finmo_json, ensure_ascii=False))
+
   if consistency_modified_plan_json is not None:
     set_parts.append("consistency_modified_plan_json = %s")
     values.append(json.dumps(consistency_modified_plan_json, ensure_ascii=False))
@@ -717,6 +791,10 @@ def append_messages(
   if fulfillment_json is not None:
     set_parts.append("fulfillment_json = %s")
     values.append(json.dumps(fulfillment_json, ensure_ascii=False))
+
+  if finmo_path is not None:
+    set_parts.append("finmo_path = %s")
+    values.append(str(finmo_path).strip() or None)
 
   if active_focus is not None:
     set_parts.append("active_focus = %s")
@@ -794,6 +872,9 @@ def append_messages(
       "constraint_engine_state_json",
       "forecast_engine_state_json",
       "forecast_quarters_json",
+      "finmo_path",
+      "model_input_json",
+      "finmo_json",
       "consistency_modified_plan_json",
       "consistency_gpt_governance_json",
       "consistency_controller_contract_json",

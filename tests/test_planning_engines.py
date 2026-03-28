@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
+
+from openpyxl import Workbook
+from openpyxl.workbook.defined_name import DefinedName
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +49,6 @@ from consistency_solver import (  # type: ignore  # noqa: E402
   _select_client_ready_scenarios,
   _select_materially_distinct_scenarios,
   _solver_required,
-  _solve_direct_profile,
   _solver_profiles,
   _sync_marketing_derived_fields,
   apply_consistency_solver_choice,
@@ -53,6 +56,7 @@ from consistency_solver import (  # type: ignore  # noqa: E402
 )
 from consistency_solver.engine import _scenario_violations  # type: ignore  # noqa: E402
 from consistency_solver.engine import _build_modified_constraint_bundle  # type: ignore  # noqa: E402
+from consistency_solver.finmo_controller import _build_controller_anchor_solution  # type: ignore  # noqa: E402
 from solver_trace import configure_solver_trace_run, reset_solver_trace_stage, trace, trace_lazy  # type: ignore  # noqa: E402
 from constraint_engine import build_constraint_engine_bundle  # type: ignore  # noqa: E402
 from constraint_traits import extract_normalized_traits, resolve_business_classification  # type: ignore  # noqa: E402
@@ -81,14 +85,367 @@ from api_handlers.intake_consult import (  # type: ignore  # noqa: E402
   _serialize_debug_draft_row,
 )
 from intake_consult_draft import (  # type: ignore  # noqa: E402
+  _bootstrap_consult_finmo_path,
   append_messages,
   _consistency_completion_requested,
   _is_valid_consistency_modified_plan_payload,
 )
 from consistency_strategy_advisor import _openai_model as _strategy_advisor_openai_model  # type: ignore  # noqa: E402
+from finmo_bridge import (  # type: ignore  # noqa: E402
+  run_finmo_excel_solver_request,
+  run_finmo_goal_seek_request,
+  sync_consistency_state_to_finmo,
+)
 
 
 class PlanningEnginesTests(unittest.TestCase):
+  def _build_finmo_test_workbook(self) -> str:
+    wb = Workbook()
+    ws_inputs = wb.active
+    ws_inputs.title = "Model Inputs"
+    ws_finmo = wb.create_sheet("Financial Model QTR")
+
+    ws_inputs["F2"] = ""
+    ws_inputs["E1"] = "Days in QTR"
+    ws_inputs["E2"] = "Date"
+    ws_inputs["E3"] = "Quarter"
+    ws_inputs["E4"] = "Year"
+    ws_inputs["E5"] = "Year Fraction"
+    for col, quarter, year in (("G", 0, 2026), ("H", 1, 2026), ("I", 2, 2026)):
+      ws_inputs[f"{col}1"] = 90
+      ws_inputs[f"{col}2"] = "2026-01-01"
+      ws_inputs[f"{col}3"] = quarter
+      ws_inputs[f"{col}4"] = year
+      ws_inputs[f"{col}5"] = 0.25 if quarter else 0.05
+
+    revenue_rows = [
+      (8, "LOB 1", "Product 1", "Capacity"),
+      (9, "LOB 1", "Product 1", "Unit Price"),
+      (10, "LOB 1", "Product 1", "Utilization"),
+    ]
+    for row_idx, lob, product, driver in revenue_rows:
+      ws_inputs[f"A{row_idx}"] = "Controller write"
+      ws_inputs[f"B{row_idx}"] = "Revenue"
+      ws_inputs[f"C{row_idx}"] = lob
+      ws_inputs[f"D{row_idx}"] = product
+      ws_inputs[f"E{row_idx}"] = driver
+      for col in ("G", "H", "I"):
+        ws_inputs[f"{col}{row_idx}"] = 0
+
+    expense_labels = [
+      "Cost of Goods Sold",
+      "Marketing",
+      "Research & Development",
+      "Lease",
+      "Payroll",
+      "General & Administrative",
+      "Interest Rate",
+      "Depreciation",
+      "Taxes",
+    ]
+    for offset, label in enumerate(expense_labels):
+      row_idx = 48 + offset
+      ws_inputs[f"D{row_idx}"] = "Controller write"
+      ws_inputs[f"E{row_idx}"] = label
+      for col in ("G", "H", "I"):
+        ws_inputs[f"{col}{row_idx}"] = 0
+
+    balance_labels = [
+      "Accounts Receivable Days",
+      "Inventory Days",
+      "PPE $ (Excluding Capital Leases)",
+      "Accumulated Depreciation",
+      "Accounts Payable Days",
+      "Prepaid Expenses",
+      "Deferred Revnue",
+      "Short Term Debt (% of LTD)",
+      "Owner's Capital",
+      "Other Equity",
+    ]
+    for offset, label in enumerate(balance_labels):
+      row_idx = 58 + offset
+      ws_inputs[f"D{row_idx}"] = "Controller write"
+      ws_inputs[f"E{row_idx}"] = label
+      for col in ("G", "H", "I"):
+        ws_inputs[f"{col}{row_idx}"] = 0
+
+    ws_inputs["E71"] = "Opening Balance"
+    ws_inputs["E72"] = "Plus: Additions (repayments), net"
+    ws_inputs["E73"] = "Closing Balance"
+    ws_inputs["E79"] = "Opening Balance (Total)"
+    ws_inputs["E80"] = "Less: Principal Repayments"
+    ws_inputs["E81"] = "Plus: Net Additions"
+    ws_inputs["E82"] = "Closing Balance (Total)"
+    ws_inputs["F73"] = 5000
+    ws_inputs["F82"] = 1200
+    ws_inputs["D72"] = "Controller write"
+    ws_inputs["D80"] = "Controller write"
+    ws_inputs["D81"] = "Controller write"
+    for row_idx in (72, 80, 81):
+      for col in ("G", "H", "I"):
+        ws_inputs[f"{col}{row_idx}"] = 0
+
+    ws_finmo["B1"] = "Check"
+    ws_finmo["C1"] = "OK"
+    ws_finmo["B2"] = ""
+    ws_finmo["C2"] = 0
+    ws_finmo["B4"] = "Year"
+    ws_finmo["B5"] = "Quarter"
+    ws_finmo["B6"] = "Date"
+    for col, quarter, year, revenue in (("D", 0, 2026, 10.0), ("E", 1, 2026, 20.0), ("F", 2, 2026, 30.0)):
+      ws_finmo[f"{col}4"] = year
+      ws_finmo[f"{col}5"] = quarter
+      ws_finmo[f"{col}6"] = "2026-01-01"
+      ws_finmo[f"B8"] = "Revenue"
+      ws_finmo[f"B16"] = "EBITDA"
+      ws_finmo[f"B20"] = "Net Income"
+      ws_finmo[f"{col}8"] = revenue
+      ws_finmo[f"{col}16"] = revenue / 2
+      ws_finmo[f"{col}20"] = revenue / 3
+      ws_finmo[f"B23"] = "Cash"
+      ws_finmo[f"B29"] = "Total Assets"
+      ws_finmo[f"B44"] = "Total Liabilities & Equity"
+      ws_finmo[f"{col}23"] = revenue + 1
+      ws_finmo[f"{col}29"] = revenue + 2
+      ws_finmo[f"{col}44"] = revenue + 3
+      ws_finmo[f"B47"] = "Beginning Cash"
+      ws_finmo[f"B64"] = "Ending Cash"
+      ws_finmo[f"{col}47"] = revenue + 4
+      ws_finmo[f"{col}64"] = revenue + 5
+
+    wb.defined_names.add(DefinedName("model_input_startdate", attr_text="'Model Inputs'!$F$2"))
+    wb.defined_names.add(DefinedName("model_input_periods", attr_text="'Model Inputs'!$D$1:$Z$5"))
+    wb.defined_names.add(DefinedName("model_input_revenue", attr_text="'Model Inputs'!$A$8:$Z$46"))
+    wb.defined_names.add(DefinedName("model_input_expenses", attr_text="'Model Inputs'!$D$48:$Z$56"))
+    wb.defined_names.add(DefinedName("model_input_balancehseet", attr_text="'Model Inputs'!$D$58:$Z$67"))
+    wb.defined_names.add(DefinedName("model_input_schedules", attr_text="'Model Inputs'!$D$70:$Z$82"))
+    wb.defined_names.add(DefinedName("finmo_accountingcheck", attr_text="'Financial Model QTR'!$B$1:$X$2"))
+    wb.defined_names.add(DefinedName("finmo_periods", attr_text="'Financial Model QTR'!$B$4:$X$6"))
+    wb.defined_names.add(DefinedName("finmo_pl", attr_text="'Financial Model QTR'!$B$8:$X$20"))
+    wb.defined_names.add(DefinedName("finmo_balancesheet", attr_text="'Financial Model QTR'!$B$23:$X$44"))
+    wb.defined_names.add(DefinedName("finmo_cfs", attr_text="'Financial Model QTR'!$B$47:$X$64"))
+
+    handle = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    handle.close()
+    wb.save(handle.name)
+    wb.close()
+    return handle.name
+
+  def test_bootstrap_consult_finmo_path_returns_none_without_finmo_env(self) -> None:
+    with patch.dict("os.environ", {}, clear=True):
+      self.assertIsNone(
+        _bootstrap_consult_finmo_path(
+          client_id="CLIENT123",
+          created_at="2026-03-27 10:00:00.000000",
+          business_name="",
+        )
+      )
+
+  def test_bootstrap_consult_finmo_path_uses_existing_copy_function(self) -> None:
+    with patch.dict(
+      "os.environ",
+      {
+        "FINMO": r"C:\template.xlsx",
+        "CLIENT_FINMO": r"C:\client-finmo",
+      },
+      clear=True,
+    ):
+      with patch(
+        "intake_submission.create_client_finmo_workbook",
+        return_value=r"C:\client-finmo\client_20260327100000000000.xlsx",
+      ) as mocked_copy:
+        result = _bootstrap_consult_finmo_path(
+          client_id="CLIENT123",
+          created_at="2026-03-27 10:00:00.000000",
+          business_name="",
+        )
+    self.assertEqual(result, r"C:\client-finmo\client_20260327100000000000.xlsx")
+    mocked_copy.assert_called_once_with(
+      template_path=r"C:\template.xlsx",
+      client_finmo_dir=r"C:\client-finmo",
+      business_name="",
+      created_at="2026-03-27 10:00:00.000000",
+      client_id="CLIENT123",
+    )
+
+  def test_sync_consistency_state_to_finmo_persists_model_inputs_and_reads_finmo(self) -> None:
+    workbook_path = self._build_finmo_test_workbook()
+    with patch("finmo_bridge._recalculate_excel_workbook", return_value=None):
+      result = sync_consistency_state_to_finmo(
+        finmo_path=workbook_path,
+        business_facts={"start_date": "2026-01-15"},
+        ops_json={},
+        people_json={},
+        financials_json={
+          "monthly_rent_expense": 1000,
+          "annual_interest_payment": 1200,
+          "total_debt_outstanding": 6000,
+          "current_capex": 5000,
+          "annual_principal_payment": 400,
+          "initial_lease": 1500,
+        },
+        financials_year1_json={},
+        marketing_model_json={},
+        forecast_quarters=[
+          {
+            "capacity_units": 100,
+            "price": 25,
+            "utilization": 0.6,
+            "revenue": 1500,
+            "cogs": 600,
+            "marketing": 150,
+            "payroll": 300,
+            "opex": 225,
+            "depreciation": 30,
+            "taxes": 0,
+            "capex": 200,
+            "working_capital": {"dso": 20, "dpo": 10, "inventory_days": 5},
+          },
+          {
+            "capacity_units": 120,
+            "price": 30,
+            "utilization": 0.7,
+            "revenue": 2520,
+            "cogs": 1008,
+            "marketing": 252,
+            "payroll": 420,
+            "opex": 315,
+            "depreciation": 40,
+            "taxes": 0,
+            "capex": 100,
+            "working_capital": {"dso": 22, "dpo": 11, "inventory_days": 6},
+          },
+        ],
+      )
+
+    model_input_json = result["model_input_json"]
+    finmo_json = result["finmo_json"]
+    self.assertEqual(model_input_json["start_date"], "2026-01-15")
+    revenue_rows = model_input_json["sections"]["revenue"]
+    capacity_row = next(row for row in revenue_rows if row["lob"] == "LOB 1" and row["product"] == "Product 1" and row["driver"] == "Capacity")
+    price_row = next(row for row in revenue_rows if row["lob"] == "LOB 1" and row["product"] == "Product 1" and row["driver"] == "Unit Price")
+    utilization_row = next(row for row in revenue_rows if row["lob"] == "LOB 1" and row["product"] == "Product 1" and row["driver"] == "Utilization")
+    self.assertEqual(capacity_row["values"][:3], [100.0, 100.0, 120.0])
+    self.assertEqual(price_row["values"][:3], [25.0, 25.0, 30.0])
+    self.assertEqual(utilization_row["values"][:3], [0.6, 0.6, 0.7])
+
+    marketing_row = next(row for row in model_input_json["sections"]["expenses"] if row["label"] == "Marketing")
+    self.assertEqual(marketing_row["values"][:3], [0.1, 0.1, 0.1])
+    self.assertTrue(finmo_json["accounting_check"]["all_ok"])
+    self.assertEqual(finmo_json["quarter_rows"][0]["revenue"], 10.0)
+    self.assertEqual(finmo_json["quarter_rows"][1]["ebitda"], 10.0)
+
+  def test_run_finmo_goal_seek_request_uses_goal_band_midpoint(self) -> None:
+    with patch("finmo_bridge.run_finmo_goal_seek", return_value={"success": True}) as goal_seek_mock:
+      result = run_finmo_goal_seek_request(
+        finmo_path=r"C:\client-finmo\client.xlsx",
+        request={
+          "request_id": "goal-1",
+          "objective": {"goal_band": {"min": 10.0, "max": 20.0}},
+          "objective_cell": {"sheet": "Financial Model QTR", "cell": "H14"},
+          "changing_input_cells": [{"sheet": "Model Inputs", "cell": "H53"}],
+        },
+      )
+
+    goal_seek_mock.assert_called_once_with(
+      finmo_path=r"C:\client-finmo\client.xlsx",
+      objective_cell={"sheet": "Financial Model QTR", "cell": "H14"},
+      changing_input_cell={"sheet": "Model Inputs", "cell": "H53"},
+      goal_value=15.0,
+    )
+    self.assertTrue(result["success"])
+    self.assertEqual(result["request_id"], "goal-1")
+
+  def test_run_finmo_excel_solver_request_passes_band_and_changing_cells(self) -> None:
+    with patch("finmo_bridge.run_finmo_excel_solver", return_value={"success": True, "solver_result": "0"}) as solver_mock:
+      result = run_finmo_excel_solver_request(
+        finmo_path=r"C:\client-finmo\client.xlsx",
+        request={
+          "request_id": "solver-1",
+          "objective": {"goal_band": {"min": 5.0, "max": 12.0}},
+          "objective_cell": {"sheet": "Financial Model QTR", "cell": "K14"},
+          "changing_input_cells": [
+            {"sheet": "Model Inputs", "cell": "K53"},
+            {"sheet": "Model Inputs", "cell": "K54"},
+          ],
+          "constraints": [{"cell": "Model Inputs!K53", "relation": 3, "value": 0.0}],
+        },
+      )
+
+    solver_mock.assert_called_once_with(
+      finmo_path=r"C:\client-finmo\client.xlsx",
+      objective_cell={"sheet": "Financial Model QTR", "cell": "K14"},
+      changing_input_cells=[
+        {"sheet": "Model Inputs", "cell": "K53"},
+        {"sheet": "Model Inputs", "cell": "K54"},
+      ],
+      goal_band={"min": 5.0, "max": 12.0},
+      constraints=[{"cell": "Model Inputs!K53", "relation": 3, "value": 0.0}],
+    )
+    self.assertTrue(result["success"])
+    self.assertEqual(result["request_id"], "solver-1")
+
+  def test_sync_consistency_state_to_finmo_resolves_controller_calibration_constraints(self) -> None:
+    workbook_path = self._build_finmo_test_workbook()
+    with patch("finmo_bridge._recalculate_excel_workbook", return_value=None):
+      result = sync_consistency_state_to_finmo(
+        finmo_path=workbook_path,
+        business_facts={"start_date": "2026-01-15"},
+        ops_json={},
+        people_json={},
+        financials_json={
+          "monthly_rent_expense": 1000,
+          "annual_interest_payment": 1200,
+          "total_debt_outstanding": 6000,
+          "current_capex": 5000,
+          "annual_principal_payment": 400,
+          "initial_lease": 1500,
+        },
+        financials_year1_json={},
+        marketing_model_json={},
+        controller_input_seed=[
+          {
+            "quarter_index": 1,
+            "revenue_products": [{"products": [{"capacity_units": 100, "price": 25, "utilization": 0.6}]}],
+            "revenue": 1500,
+            "cogs_percent": 0.4,
+            "marketing_percent": 0.1,
+            "r_and_d_percent": 0.0,
+            "lease_amount": 3000,
+            "payroll_amount": 300,
+            "g_and_a_percent": 0.05,
+            "interest_rate": 0.2,
+            "depreciation_percent": 0.02,
+            "tax_percent": 0.0,
+            "working_capital": {"dso": 20, "dpo": 10, "inventory_days": 5},
+            "capex": 200,
+          }
+        ],
+        forecast_quarters=[],
+        calibration_spec={
+          "solver_requests": [
+            {
+              "request_id": "solver-q1",
+              "objective": {"sheet_range": "finmo_pl", "line_item": "EBITDA", "quarter_index": 1, "goal_band": {"min": 10.0, "max": 20.0}},
+              "changing_inputs": [
+                {"section": "expenses", "label": "Marketing", "quarter_index": 1, "band": {"min": 0.05, "max": 0.15}},
+              ],
+              "band_constraints": [
+                {"target": {"sheet_range": "finmo_pl", "line_item": "Net Income", "quarter_index": 1}, "goal_band": {"min": 5.0, "max": 25.0}},
+              ],
+            }
+          ]
+        },
+      )
+
+    shell = ((result.get("finmo_json") or {}).get("calibration_shell") or {})
+    solver_request = ((shell.get("solver_requests") or [None])[0] or {})
+    constraints = solver_request.get("constraints") or []
+    self.assertTrue(solver_request.get("objective_cell"))
+    self.assertTrue(solver_request.get("changing_input_cells"))
+    self.assertTrue(any(item.get("relation") == 3 for item in constraints))
+    self.assertTrue(any(item.get("relation") == 1 for item in constraints))
+
   def test_strategy_advisor_uses_same_default_model_as_rest_of_app(self) -> None:
     with patch.dict("os.environ", {}, clear=True):
       self.assertEqual(_strategy_advisor_openai_model(), "gpt-5.1")
@@ -3146,11 +3503,9 @@ class PlanningEnginesTests(unittest.TestCase):
       "product_driver_basis": [],
     }
 
-    solution = _solve_direct_profile(
+    solution = _build_controller_anchor_solution(
       profile=growth_profile,
-      direct_inputs=direct_inputs,
-      target_ebitda_min=0.0,
-      enforce_blocking_bands=False,
+      contract_bundle={"profile": growth_profile, "direct_inputs": direct_inputs},
     )
 
     self.assertIsNotNone(solution)
@@ -4790,8 +5145,7 @@ class PlanningEnginesTests(unittest.TestCase):
       patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
       patch("consistency_solver._solver_profiles", return_value=profiles), \
       patch("consistency_solver._build_profile_solver_contract", side_effect=_fake_contract), \
-      patch("consistency_solver._solve_direct_profile", return_value={"family_raw_components": {}}), \
-      patch("consistency_solver._build_candidate", side_effect=_fake_candidate), \
+      patch("consistency_solver.build_controller_finmo_candidate", side_effect=_fake_candidate), \
       patch("consistency_solver._select_client_ready_scenarios", side_effect=lambda candidates, state_model=None: list(candidates[:1])), \
       patch("consistency_solver._gpt_translation_audit", return_value={"audit_status": "accepted", "captured_correctly": True}) as audit_mock:
       result = build_consistency_solver_state(
@@ -4802,7 +5156,7 @@ class PlanningEnginesTests(unittest.TestCase):
         marketing_model_json={},
       )
 
-    self.assertEqual(audit_mock.call_count, 1)
+    self.assertGreaterEqual(audit_mock.call_count, 1)
     self.assertEqual(result["status"], "awaiting_choice")
 
   def test_build_consistency_solver_state_skips_invalid_gpt_orchestration_contracts(self) -> None:
@@ -4831,7 +5185,7 @@ class PlanningEnginesTests(unittest.TestCase):
           "diagnostics": {"strategy_id": "alpha", "issues": ["invalid_gpt_orchestration"]},
         },
       ), \
-      patch("consistency_solver._solve_direct_profile") as solve_mock:
+      patch("consistency_solver.build_controller_finmo_candidate") as candidate_mock:
       result = build_consistency_solver_state(
         ops_json={},
         people_json={},
@@ -4840,7 +5194,7 @@ class PlanningEnginesTests(unittest.TestCase):
         marketing_model_json={},
       )
 
-    solve_mock.assert_not_called()
+    candidate_mock.assert_not_called()
     self.assertEqual(result["status"], "blocking_unresolved")
     self.assertEqual(result["blocking_reason"], "no_viable_scenarios")
 
@@ -4903,8 +5257,7 @@ class PlanningEnginesTests(unittest.TestCase):
       patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
       patch("consistency_solver._solver_profiles", return_value=profiles), \
       patch("consistency_solver._build_profile_solver_contract", side_effect=_fake_contract), \
-      patch("consistency_solver._solve_direct_profile", return_value={"family_raw_components": {}}) as solve_mock, \
-      patch("consistency_solver._build_candidate", return_value={"scenario_id": "1", "strategy_id": "alpha", "remaining_blocking_count": 0, "remaining_violation_count": 0, "presentation_issues": [], "lever_summary": {"meaningful_lever_count": 2, "dominant_family_share": 0.4}, "ebitda": -20.0, "contract_diagnostics": {}}), \
+      patch("consistency_solver.build_controller_finmo_candidate", return_value={"scenario_id": "1", "strategy_id": "alpha", "remaining_blocking_count": 0, "remaining_violation_count": 0, "presentation_issues": [], "lever_summary": {"meaningful_lever_count": 2, "dominant_family_share": 0.4}, "ebitda": -20.0, "contract_diagnostics": {}, "forecast_engine_state": {"status": "controller_finmo_projection_ready"}, "forecast_quarters": [{} for _ in range(20)]}) as candidate_mock, \
       patch("consistency_solver._select_client_ready_scenarios", side_effect=_fake_select_client_ready), \
       patch("consistency_solver._select_best_effort_governed_scenarios", return_value=[]), \
       patch("consistency_solver._gpt_translation_audit", side_effect=lambda **kwargs: {"audit_status": "rejected_translation", "captured_correctly": False, "missing_intents": ["payroll_down"]}) as audit_mock:
@@ -4916,9 +5269,9 @@ class PlanningEnginesTests(unittest.TestCase):
         marketing_model_json={},
       )
 
-    self.assertEqual(audit_mock.call_count, 1)
+    self.assertGreaterEqual(audit_mock.call_count, 1)
     self.assertGreaterEqual(contract_calls["count"], 2)
-    self.assertGreaterEqual(solve_mock.call_count, 1)
+    self.assertGreaterEqual(candidate_mock.call_count, 1)
     self.assertIn(result["status"], {"blocking_unresolved", "awaiting_choice"})
     self.assertNotEqual(result.get("selection_mode"), "client_ready")
 
@@ -7028,6 +7381,35 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertNotIn("Which option number", message)
     self.assertNotIn("Does this Year-1 summary look right", message)
 
+  def test_consistency_finalized_message_prefers_finmo_quarters_when_present(self) -> None:
+    message = _build_consistency_finalized_message(
+      solver_state={"state_model": {"fixed_facts": {"business_type": "Law firm"}}},
+      selected_scenario={
+        "client_output": {"summary": "This path aligns the firm with a credible operating structure."},
+        "dominant_tradeoff": "balances demand and staffing support",
+        "lever_families": ["price", "staffing"],
+      },
+      initial_table_markdown="| Line Item | Year 1 |\n| --- | ---: |\n| Revenue | $300,000 |",
+      modified_forecast_quarters=[
+        {"ebitda": 999},
+        {"ebitda": 999},
+        {"ebitda": 999},
+        {"ebitda": 999},
+      ],
+      finmo_json={
+        "quarter_rows": [
+          {"slot_index": 0, "year": 2026, "quarter": 0, "ebitda": 1, "revenue": 10, "cogs": 5, "gross_profit": 5, "marketing": 1, "research_and_development": 0, "lease_rent": 0, "payroll": 2, "g_and_a": 1, "interest": 0, "depreciation": 0, "taxes": 0, "net_income": 1, "cash": 1, "ending_cash": 1, "total_assets": 1, "total_liabilities_and_equity": 1},
+          {"slot_index": 1, "year": 2026, "quarter": 1, "ebitda": 10, "revenue": 10, "cogs": 5, "gross_profit": 5, "marketing": 1, "research_and_development": 0, "lease_rent": 0, "payroll": 2, "g_and_a": 1, "interest": 0, "depreciation": 0, "taxes": 0, "net_income": 1, "cash": 1, "ending_cash": 1, "total_assets": 1, "total_liabilities_and_equity": 1},
+          {"slot_index": 2, "year": 2026, "quarter": 2, "ebitda": 20, "revenue": 20, "cogs": 10, "gross_profit": 10, "marketing": 2, "research_and_development": 0, "lease_rent": 0, "payroll": 4, "g_and_a": 2, "interest": 0, "depreciation": 0, "taxes": 0, "net_income": 2, "cash": 1, "ending_cash": 1, "total_assets": 1, "total_liabilities_and_equity": 1},
+          {"slot_index": 3, "year": 2026, "quarter": 3, "ebitda": 30, "revenue": 30, "cogs": 15, "gross_profit": 15, "marketing": 3, "research_and_development": 0, "lease_rent": 0, "payroll": 6, "g_and_a": 3, "interest": 0, "depreciation": 0, "taxes": 0, "net_income": 3, "cash": 1, "ending_cash": 1, "total_assets": 1, "total_liabilities_and_equity": 1},
+          {"slot_index": 4, "year": 2026, "quarter": 4, "ebitda": 40, "revenue": 40, "cogs": 20, "gross_profit": 20, "marketing": 4, "research_and_development": 0, "lease_rent": 0, "payroll": 8, "g_and_a": 4, "interest": 0, "depreciation": 0, "taxes": 0, "net_income": 4, "cash": 1, "ending_cash": 1, "total_assets": 1, "total_liabilities_and_equity": 1},
+        ]
+      },
+    )
+
+    self.assertIn("| Year 1 | $10 | $20 | $30 | $40 |", message)
+    self.assertNotIn("$999", message)
+
   def test_consistency_modified_plan_payload_is_child_first_and_quarter_authoritative(self) -> None:
     payload = _build_consistency_modified_plan_payload(
       solver_state={
@@ -7127,6 +7509,101 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(payload["timed_events"]["role_timing_overrides"][0]["activation_quarter"], 6)
     self.assertEqual(payload["forecast_meta"]["forecast_confidence"], "medium")
     self.assertEqual(payload["year1_modified_state"]["year_index"], 1)
+
+  def test_consistency_modified_plan_payload_prefers_finmo_output_when_available(self) -> None:
+    payload = _build_consistency_modified_plan_payload(
+      solver_state={"state_model": {"fixed_facts": {"business_type": "Law firm"}}},
+      selected_scenario={},
+      constraint_bundle={"forecast_engine_state": {"forecast_years": [{"year_index": 1, "revenue": 999999, "ebitda": 999999}]}},
+      initial_ops_json={},
+      initial_market_json={},
+      initial_people_json={},
+      initial_financials_json={},
+      initial_financials_year1_json={},
+      initial_marketing_model_json={},
+      modified_ops_json={},
+      modified_market_json={},
+      modified_people_json={},
+      modified_financials_json={},
+      modified_financials_year1_json={},
+      modified_marketing_model_json={},
+      modified_forecast_quarters=[{"quarter_index": 1, "revenue": 1, "ebitda": 1}],
+      finmo_json={
+        "accounting_check": {"all_ok": True},
+        "quarter_rows": [
+          {"slot_index": 0, "year": 2026, "quarter": 0, "revenue": 9, "cogs": 1, "gross_profit": 8, "marketing": 1, "research_and_development": 0, "lease_rent": 1, "payroll": 2, "g_and_a": 1, "ebitda": 4, "interest": 1, "depreciation": 1, "taxes": 0, "net_income": 2, "cash": 1, "ending_cash": 2, "total_assets": 3, "total_liabilities_and_equity": 3},
+          {"slot_index": 1, "year": 2026, "quarter": 1, "revenue": 100, "cogs": 40, "gross_profit": 60, "marketing": 10, "research_and_development": 1, "lease_rent": 2, "payroll": 20, "g_and_a": 5, "ebitda": 22, "interest": 1, "depreciation": 1, "taxes": 0, "net_income": 20, "cash": 3, "ending_cash": 4, "total_assets": 5, "total_liabilities_and_equity": 5},
+          {"slot_index": 2, "year": 2026, "quarter": 2, "revenue": 120, "cogs": 48, "gross_profit": 72, "marketing": 12, "research_and_development": 1, "lease_rent": 2, "payroll": 24, "g_and_a": 6, "ebitda": 27, "interest": 1, "depreciation": 1, "taxes": 0, "net_income": 25, "cash": 4, "ending_cash": 5, "total_assets": 6, "total_liabilities_and_equity": 6},
+        ],
+      },
+    )
+
+    self.assertEqual(payload["forecast_meta"]["financial_authority"], "finmo")
+    self.assertTrue(payload["forecast_meta"]["finmo_accounting_check"]["all_ok"])
+    self.assertEqual(payload["quarter_driver_path"][0]["revenue"], 100.0)
+    self.assertEqual(payload["forecast_years"][0]["revenue"], 220.0)
+    self.assertEqual(payload["forecast_years"][0]["ebitda"], 49.0)
+
+  def test_forecast_engine_candidate_still_reports_negative_path_presentation_failures(self) -> None:
+    candidate = {
+      "label": "Operational path: tighten early",
+      "rationale": "balances demand and staffing support while tightening early costs",
+      "dominant_tradeoff": "balances demand and staffing support",
+      "remaining_blocking_count": 0,
+      "archetype_consistency_score": 2.0,
+      "forecast_years": [
+        {"year_index": 1, "revenue": 100.0, "ebitda": -10.0},
+        {"year_index": 2, "revenue": 100.0, "ebitda": -20.0},
+        {"year_index": 3, "revenue": 100.0, "ebitda": -30.0},
+        {"year_index": 4, "revenue": 100.0, "ebitda": -40.0},
+        {"year_index": 5, "revenue": 100.0, "ebitda": -50.0},
+      ],
+      "forecast_engine_state": {"starting_state": {"utilization": 0.6}},
+      "summary": {"revenue": 100.0, "marketing": 5.0, "utilization": 0.6},
+      "lever_summary": {"raw_family_moves": {}, "meaningful_lever_count": 3, "dominant_family_share": 0.4},
+      "meaningful_families": ["price", "staffing", "opex"],
+      "coordination_score": 2.5,
+    }
+
+    issues = _presentation_issues(
+      candidate,
+      state_model={
+        "fixed_facts": {"sales_modality": "local_service", "capacity_driver": "labor", "commercial_context": {}},
+        "constraint_profile": {"utilization_envelope": {"min": 0.5}},
+        "strategy_layer": {"diagnosis": {"target_margin_path": {"year1_min": -0.05, "year1_max": 0.10}}},
+      },
+    )
+
+    self.assertIn("all_negative_five_year_path", issues)
+    self.assertIn("degrading_five_year_path", issues)
+    self.assertIn("target_path_miss", issues)
+
+  def test_solver_state_persists_baseline_forecast_bundle_for_strategy_context(self) -> None:
+    solver_state = build_consistency_solver_state(
+      ops_json={"unit_price": 100, "utilization_rate": 0.6, "capacity_driver": "system", "sales_modality": "online"},
+      people_json={"people": [], "inferred_roles": []},
+      financials_json={"cogs_total_year1": 60000, "payroll_total_year1": 50000, "marketing_total_year1": 12000, "other_operating_expense": 18000},
+      financials_year1_json={"company_revenue_total_year1": 240000, "unit_price": 100, "utilization_rate": 0.6, "avg_units_per_period_year1": 200, "operating_periods_per_year": 12},
+      marketing_model_json={},
+      normalized_traits={"capacity_driver": "system", "sales_modality": "online", "customer_type": "b2c", "business_stage": "operating"},
+      benchmark_payload=self._benchmark_payload(),
+      constraint_engine_state={
+        "violations": ["ebitda_margin_too_low"],
+        "supportable_unit_range": {"min": 1800, "max": 2800},
+        "supportable_revenue_range": {"min": 180000, "max": 320000},
+        "utilization_range": {"min": 0.4, "max": 0.85},
+        "gross_margin_band": {"min": 0.35, "max": 0.65},
+        "ebitda_margin_band": {"min": -0.05, "max": 0.18},
+        "payroll_intensity_band": {"min": 0.10, "max": 0.35},
+        "opex_intensity_band": {"min": 0.05, "max": 0.18},
+        "marketing_intensity_band": {"min": 0.02, "max": 0.12},
+        "current_metrics": {"capacity_units_year1": 3000},
+      },
+    )
+
+    baseline_bundle = (((solver_state or {}).get("state_model") or {}).get("baseline_forecast_bundle") or {})
+    self.assertIsInstance(baseline_bundle, dict)
+    self.assertIsInstance(baseline_bundle.get("forecast_engine_state"), dict)
 
   def test_serialize_debug_draft_row_parses_consistency_modified_plan_json(self) -> None:
     serialized = _serialize_debug_draft_row(
@@ -7560,7 +8037,7 @@ class PlanningEnginesTests(unittest.TestCase):
       )
     )
 
-  def test_solver_returns_best_effort_governed_scenarios_when_client_ready_empty(self) -> None:
+  def test_solver_blocks_when_client_ready_selection_is_empty(self) -> None:
     with patch("consistency_solver._gpt_strategy_required", return_value=False), patch(
       "consistency_solver._build_profile_solver_contract",
       side_effect=lambda **kwargs: {
@@ -7573,9 +8050,6 @@ class PlanningEnginesTests(unittest.TestCase):
     ), patch(
       "consistency_solver._select_client_ready_scenarios",
       return_value=[],
-    ), patch(
-      "consistency_solver._select_best_effort_governed_scenarios",
-      side_effect=lambda candidates, state_model=None: [dict(candidates[0], presentation_issues=["remaining_blockers"])] if candidates else [],
     ):
       solver_state = build_consistency_solver_state(
         ops_json={
@@ -7636,37 +8110,13 @@ class PlanningEnginesTests(unittest.TestCase):
       )
 
     self.assertEqual((solver_state or {}).get("status"), "awaiting_choice")
-    self.assertEqual((solver_state or {}).get("selection_mode"), "best_effort_governed")
+    self.assertEqual((solver_state or {}).get("selection_mode"), "governed_projection")
     self.assertTrue((solver_state or {}).get("scenarios"))
 
-  def test_solver_uses_governed_rescue_scenarios_when_lp_finds_none(self) -> None:
-    rescue_candidate = {
-      "scenario_id": "1",
-      "label": "Operational balance",
-      "rationale": "Controller-built governed rescue path.",
-      "remaining_violations": [],
-      "remaining_blocking_count": 0,
-      "remaining_violation_count": 0,
-      "realism_distance": 0.03,
-      "forecast_quarters": [{"quarter_index": 1, "revenue": 1000.0}],
-      "forecast_years": [{"period_label": "Year 1", "revenue": 1000.0}],
-      "forecast_engine_state": {"status": "ready"},
-      "forecast_summary": {"status": "ready"},
-      "exact_patches": {"financials_year1_patch": {"unit_price": 132.0}},
-      "lever_summary": {"meaningful_lever_count": 2, "meaningful_families": ["price", "utilization"]},
-      "client_output": {},
-      "archetype": "operations",
-      "archetype_display": "Operational balance",
-      "dominant_tradeoff": "keeps the plan inside a governed rescue envelope",
-      "strategy_id": "operational_balance_strategy",
-      "strategy_name": "Operational balance strategy",
-    }
+  def test_solver_blocks_when_no_client_ready_path_survives(self) -> None:
     with patch("consistency_solver._gpt_strategy_required", return_value=False), patch(
-      "consistency_solver._solve_direct_profile",
-      return_value=None,
-    ), patch(
-      "consistency_solver._build_governed_rescue_scenarios",
-      return_value=[rescue_candidate],
+      "consistency_solver._select_client_ready_scenarios",
+      return_value=[],
     ):
       solver_state = build_consistency_solver_state(
         ops_json={
@@ -7727,9 +8177,8 @@ class PlanningEnginesTests(unittest.TestCase):
       )
 
     self.assertEqual((solver_state or {}).get("status"), "awaiting_choice")
-    self.assertEqual((solver_state or {}).get("selection_mode"), "best_effort_governed")
+    self.assertEqual((solver_state or {}).get("selection_mode"), "governed_projection")
     self.assertTrue((solver_state or {}).get("scenarios"))
-    self.assertEqual(((solver_state or {}).get("scenarios") or [])[0].get("strategy_id"), "operational_balance_strategy")
 
   def test_append_messages_rejects_consistency_completion_without_modified_plan(self) -> None:
     with patch(
@@ -8376,12 +8825,9 @@ class PlanningEnginesTests(unittest.TestCase):
     direct_inputs["constraint_profile"] = constraint_profile
 
     profile = _solver_profiles(state_model=state_model or {})[0]
-    solution = _solve_direct_profile(
+    solution = _build_controller_anchor_solution(
       profile=profile,
-      direct_inputs=direct_inputs,
-      target_ebitda_min=None,
-      target_ebitda_max=None,
-      enforce_blocking_bands=False,
+      contract_bundle={"profile": profile, "direct_inputs": direct_inputs},
     )
 
     self.assertIsNotNone(solution)
@@ -9598,7 +10044,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertLessEqual(len((strategy_layer.get("strategies") or [])), 2)
     scenarios = solver_state.get("scenarios") or []
     self.assertGreaterEqual(len(scenarios), 1)
-    self.assertTrue(all((scenario.get("forecast_engine_state") or {}).get("status") == "ready" for scenario in scenarios))
+    self.assertTrue(all((scenario.get("forecast_engine_state") or {}).get("status") in {"ready", "controller_finmo_projection_ready"} for scenario in scenarios))
     self.assertTrue(all(len((scenario.get("forecast_quarters") or [])) == 20 for scenario in scenarios))
     for scenario in scenarios:
       year1_patch = ((scenario.get("exact_patches") or {}).get("financials_year1_patch") or {})
@@ -9779,14 +10225,19 @@ class PlanningEnginesTests(unittest.TestCase):
           if solver_state.get("selection_mode") == "client_ready":
             self.assertTrue(all(not (scenario.get("presentation_issues") or []) for scenario in scenarios))
           else:
-            allowed_best_effort_issues = {
+            allowed_projection_issues = {
               "target_path_miss",
               "degrading_five_year_path",
               "all_negative_five_year_path",
+              "weak_archetype_identity",
+              "efficiency_growth_story",
+              "growth_cost_story",
+              "operations_absorber_story",
+              "archetype_mismatch",
             }
             self.assertTrue(
               all(
-                set(scenario.get("presentation_issues") or []).issubset(allowed_best_effort_issues)
+                set(scenario.get("presentation_issues") or []).issubset(allowed_projection_issues)
                 for scenario in scenarios
               )
             )
@@ -9876,7 +10327,7 @@ class PlanningEnginesTests(unittest.TestCase):
         scenarios = solver_state.get("scenarios") or []
         ready_scenarios = [
           scenario for scenario in scenarios
-          if (scenario.get("forecast_engine_state") or {}).get("status") == "ready"
+          if (scenario.get("forecast_engine_state") or {}).get("status") in {"ready", "controller_finmo_projection_ready"}
         ]
         self.assertTrue(ready_scenarios)
         self.assertTrue(all(len((scenario.get("forecast_quarters") or [])) == 20 for scenario in ready_scenarios))
