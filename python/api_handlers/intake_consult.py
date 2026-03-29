@@ -1099,10 +1099,6 @@ def _build_constraint_bundle_for_persistence(
       from constraint_engine import build_constraint_engine_bundle  # type: ignore
     except Exception:
       from client_intake_and_finmo.constraint_engine import build_constraint_engine_bundle  # type: ignore
-    try:
-      from forecast_engine import build_forecast_engine_bundle  # type: ignore
-    except Exception:
-      from client_intake_and_finmo.forecast_engine import build_forecast_engine_bundle  # type: ignore
     constraint_bundle = build_constraint_engine_bundle(
       conn=conn,
       shared_context=context.get("shared_context") if isinstance(context, dict) else {},
@@ -1114,37 +1110,10 @@ def _build_constraint_bundle_for_persistence(
       marketing_model_json=marketing_model_json or {},
       fulfillment_json=context.get("fulfillment_json") if isinstance(context, dict) else {},
     )
-    forecast_bundle = build_forecast_engine_bundle(
-      shared_context=context.get("shared_context") if isinstance(context, dict) else {},
-      operating_model_json=ops_json or {},
-      target_market_json=market_json or {},
-      people_json=people_json or {},
-      financials_json=financials_json or {},
-      financials_year1_json=financials_year1_json or {},
-      marketing_model_json=marketing_model_json or {},
-      normalized_traits=(
-        constraint_bundle.get("normalized_traits") if isinstance(constraint_bundle, dict) else None
-      ),
-      benchmark_payload=(
-        constraint_bundle.get("benchmark_payload") if isinstance(constraint_bundle, dict) else None
-      ),
-      constraint_engine_state=(
-        constraint_bundle.get("constraint_engine_state") if isinstance(constraint_bundle, dict) else None
-      ),
-    )
-
     merged_bundle = dict(constraint_bundle or {})
-    if isinstance(forecast_bundle, dict):
-      merged_bundle["forecast_engine_state"] = forecast_bundle.get("forecast_engine_state") or {}
-      merged_bundle["forecast_quarters"] = forecast_bundle.get("forecast_quarters") or []
-      base_versions = dict((constraint_bundle or {}).get("engine_versions") or {})
-      forecast_versions = dict(forecast_bundle.get("engine_versions") or {})
-      for key, value in forecast_versions.items():
-        if value is None or value == "":
-          base_versions.setdefault(key, value)
-          continue
-        base_versions[key] = value
-      merged_bundle["engine_versions"] = base_versions
+    merged_bundle["forecast_engine_state"] = {}
+    merged_bundle["forecast_quarters"] = []
+    merged_bundle["engine_versions"] = dict((constraint_bundle or {}).get("engine_versions") or {})
     trace_lazy(
       "DERIVED",
       "Constraint and forecast bundles",
@@ -1152,7 +1121,6 @@ def _build_constraint_bundle_for_persistence(
         "normalized_traits": merged_bundle.get("normalized_traits") or {},
         "benchmark_payload": merged_bundle.get("benchmark_payload") or {},
         "constraint_engine_state": merged_bundle.get("constraint_engine_state") or {},
-        "forecast_engine_state": merged_bundle.get("forecast_engine_state") or {},
       },
     )
     return merged_bundle
@@ -1459,18 +1427,10 @@ def _build_consistency_modified_plan_payload(
   solver_obj = solver_state if isinstance(solver_state, dict) else {}
   state_model = solver_obj.get("state_model") if isinstance(solver_obj.get("state_model"), dict) else {}
   fixed_facts = state_model.get("fixed_facts") if isinstance(state_model.get("fixed_facts"), dict) else {}
-  forecast_engine_state = (
-    scenario_obj.get("forecast_engine_state")
-    if isinstance(scenario_obj.get("forecast_engine_state"), dict)
-    else bundle.get("forecast_engine_state")
-  )
-  forecast_engine_state = forecast_engine_state if isinstance(forecast_engine_state, dict) else {}
   finmo_quarters, finmo_years = _build_consistency_forecast_view_from_finmo_safe(finmo_json)
   if finmo_quarters:
     modified_forecast_quarters = finmo_quarters
-  forecast_years = finmo_years if finmo_years else (
-    forecast_engine_state.get("forecast_years") if isinstance(forecast_engine_state.get("forecast_years"), list) else []
-  )
+  forecast_years = finmo_years
   if not forecast_years:
     forecast_years = _rollup_forecast_years_from_quarters(modified_forecast_quarters)
   quarter_driver_path: List[Dict[str, Any]] = []
@@ -1556,28 +1516,20 @@ def _build_consistency_modified_plan_payload(
     "quarter_rollups": quarter_rollups,
     "forecast_years": copy.deepcopy(forecast_years or []),
     "forecast_meta": {
-      "financial_authority": "finmo" if finmo_years else "forecast_engine",
-      "forecast_confidence": forecast_engine_state.get("forecast_confidence"),
-      "convergence_source": forecast_engine_state.get("convergence_source"),
-      "convergence_strength": forecast_engine_state.get("convergence_strength"),
-      "year1_warning_status": forecast_engine_state.get("year1_warning_status"),
-      "blocking_violations": copy.deepcopy(forecast_engine_state.get("blocking_violations") or []),
-      "forecast_orchestration": copy.deepcopy(forecast_engine_state.get("forecast_orchestration") or {}),
-      "scenario_strategy": copy.deepcopy(forecast_engine_state.get("scenario_strategy") or {}),
+      "financial_authority": "finmo",
+      "blocking_violations": copy.deepcopy(scenario_obj.get("remaining_blocking_violations") or []),
+      "scenario_strategy": {
+        "strategy_id": scenario_obj.get("strategy_id"),
+        "strategy_name": scenario_obj.get("strategy_name"),
+      },
       "finmo_accounting_check": copy.deepcopy(
         (finmo_json.get("accounting_check") if isinstance(finmo_json, dict) else {}) or {}
       ),
     },
     "timed_events": {
-      "role_timing_overrides": copy.deepcopy(
-        ((forecast_engine_state.get("forecast_orchestration") or {}) if isinstance(forecast_engine_state.get("forecast_orchestration"), dict) else {}).get("role_timing_overrides") or []
-      ),
-      "milestone_timing_overrides": copy.deepcopy(
-        ((forecast_engine_state.get("forecast_orchestration") or {}) if isinstance(forecast_engine_state.get("forecast_orchestration"), dict) else {}).get("milestone_timing_overrides") or []
-      ),
-      "event_response": copy.deepcopy(
-        ((forecast_engine_state.get("forecast_orchestration") or {}) if isinstance(forecast_engine_state.get("forecast_orchestration"), dict) else {}).get("event_response") or {}
-      ),
+      "role_timing_overrides": [],
+      "milestone_timing_overrides": [],
+      "event_response": {},
     },
   }
 
@@ -1615,31 +1567,21 @@ def _build_violation_resolution_summary(
   solver_obj = solver_state if isinstance(solver_state, dict) else {}
   scenario_obj = selected_scenario if isinstance(selected_scenario, dict) else {}
   bundle = constraint_bundle if isinstance(constraint_bundle, dict) else {}
-  constraint_engine_state = bundle.get("constraint_engine_state") if isinstance(bundle.get("constraint_engine_state"), dict) else {}
-  forecast_engine_state = (
-    scenario_obj.get("forecast_engine_state")
-    if isinstance(scenario_obj.get("forecast_engine_state"), dict)
-    else bundle.get("forecast_engine_state")
-  )
-  forecast_engine_state = forecast_engine_state if isinstance(forecast_engine_state, dict) else {}
-
   baseline_violations = _normalized_violation_codes(
-    (constraint_engine_state.get("violations") or [])
-    or (solver_obj.get("constraint_violations") or [])
+    (solver_obj.get("blocking_violations") or [])
     or (solver_obj.get("blocking_violations") or [])
   )
   scenario_remaining = _normalized_violation_codes(scenario_obj.get("remaining_violations") or [])
   scenario_remaining_blocking = _normalized_violation_codes(
     scenario_obj.get("remaining_blocking_violations") or []
   )
-  forecast_blocking = _normalized_violation_codes(forecast_engine_state.get("blocking_violations") or [])
   quarter_violations = _quarter_violation_codes(modified_forecast_quarters)
 
   final_violations = _normalized_violation_codes(
-    scenario_remaining or quarter_violations or forecast_blocking
+    scenario_remaining or quarter_violations
   )
   final_blocking_violations = _normalized_violation_codes(
-    scenario_remaining_blocking or forecast_blocking
+    scenario_remaining_blocking
   )
   resolved_violations = [
     code for code in baseline_violations
@@ -1730,7 +1672,6 @@ def _consistency_trace_scenario_summary(scenario: Optional[Dict[str, Any]]) -> D
     "target_distance": scenario.get("target_distance"),
     "lever_summary": copy.deepcopy(scenario.get("lever_summary") or {}),
     "contract_diagnostics": copy.deepcopy(scenario.get("contract_diagnostics") or {}),
-    "forecast_orchestration": copy.deepcopy(scenario.get("forecast_orchestration") or {}),
     "exact_patches": copy.deepcopy(scenario.get("exact_patches") or {}),
     "summary": copy.deepcopy(scenario.get("summary") or {}),
   }
@@ -1748,7 +1689,6 @@ def _consistency_trace_contract_summary(bundle: Optional[Dict[str, Any]]) -> Dic
     "strategy_source": str(profile.get("strategy_source") or diagnostics.get("strategy_source") or "").strip(),
     "canonical_lever_vocabulary": "model_inputs_controller_write_only",
     "allowed_model_input_levers": copy.deepcopy((((bundle.get("controller_calibration_request") or {}) if isinstance(bundle.get("controller_calibration_request"), dict) else {}).get("allowed_model_input_levers") or [])),
-    "forecast_orchestration": copy.deepcopy(profile.get("forecast_orchestration") or {}),
     "contract_diagnostics": copy.deepcopy(diagnostics),
     "contract_inputs": {
       "target_payroll_min_total": direct_inputs.get("target_payroll_min_total"),
@@ -1880,7 +1820,6 @@ def _build_consistency_finmo_attempts_payload(
     scenario_id = str(item.get("scenario_id") or "").strip()
     controller_request = item.get("controller_calibration_request") if isinstance(item.get("controller_calibration_request"), dict) else {}
     gpt_validation_request = item.get("gpt_validation_request") if isinstance(item.get("gpt_validation_request"), dict) else {}
-    forecast_engine_state = item.get("forecast_engine_state") if isinstance(item.get("forecast_engine_state"), dict) else {}
     attempts.append(
       {
         "attempt_number": attempt_index,
@@ -1896,7 +1835,7 @@ def _build_consistency_finmo_attempts_payload(
         "gpt_validation_result": copy.deepcopy(item.get("gpt_validation_result") or {}),
         "model_input_json": copy.deepcopy(item.get("model_input_json") or {}),
         "finmo_json": copy.deepcopy(item.get("finmo_json") or {}),
-        "forecast_status": str(forecast_engine_state.get("status") or "").strip(),
+        "finmo_status": "persisted" if isinstance(item.get("finmo_json"), dict) and item.get("finmo_json") else "missing",
       }
     )
   return {
@@ -2129,19 +2068,6 @@ def _persist_consistency_governance_artifacts(
       "CONTROLLER_CONTRACT",
       "Real-time controller contract payload",
       lambda: controller_contract_json,
-    )
-    trace_lazy(
-      "SOLVER_EXECUTION",
-      "Real-time solver execution payload",
-      lambda: solver_execution_json,
-    )
-    trace_lazy(
-      "CONSISTENCY_FIDELITY",
-      "Real-time GPT/controller fidelity payload",
-      lambda: _build_consistency_fidelity_trace_payload(
-        solver_state=solver_state,
-        selected_scenario=selected_scenario,
-      ),
     )
     trace_lazy(
       "FINMO_ATTEMPTS",
@@ -2730,19 +2656,6 @@ def _run_consistency_closeout(
         lambda: controller_contract_json,
       )
       trace_lazy(
-        "SOLVER_EXECUTION",
-        "Consistency solver execution payload",
-        lambda: solver_execution_json,
-      )
-      trace_lazy(
-        "CONSISTENCY_FIDELITY",
-        "Consistency GPT/controller fidelity payload",
-        lambda: _build_consistency_fidelity_trace_payload(
-          solver_state=solver_state,
-          selected_scenario=selected_scenario,
-        ),
-      )
-      trace_lazy(
         "CONSISTENCY",
         "Violation resolution summary",
         lambda: resolution_summary,
@@ -2858,19 +2771,6 @@ def _run_consistency_closeout(
       "CONTROLLER_CONTRACT",
       "Consistency controller contract payload",
       lambda: controller_contract_json,
-    )
-    trace_lazy(
-      "SOLVER_EXECUTION",
-      "Consistency solver execution payload",
-      lambda: solver_execution_json,
-    )
-    trace_lazy(
-      "CONSISTENCY_FIDELITY",
-      "Consistency GPT/controller fidelity payload",
-      lambda: _build_consistency_fidelity_trace_payload(
-        solver_state=solver_state,
-        selected_scenario=selected_scenario,
-      ),
     )
     trace_lazy(
       "CONSISTENCY",

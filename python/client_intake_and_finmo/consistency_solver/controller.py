@@ -969,9 +969,6 @@ def _build_runtime_strategy(strategy_id: str, strategy_selection: Dict[str, Any]
     "staffing_posture": "add_support" if payroll_up else "tighten" if payroll_down else "measured",
     "cost_posture": "tighten" if (ganda_down or cogs_down or payroll_down) else "protect" if payroll_up else "moderate",
   }
-  orchestration = _clone((strategy_selection.get("governed_forecast_orchestration") or {}) if isinstance(strategy_selection.get("governed_forecast_orchestration"), dict) else {})
-  if isinstance(orchestration, dict):
-    orchestration["target_margin_path"] = _clone(strategy_selection.get("target_margin_path") or {})
   runtime = {
     "strategy_id": strategy_id,
     "profile_id": f"gpt_{strategy_id}",
@@ -985,7 +982,6 @@ def _build_runtime_strategy(strategy_id: str, strategy_selection: Dict[str, Any]
     "governed_period_groups": _clone(strategy_selection.get("governed_period_groups") or []),
     "controller_directives": _clone(strategy_selection.get("controller_directives") or {}),
     "constraints": constraints,
-    "forecast_orchestration": orchestration,
     **posture,
   }
   return runtime
@@ -1845,7 +1841,6 @@ def _build_profile_solver_contract(
   profile: Dict[str, Any],
   target_ebitda_min: Optional[float],
   target_ebitda_max: Optional[float],
-  translation_audit: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   strategy_layer = (state_model.get("strategy_layer") or {}) if isinstance(state_model.get("strategy_layer"), dict) else {}
   selection = (strategy_layer.get("strategy_selection") or {}) if isinstance(strategy_layer.get("strategy_selection"), dict) else {}
@@ -1877,27 +1872,6 @@ def _build_profile_solver_contract(
   )
   contract_profile["controller_directives"] = _clone(selection.get("controller_directives") or {})
   contract_profile["constraints"] = {}
-  if not contract_profile.get("forecast_orchestration"):
-    replacement_orchestration = _clone((translation_audit or {}).get("replacement_forecast_orchestration") or {})
-    if replacement_orchestration:
-      contract_profile["forecast_orchestration"] = replacement_orchestration
-    elif isinstance(selection.get("governed_forecast_orchestration"), dict):
-      contract_profile["forecast_orchestration"] = _clone(selection.get("governed_forecast_orchestration") or {})
-    else:
-      contract_profile["forecast_orchestration"] = _build_forecast_orchestration(
-        selection=selection,
-        profile=contract_profile,
-        direct_inputs=direct_inputs,
-        retry_attempt=_safe_int(
-          ((strategy_layer.get("diagnosis") or {}) if isinstance(strategy_layer.get("diagnosis"), dict) else {}).get("governed_retry_attempt")
-        ),
-        translation_audit=translation_audit,
-      )
-  orchestration = (contract_profile.get("forecast_orchestration") or {}) if isinstance(contract_profile.get("forecast_orchestration"), dict) else {}
-  orchestration_issues = list(orchestration.get("translation_issues") or [])
-  issues: List[str] = []
-  if str(profile.get("strategy_source") or "").strip().lower() == "gpt" and orchestration_issues:
-    issues.append("invalid_gpt_orchestration")
   return {
     "profile": contract_profile,
     "direct_inputs": _clone(direct_inputs),
@@ -1916,15 +1890,9 @@ def _build_profile_solver_contract(
           if str(item.get("lever_id") or "").strip()
         }),
       },
-      "issues": _unique_strings(issues + orchestration_issues),
+      "issues": [],
       "adjustments": [],
-      "translation_self_audit": {
-        "captured_correctly": not bool(orchestration_issues),
-        "missing_intents": [],
-        "distorted_intents": [],
-        "introduced_conflicts": _unique_strings(orchestration_issues),
-        "correction_requested": _translation_audit_requires_correction(translation_audit),
-      },
+      "translation_self_audit": {},
       "dynamic_controller_ranges": {
         "constraint_updates": {},
         "adjustments": [],

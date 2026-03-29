@@ -1350,47 +1350,6 @@ def build_constraint_engine_bundle(
   versions["benchmark_resolver_version"] = BENCHMARK_RESOLVER_VERSION
   versions["constraint_engine_version"] = CONSTRAINT_ENGINE_VERSION
 
-  trace_lazy(
-    "CONSTRAINTS",
-    "Constraint engine bundle",
-    lambda: {
-      "traits": traits,
-      "benchmark_payload": benchmark,
-      "summary": summary,
-      "derived": {
-        "child_metric_count": len(child_basis),
-        "current_units": round(current_units, 2),
-        "current_price": round(current_price, 2),
-        "current_utilization": round(current_util, 6) if current_util is not None else None,
-        "capacity_units": round(capacity_units, 2),
-        "demand_supported_units": round(demand_supported_units, 2) if demand_supported_units is not None else None,
-        "current_cogs": round(current_cogs, 2),
-        "current_payroll": round(current_payroll, 2),
-        "current_marketing": round(current_marketing, 2),
-        "current_other_opex": round(current_other_opex, 2),
-        "current_gross_margin": round(current_gross_margin, 6) if current_gross_margin is not None else None,
-        "current_ebitda_margin": round(current_ebitda_margin, 6) if current_ebitda_margin is not None else None,
-        "people_payroll_floor": round(people_payroll_floor, 2),
-        "structural_payroll_floor": round(structural_payroll_floor, 2),
-        "required_fte_from_workload": round(required_fte, 4),
-        "hard_utilization_floor": hard_utilization_floor,
-      },
-      "bands": {
-        "supportable_unit_range": supportable_unit_range,
-        "supportable_revenue_range": supportable_revenue_range,
-        "gross_margin_band": gross_margin_band,
-        "ebitda_margin_band": ebitda_margin_band,
-        "payroll_intensity_band": payroll_intensity_band,
-        "marketing_intensity_band": marketing_intensity_band,
-        "opex_intensity_band": opex_intensity_band,
-        "utilization_range": utilization_band,
-      },
-      "findings": findings,
-      "constraints": constraints,
-      "engine_state": engine_state,
-    },
-  )
-
   return {
     "normalized_traits": traits,
     "benchmark_payload": benchmark,

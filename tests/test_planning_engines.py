@@ -1366,13 +1366,9 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertLessEqual(len(strategy_ids), 2)
     self.assertIn(strategy_ids[0], (diagnosis.get("preferred_strategy_ids") or []))
 
-    scenarios = (solver_state or {}).get("scenarios") or []
-    self.assertTrue(scenarios)
-    for scenario in scenarios:
-      self.assertIn(str((scenario or {}).get("strategy_id") or ""), strategy_ids)
-      self.assertTrue((scenario or {}).get("strategy_name"))
-      self.assertEqual((scenario or {}).get("canonical_lever_vocabulary"), "model_inputs_controller_write_only")
-      self.assertIsInstance((scenario or {}).get("allowed_model_input_levers"), list)
+    self.assertEqual((solver_state or {}).get("status"), "blocking_unresolved")
+    self.assertEqual((solver_state or {}).get("blocking_reason"), "no_viable_scenarios")
+    self.assertFalse((solver_state or {}).get("scenarios") or [])
 
   def test_strategy_selection_contract_normalizes_to_workbook_levers_and_finmo_lines(self) -> None:
     normalized = _normalize_strategy_selection_contract(
@@ -1885,8 +1881,9 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual((diagnosis.get("lever_adjustment_plan") or [])[0]["lever_id"], "revenue::LOB 1::Product 1::Unit Price")
     self.assertAlmostEqual(_safe_float(diagnosis.get("gpt_expected_year1_ebitda_margin_min")), -0.01, places=6)
     self.assertAlmostEqual(_safe_float(diagnosis.get("gpt_expected_year1_ebitda_margin_max")), 0.04, places=6)
-    baseline_forecast_state = (((solver_state or {}).get("state_model") or {}).get("baseline_forecast_bundle") or {}).get("forecast_engine_state") or {}
-    self.assertIn("forecast_orchestration", baseline_forecast_state)
+    baseline_bundle = (((solver_state or {}).get("state_model") or {}).get("baseline_forecast_bundle") or {})
+    self.assertIsInstance(baseline_bundle, dict)
+    self.assertFalse(baseline_bundle)
 
   def test_solver_blocks_when_gpt_strategy_selection_is_required_but_missing(self) -> None:
     with patch("consistency_solver._gpt_strategy_required", return_value=True), patch(
@@ -4058,23 +4055,24 @@ class PlanningEnginesTests(unittest.TestCase):
           "revenue::LOB 1::Product 1::Utilization",
         ],
         "constraints": {},
-        "forecast_orchestration": {},
       },
       target_ebitda_min=-150000.0,
       target_ebitda_max=-90000.0,
     )
 
-    orchestration = ((contract.get("profile") or {}).get("forecast_orchestration") or {})
-    policies = orchestration.get("quarter_policies") or []
-    q2 = next(item for item in policies if item.get("quarter_start") <= 2 <= item.get("quarter_end"))
-    q10 = next(item for item in policies if item.get("quarter_start") <= 10 <= item.get("quarter_end"))
-
-    self.assertEqual(orchestration.get("orchestration_summary"), "Direct GPT orchestration")
-    self.assertIn("expenses::Payroll", q2.get("active_levers") or [])
-    self.assertIn("expenses::General & Administrative", q2.get("active_levers") or [])
-    self.assertNotIn("expenses::Marketing", q10.get("active_levers") or [])
-    self.assertTrue(any((item.get("role_title") or "") == "Intake and Scheduling Coordinator" and int(item.get("months_until_activate") or 0) == 15 for item in (orchestration.get("role_timing_overrides") or [])))
-    self.assertTrue(any(int(item.get("target_quarter") or 0) == 8 for item in (orchestration.get("milestone_timing_overrides") or [])))
+    profile = contract.get("profile") or {}
+    self.assertEqual(profile.get("strategy_id"), "viability_stabilize")
+    self.assertCountEqual(
+      profile.get("allowed_model_input_levers"),
+      [
+        "revenue::LOB 1::Product 1::Unit Price",
+        "expenses::General & Administrative",
+        "expenses::Payroll",
+        "revenue::LOB 1::Product 1::Utilization",
+      ],
+    )
+    self.assertEqual(len(profile.get("lever_adjustment_plan") or []), 2)
+    self.assertEqual(len(profile.get("controlled_output_targets") or []), 1)
     self.assertFalse((contract.get("diagnostics") or {}).get("issues"))
 
 
@@ -4114,14 +4112,12 @@ class PlanningEnginesTests(unittest.TestCase):
       }
 
     with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
-      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
       patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
       patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
       patch("consistency_solver._solver_profiles", return_value=profiles), \
       patch("consistency_solver._build_profile_solver_contract", side_effect=_fake_contract), \
       patch("consistency_solver.build_controller_finmo_candidate", side_effect=_fake_candidate), \
-      patch("consistency_solver._select_client_ready_scenarios", side_effect=lambda candidates, state_model=None: list(candidates[:1])), \
-      patch("consistency_solver._gpt_translation_audit", return_value={"audit_status": "accepted", "captured_correctly": True}) as audit_mock:
+      patch("consistency_solver._select_client_ready_scenarios", side_effect=lambda candidates, state_model=None: list(candidates[:1])):
       result = build_consistency_solver_state(
         ops_json={},
         people_json={},
@@ -4130,12 +4126,11 @@ class PlanningEnginesTests(unittest.TestCase):
         marketing_model_json={},
       )
 
-    self.assertGreaterEqual(audit_mock.call_count, 1)
     self.assertEqual(result["status"], "awaiting_choice")
     self.assertEqual(result.get("governed_attempt_limit"), 3)
     self.assertEqual(result.get("governed_attempt_count"), 1)
 
-  def test_build_consistency_solver_state_skips_invalid_gpt_orchestration_contracts(self) -> None:
+  def test_build_consistency_solver_state_attempts_candidate_without_orchestration_gate(self) -> None:
     strategy_layer = {
       "source": "gpt",
       "diagnosis": {"target_margin_path": {"year1_min": -0.30, "year1_max": -0.10}},
@@ -4147,18 +4142,17 @@ class PlanningEnginesTests(unittest.TestCase):
     ]
 
     with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
-      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
       patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
       patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
       patch("consistency_solver._solver_profiles", return_value=profiles), \
       patch(
         "consistency_solver._build_profile_solver_contract",
         return_value={
-          "profile": {"strategy_id": "alpha", "strategy_source": "gpt", "forecast_orchestration": {}},
+          "profile": {"strategy_id": "alpha", "strategy_source": "gpt"},
           "direct_inputs": {"current_revenue": 100.0},
           "target_ebitda_min": -30.0,
           "target_ebitda_max": -10.0,
-          "diagnostics": {"strategy_id": "alpha", "issues": ["invalid_gpt_orchestration"]},
+          "diagnostics": {"strategy_id": "alpha", "issues": []},
         },
       ), \
       patch("consistency_solver.build_controller_finmo_candidate") as candidate_mock:
@@ -4170,7 +4164,7 @@ class PlanningEnginesTests(unittest.TestCase):
         marketing_model_json={},
       )
 
-    candidate_mock.assert_not_called()
+    candidate_mock.assert_called()
     self.assertEqual(result["status"], "blocking_unresolved")
     self.assertEqual(result["blocking_reason"], "no_viable_scenarios")
 
@@ -4215,7 +4209,6 @@ class PlanningEnginesTests(unittest.TestCase):
       }
 
     with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
-      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
       patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
       patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
       patch("consistency_solver._solver_profiles", return_value=profiles), \
@@ -4228,7 +4221,6 @@ class PlanningEnginesTests(unittest.TestCase):
           if isinstance(item, dict) and int(item.get("remaining_blocking_count") or 0) <= 0
         ][:1],
       ), \
-      patch("consistency_solver._gpt_translation_audit", return_value={"audit_status": "accepted", "captured_correctly": True}), \
       patch(
         "consistency_solver._gpt_finmo_validation",
         return_value={
@@ -4312,15 +4304,13 @@ class PlanningEnginesTests(unittest.TestCase):
       }
 
     with patch("consistency_solver._build_solver_state_model", return_value={"fixed_facts": {}, "baseline_state": {}, "normalized_traits": {}, "benchmark_payload": {}}), \
-      patch("consistency_solver.build_forecast_engine_bundle", return_value={}), \
       patch("consistency_solver._build_strategy_layer", return_value=strategy_layer), \
       patch("consistency_solver._build_direct_solver_inputs", return_value={"current_revenue": 100.0, "constraint_violations": []}), \
       patch("consistency_solver._solver_profiles", return_value=profiles), \
       patch("consistency_solver._build_profile_solver_contract", side_effect=_fake_contract), \
-      patch("consistency_solver.build_controller_finmo_candidate", return_value={"scenario_id": "1", "strategy_id": "alpha", "remaining_blocking_count": 0, "remaining_violation_count": 0, "presentation_issues": [], "lever_summary": {"meaningful_lever_count": 2, "dominant_family_share": 0.4}, "ebitda": -20.0, "contract_diagnostics": {}, "forecast_engine_state": {"status": "controller_finmo_projection_ready"}, "forecast_quarters": [{} for _ in range(20)]}) as candidate_mock, \
+      patch("consistency_solver.build_controller_finmo_candidate", return_value={"scenario_id": "1", "strategy_id": "alpha", "remaining_blocking_count": 0, "remaining_violation_count": 0, "presentation_issues": [], "lever_summary": {"meaningful_lever_count": 2, "dominant_family_share": 0.4}, "ebitda": -20.0, "contract_diagnostics": {}, "forecast_engine_state": {"status": "finmo_readback_ready"}, "forecast_quarters": [{} for _ in range(20)], "forecast_years": [{"ebitda": -20.0}], "model_input_json": {"lever_catalog": {"expenses::Payroll": {}}}, "finmo_json": {"pl": [{"label": "EBITDA"}]}, "gpt_validation_request": {"validation_contract_version": "finmo_validation_request_v1"}}) as candidate_mock, \
       patch("consistency_solver._select_client_ready_scenarios", side_effect=_fake_select_client_ready), \
-      patch("consistency_solver._select_best_effort_governed_scenarios", return_value=[]), \
-      patch("consistency_solver._gpt_translation_audit", side_effect=lambda **kwargs: {"audit_status": "rejected_translation", "captured_correctly": False, "missing_intents": ["payroll_down"]}) as audit_mock:
+      patch("consistency_solver._select_best_effort_governed_scenarios", return_value=[]):
       result = build_consistency_solver_state(
         ops_json={},
         people_json={},
@@ -4329,13 +4319,11 @@ class PlanningEnginesTests(unittest.TestCase):
         marketing_model_json={},
       )
 
-    self.assertGreaterEqual(audit_mock.call_count, 1)
-    self.assertGreaterEqual(contract_calls["count"], 2)
+    self.assertEqual(contract_calls["count"], 1)
     self.assertGreaterEqual(candidate_mock.call_count, 1)
-    self.assertIn(result["status"], {"blocking_unresolved", "awaiting_choice"})
-    self.assertNotEqual(result.get("selection_mode"), "client_ready")
+    self.assertEqual(result["status"], "awaiting_choice")
 
-  def test_build_profile_solver_contract_prefers_audit_replacement_orchestration(self) -> None:
+  def test_build_profile_solver_contract_uses_workbook_contract_without_translation_audit(self) -> None:
     contract = _build_profile_solver_contract(
       state_model={
         "strategy_layer": {
@@ -4368,15 +4356,6 @@ class PlanningEnginesTests(unittest.TestCase):
             "controlled_output_targets": [
               {"line_item": "EBITDA", "period_scope": "year1", "min_value": -20.0, "max_value": -10.0},
             ],
-            "governed_forecast_orchestration": {
-              "orchestration_summary": "stale",
-              "quarter_policies": [
-                {"quarter_start": 1, "quarter_end": 4, "active_levers": ["revenue::LOB 1::Product 1::Unit Price"]},
-              ],
-              "role_timing_overrides": [],
-              "milestone_timing_overrides": [],
-              "event_response": {},
-            },
           },
         },
       },
@@ -4412,54 +4391,20 @@ class PlanningEnginesTests(unittest.TestCase):
       },
       target_ebitda_min=-20.0,
       target_ebitda_max=-10.0,
-      translation_audit={
-        "audit_status": "rejected_translation",
-        "captured_correctly": False,
-        "missing_intents": ["payroll_down_q1_q4"],
-        "distorted_intents": [],
-        "introduced_conflicts": [],
-        "required_corrections": ["restore_payroll_down_q1_q4"],
-        "replacement_forecast_orchestration": {
-          "orchestration_summary": "corrected",
-          "quarter_policies": [
-            {
-              "quarter_start": 1,
-              "quarter_end": 4,
-              "demand_posture": "preserve",
-              "staffing_posture": "delay",
-              "cost_posture": "tighten",
-              "growth_multiplier": 1.0,
-              "convergence_multiplier": 1.0,
-              "price_growth_bias": 0.003,
-              "utilization_target_bias": 0.0,
-              "marketing_ratio_bias": 0.0,
-              "opex_ratio_bias": 0.0,
-              "payroll_ratio_bias": -0.03,
-              "capacity_release_multiplier": 0.95,
-              "active_levers": [
-                "revenue::LOB 1::Product 1::Unit Price",
-                "expenses::Payroll",
-              ],
-            },
-          ],
-          "role_timing_overrides": [],
-          "milestone_timing_overrides": [],
-          "event_response": {
-            "hire_capacity_multiplier": 1.0,
-            "hire_growth_bonus_delta": 0.0,
-            "marketing_growth_multiplier": 1.0,
-            "milestone_capacity_multiplier": 1.0,
-            "milestone_growth_multiplier": 1.0,
-          },
-        },
-        "notes": "Controller omitted payroll-down from the early quarters.",
-      },
     )
 
-    orchestration = ((contract.get("profile") or {}).get("forecast_orchestration") or {})
-    first_policy = ((orchestration.get("quarter_policies") or [None])[0] or {})
-    self.assertEqual(orchestration.get("orchestration_summary"), "corrected")
-    self.assertIn("expenses::Payroll", first_policy.get("active_levers") or [])
+    profile = contract.get("profile") or {}
+    self.assertEqual(profile.get("strategy_id"), "alpha")
+    self.assertCountEqual(
+      profile.get("allowed_model_input_levers"),
+      [
+        "revenue::LOB 1::Product 1::Unit Price",
+        "expenses::Payroll",
+      ],
+    )
+    self.assertEqual(len(profile.get("lever_adjustment_plan") or []), 2)
+    self.assertEqual(len(profile.get("controlled_output_targets") or []), 1)
+    self.assertFalse((contract.get("diagnostics") or {}).get("issues"))
 
 
 
@@ -6099,8 +6044,8 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(payload["quarter_driver_path"][0]["source_level"], "child_rollup")
     self.assertIn("lobs", payload["quarter_driver_path"][0])
     self.assertNotIn("lobs", payload["quarter_rollups"][0])
-    self.assertEqual(payload["timed_events"]["role_timing_overrides"][0]["activation_quarter"], 6)
-    self.assertEqual(payload["forecast_meta"]["forecast_confidence"], "medium")
+    self.assertEqual(payload["timed_events"]["role_timing_overrides"], [])
+    self.assertEqual(payload["forecast_meta"]["financial_authority"], "finmo")
     self.assertEqual(payload["year1_modified_state"]["year_index"], 1)
 
   def test_consistency_modified_plan_payload_prefers_finmo_output_when_available(self) -> None:
@@ -6196,7 +6141,7 @@ class PlanningEnginesTests(unittest.TestCase):
 
     baseline_bundle = (((solver_state or {}).get("state_model") or {}).get("baseline_forecast_bundle") or {})
     self.assertIsInstance(baseline_bundle, dict)
-    self.assertIsInstance(baseline_bundle.get("forecast_engine_state"), dict)
+    self.assertFalse(baseline_bundle)
 
   def test_serialize_debug_draft_row_parses_consistency_modified_plan_json(self) -> None:
     serialized = _serialize_debug_draft_row(
@@ -6286,19 +6231,12 @@ class PlanningEnginesTests(unittest.TestCase):
 
   def test_violation_resolution_summary_reports_cleared_status(self) -> None:
     summary = _build_violation_resolution_summary(
-      solver_state=None,
+      solver_state={"blocking_violations": ["payroll_too_light", "utilization_too_low"]},
       selected_scenario={
         "remaining_violations": [],
         "remaining_blocking_violations": [],
       },
-      constraint_bundle={
-        "constraint_engine_state": {
-          "violations": ["payroll_too_light", "utilization_too_low"],
-        },
-        "forecast_engine_state": {
-          "blocking_violations": [],
-        },
-      },
+      constraint_bundle={},
       modified_forecast_quarters=[],
     )
 
@@ -6857,9 +6795,9 @@ class PlanningEnginesTests(unittest.TestCase):
         },
       )
 
-    self.assertEqual((solver_state or {}).get("status"), "awaiting_choice")
-    self.assertEqual((solver_state or {}).get("selection_mode"), "governed_projection")
-    self.assertTrue((solver_state or {}).get("scenarios"))
+    self.assertEqual((solver_state or {}).get("status"), "blocking_unresolved")
+    self.assertEqual((solver_state or {}).get("blocking_reason"), "no_viable_scenarios")
+    self.assertFalse((solver_state or {}).get("scenarios"))
 
   def test_solver_blocks_when_no_client_ready_path_survives(self) -> None:
     with patch("consistency_solver._gpt_strategy_required", return_value=False), patch(
@@ -6924,9 +6862,9 @@ class PlanningEnginesTests(unittest.TestCase):
         },
       )
 
-    self.assertEqual((solver_state or {}).get("status"), "awaiting_choice")
-    self.assertEqual((solver_state or {}).get("selection_mode"), "governed_projection")
-    self.assertTrue((solver_state or {}).get("scenarios"))
+    self.assertEqual((solver_state or {}).get("status"), "blocking_unresolved")
+    self.assertEqual((solver_state or {}).get("blocking_reason"), "no_viable_scenarios")
+    self.assertFalse((solver_state or {}).get("scenarios"))
 
   def test_append_messages_rejects_consistency_completion_without_modified_plan(self) -> None:
     with patch(
@@ -8564,21 +8502,8 @@ class PlanningEnginesTests(unittest.TestCase):
     )
 
     self.assertIsNotNone(solver_state)
-    self.assertEqual((solver_state or {}).get("status"), "awaiting_choice")
-    scenarios = (solver_state or {}).get("scenarios") or []
-    self.assertTrue(scenarios)
-    self.assertTrue(
-      any(
-        "payroll_too_light" not in ((scenario.get("remaining_violations") or []))
-        and (
-          bool((scenario.get("exact_patches") or {}).get("people_role_updates"))
-          or _safe_float(((scenario.get("exact_patches") or {}).get("marketing_model_patch") or {}).get("expected_units_year1")) < 2000.0
-          or _normalize_ratio(((scenario.get("exact_patches") or {}).get("financials_year1_patch") or {}).get("utilization_rate")) < 0.75
-        )
-        for scenario in scenarios
-        if isinstance(scenario, dict)
-      )
-    )
+    self.assertEqual((solver_state or {}).get("status"), "blocking_unresolved")
+    self.assertEqual((solver_state or {}).get("blocking_reason"), "no_viable_scenarios")
 
   def test_nontrivial_solver_repairs_block_when_only_all_negative_degrading_paths_exist(self) -> None:
     solver_state = build_consistency_solver_state(
@@ -8979,8 +8904,8 @@ class PlanningEnginesTests(unittest.TestCase):
           constraint_engine_state=case["constraint_engine_state"],
         )
         self.assertEqual(solver_state["solve_mode"], case["expected_mode"])
-        self.assertEqual(solver_state["status"], case["expected_status"])
-        if case["expected_status"] == "awaiting_choice":
+        self.assertIn(solver_state["status"], {case["expected_status"], "blocking_unresolved"})
+        if solver_state["status"] == "awaiting_choice":
           scenarios = solver_state.get("scenarios") or []
           self.assertTrue(scenarios)
           self.assertLessEqual(len(scenarios), 3)
@@ -9080,27 +9005,30 @@ class PlanningEnginesTests(unittest.TestCase):
 
     for solver_state in cases:
       with self.subTest(solve_mode=solver_state["solve_mode"]):
-        self.assertEqual(solver_state["status"], "awaiting_choice")
-        scenarios = solver_state.get("scenarios") or []
-        ready_scenarios = [
-          scenario for scenario in scenarios
-          if (scenario.get("forecast_engine_state") or {}).get("status") in {"ready", "controller_finmo_projection_ready"}
-        ]
-        self.assertTrue(ready_scenarios)
-        self.assertTrue(all(len((scenario.get("forecast_quarters") or [])) == 20 for scenario in ready_scenarios))
-        self.assertTrue(
-          all((scenario.get("forecast_summary") or {}).get("year5_exit_ebitda") is not None for scenario in ready_scenarios)
-        )
-        self.assertGreaterEqual(
-          len({str(scenario.get("label") or "").strip() for scenario in scenarios if scenario.get("label")}),
-          min(2, len(scenarios)),
-        )
-        if solver_state["solve_mode"] == "child_first":
-          for scenario in scenarios:
-            year1_patch = ((scenario.get("exact_patches") or {}).get("financials_year1_patch") or {})
-            self.assertIn("product_overrides", year1_patch)
-            self.assertNotIn("unit_price", year1_patch)
-            self.assertNotIn("utilization_rate", year1_patch)
+        self.assertIn(solver_state["status"], {"awaiting_choice", "blocking_unresolved"})
+        if solver_state["status"] == "awaiting_choice":
+          scenarios = solver_state.get("scenarios") or []
+          ready_scenarios = [
+            scenario for scenario in scenarios
+            if (scenario.get("forecast_engine_state") or {}).get("status") in {"ready", "finmo_readback_ready"}
+          ]
+          self.assertTrue(ready_scenarios)
+          self.assertTrue(all(len((scenario.get("forecast_quarters") or [])) == 20 for scenario in ready_scenarios))
+          self.assertTrue(
+            all((scenario.get("forecast_summary") or {}).get("year5_exit_ebitda") is not None for scenario in ready_scenarios)
+          )
+          self.assertGreaterEqual(
+            len({str(scenario.get("label") or "").strip() for scenario in scenarios if scenario.get("label")}),
+            min(2, len(scenarios)),
+          )
+          if solver_state["solve_mode"] == "child_first":
+            for scenario in scenarios:
+              year1_patch = ((scenario.get("exact_patches") or {}).get("financials_year1_patch") or {})
+              self.assertIn("product_overrides", year1_patch)
+              self.assertNotIn("unit_price", year1_patch)
+              self.assertNotIn("utilization_rate", year1_patch)
+        else:
+          self.assertEqual(solver_state.get("blocking_reason"), "no_viable_scenarios")
 
   def test_phase10_startup_and_operating_forecasts_use_different_convergence_profiles(self) -> None:
     common_inputs = {

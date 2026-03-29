@@ -7,7 +7,6 @@ from consistency_financials import (  # type: ignore
   build_consistency_financial_summary,
   build_consistency_financial_table,
 )
-from forecast_engine import build_forecast_engine_bundle  # type: ignore
 
 from .common import (
   _archetype_consistency,
@@ -62,13 +61,10 @@ MAX_GOVERNED_ATTEMPTS = 3
 def _gpt_strategy_selection(
   *,
   baseline_summary: Dict[str, Any],
-  constraint_engine_state: Optional[Dict[str, Any]],
-  baseline_forecast_bundle: Optional[Dict[str, Any]],
   fixed_facts: Dict[str, Any],
   viability_mode: bool,
   diagnosis: Dict[str, Any],
   strategy_catalog: List[Dict[str, Any]],
-  orchestration_context: Optional[Dict[str, Any]] = None,
   solver_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   try:
@@ -78,39 +74,15 @@ def _gpt_strategy_selection(
   try:
     result = advise_consistency_strategy_selection(
       baseline_summary=baseline_summary,
-      constraint_engine_state=constraint_engine_state,
-      baseline_forecast_bundle=baseline_forecast_bundle,
       fixed_facts=fixed_facts,
       viability_mode=viability_mode,
       diagnosis=diagnosis,
       strategy_catalog=strategy_catalog,
-      orchestration_context=orchestration_context,
       solver_feedback=solver_feedback,
     )
   except Exception as exc:
     return {"error": "strategy_advisor_execution_failed", "error_detail": str(exc)}
   return result if isinstance(result, dict) else {"error": "strategy_advisor_invalid_response"}
-
-
-def _gpt_translation_audit(
-  *,
-  strategy_selection: Dict[str, Any],
-  translated_contract: Dict[str, Any],
-  translated_modified_state: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-  try:
-    from consistency_strategy_advisor import audit_consistency_controller_translation  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.consistency_strategy_advisor import audit_consistency_controller_translation  # type: ignore
-  try:
-    result = audit_consistency_controller_translation(
-      strategy_selection=strategy_selection,
-      translated_contract=translated_contract,
-      translated_modified_state=translated_modified_state,
-    )
-  except Exception as exc:
-    return {"error": str(exc)}
-  return result if isinstance(result, dict) else {}
 
 
 def _gpt_finmo_validation(
@@ -136,30 +108,6 @@ def _gpt_finmo_validation(
   except Exception as exc:
     return {"error": str(exc)}
   return result if isinstance(result, dict) else {}
-
-
-def _translation_audit_payload(contract_bundle: Dict[str, Any]) -> Dict[str, Any]:
-  profile = (contract_bundle.get("profile") or {}) if isinstance(contract_bundle.get("profile"), dict) else {}
-  orchestration = (profile.get("forecast_orchestration") or {}) if isinstance(profile.get("forecast_orchestration"), dict) else {}
-  allowed_model_input_levers = _clone(profile.get("allowed_model_input_levers") or [])
-  translated_contract = {
-    "profile": _clone(profile),
-    "direct_inputs": _clone(contract_bundle.get("direct_inputs") or {}),
-    "diagnostics": _clone(contract_bundle.get("diagnostics") or {}),
-    "forecast_orchestration": _clone(orchestration),
-  }
-  translated_modified_state = {
-    "canonical_lever_vocabulary": "model_inputs_controller_write_only",
-    "allowed_model_input_levers": allowed_model_input_levers,
-    "forecast_orchestration": _clone(orchestration),
-    "role_timing_overrides": _clone(orchestration.get("role_timing_overrides") or []),
-    "milestone_timing_overrides": _clone(orchestration.get("milestone_timing_overrides") or []),
-    "event_response": _clone(orchestration.get("event_response") or {}),
-  }
-  return {
-    "translated_contract": translated_contract,
-    "translated_modified_state": translated_modified_state,
-  }
 
 
 def _strategy_retry_feedback(
@@ -255,7 +203,6 @@ def _build_strategy_layer(
   constraint_engine_state: Optional[Dict[str, Any]],
   normalized_traits: Optional[Dict[str, Any]],
   viability_mode: bool,
-  baseline_forecast_bundle: Optional[Dict[str, Any]] = None,
   solver_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   del normalized_traits
@@ -281,13 +228,10 @@ def _build_strategy_layer(
   gpt_required = _gpt_strategy_required()
   selection = _gpt_strategy_selection(
     baseline_summary=baseline_summary,
-    constraint_engine_state=constraint_engine_state,
-    baseline_forecast_bundle=baseline_forecast_bundle,
     fixed_facts=(state_model.get("fixed_facts") or {}) if isinstance(state_model.get("fixed_facts"), dict) else {},
     viability_mode=viability_mode,
     diagnosis=diagnosis,
     strategy_catalog=catalog_for_selection,
-    orchestration_context={},
     solver_feedback=solver_feedback,
   )
   strategy_by_id = {str(item.get("strategy_id") or "").strip(): item for item in catalog if isinstance(item, dict)}
@@ -480,18 +424,8 @@ def build_consistency_solver_state(
     model_input_json=model_input_json,
     finmo_json=finmo_json,
   )
-  baseline_forecast_bundle = build_forecast_engine_bundle(
-    operating_model_json=ops_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    marketing_model_json=marketing_model_json or {},
-    normalized_traits=normalized_traits or {},
-    benchmark_payload=benchmark_payload or {},
-    constraint_engine_state=constraint_engine_state or {},
-  )
-  baseline_forecast_bundle = _clone(baseline_forecast_bundle)
-  state_model["baseline_forecast_bundle"] = baseline_forecast_bundle
+  baseline_forecast_bundle: Dict[str, Any] = {}
+  state_model["baseline_forecast_bundle"] = {}
   direct_inputs = _build_direct_solver_inputs(state_model=state_model)
   state_model["direct_inputs"] = _clone(direct_inputs) if isinstance(direct_inputs, dict) else {}
   strategy_layer = _build_strategy_layer(
@@ -501,7 +435,6 @@ def build_consistency_solver_state(
     constraint_engine_state=constraint_engine_state,
     normalized_traits=normalized_traits,
     viability_mode=True,
-    baseline_forecast_bundle=baseline_forecast_bundle,
   )
   state_model["strategy_layer"] = strategy_layer
   if not direct_inputs:
@@ -557,14 +490,14 @@ def build_consistency_solver_state(
       )
       attempted_contract_bundles.append(contract_bundle)
       diagnostics = (contract_bundle.get("diagnostics") or {}) if isinstance(contract_bundle.get("diagnostics"), dict) else {}
-      if "invalid_gpt_orchestration" in set(diagnostics.get("issues") or []):
-        continue
       candidate = build_controller_finmo_candidate(
         profile=contract_bundle.get("profile") or {},
         contract_bundle=contract_bundle,
         state_model=state_model,
         scenario_index=len(attempted_scenarios) + len(attempt_candidates) + 1,
       )
+      if not isinstance(candidate, dict) or not candidate:
+        continue
       validation_request = (
         candidate.get("gpt_validation_request")
         if isinstance(candidate.get("gpt_validation_request"), dict)
@@ -577,7 +510,6 @@ def build_consistency_solver_state(
         fixed_facts={
           **_clone((state_model.get("fixed_facts") or {}) if isinstance(state_model.get("fixed_facts"), dict) else {}),
           "baseline_summary": _clone(baseline_summary or {}),
-          "constraint_engine_state": _clone(constraint_engine_state or {}),
         },
         strategy_selection=selection_payload,
       )
@@ -616,95 +548,7 @@ def build_consistency_solver_state(
           "candidate": candidate,
         }
       )
-    provisional_audit_target: Optional[Dict[str, Any]] = None
-    provisional_client_ready = _select_client_ready_scenarios(attempt_candidates, state_model=state_model)
-    if provisional_client_ready:
-      provisional_id = str((provisional_client_ready[0] or {}).get("scenario_id") or "").strip()
-      provisional_audit_target = next((item for item in attempt_records if str((((item.get("candidate") or {}) if isinstance(item.get("candidate"), dict) else {}).get("scenario_id") or "")).strip() == provisional_id), None)
-    else:
-      provisional_candidates = [
-        item for item in _select_materially_distinct_scenarios(
-          [
-            candidate for candidate in attempt_candidates
-            if isinstance(candidate, dict)
-            and _safe_int(candidate.get("remaining_blocking_count")) <= 0
-          ]
-        )
-        if isinstance(item, dict)
-      ]
-      if provisional_candidates:
-        provisional_id = str((provisional_candidates[0] or {}).get("scenario_id") or "").strip()
-        provisional_audit_target = next((item for item in attempt_records if str((((item.get("candidate") or {}) if isinstance(item.get("candidate"), dict) else {}).get("scenario_id") or "")).strip() == provisional_id), None)
-    if provisional_audit_target and str((((provisional_audit_target.get("profile") or {}) if isinstance(provisional_audit_target.get("profile"), dict) else {}).get("strategy_source") or "")).strip().lower() == "gpt":
-      contract_bundle = (provisional_audit_target.get("contract_bundle") or {}) if isinstance(provisional_audit_target.get("contract_bundle"), dict) else {}
-      translation_payload = _translation_audit_payload(contract_bundle)
-      translation_audit = _gpt_translation_audit(
-        strategy_selection=selection_payload,
-        translated_contract=translation_payload["translated_contract"],
-        translated_modified_state=translation_payload["translated_modified_state"],
-      )
-      diagnostics = (contract_bundle.get("diagnostics") or {}) if isinstance(contract_bundle.get("diagnostics"), dict) else {}
-      diagnostics["gpt_translation_audit"] = _clone(translation_audit)
-      contract_bundle["diagnostics"] = diagnostics
-      candidate_ref = (provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}
-      if candidate_ref:
-        candidate_ref["contract_diagnostics"] = _clone(diagnostics)
-        provisional_audit_target["candidate"] = candidate_ref
-      if str((translation_audit or {}).get("error") or "").strip():
-        diagnostics["issues"] = _unique_strings(list(diagnostics.get("issues") or []) + ["gpt_translation_audit_failed"])
-        contract_bundle["diagnostics"] = diagnostics
-        old_id = str((((provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}).get("scenario_id") or "")).strip()
-        attempt_candidates = [item for item in attempt_candidates if str((item.get("scenario_id") or "")).strip() != old_id]
-        provisional_audit_target["candidate"] = {}
-        continue
-      audit_status = str((translation_audit or {}).get("audit_status") or "").strip().lower()
-      if audit_status == "rejected_translation":
-        corrected_bundle = _build_profile_solver_contract(
-          state_model=state_model,
-          direct_inputs=direct_inputs,
-          profile=(provisional_audit_target.get("profile") or {}) if isinstance(provisional_audit_target.get("profile"), dict) else {},
-          target_ebitda_min=target_ebitda_min,
-          target_ebitda_max=target_ebitda_max,
-          translation_audit=translation_audit,
-        )
-        corrected_diagnostics = (corrected_bundle.get("diagnostics") or {}) if isinstance(corrected_bundle.get("diagnostics"), dict) else {}
-        corrected_diagnostics["gpt_translation_audit_initial"] = _clone(translation_audit)
-        corrected_diagnostics["gpt_translation_audit"] = {
-          "audit_status": "accepted_gpt_replacement_applied",
-          "captured_correctly": True,
-          "notes": "Controller applied GPT replacement_forecast_orchestration directly and proceeded with controller validation only.",
-        }
-        corrected_bundle["diagnostics"] = corrected_diagnostics
-        attempted_contract_bundles.append(corrected_bundle)
-        corrected_self_audit = (corrected_diagnostics.get("translation_self_audit") or {}) if isinstance(corrected_diagnostics.get("translation_self_audit"), dict) else {}
-        if (
-          "invalid_gpt_orchestration" in set(corrected_diagnostics.get("issues") or [])
-          or bool(corrected_self_audit.get("missing_required_translations"))
-          or bool(corrected_self_audit.get("conflicting_roles"))
-        ):
-          corrected_candidate = None
-        else:
-          corrected_candidate = build_controller_finmo_candidate(
-            profile=corrected_bundle.get("profile") or {},
-            contract_bundle=corrected_bundle,
-            state_model=state_model,
-            scenario_index=_safe_int(((provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}).get("scenario_id")),
-          )
-        if isinstance(corrected_candidate, dict):
-          old_candidate = (provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}
-          old_id = str(old_candidate.get("scenario_id") or "").strip()
-          attempt_candidates = [corrected_candidate if str((item.get("scenario_id") or "")).strip() == old_id else item for item in attempt_candidates]
-          provisional_audit_target["contract_bundle"] = corrected_bundle
-          provisional_audit_target["solution"] = {}
-          provisional_audit_target["candidate"] = corrected_candidate
-        else:
-          corrected_diagnostics["issues"] = _unique_strings(list(corrected_diagnostics.get("issues") or []) + ["gpt_translation_rejected"])
-          old_id = str((((provisional_audit_target.get("candidate") or {}) if isinstance(provisional_audit_target.get("candidate"), dict) else {}).get("scenario_id") or "")).strip()
-          attempt_candidates = [item for item in attempt_candidates if str((item.get("scenario_id") or "")).strip() != old_id]
-          provisional_audit_target["candidate"] = {}
-      else:
-        provisional_audit_target["contract_bundle"] = contract_bundle
-    attempted_scenarios.extend([_clone(item.get("candidate") or {}) for item in attempt_records if isinstance(item.get("candidate"), dict)])
+      attempted_scenarios.extend([_clone(item.get("candidate") or {}) for item in attempt_records if isinstance(item.get("candidate"), dict)])
     client_ready = _select_client_ready_scenarios(attempt_candidates, state_model=state_model)
     if client_ready:
       selected = client_ready
@@ -733,7 +577,6 @@ def build_consistency_solver_state(
       constraint_engine_state=constraint_engine_state,
       normalized_traits=normalized_traits,
       viability_mode=True,
-      baseline_forecast_bundle=baseline_forecast_bundle,
       solver_feedback=retry_feedback,
     )
     if not (current_strategy_layer.get("strategies") or []):

@@ -707,14 +707,12 @@ def _schema() -> Dict[str, Any]:
           required_fields=["cost_posture", "opex_ratio_bias", "payroll_ratio_bias", "rationale"],
         ),
         "outer_year_margin_logic": {"type": "string"},
-        "governed_forecast_orchestration": _forecast_orchestration_schema(required=True),
         "selected_strategy_ids": {
           "type": "array",
           "items": {"type": "string"},
           "minItems": 1,
           "maxItems": 2,
         },
-        "baseline_forecast_orchestration": _forecast_orchestration_schema(required=True),
         "expected_year1_ebitda_margin_min": {"type": ["number", "null"]},
         "expected_year1_ebitda_margin_max": {"type": ["number", "null"]},
       },
@@ -742,9 +740,7 @@ def _schema() -> Dict[str, Any]:
         "milestone_activation_plan",
         "support_overhead_plan",
         "outer_year_margin_logic",
-        "governed_forecast_orchestration",
         "selected_strategy_ids",
-        "baseline_forecast_orchestration",
         "expected_year1_ebitda_margin_min",
         "expected_year1_ebitda_margin_max",
       ],
@@ -941,13 +937,10 @@ def _validation_schema() -> Dict[str, Any]:
 def advise_consistency_strategy_selection(
   *,
   baseline_summary: Dict[str, Any],
-  constraint_engine_state: Optional[Dict[str, Any]],
-  baseline_forecast_bundle: Optional[Dict[str, Any]],
   fixed_facts: Dict[str, Any],
   viability_mode: bool,
   diagnosis: Dict[str, Any],
   strategy_catalog: List[Dict[str, Any]],
-  orchestration_context: Optional[Dict[str, Any]] = None,
   solver_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   if not _strategy_layer_enabled():
@@ -977,12 +970,9 @@ def advise_consistency_strategy_selection(
   schema = _schema()
   base_user_payload = {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
-    "constraint_engine_state": _sanitize_canonical_live_payload(constraint_engine_state or {}),
-    "baseline_forecast": _sanitize_canonical_live_payload(baseline_forecast_bundle or {}),
     "fixed_facts": _sanitize_canonical_live_payload(fixed_facts or {}),
     "model_input_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("model_input_json") or {}),
     "finmo_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("finmo_json") or {}),
-    "orchestration_context": _sanitize_canonical_live_payload(orchestration_context or {}),
     "viability_mode": bool(viability_mode),
     "deterministic_diagnosis": _sanitize_canonical_live_payload(diagnosis or {}),
     "strategy_catalog": catalog_payload,
@@ -1001,7 +991,7 @@ def advise_consistency_strategy_selection(
       "\n"
       "Thinking Standard:\n"
       "Reason like a serious operator and investor reviewing a flawed plan.\n"
-      "Use the full business picture: persisted intake facts, consultant outputs, baseline_summary, constraint_engine_state, deterministic_diagnosis, model_input_view, finmo_view, orchestration_context, solver_feedback, and your own real-world knowledge of how this business type should actually operate.\n"
+      "Use the full business picture: persisted intake facts, consultant outputs, baseline_summary, deterministic_diagnosis, model_input_view, finmo_view, solver_feedback, and your own real-world knowledge of how this business type should actually operate.\n"
       "The persisted SQL state is the client's stated plan and starting point, not the truth. Challenge unrealistic pricing, compensation, staffing, utilization, growth, margin, and timing assumptions when they are not believable.\n"
       "If the baseline is implausibly weak, stabilize it. If it is implausibly strong, normalize it. Do not simply preserve client optimism.\n"
       "Avoid long negative paths. A repaired business may still have early pressure, but multi-year flat or worsening losses are usually unacceptable unless the business facts truly force that outcome.\n"
@@ -1052,10 +1042,8 @@ def advise_consistency_strategy_selection(
       "\n"
       "Required Output Content:\n"
       "Return a full viability blueprint, not just strategy ids.\n"
-      "You must explain the business_model_assessment, secondary_causes, allowed_model_input_levers, forbidden_model_input_levers, controller_directives, governed_period_groups, lever_adjustment_plan, controlled_output_targets, target_posture, viability_blueprint_summary, scaling_model_summary, target_margin_path, capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, outer_year_margin_logic, governed_forecast_orchestration, baseline_forecast_orchestration, and expected_year1 EBITDA range.\n"
-      "Do not leave governed_forecast_orchestration empty. Do not rely on controller to invent quarter logic later.\n"
-      "Encode quarter logic directly inside governed_forecast_orchestration.quarter_policies, role_timing_overrides, milestone_timing_overrides, and event_response.\n"
-      "Every governed_forecast_orchestration.quarter_policies.active_levers value must use exact Model Inputs workbook lever ids.\n"
+      "You must explain the business_model_assessment, secondary_causes, allowed_model_input_levers, forbidden_model_input_levers, controller_directives, governed_period_groups, lever_adjustment_plan, controlled_output_targets, target_posture, viability_blueprint_summary, scaling_model_summary, target_margin_path, capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, outer_year_margin_logic, and expected_year1 EBITDA range.\n"
+      "Do not rely on controller to invent quarter logic later. Quarter logic must be fully expressed through governed_period_groups, lever_adjustment_plan, controlled_output_targets, and the release/build plans.\n"
       "\n"
       "Severity and Retry:\n"
       "Classify case severity as mild, moderate, or severe and explain why in severity_reason.\n"

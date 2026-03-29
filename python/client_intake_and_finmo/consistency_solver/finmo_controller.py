@@ -999,9 +999,7 @@ def build_controller_finmo_candidate(
     "fulfillment_json": _clone((baseline_state.get("fulfillment_json") or {}) if isinstance(baseline_state.get("fulfillment_json"), dict) else {}),
     "marketing_model_json": next_marketing,
   }
-  orchestration = (profile.get("forecast_orchestration") or {}) if isinstance(profile.get("forecast_orchestration"), dict) else {}
-  preview_forecast_quarters = _quarter_projection_from_controller(modified_state=modified_state, exact_patches=exact_patches, orchestration=orchestration)
-  preview_forecast_years = _rollup_years(preview_forecast_quarters)
+  preview_forecast_quarters = _quarter_projection_from_controller(modified_state=modified_state, exact_patches=exact_patches, orchestration={})
   controller_input_seed = _controller_input_seed_from_projection(
     forecast_quarters=preview_forecast_quarters,
     financials_json=next_financials,
@@ -1020,11 +1018,12 @@ def build_controller_finmo_candidate(
     calibration_request=controller_calibration_request,
     fallback_forecast_quarters=preview_forecast_quarters,
   )
-  forecast_quarters = [item for item in (finmo_readback.get("quarter_driver_path") or []) if isinstance(item, dict)] or _clone(preview_forecast_quarters)
-  forecast_years = [item for item in (finmo_readback.get("forecast_years") or []) if isinstance(item, dict)] or _clone(preview_forecast_years)
+  forecast_quarters = [item for item in (finmo_readback.get("quarter_driver_path") or []) if isinstance(item, dict)]
+  forecast_years = [item for item in (finmo_readback.get("forecast_years") or []) if isinstance(item, dict)]
+  if not forecast_quarters or not forecast_years:
+    return {}
   forecast_engine_state = {
-    "status": "finmo_readback_ready" if finmo_readback else "controller_finmo_projection_ready",
-    "forecast_orchestration": _clone(orchestration),
+    "status": "finmo_readback_ready",
     "scenario_strategy": {
       "strategy_id": str(profile.get("strategy_id") or "").strip(),
       "strategy_name": str(profile.get("strategy_name") or "").strip(),
@@ -1048,7 +1047,7 @@ def build_controller_finmo_candidate(
     for item in (constraint_profile.get("constraint_engine_violations") or [])
     if str(item or "").strip()
   }
-  remaining_blocking_violations = _unique_strings(orchestration.get("blocking_violations") or [])
+  remaining_blocking_violations: List[str] = []
   year1_forecast = forecast_years[0] if forecast_years else {}
   year1_revenue = _safe_float(year1_forecast.get("revenue"))
   year1_ebitda = _safe_float(year1_forecast.get("ebitda"))
@@ -1104,11 +1103,10 @@ def build_controller_finmo_candidate(
     "summary": summary,
     "exact_patches": exact_patches,
     "modified_state": modified_state,
-    "forecast_orchestration": _clone(orchestration),
     "controller_input_seed": _clone(controller_input_seed),
     "model_input_json": _clone((finmo_readback.get("model_input_json") or {}) if isinstance(finmo_readback.get("model_input_json"), dict) else {}),
     "finmo_json": _clone((finmo_readback.get("finmo_json") or {}) if isinstance(finmo_readback.get("finmo_json"), dict) else {}),
-    "scenario_strategy": {"strategy_id": str(profile.get("strategy_id") or "").strip(), "strategy_name": str(profile.get("strategy_name") or "").strip(), "archetype": str(profile.get("archetype") or "operations").strip(), "forecast_orchestration": _clone(orchestration)},
+    "scenario_strategy": {"strategy_id": str(profile.get("strategy_id") or "").strip(), "strategy_name": str(profile.get("strategy_name") or "").strip(), "archetype": str(profile.get("archetype") or "operations").strip()},
     "forecast_quarters": _clone(forecast_quarters),
     "forecast_years": _clone(forecast_years),
     "forecast_engine_state": forecast_engine_state,

@@ -776,7 +776,6 @@ def _presentation_issues(
   scenario_util = _normalize_ratio(
     ((year1_patch or {}).get("utilization_rate"))
     or (summary.get("utilization"))
-    or (((candidate.get("forecast_engine_state") or {}) if isinstance(candidate.get("forecast_engine_state"), dict) else {}).get("starting_state") or {}).get("utilization")
   )
   presentation_util_floor = util_floor
   if capacity_driver == "labor" and sales_modality in {"local_service", "project_based"}:
