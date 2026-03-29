@@ -6320,6 +6320,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertIn('"MODEL_INPUT"', intake_source)
     self.assertIn('"FINMO"', intake_source)
     self.assertIn('"FINMO_ATTEMPTS"', intake_source)
+    self.assertIn('"GPT_CONTROLLER_TRACKING"', intake_source)
     self.assertIn('"FINMO_SYNC_REQUEST"', finmo_source)
     self.assertIn('"FINMO_CALIBRATION"', finmo_source)
     self.assertIn('"FINMO_SYNC_RESULT"', finmo_source)

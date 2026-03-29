@@ -2007,6 +2007,84 @@ def _build_consistency_fidelity_trace_payload(
   }
 
 
+def _build_gpt_controller_tracking_payload(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  state_model = solver_obj.get("state_model") if isinstance(solver_obj.get("state_model"), dict) else {}
+  strategy_layer = state_model.get("strategy_layer") if isinstance(state_model.get("strategy_layer"), dict) else {}
+  diagnosis = strategy_layer.get("diagnosis") if isinstance(strategy_layer.get("diagnosis"), dict) else {}
+  strategy_selection = strategy_layer.get("strategy_selection") if isinstance(strategy_layer.get("strategy_selection"), dict) else {}
+  attempted = [item for item in (solver_obj.get("attempted_scenarios") or []) if isinstance(item, dict)]
+  handoff_source: Dict[str, Any] = {}
+  if isinstance(selected_scenario, dict) and selected_scenario:
+    handoff_source = selected_scenario
+  elif attempted:
+    handoff_source = attempted[-1]
+  controller_request = (
+    handoff_source.get("controller_calibration_request")
+    if isinstance(handoff_source.get("controller_calibration_request"), dict)
+    else {}
+  )
+  gpt_validation_request = (
+    handoff_source.get("gpt_validation_request")
+    if isinstance(handoff_source.get("gpt_validation_request"), dict)
+    else {}
+  )
+  attempts: List[Dict[str, Any]] = []
+  for attempt_index, item in enumerate(attempted, start=1):
+    attempts.append(
+      {
+        "attempt_number": attempt_index,
+        "scenario_id": str(item.get("scenario_id") or "").strip(),
+        "strategy_id": str(item.get("strategy_id") or "").strip(),
+        "strategy_name": str(item.get("strategy_name") or "").strip(),
+        "allowed_model_input_levers": copy.deepcopy(item.get("allowed_model_input_levers") or []),
+        "controller_input_seed_count": len([seed for seed in (item.get("controller_input_seed") or []) if isinstance(seed, dict)]),
+        "controller_calibration_request": copy.deepcopy(
+          item.get("controller_calibration_request") if isinstance(item.get("controller_calibration_request"), dict) else {}
+        ),
+        "gpt_validation_status": str((((item.get("gpt_validation_result") or {}) if isinstance(item.get("gpt_validation_result"), dict) else {}).get("validation_status") or "")).strip(),
+      }
+    )
+  return {
+    "contract_version": "gpt_controller_tracking_v1",
+    "status": solver_obj.get("status"),
+    "selection_mode": solver_obj.get("selection_mode"),
+    "governed_attempt_count": int(solver_obj.get("governed_attempt_count") or 0),
+    "gpt_prescription": {
+      "strategy_layer_source": strategy_layer.get("source"),
+      "selected_strategy_ids": copy.deepcopy(strategy_selection.get("selected_strategy_ids") or []),
+      "severity_class": diagnosis.get("severity_class"),
+      "minimum_package_strength": diagnosis.get("minimum_package_strength"),
+      "business_model_assessment": strategy_selection.get("business_model_assessment"),
+      "viability_blueprint_summary": strategy_selection.get("viability_blueprint_summary"),
+      "allowed_model_input_levers": copy.deepcopy(strategy_selection.get("allowed_model_input_levers") or []),
+      "forbidden_model_input_levers": copy.deepcopy(strategy_selection.get("forbidden_model_input_levers") or []),
+      "governed_period_groups": copy.deepcopy(strategy_selection.get("governed_period_groups") or []),
+      "lever_adjustment_plan": copy.deepcopy(strategy_selection.get("lever_adjustment_plan") or []),
+      "controlled_output_targets": copy.deepcopy(strategy_selection.get("controlled_output_targets") or []),
+      "target_margin_path": copy.deepcopy(strategy_selection.get("target_margin_path") or diagnosis.get("target_margin_path") or {}),
+      "controller_directives": copy.deepcopy(strategy_selection.get("controller_directives") or {}),
+    },
+    "controller_handoff": {
+      "scenario_id": str(handoff_source.get("scenario_id") or "").strip(),
+      "strategy_id": str(handoff_source.get("strategy_id") or "").strip(),
+      "strategy_name": str(handoff_source.get("strategy_name") or "").strip(),
+      "allowed_model_input_levers": copy.deepcopy(handoff_source.get("allowed_model_input_levers") or []),
+      "controller_input_seed_count": len([seed for seed in (handoff_source.get("controller_input_seed") or []) if isinstance(seed, dict)]),
+      "controller_input_seed_preview": copy.deepcopy(
+        [seed for seed in (handoff_source.get("controller_input_seed") or []) if isinstance(seed, dict)][:2]
+      ),
+      "controller_calibration_request": copy.deepcopy(controller_request),
+      "gpt_validation_request": copy.deepcopy(gpt_validation_request),
+    },
+    "attempts": attempts,
+  }
+
+
 def _persist_consistency_governance_artifacts(
   *,
   conn,
@@ -2030,6 +2108,10 @@ def _persist_consistency_governance_artifacts(
     selected_scenario=selected_scenario,
   )
   finmo_attempts_json = _build_consistency_finmo_attempts_payload(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+  )
+  gpt_controller_tracking_json = _build_gpt_controller_tracking_payload(
     solver_state=solver_state,
     selected_scenario=selected_scenario,
   )
@@ -2065,6 +2147,11 @@ def _persist_consistency_governance_artifacts(
       "FINMO_ATTEMPTS",
       "Real-time Finmo attempt payload",
       lambda: finmo_attempts_json,
+    )
+    trace_lazy(
+      "GPT_CONTROLLER_TRACKING",
+      "Exact GPT-to-controller handoff payload",
+      lambda: gpt_controller_tracking_json,
     )
   except Exception:
     pass
@@ -2675,6 +2762,14 @@ def _run_consistency_closeout(
         "Consistency Finmo attempt payload",
         lambda: finmo_attempts_json,
       )
+      trace_lazy(
+        "GPT_CONTROLLER_TRACKING",
+        "Exact GPT-to-controller handoff payload",
+        lambda: _build_gpt_controller_tracking_payload(
+          solver_state=solver_state,
+          selected_scenario=selected_scenario,
+        ),
+      )
     except Exception:
       pass
     updated_shared_context["consistency_gpt_governance"] = gpt_governance_json
@@ -2796,6 +2891,14 @@ def _run_consistency_closeout(
       "FINMO_ATTEMPTS",
       "Consistency Finmo attempt payload",
       lambda: finmo_attempts_json,
+    )
+    trace_lazy(
+      "GPT_CONTROLLER_TRACKING",
+      "Exact GPT-to-controller handoff payload",
+      lambda: _build_gpt_controller_tracking_payload(
+        solver_state=solver_state,
+        selected_scenario=selected_scenario,
+      ),
     )
   except Exception:
     pass
