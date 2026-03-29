@@ -49,28 +49,20 @@ def _build_lever_summary(
     "hire_delay": 0.05,
     "payroll": 0.04,
   }
-  family_alias = {
-    "price_up": "price",
-    "price_down": "price",
-    "util_up": "utilization",
-    "util_down": "utilization",
-    "marketing_up": "marketing",
-    "marketing_down": "marketing",
-    "other_opex_down": "other_opex",
-    "other_opex_up": "other_opex",
-    "cogs_down": "cogs",
-    "cogs_up": "cogs",
-    "hire_delay": "hire_delay",
-    "hire_advance": "hire_delay",
-    "payroll_down": "payroll",
-    "payroll_up": "payroll",
-    "payroll_shortfall": "payroll",
-    "payroll_excess": "payroll",
-    "structural_payroll_shortfall": "payroll",
+  canonical_families = {
+    "price",
+    "utilization",
+    "marketing",
+    "other_opex",
+    "cogs",
+    "hire_delay",
+    "payroll",
   }
   raw_moves: Dict[str, float] = {}
   for raw_name, raw_value in family_raw_components.items():
-    family_name = family_alias.get(str(raw_name), str(raw_name))
+    family_name = str(raw_name or "").strip().lower()
+    if family_name not in canonical_families:
+      continue
     value = max(0.0, _safe_float(raw_value))
     raw_moves[family_name] = max(raw_moves.get(family_name, 0.0), value)
   year1_patch = exact_patches.get("financials_year1_patch") if isinstance(exact_patches, dict) else {}
@@ -258,7 +250,7 @@ def _label_and_rationale_from_patches(
   year1_patch = exact_patches.get("financials_year1_patch") if isinstance(exact_patches.get("financials_year1_patch"), dict) else {}
   financials_patch = exact_patches.get("financials_patch") if isinstance(exact_patches.get("financials_patch"), dict) else {}
   if "unit_price" in year1_patch:
-    families.append("pricing")
+    families.append("price")
   if "utilization_rate" in year1_patch:
     families.append("utilization")
   if exact_patches.get("people_role_updates"):
@@ -279,7 +271,7 @@ def _label_and_rationale_from_patches(
     label_bits.append("Improve utilization")
   if "hire_delay" in families:
     label_bits.append("Delay hiring")
-  if "pricing" in families and "marketing" not in families:
+  if "price" in families and "marketing" not in families:
     label_bits.append("Reprice Year 1")
   if "other_opex" in families and not label_bits:
     label_bits.append("Reset operating overhead")

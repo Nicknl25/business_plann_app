@@ -12,7 +12,7 @@ from flask import jsonify
 
 logger = logging.getLogger(__name__)
 import requests
-from intake_consult_draft import append_messages, get_draft
+from intake_consult_draft import append_messages, ensure_draft_finmo_workbook, get_draft
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -794,6 +794,15 @@ def _safe_float(value: Any) -> Optional[float]:
     return None
 
 
+def _safe_int(value: Any) -> Optional[int]:
+  if value is None or value == "" or isinstance(value, bool):
+    return None
+  try:
+    return int(float(value))
+  except Exception:
+    return None
+
+
 def _format_currency(value: Any) -> str:
   amount = _safe_float(value)
   if amount is None:
@@ -1326,6 +1335,49 @@ def _build_consistency_blocked_message(
   return "\n".join([section for section in sections if section is not None]).strip()
 
 
+def _build_consistency_provisional_message(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  attempted_scenario: Optional[Dict[str, Any]],
+  initial_table_markdown: str,
+  modified_forecast_quarters: Optional[List[Dict[str, Any]]],
+  finmo_json: Optional[Dict[str, Any]] = None,
+) -> str:
+  if isinstance(finmo_json, dict) and finmo_json:
+    finmo_quarters, _ = _build_consistency_forecast_view_from_finmo_safe(finmo_json)
+    if finmo_quarters:
+      modified_forecast_quarters = finmo_quarters
+  quarter_table = _build_quarterly_projection_table(modified_forecast_quarters)
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  blocking_violations = [
+    str(item or "").strip().replace("_", " ")
+    for item in (solver_obj.get("blocking_violations") or [])
+    if str(item or "").strip()
+  ]
+  scenario_obj = attempted_scenario if isinstance(attempted_scenario, dict) else {}
+  client_output = scenario_obj.get("client_output") if isinstance(scenario_obj.get("client_output"), dict) else {}
+  scenario_summary = str(client_output.get("summary") or "").strip()
+  dominant_tradeoff = str(
+    scenario_obj.get("dominant_tradeoff")
+    or client_output.get("scenario_name")
+    or "the strongest governed path produced so far"
+  ).strip()
+  business_descriptor = _humanize_business_descriptor(solver_state=solver_state)
+  modified_levers = _describe_modified_levers(scenario_obj)
+  issue_text = f" Remaining blocking issues: {', '.join(blocking_violations)}." if blocking_violations else ""
+  explanation = (
+    f"The Initial Projections table shows the original Year 1 plan captured during intake. "
+    f"The Modified Quarterly Projections table shows the strongest quarter-by-quarter path produced so far for this {business_descriptor}. "
+    f"We adjusted {modified_levers} so the business moves toward a more realistic operating structure; {scenario_summary.lower() if scenario_summary else dominant_tradeoff.lower()}. "
+    f"Consistency is still unresolved and intake is staying in consistency while GPT and controller continue refining the path.{issue_text}"
+  )
+  sections = ["Initial Projections", "", initial_table_markdown.strip(), "", "Modified Quarterly Projections"]
+  if quarter_table:
+    sections.extend(["", quarter_table])
+  sections.extend(["", explanation.strip()])
+  return "\n".join([section for section in sections if section is not None]).strip()
+
+
 def _build_consistency_financial_summary_safe(
   *,
   financials_json: Dict[str, Any],
@@ -1670,8 +1722,8 @@ def _consistency_trace_scenario_summary(scenario: Optional[Dict[str, Any]]) -> D
     "archetype": scenario.get("archetype"),
     "archetype_display": scenario.get("archetype_display"),
     "dominant_tradeoff": scenario.get("dominant_tradeoff"),
-    "allowed_levers": copy.deepcopy(scenario.get("allowed_levers") or []),
-    "relationship_rules": copy.deepcopy(scenario.get("relationship_rules") or []),
+    "canonical_lever_vocabulary": scenario.get("canonical_lever_vocabulary"),
+    "allowed_model_input_levers": copy.deepcopy(scenario.get("allowed_model_input_levers") or []),
     "remaining_violations": copy.deepcopy(scenario.get("remaining_violations") or []),
     "remaining_blocking_violations": copy.deepcopy(scenario.get("remaining_blocking_violations") or []),
     "realism_distance": scenario.get("realism_distance"),
@@ -1694,8 +1746,8 @@ def _consistency_trace_contract_summary(bundle: Optional[Dict[str, Any]]) -> Dic
     "strategy_id": str(profile.get("strategy_id") or profile.get("profile_id") or diagnostics.get("strategy_id") or "").strip(),
     "strategy_name": str(profile.get("strategy_name") or profile.get("profile_id") or "").strip(),
     "strategy_source": str(profile.get("strategy_source") or diagnostics.get("strategy_source") or "").strip(),
-    "allowed_levers": copy.deepcopy(profile.get("allowed_levers") or diagnostics.get("allowed_levers") or []),
-    "relationship_rules": copy.deepcopy(profile.get("relationship_rules") or []),
+    "canonical_lever_vocabulary": "model_inputs_controller_write_only",
+    "allowed_model_input_levers": copy.deepcopy((((bundle.get("controller_calibration_request") or {}) if isinstance(bundle.get("controller_calibration_request"), dict) else {}).get("allowed_model_input_levers") or [])),
     "forecast_orchestration": copy.deepcopy(profile.get("forecast_orchestration") or {}),
     "contract_diagnostics": copy.deepcopy(diagnostics),
     "contract_inputs": {
@@ -1812,6 +1864,49 @@ def _build_consistency_solver_execution_payload(
   }
 
 
+def _build_consistency_finmo_attempts_payload(
+  *,
+  solver_state: Optional[Dict[str, Any]],
+  selected_scenario: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  solver_obj = solver_state if isinstance(solver_state, dict) else {}
+  attempted = [
+    item for item in (solver_obj.get("attempted_scenarios") or [])
+    if isinstance(item, dict)
+  ]
+  selected_id = str((selected_scenario or {}).get("scenario_id") or "").strip() if isinstance(selected_scenario, dict) else ""
+  attempts: List[Dict[str, Any]] = []
+  for attempt_index, item in enumerate(attempted, start=1):
+    scenario_id = str(item.get("scenario_id") or "").strip()
+    controller_request = item.get("controller_calibration_request") if isinstance(item.get("controller_calibration_request"), dict) else {}
+    gpt_validation_request = item.get("gpt_validation_request") if isinstance(item.get("gpt_validation_request"), dict) else {}
+    forecast_engine_state = item.get("forecast_engine_state") if isinstance(item.get("forecast_engine_state"), dict) else {}
+    attempts.append(
+      {
+        "attempt_number": attempt_index,
+        "scenario_id": scenario_id,
+        "strategy_id": str(item.get("strategy_id") or "").strip(),
+        "strategy_name": str(item.get("strategy_name") or "").strip(),
+        "accepted": bool(selected_id and scenario_id == selected_id),
+        "remaining_violations": copy.deepcopy(item.get("remaining_violations") or []),
+        "remaining_blocking_violations": copy.deepcopy(item.get("remaining_blocking_violations") or []),
+        "allowed_model_input_levers": copy.deepcopy(item.get("allowed_model_input_levers") or []),
+        "controller_calibration_request": copy.deepcopy(controller_request),
+        "gpt_validation_request": copy.deepcopy(gpt_validation_request),
+        "gpt_validation_result": copy.deepcopy(item.get("gpt_validation_result") or {}),
+        "model_input_json": copy.deepcopy(item.get("model_input_json") or {}),
+        "finmo_json": copy.deepcopy(item.get("finmo_json") or {}),
+        "forecast_status": str(forecast_engine_state.get("status") or "").strip(),
+      }
+    )
+  return {
+    "contract_version": "consistency_finmo_attempts_v1",
+    "attempt_count": len(attempts),
+    "selected_scenario_id": selected_id or None,
+    "attempts": attempts,
+  }
+
+
 def _build_consistency_fidelity_trace_payload(
   *,
   solver_state: Optional[Dict[str, Any]],
@@ -1849,7 +1944,8 @@ def _build_consistency_fidelity_trace_payload(
           "year3_margin": target.get("year3_margin"),
           "miss_years": copy.deepcopy(target.get("miss_years") or []),
         },
-        "lever_families": copy.deepcopy((item.get("lever_summary") or {}).get("meaningful_families") or []),
+        "canonical_lever_vocabulary": item.get("canonical_lever_vocabulary"),
+        "allowed_model_input_levers": copy.deepcopy(item.get("allowed_model_input_levers") or []),
         "orchestration": _orchestration_counts(item.get("forecast_orchestration")),
       }
     )
@@ -1863,7 +1959,8 @@ def _build_consistency_fidelity_trace_payload(
       {
         "strategy_id": profile.get("strategy_id") or profile.get("profile_id"),
         "strategy_source": profile.get("strategy_source"),
-        "allowed_levers": copy.deepcopy(profile.get("allowed_levers") or []),
+        "canonical_lever_vocabulary": "model_inputs_controller_write_only",
+        "allowed_model_input_levers": copy.deepcopy((((bundle.get("controller_calibration_request") or {}) if isinstance(bundle.get("controller_calibration_request"), dict) else {}).get("allowed_model_input_levers") or [])),
         "diagnostic_issues": copy.deepcopy(diagnostics.get("issues") or []),
         "audit_status": audit.get("audit_status"),
         "audit_error": audit.get("error"),
@@ -1899,7 +1996,7 @@ def _build_consistency_fidelity_trace_payload(
       "selected_strategy_ids": copy.deepcopy(strategy_selection.get("selected_strategy_ids") or []),
       "severity_class": diagnosis.get("severity_class"),
       "minimum_package_strength": diagnosis.get("minimum_package_strength"),
-      "required_lever_families": copy.deepcopy(diagnosis.get("required_lever_families") or []),
+      "canonical_lever_vocabulary": "model_inputs_controller_write_only",
       "target_margin_path": copy.deepcopy(diagnosis.get("target_margin_path") or {}),
       "escalation_required": diagnosis.get("escalation_required"),
       "governed_retry_attempt": diagnosis.get("governed_retry_attempt"),
@@ -1932,6 +2029,10 @@ def _persist_consistency_governance_artifacts(
     solver_state=solver_state,
     selected_scenario=selected_scenario,
   )
+  finmo_attempts_json = _build_consistency_finmo_attempts_payload(
+    solver_state=solver_state,
+    selected_scenario=selected_scenario,
+  )
   try:
     try:
       from solver_trace import trace_lazy  # type: ignore
@@ -1960,6 +2061,11 @@ def _persist_consistency_governance_artifacts(
         selected_scenario=selected_scenario,
       ),
     )
+    trace_lazy(
+      "FINMO_ATTEMPTS",
+      "Real-time Finmo attempt payload",
+      lambda: finmo_attempts_json,
+    )
   except Exception:
     pass
   append_messages(
@@ -1971,6 +2077,7 @@ def _persist_consistency_governance_artifacts(
     consistency_gpt_governance_json=gpt_governance_json,
     consistency_controller_contract_json=controller_contract_json,
     consistency_solver_execution_json=solver_execution_json,
+    consistency_finmo_attempts_json=finmo_attempts_json,
     **_constraint_bundle_append_kwargs(constraint_bundle or {}),
   ) if hasattr(conn, "cursor") else None
   return gpt_governance_json, controller_contract_json, solver_execution_json
@@ -1985,6 +2092,7 @@ def _persist_and_reload_consistency_modified_state(
   consistency_gpt_governance_json: Dict[str, Any],
   consistency_controller_contract_json: Dict[str, Any],
   consistency_solver_execution_json: Dict[str, Any],
+  consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   constraint_bundle: Optional[Dict[str, Any]] = None,
@@ -2002,6 +2110,7 @@ def _persist_and_reload_consistency_modified_state(
     consistency_gpt_governance_json=consistency_gpt_governance_json,
     consistency_controller_contract_json=consistency_controller_contract_json,
     consistency_solver_execution_json=consistency_solver_execution_json,
+    consistency_finmo_attempts_json=consistency_finmo_attempts_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
     **_constraint_bundle_append_kwargs(constraint_bundle or {}),
@@ -2024,6 +2133,80 @@ def _persist_and_reload_consistency_modified_state(
     copy.deepcopy(modified_plan.get("marketing_model") or {}),
     [copy.deepcopy(item) for item in quarter_driver_path if isinstance(item, dict)],
   )
+
+
+def _initialize_consistency_finmo_baseline(
+  *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+  try:
+    try:
+      from finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+  except Exception:
+    return {}, {}
+
+  try:
+    finmo_path = ensure_draft_finmo_workbook(conn, draft_id=str(draft_id).strip())
+  except Exception:
+    finmo_path = None
+  if not finmo_path:
+    try:
+      finmo_path = str((get_draft(conn, draft_id=str(draft_id).strip()) or {}).get("finmo_path") or "").strip()
+    except Exception:
+      finmo_path = ""
+  if not finmo_path:
+    return {}, {}
+
+  try:
+    result = sync_consistency_state_to_finmo(
+      finmo_path=finmo_path,
+      business_facts=business_facts,
+      ops_json=ops_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      marketing_model_json=marketing_model_json,
+      controller_input_seed=[],
+      forecast_quarters=[],
+      calibration_spec=None,
+    )
+  except Exception:
+    return {}, {}
+
+  model_input_json = result.get("model_input_json") if isinstance(result.get("model_input_json"), dict) else {}
+  finmo_json = result.get("finmo_json") if isinstance(result.get("finmo_json"), dict) else {}
+  if model_input_json or finmo_json:
+    append_messages(
+      conn,
+      draft_id=str(draft_id).strip(),
+      new_messages=[],
+      active_focus="consistency",
+      business_facts=business_facts,
+      model_input_json=model_input_json if model_input_json else None,
+      finmo_json=finmo_json if finmo_json else None,
+    )
+    try:
+      try:
+        from solver_trace import trace_lazy  # type: ignore
+      except Exception:
+        from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+      trace_lazy("FINMO_BASELINE", "Consistency baseline Finmo payload", lambda: {
+        "finmo_path": finmo_path,
+        "model_input_json": model_input_json,
+        "finmo_json": finmo_json,
+      })
+    except Exception:
+      pass
+  return model_input_json, finmo_json
 
 
 def _sync_consistency_finmo_artifacts(
@@ -2055,6 +2238,10 @@ def _sync_consistency_finmo_artifacts(
   finmo_path = str(draft_row.get("finmo_path") or "").strip()
   if not finmo_path:
     return {}, {}
+  calibration_spec = (
+    (selected_scenario.get("controller_calibration_request") if isinstance(selected_scenario.get("controller_calibration_request"), dict) else {})
+    or (selected_scenario.get("finmo_calibration_spec") if isinstance(selected_scenario, dict) else {})
+  ) if isinstance(selected_scenario, dict) else {}
   try:
     result = sync_consistency_state_to_finmo(
       finmo_path=finmo_path,
@@ -2064,24 +2251,9 @@ def _sync_consistency_finmo_artifacts(
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
       marketing_model_json=marketing_model_json,
-      model_input_json_override=(
-        (selected_scenario.get("model_input_json") if isinstance(selected_scenario.get("model_input_json"), dict) else {})
-        if isinstance(selected_scenario, dict) else {}
-      ),
       controller_input_seed=controller_input_seed or [],
       forecast_quarters=modified_forecast_quarters or [],
-      calibration_spec=(
-        {}
-        if (
-          isinstance(selected_scenario, dict)
-          and isinstance(selected_scenario.get("model_input_json"), dict)
-          and bool(selected_scenario.get("model_input_json"))
-        )
-        else (
-          (selected_scenario.get("controller_calibration_request") if isinstance(selected_scenario.get("controller_calibration_request"), dict) else {})
-          or (selected_scenario.get("finmo_calibration_spec") if isinstance(selected_scenario, dict) else {})
-        )
-      ),
+      calibration_spec=calibration_spec,
     )
   except Exception:
     return {}, {}
@@ -2096,14 +2268,19 @@ def _best_attempted_consistency_candidate(solver_state: Optional[Dict[str, Any]]
     if isinstance(item, dict)
   ]
   if not attempted:
+    attempted = [
+      item for item in ((solver_state or {}).get("scenarios") or [])
+      if isinstance(item, dict)
+    ]
+  if not attempted:
     return {}
   ranked = sorted(
     attempted,
     key=lambda item: (
-      int(max(0, _safe_int(item.get("remaining_blocking_count")))),
-      int(max(0, _safe_int(item.get("remaining_violation_count")))),
+      int(max(0, _safe_int(item.get("remaining_blocking_count")) or 0)),
+      int(max(0, _safe_int(item.get("remaining_violation_count")) or 0)),
       len(item.get("presentation_issues") or []),
-      -1.0 * _safe_float((((item.get("forecast_years") or [None])[0]) or {}).get("ebitda")),
+      -1.0 * (_safe_float((((item.get("forecast_years") or [None])[0]) or {}).get("ebitda")) or 0.0),
     ),
   )
   best = ranked[0] if ranked else {}
@@ -2131,6 +2308,27 @@ def _run_consistency_closeout(
     persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
   except Exception:
     persisted_draft = {}
+  baseline_model_input_json, baseline_finmo_json = _initialize_consistency_finmo_baseline(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+  )
+  if baseline_model_input_json:
+    shared_context = dict(shared_context or {})
+    shared_context["model_input_json"] = copy.deepcopy(baseline_model_input_json)
+  if baseline_finmo_json:
+    shared_context = dict(shared_context or {})
+    shared_context["finmo_json"] = copy.deepcopy(baseline_finmo_json)
+  if not persisted_draft:
+    try:
+      persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
+    except Exception:
+      persisted_draft = {}
   initial_ops_json = copy.deepcopy(ops_json if isinstance(ops_json, dict) else {})
   initial_market_json = copy.deepcopy(market_json if isinstance(market_json, dict) else {})
   initial_people_json = copy.deepcopy(people_json if isinstance(people_json, dict) else {})
@@ -2173,6 +2371,7 @@ def _run_consistency_closeout(
   gpt_governance_json: Dict[str, Any] = {}
   controller_contract_json: Dict[str, Any] = {}
   solver_execution_json: Dict[str, Any] = {}
+  finmo_attempts_json: Dict[str, Any] = {}
   if isinstance(solver_state, dict):
     gpt_governance_json, controller_contract_json, solver_execution_json = _persist_consistency_governance_artifacts(
       conn=conn,
@@ -2182,6 +2381,10 @@ def _run_consistency_closeout(
       selected_scenario=None,
       active_focus="consistency",
       constraint_bundle=constraint_bundle,
+    )
+    finmo_attempts_json = _build_consistency_finmo_attempts_payload(
+      solver_state=solver_state,
+      selected_scenario=None,
     )
   selected_scenario: Optional[Dict[str, Any]] = None
   modified_forecast_quarters: List[Dict[str, Any]] = []
@@ -2193,8 +2396,8 @@ def _run_consistency_closeout(
   updated_financials_year1_json = dict(financials_year1_json or {})
   updated_marketing_model_json = dict(marketing_model_json or {})
   consistency_modified_plan_json: Dict[str, Any] = {}
-  model_input_json: Dict[str, Any] = {}
-  finmo_json: Dict[str, Any] = {}
+  model_input_json: Dict[str, Any] = copy.deepcopy(baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {})
+  finmo_json: Dict[str, Any] = copy.deepcopy(baseline_finmo_json if isinstance(baseline_finmo_json, dict) else {})
 
   if isinstance(solver_state, dict) and (solver_state.get("scenarios") or []):
     selected_scenario_id = str((((solver_state.get("scenarios") or [])[0]) or {}).get("scenario_id") or "1").strip() or "1"
@@ -2249,6 +2452,10 @@ def _run_consistency_closeout(
           selected_scenario=selected_scenario,
           active_focus="consistency",
           constraint_bundle=constraint_bundle,
+        )
+        finmo_attempts_json = _build_consistency_finmo_attempts_payload(
+          solver_state=solver_state,
+          selected_scenario=selected_scenario,
         )
       model_input_json, finmo_json = _sync_consistency_finmo_artifacts(
         conn=conn,
@@ -2311,6 +2518,7 @@ def _run_consistency_closeout(
         consistency_gpt_governance_json=gpt_governance_json,
         consistency_controller_contract_json=controller_contract_json,
         consistency_solver_execution_json=solver_execution_json,
+        consistency_finmo_attempts_json=finmo_attempts_json,
         model_input_json=model_input_json,
         finmo_json=finmo_json,
         constraint_bundle=constraint_bundle,
@@ -2341,6 +2549,10 @@ def _run_consistency_closeout(
       (attempted_candidate.get("modified_state") or {})
       if isinstance(attempted_candidate.get("modified_state"), dict) else {}
     )
+    attempted_forecast_quarters = [
+      item for item in ((attempted_candidate.get("forecast_quarters") or []))
+      if isinstance(item, dict)
+    ] if isinstance(attempted_candidate, dict) else []
     if attempted_candidate:
       model_input_json, finmo_json = _sync_consistency_finmo_artifacts(
         conn=conn,
@@ -2355,17 +2567,65 @@ def _run_consistency_closeout(
           item for item in ((attempted_candidate.get("controller_input_seed") or []))
           if isinstance(item, dict)
         ],
-        modified_forecast_quarters=[
-          item for item in ((attempted_candidate.get("forecast_quarters") or []))
-          if isinstance(item, dict)
-        ],
+        modified_forecast_quarters=attempted_forecast_quarters,
         selected_scenario=attempted_candidate,
+      )
+      finmo_quarter_driver_path, _finmo_forecast_years = _build_consistency_forecast_view_from_finmo_safe(finmo_json)
+      if finmo_quarter_driver_path:
+        attempted_forecast_quarters = finmo_quarter_driver_path
+      consistency_modified_plan_json = _build_consistency_modified_plan_payload(
+        solver_state=solver_state,
+        selected_scenario=attempted_candidate,
+        constraint_bundle=constraint_bundle,
+        initial_ops_json=initial_ops_json,
+        initial_market_json=initial_market_json,
+        initial_people_json=initial_people_json,
+        initial_financials_json=initial_financials_json,
+        initial_financials_year1_json=initial_financials_year1_json,
+        initial_marketing_model_json=initial_marketing_model_json,
+        modified_ops_json=(attempted_modified_state.get("ops_json") if isinstance(attempted_modified_state.get("ops_json"), dict) else updated_ops_json),
+        modified_market_json=updated_market_json,
+        modified_people_json=(attempted_modified_state.get("people_json") if isinstance(attempted_modified_state.get("people_json"), dict) else updated_people_json),
+        modified_financials_json=(attempted_modified_state.get("financials_json") if isinstance(attempted_modified_state.get("financials_json"), dict) else updated_financials_json),
+        modified_financials_year1_json=(attempted_modified_state.get("financials_year1_json") if isinstance(attempted_modified_state.get("financials_year1_json"), dict) else updated_financials_year1_json),
+        modified_marketing_model_json=(attempted_modified_state.get("marketing_model_json") if isinstance(attempted_modified_state.get("marketing_model_json"), dict) else updated_marketing_model_json),
+        modified_forecast_quarters=attempted_forecast_quarters,
+        finmo_json=finmo_json,
+      )
+      consistency_modified_plan_json["resolution_summary"] = _build_violation_resolution_summary(
+        solver_state=solver_state,
+        selected_scenario=attempted_candidate,
+        constraint_bundle=constraint_bundle,
+        modified_forecast_quarters=attempted_forecast_quarters,
+      )
+      (
+        consistency_modified_plan_json,
+        updated_ops_json,
+        updated_market_json,
+        updated_people_json,
+        updated_financials_json,
+        updated_financials_year1_json,
+        updated_marketing_model_json,
+        attempted_forecast_quarters,
+      ) = _persist_and_reload_consistency_modified_state(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        business_facts=business_facts,
+        consistency_modified_plan_json=consistency_modified_plan_json,
+        consistency_gpt_governance_json=gpt_governance_json,
+        consistency_controller_contract_json=controller_contract_json,
+        consistency_solver_execution_json=solver_execution_json,
+        consistency_finmo_attempts_json=finmo_attempts_json,
+        model_input_json=model_input_json,
+        finmo_json=finmo_json,
+        constraint_bundle=constraint_bundle,
+        active_focus="consistency",
       )
     resolution_summary = _build_violation_resolution_summary(
       solver_state=solver_state,
-      selected_scenario=selected_scenario,
+      selected_scenario=attempted_candidate if isinstance(attempted_candidate, dict) else selected_scenario,
       constraint_bundle=constraint_bundle,
-      modified_forecast_quarters=modified_forecast_quarters,
+      modified_forecast_quarters=attempted_forecast_quarters or modified_forecast_quarters,
     )
     try:
       try:
@@ -2400,18 +2660,38 @@ def _run_consistency_closeout(
         "Violation resolution summary",
         lambda: resolution_summary,
       )
+      trace_lazy(
+        "MODEL_INPUT",
+        "Current Model Inputs workbook payload",
+        lambda: model_input_json,
+      )
+      trace_lazy(
+        "FINMO",
+        "Current Financial Model QTR workbook payload",
+        lambda: finmo_json,
+      )
+      trace_lazy(
+        "FINMO_ATTEMPTS",
+        "Consistency Finmo attempt payload",
+        lambda: finmo_attempts_json,
+      )
     except Exception:
       pass
     updated_shared_context["consistency_gpt_governance"] = gpt_governance_json
     updated_shared_context["consistency_controller_contract"] = controller_contract_json
     updated_shared_context["consistency_solver_execution"] = solver_execution_json
     updated_shared_context["consistency_resolution_summary"] = resolution_summary
+    updated_shared_context["consistency_modified_plan"] = consistency_modified_plan_json
     updated_shared_context["model_input_json"] = model_input_json
     updated_shared_context["finmo_json"] = finmo_json
+    updated_shared_context["consistency_finmo_attempts"] = finmo_attempts_json
     return {
-      "assistant_text": _build_consistency_blocked_message(
+      "assistant_text": _build_consistency_provisional_message(
         solver_state=solver_state,
+        attempted_scenario=attempted_candidate,
         initial_table_markdown=initial_table_markdown,
+        modified_forecast_quarters=attempted_forecast_quarters,
+        finmo_json=finmo_json,
       ),
       "solver_state": solver_state,
       "selected_scenario": selected_scenario,
@@ -2423,10 +2703,11 @@ def _run_consistency_closeout(
       "financials_json": updated_financials_json,
       "financials_year1_json": updated_financials_year1_json,
       "marketing_model_json": updated_marketing_model_json,
-      "consistency_modified_plan_json": {},
+      "consistency_modified_plan_json": consistency_modified_plan_json,
       "consistency_gpt_governance_json": gpt_governance_json,
       "consistency_controller_contract_json": controller_contract_json,
       "consistency_solver_execution_json": solver_execution_json,
+      "consistency_finmo_attempts_json": finmo_attempts_json,
       "model_input_json": model_input_json,
       "finmo_json": finmo_json,
     }
@@ -2501,6 +2782,21 @@ def _run_consistency_closeout(
       "Violation resolution summary",
       lambda: resolution_summary,
     )
+    trace_lazy(
+      "MODEL_INPUT",
+      "Current Model Inputs workbook payload",
+      lambda: model_input_json,
+    )
+    trace_lazy(
+      "FINMO",
+      "Current Financial Model QTR workbook payload",
+      lambda: finmo_json,
+    )
+    trace_lazy(
+      "FINMO_ATTEMPTS",
+      "Consistency Finmo attempt payload",
+      lambda: finmo_attempts_json,
+    )
   except Exception:
     pass
   updated_shared_context["consistency_modified_plan"] = consistency_modified_plan_json
@@ -2509,6 +2805,7 @@ def _run_consistency_closeout(
   updated_shared_context["consistency_solver_execution"] = solver_execution_json
   updated_shared_context["model_input_json"] = model_input_json
   updated_shared_context["finmo_json"] = finmo_json
+  updated_shared_context["consistency_finmo_attempts"] = finmo_attempts_json
 
   assistant_text = _build_consistency_finalized_message(
     solver_state=solver_state,
@@ -2533,6 +2830,7 @@ def _run_consistency_closeout(
     "consistency_gpt_governance_json": gpt_governance_json,
     "consistency_controller_contract_json": controller_contract_json,
     "consistency_solver_execution_json": solver_execution_json,
+    "consistency_finmo_attempts_json": finmo_attempts_json,
     "model_input_json": model_input_json,
     "finmo_json": finmo_json,
   }
@@ -2746,6 +3044,14 @@ def _start_consistency_solver_if_needed(
       "start_date": (intake_context or {}).get("business_start_date"),
       "address": (intake_context or {}).get("address"),
     },
+    model_input_json=(
+      ((intake_context.get("shared_context") or {}) if isinstance(intake_context.get("shared_context"), dict) else {}).get("model_input_json")
+      if isinstance(intake_context, dict) else None
+    ),
+    finmo_json=(
+      ((intake_context.get("shared_context") or {}) if isinstance(intake_context.get("shared_context"), dict) else {}).get("finmo_json")
+      if isinstance(intake_context, dict) else None
+    ),
   )
   if not isinstance(solver_state, dict):
     return None, constraint_bundle
@@ -7394,6 +7700,7 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
     "forecast_quarters_json",
     "model_input_json",
     "finmo_json",
+    "consistency_finmo_attempts_json",
     "consistency_modified_plan_json",
     "consistency_gpt_governance_json",
     "consistency_controller_contract_json",
@@ -7700,6 +8007,11 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(closeout.get("finmo_json"), dict)
         else {}
       )
+      consistency_finmo_attempts_json = (
+        closeout.get("consistency_finmo_attempts_json")
+        if isinstance(closeout.get("consistency_finmo_attempts_json"), dict)
+        else {}
+      )
       return _persist_consistency_modified_plan_completion(
         new_messages=new_messages,
         ops_value=ops_value,
@@ -7715,6 +8027,7 @@ def post_intake_consult_handler(*, app, request):
         consistency_solver_execution_json=consistency_solver_execution_json,
         model_input_json=model_input_json,
         finmo_json=finmo_json,
+        consistency_finmo_attempts_json=consistency_finmo_attempts_json,
         confirmations_value=confirmations_value,
         flat_fields_value=flat_fields_value,
         include_fulfillment=include_fulfillment,
@@ -7771,6 +8084,11 @@ def post_intake_consult_handler(*, app, request):
           if isinstance(closeout.get("finmo_json"), dict)
           else {}
         ),
+        consistency_finmo_attempts_json=(
+          closeout.get("consistency_finmo_attempts_json")
+          if isinstance(closeout.get("consistency_finmo_attempts_json"), dict)
+          else {}
+        ),
         fulfillment_json=fulfillment_json if include_fulfillment else None,
         active_focus="consistency",
         confirmations=confirmations_value,
@@ -7798,6 +8116,7 @@ def post_intake_consult_handler(*, app, request):
       consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
       model_input_json: Optional[Dict[str, Any]] = None,
       finmo_json: Optional[Dict[str, Any]] = None,
+      consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
       confirmations_value: Optional[Dict[str, bool]] = None,
       flat_fields_value: Optional[Dict[str, Any]] = None,
       include_fulfillment: bool = False,
@@ -7826,6 +8145,7 @@ def post_intake_consult_handler(*, app, request):
         consistency_solver_execution_json=consistency_solver_execution_json,
         model_input_json=model_input_json,
         finmo_json=finmo_json,
+        consistency_finmo_attempts_json=consistency_finmo_attempts_json,
         fulfillment_json=fulfillment_json if include_fulfillment else None,
         marketing_model_json=marketing_value,
         active_focus="done",
@@ -7981,6 +8301,7 @@ def post_intake_consult_handler(*, app, request):
       # Target Market is model-interpreted every turn and returns a structured patch,
       # allowing us to persist the Target Market JSON incrementally (no controller parsing).
       turn: Dict[str, Any] = {}
+      closeout: Optional[Dict[str, Any]] = None
       if focus == "ops":
         turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
         ops_json = _apply_model_ops_patch(ops_json, turn.get("patch") if isinstance(turn, dict) else None)
@@ -8177,6 +8498,13 @@ def post_intake_consult_handler(*, app, request):
           restatement_confirmed_this_turn = True
 
     if restatement_confirmed_this_turn:
+      finmo_path_after_confirmation = ensure_draft_finmo_workbook(
+        conn,
+        draft_id=str(draft_id).strip(),
+      )
+      if not str(finmo_path_after_confirmation or "").strip():
+        return (jsonify({"error": "finmo_workbook_initialization_failed"}), 500)
+      consult["finmo_path"] = str(finmo_path_after_confirmation).strip()
       already_locked = bool(ops_json.get("business_type_candidates_locked"))
       existing_candidates = ops_json.get("business_type_candidates")
       has_candidates = isinstance(existing_candidates, list) and bool(existing_candidates)
@@ -8709,6 +9037,10 @@ def post_intake_consult_handler(*, app, request):
         active_focus="consistency",
         constraint_bundle=persisted_constraint_bundle,
       )
+      blocking_finmo_attempts_json = _build_consistency_finmo_attempts_payload(
+        solver_state=blocking_consistency_solver,
+        selected_scenario=None,
+      )
       _persist_consistency_modified_plan_completion(
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
         ops_value=ops_json,
@@ -8722,6 +9054,7 @@ def post_intake_consult_handler(*, app, request):
         consistency_gpt_governance_json=blocking_gpt_governance_json,
         consistency_controller_contract_json=blocking_controller_contract_json,
         consistency_solver_execution_json=blocking_solver_execution_json,
+        consistency_finmo_attempts_json=blocking_finmo_attempts_json,
       )
       return jsonify(
         {
@@ -8814,6 +9147,10 @@ def post_intake_consult_handler(*, app, request):
           active_focus="consistency",
           constraint_bundle=persisted_constraint_bundle,
         )
+        pending_finmo_attempts_json = _build_consistency_finmo_attempts_payload(
+          solver_state=pending_consistency_solver,
+          selected_scenario=selected_scenario,
+        )
         _persist_consistency_modified_plan_completion(
           new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
           ops_value=ops_json,
@@ -8827,6 +9164,7 @@ def post_intake_consult_handler(*, app, request):
           consistency_gpt_governance_json=pending_gpt_governance_json,
           consistency_controller_contract_json=pending_controller_contract_json,
           consistency_solver_execution_json=pending_solver_execution_json,
+          consistency_finmo_attempts_json=pending_finmo_attempts_json,
         )
         return jsonify(
           {

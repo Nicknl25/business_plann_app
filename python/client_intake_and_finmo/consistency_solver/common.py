@@ -99,89 +99,6 @@ def _quarter_bounds(entry: Dict[str, Any]) -> Tuple[int, int]:
   return start, end
 
 
-def _family_synonyms() -> Dict[str, str]:
-  return {
-    "pricing": "pricing",
-    "price": "pricing",
-    "price_up": "pricing",
-    "price_down": "pricing",
-    "utilization": "utilization",
-    "util": "utilization",
-    "util_up": "utilization",
-    "util_down": "utilization",
-    "utilization_demand": "utilization_demand",
-    "utilization_and_volume": "utilization_demand",
-    "volume": "utilization_demand",
-    "volume_demand": "utilization_demand",
-    "marketing": "marketing_spend",
-    "marketing_spend": "marketing_spend",
-    "marketing_up": "marketing_spend",
-    "marketing_down": "marketing_spend",
-    "marketing_to_demand_link": "marketing_to_demand_link",
-    "staffing_timing": "staffing_and_hiring_timing",
-    "staffing_timing_capacity": "staffing_and_hiring_timing",
-    "staffing_and_capacity_timing": "staffing_and_hiring_timing",
-    "staffing_and_hiring_timing": "staffing_and_hiring_timing",
-    "hire_delay": "staffing_and_hiring_timing",
-    "hire_advance": "staffing_and_hiring_timing",
-    "hiring_timing_and_structural_payroll": "staffing_and_hiring_timing",
-    "staffing_support": "staffing_support",
-    "payroll_up": "core_payroll",
-    "payroll_down": "core_payroll",
-    "core_leadership_payroll": "core_payroll",
-    "core_founder_payroll": "core_payroll",
-    "founder_payroll": "core_payroll",
-    "structural_payroll": "core_payroll",
-    "overhead_opex": "other_opex",
-    "non_payroll_opex": "other_opex",
-    "other_opex": "other_opex",
-    "opex": "other_opex",
-    "other_opex_up": "other_opex",
-    "other_opex_down": "other_opex",
-    "cogs": "cogs",
-    "cogs_up": "cogs",
-    "cogs_down": "cogs",
-    "cogs_reduction": "cogs",
-    "cogs_efficiency": "cogs",
-    "capacity_expansion": "capacity_expansion",
-  }
-
-
-def _normalized_family_name(value: Any) -> str:
-  raw = str(value or "").strip().lower()
-  return _family_synonyms().get(raw, raw)
-
-
-def _normalized_plan_entry_families(entry: Dict[str, Any]) -> List[str]:
-  family = _normalized_family_name(entry.get("family"))
-  direction = str(entry.get("direction") or "").strip().lower()
-  if direction in {"", "hold"}:
-    return []
-  if family == "pricing":
-    return ["price_up"] if direction == "up" else ["price_down"] if direction == "down" else ["price_up", "price_down"]
-  if family in {"utilization", "utilization_demand"}:
-    return ["util_up"] if direction == "up" else ["util_down"] if direction == "down" else ["util_up", "util_down"]
-  if family == "marketing_spend":
-    return ["marketing_up"] if direction == "up" else ["marketing_down"] if direction == "down" else ["marketing_up", "marketing_down"]
-  if family == "marketing_to_demand_link":
-    return ["util_up"] if direction == "up" else ["marketing_down"] if direction == "down" else ["util_up", "marketing_up"]
-  if family == "other_opex":
-    return ["other_opex_up"] if direction == "up" else ["other_opex_down"] if direction == "down" else ["other_opex_up", "other_opex_down"]
-  if family == "cogs":
-    return ["cogs_up"] if direction == "up" else ["cogs_down"] if direction == "down" else ["cogs_up", "cogs_down"]
-  if family in {"staffing_and_hiring_timing", "staffing_support"}:
-    if direction == "down":
-      return ["hire_delay", "payroll_down"]
-    if direction == "up":
-      return ["hire_advance", "payroll_up"]
-    return ["hire_delay", "hire_advance", "payroll_down", "payroll_up"]
-  if family == "core_payroll":
-    return ["payroll_up"] if direction == "up" else ["payroll_down"] if direction == "down" else ["payroll_up", "payroll_down"]
-  if family == "capacity_expansion":
-    return ["hire_advance"] if direction == "up" else ["hire_delay"] if direction == "down" else ["hire_advance", "hire_delay"]
-  return []
-
-
 def _unique_strings(values: Sequence[Any]) -> List[str]:
   seen: Set[str] = set()
   result: List[str] = []
@@ -202,7 +119,7 @@ def _package_expected_effects(
 ) -> List[str]:
   lever_plan = lever_plan if isinstance(lever_plan, Sequence) else []
   down_families = {
-    _normalized_family_name(item.get("family"))
+    str(item.get("family") or "").strip().lower()
     for item in lever_plan
     if isinstance(item, dict) and str(item.get("direction") or "").strip().lower() == "down"
   }
@@ -284,9 +201,9 @@ def _derive_commercial_archetype(
     return "labor_professional_service"
 
   lever_families = list(lever_families or [])
-  if any(item in {"marketing_up", "hire_advance", "payroll_up"} for item in lever_families):
+  if any(item in {"marketing", "utilization", "price"} for item in lever_families):
     return "growth"
-  if any(item in {"other_opex_down", "cogs_down", "payroll_down"} for item in lever_families):
+  if any(item in {"other_opex", "cogs", "payroll", "hire_delay"} for item in lever_families):
     return "efficiency"
   if capacity_driver == "system":
     return "system_service"
@@ -426,48 +343,50 @@ def _derive_scenario_posture(candidate: Dict[str, Any]) -> Dict[str, str]:
     else 0.0
   )
 
-  marketing_up = _safe_float(raw_moves.get("marketing_up"))
-  marketing_down = _safe_float(raw_moves.get("marketing_down"))
-  if marketing_up <= 0 and marketing_down <= 0 and "marketing" in meaningful_families:
-    marketing_up = 0.08 if scenario_units >= baseline_units else 0.0
-    marketing_down = 0.08 if scenario_units < baseline_units else 0.0
-  payroll_up = _safe_float(raw_moves.get("payroll_up"))
-  payroll_down = _safe_float(raw_moves.get("payroll_down"))
-  if payroll_up <= 0 and payroll_down <= 0 and "payroll" in meaningful_families:
-    payroll_up = 0.06
-  hire_advance = _safe_float(raw_moves.get("hire_advance"))
-  hire_delay = _safe_float(raw_moves.get("hire_delay"))
-  if hire_advance <= 0 and hire_delay <= 0 and "hire_delay" in meaningful_families:
-    hire_advance = 0.05
-  util_up = _safe_float(raw_moves.get("util_up"))
-  util_down = _safe_float(raw_moves.get("util_down"))
-  if util_up <= 0 and util_down <= 0 and "utilization" in meaningful_families:
-    util_up = 0.05
+  marketing_move = _safe_float(raw_moves.get("marketing"))
+  if marketing_move <= 0 and "marketing" in meaningful_families:
+    marketing_move = 0.08
+  payroll_move = _safe_float(raw_moves.get("payroll"))
+  if payroll_move <= 0 and "payroll" in meaningful_families:
+    payroll_move = 0.06
+  hire_timing_move = _safe_float(raw_moves.get("hire_delay"))
+  if hire_timing_move <= 0 and "hire_delay" in meaningful_families:
+    hire_timing_move = 0.05
+  utilization_move = _safe_float(raw_moves.get("utilization"))
+  if utilization_move <= 0 and "utilization" in meaningful_families:
+    utilization_move = 0.05
+  price_move = _safe_float(raw_moves.get("price"))
   cost_tighten_signal = (
-    _safe_float(raw_moves.get("other_opex_down"))
-    + _safe_float(raw_moves.get("cogs_down"))
-    + payroll_down
+    _safe_float(raw_moves.get("other_opex"))
+    + _safe_float(raw_moves.get("cogs"))
+    + payroll_move
   )
   cost_protect_signal = (
-    _safe_float(raw_moves.get("other_opex_up"))
-    + _safe_float(raw_moves.get("cogs_up"))
-    + payroll_up
-    + marketing_up
+    marketing_move
+    + price_move
+    + utilization_move
   )
   if cost_tighten_signal <= 0 and meaningful_families.intersection({"other_opex", "cogs"}):
     cost_tighten_signal = 0.08
 
-  if unit_change_ratio >= 0.03 or revenue_change_ratio >= 0.03 or marketing_up > marketing_down + 0.02:
+  if (
+    unit_change_ratio >= 0.03
+    or revenue_change_ratio >= 0.03
+    or meaningful_families.intersection({"marketing", "utilization", "price"})
+  ):
     demand_posture = "preserve"
-  elif unit_change_ratio <= -0.03 or revenue_change_ratio <= -0.03 or marketing_down > marketing_up + 0.03:
+  elif unit_change_ratio <= -0.03 or revenue_change_ratio <= -0.03:
     demand_posture = "reduce"
   else:
     demand_posture = "moderate"
 
-  if (payroll_up + hire_advance) > (payroll_down + hire_delay) + 0.03:
-    staffing_posture = "add_support"
-  elif (payroll_down + hire_delay) > (payroll_up + hire_advance) + 0.03:
+  if "hire_delay" in meaningful_families and payroll_move <= 0.02 and utilization_move <= 0.02:
     staffing_posture = "delay"
+  elif (
+    "payroll" in meaningful_families
+    and (unit_change_ratio >= 0.02 or revenue_change_ratio >= 0.02 or utilization_move > 0.03)
+  ):
+    staffing_posture = "add_support"
   elif meaningful_families.intersection({"payroll", "hire_delay", "utilization"}):
     staffing_posture = "rebalance"
   else:
@@ -569,7 +488,11 @@ def _archetype_consistency(candidate: Dict[str, Any]) -> Dict[str, Any]:
       score += 1.0
     if meaningful_families.intersection({"other_opex", "cogs", "payroll"}):
       score += 1.0
-    if demand_posture == "preserve" and meaningful_families.intersection({"marketing", "utilization"}):
+    if (
+      demand_posture == "preserve"
+      and "marketing" in meaningful_families
+      and not meaningful_families.intersection({"other_opex", "cogs", "payroll"})
+    ):
       issues.append("efficiency_growth_story")
     if dominant_family == "marketing":
       issues.append("archetype_mismatch")

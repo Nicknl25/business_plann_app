@@ -27,6 +27,33 @@ class IntakeValidationError(Exception):
     self.errors = errors
 
 
+def _ensure_submission_finmo_path(
+  *,
+  conn,
+  submission_id: int,
+  submission_row: Dict[str, Any],
+  finmo_template_path: str,
+  client_finmo_dir: str,
+  client_id: str,
+) -> str:
+  existing_path = str((submission_row or {}).get("finmo_path") or "").strip()
+  if existing_path:
+    return existing_path
+  finmo_path = create_client_finmo_workbook(
+    template_path=finmo_template_path,
+    client_finmo_dir=client_finmo_dir,
+    business_name=str(submission_row.get("business_name") or ""),
+    created_at=submission_row.get("created_at"),
+    business_start_date=submission_row.get("business_start_date"),
+    client_id=client_id,
+  )
+  update_intake_submission_finmo_path(
+    conn=conn, submission_id=submission_id, finmo_path=finmo_path
+  )
+  submission_row["finmo_path"] = finmo_path
+  return finmo_path
+
+
 def _parse_float(value: Any) -> Optional[float]:
   if value is None or value == "":
     return None
@@ -532,17 +559,14 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     submission_id = int(inserted["inserted_id"])
     submission_row = fetch_intake_submission_by_id(conn=conn, submission_id=submission_id)
 
-    finmo_path = create_client_finmo_workbook(
-      template_path=finmo_template_path,
+    finmo_path = _ensure_submission_finmo_path(
+      conn=conn,
+      submission_id=submission_id,
+      submission_row=submission_row,
+      finmo_template_path=finmo_template_path,
       client_finmo_dir=client_finmo_dir,
-      business_name=str(submission_row.get("business_name") or ""),
-      created_at=submission_row.get("created_at"),
       client_id=client_id,
     )
-    update_intake_submission_finmo_path(
-      conn=conn, submission_id=submission_id, finmo_path=finmo_path
-    )
-    submission_row["finmo_path"] = finmo_path
   finally:
     try:
       conn.close()

@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 
@@ -50,6 +51,7 @@ _ENGINE_JSON_COLUMNS = (
   "forecast_quarters_json",
   "model_input_json",
   "finmo_json",
+  "consistency_finmo_attempts_json",
   "consistency_modified_plan_json",
   "consistency_gpt_governance_json",
   "consistency_controller_contract_json",
@@ -264,6 +266,7 @@ def ensure_table(conn) -> None:
         finmo_path LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
+        consistency_finmo_attempts_json LONGTEXT NULL,
         consistency_modified_plan_json LONGTEXT NULL,
         consistency_gpt_governance_json LONGTEXT NULL,
         consistency_controller_contract_json LONGTEXT NULL,
@@ -350,6 +353,8 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in cols:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
+  if "consistency_finmo_attempts_json" not in cols:
+    alterations.append("ADD COLUMN consistency_finmo_attempts_json LONGTEXT NULL")
   if "consistency_modified_plan_json" not in cols:
     alterations.append("ADD COLUMN consistency_modified_plan_json LONGTEXT NULL")
   if "consistency_gpt_governance_json" not in cols:
@@ -398,21 +403,16 @@ def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
   ensure_table(conn)
   draft_id = uuid.uuid4().hex
   now = _utc_now_str()
-  finmo_path = _bootstrap_consult_finmo_path(
-    client_id=client_id,
-    created_at=now,
-    business_name="",
-  )
   cur = conn.cursor()
   try:
     cur.execute(
       """
       INSERT INTO intake_consult_drafts
-        (draft_id, client_id, status, messages_json, created_at, updated_at, finmo_path)
+        (draft_id, client_id, status, messages_json, created_at, updated_at)
       VALUES
-        (%s, %s, 'in_progress', %s, %s, %s, %s)
+        (%s, %s, 'in_progress', %s, %s, %s)
       """,
-      (draft_id, client_id, json.dumps([], ensure_ascii=False), now, now, finmo_path),
+      (draft_id, client_id, json.dumps([], ensure_ascii=False), now, now),
     )
     conn.commit()
   finally:
@@ -424,7 +424,7 @@ def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
     "draft_id": draft_id,
     "client_id": client_id,
     "status": "in_progress",
-    "finmo_path": finmo_path,
+    "finmo_path": None,
   }
 
 
@@ -473,12 +473,29 @@ def _parse_json_object(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
-def _bootstrap_consult_finmo_path(
+def _looks_like_legacy_finmo_filename(value: Any) -> bool:
+  name = Path(str(value or "").strip()).name.lower()
+  return bool(name) and name.startswith("client_")
+
+
+def ensure_draft_finmo_workbook(
+  conn,
   *,
-  client_id: str,
-  created_at: Any,
-  business_name: str = "",
+  draft_id: str,
 ) -> Optional[str]:
+  ensure_table(conn)
+  row = get_draft(conn, draft_id=str(draft_id).strip())
+  current_path = str(row.get("finmo_path") or "").strip()
+  if current_path and Path(current_path).exists() and not _looks_like_legacy_finmo_filename(current_path):
+    return current_path
+
+  business_name = str(row.get("business_name") or "").strip()
+  created_at = row.get("created_at")
+  business_start_date = row.get("business_start_date")
+  client_id = str(row.get("client_id") or "").strip()
+  if not business_name or created_at is None or not business_start_date or not client_id:
+    return None
+
   template_path = str(os.getenv("FINMO") or "").strip()
   client_finmo_dir = str(os.getenv("CLIENT_FINMO") or "").strip()
   if not template_path or not client_finmo_dir:
@@ -494,14 +511,35 @@ def _bootstrap_consult_finmo_path(
     copied = create_client_finmo_workbook(
       template_path=template_path,
       client_finmo_dir=client_finmo_dir,
-      business_name=str(business_name or "").strip(),
+      business_name=business_name,
       created_at=created_at,
-      client_id=str(client_id or "").strip(),
+      business_start_date=business_start_date,
+      client_id=client_id,
     )
   except Exception:
     return None
   cleaned = str(copied or "").strip()
-  return cleaned or None
+  if not cleaned:
+    return None
+
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      UPDATE intake_consult_drafts
+      SET finmo_path = %s,
+          updated_at = %s
+      WHERE draft_id = %s
+      """,
+      (cleaned, _utc_now_str(), str(draft_id).strip()),
+    )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  return cleaned
 
 
 def _render_messages_for_storage(
@@ -523,6 +561,7 @@ def _render_messages_for_storage(
   consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
   consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
   consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
+  consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
   engine_versions_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
@@ -581,6 +620,11 @@ def _render_messages_for_storage(
     ),
     "finmo_json": (
       finmo_json if finmo_json is not None else _parse_json_object(row.get("finmo_json"))
+    ),
+    "consistency_finmo_attempts": (
+      consistency_finmo_attempts_json
+      if consistency_finmo_attempts_json is not None
+      else _parse_json_object(row.get("consistency_finmo_attempts_json"))
     ),
     "consistency_modified_plan": (
       consistency_modified_plan_json
@@ -651,6 +695,7 @@ def append_messages(
   consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
   consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
   consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
+  consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
   engine_versions_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
@@ -693,6 +738,7 @@ def append_messages(
     consistency_gpt_governance_json=consistency_gpt_governance_json,
     consistency_controller_contract_json=consistency_controller_contract_json,
     consistency_solver_execution_json=consistency_solver_execution_json,
+    consistency_finmo_attempts_json=consistency_finmo_attempts_json,
     engine_versions_json=engine_versions_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
@@ -763,6 +809,10 @@ def append_messages(
   if finmo_json is not None:
     set_parts.append("finmo_json = %s")
     values.append(json.dumps(finmo_json, ensure_ascii=False))
+
+  if consistency_finmo_attempts_json is not None:
+    set_parts.append("consistency_finmo_attempts_json = %s")
+    values.append(json.dumps(consistency_finmo_attempts_json, ensure_ascii=False))
 
   if consistency_modified_plan_json is not None:
     set_parts.append("consistency_modified_plan_json = %s")
@@ -875,6 +925,7 @@ def append_messages(
       "finmo_path",
       "model_input_json",
       "finmo_json",
+      "consistency_finmo_attempts_json",
       "consistency_modified_plan_json",
       "consistency_gpt_governance_json",
       "consistency_controller_contract_json",

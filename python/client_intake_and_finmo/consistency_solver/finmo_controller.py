@@ -18,6 +18,13 @@ from .common import (
 from .patches import _build_lever_summary, _exact_patches_from_solution, _label_and_rationale_from_patches
 
 
+def _revenue_lever_id(lob_name: str, product_name: str, driver: str) -> str:
+  return "::".join(["revenue", str(lob_name or "").strip(), str(product_name or "").strip(), str(driver or "").strip()])
+
+
+def _simple_lever_id(section: str, label: str) -> str:
+  return "::".join([str(section or "").strip(), str(label or "").strip()])
+
 def _quarter_policy_map(orchestration: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
   default_policy = {
     "growth_multiplier": 1.0,
@@ -125,43 +132,87 @@ def _build_controller_anchor_solution(
   direct_inputs = (contract_bundle.get("direct_inputs") or {}) if isinstance(contract_bundle.get("direct_inputs"), dict) else {}
   product_basis = [item for item in (direct_inputs.get("product_driver_basis") or []) if isinstance(item, dict)]
   solve_mode = str(direct_inputs.get("solve_mode") or "").strip().lower()
-  allowed = {str(item or "").strip() for item in (profile.get("allowed_levers") or []) if str(item or "").strip()}
-  if "price_up" in allowed:
-    price = _safe_float(direct_inputs.get("price_upper"))
-  elif "price_down" in allowed:
-    price = _safe_float(direct_inputs.get("price_lower"))
+  allowed = set(_allowed_model_input_levers(profile=profile, direct_inputs=direct_inputs))
+  revenue_targets = _effective_revenue_targets(product_basis)
+  growth_seed = str(profile.get("archetype") or "").strip().lower() == "growth"
+  unit_price_levers = {_revenue_lever_id(target["lob"], target["product"], "Unit Price") for target in revenue_targets}
+  utilization_levers = {_revenue_lever_id(target["lob"], target["product"], "Utilization") for target in revenue_targets}
+  price_enabled = bool(unit_price_levers.intersection(allowed)) or any(str(item).endswith("::Unit Price") for item in allowed)
+  utilization_enabled = bool(utilization_levers.intersection(allowed)) or any(str(item).endswith("::Utilization") for item in allowed)
+  marketing_lever = _simple_lever_id("expenses", "Marketing")
+  ganda_lever = _simple_lever_id("expenses", "General & Administrative")
+  cogs_lever = _simple_lever_id("expenses", "Cost of Goods Sold")
+  payroll_lever = _simple_lever_id("expenses", "Payroll")
+  price_band = _lever_band_for_quarter(profile=profile, lever_id=next(iter(unit_price_levers), ""), quarter_index=1) if price_enabled else {"min": None, "max": None, "direction": "hold"}
+  util_band = _lever_band_for_quarter(profile=profile, lever_id=next(iter(utilization_levers), ""), quarter_index=1) if utilization_enabled else {"min": None, "max": None, "direction": "hold"}
+  marketing_band = _lever_band_for_quarter(profile=profile, lever_id=marketing_lever, quarter_index=1) if marketing_lever in allowed else {"min": None, "max": None, "direction": "hold"}
+  ganda_band = _lever_band_for_quarter(profile=profile, lever_id=ganda_lever, quarter_index=1) if ganda_lever in allowed else {"min": None, "max": None, "direction": "hold"}
+  cogs_band = _lever_band_for_quarter(profile=profile, lever_id=cogs_lever, quarter_index=1) if cogs_lever in allowed else {"min": None, "max": None, "direction": "hold"}
+  payroll_band = _lever_band_for_quarter(profile=profile, lever_id=payroll_lever, quarter_index=1) if payroll_lever in allowed else {"min": None, "max": None, "direction": "hold"}
+  if price_enabled:
+    price = _pick_banded_value(
+      current_value=_safe_float(direct_inputs.get("current_price")),
+      min_value=_optional_float(price_band.get("min")),
+      max_value=_optional_float(price_band.get("max")),
+      direction=str(price_band.get("direction") or "hold"),
+    )
   else:
     price = _safe_float(direct_inputs.get("current_price"))
-  if "util_up" in allowed:
-    util = _safe_float(direct_inputs.get("util_max"))
-  elif "util_down" in allowed:
-    util = _safe_float(direct_inputs.get("util_min"))
+  if utilization_enabled:
+    util = _pick_banded_value(
+      current_value=_safe_float(direct_inputs.get("current_util")),
+      min_value=_optional_float(util_band.get("min")),
+      max_value=_optional_float(util_band.get("max")),
+      direction=str(util_band.get("direction") or "hold"),
+    )
   else:
     util = _safe_float(direct_inputs.get("current_util"))
-  if "marketing_up" in allowed:
-    marketing = _safe_float(direct_inputs.get("marketing_upper"))
-  elif "marketing_down" in allowed:
-    marketing = _safe_float(direct_inputs.get("marketing_min"))
+  if marketing_lever in allowed:
+    marketing = _pick_banded_value(
+      current_value=_safe_float(direct_inputs.get("current_marketing")),
+      min_value=_optional_float(marketing_band.get("min")),
+      max_value=_optional_float(marketing_band.get("max")),
+      direction=str(marketing_band.get("direction") or ("up" if growth_seed else "down")),
+    )
   else:
     marketing = _safe_float(direct_inputs.get("current_marketing"))
-  if "other_opex_up" in allowed:
-    other_opex = _safe_float(direct_inputs.get("other_opex_max"))
-  elif "other_opex_down" in allowed:
-    other_opex = _safe_float(direct_inputs.get("other_opex_min"))
+  if ganda_lever in allowed:
+    other_opex = _pick_banded_value(
+      current_value=_safe_float(direct_inputs.get("current_other_opex")),
+      min_value=_optional_float(ganda_band.get("min")),
+      max_value=_optional_float(ganda_band.get("max")),
+      direction=str(ganda_band.get("direction") or "hold"),
+    )
   else:
     other_opex = _safe_float(direct_inputs.get("current_other_opex"))
-  if "cogs_down" in allowed:
-    cogs_ratio = _safe_float(direct_inputs.get("cogs_ratio_min"))
-  elif "cogs_up" in allowed:
-    cogs_ratio = _safe_float(direct_inputs.get("cogs_ratio_max"))
+  if cogs_lever in allowed:
+    cogs_ratio = _pick_banded_value(
+      current_value=_safe_float(direct_inputs.get("current_cogs_ratio")),
+      min_value=_optional_float(cogs_band.get("min")),
+      max_value=_optional_float(cogs_band.get("max")),
+      direction=str(cogs_band.get("direction") or "hold"),
+    )
   else:
     cogs_ratio = _safe_float(direct_inputs.get("current_cogs_ratio"))
-  if "payroll_up" in allowed:
-    payroll_total = _safe_float(direct_inputs.get("target_payroll_max_total"))
-  elif "payroll_down" in allowed or "hire_delay" in allowed:
-    payroll_total = _safe_float(direct_inputs.get("target_payroll_min_total"))
+  payroll_too_light = "payroll_too_light" in {
+    str(item or "").strip()
+    for item in (direct_inputs.get("constraint_violations") or [])
+    if str(item or "").strip()
+  }
+  if payroll_lever in allowed:
+    payroll_total = _pick_banded_value(
+      current_value=_safe_float(direct_inputs.get("current_payroll_total")),
+      min_value=_optional_float(payroll_band.get("min")),
+      max_value=_optional_float(payroll_band.get("max")),
+      direction=str(payroll_band.get("direction") or ("up" if growth_seed or payroll_too_light or str(profile.get("strategy_id") or "").strip() == "staffing_ramp_adjustment" else "down")),
+    )
   else:
     payroll_total = _safe_float(direct_inputs.get("current_payroll_total"))
+  payroll_total = max(
+    payroll_total,
+    _safe_float(direct_inputs.get("structural_payroll_floor")),
+    _safe_float(direct_inputs.get("people_payroll_floor")),
+  )
   fixed_people_target = _safe_float(direct_inputs.get("fixed_people_payroll"))
   if fixed_people_target is None:
     fixed_people_target = payroll_total or _safe_float(direct_inputs.get("current_payroll_total"))
@@ -179,26 +230,10 @@ def _build_controller_anchor_solution(
     else:
       price_factor = min(1.25, 1.0 + ((current_price - price) / current_price) * 0.3)
   annual_units_total = baseline_units * ((util or current_util) / max(current_util, 0.01)) * marketing_factor * price_factor
-  annual_units_total = max(_safe_float(direct_inputs.get("units_min")), min(_safe_float(direct_inputs.get("units_max")), annual_units_total))
+  annual_units_total = max(1.0, annual_units_total)
   revenue = annual_units_total * max(1.0, price or current_price)
   cogs_total_year1 = revenue * max(0.0, cogs_ratio or _safe_float(direct_inputs.get("current_cogs_ratio")))
   role_months: Dict[str, int] = {}
-  if "hire_delay" in allowed or "hire_advance" in allowed:
-    payroll_total = max(0.0, fixed_people_target or 0.0)
-    role_scale = 0.25 if "hire_delay" in allowed else 0.75
-    for role in [item for item in (direct_inputs.get("roles") or []) if isinstance(item, dict)]:
-      title = str(role.get("role_title") or "").strip()
-      if not title:
-        continue
-      base_months = max(0, _safe_int(role.get("base_months")))
-      min_months = max(0, _safe_int(role.get("min_months")))
-      max_months = max(base_months, _safe_int(role.get("max_months")) or base_months)
-      if "hire_delay" in allowed:
-        months_until = base_months + int(round((max_months - base_months) * role_scale))
-      else:
-        months_until = max(min_months, base_months - int(round((base_months - min_months) * role_scale)))
-      role_months[title] = months_until
-      payroll_total += max(0.0, _safe_float(role.get("annual_wage"))) * max(0.0, (12 - min(12, months_until)) / 12.0)
   ebitda = revenue - cogs_total_year1 - max(0.0, payroll_total or 0.0) - max(0.0, marketing or 0.0) - max(0.0, other_opex or 0.0) - max(0.0, _safe_float(direct_inputs.get("rent_annualized"))) - max(0.0, _safe_float(direct_inputs.get("current_interest")))
   solution = {
     "price": round(price or current_price, 2),
@@ -519,23 +554,50 @@ def _controller_input_seed_from_projection(
   return input_seed
 
 
-def _policy_period_groups(orchestration: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _policy_period_groups(profile: Dict[str, Any]) -> List[Dict[str, Any]]:
   groups: List[Dict[str, Any]] = []
-  for item in (orchestration.get("quarter_policies") or []):
+  allowed_levers = {
+    str(item or "").strip()
+    for item in (profile.get("allowed_model_input_levers") or [])
+    if str(item or "").strip()
+  }
+  for item in (profile.get("governed_period_groups") or []):
     if not isinstance(item, dict):
       continue
     start = max(1, _safe_int(item.get("quarter_start")) or 1)
     end = max(start, _safe_int(item.get("quarter_end")) or start)
+    raw_granularity = str(item.get("input_granularity") or "").strip().lower()
+    input_granularity = raw_granularity if raw_granularity in {"grouped", "quarterly"} else "grouped"
+    quarterly_expansion_levers = [
+      str(lever_id or "").strip()
+      for lever_id in (item.get("quarterly_expansion_levers") or [])
+      if str(lever_id or "").strip() in allowed_levers
+    ]
     groups.append(
       {
         "quarter_start": start,
         "quarter_end": min(20, end),
-        "active_levers": _unique_strings(item.get("active_levers") or []),
+        "input_granularity": input_granularity,
+        "quarterly_expansion_levers": quarterly_expansion_levers,
       }
     )
-  if groups:
-    return groups
-  return [{"quarter_start": 1, "quarter_end": 20, "active_levers": _unique_strings(orchestration.get("active_levers") or [])}]
+  return groups
+
+
+def _effective_revenue_targets(product_basis: Sequence[Dict[str, Any]]) -> List[Dict[str, str]]:
+  targets: List[Dict[str, str]] = []
+  seen: set[tuple[str, str]] = set()
+  for item in [entry for entry in (product_basis or []) if isinstance(entry, dict)]:
+    lob_name = str(item.get("lob_name") or "").strip() or "LOB 1"
+    product_name = str(item.get("product_name") or "").strip() or "Product 1"
+    key = (lob_name, product_name)
+    if key in seen:
+      continue
+    seen.add(key)
+    targets.append({"lob": lob_name, "product": product_name})
+  if targets:
+    return targets
+  return [{"lob": "LOB 1", "product": "Product 1"}]
 
 
 def _banded_input_spec(
@@ -552,69 +614,176 @@ def _banded_input_spec(
   return next_spec
 
 
+def _allowed_model_input_levers(
+  *,
+  profile: Dict[str, Any],
+  direct_inputs: Dict[str, Any],
+) -> List[str]:
+  del direct_inputs
+  return _unique_strings(profile.get("allowed_model_input_levers") or [])
+
+
+def _model_input_lever_catalog_from_direct_inputs(direct_inputs: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+  model_input_json = (direct_inputs.get("model_input_json") or {}) if isinstance(direct_inputs.get("model_input_json"), dict) else {}
+  catalog = (model_input_json.get("lever_catalog") or {}) if isinstance(model_input_json.get("lever_catalog"), dict) else {}
+  return {
+    str(key): _clone(value) for key, value in catalog.items()
+    if str(key or "").strip() and isinstance(value, dict)
+  }
+
+
+def _lever_band_for_quarter(
+  *,
+  profile: Dict[str, Any],
+  lever_id: str,
+  quarter_index: int,
+) -> Dict[str, float | None]:
+  min_value: float | None = None
+  max_value: float | None = None
+  direction = "hold"
+  for item in (profile.get("lever_adjustment_plan") or []):
+    if not isinstance(item, dict):
+      continue
+    if str(item.get("lever_id") or "").strip() != lever_id:
+      continue
+    start = max(1, _safe_int(item.get("quarter_start")) or 1)
+    end = max(start, _safe_int(item.get("quarter_end")) or start)
+    if quarter_index < start or quarter_index > end:
+      continue
+    direction = str(item.get("direction") or "").strip().lower() or direction
+    raw_min = item.get("min_value")
+    raw_max = item.get("max_value")
+    item_min = None if raw_min in {None, ""} else _safe_float(raw_min)
+    item_max = None if raw_max in {None, ""} else _safe_float(raw_max)
+    if item_min is not None:
+      min_value = item_min if min_value is None else max(min_value, item_min)
+    if item_max is not None:
+      max_value = item_max if max_value is None else min(max_value, item_max)
+  return {"min": min_value, "max": max_value, "direction": direction}
+
+
+def _pick_banded_value(
+  *,
+  current_value: float,
+  min_value: float | None,
+  max_value: float | None,
+  direction: str,
+) -> float:
+  if min_value is None and max_value is None:
+    return current_value
+  if direction == "up":
+    return max_value if max_value is not None else max(current_value, min_value or current_value)
+  if direction == "down":
+    return min_value if min_value is not None else min(current_value, max_value or current_value)
+  if min_value is not None and max_value is not None:
+    return (min_value + max_value) / 2.0
+  return min_value if min_value is not None else max_value if max_value is not None else current_value
+
+
+def _optional_float(value: Any) -> float | None:
+  return None if value in {None, ""} else _safe_float(value)
+
+
+def _group_output_targets(
+  *,
+  profile: Dict[str, Any],
+  quarter_start: int,
+  quarter_end: int,
+) -> List[Dict[str, Any]]:
+  targets: List[Dict[str, Any]] = []
+  for item in (profile.get("controlled_output_targets") or []):
+    if not isinstance(item, dict):
+      continue
+    start = max(1, _safe_int(item.get("quarter_start")) or 1)
+    end = max(start, _safe_int(item.get("quarter_end")) or start)
+    overlap_start = max(start, quarter_start)
+    overlap_end = min(end, quarter_end)
+    if overlap_start > overlap_end:
+      continue
+    targets.append(
+      {
+        "line_item": str(item.get("line_item") or "").strip(),
+        "quarter_start": overlap_start,
+        "quarter_end": overlap_end,
+        "min_value": _safe_float(item.get("min_value")),
+        "max_value": _safe_float(item.get("max_value")),
+        "rationale": str(item.get("rationale") or "").strip(),
+      }
+    )
+  return targets
+
+
 def _calibration_variable_specs(
   *,
-  allowed_levers: Sequence[str],
+  profile: Dict[str, Any],
+  allowed_model_input_levers: Sequence[str],
+  lever_catalog: Dict[str, Dict[str, Any]],
   quarter_index: int,
-  product_count: int,
+  product_basis: Sequence[Dict[str, Any]],
   direct_inputs: Dict[str, Any],
   annual_revenue: float,
   quarterly_seed: Optional[Dict[str, Any]] = None,
+  group_key: str | None = None,
+  grouping_mode: str = "quarterly",
 ) -> List[Dict[str, Any]]:
   specs: List[Dict[str, Any]] = []
-  allowed_set = set(allowed_levers or [])
-  quarter_revenue = max(1.0, _safe_float((quarterly_seed or {}).get("revenue")) or (annual_revenue / 4.0) or 1.0)
-  if "price_up" in allowed_levers or "price_down" in allowed_levers:
-    for product_idx in range(1, max(1, product_count) + 1):
-      specs.append(
-        _banded_input_spec(
-          spec={"section": "revenue", "lob": "LOB 1", "product": f"Product {product_idx}", "driver": "Unit Price", "quarter_index": quarter_index},
-          min_value=_safe_float(direct_inputs.get("price_lower")),
-          max_value=_safe_float(direct_inputs.get("price_upper")) or _safe_float(direct_inputs.get("current_price")),
-        )
+  allowed_set = {
+    str(item or "").strip()
+    for item in (allowed_model_input_levers or [])
+    if str(item or "").strip()
+  }
+  del product_basis, direct_inputs, annual_revenue, quarterly_seed
+  for lever_id in sorted(allowed_set):
+    metadata = lever_catalog.get(lever_id)
+    if not isinstance(metadata, dict) or not metadata:
+      continue
+    valid_quarters = [int(item) for item in (metadata.get("valid_quarter_indices") or []) if _safe_int(item) > 0]
+    if valid_quarters and quarter_index not in valid_quarters:
+      continue
+    section = str(metadata.get("section") or "").strip()
+    if not section:
+      continue
+    band = _lever_band_for_quarter(profile=profile, lever_id=lever_id, quarter_index=quarter_index)
+    spec: Dict[str, Any] = {
+      "section": section,
+      "lever_id": lever_id,
+      "quarter_index": quarter_index,
+      "named_range": str(metadata.get("named_range") or "").strip(),
+      "value_kind": str(metadata.get("value_kind") or "").strip(),
+      "input_semantics": str(metadata.get("input_semantics") or "").strip(),
+      "grouping_mode": grouping_mode,
+    }
+    if group_key:
+      spec["group_key"] = group_key
+    if section == "revenue":
+      spec.update(
+        {
+          "lob": str(metadata.get("lob") or "").strip(),
+          "product": str(metadata.get("product") or "").strip(),
+          "driver": str(metadata.get("driver") or "").strip(),
+        }
       )
-  if "util_up" in allowed_levers or "util_down" in allowed_levers:
-    for product_idx in range(1, max(1, product_count) + 1):
-      specs.append(
-        _banded_input_spec(
-          spec={"section": "revenue", "lob": "LOB 1", "product": f"Product {product_idx}", "driver": "Utilization", "quarter_index": quarter_index},
-          min_value=_safe_float(direct_inputs.get("util_min")),
-          max_value=_safe_float(direct_inputs.get("util_max")) or _safe_float(direct_inputs.get("current_util")),
-        )
-      )
-  if "marketing_up" in allowed_levers or "marketing_down" in allowed_levers:
+    else:
+      spec["label"] = str(metadata.get("label") or "").strip()
     specs.append(
       _banded_input_spec(
-        spec={"section": "expenses", "label": "Marketing", "quarter_index": quarter_index},
-        min_value=(_safe_float(direct_inputs.get("marketing_min")) / annual_revenue) if _safe_float(direct_inputs.get("marketing_min")) is not None else None,
-        max_value=(_safe_float(direct_inputs.get("marketing_upper")) / annual_revenue) if _safe_float(direct_inputs.get("marketing_upper")) is not None else None,
-      )
-    )
-  if "other_opex_up" in allowed_levers or "other_opex_down" in allowed_levers:
-    specs.append(
-      _banded_input_spec(
-        spec={"section": "expenses", "label": "General & Administrative", "quarter_index": quarter_index},
-        min_value=(_safe_float(direct_inputs.get("other_opex_min")) / annual_revenue) if _safe_float(direct_inputs.get("other_opex_min")) is not None else None,
-        max_value=(_safe_float(direct_inputs.get("other_opex_max")) / annual_revenue) if _safe_float(direct_inputs.get("other_opex_max")) is not None else None,
-      )
-    )
-  if "cogs_up" in allowed_levers or "cogs_down" in allowed_levers:
-    specs.append(
-      _banded_input_spec(
-        spec={"section": "expenses", "label": "Cost of Goods Sold", "quarter_index": quarter_index},
-        min_value=_safe_float(direct_inputs.get("cogs_ratio_min")),
-        max_value=_safe_float(direct_inputs.get("cogs_ratio_max")) or _safe_float(direct_inputs.get("current_cogs_ratio")),
-      )
-    )
-  if {"payroll_up", "payroll_down", "hire_delay", "hire_advance"}.intersection(allowed_set):
-    specs.append(
-      _banded_input_spec(
-        spec={"section": "expenses", "label": "Payroll", "quarter_index": quarter_index},
-        min_value=((_safe_float(direct_inputs.get("target_payroll_min_total")) or _safe_float(direct_inputs.get("fixed_people_payroll")) or 0.0) / 4.0),
-        max_value=((_safe_float(direct_inputs.get("target_payroll_max_total")) or _safe_float(direct_inputs.get("current_payroll_total")) or 0.0) / 4.0),
+        spec=spec,
+        min_value=_optional_float(band.get("min")),
+        max_value=_optional_float(band.get("max")),
       )
     )
   return specs
+
+
+def _group_expansion_permissions(group: Dict[str, Any]) -> tuple[str, set[str]]:
+  raw_granularity = str(group.get("input_granularity") or "").strip().lower()
+  input_granularity = raw_granularity if raw_granularity in {"grouped", "quarterly"} else "grouped"
+  quarterly_expansion_levers = {
+    str(item or "").strip()
+    for item in (group.get("quarterly_expansion_levers") or [])
+    if str(item or "").strip()
+  }
+  return input_granularity, quarterly_expansion_levers
 
 
 def _build_finmo_calibration_spec(
@@ -622,62 +791,80 @@ def _build_finmo_calibration_spec(
   profile: Dict[str, Any],
   direct_inputs: Dict[str, Any],
   controller_input_seed: Sequence[Dict[str, Any]],
-  target_margin_path: Dict[str, Any],
   product_count: int,
 ) -> Dict[str, Any]:
-  allowed_levers = [str(item or "").strip() for item in (profile.get("allowed_levers") or []) if str(item or "").strip()]
+  allowed_model_input_levers = _allowed_model_input_levers(profile=profile, direct_inputs=direct_inputs)
+  lever_catalog = _model_input_lever_catalog_from_direct_inputs(direct_inputs)
   goal_seek_requests: List[Dict[str, Any]] = []
   solver_requests: List[Dict[str, Any]] = []
   annual_revenue = max(1.0, _safe_float(direct_inputs.get("current_revenue")) or sum(max(0.0, _safe_float((item or {}).get("revenue"))) for item in controller_input_seed) / max(1.0, len(controller_input_seed) / 4.0))
-  for group_index, group in enumerate(_policy_period_groups((profile.get("forecast_orchestration") or {}) if isinstance(profile.get("forecast_orchestration"), dict) else {}), start=1):
+  product_basis = [item for item in (direct_inputs.get("product_driver_basis") or []) if isinstance(item, dict)]
+  governed_period_groups = _policy_period_groups(profile)
+  allowed_model_input_levers = [
+    lever_id for lever_id in allowed_model_input_levers
+    if isinstance(lever_catalog.get(lever_id), dict) and lever_catalog.get(lever_id)
+  ]
+  for group_index, group in enumerate(governed_period_groups, start=1):
     quarter_start = max(1, _safe_int(group.get("quarter_start")) or 1)
     quarter_end = max(quarter_start, _safe_int(group.get("quarter_end")) or quarter_start)
     final_quarter = quarter_end
-    year_index = ((final_quarter - 1) // 4) + 1
-    target_min = _safe_float(target_margin_path.get(f"year{year_index}_min"))
-    target_max = _safe_float(target_margin_path.get(f"year{year_index}_max"))
-    if target_min is None and target_max is None:
-      continue
-    quarter_seed = next((item for item in controller_input_seed if _safe_int(item.get("quarter_index")) == final_quarter), {})
-    target_revenue = max(1.0, _safe_float((quarter_seed or {}).get("revenue")) or (annual_revenue / 4.0))
-    objective_band = {
-      "min": None if target_min is None else round(target_revenue * target_min, 6),
-      "max": None if target_max is None else round(target_revenue * target_max, 6),
-    }
-    changing_inputs: List[Dict[str, Any]] = []
-    for quarter_index in range(quarter_start, quarter_end + 1):
-      seed = next((item for item in controller_input_seed if _safe_int(item.get("quarter_index")) == quarter_index), {})
-      changing_inputs.extend(
-        _calibration_variable_specs(
-          allowed_levers=allowed_levers,
-          quarter_index=quarter_index,
-          product_count=product_count,
-          direct_inputs=direct_inputs,
-          annual_revenue=annual_revenue,
-          quarterly_seed=seed,
-        )
-      )
+    input_granularity, quarterly_expansion_levers = _group_expansion_permissions(group)
+    group_targets = _group_output_targets(profile=profile, quarter_start=quarter_start, quarter_end=quarter_end)
+    objective_spec: Dict[str, Any] | None = None
     band_constraints: List[Dict[str, Any]] = []
-    for quarter_index in range(quarter_start, quarter_end + 1):
-      seed = next((item for item in controller_input_seed if _safe_int(item.get("quarter_index")) == quarter_index), {})
-      revenue = max(1.0, _safe_float((seed or {}).get("revenue")) or (annual_revenue / 4.0))
-      band_constraints.append(
-        {
-          "target": {
+    for target in group_targets:
+      for quarter_index in range(max(quarter_start, _safe_int(target.get("quarter_start")) or quarter_start), min(quarter_end, _safe_int(target.get("quarter_end")) or quarter_end) + 1):
+        band_constraints.append(
+          {
+            "target": {
+              "sheet_range": "finmo_pl",
+              "line_item": str(target.get("line_item") or "").strip(),
+              "quarter_index": quarter_index,
+            },
+            "goal_band": {
+              "min": _safe_float(target.get("min_value")),
+              "max": _safe_float(target.get("max_value")),
+            },
+          }
+        )
+        if objective_spec is None and quarter_index == final_quarter:
+          objective_spec = {
             "sheet_range": "finmo_pl",
-            "line_item": "EBITDA",
+            "line_item": str(target.get("line_item") or "").strip(),
             "quarter_index": quarter_index,
-          },
-          "goal_band": {
-            "min": None if target_min is None else round(revenue * target_min, 6),
-            "max": None if target_max is None else round(revenue * target_max, 6),
-          },
-        }
-      )
+            "goal_band": {
+              "min": _safe_float(target.get("min_value")),
+              "max": _safe_float(target.get("max_value")),
+            },
+          }
+    if objective_spec is None:
+      continue
+    changing_inputs: List[Dict[str, Any]] = []
+    for lever_id in allowed_model_input_levers:
+      lever_metadata = lever_catalog.get(lever_id)
+      if not isinstance(lever_metadata, dict) or not lever_metadata:
+        continue
+      lever_group_mode = "quarterly" if (input_granularity == "quarterly" or lever_id in quarterly_expansion_levers) else "grouped"
+      for quarter_index in range(quarter_start, quarter_end + 1):
+        seed = next((item for item in controller_input_seed if _safe_int(item.get("quarter_index")) == quarter_index), {})
+        changing_inputs.extend(
+          _calibration_variable_specs(
+            profile=profile,
+            allowed_model_input_levers=[lever_id],
+            lever_catalog=lever_catalog,
+            quarter_index=quarter_index,
+            product_basis=product_basis,
+            direct_inputs=direct_inputs,
+            annual_revenue=annual_revenue,
+            quarterly_seed=seed,
+            grouping_mode=lever_group_mode,
+            group_key=(f"group_{group_index}::{lever_id}" if lever_group_mode == "grouped" else None),
+          )
+        )
     goal_seek_requests.append(
       {
         "request_id": f"goal_seek_group_{group_index}_q{quarter_start}_q{quarter_end}",
-        "objective": {"sheet_range": "finmo_pl", "line_item": "EBITDA", "quarter_index": final_quarter, "goal_band": objective_band},
+        "objective": objective_spec,
         "changing_inputs": changing_inputs[:1],
         "mode": "goal_seek_shell",
       }
@@ -685,18 +872,45 @@ def _build_finmo_calibration_spec(
     solver_requests.append(
       {
         "request_id": f"solver_group_{group_index}_q{quarter_start}_q{quarter_end}",
-        "objective": {"sheet_range": "finmo_pl", "line_item": "EBITDA", "quarter_index": final_quarter, "goal_band": objective_band},
+        "objective": objective_spec,
         "changing_inputs": changing_inputs,
         "band_constraints": band_constraints,
         "constraints": [],
+        "group_execution": {
+          "input_granularity": input_granularity,
+          "quarterly_expansion_levers": sorted(quarterly_expansion_levers),
+        },
         "mode": "excel_solver_shell",
       }
     )
   return {
     "contract_version": "finmo_calibration_shell_v1",
+    "canonical_lever_vocabulary": "model_inputs_controller_write_only",
     "goal_seek_requests": goal_seek_requests,
     "solver_requests": solver_requests,
-    "governed_period_groups": _policy_period_groups((profile.get("forecast_orchestration") or {}) if isinstance(profile.get("forecast_orchestration"), dict) else {}),
+    "governed_period_groups": governed_period_groups,
+    "allowed_model_input_levers": sorted(
+      {
+        str(item.get("lever_id") or "").strip()
+        for request in solver_requests
+        for item in (request.get("changing_inputs") or [])
+        if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+      }
+    ) or allowed_model_input_levers,
+    "allowed_model_input_lever_details": [
+      _clone(lever_catalog.get(lever_id) or {})
+      for lever_id in (
+        sorted(
+          {
+            str(item.get("lever_id") or "").strip()
+            for request in solver_requests
+            for item in (request.get("changing_inputs") or [])
+            if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+          }
+        ) or list(allowed_model_input_levers)
+      )
+      if str(lever_id or "").strip() and isinstance(lever_catalog.get(lever_id), dict) and lever_catalog.get(lever_id)
+    ],
   }
 
 
@@ -796,9 +1010,9 @@ def build_controller_finmo_candidate(
     profile=profile,
     direct_inputs=(contract_bundle.get("direct_inputs") or {}) if isinstance(contract_bundle.get("direct_inputs"), dict) else {},
     controller_input_seed=controller_input_seed,
-    target_margin_path=_clone(orchestration.get("target_margin_path") or {}),
     product_count=max(1, len(_base_child_quarter_drivers(next_year1))),
   )
+  allowed_model_input_levers = _clone(controller_calibration_request.get("allowed_model_input_levers") or [])
   finmo_readback = _candidate_finmo_readback(
     state_model=state_model,
     modified_state=modified_state,
@@ -854,7 +1068,15 @@ def build_controller_finmo_candidate(
       remaining_blocking_violations.append("utilization_too_low")
   if "ebitda_margin_too_low" in current_constraint_violations:
     ebitda_floor = _safe_float(((constraint_profile.get("ebitda_margin_band") or {}) if isinstance(constraint_profile.get("ebitda_margin_band"), dict) else {}).get("min"))
-    if ebitda_floor is not None and year1_margin < ebitda_floor - 0.005:
+    target_ebitda_min = _safe_float(contract_bundle.get("target_ebitda_min"))
+    target_ebitda_max = _safe_float(contract_bundle.get("target_ebitda_max"))
+    meets_governed_year1_target = (
+      target_ebitda_min is not None
+      and target_ebitda_max is not None
+      and year1_ebitda >= target_ebitda_min - 1.0
+      and year1_ebitda <= target_ebitda_max + 1.0
+    )
+    if not meets_governed_year1_target and ebitda_floor is not None and year1_margin < ebitda_floor - 0.005:
       remaining_blocking_violations.append("ebitda_margin_too_low")
   if "gross_margin_too_low" in current_constraint_violations:
     gross_margin_floor = _safe_float(((constraint_profile.get("gross_margin_band") or {}) if isinstance(constraint_profile.get("gross_margin_band"), dict) else {}).get("min"))
@@ -875,9 +1097,8 @@ def build_controller_finmo_candidate(
     "archetype": str(profile.get("archetype") or "operations").strip(),
     "archetype_display": str(profile.get("archetype_display") or "Operational balance").strip(),
     "dominant_tradeoff": str(profile.get("dominant_tradeoff") or "").strip(),
-    "allowed_levers": _clone(profile.get("allowed_levers") or []),
-    "relationship_rules": _clone(profile.get("relationship_rules") or []),
-    "lever_families": families,
+    "canonical_lever_vocabulary": "model_inputs_controller_write_only",
+    "allowed_model_input_levers": allowed_model_input_levers,
     "label": label,
     "rationale": rationale,
     "summary": summary,
@@ -906,11 +1127,25 @@ def build_controller_finmo_candidate(
     "controller_calibration_request": controller_calibration_request,
     "gpt_validation_request": {
       "validation_contract_version": "finmo_validation_request_v1",
+      "canonical_lever_vocabulary": "model_inputs_controller_write_only",
+      "authoritative_input_sheet": "Model Inputs",
       "authoritative_output_sheet": "Financial Model QTR",
-      "named_ranges": ["finmo_accountingcheck", "finmo_periods", "finmo_pl", "finmo_balancesheet", "finmo_cfs"],
+      "named_ranges": [
+        "model_input_periods",
+        "model_input_revenue",
+        "model_input_expenses",
+        "model_input_balancehseet",
+        "model_input_schedules",
+        "finmo_accountingcheck",
+        "finmo_periods",
+        "finmo_pl",
+        "finmo_balancesheet",
+        "finmo_cfs",
+      ],
+      "allowed_model_input_levers": allowed_model_input_levers,
       "focus_line_items": ["Revenue", "EBITDA", "Net Income", "Cash", "Total Assets", "Total Liabilities & Equity"],
       "target_margin_path": _clone(orchestration.get("target_margin_path") or {}),
-      "governed_period_groups": _policy_period_groups(orchestration),
+      "governed_period_groups": _policy_period_groups(profile),
     },
   }
   candidate["finmo_calibration_spec"] = _clone(candidate.get("controller_calibration_request") or {})

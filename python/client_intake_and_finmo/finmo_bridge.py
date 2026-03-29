@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from copy import deepcopy
 from datetime import datetime
@@ -66,6 +67,111 @@ def _clone(value: Any) -> Any:
   return deepcopy(value)
 
 
+def _canonical_model_input_text(value: Any) -> str:
+  return str(value or "").strip()
+
+
+def _revenue_lever_id(lob: Any, product: Any, driver: Any) -> str:
+  return "::".join(
+    [
+      "revenue",
+      _canonical_model_input_text(lob),
+      _canonical_model_input_text(product),
+      _canonical_model_input_text(driver),
+    ]
+  )
+
+
+def _simple_lever_id(section: str, label: Any) -> str:
+  return "::".join([section, _canonical_model_input_text(label)])
+
+
+def _full_quarter_scope(slots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+  full_slots = _full_quarter_slots(slots)
+  valid_quarter_indices = list(range(1, len(full_slots) + 1))
+  valid_period_columns = [str(slot.get("column_letter") or "").strip() for slot in full_slots if str(slot.get("column_letter") or "").strip()]
+  return {
+    "valid_quarter_indices": valid_quarter_indices,
+    "valid_period_columns": valid_period_columns,
+    "writable_full_quarters_only": True,
+  }
+
+
+def _revenue_input_semantics(driver: str) -> Dict[str, str]:
+  driver_text = _canonical_model_input_text(driver).lower()
+  if driver_text == "capacity":
+    return {"value_kind": "direct_number", "input_semantics": "quarter_capacity_units"}
+  if driver_text == "unit price":
+    return {"value_kind": "direct_number", "input_semantics": "currency_per_unit"}
+  if driver_text == "utilization":
+    return {"value_kind": "ratio", "input_semantics": "utilization_ratio"}
+  return {"value_kind": "direct_number", "input_semantics": "direct_input"}
+
+
+def _simple_input_semantics(section_key: str, label: str) -> Dict[str, str]:
+  normalized_section = _canonical_model_input_text(section_key).lower()
+  normalized_label = _canonical_model_input_text(label).lower()
+  if normalized_section == "expenses":
+    if normalized_label in {
+      "cost of goods sold",
+      "marketing",
+      "research & development",
+      "general & administrative",
+      "interest rate",
+      "depreciation",
+      "taxes",
+    }:
+      return {"value_kind": "ratio", "input_semantics": "percent_of_revenue"}
+    if normalized_label in {"lease", "payroll"}:
+      return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
+  if normalized_section == "balance_sheet":
+    if normalized_label in {"accounts receivable days", "inventory days", "accounts payable days"}:
+      return {"value_kind": "day_count", "input_semantics": "days"}
+    if normalized_label in {"prepaid expenses", "deferred revnue"}:
+      return {"value_kind": "ratio", "input_semantics": "percent_of_revenue"}
+    if normalized_label == "short term debt (% of ltd)":
+      return {"value_kind": "ratio", "input_semantics": "percent_of_long_term_debt"}
+    if normalized_label in {
+      "ppe $ (excluding capital leases)",
+      "accumulated depreciation",
+      "owner's capital",
+      "other equity",
+    }:
+      return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
+  if normalized_section == "schedules":
+    return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
+  return {"value_kind": "direct_number", "input_semantics": "direct_input"}
+
+
+def _safe_ratio(value: Any) -> Optional[float]:
+  ratio = _safe_float(value)
+  if ratio is None:
+    return None
+  if ratio > 1.0 and ratio <= 100.0:
+    ratio = ratio / 100.0
+  return ratio
+
+
+def _placeholder_index(value: Any, prefix: str) -> Optional[int]:
+  match = re.search(rf"{re.escape(prefix)}\s*(\d+)", str(value or "").strip(), re.IGNORECASE)
+  if not match:
+    return None
+  try:
+    return max(0, int(match.group(1)) - 1)
+  except Exception:
+    return None
+
+
+def _named_lob(value: Any, fallback: str) -> str:
+  text = _canonical_model_input_text(value)
+  return text or fallback
+
+
+def _named_product(value: Any, fallback: str) -> str:
+  text = _canonical_model_input_text(value)
+  return text or fallback
+
+
 def _normalize_finmo_path(finmo_path: Any) -> str:
   cleaned = str(finmo_path or "").strip()
   if not cleaned:
@@ -95,15 +201,15 @@ def _period_slots_from_model_inputs(wb) -> List[Dict[str, Any]]:
   year_row = label_to_row.get("year")
   date_row = label_to_row.get("date")
   fraction_row = label_to_row.get("year fraction")
-  if quarter_row is None or year_row is None:
+  if quarter_row is None:
     return []
   slots: List[Dict[str, Any]] = []
   slot_index = 0
   for col_idx in range(min_col + 2, max_col + 1):
     quarter_val = _safe_float(ws.cell(row=quarter_row, column=col_idx).value)
-    year_val = _safe_float(ws.cell(row=year_row, column=col_idx).value)
-    if quarter_val is None or year_val is None:
+    if quarter_val is None:
       continue
+    year_val = _safe_float(ws.cell(row=year_row, column=col_idx).value) if year_row is not None else None
     slots.append(
       {
         "slot_index": slot_index,
@@ -113,6 +219,7 @@ def _period_slots_from_model_inputs(wb) -> List[Dict[str, Any]]:
         "quarter": quarter_val,
         "date": _as_iso_date(ws.cell(row=date_row, column=col_idx).value) if date_row is not None else None,
         "year_fraction": _safe_float(ws.cell(row=fraction_row, column=col_idx).value) if fraction_row is not None else None,
+        "is_stub": quarter_val == 0.0,
       }
     )
     slot_index += 1
@@ -192,6 +299,20 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
   try:
     slots = _period_slots_from_model_inputs(wb)
     slot_columns = [int(slot["column_index"]) for slot in slots]
+    quarter_scope = _full_quarter_scope(slots)
+    controller_write_levers: List[Dict[str, Any]] = []
+    lever_catalog: Dict[str, Dict[str, Any]] = {}
+
+    def _register_lever(metadata: Dict[str, Any]) -> None:
+      lever_id = str(metadata.get("lever_id") or "").strip()
+      if not lever_id:
+        return
+      lever_meta = {
+        **_clone(metadata),
+        **quarter_scope,
+      }
+      lever_catalog[lever_id] = lever_meta
+      controller_write_levers.append(_clone(lever_meta))
 
     revenue_rows: List[Dict[str, Any]] = []
     ws, min_row, max_row, min_col, max_col = _defined_range_bounds(wb, "model_input_revenue")
@@ -199,43 +320,88 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
       controller_marker = str(ws.cell(row=row_idx, column=min_col).value or "").strip()
       if controller_marker.lower() != "controller write":
         continue
+      lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
+      product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
+      driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
+      lever_id = _revenue_lever_id(lob, product, driver)
+      semantics = _revenue_input_semantics(driver)
       revenue_rows.append(
         {
-          "lob": str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip(),
-          "product": str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip(),
-          "driver": str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip(),
+          "named_range": "model_input_revenue",
+          "controller_write": True,
+          "lever_id": lever_id,
+          "placeholder_lob": lob,
+          "placeholder_product": product,
+          "lob": lob,
+          "product": product,
+          "driver": driver,
+          **semantics,
+          **quarter_scope,
           "values": [ws.cell(row=row_idx, column=col_idx).value for col_idx in slot_columns if col_idx <= max_col],
         }
       )
+      _register_lever(
+        {
+          "lever_id": lever_id,
+          "named_range": "model_input_revenue",
+          "section": "revenue",
+          "lob": lob,
+          "product": product,
+          "driver": driver,
+          "label_path": f"{lob} > {product} > {driver}",
+          **semantics,
+        }
+      )
 
-    def _read_simple_rows(range_name: str) -> List[Dict[str, Any]]:
+    def _read_simple_rows(range_name: str, *, section_key: str) -> List[Dict[str, Any]]:
       local_ws, local_min_row, local_max_row, local_min_col, local_max_col = _defined_range_bounds(wb, range_name)
       rows: List[Dict[str, Any]] = []
       for row_idx in range(local_min_row, local_max_row + 1):
         controller_marker = str(local_ws.cell(row=row_idx, column=local_min_col).value or "").strip()
         if controller_marker.lower() != "controller write":
           continue
+        label = str(local_ws.cell(row=row_idx, column=local_min_col + 1).value or "").strip()
+        lever_id = _simple_lever_id(section_key, label)
+        semantics = _simple_input_semantics(section_key, label)
         rows.append(
           {
-            "label": str(local_ws.cell(row=row_idx, column=local_min_col + 1).value or "").strip(),
+            "named_range": range_name,
+            "controller_write": True,
+            "lever_id": lever_id,
+            "label": label,
+            **semantics,
+            **quarter_scope,
             "values": [local_ws.cell(row=row_idx, column=col_idx).value for col_idx in slot_columns if col_idx <= local_max_col],
+          }
+        )
+        _register_lever(
+          {
+            "lever_id": lever_id,
+            "named_range": range_name,
+            "section": section_key,
+            "label": label,
+            "label_path": label,
+            **semantics,
           }
         )
       return rows
 
     schedule_ws, sched_min_row, sched_max_row, sched_min_col, sched_max_col = _defined_range_bounds(wb, "model_input_schedules")
     seed_col = slot_columns[0] - 1 if slot_columns else sched_min_col + 2
-    schedule_rows = _read_simple_rows("model_input_schedules")
+    schedule_rows = _read_simple_rows("model_input_schedules", section_key="schedules")
 
     return {
-      "contract_version": "finmo_model_input_v1",
+      "contract_version": "finmo_model_input_v3",
+      "canonical_lever_vocabulary": "model_inputs_controller_write_only",
       "finmo_path": finmo_path,
       "start_date": _as_iso_date(_read_named_cell(wb, "model_input_startdate")),
       "periods": slots,
+      "lever_catalog": lever_catalog,
+      "controller_write_levers": controller_write_levers,
       "sections": {
         "revenue": revenue_rows,
-        "expenses": _read_simple_rows("model_input_expenses"),
-        "balance_sheet": _read_simple_rows("model_input_balancehseet"),
+        "expenses": _read_simple_rows("model_input_expenses", section_key="expenses"),
+        "balance_sheet": _read_simple_rows("model_input_balancehseet", section_key="balance_sheet"),
         "schedules": {
           "debt_opening_balance_seed": schedule_ws.cell(row=sched_min_row + 3, column=seed_col).value,
           "lease_opening_balance_seed": schedule_ws.cell(row=sched_min_row + 12, column=seed_col).value,
@@ -421,6 +587,112 @@ def _slot_quarters(period_count: int, forecast_quarters: Sequence[Dict[str, Any]
   return slots[:period_count]
 
 
+def _full_quarter_slots(slots: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  full_slots = [
+    _clone(slot) for slot in (slots or [])
+    if isinstance(slot, dict) and _safe_float(slot.get("quarter")) not in (None, 0.0)
+  ]
+  return full_slots if full_slots else [_clone(slot) for slot in (slots or []) if isinstance(slot, dict)]
+
+
+def _planned_quarter_slots(period_count: int, forecast_quarters: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  quarters = [item for item in (forecast_quarters or []) if isinstance(item, dict)]
+  if period_count <= 0:
+    return []
+  if not quarters:
+    return [{} for _ in range(period_count)]
+  slots: List[Dict[str, Any]] = []
+  for idx in range(period_count):
+    source_idx = min(idx, len(quarters) - 1)
+    slots.append(_clone(quarters[source_idx]))
+  return slots
+
+
+def _ops_revenue_catalog(ops_json: Dict[str, Any]) -> Dict[Tuple[int, int], Dict[str, Any]]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  catalog: Dict[Tuple[int, int], Dict[str, Any]] = {}
+  lob_models = ops.get("lob_models") if isinstance(ops.get("lob_models"), list) else []
+  if lob_models:
+    for lob_idx, lob in enumerate(lob_models):
+      if not isinstance(lob, dict):
+        continue
+      lob_name = _named_lob(
+        lob.get("lob_name") or lob.get("name") or lob.get("line_of_business_name") or lob.get("label"),
+        f"LOB {lob_idx + 1}",
+      )
+      products = lob.get("products") if isinstance(lob.get("products"), list) else []
+      for product_idx, product in enumerate(products):
+        if not isinstance(product, dict):
+          continue
+        product_name = _named_product(
+          product.get("product_name") or product.get("name") or product.get("unit_name"),
+          f"Product {product_idx + 1}",
+        )
+        catalog[(lob_idx, product_idx)] = {
+          "lob": lob_name,
+          "product": product_name,
+          "capacity": _quarter_capacity_from_ops_product(product=product, ops_json=ops),
+          "unit_price": _safe_float(product.get("unit_price") if product.get("unit_price") is not None else ops.get("unit_price")),
+          "utilization": _safe_ratio(product.get("utilization_rate") if product.get("utilization_rate") is not None else ops.get("utilization_rate")),
+        }
+  if catalog:
+    return catalog
+  catalog[(0, 0)] = {
+    "lob": _named_lob(ops.get("business_type") or ops.get("lob_name"), "LOB 1"),
+    "product": _named_product(ops.get("product_name") or ops.get("unit_name"), "Product 1"),
+    "capacity": _quarter_capacity_from_ops_product(product=ops, ops_json=ops),
+    "unit_price": _safe_float(ops.get("unit_price")),
+    "utilization": _safe_ratio(ops.get("utilization_rate")),
+  }
+  return catalog
+
+
+def _quarter_capacity_from_ops_product(*, product: Dict[str, Any], ops_json: Dict[str, Any]) -> float:
+  product_obj = product if isinstance(product, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  periods_per_year = _safe_float(
+    product_obj.get("operating_periods_per_year")
+    if product_obj.get("operating_periods_per_year") is not None else ops.get("operating_periods_per_year")
+  )
+  units_per_period = _safe_float(
+    product_obj.get("units_per_period_capacity")
+    if product_obj.get("units_per_period_capacity") is not None else ops.get("units_per_period_capacity")
+  )
+  if units_per_period is not None and periods_per_year not in (None, 0.0):
+    return round((units_per_period * periods_per_year) / 4.0, 6)
+  units_per_week = _safe_float(
+    product_obj.get("units_per_week_capacity")
+    if product_obj.get("units_per_week_capacity") is not None else ops.get("units_per_week_capacity")
+  )
+  if units_per_week is not None:
+    return round(units_per_week * 13.0, 6)
+  units_per_month = _safe_float(
+    product_obj.get("units_per_month_capacity")
+    if product_obj.get("units_per_month_capacity") is not None else ops.get("units_per_month_capacity")
+  )
+  if units_per_month is not None:
+    return round(units_per_month * 3.0, 6)
+  concurrent_units = _safe_float(
+    product_obj.get("concurrent_capacity_units")
+    if product_obj.get("concurrent_capacity_units") is not None else ops.get("concurrent_capacity_units")
+  )
+  return round(concurrent_units or 0.0, 6)
+
+
+def _resolve_row_identity_from_catalog(
+  *,
+  row_lob: Any,
+  row_product: Any,
+  ops_catalog: Dict[Tuple[int, int], Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  lob_idx = _placeholder_index(row_lob, "LOB")
+  product_idx = _placeholder_index(row_product, "Product")
+  if lob_idx is None or product_idx is None:
+    return None
+  resolved = ops_catalog.get((lob_idx, product_idx))
+  return _clone(resolved) if isinstance(resolved, dict) else None
+
+
 def _child_driver_map_for_quarter(quarter: Dict[str, Any]) -> Dict[Tuple[str, str], Dict[str, float]]:
   child_map: Dict[Tuple[str, str], Dict[str, float]] = {}
   lobs = quarter.get("lobs") if isinstance(quarter.get("lobs"), list) else []
@@ -437,11 +709,15 @@ def _child_driver_map_for_quarter(quarter: Dict[str, Any]) -> Dict[Tuple[str, st
       price = _safe_float(product.get("price")) or _safe_float(product.get("unit_price"))
       if capacity is None and units is not None and utilization not in (None, 0.0):
         capacity = units / utilization
-      child_map[(f"LOB {lob_idx + 1}", f"Product {product_idx + 1}")] = {
+      driver_payload = {
         "Capacity": round(capacity or 0.0, 6),
         "Unit Price": round(price or 0.0, 6),
         "Utilization": round(utilization or 0.0, 6),
       }
+      child_map[(f"LOB {lob_idx + 1}", f"Product {product_idx + 1}")] = driver_payload
+      lob_name = _named_lob(lob.get("lob_name") or lob.get("name") or lob.get("label"), f"LOB {lob_idx + 1}")
+      product_name = _named_product(product.get("product_name") or product.get("name") or product.get("unit_name"), f"Product {product_idx + 1}")
+      child_map[(lob_name, product_name)] = _clone(driver_payload)
   if child_map:
     return child_map
   capacity = _safe_float(quarter.get("capacity_units"))
@@ -468,20 +744,34 @@ def _build_model_input_overlay(
   *,
   baseline_model_input: Dict[str, Any],
   business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  people_json: Dict[str, Any],
   financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
   controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
   forecast_quarters: Sequence[Dict[str, Any]],
 ) -> Dict[str, Any]:
   next_payload = _clone(baseline_model_input if isinstance(baseline_model_input, dict) else {})
   periods = [item for item in (next_payload.get("periods") or []) if isinstance(item, dict)]
+  full_periods = _full_quarter_slots(periods)
   seed_slots = [item for item in (controller_input_seed or []) if isinstance(item, dict)]
-  slots = seed_slots[:len(periods)] if seed_slots else _slot_quarters(len(periods), forecast_quarters)
+  target_period_count = len(full_periods) or len(periods)
+  if seed_slots:
+    slots = [_clone(item) for item in seed_slots[:target_period_count]]
+    if len(slots) < target_period_count:
+      fallback_slots = _planned_quarter_slots(target_period_count, forecast_quarters)
+      slots.extend(_clone(fallback_slots[idx]) for idx in range(len(slots), target_period_count))
+  else:
+    slots = _planned_quarter_slots(target_period_count, forecast_quarters)
+  projection_mode = bool(seed_slots) or bool([item for item in (forecast_quarters or []) if isinstance(item, dict)])
   start_date = _as_iso_date((business_facts or {}).get("start_date"))
   if start_date:
     next_payload["start_date"] = start_date
 
   sections = next_payload.setdefault("sections", {})
   revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
+  ops_catalog = _ops_revenue_catalog(ops_json or {})
   quarter_child_maps = [
     _child_driver_map_for_quarter({"lobs": (slot.get("revenue_products") or []) if isinstance(slot, dict) else []})
     if seed_slots else
@@ -489,16 +779,81 @@ def _build_model_input_overlay(
     for slot in slots
   ]
   for row in revenue_rows:
-    lob = str(row.get("lob") or "").strip()
-    product = str(row.get("product") or "").strip()
+    placeholder_lob = str(row.get("placeholder_lob") or row.get("lob") or "").strip()
+    placeholder_product = str(row.get("placeholder_product") or row.get("product") or "").strip()
+    resolved_identity = _resolve_row_identity_from_catalog(
+      row_lob=placeholder_lob,
+      row_product=placeholder_product,
+      ops_catalog=ops_catalog,
+    )
+    if isinstance(resolved_identity, dict):
+      row["lob"] = resolved_identity.get("lob") or row.get("lob")
+      row["product"] = resolved_identity.get("product") or row.get("product")
+    lob = str(row.get("lob") or placeholder_lob).strip()
+    product = str(row.get("product") or placeholder_product).strip()
     driver = str(row.get("driver") or "").strip()
     values: List[float] = []
-    for child_map in quarter_child_maps:
-      driver_map = child_map.get((lob, product)) or {}
-      values.append(round(_safe_float(driver_map.get(driver)) or 0.0, 6))
+    if projection_mode:
+      for child_map in quarter_child_maps:
+        driver_map = (
+          child_map.get((lob, product))
+          or child_map.get((placeholder_lob, placeholder_product))
+          or {}
+        )
+        values.append(round(_safe_float(driver_map.get(driver)) or 0.0, 6))
+    else:
+      baseline_driver_map = (
+        (resolved_identity or {})
+        if isinstance(resolved_identity, dict) else {}
+      )
+      baseline_value = 0.0
+      if driver == "Capacity":
+        baseline_value = round(_safe_float(baseline_driver_map.get("capacity")) or 0.0, 6)
+      elif driver == "Unit Price":
+        baseline_value = round(_safe_float(baseline_driver_map.get("unit_price")) or 0.0, 6)
+      elif driver == "Utilization":
+        baseline_value = round(_safe_ratio(baseline_driver_map.get("utilization")) or 0.0, 6)
+      values = [baseline_value for _ in slots]
     row["values"] = values
 
   lease_amount = _quarter_lease_amount(financials_json or {})
+  revenue_total_year1 = max(
+    0.0,
+    _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
+    or _safe_float((financials_year1_json or {}).get("revenue_total_year1"))
+    or _safe_float((financials_json or {}).get("current_revenue"))
+    or 0.0,
+  )
+  cogs_ratio_baseline = _ratio((financials_json or {}).get("cogs_total_year1"), revenue_total_year1)
+  marketing_ratio_baseline = (
+    _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
+    if isinstance(marketing_model_json, dict) else None
+  )
+  if marketing_ratio_baseline is None:
+    marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
+  payroll_total_year1 = (
+    _safe_float((financials_json or {}).get("payroll_total_year1"))
+    or _safe_float((financials_json or {}).get("current_payroll"))
+    or 0.0
+  )
+  if payroll_total_year1 <= 0:
+    payroll_total_year1 = sum(
+      max(0.0, _safe_float(item.get("annual_wage")) or 0.0)
+      for item in ((people_json or {}).get("people") or [])
+      if isinstance(item, dict)
+    )
+  quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
+  non_rent_opex_year1 = max(
+    0.0,
+    (
+      _safe_float((financials_json or {}).get("other_opex_absolute"))
+      or _safe_float((financials_json or {}).get("other_operating_expense"))
+      or 0.0
+    ) - (lease_amount * 4.0)
+  )
+  g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
+  interest_rate_baseline = _ratio((financials_json or {}).get("annual_interest_payment"), (financials_json or {}).get("total_debt_outstanding"))
+  depreciation_ratio_baseline = _ratio((financials_json or {}).get("accumulated_depreciation"), revenue_total_year1)
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -524,24 +879,23 @@ def _build_model_input_overlay(
       elif seed_slots and label == "Taxes":
         values.append(round(_safe_float(slot.get("tax_percent")) or 0.0, 6))
       elif label == "Cost of Goods Sold":
-        values.append(round(_ratio(slot.get("cogs"), revenue), 6))
+        values.append(round(cogs_ratio_baseline if not projection_mode else _ratio(slot.get("cogs"), revenue), 6))
       elif label == "Marketing":
-        values.append(round(_ratio(slot.get("marketing"), revenue), 6))
+        values.append(round((marketing_ratio_baseline or 0.0) if not projection_mode else _ratio(slot.get("marketing"), revenue), 6))
       elif label == "Research & Development":
         values.append(0.0)
       elif label == "Lease":
         values.append(round(lease_amount, 6))
       elif label == "Payroll":
-        values.append(round(_safe_float(slot.get("payroll")) or 0.0, 6))
+        values.append(round(quarterly_payroll if not projection_mode else (_safe_float(slot.get("payroll")) or 0.0), 6))
       elif label == "General & Administrative":
-        values.append(round(max(0.0, _ratio((_safe_float(slot.get("opex")) or 0.0) - lease_amount, revenue)), 6))
+        values.append(round(max(0.0, g_and_a_ratio_baseline if not projection_mode else _ratio((_safe_float(slot.get("opex")) or 0.0) - lease_amount, revenue)), 6))
       elif label == "Interest Rate":
-        base_rate = _ratio((financials_json or {}).get("annual_interest_payment"), (financials_json or {}).get("total_debt_outstanding"))
-        values.append(round(base_rate, 6))
+        values.append(round(interest_rate_baseline, 6))
       elif label == "Depreciation":
-        values.append(round(_ratio(slot.get("depreciation"), revenue), 6))
+        values.append(round(depreciation_ratio_baseline if not projection_mode else _ratio(slot.get("depreciation"), revenue), 6))
       elif label == "Taxes":
-        values.append(round(_ratio(slot.get("taxes"), revenue), 6))
+        values.append(round(_safe_ratio((financials_json or {}).get("taxes_percent")) or (_ratio(slot.get("taxes"), revenue) if projection_mode else 0.0), 6))
       else:
         values.append(round(_safe_float((row.get("values") or [0.0])[0]) or 0.0, 6))
     row["values"] = values
@@ -617,6 +971,13 @@ def _write_model_input_json_to_workbook(finmo_path: str, model_input_json: Dict[
   try:
     period_slots = _period_slots_from_model_inputs(wb)
     period_columns = [int(slot["column_index"]) for slot in period_slots]
+    full_period_columns = [int(slot["column_index"]) for slot in _full_quarter_slots(period_slots)]
+
+    def _target_period_columns(values: Sequence[Any]) -> List[int]:
+      if len(values) == len(full_period_columns) and full_period_columns:
+        return list(full_period_columns)
+      return list(period_columns)
+
     if isinstance(model_input_json.get("start_date"), str) and str(model_input_json.get("start_date")).strip():
       _write_named_cell(wb, "model_input_startdate", str(model_input_json.get("start_date")).strip())
 
@@ -638,11 +999,22 @@ def _write_model_input_json_to_workbook(finmo_path: str, model_input_json: Dict[
       key = (str(row.get("lob") or "").strip(), str(row.get("product") or "").strip(), str(row.get("driver") or "").strip())
       row_idx = revenue_row_lookup.get(key)
       if row_idx is None:
+        fallback_key = (
+          str(row.get("placeholder_lob") or "").strip(),
+          str(row.get("placeholder_product") or "").strip(),
+          str(row.get("driver") or "").strip(),
+        )
+        row_idx = revenue_row_lookup.get(fallback_key)
+      if row_idx is None:
         continue
-      for idx, col_idx in enumerate(period_columns):
+      if str(row.get("lob") or "").strip():
+        ws.cell(row=row_idx, column=min_col + 2).value = str(row.get("lob") or "").strip()
+      if str(row.get("product") or "").strip():
+        ws.cell(row=row_idx, column=min_col + 3).value = str(row.get("product") or "").strip()
+      values = list(row.get("values") or [])
+      for idx, col_idx in enumerate(_target_period_columns(values)):
         if col_idx > max_col:
           continue
-        values = row.get("values") or []
         ws.cell(row=row_idx, column=col_idx).value = values[idx] if idx < len(values) else 0
 
     def _write_simple_rows(range_name: str, rows_payload: Sequence[Dict[str, Any]]) -> None:
@@ -659,7 +1031,7 @@ def _write_model_input_json_to_workbook(finmo_path: str, model_input_json: Dict[
         if row_idx is None:
           continue
         values = list(row.get("values") or [])
-        for idx, col_idx in enumerate(period_columns):
+        for idx, col_idx in enumerate(_target_period_columns(values)):
           if col_idx > local_max_col:
             continue
           local_ws.cell(row=row_idx, column=col_idx).value = values[idx] if idx < len(values) else 0
@@ -716,6 +1088,7 @@ def _resolve_finmo_calibration_shell(
 
     def _resolve_model_input_cell(spec: Dict[str, Any]) -> Dict[str, Any]:
       section = str(spec.get("section") or "").strip().lower()
+      lever_id = str(spec.get("lever_id") or "").strip()
       quarter_index = _safe_int(spec.get("quarter_index")) or 1
       slot = _model_input_slot_for_full_quarter(model_slots, quarter_index)
       if slot is None:
@@ -725,10 +1098,18 @@ def _resolve_finmo_calibration_shell(
         for row_idx in range(min_row, max_row + 1):
           if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
             continue
+          row_lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
+          row_product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
+          row_driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
+          row_lever_id = _revenue_lever_id(row_lob, row_product, row_driver)
           if (
-            str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip() == str(spec.get("lob") or "").strip()
-            and str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip() == str(spec.get("product") or "").strip()
-            and str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip() == str(spec.get("driver") or "").strip()
+            (lever_id and row_lever_id == lever_id)
+            or (
+              not lever_id
+              and row_lob == str(spec.get("lob") or "").strip()
+              and row_product == str(spec.get("product") or "").strip()
+              and row_driver == str(spec.get("driver") or "").strip()
+            )
           ):
             col_idx = int(slot["column_index"])
             return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
@@ -737,7 +1118,29 @@ def _resolve_finmo_calibration_shell(
         for row_idx in range(min_row, max_row + 1):
           if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
             continue
-          if str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip() == str(spec.get("label") or "").strip():
+          label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip()
+          row_lever_id = _simple_lever_id("expenses", label)
+          if (lever_id and row_lever_id == lever_id) or (not lever_id and label == str(spec.get("label") or "").strip()):
+            col_idx = int(slot["column_index"])
+            return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
+      if section == "balance_sheet":
+        ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_balancehseet")
+        for row_idx in range(min_row, max_row + 1):
+          if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
+            continue
+          label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip()
+          row_lever_id = _simple_lever_id("balance_sheet", label)
+          if (lever_id and row_lever_id == lever_id) or (not lever_id and label == str(spec.get("label") or "").strip()):
+            col_idx = int(slot["column_index"])
+            return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
+      if section == "schedules":
+        ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_schedules")
+        for row_idx in range(min_row, max_row + 1):
+          if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
+            continue
+          label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip()
+          row_lever_id = _simple_lever_id("schedules", label)
+          if (lever_id and row_lever_id == lever_id) or (not lever_id and label == str(spec.get("label") or "").strip()):
             col_idx = int(slot["column_index"])
             return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
       return {}
@@ -768,6 +1171,7 @@ def _resolve_finmo_calibration_shell(
       request["objective_cell"] = _resolve_finmo_output_cell((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {})
       resolved_inputs = []
       resolved_constraints = [item for item in (request.get("constraints") or []) if isinstance(item, dict)]
+      grouped_anchor_cells: Dict[str, str] = {}
       for item in (request.get("changing_inputs") or []):
         if not isinstance(item, dict):
           continue
@@ -782,6 +1186,15 @@ def _resolve_finmo_calibration_shell(
           resolved_constraints.append({"cell": f"{resolved.get('sheet')}!{resolved.get('cell')}", "relation": 3, "value": min_value})
         if max_value is not None:
           resolved_constraints.append({"cell": f"{resolved.get('sheet')}!{resolved.get('cell')}", "relation": 1, "value": max_value})
+        if str(item.get("grouping_mode") or "").strip().lower() == "grouped":
+          group_key = str(item.get("group_key") or "").strip()
+          if group_key:
+            resolved_ref = f"{resolved.get('sheet')}!{resolved.get('cell')}"
+            anchor_ref = grouped_anchor_cells.get(group_key)
+            if anchor_ref:
+              resolved_constraints.append({"cell": resolved_ref, "relation": 2, "value_ref": anchor_ref})
+            else:
+              grouped_anchor_cells[group_key] = resolved_ref
       for band_constraint in [item for item in (request.get("band_constraints") or []) if isinstance(item, dict)]:
         resolved_target = _resolve_finmo_output_cell((band_constraint.get("target") or {}) if isinstance(band_constraint.get("target"), dict) else {})
         if not resolved_target:
@@ -884,7 +1297,13 @@ def _execute_finmo_calibration_shell(
     "    if (-not $constraint.cell) { continue }"
     "    $parts = $constraint.cell.ToString().Split('!');"
     "    $constraintSpec = \"'\" + $parts[0] + \"'!\" + $parts[1];"
-    "    $excel.Run('Solver.xlam!SolverAdd', $constraintSpec, [int]$constraint.relation, $constraint.value);"
+    "    if ($constraint.PSObject.Properties.Match('value_ref').Count -gt 0 -and $constraint.value_ref) {"
+    "      $valueParts = $constraint.value_ref.ToString().Split('!');"
+    "      $valueSpec = \"'\" + $valueParts[0] + \"'!\" + $valueParts[1];"
+    "      $excel.Run('Solver.xlam!SolverAdd', $constraintSpec, [int]$constraint.relation, $valueSpec);"
+    "    } else {"
+    "      $excel.Run('Solver.xlam!SolverAdd', $constraintSpec, [int]$constraint.relation, $constraint.value);"
+    "    }"
     "  }"
     "  $solveResult = $excel.Run('Solver.xlam!SolverSolve', $true);"
     "  $excel.Run('Solver.xlam!SolverFinish', 1);"
@@ -1151,30 +1570,48 @@ def sync_consistency_state_to_finmo(
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
   marketing_model_json: Optional[Dict[str, Any]],
-  model_input_json_override: Optional[Dict[str, Any]] = None,
   controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
   forecast_quarters: Sequence[Dict[str, Any]],
   calibration_spec: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  del ops_json
-  del people_json
-  del financials_year1_json
-  del marketing_model_json
-
   path = _normalize_finmo_path(finmo_path)
   if not Path(path).exists():
     raise FileNotFoundError(f"Finmo workbook not found at {path}")
-  if isinstance(model_input_json_override, dict) and model_input_json_override:
-    model_input_json = _clone(model_input_json_override)
-  else:
-    baseline_input = _read_model_input_json(path)
-    model_input_json = _build_model_input_overlay(
-      baseline_model_input=baseline_input,
-      business_facts=business_facts or {},
-      financials_json=financials_json or {},
-      controller_input_seed=controller_input_seed,
-      forecast_quarters=forecast_quarters,
+  try:
+    try:
+      from solver_trace import trace_lazy  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+    trace_lazy(
+      "FINMO_SYNC_REQUEST",
+      "Finmo workbook sync request",
+      lambda: {
+        "finmo_path": path,
+        "business_facts": _clone(business_facts or {}),
+        "ops_json": _clone(ops_json or {}),
+        "people_json": _clone(people_json or {}),
+        "financials_json": _clone(financials_json or {}),
+        "financials_year1_json": _clone(financials_year1_json or {}),
+        "marketing_model_json": _clone(marketing_model_json or {}),
+        "controller_input_seed": _clone(controller_input_seed or []),
+        "forecast_quarters": _clone(forecast_quarters or []),
+        "calibration_spec": _clone(calibration_spec or {}),
+      },
     )
+  except Exception:
+    pass
+  baseline_input = _read_model_input_json(path)
+  model_input_json = _build_model_input_overlay(
+    baseline_model_input=baseline_input,
+    business_facts=business_facts or {},
+    ops_json=ops_json or {},
+    people_json=people_json or {},
+    financials_json=financials_json or {},
+    financials_year1_json=financials_year1_json or {},
+    marketing_model_json=marketing_model_json or {},
+    controller_input_seed=controller_input_seed,
+    forecast_quarters=forecast_quarters,
+  )
   _write_model_input_json_to_workbook(path, model_input_json)
   _recalculate_excel_workbook(path)
   written_model_input_json = _read_model_input_json(path)
@@ -1197,6 +1634,38 @@ def sync_consistency_state_to_finmo(
     written_model_input_json["calibration_results"] = _clone(calibration_results)
     finmo_json["calibration_shell"] = _clone(resolved_shell)
     finmo_json["calibration_results"] = _clone(calibration_results)
+    try:
+      try:
+        from solver_trace import trace_lazy  # type: ignore
+      except Exception:
+        from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+      trace_lazy(
+        "FINMO_CALIBRATION",
+        "Finmo calibration shell and results",
+        lambda: {
+          "finmo_path": path,
+          "calibration_shell": _clone(resolved_shell),
+          "calibration_results": _clone(calibration_results),
+        },
+      )
+    except Exception:
+      pass
+  try:
+    try:
+      from solver_trace import trace_lazy  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+    trace_lazy(
+      "FINMO_SYNC_RESULT",
+      "Current persisted workbook state",
+      lambda: {
+        "finmo_path": path,
+        "model_input_json": _clone(written_model_input_json),
+        "finmo_json": _clone(finmo_json),
+      },
+    )
+  except Exception:
+    pass
   return {
     "finmo_path": path,
     "model_input_json": written_model_input_json,

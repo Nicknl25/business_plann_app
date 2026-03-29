@@ -30,6 +30,7 @@ _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 US_EASTERN = ZoneInfo("America/New_York")
 DEFAULT_TEST_RUNS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs"
 DEFAULT_TEST_RUNS_DATA_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data"
+DEFAULT_TERMINAL_LOGS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs"
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 OPS_FACT_FIELDS = {
@@ -826,6 +827,11 @@ def _build_run_artifact_filename(*, seed: str, written_at: datetime) -> str:
   return os.path.basename(_build_run_artifact_path(output_dir="", seed=seed, written_at=written_at))
 
 
+def _artifact_seed(*, seed: str, draft_id: Optional[str]) -> str:
+  artifact_id = str(draft_id or "").strip()
+  return artifact_id or seed
+
+
 def _save_run_report(
   *,
   output_dir: str,
@@ -1017,7 +1023,7 @@ def _run_single_seed(
   client_id: Optional[str] = None
   run_id = uuid.uuid4().hex
   run_started_at = _eastern_now()
-  trace_file_name = _build_run_artifact_filename(seed=seed, written_at=run_started_at)
+  trace_file_name: Optional[str] = None
   run_started_perf = time.perf_counter()
   metrics = _SimulatorMetricsStore()
   metrics.create_run(
@@ -1031,9 +1037,10 @@ def _run_single_seed(
 
   def _persist_report(*, status: str, stop_reason: str) -> None:
     written_at = _eastern_now()
+    artifact_seed = _artifact_seed(seed=seed, draft_id=draft_id)
     path = _save_run_report(
       output_dir=output_dir,
-      seed=seed,
+      seed=artifact_seed,
       bootstrap=bootstrap,
       transcript=transcript,
       draft_id=draft_id,
@@ -1046,7 +1053,7 @@ def _run_single_seed(
     persisted_path = _save_persisted_state_report(
       base_url=base_url,
       output_dir=persisted_output_dir,
-      seed=seed,
+      seed=artifact_seed,
       bootstrap=bootstrap,
       draft_id=draft_id,
       client_id=client_id,
@@ -1056,6 +1063,8 @@ def _run_single_seed(
     )
     if persisted_path:
       print(f"Saved persisted state report: {persisted_path}")
+    if trace_file_name:
+      print(f"Expected terminal log file: {os.path.join(DEFAULT_TERMINAL_LOGS_DIR, trace_file_name)}")
 
   def _finish_metrics(*, status: str, stop_reason: str, total_turns: int) -> None:
     metrics.finish_run(
@@ -1085,6 +1094,10 @@ def _run_single_seed(
     client_id = session.get("client_id")
     if not draft_id:
       raise RuntimeError(f"Failed to create draft session: {session}")
+    trace_file_name = _build_run_artifact_filename(
+      seed=_artifact_seed(seed=seed, draft_id=draft_id),
+      written_at=run_started_at,
+    )
 
     seed_payload = {
       "draft_id": draft_id,

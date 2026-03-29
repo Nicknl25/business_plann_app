@@ -30,6 +30,10 @@ from .patches import (
 MAX_SCENARIOS = 3
 
 
+def _simple_lever_id(section: str, label: str) -> str:
+  return f"{str(section or '').strip().lower()}::{str(label or '').strip()}"
+
+
 def _solver_required(*args: Any, **kwargs: Any) -> bool:
   del args, kwargs
   return True
@@ -302,11 +306,15 @@ def _build_candidate(
   marketing_patch = exact_patches.get("marketing_model_patch") if isinstance(exact_patches.get("marketing_model_patch"), dict) else None
   baseline_marketing = (baseline_state.get("marketing_model_json") or {}) if isinstance(baseline_state.get("marketing_model_json"), dict) else {}
   baseline_expected_units = _safe_float(baseline_marketing.get("expected_units_year1"))
-  allowed_levers = set(profile.get("allowed_levers") or [])
+  allowed_model_input_levers = {
+    str(item or "").strip()
+    for item in (profile.get("allowed_model_input_levers") or [])
+    if str(item or "").strip()
+  }
   if (
     marketing_patch is not None
     and baseline_expected_units > 0
-    and "marketing_up" not in allowed_levers
+    and _simple_lever_id("expenses", "Marketing") not in allowed_model_input_levers
     and _safe_float(marketing_patch.get("expected_units_year1")) > baseline_expected_units
   ):
     marketing_patch["expected_units_year1"] = round(baseline_expected_units, 2)
@@ -368,7 +376,7 @@ def _build_candidate(
     "archetype": str(profile.get("archetype") or _derive_commercial_archetype(fixed_facts=(state_model.get("fixed_facts") or {}), lever_families=families)).strip(),
     "archetype_display": str(profile.get("archetype_display") or "Operational balance").strip(),
     "dominant_tradeoff": str(profile.get("dominant_tradeoff") or "").strip(),
-    "allowed_levers": _clone(profile.get("allowed_levers") or []),
+    "allowed_model_input_levers": _clone(profile.get("allowed_model_input_levers") or []),
     "relationship_rules": _clone(profile.get("relationship_rules") or []),
     "lever_families": families,
     "label": label,

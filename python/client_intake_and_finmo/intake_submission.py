@@ -10,6 +10,9 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple, Set, List
 
+from openpyxl import load_workbook
+from openpyxl.utils import range_boundaries
+
 
 # Windows filename-safe special characters (avoid <>:"/\\|?*).
 ALLOWED_SPECIALS = "!@#$%^&_-"
@@ -86,12 +89,34 @@ def created_at_numeric(value: Any) -> str:
   return digits
 
 
+def business_start_date_iso(value: Any) -> str:
+  return parse_business_start_date(value).isoformat()
+
+
+def _stamp_model_input_startdate(*, finmo_path: str, business_start_date: Any) -> None:
+  wb = load_workbook(finmo_path, data_only=False)
+  try:
+    defined = wb.defined_names.get("model_input_startdate")
+    if defined is None:
+      return
+    destinations = list(defined.destinations)
+    if not destinations:
+      return
+    sheet_name, ref = destinations[0]
+    min_col, min_row, _max_col, _max_row = range_boundaries(ref)
+    wb[sheet_name].cell(row=min_row, column=min_col).value = business_start_date_iso(business_start_date)
+    wb.save(finmo_path)
+  finally:
+    wb.close()
+
+
 def create_client_finmo_workbook(
   *,
   template_path: str,
   client_finmo_dir: str,
   business_name: str,
   created_at: Any,
+  business_start_date: Any,
   client_id: str,
 ) -> str:
   template = Path(_sanitize_env_path(template_path))
@@ -114,6 +139,7 @@ def create_client_finmo_workbook(
     counter += 1
 
   shutil.copy2(str(template), str(dest_path))
+  _stamp_model_input_startdate(finmo_path=str(dest_path), business_start_date=business_start_date)
   return str(dest_path)
 
 
