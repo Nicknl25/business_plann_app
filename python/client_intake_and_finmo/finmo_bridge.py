@@ -13,6 +13,18 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.utils.datetime import from_excel
 
+try:
+  from financial_model_engine.finmo_model import calculate_finmo_model
+  from financial_model_engine.model_inputs import FinancialModelInputs
+except Exception:
+  import sys
+
+  ROOT = Path(__file__).resolve().parents[1]
+  if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+  from financial_model_engine.finmo_model import calculate_finmo_model
+  from financial_model_engine.model_inputs import FinancialModelInputs
+
 
 def _safe_float(value: Any) -> Optional[float]:
   if value is None or value == "":
@@ -529,6 +541,218 @@ def _read_finmo_json(finmo_path: str) -> Dict[str, Any]:
     wb.close()
 
 
+def build_python_finmo_json(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_path: Optional[str] = None,
+) -> Dict[str, Any]:
+  book = FinancialModelInputs.from_model_input_json(model_input_json if isinstance(model_input_json, dict) else {})
+  result = calculate_finmo_model(book)
+  quarter_rows_raw = result.quarter_rows()
+  raw_periods = [
+    _clone(item)
+    for item in (((model_input_json.get("periods") or []) if isinstance(model_input_json, dict) else []) or [])
+    if isinstance(item, dict)
+  ]
+  periods: List[Dict[str, Any]] = []
+  start_date_iso = _as_iso_date((model_input_json or {}).get("start_date")) if isinstance(model_input_json, dict) else None
+  if raw_periods:
+    opening_year = _safe_float(raw_periods[0].get("year"))
+    if opening_year is None and start_date_iso:
+      try:
+        opening_year = float(datetime.fromisoformat(start_date_iso).year)
+      except Exception:
+        opening_year = None
+    periods.append(
+      {
+        "slot_index": 0,
+        "column_index": 4,
+        "column_letter": "D",
+        "year": opening_year,
+        "quarter": 0.0,
+        "date": start_date_iso or raw_periods[0].get("date"),
+      }
+    )
+    for idx, item in enumerate(raw_periods, start=1):
+      periods.append(
+        {
+          "slot_index": idx,
+          "column_index": 4 + idx,
+          "column_letter": get_column_letter(4 + idx),
+          "year": item.get("year"),
+          "quarter": item.get("quarter"),
+          "date": item.get("date"),
+        }
+      )
+  else:
+    opening_date = start_date_iso
+    opening_year = None
+    if opening_date:
+      try:
+        opening_year = float(datetime.fromisoformat(opening_date).year)
+      except Exception:
+        opening_year = None
+    periods = [
+      {
+        "slot_index": 0,
+        "column_index": 4,
+        "column_letter": "D",
+        "year": opening_year,
+        "quarter": 0.0,
+        "date": opening_date,
+      }
+    ]
+    for idx, row in enumerate(quarter_rows_raw, start=1):
+      if not isinstance(row, dict):
+        continue
+      periods.append(
+        {
+          "slot_index": idx,
+          "column_index": 4 + idx,
+          "column_letter": get_column_letter(4 + idx),
+          "year": row.get("year"),
+          "quarter": row.get("quarter"),
+          "date": row.get("date"),
+        }
+      )
+
+  def _series(metric_key: str) -> List[float]:
+    values: List[float] = []
+    for row in quarter_rows_raw:
+      if not isinstance(row, dict):
+        continue
+      values.append(round(_safe_float(row.get(metric_key)) or 0.0, 6))
+    return values
+
+  pl_rows = [
+    {"label": "Revenue", "values": _series("revenue")},
+    {"label": "Cost of Goods Sold", "values": _series("cost_of_goods_sold")},
+    {"label": "Gross Profit", "values": _series("gross_profit")},
+    {"label": "Marketing", "values": _series("marketing")},
+    {"label": "Research & Development", "values": _series("research_and_development")},
+    {"label": "Lease/Rent", "values": _series("lease_rent")},
+    {"label": "Payroll", "values": _series("payroll")},
+    {"label": "General & Administrative", "values": _series("general_and_administrative")},
+    {"label": "EBITDA", "values": _series("ebitda")},
+    {"label": "Interest", "values": _series("interest")},
+    {"label": "Depreciation", "values": _series("depreciation")},
+    {"label": "Taxes", "values": _series("taxes")},
+    {"label": "Net Income", "values": _series("net_income")},
+  ]
+  balance_rows = [
+    {"label": "Cash", "values": _series("cash")},
+    {"label": "Accounts Receivable", "values": _series("accounts_receivable")},
+    {"label": "Inventory", "values": _series("inventory")},
+    {"label": "Current Assets", "values": _series("current_assets")},
+    {"label": "PPE", "values": _series("ppe")},
+    {"label": "Accumulated Depreciation", "values": _series("accumulated_depreciation")},
+    {"label": "Total Assets", "values": _series("total_assets")},
+    {"label": "Accounts Payable", "values": _series("accounts_payable")},
+    {"label": "Prepaid Expenses", "values": _series("prepaid_expenses")},
+    {"label": "Short Term Debt", "values": _series("short_term_debt")},
+    {"label": "Deferred Revenue", "values": _series("deferred_revenue")},
+    {"label": "Current Liabilites", "values": _series("current_liabilities")},
+    {"label": "Long Term Debt", "values": _series("long_term_debt")},
+    {"label": "Total Liabilities", "values": _series("total_liabilities")},
+    {"label": "Owner's Capital", "values": _series("owners_capital")},
+    {"label": "Retained Earnings", "values": _series("retained_earnings")},
+    {"label": "Other Equity", "values": _series("other_equity")},
+    {"label": "Total Equity", "values": _series("total_equity")},
+    {"label": "Total Liabilities & Equity", "values": _series("total_liabilities_and_equity")},
+  ]
+  cfs_rows = [
+    {"label": "Beginning Cash", "values": _series("beginning_cash")},
+    {"label": "Net Income", "values": _series("net_income")},
+    {"label": "Depreciatoin", "values": _series("depreciation")},
+    {"label": "Changes in Current Assets", "values": _series("changes_in_current_assets")},
+    {"label": "Changes in Current Liabilites", "values": _series("changes_in_current_liabilities")},
+    {"label": "Operating Cash Flow", "values": _series("operating_cash_flow")},
+    {"label": "Capital Expenditures", "values": _series("capital_expenditures")},
+    {"label": "Investing Cash Flow", "values": _series("investing_cash_flow")},
+    {"label": "Dept Receive(Repay)", "values": _series("debt_receive_repay")},
+    {"label": "Equity", "values": _series("equity")},
+    {"label": "Financing Cash Flow", "values": _series("financing_cash_flow")},
+    {"label": "Net Cash Flow", "values": _series("net_cash_flow")},
+    {"label": "Ending Cash", "values": _series("ending_cash")},
+  ]
+  numeric_values = _series("accounting_equation_check")
+  tolerance = 1.0
+  status_values = ["OK" if abs(value) <= tolerance else "FAIL" for value in numeric_values]
+  quarter_rows: List[Dict[str, Any]] = [
+    {
+      "slot_index": 0,
+      "year": periods[0].get("year") if periods else None,
+      "quarter": 0.0,
+      "date": periods[0].get("date") if periods else None,
+      "revenue": 0,
+      "cogs": 0,
+      "gross_profit": 0,
+      "marketing": 0,
+      "research_and_development": 0,
+      "lease_rent": 0,
+      "payroll": 0,
+      "g_and_a": 0,
+      "ebitda": 0,
+      "interest": 0,
+      "depreciation": 0,
+      "taxes": 0,
+      "net_income": 0,
+      "cash": 0,
+      "total_assets": 0,
+      "total_liabilities_and_equity": 0,
+      "ending_cash": 0,
+    }
+  ]
+  for idx, row in enumerate(quarter_rows_raw):
+    if not isinstance(row, dict):
+      continue
+    quarter_rows.append(
+      {
+        "slot_index": idx + 1,
+        "quarter_index": int(row.get("quarter_index") or idx + 1),
+        "year": row.get("year"),
+        "quarter": row.get("quarter"),
+        "date": row.get("date"),
+        "revenue": row.get("revenue"),
+        "cogs": row.get("cost_of_goods_sold"),
+        "gross_profit": row.get("gross_profit"),
+        "marketing": row.get("marketing"),
+        "research_and_development": row.get("research_and_development"),
+        "lease_rent": row.get("lease_rent"),
+        "payroll": row.get("payroll"),
+        "g_and_a": row.get("general_and_administrative"),
+        "ebitda": row.get("ebitda"),
+        "interest": row.get("interest"),
+        "depreciation": row.get("depreciation"),
+        "taxes": row.get("taxes"),
+        "net_income": row.get("net_income"),
+        "cash": row.get("cash"),
+        "ending_cash": row.get("ending_cash"),
+        "total_assets": row.get("total_assets"),
+        "total_liabilities_and_equity": row.get("total_liabilities_and_equity"),
+      }
+    )
+
+  return {
+    "contract_version": "finmo_output_v1",
+    "finmo_path": str(finmo_path or "").strip(),
+    "periods": periods,
+    "accounting_check": {
+      "rows": [
+        {"label": "Check", "values": status_values},
+        {"label": "Accounting Equation Check", "values": numeric_values},
+      ],
+      "all_ok": all(item == "OK" for item in status_values),
+      "status_values": status_values,
+      "numeric_values": numeric_values,
+    },
+    "pl": pl_rows,
+    "balance_sheet": balance_rows,
+    "cash_flow": cfs_rows,
+    "quarter_rows": quarter_rows,
+  }
+
+
 def build_consistency_forecast_view_from_finmo(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
   finmo_obj = finmo_json if isinstance(finmo_json, dict) else {}
   raw_rows = [row for row in (finmo_obj.get("quarter_rows") or []) if isinstance(row, dict)]
@@ -686,6 +910,66 @@ def _ops_revenue_catalog(ops_json: Dict[str, Any]) -> Dict[Tuple[int, int], Dict
   return catalog
 
 
+def _infer_revenue_driver_map_from_forecast_quarter(
+  *,
+  quarter_slot: Dict[str, Any],
+  ops_catalog: Dict[Tuple[int, int], Dict[str, Any]],
+  revenue_slot_key: str,
+  lob: str,
+  product: str,
+  fallback_detail: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+  slot = quarter_slot if isinstance(quarter_slot, dict) else {}
+  target_revenue = max(0.0, _safe_float(slot.get("revenue")) or 0.0)
+  slot_details = [item for item in (ops_catalog or {}).values() if isinstance(item, dict)]
+  if not slot_details and isinstance(fallback_detail, dict):
+    slot_details = [fallback_detail]
+  if not slot_details:
+    return {}
+
+  normalized: List[Tuple[Dict[str, Any], float, float, float, float]] = []
+  matched: Optional[Tuple[Dict[str, Any], float, float, float, float]] = None
+  total_baseline_revenue = 0.0
+  for detail in slot_details:
+    capacity = max(0.0, _safe_float(detail.get("capacity")) or 0.0)
+    price = max(0.0, _safe_float(detail.get("unit_price")) or 0.0)
+    utilization = max(0.0, _safe_ratio(detail.get("utilization")) or 0.0)
+    baseline_revenue = max(0.0, capacity * price * utilization)
+    row = (detail, baseline_revenue, capacity, price, utilization)
+    normalized.append(row)
+    total_baseline_revenue += baseline_revenue
+    if (
+      str(detail.get("revenue_slot_key") or "").strip() == str(revenue_slot_key or "").strip()
+      or (
+        str(detail.get("lob") or "").strip() == str(lob or "").strip()
+        and str(detail.get("product") or "").strip() == str(product or "").strip()
+      )
+    ):
+      matched = row
+
+  if matched is None:
+    matched = normalized[0]
+  matched_detail, matched_baseline_revenue, _matched_capacity, matched_price, matched_utilization = matched
+  if total_baseline_revenue > 0:
+    revenue_share = matched_baseline_revenue / total_baseline_revenue
+  else:
+    revenue_share = 1.0 / float(len(normalized))
+  allocated_revenue = target_revenue * revenue_share
+  effective_price = max(0.0, matched_price)
+  effective_utilization = max(0.0, matched_utilization)
+  if effective_price <= 0.0:
+    effective_price = max(1.0, _safe_float(matched_detail.get("unit_price")) or 0.0)
+  if effective_utilization <= 0.0:
+    effective_utilization = max(1.0, _safe_ratio(matched_detail.get("utilization")) or 0.0)
+  denominator = effective_price * effective_utilization
+  inferred_capacity = (allocated_revenue / denominator) if denominator > 0 else 0.0
+  return {
+    "Capacity": round(max(0.0, inferred_capacity), 6),
+    "Unit Price": round(max(0.0, effective_price), 6),
+    "Utilization": round(max(0.0, effective_utilization), 6),
+  }
+
+
 def _quarter_capacity_from_ops_product(*, product: Dict[str, Any], ops_json: Dict[str, Any]) -> float:
   product_obj = product if isinstance(product, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
@@ -786,6 +1070,300 @@ def _quarter_lease_amount(financials_json: Dict[str, Any]) -> float:
   return round(monthly_rent * 3.0, 6)
 
 
+def _add_months(base: datetime, months: int) -> datetime:
+  month_index = (base.month - 1) + int(months or 0)
+  year = base.year + (month_index // 12)
+  month = (month_index % 12) + 1
+  day = min(
+    base.day,
+    [
+      31,
+      29 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31,
+    ][month - 1],
+  )
+  return base.replace(year=year, month=month, day=day)
+
+
+def _python_model_input_periods(*, start_date_iso: Optional[str], period_count: int = 20) -> List[Dict[str, Any]]:
+  normalized_start = _as_iso_date(start_date_iso) or datetime.utcnow().date().isoformat()
+  try:
+    start_dt = datetime.fromisoformat(normalized_start)
+  except Exception:
+    start_dt = datetime.utcnow()
+    normalized_start = start_dt.date().isoformat()
+  slots: List[Dict[str, Any]] = []
+  for slot_index in range(max(0, int(period_count or 0))):
+    period_date = _add_months(start_dt, slot_index * 3)
+    column_index = 8 + slot_index
+    slots.append(
+      {
+        "slot_index": slot_index,
+        "column_index": column_index,
+        "column_letter": get_column_letter(column_index),
+        "year": float(period_date.year),
+        "quarter": float(slot_index + 1),
+        "date": period_date.date().isoformat(),
+        "year_fraction": 1.0,
+        "is_stub": False,
+      }
+    )
+  return slots
+
+
+def _empty_controller_write_row(
+  *,
+  quarter_scope: Dict[str, Any],
+  named_range: str,
+  section_key: str,
+  label: str,
+) -> Dict[str, Any]:
+  semantics = _simple_input_semantics(section_key, label)
+  return {
+    "named_range": named_range,
+    "controller_write": True,
+    "lever_id": _simple_lever_id(section_key, label),
+    "label": label,
+    **semantics,
+    **quarter_scope,
+    "values": [0.0 for _ in range(len(quarter_scope.get("valid_quarter_indices") or []))],
+  }
+
+
+def _python_model_input_template(
+  *,
+  start_date_iso: Optional[str],
+  business_name: Optional[str],
+  ops_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  periods = _python_model_input_periods(start_date_iso=start_date_iso, period_count=20)
+  quarter_scope = _full_quarter_scope(periods)
+  revenue_catalog = _ops_revenue_catalog(ops_json or {})
+  revenue_items = sorted(
+    [item for item in revenue_catalog.values() if isinstance(item, dict)],
+    key=lambda item: (
+      _safe_int(item.get("lob_slot_index")),
+      _safe_int(item.get("product_slot_index")),
+      str(item.get("revenue_slot_key") or "").strip(),
+    ),
+  )
+  controller_write_levers: List[Dict[str, Any]] = []
+  lever_catalog: Dict[str, Dict[str, Any]] = {}
+
+  def _register_lever(metadata: Dict[str, Any]) -> None:
+    lever_id = str(metadata.get("lever_id") or "").strip()
+    if not lever_id:
+      return
+    lever_meta = {
+      **_clone(metadata),
+      **quarter_scope,
+    }
+    lever_catalog[lever_id] = lever_meta
+    controller_write_levers.append(_clone(lever_meta))
+
+  revenue_rows: List[Dict[str, Any]] = []
+  for item in revenue_items:
+    lob_name = str(item.get("lob") or "").strip() or "LOB 1"
+    product_name = str(item.get("product") or "").strip() or "Product 1"
+    revenue_slot_key = str(item.get("revenue_slot_key") or "").strip()
+    base_meta = {
+      "named_range": "model_input_revenue",
+      "controller_write": True,
+      "placeholder_lob": lob_name,
+      "placeholder_product": product_name,
+      "lob_slot_index": _safe_int(item.get("lob_slot_index")),
+      "product_slot_index": _safe_int(item.get("product_slot_index")),
+      "revenue_slot_key": revenue_slot_key,
+      "lob": lob_name,
+      "product": product_name,
+      **quarter_scope,
+      "values": [0.0 for _ in range(len(quarter_scope.get("valid_quarter_indices") or []))],
+    }
+    for driver_name in ("Capacity", "Unit Price", "Utilization"):
+      semantics = _revenue_input_semantics(driver_name)
+      lever_id = _revenue_lever_id(lob_name, product_name, driver_name)
+      revenue_rows.append(
+        {
+          **_clone(base_meta),
+          "lever_id": lever_id,
+          "driver": driver_name,
+          **semantics,
+        }
+      )
+      _register_lever(
+        {
+          "lever_id": lever_id,
+          "named_range": "model_input_revenue",
+          "section": "revenue",
+          "lob": lob_name,
+          "product": product_name,
+          "driver": driver_name,
+          "placeholder_lob": lob_name,
+          "placeholder_product": product_name,
+          "lob_slot_index": _safe_int(item.get("lob_slot_index")),
+          "product_slot_index": _safe_int(item.get("product_slot_index")),
+          "revenue_slot_key": revenue_slot_key,
+          "label_path": f"{lob_name} > {product_name} > {driver_name}",
+          **semantics,
+        }
+      )
+
+  expenses = [
+    "Cost of Goods Sold",
+    "Marketing",
+    "Research & Development",
+    "Lease",
+    "Payroll",
+    "General & Administrative",
+    "Interest Rate",
+    "Depreciation",
+    "Taxes",
+  ]
+  expense_rows = [
+    _empty_controller_write_row(
+      quarter_scope=quarter_scope,
+      named_range="model_input_expenses",
+      section_key="expenses",
+      label=label,
+    )
+    for label in expenses
+  ]
+  for row in expense_rows:
+    _register_lever(
+      {
+        "lever_id": str(row.get("lever_id") or "").strip(),
+        "named_range": "model_input_expenses",
+        "section": "expenses",
+        "label": str(row.get("label") or "").strip(),
+        "label_path": str(row.get("label") or "").strip(),
+        "value_kind": str(row.get("value_kind") or "").strip(),
+        "input_semantics": str(row.get("input_semantics") or "").strip(),
+      }
+    )
+
+  balance_sheet = [
+    "Accounts Receivable Days",
+    "Inventory Days",
+    "PPE $ (Excluding Capital Leases)",
+    "Accumulated Depreciation",
+    "Accounts Payable Days",
+    "Prepaid Expenses",
+    "Deferred Revnue",
+    "Short Term Debt (% of LTD)",
+    "Owner's Capital",
+    "Other Equity",
+  ]
+  balance_rows = [
+    _empty_controller_write_row(
+      quarter_scope=quarter_scope,
+      named_range="model_input_balancehseet",
+      section_key="balance_sheet",
+      label=label,
+    )
+    for label in balance_sheet
+  ]
+  for row in balance_rows:
+    _register_lever(
+      {
+        "lever_id": str(row.get("lever_id") or "").strip(),
+        "named_range": "model_input_balancehseet",
+        "section": "balance_sheet",
+        "label": str(row.get("label") or "").strip(),
+        "label_path": str(row.get("label") or "").strip(),
+        "value_kind": str(row.get("value_kind") or "").strip(),
+        "input_semantics": str(row.get("input_semantics") or "").strip(),
+      }
+    )
+
+  schedule_labels = [
+    "Plus: Additions (repayments), net",
+    "Less: Principal Repayments",
+    "Plus: Net Additions",
+  ]
+  schedule_rows = [
+    _empty_controller_write_row(
+      quarter_scope=quarter_scope,
+      named_range="model_input_schedules",
+      section_key="schedules",
+      label=label,
+    )
+    for label in schedule_labels
+  ]
+  for row in schedule_rows:
+    _register_lever(
+      {
+        "lever_id": str(row.get("lever_id") or "").strip(),
+        "named_range": "model_input_schedules",
+        "section": "schedules",
+        "label": str(row.get("label") or "").strip(),
+        "label_path": str(row.get("label") or "").strip(),
+        "value_kind": str(row.get("value_kind") or "").strip(),
+        "input_semantics": str(row.get("input_semantics") or "").strip(),
+      }
+    )
+
+  return {
+    "contract_version": "finmo_model_input_v3",
+    "canonical_lever_vocabulary": "model_inputs_controller_write_only",
+    "finmo_path": "",
+    "business_name": str(business_name or "").strip(),
+    "start_date": _as_iso_date(start_date_iso) or datetime.utcnow().date().isoformat(),
+    "periods": periods,
+    "lever_catalog": lever_catalog,
+    "controller_write_levers": controller_write_levers,
+    "sections": {
+      "revenue": revenue_rows,
+      "expenses": expense_rows,
+      "balance_sheet": balance_rows,
+      "schedules": {
+        "debt_opening_balance_seed": 0.0,
+        "lease_opening_balance_seed": 0.0,
+        "rows": schedule_rows,
+      },
+    },
+  }
+
+
+def build_python_model_input_json(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  marketing_model_json: Optional[Dict[str, Any]],
+  controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
+  forecast_quarters: Sequence[Dict[str, Any]] = (),
+  business_name: Optional[str] = None,
+) -> Dict[str, Any]:
+  start_date = _as_iso_date((business_facts or {}).get("start_date")) or _as_iso_date((ops_json or {}).get("start_date"))
+  baseline_model_input = _python_model_input_template(
+    start_date_iso=start_date,
+    business_name=business_name or (business_facts or {}).get("business_name") or (ops_json or {}).get("business_name"),
+    ops_json=ops_json or {},
+  )
+  return _build_model_input_overlay(
+    baseline_model_input=baseline_model_input,
+    business_facts=business_facts or {},
+    ops_json=ops_json or {},
+    people_json=people_json or {},
+    financials_json=financials_json or {},
+    financials_year1_json=financials_year1_json or {},
+    marketing_model_json=marketing_model_json or {},
+    controller_input_seed=controller_input_seed,
+    forecast_quarters=forecast_quarters,
+  )
+
+
 def _build_model_input_overlay(
   *,
   baseline_model_input: Dict[str, Any],
@@ -845,7 +1423,7 @@ def _build_model_input_overlay(
     driver = str(row.get("driver") or "").strip()
     values: List[float] = []
     if projection_mode:
-      for child_map in quarter_child_maps:
+      for slot_idx, child_map in enumerate(quarter_child_maps):
         driver_map = (
           child_map.get(("__slot__", str(row.get("revenue_slot_key") or "").strip()))
           or
@@ -853,6 +1431,15 @@ def _build_model_input_overlay(
           or child_map.get((placeholder_lob, placeholder_product))
           or {}
         )
+        if not driver_map:
+          driver_map = _infer_revenue_driver_map_from_forecast_quarter(
+            quarter_slot=(slots[slot_idx] if slot_idx < len(slots) and isinstance(slots[slot_idx], dict) else {}),
+            ops_catalog=ops_catalog,
+            revenue_slot_key=str(row.get("revenue_slot_key") or "").strip(),
+            lob=lob,
+            product=product,
+            fallback_detail=resolved_identity if isinstance(resolved_identity, dict) else None,
+          )
         values.append(round(_safe_float(driver_map.get(driver)) or 0.0, 6))
     else:
       baseline_driver_map = (
@@ -1680,9 +2267,7 @@ def sync_consistency_state_to_finmo(
   forecast_quarters: Sequence[Dict[str, Any]],
   calibration_spec: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  path = _normalize_finmo_path(finmo_path)
-  if not Path(path).exists():
-    raise FileNotFoundError(f"Finmo workbook not found at {path}")
+  path = str(finmo_path or "").strip()
   try:
     try:
       from consistency_trace import trace_lazy  # type: ignore
@@ -1706,39 +2291,29 @@ def sync_consistency_state_to_finmo(
     )
   except Exception:
     pass
-  baseline_input = _read_model_input_json(path)
-  model_input_json = _build_model_input_overlay(
-    baseline_model_input=baseline_input,
+  model_input_json = build_python_model_input_json(
     business_facts=business_facts or {},
     ops_json=ops_json or {},
     people_json=people_json or {},
     financials_json=financials_json or {},
     financials_year1_json=financials_year1_json or {},
     marketing_model_json=marketing_model_json or {},
-    controller_input_seed=controller_input_seed,
-    forecast_quarters=forecast_quarters,
+    controller_input_seed=controller_input_seed or [],
+    forecast_quarters=forecast_quarters or [],
+    business_name=str((business_facts or {}).get("business_name") or "").strip(),
   )
-  _write_model_input_json_to_workbook(path, model_input_json)
-  _recalculate_excel_workbook(path)
-  written_model_input_json = _read_model_input_json(path)
-  finmo_json = _read_finmo_json(path)
+  finmo_json = build_python_finmo_json(
+    model_input_json=model_input_json,
+    finmo_path=path,
+  )
   calibration_results: Dict[str, Any] = {}
   if isinstance(calibration_spec, dict) and calibration_spec:
-    resolved_shell = _resolve_finmo_calibration_shell(
-      finmo_path=path,
-      model_input_json=written_model_input_json,
-      finmo_json=finmo_json,
-      calibration_spec=calibration_spec,
-    )
-    calibration_results = _execute_finmo_calibration_shell(
-      finmo_path=path,
-      calibration_shell=resolved_shell,
-    )
-    written_model_input_json = _read_model_input_json(path)
-    finmo_json = _read_finmo_json(path)
-    written_model_input_json["calibration_shell"] = _clone(resolved_shell)
-    written_model_input_json["calibration_results"] = _clone(calibration_results)
-    finmo_json["calibration_shell"] = _clone(resolved_shell)
+    calibration_results = {
+      "success": False,
+      "status": "python_finmo_calibration_not_supported",
+      "request_present": True,
+    }
+    model_input_json["calibration_results"] = _clone(calibration_results)
     finmo_json["calibration_results"] = _clone(calibration_results)
     try:
       try:
@@ -1750,7 +2325,7 @@ def sync_consistency_state_to_finmo(
         "Finmo calibration shell and results",
         lambda: {
           "finmo_path": path,
-          "calibration_shell": _clone(resolved_shell),
+          "calibration_shell": {},
           "calibration_results": _clone(calibration_results),
         },
       )
@@ -1761,19 +2336,19 @@ def sync_consistency_state_to_finmo(
       from consistency_trace import trace_lazy  # type: ignore
     except Exception:
       from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
-    trace_lazy(
-      "FINMO_SYNC_RESULT",
-      "Current persisted workbook state",
-      lambda: {
-        "finmo_path": path,
-        "model_input_json": _clone(written_model_input_json),
-        "finmo_json": _clone(finmo_json),
-      },
-    )
+      trace_lazy(
+        "FINMO_SYNC_RESULT",
+        "Current persisted workbook state",
+        lambda: {
+          "finmo_path": path,
+          "model_input_json": _clone(model_input_json),
+          "finmo_json": _clone(finmo_json),
+        },
+      )
   except Exception:
     pass
   return {
     "finmo_path": path,
-    "model_input_json": written_model_input_json,
+    "model_input_json": model_input_json,
     "finmo_json": finmo_json,
   }

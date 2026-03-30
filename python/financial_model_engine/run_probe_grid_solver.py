@@ -25,9 +25,11 @@ from financial_model_engine.run_engine_replay import (  # type: ignore
   _mysql_connect,
   _select_source_draft,
 )
+from client_intake_and_finmo.quarter_grid import (  # type: ignore
+  controls_from_quarter_grid,
+  targets_from_quarter_grid,
+)
 from financial_model_engine.solver import (  # type: ignore
-  LeverControl,
-  OutputTarget,
   SolverOptions,
   solve_financial_model,
 )
@@ -64,71 +66,6 @@ def _find_latest_grid_report(output_dir: Path, draft_id: str) -> Path:
   if not candidates:
     raise RuntimeError(f"No quarter-grid probe report found for draft {draft_id} in {output_dir}")
   return candidates[0]
-
-
-def _float(value: Any) -> Optional[float]:
-  if value in {None, ""}:
-    return None
-  try:
-    return float(value)
-  except Exception:
-    return None
-
-
-def _controls_from_probe(probe_json: Dict[str, Any]) -> List[LeverControl]:
-  controls: List[LeverControl] = []
-  for row in probe_json.get("rows") or []:
-    if not isinstance(row, dict):
-      continue
-    if str(row.get("row_type") or "").strip().lower() != "lever":
-      continue
-    lever_id = str(row.get("row_id") or "").strip()
-    if not lever_id:
-      continue
-    for band in row.get("quarter_bands") or []:
-      if not isinstance(band, dict):
-        continue
-      quarter_index = int(band.get("quarter_index") or 0)
-      if quarter_index < 1:
-        continue
-      controls.append(
-        LeverControl(
-          lever_id=lever_id,
-          quarter_start=quarter_index,
-          quarter_end=quarter_index,
-          min_value=_float(band.get("min_value")),
-          max_value=_float(band.get("max_value")),
-        )
-      )
-  return controls
-
-
-def _targets_from_probe(probe_json: Dict[str, Any]) -> List[OutputTarget]:
-  targets: List[OutputTarget] = []
-  for row in probe_json.get("rows") or []:
-    if not isinstance(row, dict):
-      continue
-    if str(row.get("row_type") or "").strip().lower() != "output":
-      continue
-    metric = str(row.get("row_id") or "").strip()
-    if not metric:
-      continue
-    for band in row.get("quarter_bands") or []:
-      if not isinstance(band, dict):
-        continue
-      quarter_index = int(band.get("quarter_index") or 0)
-      if quarter_index < 1:
-        continue
-      targets.append(
-        OutputTarget(
-          metric=metric,
-          quarter_start=quarter_index,
-          quarter_end=quarter_index,
-          min_value=_float(band.get("min_value")),
-          max_value=_float(band.get("max_value")),
-        )
-      )
-  return targets
 
 
 def _quarter_summary(rows: List[Dict[str, Any]]) -> List[str]:
@@ -198,8 +135,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     conn.close()
 
   baseline_inputs = FinancialModelInputs.from_model_input_json(model_input_json)
-  controls = _controls_from_probe(probe_json)
-  targets = _targets_from_probe(probe_json)
+  controls = controls_from_quarter_grid(probe_json)
+  targets = targets_from_quarter_grid(probe_json)
   result = solve_financial_model(
     baseline_inputs,
     controls=controls,

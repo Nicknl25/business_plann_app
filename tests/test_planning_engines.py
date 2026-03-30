@@ -39,7 +39,14 @@ from client_intake_and_finmo.consistency_flow.finmo_controller import (  # type:
   _build_controller_input_seed_from_profile,
   build_controller_finmo_candidate,
 )
-from client_intake_and_finmo.finmo_bridge import _build_model_input_overlay, _execute_finmo_calibration_shell, _read_model_input_json, _write_model_input_json_to_workbook  # type: ignore  # noqa: E402
+from client_intake_and_finmo.finmo_bridge import build_python_finmo_json, build_python_model_input_json, build_consistency_forecast_view_from_finmo, _build_model_input_overlay, _execute_finmo_calibration_shell, _read_model_input_json, _write_model_input_json_to_workbook  # type: ignore  # noqa: E402
+from client_intake_and_finmo.quarter_grid import (  # type: ignore  # noqa: E402
+  chunk_quarter_grid_rows,
+  controls_from_quarter_grid,
+  extract_quarter_grid_rows,
+  targets_from_quarter_grid,
+  validate_quarter_grid_response,
+)
 from intake_pipeline import _ensure_submission_finmo_path  # type: ignore  # noqa: E402
 
 
@@ -341,6 +348,310 @@ class PlanningEnginesTests(unittest.TestCase):
       self.assertEqual(revenue_rows[2]["values"][-2:], [0.75, 0.8])
     finally:
       Path(workbook_path).unlink(missing_ok=True)
+
+  def test_build_python_model_input_json_uses_dynamic_intake_revenue_rows_only(self) -> None:
+    payload = build_python_model_input_json(
+      business_facts={"start_date": "2026-03-28", "business_name": "Sunrise Home Health Care"},
+      ops_json={
+        "business_type": "Home Health Agency",
+        "lob_models": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "visit of care",
+                "unit_name": "visit of care",
+                "units_per_week_capacity": 100,
+                "operating_periods_per_year": 52,
+                "unit_price": None,
+                "utilization_rate": None,
+              }
+            ],
+          }
+        ],
+      },
+      people_json={},
+      financials_json={},
+      financials_year1_json={},
+      marketing_model_json={},
+      controller_input_seed=[],
+      forecast_quarters=[],
+    )
+
+    revenue_rows = payload["sections"]["revenue"]
+    self.assertEqual(len(revenue_rows), 3)
+    self.assertEqual(
+      [row["lever_id"] for row in revenue_rows],
+      [
+        "revenue::Primary line of business::visit of care::Capacity",
+        "revenue::Primary line of business::visit of care::Unit Price",
+        "revenue::Primary line of business::visit of care::Utilization",
+      ],
+    )
+    self.assertEqual(payload["start_date"], "2026-03-28")
+    self.assertEqual(len(payload["periods"]), 20)
+    self.assertEqual(payload["periods"][0]["column_letter"], "H")
+    self.assertEqual(payload["periods"][-1]["column_letter"], "AA")
+    self.assertIn("expenses::Payroll", payload["lever_catalog"])
+    self.assertIn("balance_sheet::Owner's Capital", payload["lever_catalog"])
+    self.assertIn("schedules::Less: Principal Repayments", payload["lever_catalog"])
+
+  def test_build_python_model_input_json_derives_non_revenue_baselines_from_inputs(self) -> None:
+    payload = build_python_model_input_json(
+      business_facts={"start_date": "2026-03-28", "business_name": "CareFirst"},
+      ops_json={
+        "lob_models": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "visit of care",
+                "units_per_week_capacity": 100,
+                "operating_periods_per_year": 52,
+              }
+            ],
+          }
+        ],
+      },
+      people_json={"people": [{"annual_wage": 52000.0}, {"annual_wage": 78000.0}]},
+      financials_json={
+        "monthly_rent_expense": 2000.0,
+        "cogs_total_year1": 180000.0,
+        "current_revenue": 400000.0,
+        "other_operating_expense": 56000.0,
+        "annual_interest_payment": 2400.0,
+        "total_debt_outstanding": 120000.0,
+        "accumulated_depreciation": 12000.0,
+        "taxes_percent": 0.21,
+        "initial_equity": 50000.0,
+        "short_term_debt": 12000.0,
+      },
+      financials_year1_json={"company_revenue_total_year1": 400000.0},
+      marketing_model_json={"marketing_percent_of_revenue": 0.08},
+      controller_input_seed=[],
+      forecast_quarters=[],
+    )
+
+    expense_rows = {row["label"]: row for row in payload["sections"]["expenses"]}
+    balance_rows = {row["label"]: row for row in payload["sections"]["balance_sheet"]}
+    self.assertEqual(expense_rows["Lease"]["values"][:3], [6000.0, 6000.0, 6000.0])
+    self.assertEqual(expense_rows["Payroll"]["values"][:3], [32500.0, 32500.0, 32500.0])
+    self.assertEqual(expense_rows["Marketing"]["values"][:3], [0.08, 0.08, 0.08])
+    self.assertEqual(expense_rows["Cost of Goods Sold"]["values"][:3], [0.45, 0.45, 0.45])
+    self.assertEqual(balance_rows["Owner's Capital"]["values"][:3], [50000.0, 50000.0, 50000.0])
+
+  def test_build_python_finmo_json_matches_finmo_contract_shape(self) -> None:
+    model_input_json = build_python_model_input_json(
+      business_facts={"start_date": "2026-03-28", "business_name": "CareFirst"},
+      ops_json={
+        "lob_models": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "visit of care",
+                "units_per_week_capacity": 100,
+                "operating_periods_per_year": 52,
+                "unit_price": 100.0,
+                "utilization_rate": 0.75,
+              }
+            ],
+          }
+        ],
+      },
+      people_json={"people": [{"annual_wage": 120000.0}]},
+      financials_json={
+        "monthly_rent_expense": 2000.0,
+        "cogs_total_year1": 180000.0,
+        "current_revenue": 400000.0,
+        "other_operating_expense": 56000.0,
+        "annual_interest_payment": 2400.0,
+        "total_debt_outstanding": 120000.0,
+        "accumulated_depreciation": 12000.0,
+        "taxes_percent": 0.21,
+        "initial_equity": 50000.0,
+        "short_term_debt": 12000.0,
+      },
+      financials_year1_json={"company_revenue_total_year1": 400000.0},
+      marketing_model_json={"marketing_percent_of_revenue": 0.08},
+      controller_input_seed=[],
+      forecast_quarters=[],
+    )
+
+    finmo_json = build_python_finmo_json(model_input_json=model_input_json, finmo_path="C:\\fake\\carefirst.xlsx")
+    self.assertEqual(finmo_json["contract_version"], "finmo_output_v1")
+    self.assertEqual(finmo_json["finmo_path"], "C:\\fake\\carefirst.xlsx")
+    self.assertEqual(len(finmo_json["periods"]), 21)
+    self.assertEqual(len(finmo_json["quarter_rows"]), 21)
+    self.assertEqual(finmo_json["periods"][0]["quarter"], 0.0)
+    self.assertEqual(finmo_json["quarter_rows"][0]["quarter"], 0.0)
+    self.assertEqual(finmo_json["pl"][0]["label"], "Revenue")
+    self.assertEqual(finmo_json["balance_sheet"][0]["label"], "Cash")
+    self.assertEqual(finmo_json["cash_flow"][0]["label"], "Beginning Cash")
+    self.assertIn("all_ok", finmo_json["accounting_check"])
+    self.assertIn("numeric_values", finmo_json["accounting_check"])
+
+    forecast_view = build_consistency_forecast_view_from_finmo(finmo_json)
+    self.assertEqual(len(forecast_view["quarter_driver_path"]), 20)
+    self.assertEqual(len(forecast_view["forecast_years"]), 5)
+    self.assertEqual(forecast_view["quarter_driver_path"][0]["quarter_index"], 1)
+
+  def test_build_python_model_input_json_infers_revenue_drivers_from_forecast_quarters(self) -> None:
+    forecast_quarters = []
+    for quarter_index in range(1, 21):
+      revenue = 90000.0 if quarter_index <= 4 else 120000.0
+      cogs = revenue * 0.55
+      marketing = revenue * 0.05
+      payroll = 40000.0 if quarter_index <= 4 else 57500.0
+      g_and_a = revenue * 0.15 if quarter_index <= 4 else revenue * 0.12
+      lease = 3600.0
+      gross_profit = revenue - cogs
+      ebitda = gross_profit - marketing - payroll - g_and_a - lease
+      forecast_quarters.append(
+        {
+          "quarter_index": quarter_index,
+          "revenue": revenue,
+          "cogs": cogs,
+          "marketing": marketing,
+          "research_and_development": 0.0,
+          "lease_rent": lease,
+          "payroll": payroll,
+          "g_and_a": g_and_a,
+          "ebitda": ebitda,
+          "interest": 0.0,
+          "depreciation": 0.0,
+          "taxes": 0.0,
+          "net_income": ebitda,
+          "ending_cash": ebitda,
+        }
+      )
+
+    model_input_json = build_python_model_input_json(
+      business_facts={"start_date": "2026-03-28", "business_name": "CareFirst"},
+      ops_json={
+        "lob_models": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "visit of care",
+                "units_per_week_capacity": 100,
+                "operating_periods_per_year": 52,
+                "unit_price": 80.0,
+                "utilization_rate": 0.75,
+              }
+            ],
+          }
+        ],
+      },
+      people_json={"people": [{"annual_wage": 249990.0}]},
+      financials_json={"monthly_rent_expense": 1200.0},
+      financials_year1_json={},
+      marketing_model_json={},
+      controller_input_seed=[],
+      forecast_quarters=forecast_quarters,
+    )
+    finmo_json = build_python_finmo_json(model_input_json=model_input_json)
+    forecast_view = build_consistency_forecast_view_from_finmo(finmo_json)
+    quarter_rows = [row for row in ((model_input_json.get("sections") or {}).get("revenue") or []) if isinstance(row, dict)]
+    capacity_values = next(
+      row["values"] for row in quarter_rows
+      if row.get("lever_id") == "revenue::Primary line of business::visit of care::Capacity"
+    )
+    self.assertGreater(capacity_values[0], 0.0)
+    self.assertAlmostEqual(forecast_view["quarter_driver_path"][0]["revenue"], 90000.0, places=3)
+    self.assertAlmostEqual(forecast_view["quarter_driver_path"][7]["revenue"], 120000.0, places=3)
+    self.assertTrue(finmo_json["accounting_check"]["all_ok"])
+
+  def test_quarter_grid_extracts_live_rows_and_converts_to_solver_contract(self) -> None:
+    model_input_json = build_python_model_input_json(
+      business_facts={"start_date": "2026-03-28", "business_name": "CareFirst"},
+      ops_json={
+        "lob_models": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "visit of care",
+                "units_per_week_capacity": 100,
+                "operating_periods_per_year": 52,
+                "unit_price": 100.0,
+                "utilization_rate": 0.75,
+              }
+            ],
+          }
+        ],
+      },
+      people_json={"people": [{"annual_wage": 120000.0}]},
+      financials_json={
+        "monthly_rent_expense": 2000.0,
+        "cogs_total_year1": 180000.0,
+        "current_revenue": 400000.0,
+        "other_operating_expense": 56000.0,
+        "initial_equity": 50000.0,
+      },
+      financials_year1_json={"company_revenue_total_year1": 400000.0},
+      marketing_model_json={"marketing_percent_of_revenue": 0.08},
+      controller_input_seed=[],
+      forecast_quarters=[],
+    )
+    finmo_json = build_python_finmo_json(model_input_json=model_input_json)
+    baseline_outputs = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict) and float(item.get("quarter") or 0.0) > 0.0]
+    grid_rows = extract_quarter_grid_rows(model_input_json=model_input_json, baseline_outputs=baseline_outputs)
+    self.assertTrue(any(item["row_id"] == "Revenue" for item in grid_rows))
+    self.assertTrue(any(item["row_id"] == "EBITDA" for item in grid_rows))
+    self.assertTrue(any(str(item["row_id"]).startswith("revenue::") for item in grid_rows))
+
+    probe_json = {
+      "summary": "ok",
+      "rows": [
+        {
+          "row_id": "revenue::Primary line of business::visit of care::Unit Price",
+          "row_type": "lever",
+          "quarter_bands": [
+            {"quarter_index": quarter_index, "min_value": 90.0, "max_value": 110.0}
+            for quarter_index in range(1, 21)
+          ],
+        },
+        {
+          "row_id": "Revenue",
+          "row_type": "output",
+          "quarter_bands": [
+            {"quarter_index": quarter_index, "min_value": 80000.0, "max_value": 120000.0}
+            for quarter_index in range(1, 21)
+          ],
+        },
+      ],
+    }
+    controls = controls_from_quarter_grid(probe_json)
+    targets = targets_from_quarter_grid(probe_json)
+    self.assertEqual(len(controls), 20)
+    self.assertEqual(len(targets), 20)
+    self.assertEqual(controls[0].lever_id, "revenue::Primary line of business::visit of care::Unit Price")
+    self.assertEqual(targets[0].metric, "Revenue")
+
+  def test_quarter_grid_validation_flags_missing_and_flat_rows(self) -> None:
+    requested_rows = [
+      {"row_id": "expenses::Payroll", "row_type": "lever"},
+      {"row_id": "EBITDA", "row_type": "output"},
+    ]
+    response_json = {
+      "summary": "bad",
+      "rows": [
+        {
+          "row_id": "expenses::Payroll",
+          "row_type": "lever",
+          "quarter_bands": [
+            {"quarter_index": quarter_index, "min_value": 40000.0, "max_value": 40000.0}
+            for quarter_index in range(1, 21)
+          ],
+        }
+      ],
+    }
+    validation = validate_quarter_grid_response(requested_rows=requested_rows, response_json=response_json)
+    self.assertEqual(validation["missing_rows"], ["EBITDA"])
+    self.assertEqual(validation["flat_rows"], ["expenses::Payroll"])
+    self.assertEqual(len(chunk_quarter_grid_rows(requested_rows * 2, 2)), 2)
 
   def test_strategy_selection_contract_normalizes_to_workbook_levers_and_finmo_lines(self) -> None:
     selection = {

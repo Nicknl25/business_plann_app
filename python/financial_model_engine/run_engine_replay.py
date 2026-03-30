@@ -160,10 +160,27 @@ def _load_workbook_views(source_row: Dict[str, Any]) -> Tuple[Dict[str, Any], Di
   finmo_path = str(source_row.get("finmo_path") or "").strip()
   if model_input_json and finmo_json:
     return model_input_json, finmo_json, finmo_path
+  if not model_input_json:
+    model_input_json = finmo_bridge.build_python_model_input_json(
+      business_facts={},
+      ops_json=_parse_json_object(source_row.get("operating_model_json")),
+      people_json=_parse_json_object(source_row.get("people_json")),
+      financials_json=_parse_json_object(source_row.get("financials_json")),
+      financials_year1_json=_parse_json_object(source_row.get("financials_year1_json")),
+      marketing_model_json=_parse_json_object(source_row.get("marketing_model_json")),
+      controller_input_seed=[],
+      forecast_quarters=[],
+      business_name=str(source_row.get("business_name") or "").strip(),
+    ) or {}
   if not finmo_path:
+    if model_input_json:
+      return model_input_json, finmo_json, finmo_path
     raise RuntimeError("Draft is missing model_input_json/finmo_json and has no finmo_path.")
-  model_input_json = finmo_bridge._read_model_input_json(finmo_path) or {}
-  finmo_json = finmo_bridge._read_finmo_json(finmo_path) or {}
+  if not finmo_json:
+    finmo_json = finmo_bridge.build_python_finmo_json(
+      model_input_json=model_input_json,
+      finmo_path=finmo_path,
+    ) or {}
   return model_input_json, finmo_json, finmo_path
 
 

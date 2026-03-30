@@ -1843,11 +1843,26 @@ def _initialize_consistency_finmo_baseline(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   try:
     try:
-      from finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+      from finmo_bridge import build_python_model_input_json, build_python_finmo_json  # type: ignore
     except Exception:
-      from client_intake_and_finmo.finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+      from client_intake_and_finmo.finmo_bridge import build_python_model_input_json, build_python_finmo_json  # type: ignore
   except Exception:
     return {}, {}
+
+  try:
+    model_input_json = build_python_model_input_json(
+      business_facts=business_facts,
+      ops_json=ops_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      marketing_model_json=marketing_model_json,
+      controller_input_seed=[],
+      forecast_quarters=[],
+      business_name=str((business_facts or {}).get("business_name") or "").strip(),
+    )
+  except Exception:
+    model_input_json = {}
 
   try:
     finmo_path = ensure_draft_finmo_workbook(conn, draft_id=str(draft_id).strip())
@@ -1858,27 +1873,13 @@ def _initialize_consistency_finmo_baseline(
       finmo_path = str((get_draft(conn, draft_id=str(draft_id).strip()) or {}).get("finmo_path") or "").strip()
     except Exception:
       finmo_path = ""
-  if not finmo_path:
-    return {}, {}
-
   try:
-    result = sync_consistency_state_to_finmo(
+    finmo_json = build_python_finmo_json(
+      model_input_json=model_input_json,
       finmo_path=finmo_path,
-      business_facts=business_facts,
-      ops_json=ops_json,
-      people_json=people_json,
-      financials_json=financials_json,
-      financials_year1_json=financials_year1_json,
-      marketing_model_json=marketing_model_json,
-      controller_input_seed=[],
-      forecast_quarters=[],
-      calibration_spec=None,
-    )
+    ) if model_input_json else {}
   except Exception:
-    return {}, {}
-
-  model_input_json = result.get("model_input_json") if isinstance(result.get("model_input_json"), dict) else {}
-  finmo_json = result.get("finmo_json") if isinstance(result.get("finmo_json"), dict) else {}
+    finmo_json = {}
   if model_input_json or finmo_json:
     append_messages(
       conn,
@@ -1920,9 +1921,9 @@ def _sync_consistency_finmo_artifacts(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   try:
     try:
-      from finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+      from finmo_bridge import build_python_model_input_json, sync_consistency_state_to_finmo  # type: ignore
     except Exception:
-      from client_intake_and_finmo.finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+      from client_intake_and_finmo.finmo_bridge import build_python_model_input_json, sync_consistency_state_to_finmo  # type: ignore
   except Exception:
     return {}, {}
 
@@ -1938,6 +1939,20 @@ def _sync_consistency_finmo_artifacts(
     or (selected_scenario.get("finmo_calibration_spec") if isinstance(selected_scenario, dict) else {})
   ) if isinstance(selected_scenario, dict) else {}
   try:
+    model_input_json = build_python_model_input_json(
+      business_facts=business_facts,
+      ops_json=ops_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      marketing_model_json=marketing_model_json,
+      controller_input_seed=controller_input_seed or [],
+      forecast_quarters=modified_forecast_quarters or [],
+      business_name=str((business_facts or {}).get("business_name") or "").strip(),
+    )
+  except Exception:
+    model_input_json = {}
+  try:
     result = sync_consistency_state_to_finmo(
       finmo_path=finmo_path,
       business_facts=business_facts,
@@ -1951,8 +1966,7 @@ def _sync_consistency_finmo_artifacts(
       calibration_spec=calibration_spec,
     )
   except Exception:
-    return {}, {}
-  model_input_json = result.get("model_input_json") if isinstance(result.get("model_input_json"), dict) else {}
+    return model_input_json, {}
   finmo_json = result.get("finmo_json") if isinstance(result.get("finmo_json"), dict) else {}
   return model_input_json, finmo_json
 
