@@ -9,21 +9,12 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from financial_model_engine.finmo_model import calculate_finmo_model
+from financial_model_engine.model_inputs import FinancialModelInputs
+
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 _RETRYABLE_STATUS = {429, 502, 503, 504}
-_LEGACY_LEVER_KEYS = {
-  "required_lever_families",
-  "forbidden_lever_families",
-  "coordinated_lever_packages",
-  "lever_family_plan",
-  "allowed_levers",
-  "effective_lever_families",
-  "package_lever_families",
-  "legacy_allowed_levers",
-}
-
-
 def _load_root_env() -> None:
   try:
     from dotenv import load_dotenv  # type: ignore
@@ -170,17 +161,7 @@ def _sanitize_canonical_live_payload(value: Any) -> Any:
   if isinstance(value, dict):
     cleaned: Dict[str, Any] = {}
     for raw_key, raw_val in value.items():
-      key = str(raw_key or "")
-      if key in _LEGACY_LEVER_KEYS:
-        continue
-      if key == "active_levers":
-        cleaned[key] = [
-          str(item or "").strip()
-          for item in (raw_val or [])
-          if str(item or "").strip() and "::" in str(item or "").strip()
-        ]
-        continue
-      cleaned[key] = _sanitize_canonical_live_payload(raw_val)
+      cleaned[str(raw_key or "")] = _sanitize_canonical_live_payload(raw_val)
     return cleaned
   if isinstance(value, list):
     return [_sanitize_canonical_live_payload(item) for item in value]
@@ -239,6 +220,507 @@ def _normalize_quarter_span(item: Dict[str, Any]) -> tuple[int, int]:
   except Exception:
     end_int = start_int
   return start_int, end_int
+
+
+def _coverage_gaps(spans: List[tuple[int, int]], *, horizon_start: int = 1, horizon_end: int = 20) -> List[tuple[int, int]]:
+  if horizon_end < horizon_start:
+    return []
+  if not spans:
+    return [(horizon_start, horizon_end)]
+  covered = [False for _ in range(horizon_end - horizon_start + 1)]
+  for start, end in spans:
+    start_int = max(horizon_start, min(horizon_end, int(start)))
+    end_int = max(start_int, min(horizon_end, int(end)))
+    for quarter in range(start_int, end_int + 1):
+      covered[quarter - horizon_start] = True
+  gaps: List[tuple[int, int]] = []
+  gap_start: Optional[int] = None
+  for offset, is_covered in enumerate(covered):
+    quarter = horizon_start + offset
+    if not is_covered and gap_start is None:
+      gap_start = quarter
+    elif is_covered and gap_start is not None:
+      gaps.append((gap_start, quarter - 1))
+      gap_start = None
+  if gap_start is not None:
+    gaps.append((gap_start, horizon_end))
+  return gaps
+
+
+def _format_gap_ranges(gaps: List[tuple[int, int]]) -> List[str]:
+  labels: List[str] = []
+  for start, end in gaps:
+    labels.append(f"Q{start}" if start == end else f"Q{start}-Q{end}")
+  return labels
+
+
+def _target_covers_quarter(targets: List[Dict[str, Any]], *, line_item: str, quarter_index: int) -> bool:
+  wanted = str(line_item or "").strip().lower()
+  for item in targets:
+    if not isinstance(item, dict):
+      continue
+    if str(item.get("line_item") or "").strip().lower() != wanted:
+      continue
+    start_int, end_int = _normalize_quarter_span(item)
+    if start_int <= quarter_index <= end_int:
+      return True
+  return False
+
+
+def _selection_coverage_issues(
+  *,
+  selection: Dict[str, Any],
+  lever_plan: List[Dict[str, Any]],
+  governed_period_groups: List[Dict[str, Any]],
+  controlled_output_targets: List[Dict[str, Any]],
+) -> List[str]:
+  issues: List[str] = []
+  governed_spans = [_normalize_quarter_span(item) for item in governed_period_groups if isinstance(item, dict)]
+  governed_gaps = _coverage_gaps(governed_spans)
+  if governed_gaps:
+    issues.append(
+      "governed_period_groups_missing_coverage:" + ",".join(_format_gap_ranges(governed_gaps))
+    )
+
+  spans_by_lever: Dict[str, List[tuple[int, int]]] = {}
+  active_revenue_lever_present = False
+  for item in lever_plan:
+    if not isinstance(item, dict):
+      continue
+    lever_id = str(item.get("lever_id") or "").strip()
+    if not lever_id:
+      continue
+    spans_by_lever.setdefault(lever_id, []).append(_normalize_quarter_span(item))
+    if lever_id.startswith("revenue::"):
+      active_revenue_lever_present = True
+  for lever_id, spans in spans_by_lever.items():
+    gaps = _coverage_gaps(spans)
+    if gaps:
+      issues.append(
+        f"lever_adjustment_plan_missing_coverage::{lever_id}::" + ",".join(_format_gap_ranges(gaps))
+      )
+
+  governed_group_end_quarters = sorted({end for _start, end in governed_spans})
+  missing_ebitda_targets = [
+    quarter_index
+    for quarter_index in governed_group_end_quarters
+    if not _target_covers_quarter(controlled_output_targets, line_item="EBITDA", quarter_index=quarter_index)
+  ]
+  if missing_ebitda_targets:
+    issues.append(
+      "controlled_output_targets_missing_ebitda_group_end_coverage:" + ",".join(f"Q{item}" for item in missing_ebitda_targets)
+    )
+
+  if active_revenue_lever_present:
+    missing_revenue_targets = [
+      quarter_index
+      for quarter_index in governed_group_end_quarters
+      if not _target_covers_quarter(controlled_output_targets, line_item="Revenue", quarter_index=quarter_index)
+    ]
+    if missing_revenue_targets:
+      issues.append(
+        "controlled_output_targets_missing_revenue_group_end_coverage:" + ",".join(f"Q{item}" for item in missing_revenue_targets)
+      )
+  severity = str(selection.get("severity_class") or "").strip().lower()
+  if severity in {"moderate", "severe"}:
+    governed_group_end_quarters = sorted({end for _start, end in governed_spans})
+    expected_group_ends = [4, 8, 12, 16, 20]
+    if len(governed_group_end_quarters) < len(expected_group_ends):
+      issues.append(
+        f"governed_period_groups_too_coarse::{severity}::expected_group_ends="
+        + ",".join(f"Q{item}" for item in expected_group_ends)
+      )
+  return issues
+
+
+def _governed_values(values: Any) -> List[float]:
+  normalized: List[float] = []
+  for item in (values or []):
+    try:
+      normalized.append(float(item or 0.0))
+    except Exception:
+      normalized.append(0.0)
+  if len(normalized) == 21:
+    normalized = normalized[1:]
+  if len(normalized) < 20:
+    normalized.extend([0.0 for _ in range(20 - len(normalized))])
+  return normalized[:20]
+
+
+def _model_input_revenue_baseline_by_lever(model_input_json: Dict[str, Any]) -> Dict[str, List[float]]:
+  sections = (model_input_json.get("sections") or {}) if isinstance(model_input_json.get("sections"), dict) else {}
+  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
+  lever_values: Dict[str, List[float]] = {}
+  for row in revenue_rows:
+    lob_name = str(row.get("lob") or "").strip()
+    product_name = str(row.get("product") or "").strip()
+    driver = str(row.get("driver") or "").strip()
+    if not (lob_name and product_name and driver):
+      continue
+    lever_id = f"revenue::{lob_name}::{product_name}::{driver}"
+    lever_values[lever_id] = _governed_values(row.get("values") or [])
+  return lever_values
+
+
+def _lever_plan_covering_quarter(
+  lever_plan: List[Dict[str, Any]],
+  *,
+  lever_id: str,
+  quarter_index: int,
+) -> Optional[Dict[str, Any]]:
+  for item in lever_plan:
+    if not isinstance(item, dict):
+      continue
+    if str(item.get("lever_id") or "").strip() != str(lever_id or "").strip():
+      continue
+    start_int, end_int = _normalize_quarter_span(item)
+    if start_int <= quarter_index <= end_int:
+      return item
+  return None
+
+
+def _revenue_target_feasibility_issues(
+  *,
+  lever_plan: List[Dict[str, Any]],
+  controlled_output_targets: List[Dict[str, Any]],
+  fixed_facts: Dict[str, Any],
+) -> List[str]:
+  model_input_json = (fixed_facts.get("model_input_json") or {}) if isinstance(fixed_facts.get("model_input_json"), dict) else {}
+  baseline_by_lever = _model_input_revenue_baseline_by_lever(model_input_json)
+  if not baseline_by_lever:
+    return []
+
+  slot_prefixes = sorted({
+    "::".join(str(lever_id or "").split("::")[:3])
+    for lever_id in baseline_by_lever.keys()
+    if str(lever_id or "").startswith("revenue::")
+  })
+  if not slot_prefixes:
+    return []
+
+  issues: List[str] = []
+  for raw_target in controlled_output_targets:
+    if not isinstance(raw_target, dict):
+      continue
+    if str(raw_target.get("line_item") or "").strip().lower() != "revenue":
+      continue
+    target_min = raw_target.get("min_value")
+    if target_min in {None, ""}:
+      continue
+    q_start, q_end = _normalize_quarter_span(raw_target)
+    for quarter_index in range(q_start, q_end + 1):
+      max_revenue = 0.0
+      for slot_prefix in slot_prefixes:
+        capacity_lever = f"{slot_prefix}::Capacity"
+        price_lever = f"{slot_prefix}::Unit Price"
+        utilization_lever = f"{slot_prefix}::Utilization"
+        capacity_values = baseline_by_lever.get(capacity_lever) or [0.0 for _ in range(20)]
+        price_values = baseline_by_lever.get(price_lever) or [0.0 for _ in range(20)]
+        utilization_values = baseline_by_lever.get(utilization_lever) or [0.0 for _ in range(20)]
+        try:
+          capacity = float(capacity_values[quarter_index - 1] if quarter_index - 1 < len(capacity_values) else 0.0)
+        except Exception:
+          capacity = 0.0
+        try:
+          price = float(price_values[quarter_index - 1] if quarter_index - 1 < len(price_values) else 0.0)
+        except Exception:
+          price = 0.0
+        try:
+          utilization = float(utilization_values[quarter_index - 1] if quarter_index - 1 < len(utilization_values) else 0.0)
+        except Exception:
+          utilization = 0.0
+
+        capacity_plan = _lever_plan_covering_quarter(lever_plan, lever_id=capacity_lever, quarter_index=quarter_index)
+        price_plan = _lever_plan_covering_quarter(lever_plan, lever_id=price_lever, quarter_index=quarter_index)
+        utilization_plan = _lever_plan_covering_quarter(lever_plan, lever_id=utilization_lever, quarter_index=quarter_index)
+
+        if isinstance(capacity_plan, dict) and capacity_plan.get("max_value") not in {None, ""}:
+          try:
+            capacity = float(capacity_plan.get("max_value") or 0.0)
+          except Exception:
+            capacity = 0.0
+        if isinstance(price_plan, dict) and price_plan.get("max_value") not in {None, ""}:
+          try:
+            price = float(price_plan.get("max_value") or 0.0)
+          except Exception:
+            price = 0.0
+        if isinstance(utilization_plan, dict) and utilization_plan.get("max_value") not in {None, ""}:
+          try:
+            utilization = float(utilization_plan.get("max_value") or 0.0)
+          except Exception:
+            utilization = 0.0
+        utilization = max(0.0, min(1.0, utilization))
+        max_revenue += capacity * price * utilization
+
+      try:
+        target_min_float = float(target_min or 0.0)
+      except Exception:
+        target_min_float = 0.0
+      if target_min_float > (max_revenue + 1e-9):
+        issues.append(
+          f"controlled_output_targets_infeasible_revenue::Q{quarter_index}::min={round(target_min_float, 6)}::max_reachable={round(max_revenue, 6)}"
+        )
+  return issues
+
+
+def _is_ebitda_improving_revenue_lever(lever_id: str) -> bool:
+  parts = str(lever_id or "").split("::")
+  return len(parts) == 4 and parts[0] == "revenue" and parts[-1] in {"Capacity", "Unit Price", "Utilization"}
+
+
+def _is_ebitda_improving_expense_lever(lever_id: str) -> bool:
+  return str(lever_id or "") in {
+    "expenses::Cost of Goods Sold",
+    "expenses::Marketing",
+    "expenses::Research & Development",
+    "expenses::Lease",
+    "expenses::Payroll",
+    "expenses::General & Administrative",
+  }
+
+
+def _best_case_ebitda_value_for_plan(lever_id: str, plan_item: Dict[str, Any]) -> Optional[float]:
+  min_value = plan_item.get("min_value")
+  max_value = plan_item.get("max_value")
+  if _is_ebitda_improving_revenue_lever(lever_id):
+    chosen = max_value if max_value not in {None, ""} else min_value
+  elif _is_ebitda_improving_expense_lever(lever_id):
+    chosen = min_value if min_value not in {None, ""} else max_value
+  else:
+    return None
+  if chosen in {None, ""}:
+    return None
+  try:
+    return float(chosen or 0.0)
+  except Exception:
+    return None
+
+
+def _set_model_input_lever_value(
+  book: FinancialModelInputs,
+  *,
+  lever_id: str,
+  quarter_index: int,
+  value: float,
+) -> None:
+  parts = str(lever_id or "").split("::")
+  if len(parts) == 4 and parts[0] == "revenue":
+    _section, lob_name, product_name, driver = parts
+    if driver == "Capacity":
+      book.set_revenue_drivers(
+        quarter_index=quarter_index,
+        lob_name=lob_name,
+        product_name=product_name,
+        capacity_units=value,
+      )
+    elif driver == "Unit Price":
+      book.set_revenue_drivers(
+        quarter_index=quarter_index,
+        lob_name=lob_name,
+        product_name=product_name,
+        unit_price=value,
+      )
+    elif driver == "Utilization":
+      book.set_revenue_drivers(
+        quarter_index=quarter_index,
+        lob_name=lob_name,
+        product_name=product_name,
+        utilization=value,
+      )
+    return
+  if len(parts) == 2 and parts[0] in {"expenses", "balance_sheet", "schedules"}:
+    book.set_simple_driver(
+      section=parts[0],
+      label=parts[1],
+      quarter_index=quarter_index,
+      value=value,
+    )
+
+
+def _ebitda_target_feasibility_issues(
+  *,
+  lever_plan: List[Dict[str, Any]],
+  controlled_output_targets: List[Dict[str, Any]],
+  fixed_facts: Dict[str, Any],
+) -> List[str]:
+  model_input_json = (fixed_facts.get("model_input_json") or {}) if isinstance(fixed_facts.get("model_input_json"), dict) else {}
+  if not model_input_json:
+    return []
+  try:
+    book = FinancialModelInputs.from_model_input_json(model_input_json)
+    finmo_result = None
+  except Exception:
+    return []
+
+  for quarter_index in range(1, 21):
+    for raw_item in lever_plan:
+      if not isinstance(raw_item, dict):
+        continue
+      lever_id = str(raw_item.get("lever_id") or "").strip()
+      if not lever_id:
+        continue
+      start_int, end_int = _normalize_quarter_span(raw_item)
+      if not (start_int <= quarter_index <= end_int):
+        continue
+      best_case_value = _best_case_ebitda_value_for_plan(lever_id, raw_item)
+      if best_case_value is None:
+        continue
+      _set_model_input_lever_value(
+        book,
+        lever_id=lever_id,
+        quarter_index=quarter_index,
+        value=best_case_value,
+      )
+
+  try:
+    finmo_result = calculate_finmo_model(book)
+  except Exception:
+    return []
+  quarter_rows = {
+    int(item.get("quarter_index") or 0): item
+    for item in finmo_result.quarter_rows()
+    if isinstance(item, dict)
+  }
+
+  issues: List[str] = []
+  for raw_target in controlled_output_targets:
+    if not isinstance(raw_target, dict):
+      continue
+    if str(raw_target.get("line_item") or "").strip().lower() != "ebitda":
+      continue
+    target_min = raw_target.get("min_value")
+    if target_min in {None, ""}:
+      continue
+    try:
+      target_min_float = float(target_min or 0.0)
+    except Exception:
+      continue
+    q_start, q_end = _normalize_quarter_span(raw_target)
+    for quarter_index in range(q_start, q_end + 1):
+      quarter_payload = quarter_rows.get(quarter_index) or {}
+      try:
+        max_reachable = float(quarter_payload.get("ebitda") or 0.0)
+      except Exception:
+        max_reachable = 0.0
+      if target_min_float <= (max_reachable + 1e-9):
+        continue
+      active_constraint_levers = sorted(
+        {
+          str(item.get("lever_id") or "").strip()
+          for item in lever_plan
+          if isinstance(item, dict)
+          and (_normalize_quarter_span(item)[0] <= quarter_index <= _normalize_quarter_span(item)[1])
+          and (
+            _is_ebitda_improving_revenue_lever(str(item.get("lever_id") or "").strip())
+            or _is_ebitda_improving_expense_lever(str(item.get("lever_id") or "").strip())
+          )
+        }
+      )
+      constraint_suffix = ""
+      if active_constraint_levers:
+        constraint_suffix = "::active_constraints=" + ",".join(active_constraint_levers)
+      issues.append(
+        f"controlled_output_targets_infeasible_ebitda::Q{quarter_index}::min={round(target_min_float, 6)}::max_reachable={round(max_reachable, 6)}{constraint_suffix}"
+      )
+  return issues
+
+
+def _merge_retry_context(
+  prior_retry_context: Optional[Dict[str, Any]],
+  *,
+  coverage_issues: List[str],
+  prior_selection: Dict[str, Any],
+  invalid_reason: str,
+  attempt_index: int,
+) -> Dict[str, Any]:
+  merged = dict(prior_retry_context or {}) if isinstance(prior_retry_context, dict) else {}
+  merged["invalid_blueprint_reason"] = str(invalid_reason or "invalid_strategy_blueprint")
+  merged["strategy_advisor_attempt_index"] = int(attempt_index or 0)
+  merged["coverage_issues"] = list(coverage_issues or [])
+  merged["required_fix"] = (
+    "Return a complete numeric blueprint. Every active lever must have explicit coverage through Q20, "
+    "and controlled_output_targets must provide explicit numeric coverage through Q20."
+  )
+  merged["prior_strategy_selection"] = _sanitize_canonical_live_payload(prior_selection or {})
+  return merged
+
+
+def _blueprint_contract_issues(selection: Dict[str, Any]) -> List[str]:
+  if not isinstance(selection, dict):
+    return ["strategy_selection_not_dict"]
+  issues: List[str] = []
+  selected_ids = [
+    str(item or "").strip()
+    for item in (selection.get("selected_strategy_ids") or [])
+    if str(item or "").strip()
+  ]
+  if not selected_ids:
+    issues.append("selected_strategy_ids_missing")
+
+  allowed_model_input_levers = [
+    str(item or "").strip()
+    for item in (selection.get("allowed_model_input_levers") or [])
+    if str(item or "").strip()
+  ]
+  lever_plan = [
+    item for item in (selection.get("lever_adjustment_plan") or [])
+    if isinstance(item, dict)
+  ]
+  governed_period_groups = [
+    item for item in (selection.get("governed_period_groups") or [])
+    if isinstance(item, dict)
+  ]
+  controlled_output_targets = [
+    item for item in (selection.get("controlled_output_targets") or [])
+    if isinstance(item, dict)
+  ]
+  if not allowed_model_input_levers:
+    issues.append("allowed_model_input_levers_missing")
+  if not lever_plan:
+    issues.append("lever_adjustment_plan_missing")
+  if not governed_period_groups:
+    issues.append("governed_period_groups_missing")
+  if not controlled_output_targets:
+    issues.append("controlled_output_targets_missing")
+
+  plan_levers = {
+    str(item.get("lever_id") or "").strip()
+    for item in lever_plan
+    if str(item.get("direction") or "").strip().lower() != "hold"
+    and str(item.get("lever_id") or "").strip()
+  }
+  if allowed_model_input_levers and plan_levers and not set(allowed_model_input_levers).intersection(plan_levers):
+    issues.append("lever_adjustment_plan_has_no_meaningful_non_hold_allowed_overlap")
+
+  severity = str(selection.get("severity_class") or "").strip().lower()
+  minimum_strength = str(selection.get("minimum_package_strength") or "").strip().lower()
+  directives = selection.get("controller_directives") if isinstance(selection.get("controller_directives"), dict) else {}
+  try:
+    directive_meaningful = int(float(directives.get("minimum_meaningful_levers") or 0))
+  except Exception:
+    directive_meaningful = 0
+  try:
+    directive_package_count = int(float(directives.get("minimum_package_count") or 0))
+  except Exception:
+    directive_package_count = 0
+  effective_meaningful_levers = max(directive_meaningful, len(plan_levers))
+  effective_package_count = max(directive_package_count, len(governed_period_groups))
+  if severity == "severe":
+    if minimum_strength != "strong":
+      issues.append("severe_blueprint_requires_minimum_package_strength_strong")
+    if effective_meaningful_levers < 4:
+      issues.append(
+        f"severe_blueprint_requires_minimum_meaningful_levers_at_least_4::current={effective_meaningful_levers}"
+      )
+    if effective_package_count < 2:
+      issues.append(
+        f"severe_blueprint_requires_minimum_package_count_at_least_2::current={effective_package_count}"
+      )
+    if not directives.get("escalate_on_retry"):
+      issues.append("severe_blueprint_requires_escalate_on_retry_true")
+    if str(directives.get("aggression_level") or "").strip().lower() != "high":
+      issues.append("severe_blueprint_requires_aggression_level_high")
+  return issues
 
 
 def _normalize_strategy_selection_contract(
@@ -333,112 +815,39 @@ def _normalize_strategy_selection_contract(
       }
     )
   normalized["controlled_output_targets"] = normalized_targets
+  normalized["coverage_issues"] = _selection_coverage_issues(
+    selection=selection,
+    lever_plan=normalized_plan,
+    governed_period_groups=normalized_groups,
+    controlled_output_targets=normalized_targets,
+  )
+  normalized["coverage_issues"].extend(
+    _revenue_target_feasibility_issues(
+      lever_plan=normalized_plan,
+      controlled_output_targets=normalized_targets,
+      fixed_facts=fixed_facts or {},
+    )
+  )
+  normalized["coverage_issues"].extend(
+    _ebitda_target_feasibility_issues(
+      lever_plan=normalized_plan,
+      controlled_output_targets=normalized_targets,
+      fixed_facts=fixed_facts or {},
+    )
+  )
+  normalized["coverage_issues"].extend(_blueprint_contract_issues(normalized))
+  normalized["coverage_issues"] = sorted({
+    str(item or "").strip()
+    for item in (normalized.get("coverage_issues") or [])
+    if str(item or "").strip()
+  })
+  normalized["active_levers"] = [
+    str(item or "").strip()
+    for item in (selection.get("active_levers") or [])
+    if str(item or "").strip() in allowed_set
+  ]
   normalized["valid_strategy_ids"] = valid_strategy_ids
-  return normalized
-
-
-def _forecast_orchestration_schema(*, required: bool) -> Dict[str, Any]:
-  schema: Dict[str, Any] = {
-    "type": ["object", "null"] if not required else "object",
-    "additionalProperties": False,
-    "properties": {
-      "orchestration_summary": {"type": ["string", "null"]},
-      "quarter_policies": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "quarter_start": {"type": "integer", "minimum": 1, "maximum": 20},
-            "quarter_end": {"type": "integer", "minimum": 1, "maximum": 20},
-            "demand_posture": {"type": ["string", "null"]},
-            "staffing_posture": {"type": ["string", "null"]},
-            "cost_posture": {"type": ["string", "null"]},
-            "growth_multiplier": {"type": ["number", "null"]},
-            "convergence_multiplier": {"type": ["number", "null"]},
-            "price_growth_bias": {"type": ["number", "null"]},
-            "utilization_target_bias": {"type": ["number", "null"]},
-            "marketing_ratio_bias": {"type": ["number", "null"]},
-            "opex_ratio_bias": {"type": ["number", "null"]},
-            "payroll_ratio_bias": {"type": ["number", "null"]},
-            "capacity_release_multiplier": {"type": ["number", "null"]},
-            "active_levers": {
-              "type": ["array", "null"],
-              "items": {"type": "string"},
-            },
-          },
-          "required": [
-            "quarter_start",
-            "quarter_end",
-            "demand_posture",
-            "staffing_posture",
-            "cost_posture",
-            "growth_multiplier",
-            "convergence_multiplier",
-            "price_growth_bias",
-            "utilization_target_bias",
-            "marketing_ratio_bias",
-            "opex_ratio_bias",
-            "payroll_ratio_bias",
-            "capacity_release_multiplier",
-            "active_levers",
-          ],
-        },
-      },
-      "role_timing_overrides": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "role_title": {"type": "string"},
-            "months_until_activate": {"type": ["number", "null"]},
-          },
-          "required": ["role_title", "months_until_activate"],
-        },
-      },
-      "milestone_timing_overrides": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "description": {"type": "string"},
-            "months_until_activate": {"type": ["number", "null"]},
-            "target_quarter": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
-            "activation_condition": {"type": ["string", "null"]},
-          },
-          "required": ["description", "months_until_activate", "target_quarter", "activation_condition"],
-        },
-      },
-      "event_response": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-          "hire_capacity_multiplier": {"type": ["number", "null"]},
-          "hire_growth_bonus_delta": {"type": ["number", "null"]},
-          "marketing_growth_multiplier": {"type": ["number", "null"]},
-          "milestone_capacity_multiplier": {"type": ["number", "null"]},
-          "milestone_growth_multiplier": {"type": ["number", "null"]},
-        },
-        "required": [
-          "hire_capacity_multiplier",
-          "hire_growth_bonus_delta",
-          "marketing_growth_multiplier",
-          "milestone_capacity_multiplier",
-          "milestone_growth_multiplier",
-        ],
-      },
-    },
-    "required": [
-      "orchestration_summary",
-      "quarter_policies",
-      "role_timing_overrides",
-      "milestone_timing_overrides",
-      "event_response",
-    ],
-  }
-  return schema
+  return _sanitize_canonical_live_payload(normalized)
 
 
 def _quarter_plan_schema(*, fields: Dict[str, Any], required_fields: List[str]) -> Dict[str, Any]:
@@ -642,19 +1051,6 @@ def _schema() -> Dict[str, Any]:
           },
           "maxItems": 20,
         },
-        "target_margin_path": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "year1_min": {"type": ["number", "null"]},
-            "year1_max": {"type": ["number", "null"]},
-            "year2_min": {"type": ["number", "null"]},
-            "year2_max": {"type": ["number", "null"]},
-            "year3_min": {"type": ["number", "null"]},
-            "year3_max": {"type": ["number", "null"]},
-          },
-          "required": ["year1_min", "year1_max", "year2_min", "year2_max", "year3_min", "year3_max"],
-        },
         "target_posture": {
           "type": "object",
           "additionalProperties": False,
@@ -713,8 +1109,6 @@ def _schema() -> Dict[str, Any]:
           "minItems": 1,
           "maxItems": 2,
         },
-        "expected_year1_ebitda_margin_min": {"type": ["number", "null"]},
-        "expected_year1_ebitda_margin_max": {"type": ["number", "null"]},
       },
       "required": [
         "primary_cause",
@@ -732,7 +1126,6 @@ def _schema() -> Dict[str, Any]:
         "governed_period_groups",
         "lever_adjustment_plan",
         "controlled_output_targets",
-        "target_margin_path",
         "target_posture",
         "capacity_release_plan",
         "hiring_release_plan",
@@ -741,157 +1134,6 @@ def _schema() -> Dict[str, Any]:
         "support_overhead_plan",
         "outer_year_margin_logic",
         "selected_strategy_ids",
-        "expected_year1_ebitda_margin_min",
-        "expected_year1_ebitda_margin_max",
-      ],
-    },
-  }
-
-
-def _translation_audit_schema() -> Dict[str, Any]:
-  return {
-    "name": "consistency_controller_translation_audit",
-    "schema": {
-      "type": "object",
-      "additionalProperties": False,
-      "properties": {
-        "captured_correctly": {"type": "boolean"},
-        "audit_status": {"type": "string", "enum": ["accepted", "accepted_with_minor_notes", "rejected_translation"]},
-        "missing_intents": {
-          "type": "array",
-          "items": {"type": "string"},
-          "maxItems": 12,
-        },
-        "distorted_intents": {
-          "type": "array",
-          "items": {"type": "string"},
-          "maxItems": 12,
-        },
-        "introduced_conflicts": {
-          "type": "array",
-          "items": {"type": "string"},
-          "maxItems": 12,
-        },
-        "required_corrections": {
-          "type": "array",
-          "items": {"type": "string"},
-          "maxItems": 12,
-        },
-        "replacement_forecast_orchestration": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "orchestration_summary": {"type": "string"},
-            "quarter_policies": {
-              "type": "array",
-              "maxItems": 24,
-              "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                  "quarter_start": {"type": "integer", "minimum": 1, "maximum": 20},
-                  "quarter_end": {"type": "integer", "minimum": 1, "maximum": 20},
-                  "demand_posture": {"type": "string"},
-                  "staffing_posture": {"type": "string"},
-                  "cost_posture": {"type": "string"},
-                  "growth_multiplier": {"type": "number"},
-                  "convergence_multiplier": {"type": "number"},
-                  "price_growth_bias": {"type": "number"},
-                  "utilization_target_bias": {"type": "number"},
-                  "marketing_ratio_bias": {"type": "number"},
-                  "opex_ratio_bias": {"type": "number"},
-                  "payroll_ratio_bias": {"type": "number"},
-                  "capacity_release_multiplier": {"type": "number"},
-                  "active_levers": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "maxItems": 12,
-                  },
-                },
-                "required": [
-                  "quarter_start",
-                  "quarter_end",
-                  "demand_posture",
-                  "staffing_posture",
-                  "cost_posture",
-                  "growth_multiplier",
-                  "convergence_multiplier",
-                  "price_growth_bias",
-                  "utilization_target_bias",
-                  "marketing_ratio_bias",
-                  "opex_ratio_bias",
-                  "payroll_ratio_bias",
-                  "capacity_release_multiplier",
-                  "active_levers",
-                ],
-              },
-            },
-            "role_timing_overrides": {
-              "type": "array",
-              "maxItems": 40,
-              "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                  "role_title": {"type": "string"},
-                  "months_until_activate": {"type": "integer", "minimum": 0, "maximum": 240},
-                },
-                "required": ["role_title", "months_until_activate"],
-              },
-            },
-            "milestone_timing_overrides": {
-              "type": "array",
-              "maxItems": 20,
-              "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                  "description": {"type": "string"},
-                  "months_until_activate": {"type": "integer", "minimum": 0, "maximum": 240},
-                  "target_quarter": {"type": "integer", "minimum": 1, "maximum": 20},
-                  "activation_condition": {"type": "string"},
-                },
-                "required": ["description", "months_until_activate", "target_quarter", "activation_condition"],
-              },
-            },
-            "event_response": {
-              "type": "object",
-              "additionalProperties": False,
-              "properties": {
-                "hire_capacity_multiplier": {"type": "number"},
-                "hire_growth_bonus_delta": {"type": "number"},
-                "marketing_growth_multiplier": {"type": "number"},
-                "milestone_capacity_multiplier": {"type": "number"},
-                "milestone_growth_multiplier": {"type": "number"},
-              },
-              "required": [
-                "hire_capacity_multiplier",
-                "hire_growth_bonus_delta",
-                "marketing_growth_multiplier",
-                "milestone_capacity_multiplier",
-                "milestone_growth_multiplier",
-              ],
-            },
-          },
-          "required": [
-            "orchestration_summary",
-            "quarter_policies",
-            "role_timing_overrides",
-            "milestone_timing_overrides",
-            "event_response",
-          ],
-        },
-        "notes": {"type": "string"},
-      },
-      "required": [
-        "captured_correctly",
-        "audit_status",
-        "missing_intents",
-        "distorted_intents",
-        "introduced_conflicts",
-        "required_corrections",
-        "replacement_forecast_orchestration",
-        "notes",
       ],
     },
   }
@@ -941,7 +1183,7 @@ def advise_consistency_strategy_selection(
   viability_mode: bool,
   diagnosis: Dict[str, Any],
   strategy_catalog: List[Dict[str, Any]],
-  solver_feedback: Optional[Dict[str, Any]] = None,
+  retry_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   if not _strategy_layer_enabled():
     return {}
@@ -974,11 +1216,10 @@ def advise_consistency_strategy_selection(
     "model_input_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("model_input_json") or {}),
     "finmo_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("finmo_json") or {}),
     "viability_mode": bool(viability_mode),
-    "deterministic_diagnosis": _sanitize_canonical_live_payload(diagnosis or {}),
     "strategy_catalog": catalog_payload,
   }
-  if isinstance(solver_feedback, dict) and solver_feedback:
-    base_user_payload["solver_feedback"] = _sanitize_canonical_live_payload(solver_feedback)
+  if isinstance(retry_context, dict) and retry_context:
+    base_user_payload["retry_context"] = _sanitize_canonical_live_payload(retry_context)
 
   system_prompts = [
     (
@@ -991,7 +1232,7 @@ def advise_consistency_strategy_selection(
       "\n"
       "Thinking Standard:\n"
       "Reason like a serious operator and investor reviewing a flawed plan.\n"
-      "Use the full business picture: persisted intake facts, consultant outputs, baseline_summary, deterministic_diagnosis, model_input_view, finmo_view, solver_feedback, and your own real-world knowledge of how this business type should actually operate.\n"
+      "Use the full business picture: persisted intake facts, consultant outputs, baseline_summary, model_input_view, finmo_view, retry_context, and your own real-world knowledge of how this business type should actually operate.\n"
       "The persisted SQL state is the client's stated plan and starting point, not the truth. Challenge unrealistic pricing, compensation, staffing, utilization, growth, margin, and timing assumptions when they are not believable.\n"
       "If the baseline is implausibly weak, stabilize it. If it is implausibly strong, normalize it. Do not simply preserve client optimism.\n"
       "Avoid long negative paths. A repaired business may still have early pressure, but multi-year flat or worsening losses are usually unacceptable unless the business facts truly force that outcome.\n"
@@ -1011,6 +1252,8 @@ def advise_consistency_strategy_selection(
       "Reason explicitly about LOB, product, capacity, unit price, and utilization together.\n"
       "Do not change revenue drivers in a way that breaks business logic. Price, utilization, capacity, demand pacing, and staffing support must still fit together.\n"
       "If child products exist, preserve child-first reasoning. Parent behavior should emerge from children rather than replacing them.\n"
+      "Lever impact contract: Unit Price and Utilization change revenue only within the currently available capacity. Material revenue expansion requires an explicit Capacity lever or another true volume lever. Cost levers like COGS, Payroll, Marketing, and G&A do not themselves increase revenue.\n"
+      "Do not prescribe revenue targets above what the active revenue levers can physically produce over the governed quarter.\n"
       "\n"
       "Cost and Compensation Reasoning:\n"
       "Treat payroll, founder pay, leadership compensation, planned hires, marketing, COGS, G&A, lease, interest, depreciation, and taxes as business design choices, not sacred inputs.\n"
@@ -1021,8 +1264,11 @@ def advise_consistency_strategy_selection(
       "Time Horizon and Grouping:\n"
       "You are governing Quarter 1 through Quarter 20.\n"
       "Use exact timing and mostly grouped quarter phases, not twenty fully independent quarter decisions by default.\n"
+      "Default to five governed phase groups across the horizon: Q1-Q4, Q5-Q8, Q9-Q12, Q13-Q16, and Q17-Q20.\n"
+      "Use fewer than five groups only for truly mild or unusually stable cases, and explain why implicitly through the blueprint.\n"
       "Use finer quarter-level control only when the business logic truly requires it.\n"
       "Each governed_period_group must declare input_granularity as grouped or quarterly.\n"
+      "governed_period_groups must cover the full horizon from Quarter 1 through Quarter 20 with no uncovered gaps.\n"
       "If a group is grouped, controller must keep that phase tied unless you explicitly authorize specific quarterly_expansion_levers for that group.\n"
       "Do not assume controller will decide where to expand or break phases apart. If quarter-level freedom is needed, you must authorize it explicitly.\n"
       "You must decide when changes start, when they stop, when capacity expands, when roles release, when demand builds, when milestones activate, and when support overhead steps up because scale is real.\n"
@@ -1030,9 +1276,11 @@ def advise_consistency_strategy_selection(
       "Bands and Targets:\n"
       "Use exact timing but mostly bounded ranges for controllable inputs. Do not pin exact values unless something truly must be fixed.\n"
       "Controller needs room to solve numerically inside your bands. If you pin everything exactly, Solver becomes ineffective and feasibility collapses.\n"
+      "For every lever you activate in lever_adjustment_plan, you must provide explicit numeric phase coverage through Quarter 20 with no uncovered gaps. If a lever should stabilize, hold, or revert later, you must still express that later phase explicitly rather than stopping early.\n"
       "controlled_output_targets should usually be bands by quarter group or year phase, not brittle point targets.\n"
+      "controlled_output_targets must provide explicit numeric coverage through Quarter 20. At minimum, include EBITDA targets at the ending quarter of every governed_period_group, and if any revenue lever is active, include Revenue targets at the ending quarter of every governed_period_group.\n"
+      "All controlled_output_targets must use Financial Model QTR dollar values for the specified quarter. Do not use margins, percentages, ratios, or annualized values for EBITDA or Revenue targets.\n"
       "Use Financial Model QTR line items like Revenue, EBITDA, Gross Profit, Net Income, Cash, Total Assets, or Total Liabilities & Equity.\n"
-      "Your target_margin_path for Years 1, 2, and 3 must be believable for this business type and stage and plausibly reachable by the lever package you return.\n"
       "\n"
       "Controller Handoff:\n"
       "Controller is an execution layer, not a co-strategist.\n"
@@ -1042,26 +1290,26 @@ def advise_consistency_strategy_selection(
       "\n"
       "Required Output Content:\n"
       "Return a full viability blueprint, not just strategy ids.\n"
-      "You must explain the business_model_assessment, secondary_causes, allowed_model_input_levers, forbidden_model_input_levers, controller_directives, governed_period_groups, lever_adjustment_plan, controlled_output_targets, target_posture, viability_blueprint_summary, scaling_model_summary, target_margin_path, capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, outer_year_margin_logic, and expected_year1 EBITDA range.\n"
+      "You must explain the business_model_assessment, secondary_causes, allowed_model_input_levers, forbidden_model_input_levers, controller_directives, governed_period_groups, lever_adjustment_plan, controlled_output_targets, target_posture, viability_blueprint_summary, scaling_model_summary, capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, and outer_year_margin_logic.\n"
       "Do not rely on controller to invent quarter logic later. Quarter logic must be fully expressed through governed_period_groups, lever_adjustment_plan, controlled_output_targets, and the release/build plans.\n"
+      "A blueprint with uncovered lever periods or uncovered target periods is invalid.\n"
       "\n"
       "Severity and Retry:\n"
       "Classify case severity as mild, moderate, or severe and explain why in severity_reason.\n"
       "Set minimum_package_strength to light, moderate, or strong.\n"
       "Set controller_directives.aggression_level to low, moderate, or high based on how broken the business is.\n"
       "If the case is badly broken, set escalate_on_retry=true and require a higher minimum_meaningful_levers and minimum_package_count.\n"
-      "If deterministic_diagnosis includes severity_class=severe, you must return a severe blueprint: aggression_level=high, escalate_on_retry=true, minimum_package_strength=strong, minimum_meaningful_levers>=4, minimum_package_count>=2, and materially different quarter groups or lever bands.\n"
+      "If the workbook view shows a structurally broken case, you must return a severe blueprint: aggression_level=high, escalate_on_retry=true, minimum_package_strength=strong, minimum_meaningful_levers>=4, minimum_package_count>=2, and materially different quarter groups or lever bands.\n"
       "When severity_class is moderate or severe, you must use at least one revenue-side lever, at least one cost-side or staffing lever, include both early-phase and outer-year changes, and produce a non-flat trajectory.\n"
       "Do not return single-lever or weak adjustments in moderate or severe cases unless the business facts make that the only believable path.\n"
       "For severe cases, do not return a polite or modest plan. Return a strong but realistic multi-lever restructuring path.\n"
       "For severe cases, lever_adjustment_plan must cover at least four meaningful workbook levers, include at least one revenue-side lever and at least one cost-side lever, and include both an early-phase action and an outer-year action.\n"
       "When a business is structurally broken, you are expected to make decisive but believable moves, not small adjustments that preserve failure.\n"
-      "Use solver_feedback carefully. On retry, do not just rename the same weak strategy. Change the lever package, bounds, timing, or target path enough to materially improve solvability.\n"
-      "If solver_feedback.escalation_required is true, the prior attempts still produced all-negative degrading five-year paths. In that case, do not repeat the same strategy story. Materially strengthen the operating plan, growth architecture, and target posture.\n"
+      "Use retry_context carefully. On retry, do not just rename the same weak strategy. Change the lever package, bounds, timing, or target path enough to materially improve solvability.\n"
+      "If retry_context.escalation_required is true, the prior attempts still produced all-negative degrading five-year paths. In that case, do not repeat the same strategy story. Materially strengthen the operating plan, growth architecture, and target posture.\n"
       "\n"
       "Believability Rules:\n"
       "Business type and business stage matter materially when deciding what is realistic.\n"
-      "If EBITDA is weak, provide a realistic Year-1 expected EBITDA margin range for a repaired but still believable Year 1. Do not force mature margins too early.\n"
       "If a business is badly broken, do not rely on a single lever unless a single-lever repair is truly believable.\n"
       "Choose strategies that keep the business believable, preserve the original plan where possible, and avoid nonsense even when Solver could technically force the numbers.\n"
       "Return JSON only."
@@ -1071,7 +1319,10 @@ def advise_consistency_strategy_selection(
       "The previous strategy choice did not produce a viable repair, or selection output was missing.\n"
       "You must still choose 1 or 2 strategy ids from the provided catalog.\n"
       "Do not return an empty selection.\n"
-      "Use solver_feedback to avoid repeating the same failed strategy story.\n"
+      "Use retry_context to avoid repeating the same failed strategy story.\n"
+      "If retry_context.coverage_issues is present, you must explicitly repair those numeric gaps.\n"
+      "Do not return another blueprint with uncovered lever periods, missing controlled_output_targets, or target coverage that stops before Q20.\n"
+      "A response that still has coverage_issues is invalid.\n"
       "Pick a different, still-believable operating approach if the previous one missed.\n"
       "Return JSON only."
     ),
@@ -1079,13 +1330,20 @@ def advise_consistency_strategy_selection(
       "You must return a valid strategy selection now.\n"
       "Select the best 1 or 2 strategy ids from the catalog and provide conservative overrides.\n"
       "Do not leave selected_strategy_ids empty.\n"
+      "Default to five governed phase groups across Q1-Q20 unless the case is truly mild or unusually stable.\n"
+      "Every active lever must have explicit phase coverage through Q20, and controlled_output_targets must provide explicit numeric coverage through Q20.\n"
+      "Do not return another blueprint with coverage gaps.\n"
       "Prefer believable repair over perfect optimization.\n"
       "Return JSON only."
     ),
   ]
 
   last_error: Optional[str] = None
+  last_invalid_selection: Dict[str, Any] = {}
+  last_invalid_coverage_issues: List[str] = []
+  last_attempt_index: int = 0
   for attempt_index, system_prompt in enumerate(system_prompts, start=1):
+    last_attempt_index = attempt_index
     payload = {
       "model": _openai_model(),
       "input": [
@@ -1127,78 +1385,30 @@ def advise_consistency_strategy_selection(
       fixed_facts=fixed_facts or {},
     )
     selected_ids = parsed.get("selected_strategy_ids")
+    coverage_issues = list(parsed.get("coverage_issues") or []) if isinstance(parsed.get("coverage_issues"), list) else []
     if isinstance(selected_ids, list) and any(str(item or "").strip() for item in selected_ids):
-      parsed["advisor_attempt_count"] = attempt_index
-      return parsed
+      if not coverage_issues:
+        parsed["advisor_attempt_count"] = attempt_index
+        return parsed
+      last_invalid_selection = _sanitize_canonical_live_payload(parsed)
+      last_invalid_coverage_issues = [str(item or "").strip() for item in coverage_issues if str(item or "").strip()]
+      base_user_payload["retry_context"] = _merge_retry_context(
+        retry_context if isinstance(base_user_payload.get("retry_context"), dict) else retry_context,
+        coverage_issues=coverage_issues,
+        prior_selection=parsed,
+        invalid_reason="strategy_blueprint_coverage_gaps",
+        attempt_index=attempt_index,
+      )
+      last_error = "strategy_blueprint_coverage_gaps"
+      continue
     last_error = "missing_selected_strategy_ids"
   return {
     "error": "strategy_advisor_no_selection",
     "error_detail": str(last_error or "unknown"),
+    "advisor_attempt_count": int(last_attempt_index or 0),
+    "last_invalid_selection": last_invalid_selection,
+    "coverage_issues": last_invalid_coverage_issues,
   }
-
-
-def audit_consistency_controller_translation(
-  *,
-  strategy_selection: Dict[str, Any],
-  translated_contract: Dict[str, Any],
-  translated_modified_state: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-  if not _strategy_layer_enabled():
-    return {}
-  try:
-    api_key = _require_openai_key()
-  except Exception:
-    return {}
-  payload = {
-    "strategy_selection": _sanitize_canonical_live_payload(strategy_selection or {}),
-    "translated_contract": _sanitize_canonical_live_payload(translated_contract or {}),
-    "translated_modified_state": _sanitize_canonical_live_payload(translated_modified_state or {}),
-  }
-  schema = _translation_audit_schema()
-  request_payload = {
-    "model": _openai_model(),
-    "input": [
-      {
-        "role": "system",
-        "content": (
-          "You are auditing a controller translation for a business-plan realism engine.\n"
-          "Your only job is to decide whether the persisted controller translation preserved GPT intent.\n"
-          "Do not redesign the business. Do not create a new strategy. Only audit translation fidelity.\n"
-          "Check whether required directions, timing, growth architecture, hiring release, milestone activation, support-overhead logic, and forbidden moves were preserved.\n"
-          "Reject the translation if it introduces opposite-direction conflicts, loses staged hiring or milestone intent, or produces quarter logic that clearly contradicts the original plan.\n"
-          "If you reject the translation, you must also return replacement_forecast_orchestration using the controller/forecast language.\n"
-          "That replacement must directly encode the corrected quarter_policies, role_timing_overrides, milestone_timing_overrides, and event_response needed to preserve the original GPT intent.\n"
-          "If the translation is acceptable, return an empty but valid replacement_forecast_orchestration object with empty arrays and neutral event_response.\n"
-          "Return JSON only."
-        ),
-      },
-      {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-    ],
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": schema["name"],
-        "schema": schema["schema"],
-        "strict": True,
-      }
-    },
-  }
-  url = "https://api.openai.com/v1/responses"
-  headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  try:
-    resp = _post_openai(
-      url=url,
-      headers=headers,
-      payload=request_payload,
-      timeout_seconds=_openai_timeout_seconds("audit"),
-      max_attempts=1,
-    )
-    if resp.status_code >= 400:
-      return {"error": _format_openai_error(resp)}
-    parsed = _parse_json_response(resp.json())
-  except Exception as exc:
-    return {"error": str(exc)}
-  return parsed if isinstance(parsed, dict) else {}
 
 
 def validate_consistency_finmo_result(
