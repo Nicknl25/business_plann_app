@@ -26,6 +26,7 @@ DEFAULT_TEST_RUNS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Manag
 DEFAULT_TEST_RUNS_DATA_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data"
 DEFAULT_TERMINAL_LOGS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs"
 LOCAL_FALLBACK_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "_consistency_replay_output"))
+REQUEST_TIMEOUT_SECONDS = None
 
 
 def _load_env() -> None:
@@ -139,7 +140,7 @@ def _request_json_error(response: requests.Response) -> RuntimeError:
 
 
 def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-  resp = requests.post(url, json=payload, headers=headers or {}, timeout=300)
+  resp = requests.post(url, json=payload, headers=headers or {}, timeout=REQUEST_TIMEOUT_SECONDS)
   if resp.status_code >= 400:
     raise _request_json_error(resp)
   data = resp.json()
@@ -149,7 +150,7 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
 
 
 def _get_json(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
-  resp = requests.get(url, params=params, timeout=300)
+  resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
   if resp.status_code >= 400:
     raise _request_json_error(resp)
   data = resp.json()

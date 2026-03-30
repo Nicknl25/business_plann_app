@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -162,6 +163,29 @@ def _placeholder_index(value: Any, prefix: str) -> Optional[int]:
     return None
 
 
+def _revenue_slot_key(lob_index: int, product_index: int) -> str:
+  return f"lob_{max(0, int(lob_index)) + 1}_product_{max(0, int(product_index)) + 1}"
+
+
+def _revenue_slot_identity(
+  *,
+  row_lob: Any,
+  row_product: Any,
+  revenue_row_ordinal: Optional[int] = None,
+) -> Dict[str, Any]:
+  lob_index = _placeholder_index(row_lob, "LOB")
+  product_index = _placeholder_index(row_product, "Product")
+  if lob_index is None or product_index is None:
+    slot_ordinal = max(0, int(revenue_row_ordinal or 0)) // 3
+    lob_index = slot_ordinal // 3
+    product_index = slot_ordinal % 3
+  return {
+    "lob_slot_index": lob_index,
+    "product_slot_index": product_index,
+    "revenue_slot_key": _revenue_slot_key(lob_index, product_index),
+  }
+
+
 def _named_lob(value: Any, fallback: str) -> str:
   text = _canonical_model_input_text(value)
   return text or fallback
@@ -316,6 +340,7 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
 
     revenue_rows: List[Dict[str, Any]] = []
     ws, min_row, max_row, min_col, max_col = _defined_range_bounds(wb, "model_input_revenue")
+    revenue_row_ordinal = 0
     for row_idx in range(min_row, max_row + 1):
       controller_marker = str(ws.cell(row=row_idx, column=min_col).value or "").strip()
       if controller_marker.lower() != "controller write":
@@ -323,6 +348,11 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
       lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
       product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
       driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
+      slot_identity = _revenue_slot_identity(
+        row_lob=lob,
+        row_product=product,
+        revenue_row_ordinal=revenue_row_ordinal,
+      )
       lever_id = _revenue_lever_id(lob, product, driver)
       semantics = _revenue_input_semantics(driver)
       revenue_rows.append(
@@ -332,6 +362,7 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
           "lever_id": lever_id,
           "placeholder_lob": lob,
           "placeholder_product": product,
+          **slot_identity,
           "lob": lob,
           "product": product,
           "driver": driver,
@@ -345,6 +376,7 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
           "lever_id": lever_id,
           "named_range": "model_input_revenue",
           "section": "revenue",
+          **slot_identity,
           "lob": lob,
           "product": product,
           "driver": driver,
@@ -352,6 +384,7 @@ def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
           **semantics,
         }
       )
+      revenue_row_ordinal += 1
 
     def _read_simple_rows(range_name: str, *, section_key: str) -> List[Dict[str, Any]]:
       local_ws, local_min_row, local_max_row, local_min_col, local_max_col = _defined_range_bounds(wb, range_name)
@@ -629,6 +662,9 @@ def _ops_revenue_catalog(ops_json: Dict[str, Any]) -> Dict[Tuple[int, int], Dict
           f"Product {product_idx + 1}",
         )
         catalog[(lob_idx, product_idx)] = {
+          "revenue_slot_key": _revenue_slot_key(lob_idx, product_idx),
+          "lob_slot_index": lob_idx,
+          "product_slot_index": product_idx,
           "lob": lob_name,
           "product": product_name,
           "capacity": _quarter_capacity_from_ops_product(product=product, ops_json=ops),
@@ -638,6 +674,9 @@ def _ops_revenue_catalog(ops_json: Dict[str, Any]) -> Dict[Tuple[int, int], Dict
   if catalog:
     return catalog
   catalog[(0, 0)] = {
+    "revenue_slot_key": _revenue_slot_key(0, 0),
+    "lob_slot_index": 0,
+    "product_slot_index": 0,
     "lob": _named_lob(ops.get("business_type") or ops.get("lob_name"), "LOB 1"),
     "product": _named_product(ops.get("product_name") or ops.get("unit_name"), "Product 1"),
     "capacity": _quarter_capacity_from_ops_product(product=ops, ops_json=ops),
@@ -684,12 +723,16 @@ def _resolve_row_identity_from_catalog(
   row_lob: Any,
   row_product: Any,
   ops_catalog: Dict[Tuple[int, int], Dict[str, Any]],
+  revenue_slot_key: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-  lob_idx = _placeholder_index(row_lob, "LOB")
-  product_idx = _placeholder_index(row_product, "Product")
-  if lob_idx is None or product_idx is None:
-    return None
-  resolved = ops_catalog.get((lob_idx, product_idx))
+  if str(revenue_slot_key or "").strip():
+    for catalog_item in ops_catalog.values():
+      if not isinstance(catalog_item, dict):
+        continue
+      if str(catalog_item.get("revenue_slot_key") or "").strip() == str(revenue_slot_key or "").strip():
+        return _clone(catalog_item)
+  slot_identity = _revenue_slot_identity(row_lob=row_lob, row_product=row_product)
+  resolved = ops_catalog.get((int(slot_identity.get("lob_slot_index") or 0), int(slot_identity.get("product_slot_index") or 0)))
   return _clone(resolved) if isinstance(resolved, dict) else None
 
 
@@ -714,6 +757,9 @@ def _child_driver_map_for_quarter(quarter: Dict[str, Any]) -> Dict[Tuple[str, st
         "Unit Price": round(price or 0.0, 6),
         "Utilization": round(utilization or 0.0, 6),
       }
+      revenue_slot_key = str(product.get("revenue_slot_key") or lob.get("revenue_slot_key") or _revenue_slot_key(lob_idx, product_idx)).strip()
+      if revenue_slot_key:
+        child_map[("__slot__", revenue_slot_key)] = _clone(driver_payload)
       child_map[(f"LOB {lob_idx + 1}", f"Product {product_idx + 1}")] = driver_payload
       lob_name = _named_lob(lob.get("lob_name") or lob.get("name") or lob.get("label"), f"LOB {lob_idx + 1}")
       product_name = _named_product(product.get("product_name") or product.get("name") or product.get("unit_name"), f"Product {product_idx + 1}")
@@ -779,16 +825,21 @@ def _build_model_input_overlay(
     for slot in slots
   ]
   for row in revenue_rows:
+    revenue_slot_key = str(row.get("revenue_slot_key") or "").strip()
     placeholder_lob = str(row.get("placeholder_lob") or row.get("lob") or "").strip()
     placeholder_product = str(row.get("placeholder_product") or row.get("product") or "").strip()
     resolved_identity = _resolve_row_identity_from_catalog(
       row_lob=placeholder_lob,
       row_product=placeholder_product,
       ops_catalog=ops_catalog,
+      revenue_slot_key=revenue_slot_key,
     )
     if isinstance(resolved_identity, dict):
       row["lob"] = resolved_identity.get("lob") or row.get("lob")
       row["product"] = resolved_identity.get("product") or row.get("product")
+      row["revenue_slot_key"] = resolved_identity.get("revenue_slot_key") or row.get("revenue_slot_key")
+      row["lob_slot_index"] = resolved_identity.get("lob_slot_index") if resolved_identity.get("lob_slot_index") is not None else row.get("lob_slot_index")
+      row["product_slot_index"] = resolved_identity.get("product_slot_index") if resolved_identity.get("product_slot_index") is not None else row.get("product_slot_index")
     lob = str(row.get("lob") or placeholder_lob).strip()
     product = str(row.get("product") or placeholder_product).strip()
     driver = str(row.get("driver") or "").strip()
@@ -796,6 +847,8 @@ def _build_model_input_overlay(
     if projection_mode:
       for child_map in quarter_child_maps:
         driver_map = (
+          child_map.get(("__slot__", str(row.get("revenue_slot_key") or "").strip()))
+          or
           child_map.get((lob, product))
           or child_map.get((placeholder_lob, placeholder_product))
           or {}
@@ -984,25 +1037,40 @@ def _write_model_input_json_to_workbook(finmo_path: str, model_input_json: Dict[
     revenue_section = [row for row in (((model_input_json.get("sections") or {}) if isinstance(model_input_json.get("sections"), dict) else {}).get("revenue") or []) if isinstance(row, dict)]
     ws, min_row, max_row, min_col, max_col = _defined_range_bounds(wb, "model_input_revenue")
     revenue_row_lookup: Dict[Tuple[str, str, str], int] = {}
+    revenue_slot_lookup: Dict[Tuple[str, str], int] = {}
+    revenue_row_ordinal = 0
     for row_idx in range(min_row, max_row + 1):
       marker = str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower()
       if marker != "controller write":
         continue
+      row_lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
+      row_product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
+      row_driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
+      slot_identity = _revenue_slot_identity(
+        row_lob=row_lob,
+        row_product=row_product,
+        revenue_row_ordinal=revenue_row_ordinal,
+      )
       revenue_row_lookup[
         (
-          str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip(),
-          str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip(),
-          str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip(),
+          row_lob,
+          row_product,
+          row_driver,
         )
       ] = row_idx
+      revenue_slot_lookup[(str(slot_identity.get("revenue_slot_key") or "").strip(), row_driver)] = row_idx
+      revenue_row_ordinal += 1
     for row in revenue_section:
-      key = (str(row.get("lob") or "").strip(), str(row.get("product") or "").strip(), str(row.get("driver") or "").strip())
-      row_idx = revenue_row_lookup.get(key)
+      driver = str(row.get("driver") or "").strip()
+      row_idx = revenue_slot_lookup.get((str(row.get("revenue_slot_key") or "").strip(), driver))
+      if row_idx is None:
+        key = (str(row.get("lob") or "").strip(), str(row.get("product") or "").strip(), driver)
+        row_idx = revenue_row_lookup.get(key)
       if row_idx is None:
         fallback_key = (
           str(row.get("placeholder_lob") or "").strip(),
           str(row.get("placeholder_product") or "").strip(),
-          str(row.get("driver") or "").strip(),
+          driver,
         )
         row_idx = revenue_row_lookup.get(fallback_key)
       if row_idx is None:
@@ -1095,6 +1163,7 @@ def _resolve_finmo_calibration_shell(
         return {}
       if section == "revenue":
         ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_revenue")
+        revenue_row_ordinal = 0
         for row_idx in range(min_row, max_row + 1):
           if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
             continue
@@ -1102,7 +1171,15 @@ def _resolve_finmo_calibration_shell(
           row_product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
           row_driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
           row_lever_id = _revenue_lever_id(row_lob, row_product, row_driver)
+          row_slot_identity = _revenue_slot_identity(
+            row_lob=row_lob,
+            row_product=row_product,
+            revenue_row_ordinal=revenue_row_ordinal,
+          )
+          revenue_row_ordinal += 1
           if (
+            (str(spec.get("revenue_slot_key") or "").strip() and str(row_slot_identity.get("revenue_slot_key") or "").strip() == str(spec.get("revenue_slot_key") or "").strip() and row_driver == str(spec.get("driver") or "").strip())
+            or
             (lever_id and row_lever_id == lever_id)
             or (
               not lever_id
@@ -1221,20 +1298,6 @@ def _execute_finmo_calibration_shell(
 ) -> Dict[str, Any]:
   shell = calibration_shell if isinstance(calibration_shell, dict) else {}
   goal_seek_requests: List[Dict[str, Any]] = []
-  for request in [item for item in (shell.get("goal_seek_requests") or []) if isinstance(item, dict)]:
-    objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
-    changing_cells = [item for item in (request.get("changing_input_cells") or []) if isinstance(item, dict)]
-    goal_value = _goal_value_from_band((((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}).get("goal_band") or {}))
-    if not objective_cell or not changing_cells or goal_value is None:
-      continue
-    goal_seek_requests.append(
-      {
-        "request_id": str(request.get("request_id") or "").strip(),
-        "objective_cell": objective_cell,
-        "changing_input_cell": changing_cells[0],
-        "goal_value": goal_value,
-      }
-    )
   solver_requests: List[Dict[str, Any]] = []
   for request in [item for item in (shell.get("solver_requests") or []) if isinstance(item, dict)]:
     objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
@@ -1247,7 +1310,7 @@ def _execute_finmo_calibration_shell(
         "request_id": str(request.get("request_id") or "").strip(),
         "objective_cell": objective_cell,
         "changing_input_cells": changing_cells,
-        "target_value": _goal_value_from_band(goal_band if isinstance(goal_band, dict) else {}),
+        "objective_mode": str((((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}).get("objective_mode") or "maximize")).strip().lower() or "maximize",
         "goal_band": _clone(goal_band if isinstance(goal_band, dict) else {}),
         "constraints": [item for item in (request.get("constraints") or []) if isinstance(item, dict)],
       }
@@ -1260,10 +1323,14 @@ def _execute_finmo_calibration_shell(
     "goal_seek_requests": goal_seek_requests,
     "solver_requests": solver_requests,
   }
-  payload_json = json.dumps(payload)
+  payload_path = ""
+  with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as handle:
+    json.dump(payload, handle)
+    payload_path = handle.name
   script = (
     "$path = " + json.dumps(workbook_path) + ";"
-    "$payload = @'\n" + payload_json + "\n'@ | ConvertFrom-Json -Depth 100;"
+    "$payloadPath = " + json.dumps(payload_path) + ";"
+    "$payload = Get-Content -Raw $payloadPath | ConvertFrom-Json -Depth 100;"
     "$excel = New-Object -ComObject Excel.Application;"
     "$excel.Visible = $false;"
     "$excel.DisplayAlerts = $false;"
@@ -1274,22 +1341,15 @@ def _execute_finmo_calibration_shell(
     "$solver = $excel.AddIns.Item('Solver Add-in');"
     "if ($solver -and -not $solver.Installed) { $solver.Installed = $true }"
     "$wb = $excel.Workbooks.Open($path, $false, $false);"
-    "foreach ($request in $payload.goal_seek_requests) {"
-    "  $objectiveParts = $request.objective_cell.cell.ToString() -split '(?<=\\D)(?=\\d)';"
-    "  $objectiveRange = $wb.Worksheets.Item($request.objective_cell.sheet).Range($request.objective_cell.cell);"
-    "  $changingRange = $wb.Worksheets.Item($request.changing_input_cell.sheet).Range($request.changing_input_cell.cell);"
-    "  $result = $objectiveRange.GoalSeek([double]$request.goal_value, $changingRange);"
-    "  $excel.CalculateFullRebuild();"
-    "  [void]$goalResults.Add(@{ request_id = $request.request_id; success = [bool]$result; goal_value = [double]$request.goal_value });"
-    "}"
     "foreach ($request in $payload.solver_requests) {"
     "  $excel.Run('Solver.xlam!SolverReset');"
     "  $objectiveSpec = \"'\" + $request.objective_cell.sheet + \"'!\" + $request.objective_cell.cell;"
     "  $changeSpec = (($request.changing_input_cells | ForEach-Object { \"'\" + $_.sheet + \"'!\" + $_.cell }) -join ',');"
-    "  if ($request.target_value -ne $null) {"
-    "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 3, [double]$request.target_value, $changeSpec);"
-    "  } else {"
+    "  $objectiveMode = ($request.objective_mode | Out-String).Trim().ToLower();"
+    "  if ($objectiveMode -eq 'minimize') {"
     "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 2, $null, $changeSpec);"
+    "  } else {"
+    "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 1, $null, $changeSpec);"
     "  }"
     "  if ($request.goal_band.min -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 3, [double]$request.goal_band.min) }"
     "  if ($request.goal_band.max -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 1, [double]$request.goal_band.max) }"
@@ -1308,7 +1368,9 @@ def _execute_finmo_calibration_shell(
     "  $solveResult = $excel.Run('Solver.xlam!SolverSolve', $true);"
     "  $excel.Run('Solver.xlam!SolverFinish', 1);"
     "  $excel.CalculateFullRebuild();"
-    "  [void]$solverResults.Add(@{ request_id = $request.request_id; success = [bool]$solveResult; solver_result = $solveResult.ToString() });"
+    "  $solveCode = [int]$solveResult;"
+    "  $solveSuccess = ($solveCode -eq 0 -or $solveCode -eq 1);"
+    "  [void]$solverResults.Add(@{ request_id = $request.request_id; success = $solveSuccess; solver_result = $solveResult.ToString(); solver_code = $solveCode; objective_mode = $objectiveMode });"
     "}"
     "$wb.Save();"
     "$wb.Close($true);"
@@ -1319,29 +1381,36 @@ def _execute_finmo_calibration_shell(
     "}"
   )
   try:
-    completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
-  except subprocess.CalledProcessError as exc:
-    return {
-      "goal_seek_results": [],
-      "solver_results": [],
-      "success": False,
-      "error": str(exc.stderr or exc.stdout or exc),
-    }
-  except Exception as exc:
-    return {
-      "goal_seek_results": [],
-      "solver_results": [],
-      "success": False,
-      "error": str(exc),
-    }
-  try:
-    parsed = json.loads(str(completed.stdout or "").strip() or "{}")
-  except Exception:
-    parsed = {}
-  if isinstance(parsed, dict):
-    parsed.setdefault("success", True)
-    return parsed
-  return {"goal_seek_results": [], "solver_results": [], "success": False, "error": "invalid_calibration_response"}
+    try:
+      completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+      return {
+        "goal_seek_results": [],
+        "solver_results": [],
+        "success": False,
+        "error": str(exc.stderr or exc.stdout or exc),
+      }
+    except Exception as exc:
+      return {
+        "goal_seek_results": [],
+        "solver_results": [],
+        "success": False,
+        "error": str(exc),
+      }
+    try:
+      parsed = json.loads(str(completed.stdout or "").strip() or "{}")
+    except Exception:
+      parsed = {}
+    if isinstance(parsed, dict):
+      parsed.setdefault("success", True)
+      return parsed
+    return {"goal_seek_results": [], "solver_results": [], "success": False, "error": "invalid_calibration_response"}
+  finally:
+    if payload_path:
+      try:
+        Path(payload_path).unlink(missing_ok=True)
+      except Exception:
+        pass
 
 
 def _recalculate_excel_workbook(finmo_path: str) -> None:
@@ -1458,6 +1527,7 @@ def run_finmo_excel_solver(
   changing_input_cells: Sequence[Dict[str, Any]],
   goal_band: Optional[Dict[str, Any]] = None,
   constraints: Optional[Sequence[Dict[str, Any]]] = None,
+  objective_mode: str = "maximize",
 ) -> Dict[str, Any]:
   workbook_path = _normalize_finmo_path(finmo_path)
   objective_ref = f"{objective_cell.get('sheet')}!{objective_cell.get('cell')}"
@@ -1474,18 +1544,32 @@ def run_finmo_excel_solver(
       "success": False,
       "error": "excel_solver_request_incomplete",
     }
-  target_value = _goal_value_from_band(goal_band or {})
   min_value = _safe_float((goal_band or {}).get("min"))
   max_value = _safe_float((goal_band or {}).get("max"))
   constraints_payload = [item for item in (constraints or []) if isinstance(item, dict)]
+  normalized_objective_mode = str(objective_mode or "maximize").strip().lower() or "maximize"
+  payload_path = ""
+  solver_payload = {
+    "objective": objective_ref,
+    "changingRefs": changing_refs,
+    "objectiveMode": normalized_objective_mode,
+    "minGoal": min_value,
+    "maxGoal": max_value,
+    "constraints": constraints_payload,
+  }
+  with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as handle:
+    json.dump(solver_payload, handle)
+    payload_path = handle.name
   script = (
     "$path = " + json.dumps(workbook_path) + ";"
-    "$objective = " + json.dumps(objective_ref) + ";"
-    "$changingRefs = " + json.dumps(changing_refs) + ";"
-    "$target = " + json.dumps(target_value) + ";"
-    "$minGoal = " + json.dumps(min_value) + ";"
-    "$maxGoal = " + json.dumps(max_value) + ";"
-    "$constraints = " + json.dumps(constraints_payload) + ";"
+    "$payloadPath = " + json.dumps(payload_path) + ";"
+    "$payload = Get-Content -Raw $payloadPath | ConvertFrom-Json -Depth 100;"
+    "$objective = $payload.objective;"
+    "$changingRefs = @($payload.changingRefs);"
+    "$objectiveMode = ($payload.objectiveMode | Out-String).Trim().ToLower();"
+    "$minGoal = $payload.minGoal;"
+    "$maxGoal = $payload.maxGoal;"
+    "$constraints = @($payload.constraints);"
     "$excel = New-Object -ComObject Excel.Application;"
     "$excel.Visible = $false;"
     "$excel.DisplayAlerts = $false;"
@@ -1498,10 +1582,10 @@ def run_finmo_excel_solver(
     "$changeSpec = ($changingRefs | ForEach-Object { $parts = $_.Split('!'); $sheet = $parts[0]; $cell = $parts[1]; \"'\" + $sheet + \"'!\" + $cell }) -join ',';"
     "$parts = $objective.Split('!');"
     "$objectiveSpec = \"'\" + $parts[0] + \"'!\" + $parts[1];"
-    "if ($target -ne $null) {"
-    "$excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 3, $target, $changeSpec);"
-    "} else {"
+    "if ($objectiveMode -eq 'minimize') {"
     "$excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 2, $null, $changeSpec);"
+    "} else {"
+    "$excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 1, $null, $changeSpec);"
     "}"
     "if ($minGoal -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 3, $minGoal) }"
     "if ($maxGoal -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 1, $maxGoal) }"
@@ -1511,29 +1595,50 @@ def run_finmo_excel_solver(
     "if ($relation -lt 1) { continue }"
     "$constraintParts = $constraint.cell.Split('!');"
     "$constraintSpec = \"'\" + $constraintParts[0] + \"'!\" + $constraintParts[1];"
+    "if ($constraint.PSObject.Properties.Match('value_ref').Count -gt 0 -and $constraint.value_ref) {"
+    "$valueParts = $constraint.value_ref.Split('!');"
+    "$valueSpec = \"'\" + $valueParts[0] + \"'!\" + $valueParts[1];"
+    "$excel.Run('Solver.xlam!SolverAdd', $constraintSpec, $relation, $valueSpec);"
+    "} else {"
     "$formulaText = $constraint.value;"
     "$excel.Run('Solver.xlam!SolverAdd', $constraintSpec, $relation, $formulaText);"
+    "}"
     "}"
     "$solveResult = $excel.Run('Solver.xlam!SolverSolve', $true);"
     "$excel.Run('Solver.xlam!SolverFinish', 1);"
     "$excel.CalculateFullRebuild();"
     "$wb.Save();"
     "$wb.Close($true);"
-    "Write-Output ($solveResult.ToString());"
+    "$solveCode = [int]$solveResult;"
+    "$solveSuccess = ($solveCode -eq 0 -or $solveCode -eq 1);"
+    "Write-Output ((@{ solver_result = $solveResult.ToString(); solver_code = $solveCode; success = $solveSuccess; objective_mode = $objectiveMode } | ConvertTo-Json -Compress -Depth 10));"
     "} finally {"
     "if ($wb) { try { $wb.Close($false) } catch {} }"
     "$excel.Quit();"
     "}"
   )
-  completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
-  return {
-    "objective_cell": objective_cell,
-    "changing_input_cells": list(changing_input_cells or []),
-    "goal_band": _clone(goal_band or {}),
-    "constraints": _clone(list(constraints or [])),
-    "success": bool(str(completed.stdout or "").strip()),
-    "solver_result": str(completed.stdout or "").strip(),
-  }
+  try:
+    completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
+    try:
+      parsed = json.loads(str(completed.stdout or "").strip() or "{}")
+    except Exception:
+      parsed = {}
+    return {
+      "objective_cell": objective_cell,
+      "changing_input_cells": list(changing_input_cells or []),
+      "goal_band": _clone(goal_band or {}),
+      "constraints": _clone(list(constraints or [])),
+      "objective_mode": normalized_objective_mode,
+      "success": bool(parsed.get("success")) if isinstance(parsed, dict) else False,
+      "solver_result": str((parsed.get("solver_result") if isinstance(parsed, dict) else None) or str(completed.stdout or "").strip()),
+      "solver_code": _safe_int(parsed.get("solver_code")) if isinstance(parsed, dict) else 0,
+    }
+  finally:
+    if payload_path:
+      try:
+        Path(payload_path).unlink(missing_ok=True)
+      except Exception:
+        pass
 
 
 def run_finmo_excel_solver_request(
@@ -1556,6 +1661,7 @@ def run_finmo_excel_solver_request(
     changing_input_cells=changing_inputs,
     goal_band=(objective.get("goal_band") or {}) if isinstance(objective, dict) else {},
     constraints=request.get("constraints") if isinstance(request.get("constraints"), list) else [],
+    objective_mode=str((objective.get("objective_mode") if isinstance(objective, dict) else None) or "maximize"),
   )
   result["request_id"] = str(request.get("request_id") or "").strip()
   return result
@@ -1579,9 +1685,9 @@ def sync_consistency_state_to_finmo(
     raise FileNotFoundError(f"Finmo workbook not found at {path}")
   try:
     try:
-      from solver_trace import trace_lazy  # type: ignore
+      from consistency_trace import trace_lazy  # type: ignore
     except Exception:
-      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+      from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
     trace_lazy(
       "FINMO_SYNC_REQUEST",
       "Finmo workbook sync request",
@@ -1636,9 +1742,9 @@ def sync_consistency_state_to_finmo(
     finmo_json["calibration_results"] = _clone(calibration_results)
     try:
       try:
-        from solver_trace import trace_lazy  # type: ignore
+        from consistency_trace import trace_lazy  # type: ignore
       except Exception:
-        from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+        from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
       trace_lazy(
         "FINMO_CALIBRATION",
         "Finmo calibration shell and results",
@@ -1652,9 +1758,9 @@ def sync_consistency_state_to_finmo(
       pass
   try:
     try:
-      from solver_trace import trace_lazy  # type: ignore
+      from consistency_trace import trace_lazy  # type: ignore
     except Exception:
-      from client_intake_and_finmo.solver_trace import trace_lazy  # type: ignore
+      from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
     trace_lazy(
       "FINMO_SYNC_RESULT",
       "Current persisted workbook state",

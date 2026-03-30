@@ -28,6 +28,7 @@ from api_handlers.intake_consult import (  # type: ignore  # noqa: E402
 from api_handlers.shared_context import build_shared_context  # type: ignore  # noqa: E402
 from consistency_flow import (  # type: ignore  # noqa: E402
   _select_best_finmo_attempts,
+  _build_strategy_layer,
   apply_consistency_selected_path,
   build_consistency_governance_state,
 )
@@ -423,7 +424,11 @@ class PlanningEnginesTests(unittest.TestCase):
     )
     self.assertEqual(
       normalized["governed_period_groups"][1]["quarterly_expansion_levers"],
-      ["expenses::Marketing"],
+      [],
+    )
+    self.assertEqual(
+      [(item["quarter_start"], item["quarter_end"]) for item in normalized["governed_period_groups"]],
+      [(1, 4), (5, 8), (9, 12), (13, 16), (17, 20)],
     )
     self.assertEqual(len(normalized["lever_adjustment_plan"]), 1)
     self.assertEqual(normalized["controlled_output_targets"][0]["line_item"], "EBITDA")
@@ -432,7 +437,7 @@ class PlanningEnginesTests(unittest.TestCase):
       any("lever_adjustment_plan_missing_coverage::expenses::Marketing" in item for item in normalized["coverage_issues"])
     )
     self.assertTrue(
-      any("controlled_output_targets_missing_ebitda_group_end_coverage" in item for item in normalized["coverage_issues"])
+      any("controlled_output_targets_missing_ebitda_full_coverage" in item for item in normalized["coverage_issues"])
     )
 
   def test_normalize_strategy_selection_contract_accepts_full_horizon_numeric_coverage(self) -> None:
@@ -486,16 +491,16 @@ class PlanningEnginesTests(unittest.TestCase):
         },
       ],
       "controlled_output_targets": [
-        {"line_item": "EBITDA", "quarter_start": 4, "quarter_end": 4, "min_value": -40000, "max_value": 0},
-        {"line_item": "Revenue", "quarter_start": 4, "quarter_end": 4, "min_value": 80000, "max_value": 120000},
-        {"line_item": "EBITDA", "quarter_start": 8, "quarter_end": 8, "min_value": 0, "max_value": 20000},
-        {"line_item": "Revenue", "quarter_start": 8, "quarter_end": 8, "min_value": 90000, "max_value": 150000},
-        {"line_item": "EBITDA", "quarter_start": 12, "quarter_end": 12, "min_value": 5000, "max_value": 25000},
-        {"line_item": "Revenue", "quarter_start": 12, "quarter_end": 12, "min_value": 95000, "max_value": 160000},
-        {"line_item": "EBITDA", "quarter_start": 16, "quarter_end": 16, "min_value": 10000, "max_value": 35000},
-        {"line_item": "Revenue", "quarter_start": 16, "quarter_end": 16, "min_value": 110000, "max_value": 180000},
-        {"line_item": "EBITDA", "quarter_start": 20, "quarter_end": 20, "min_value": 15000, "max_value": 50000},
-        {"line_item": "Revenue", "quarter_start": 20, "quarter_end": 20, "min_value": 120000, "max_value": 250000},
+        {"line_item": "EBITDA", "quarter_start": 1, "quarter_end": 4, "min_value": -40000, "max_value": 0},
+        {"line_item": "Revenue", "quarter_start": 1, "quarter_end": 4, "min_value": 80000, "max_value": 120000},
+        {"line_item": "EBITDA", "quarter_start": 5, "quarter_end": 8, "min_value": 0, "max_value": 20000},
+        {"line_item": "Revenue", "quarter_start": 5, "quarter_end": 8, "min_value": 90000, "max_value": 150000},
+        {"line_item": "EBITDA", "quarter_start": 9, "quarter_end": 12, "min_value": 5000, "max_value": 25000},
+        {"line_item": "Revenue", "quarter_start": 9, "quarter_end": 12, "min_value": 95000, "max_value": 160000},
+        {"line_item": "EBITDA", "quarter_start": 13, "quarter_end": 16, "min_value": 10000, "max_value": 35000},
+        {"line_item": "Revenue", "quarter_start": 13, "quarter_end": 16, "min_value": 110000, "max_value": 180000},
+        {"line_item": "EBITDA", "quarter_start": 17, "quarter_end": 20, "min_value": 15000, "max_value": 50000},
+        {"line_item": "Revenue", "quarter_start": 17, "quarter_end": 20, "min_value": 120000, "max_value": 250000},
       ],
       "active_levers": ["expenses::Marketing", "revenue::Home Health::Skilled Nursing::Unit Price"],
       "severity_class": "moderate",
@@ -531,6 +536,98 @@ class PlanningEnginesTests(unittest.TestCase):
 
     self.assertEqual(normalized["coverage_issues"], [])
     self.assertTrue(_gpt_blueprint_is_usable(normalized))
+
+  def test_normalize_strategy_selection_contract_derives_revenue_targets_from_revenue_levers(self) -> None:
+    selection = {
+      "selected_strategy_ids": ["alpha"],
+      "allowed_model_input_levers": [
+        "revenue::Primary line of business::In-home care hour::Unit Price",
+        "revenue::Primary line of business::In-home care hour::Utilization",
+      ],
+      "forbidden_model_input_levers": [],
+      "lever_adjustment_plan": [
+        {
+          "lever_id": "revenue::Primary line of business::In-home care hour::Unit Price",
+          "direction": "up",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "min_value": 82,
+          "max_value": 90,
+        },
+        {
+          "lever_id": "revenue::Primary line of business::In-home care hour::Utilization",
+          "direction": "up",
+          "quarter_start": 1,
+          "quarter_end": 20,
+          "min_value": 0.78,
+          "max_value": 0.9,
+        },
+      ],
+      "controlled_output_targets": [],
+      "target_posture": {
+        "year1_ebitda_posture": "improving_negative",
+        "year2_ebitda_posture": "breakeven",
+        "year3_ebitda_posture": "profitable",
+        "staffing_posture": "lean",
+        "pricing_posture": "modest_increase",
+        "demand_posture": "steady_growth",
+        "cost_posture": "disciplined",
+      },
+      "severity_class": "moderate",
+      "minimum_package_strength": "moderate",
+    }
+    strategy_catalog = [
+      {
+        "strategy_id": "alpha",
+        "allowed_model_input_levers": selection["allowed_model_input_levers"],
+      },
+    ]
+    fixed_facts = {
+      "finmo_json": {
+        "pl": [{"label": "Revenue"}, {"label": "EBITDA"}],
+      },
+      "model_input_json": {
+        "start_date": "2026-09-03",
+        "sections": {
+          "revenue": [
+            {"lob": "Primary line of business", "product": "In-home care hour", "driver": "Capacity", "values": [1300.0 for _ in range(20)]},
+            {"lob": "Primary line of business", "product": "In-home care hour", "driver": "Unit Price", "values": [80.0 for _ in range(20)]},
+            {"lob": "Primary line of business", "product": "In-home care hour", "driver": "Utilization", "values": [0.75 for _ in range(20)]},
+          ],
+          "expenses": [
+            {"label": "Cost of Goods Sold", "values": [0.78 for _ in range(20)]},
+            {"label": "Marketing", "values": [0.14 for _ in range(20)]},
+            {"label": "Research & Development", "values": [0.0 for _ in range(20)]},
+            {"label": "Lease", "values": [3600.0 for _ in range(20)]},
+            {"label": "Payroll", "values": [62497.5 for _ in range(20)]},
+            {"label": "General & Administrative", "values": [0.277182 for _ in range(20)]},
+            {"label": "Interest Rate", "values": [0.0 for _ in range(20)]},
+            {"label": "Depreciation", "values": [0.0 for _ in range(20)]},
+            {"label": "Taxes", "values": [0.0 for _ in range(20)]},
+          ],
+          "balance_sheet": [],
+          "schedules": {"debt_opening_balance_seed": 0.0, "lease_opening_balance_seed": 0.0, "rows": []},
+        },
+      },
+    }
+
+    normalized = _normalize_strategy_selection_contract(
+      selection=selection,
+      strategy_catalog=strategy_catalog,
+      fixed_facts=fixed_facts,
+    )
+
+    revenue_targets = [
+      item for item in normalized["controlled_output_targets"]
+      if str(item.get("line_item") or "").strip() == "Revenue"
+    ]
+    self.assertEqual(
+      [(item["quarter_start"], item["quarter_end"]) for item in revenue_targets],
+      [(1, 4), (5, 8), (9, 12), (13, 16), (17, 20)],
+    )
+    self.assertFalse(
+      any("controlled_output_targets_missing_revenue_full_coverage" in item for item in normalized["coverage_issues"])
+    )
 
   def test_normalize_strategy_selection_contract_flags_infeasible_revenue_targets(self) -> None:
     selection = {
@@ -727,7 +824,117 @@ class PlanningEnginesTests(unittest.TestCase):
     )
     self.assertFalse(_gpt_blueprint_is_usable(normalized))
 
-  def test_normalize_strategy_selection_contract_flags_too_coarse_default_groups_for_moderate_case(self) -> None:
+  def test_normalize_strategy_selection_contract_rejects_negative_ebitda_targets_from_year_two_onward(self) -> None:
+    selection = {
+      "selected_strategy_ids": ["alpha"],
+      "allowed_model_input_levers": ["expenses::Payroll"],
+      "forbidden_model_input_levers": [],
+      "governed_period_groups": [
+        {"quarter_start": 1, "quarter_end": 20, "input_granularity": "grouped", "quarterly_expansion_levers": []},
+      ],
+      "lever_adjustment_plan": [
+        {"lever_id": "expenses::Payroll", "direction": "down", "quarter_start": 1, "quarter_end": 20, "min_value": 45000, "max_value": 65000},
+      ],
+      "controlled_output_targets": [
+        {"line_item": "EBITDA", "quarter_start": 1, "quarter_end": 4, "min_value": -80000, "max_value": -20000},
+        {"line_item": "EBITDA", "quarter_start": 5, "quarter_end": 20, "min_value": -1000, "max_value": 20000},
+      ],
+      "active_levers": ["expenses::Payroll"],
+      "severity_class": "severe",
+      "minimum_package_strength": "strong",
+    }
+    strategy_catalog = [{"strategy_id": "alpha", "allowed_model_input_levers": ["expenses::Payroll"]}]
+    fixed_facts = {"finmo_json": {"pl": [{"label": "EBITDA"}]}}
+
+    normalized = _normalize_strategy_selection_contract(
+      selection=selection,
+      strategy_catalog=strategy_catalog,
+      fixed_facts=fixed_facts,
+    )
+
+    self.assertTrue(
+      any(
+        "controlled_output_targets_below_minimum_viability_floor::Q5,Q6,Q7,Q8,Q9,Q10,Q11,Q12,Q13,Q14,Q15,Q16,Q17,Q18,Q19,Q20" in item
+        for item in normalized["coverage_issues"]
+      )
+    )
+    self.assertFalse(_gpt_blueprint_is_usable(normalized))
+
+  def test_normalize_strategy_selection_contract_flags_need_for_capacity_when_year2_breakeven_is_impossible(self) -> None:
+    selection = {
+      "selected_strategy_ids": ["alpha"],
+      "allowed_model_input_levers": [
+        "revenue::Primary line of business::In-home care hour::Unit Price",
+        "revenue::Primary line of business::In-home care hour::Utilization",
+        "expenses::Payroll",
+        "expenses::Marketing",
+        "expenses::General & Administrative",
+      ],
+      "forbidden_model_input_levers": [],
+      "lever_adjustment_plan": [
+        {"lever_id": "revenue::Primary line of business::In-home care hour::Unit Price", "direction": "up", "quarter_start": 1, "quarter_end": 20, "min_value": 85, "max_value": 95},
+        {"lever_id": "revenue::Primary line of business::In-home care hour::Utilization", "direction": "up", "quarter_start": 1, "quarter_end": 20, "min_value": 0.82, "max_value": 0.9},
+        {"lever_id": "expenses::Payroll", "direction": "down", "quarter_start": 1, "quarter_end": 20, "min_value": 45000, "max_value": 65000},
+        {"lever_id": "expenses::Marketing", "direction": "down", "quarter_start": 1, "quarter_end": 20, "min_value": 0.08, "max_value": 0.12},
+        {"lever_id": "expenses::General & Administrative", "direction": "down", "quarter_start": 1, "quarter_end": 20, "min_value": 0.18, "max_value": 0.24},
+      ],
+      "controlled_output_targets": [],
+      "target_posture": {
+        "year1_ebitda_posture": "improving_negative",
+        "year2_ebitda_posture": "breakeven",
+        "year3_ebitda_posture": "profitable",
+        "staffing_posture": "lean",
+        "pricing_posture": "modest_increase",
+        "demand_posture": "steady_growth",
+        "cost_posture": "disciplined",
+      },
+      "severity_class": "severe",
+      "minimum_package_strength": "strong",
+    }
+    strategy_catalog = [
+      {
+        "strategy_id": "alpha",
+        "allowed_model_input_levers": selection["allowed_model_input_levers"],
+      },
+    ]
+    fixed_facts = {
+      "finmo_json": {"pl": [{"label": "Revenue"}, {"label": "EBITDA"}]},
+      "model_input_json": {
+        "start_date": "2026-09-03",
+        "sections": {
+          "revenue": [
+            {"lob": "Primary line of business", "product": "In-home care hour", "driver": "Capacity", "values": [1300.0 for _ in range(20)]},
+            {"lob": "Primary line of business", "product": "In-home care hour", "driver": "Unit Price", "values": [80.0 for _ in range(20)]},
+            {"lob": "Primary line of business", "product": "In-home care hour", "driver": "Utilization", "values": [0.75 for _ in range(20)]},
+          ],
+          "expenses": [
+            {"label": "Cost of Goods Sold", "values": [0.78 for _ in range(20)]},
+            {"label": "Marketing", "values": [0.14 for _ in range(20)]},
+            {"label": "Research & Development", "values": [0.0 for _ in range(20)]},
+            {"label": "Lease", "values": [3600.0 for _ in range(20)]},
+            {"label": "Payroll", "values": [62497.5 for _ in range(20)]},
+            {"label": "General & Administrative", "values": [0.277182 for _ in range(20)]},
+            {"label": "Interest Rate", "values": [0.0 for _ in range(20)]},
+            {"label": "Depreciation", "values": [0.0 for _ in range(20)]},
+            {"label": "Taxes", "values": [0.0 for _ in range(20)]},
+          ],
+          "balance_sheet": [],
+          "schedules": {"debt_opening_balance_seed": 0.0, "lease_opening_balance_seed": 0.0, "rows": []},
+        },
+      },
+    }
+
+    normalized = _normalize_strategy_selection_contract(
+      selection=selection,
+      strategy_catalog=strategy_catalog,
+      fixed_facts=fixed_facts,
+    )
+
+    self.assertTrue(
+      any(item == "viability_requires_capacity_lever_or_broader_scale_strategy" for item in normalized["coverage_issues"])
+    )
+
+  def test_normalize_strategy_selection_contract_applies_fixed_five_groups(self) -> None:
     selection = {
       "selected_strategy_ids": ["alpha"],
       "allowed_model_input_levers": ["expenses::Marketing"],
@@ -757,11 +964,12 @@ class PlanningEnginesTests(unittest.TestCase):
       fixed_facts=fixed_facts,
     )
 
-    self.assertTrue(
-      any("governed_period_groups_too_coarse::moderate" in item for item in normalized["coverage_issues"])
+    self.assertEqual(
+      [(item["quarter_start"], item["quarter_end"]) for item in normalized["governed_period_groups"]],
+      [(1, 4), (5, 8), (9, 12), (13, 16), (17, 20)],
     )
 
-  def test_normalize_strategy_selection_contract_flags_severe_posture_contract_issues(self) -> None:
+  def test_normalize_strategy_selection_contract_applies_app_owned_severe_posture(self) -> None:
     selection = {
       "selected_strategy_ids": ["alpha"],
       "allowed_model_input_levers": [
@@ -825,13 +1033,15 @@ class PlanningEnginesTests(unittest.TestCase):
       fixed_facts=fixed_facts,
     )
 
-    self.assertTrue(
-      any(item == "severe_blueprint_requires_escalate_on_retry_true" for item in normalized["coverage_issues"])
-    )
-    self.assertTrue(
+    self.assertEqual(normalized["controller_directives"]["aggression_level"], "high")
+    self.assertEqual(normalized["controller_directives"]["escalate_on_retry"], True)
+    self.assertEqual(normalized["controller_directives"]["minimum_package_count"], 2)
+    self.assertFalse(
       any(item == "severe_blueprint_requires_aggression_level_high" for item in normalized["coverage_issues"])
     )
-    self.assertFalse(_gpt_blueprint_is_usable(normalized))
+    self.assertFalse(
+      any(item == "severe_blueprint_requires_escalate_on_retry_true" for item in normalized["coverage_issues"])
+    )
 
   def test_advise_consistency_strategy_selection_returns_last_invalid_blueprint_details(self) -> None:
     class _FakeResponse:
@@ -894,6 +1104,41 @@ class PlanningEnginesTests(unittest.TestCase):
     )
     self.assertEqual(result["last_invalid_selection"], invalid_selection)
     self.assertEqual(result["advisor_attempt_count"], 3)
+
+  def test_build_strategy_layer_shortlists_catalog_from_toolset_selector(self) -> None:
+    captured: dict = {}
+
+    def _fake_gpt_strategy_selection(**kwargs):
+      captured["strategy_catalog"] = kwargs.get("strategy_catalog")
+      return {"error": "missing"}
+
+    with patch("consistency_flow._gpt_strategy_required", return_value=True), patch(
+      "consistency_flow._build_strategy_catalog",
+      return_value=[
+        {"strategy_id": "cost_structure_adjustment", "allowed_model_input_levers": ["expenses::Payroll"]},
+        {"strategy_id": "demand_supported_growth", "allowed_model_input_levers": ["revenue::Primary::Product::Capacity"]},
+        {"strategy_id": "staffing_ramp_adjustment", "allowed_model_input_levers": ["expenses::Payroll"]},
+      ],
+    ), patch(
+      "consistency_flow._gpt_strategy_selection",
+      side_effect=_fake_gpt_strategy_selection,
+    ):
+      layer = _build_strategy_layer(
+        state_model={"fixed_facts": {}},
+        direct_inputs={},
+        baseline_summary={
+          "revenue": 100.0,
+          "ebitda": -80.0,
+          "payroll": 60.0,
+          "gross_profit": 20.0,
+        },
+        diagnostic_state=None,
+        viability_mode=True,
+      )
+
+    self.assertEqual(layer["source"], "gpt_required_unavailable")
+    passed_ids = [str(item.get("strategy_id") or "") for item in (captured.get("strategy_catalog") or []) if isinstance(item, dict)]
+    self.assertEqual(passed_ids, ["demand_supported_growth", "staffing_ramp_adjustment"])
 
   def test_select_best_finmo_attempts_prefers_accepted_clear_attempt(self) -> None:
     selected = _select_best_finmo_attempts(

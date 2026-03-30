@@ -247,6 +247,100 @@ def _coverage_gaps(spans: List[tuple[int, int]], *, horizon_start: int = 1, hori
   return gaps
 
 
+def _fixed_governed_period_groups() -> List[Dict[str, Any]]:
+  return [
+    {
+      "quarter_start": 1,
+      "quarter_end": 4,
+      "objective": "Phase 1",
+      "input_granularity": "grouped",
+      "quarterly_expansion_levers": [],
+      "rationale": "Application-owned fixed period group.",
+    },
+    {
+      "quarter_start": 5,
+      "quarter_end": 8,
+      "objective": "Phase 2",
+      "input_granularity": "grouped",
+      "quarterly_expansion_levers": [],
+      "rationale": "Application-owned fixed period group.",
+    },
+    {
+      "quarter_start": 9,
+      "quarter_end": 12,
+      "objective": "Phase 3",
+      "input_granularity": "grouped",
+      "quarterly_expansion_levers": [],
+      "rationale": "Application-owned fixed period group.",
+    },
+    {
+      "quarter_start": 13,
+      "quarter_end": 16,
+      "objective": "Phase 4",
+      "input_granularity": "grouped",
+      "quarterly_expansion_levers": [],
+      "rationale": "Application-owned fixed period group.",
+    },
+    {
+      "quarter_start": 17,
+      "quarter_end": 20,
+      "objective": "Phase 5",
+      "input_granularity": "grouped",
+      "quarterly_expansion_levers": [],
+      "rationale": "Application-owned fixed period group.",
+    },
+  ]
+
+
+def _minimum_acceptable_ebitda_floor(quarter_index: int) -> Optional[float]:
+  try:
+    quarter_int = int(quarter_index or 0)
+  except Exception:
+    quarter_int = 0
+  if quarter_int >= 5:
+    return 0.0
+  return None
+
+
+def _default_controller_directives(*, severity: str) -> Dict[str, Any]:
+  normalized_severity = str(severity or "").strip().lower()
+  if normalized_severity == "severe":
+    return {
+      "minimum_meaningful_levers": 4,
+      "require_multi_lever_coordination": True,
+      "preserve_capacity_staffing_link": True,
+      "preserve_price_demand_link": True,
+      "preserve_marketing_demand_link": True,
+      "prefer_delay_over_delete": True,
+      "aggression_level": "high",
+      "escalate_on_retry": True,
+      "minimum_package_count": 2,
+    }
+  if normalized_severity == "moderate":
+    return {
+      "minimum_meaningful_levers": 2,
+      "require_multi_lever_coordination": True,
+      "preserve_capacity_staffing_link": True,
+      "preserve_price_demand_link": True,
+      "preserve_marketing_demand_link": True,
+      "prefer_delay_over_delete": True,
+      "aggression_level": "moderate",
+      "escalate_on_retry": False,
+      "minimum_package_count": 2,
+    }
+  return {
+    "minimum_meaningful_levers": 1,
+    "require_multi_lever_coordination": False,
+    "preserve_capacity_staffing_link": True,
+    "preserve_price_demand_link": True,
+    "preserve_marketing_demand_link": True,
+    "prefer_delay_over_delete": True,
+    "aggression_level": "low",
+    "escalate_on_retry": False,
+    "minimum_package_count": 1,
+  }
+
+
 def _format_gap_ranges(gaps: List[tuple[int, int]]) -> List[str]:
   labels: List[str] = []
   for start, end in gaps:
@@ -265,6 +359,18 @@ def _target_covers_quarter(targets: List[Dict[str, Any]], *, line_item: str, qua
     if start_int <= quarter_index <= end_int:
       return True
   return False
+
+
+def _target_spans_for_line_item(targets: List[Dict[str, Any]], *, line_item: str) -> List[tuple[int, int]]:
+  wanted = str(line_item or "").strip().lower()
+  spans: List[tuple[int, int]] = []
+  for item in targets:
+    if not isinstance(item, dict):
+      continue
+    if str(item.get("line_item") or "").strip().lower() != wanted:
+      continue
+    spans.append(_normalize_quarter_span(item))
+  return spans
 
 
 def _selection_coverage_issues(
@@ -300,35 +406,17 @@ def _selection_coverage_issues(
         f"lever_adjustment_plan_missing_coverage::{lever_id}::" + ",".join(_format_gap_ranges(gaps))
       )
 
-  governed_group_end_quarters = sorted({end for _start, end in governed_spans})
-  missing_ebitda_targets = [
-    quarter_index
-    for quarter_index in governed_group_end_quarters
-    if not _target_covers_quarter(controlled_output_targets, line_item="EBITDA", quarter_index=quarter_index)
-  ]
-  if missing_ebitda_targets:
+  ebitda_target_gaps = _coverage_gaps(_target_spans_for_line_item(controlled_output_targets, line_item="EBITDA"))
+  if ebitda_target_gaps:
     issues.append(
-      "controlled_output_targets_missing_ebitda_group_end_coverage:" + ",".join(f"Q{item}" for item in missing_ebitda_targets)
+      "controlled_output_targets_missing_ebitda_full_coverage:" + ",".join(_format_gap_ranges(ebitda_target_gaps))
     )
 
   if active_revenue_lever_present:
-    missing_revenue_targets = [
-      quarter_index
-      for quarter_index in governed_group_end_quarters
-      if not _target_covers_quarter(controlled_output_targets, line_item="Revenue", quarter_index=quarter_index)
-    ]
-    if missing_revenue_targets:
+    revenue_target_gaps = _coverage_gaps(_target_spans_for_line_item(controlled_output_targets, line_item="Revenue"))
+    if revenue_target_gaps:
       issues.append(
-        "controlled_output_targets_missing_revenue_group_end_coverage:" + ",".join(f"Q{item}" for item in missing_revenue_targets)
-      )
-  severity = str(selection.get("severity_class") or "").strip().lower()
-  if severity in {"moderate", "severe"}:
-    governed_group_end_quarters = sorted({end for _start, end in governed_spans})
-    expected_group_ends = [4, 8, 12, 16, 20]
-    if len(governed_group_end_quarters) < len(expected_group_ends):
-      issues.append(
-        f"governed_period_groups_too_coarse::{severity}::expected_group_ends="
-        + ",".join(f"Q{item}" for item in expected_group_ends)
+        "controlled_output_targets_missing_revenue_full_coverage:" + ",".join(_format_gap_ranges(revenue_target_gaps))
       )
   return issues
 
@@ -625,6 +713,239 @@ def _ebitda_target_feasibility_issues(
   return issues
 
 
+def _ebitda_viability_floor_issues(
+  *,
+  controlled_output_targets: List[Dict[str, Any]],
+) -> List[str]:
+  issues: List[str] = []
+  for raw_target in controlled_output_targets:
+    if not isinstance(raw_target, dict):
+      continue
+    if str(raw_target.get("line_item") or "").strip().lower() != "ebitda":
+      continue
+    target_min = raw_target.get("min_value")
+    if target_min in {None, ""}:
+      continue
+    try:
+      target_min_float = float(target_min or 0.0)
+    except Exception:
+      continue
+    q_start, q_end = _normalize_quarter_span(raw_target)
+    violated_quarters: List[int] = []
+    for quarter_index in range(q_start, q_end + 1):
+      viability_floor = _minimum_acceptable_ebitda_floor(quarter_index)
+      if viability_floor is None:
+        continue
+      if target_min_float < viability_floor:
+        violated_quarters.append(quarter_index)
+    if violated_quarters:
+      issues.append(
+        "controlled_output_targets_below_minimum_viability_floor::"
+        + ",".join(f"Q{quarter_index}" for quarter_index in violated_quarters)
+        + f"::line_item=EBITDA::min={round(target_min_float, 6)}::required_min=0.0"
+      )
+  return issues
+
+
+def _normalize_posture_text(value: Any) -> str:
+  return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _phase_ebitda_posture(target_posture: Dict[str, Any], *, quarter_start: int) -> str:
+  if quarter_start <= 4:
+    return _normalize_posture_text(target_posture.get("year1_ebitda_posture"))
+  if quarter_start <= 8:
+    return _normalize_posture_text(target_posture.get("year2_ebitda_posture"))
+  return _normalize_posture_text(target_posture.get("year3_ebitda_posture"))
+
+
+def _financial_metric_envelope_by_quarter(
+  *,
+  lever_plan: List[Dict[str, Any]],
+  fixed_facts: Dict[str, Any],
+  metric_key: str,
+) -> tuple[Dict[int, float], Dict[int, float]]:
+  model_input_json = (fixed_facts.get("model_input_json") or {}) if isinstance(fixed_facts.get("model_input_json"), dict) else {}
+  if not model_input_json:
+    return {}, {}
+  try:
+    baseline_book = FinancialModelInputs.from_model_input_json(model_input_json)
+    best_case_book = FinancialModelInputs.from_model_input_json(model_input_json)
+  except Exception:
+    return {}, {}
+
+  try:
+    baseline_rows = {}
+    for item in calculate_finmo_model(baseline_book).quarter_rows():
+      if not isinstance(item, dict):
+        continue
+      try:
+        baseline_rows[int(item.get("quarter_index") or 0)] = float(item.get(metric_key) or 0.0)
+      except Exception:
+        continue
+  except Exception:
+    baseline_rows = {}
+
+  for quarter_index in range(1, 21):
+    for raw_item in lever_plan:
+      if not isinstance(raw_item, dict):
+        continue
+      lever_id = str(raw_item.get("lever_id") or "").strip()
+      if not lever_id:
+        continue
+      start_int, end_int = _normalize_quarter_span(raw_item)
+      if not (start_int <= quarter_index <= end_int):
+        continue
+      best_case_value = _best_case_ebitda_value_for_plan(lever_id, raw_item)
+      if best_case_value is None:
+        continue
+      _set_model_input_lever_value(
+        best_case_book,
+        lever_id=lever_id,
+        quarter_index=quarter_index,
+        value=best_case_value,
+      )
+
+  try:
+    best_rows = {}
+    for item in calculate_finmo_model(best_case_book).quarter_rows():
+      if not isinstance(item, dict):
+        continue
+      try:
+        best_rows[int(item.get("quarter_index") or 0)] = float(item.get(metric_key) or 0.0)
+      except Exception:
+        continue
+  except Exception:
+    best_rows = {}
+  return baseline_rows, best_rows
+
+
+def _derive_app_owned_ebitda_targets(
+  *,
+  lever_plan: List[Dict[str, Any]],
+  target_posture: Dict[str, Any],
+  fixed_facts: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  if not isinstance(target_posture, dict) or not target_posture:
+    return []
+  baseline_by_quarter, best_by_quarter = _financial_metric_envelope_by_quarter(
+    lever_plan=lever_plan,
+    fixed_facts=fixed_facts,
+    metric_key="ebitda",
+  )
+  if not baseline_by_quarter or not best_by_quarter:
+    return []
+
+  derived_targets: List[Dict[str, Any]] = []
+  for group in _fixed_governed_period_groups():
+    q_start, q_end = _normalize_quarter_span(group)
+    baseline_values = [baseline_by_quarter.get(quarter_index, 0.0) for quarter_index in range(q_start, q_end + 1)]
+    best_values = [best_by_quarter.get(quarter_index, 0.0) for quarter_index in range(q_start, q_end + 1)]
+    baseline_avg = sum(baseline_values) / max(1, len(baseline_values))
+    best_avg = sum(best_values) / max(1, len(best_values))
+    posture = _phase_ebitda_posture(target_posture, quarter_start=q_start)
+    viability_floor = _minimum_acceptable_ebitda_floor(q_start)
+
+    if viability_floor is None:
+      improvement = max(0.0, best_avg - baseline_avg)
+      min_value = baseline_avg + (0.25 * improvement)
+      max_value = baseline_avg + (0.75 * improvement)
+      if max_value < min_value:
+        max_value = min_value
+    else:
+      if best_avg <= viability_floor:
+        min_value = viability_floor
+        max_value = viability_floor
+      elif "profit" in posture or "positive" in posture:
+        min_value = max(viability_floor, best_avg * 0.25)
+        max_value = max(min_value, best_avg * 0.75)
+      elif "break" in posture:
+        min_value = viability_floor
+        max_value = max(min_value, best_avg * 0.5)
+      else:
+        min_value = viability_floor
+        max_value = max(min_value, best_avg * 0.35)
+
+    derived_targets.append(
+      {
+        "line_item": "EBITDA",
+        "quarter_start": q_start,
+        "quarter_end": q_end,
+        "min_value": round(float(min_value), 6),
+        "max_value": round(float(max_value), 6),
+        "rationale": (
+          "Application-derived EBITDA band from target_posture and the current reachable envelope. "
+          f"Phase posture={posture or 'unspecified'}, baseline_avg={round(baseline_avg, 2)}, best_case_avg={round(best_avg, 2)}."
+        ),
+      }
+    )
+  return derived_targets
+
+
+def _derive_app_owned_revenue_targets(
+  *,
+  lever_plan: List[Dict[str, Any]],
+  target_posture: Dict[str, Any],
+  fixed_facts: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  if not any(str(item.get("lever_id") or "").strip().startswith("revenue::") for item in lever_plan if isinstance(item, dict)):
+    return []
+  baseline_by_quarter, best_by_quarter = _financial_metric_envelope_by_quarter(
+    lever_plan=lever_plan,
+    fixed_facts=fixed_facts,
+    metric_key="revenue",
+  )
+  if not baseline_by_quarter or not best_by_quarter:
+    return []
+  demand_posture = _normalize_posture_text((target_posture or {}).get("demand_posture"))
+  scale_low = 0.25 if "steady" in demand_posture or "maint" in demand_posture else 0.35
+  scale_high = 0.7 if "steady" in demand_posture or "maint" in demand_posture else 0.85
+  derived_targets: List[Dict[str, Any]] = []
+  for group in _fixed_governed_period_groups():
+    q_start, q_end = _normalize_quarter_span(group)
+    baseline_values = [baseline_by_quarter.get(quarter_index, 0.0) for quarter_index in range(q_start, q_end + 1)]
+    best_values = [best_by_quarter.get(quarter_index, 0.0) for quarter_index in range(q_start, q_end + 1)]
+    baseline_avg = sum(baseline_values) / max(1, len(baseline_values))
+    best_avg = sum(best_values) / max(1, len(best_values))
+    improvement = max(0.0, best_avg - baseline_avg)
+    min_value = baseline_avg + (scale_low * improvement)
+    max_value = baseline_avg + (scale_high * improvement)
+    if max_value < min_value:
+      max_value = min_value
+    derived_targets.append(
+      {
+        "line_item": "Revenue",
+        "quarter_start": q_start,
+        "quarter_end": q_end,
+        "min_value": round(float(min_value), 6),
+        "max_value": round(float(max_value), 6),
+        "rationale": (
+          "Application-derived Revenue band from the current reachable envelope and demand posture. "
+          f"demand_posture={demand_posture or 'unspecified'}, baseline_avg={round(baseline_avg, 2)}, best_case_avg={round(best_avg, 2)}."
+        ),
+      }
+    )
+  return derived_targets
+
+
+def _package_escalation_issues(
+  *,
+  lever_plan: List[Dict[str, Any]],
+  coverage_issues: List[str],
+) -> List[str]:
+  issues: List[str] = []
+  has_ebitda_infeasibility = any(str(item or "").startswith("controlled_output_targets_infeasible_ebitda::") for item in (coverage_issues or []))
+  has_capacity_lever = any(
+    str(item.get("lever_id") or "").strip().endswith("::Capacity")
+    and str(item.get("direction") or "").strip().lower() != "hold"
+    for item in lever_plan
+    if isinstance(item, dict)
+  )
+  if has_ebitda_infeasibility and not has_capacity_lever:
+    issues.append("viability_requires_capacity_lever_or_broader_scale_strategy")
+  return issues
+
+
 def _merge_retry_context(
   prior_retry_context: Optional[Dict[str, Any]],
   *,
@@ -758,6 +1079,7 @@ def _normalize_strategy_selection_contract(
     for item in (selection.get("forbidden_model_input_levers") or [])
     if str(item or "").strip() in valid_levers and str(item or "").strip() not in allowed_set
   ]
+  severity = str(selection.get("severity_class") or "").strip().lower()
   normalized_plan: List[Dict[str, Any]] = []
   for raw_item in (selection.get("lever_adjustment_plan") or []):
     if not isinstance(raw_item, dict):
@@ -775,30 +1097,10 @@ def _normalize_strategy_selection_contract(
       }
     )
   normalized["lever_adjustment_plan"] = normalized_plan
-  normalized_groups: List[Dict[str, Any]] = []
-  for raw_group in (selection.get("governed_period_groups") or []):
-    if not isinstance(raw_group, dict):
-      continue
-    start_int, end_int = _normalize_quarter_span(raw_group)
-    raw_granularity = str(raw_group.get("input_granularity") or "").strip().lower()
-    input_granularity = raw_granularity if raw_granularity in {"grouped", "quarterly"} else "grouped"
-    quarterly_expansion_levers = [
-      str(item or "").strip()
-      for item in (raw_group.get("quarterly_expansion_levers") or [])
-      if str(item or "").strip() in allowed_set
-    ]
-    normalized_groups.append(
-      {
-        **raw_group,
-        "quarter_start": start_int,
-        "quarter_end": end_int,
-        "input_granularity": input_granularity,
-        "quarterly_expansion_levers": quarterly_expansion_levers,
-      }
-    )
+  normalized_groups = _fixed_governed_period_groups()
   normalized["governed_period_groups"] = normalized_groups
   valid_line_items = set(_valid_finmo_line_items(fixed_facts))
-  normalized_targets: List[Dict[str, Any]] = []
+  raw_normalized_targets: List[Dict[str, Any]] = []
   for raw_target in (selection.get("controlled_output_targets") or []):
     if not isinstance(raw_target, dict):
       continue
@@ -806,7 +1108,7 @@ def _normalize_strategy_selection_contract(
     if line_item not in valid_line_items:
       continue
     start_int, end_int = _normalize_quarter_span(raw_target)
-    normalized_targets.append(
+    raw_normalized_targets.append(
       {
         **raw_target,
         "line_item": line_item,
@@ -814,7 +1116,46 @@ def _normalize_strategy_selection_contract(
         "quarter_end": end_int,
       }
     )
+  target_posture = selection.get("target_posture") if isinstance(selection.get("target_posture"), dict) else {}
+  derived_ebitda_targets = _derive_app_owned_ebitda_targets(
+    lever_plan=normalized_plan,
+    target_posture=target_posture,
+    fixed_facts=fixed_facts or {},
+  )
+  derived_revenue_targets = _derive_app_owned_revenue_targets(
+    lever_plan=normalized_plan,
+    target_posture=target_posture,
+    fixed_facts=fixed_facts or {},
+  )
+  normalized_targets = [
+    item for item in raw_normalized_targets
+    if str(item.get("line_item") or "").strip().lower() not in {"ebitda", "revenue"}
+  ]
+  if derived_ebitda_targets:
+    normalized_targets.extend(derived_ebitda_targets)
+  else:
+    normalized_targets.extend(
+      item for item in raw_normalized_targets
+      if str(item.get("line_item") or "").strip().lower() == "ebitda"
+    )
+  if derived_revenue_targets:
+    normalized_targets.extend(derived_revenue_targets)
+  else:
+    normalized_targets.extend(
+      item for item in raw_normalized_targets
+      if str(item.get("line_item") or "").strip().lower() == "revenue"
+    )
   normalized["controlled_output_targets"] = normalized_targets
+  directives = selection.get("controller_directives") if isinstance(selection.get("controller_directives"), dict) else {}
+  app_owned_directives = _default_controller_directives(severity=severity)
+  normalized["controller_directives"] = {
+    **app_owned_directives,
+    **{
+      key: directives.get(key)
+      for key in ("require_multi_lever_coordination", "preserve_capacity_staffing_link", "preserve_price_demand_link", "preserve_marketing_demand_link", "prefer_delay_over_delete")
+      if directives.get(key) is not None
+    },
+  }
   normalized["coverage_issues"] = _selection_coverage_issues(
     selection=selection,
     lever_plan=normalized_plan,
@@ -833,6 +1174,17 @@ def _normalize_strategy_selection_contract(
       lever_plan=normalized_plan,
       controlled_output_targets=normalized_targets,
       fixed_facts=fixed_facts or {},
+    )
+  )
+  normalized["coverage_issues"].extend(
+    _ebitda_viability_floor_issues(
+      controlled_output_targets=normalized_targets,
+    )
+  )
+  normalized["coverage_issues"].extend(
+    _package_escalation_issues(
+      lever_plan=normalized_plan,
+      coverage_issues=normalized["coverage_issues"],
     )
   )
   normalized["coverage_issues"].extend(_blueprint_contract_issues(normalized))
@@ -959,53 +1311,6 @@ def _schema() -> Dict[str, Any]:
           "items": {"type": "string"},
           "maxItems": 24,
         },
-        "controller_directives": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "minimum_meaningful_levers": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
-            "require_multi_lever_coordination": {"type": ["boolean", "null"]},
-            "preserve_capacity_staffing_link": {"type": ["boolean", "null"]},
-            "preserve_price_demand_link": {"type": ["boolean", "null"]},
-            "preserve_marketing_demand_link": {"type": ["boolean", "null"]},
-            "prefer_delay_over_delete": {"type": ["boolean", "null"]},
-            "aggression_level": {"type": ["string", "null"], "enum": ["low", "moderate", "high", None]},
-            "escalate_on_retry": {"type": ["boolean", "null"]},
-            "minimum_package_count": {"type": ["integer", "null"], "minimum": 1, "maximum": 4},
-          },
-          "required": [
-            "minimum_meaningful_levers",
-            "require_multi_lever_coordination",
-            "preserve_capacity_staffing_link",
-            "preserve_price_demand_link",
-            "preserve_marketing_demand_link",
-            "prefer_delay_over_delete",
-            "aggression_level",
-            "escalate_on_retry",
-            "minimum_package_count",
-          ],
-        },
-        "governed_period_groups": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-              "quarter_start": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
-              "quarter_end": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
-              "objective": {"type": ["string", "null"]},
-              "input_granularity": {"type": ["string", "null"], "enum": ["grouped", "quarterly", None]},
-              "quarterly_expansion_levers": {
-                "type": ["array", "null"],
-                "items": {"type": "string"},
-                "maxItems": 24,
-              },
-              "rationale": {"type": "string"},
-            },
-            "required": ["quarter_start", "quarter_end", "objective", "input_granularity", "quarterly_expansion_levers", "rationale"],
-          },
-          "maxItems": 8,
-        },
         "lever_adjustment_plan": {
           "type": "array",
           "items": {
@@ -1122,8 +1427,6 @@ def _schema() -> Dict[str, Any]:
         "scaling_model_summary",
         "allowed_model_input_levers",
         "forbidden_model_input_levers",
-        "controller_directives",
-        "governed_period_groups",
         "lever_adjustment_plan",
         "controlled_output_targets",
         "target_posture",
@@ -1176,6 +1479,124 @@ def _validation_schema() -> Dict[str, Any]:
   }
 
 
+def _strategy_system_prompts() -> List[str]:
+  return [
+    (
+      "You are the governor for a business-plan realism and repair engine.\n"
+      "\n"
+      "Mission:\n"
+      "Build a believable viable business over 20 quarters, not a cosmetic improvement and not a fake spreadsheet win.\n"
+      "Choose the best 1 or 2 strategy ids from the provided bounded strategy catalog.\n"
+      "Do not invent new strategy ids.\n"
+      "\n"
+      "Thinking Standard:\n"
+      "Reason like a serious operator and investor reviewing a flawed plan.\n"
+      "Use the full business picture: persisted intake facts, consultant outputs, baseline_summary, model_input_view, finmo_view, retry_context, and your own real-world knowledge of how this business type should actually operate.\n"
+      "diagnosis contains the upstream toolset selector. Treat diagnosis.preferred_strategy_ids as the default toolset shortlist and diagnosis.toolset_selector_reason as the reason those toolsets were prioritized.\n"
+      "The persisted SQL state is the client's stated plan and starting point, not the truth. Challenge unrealistic pricing, compensation, staffing, utilization, growth, margin, and timing assumptions when they are not believable.\n"
+      "If the baseline is implausibly weak, stabilize it. If it is implausibly strong, normalize it. Do not simply preserve client optimism.\n"
+      "Avoid long negative paths. A repaired business may still have early pressure, but multi-year flat or worsening losses are usually unacceptable unless the business facts truly force that outcome.\n"
+      "If the business is structurally unprofitable, unrealistic, or failing to converge toward a believable steady state, you must prescribe a coordinated multi-lever restructuring that creates a plausible path to viability.\n"
+      "In those cases, do not return incremental, cosmetic, timid, or overly conservative adjustments that leave the business failing.\n"
+      "For severe cases, do not settle into a stable negative-EBITDA story while a broader preferred toolset remains available in diagnosis.preferred_strategy_ids.\n"
+      "If a capacity-enabled or growth-supporting preferred strategy is available, you should use it unless the business facts make it clearly incompatible.\n"
+      "A valid repair must materially change the operating structure when needed, coordinate multiple levers across revenue, staffing, utilization, and cost, and produce a believable path toward breakeven or acceptable margins within a reasonable timeframe for the business type and stage.\n"
+      "\n"
+      "Shared Language Contract:\n"
+      "You may only prescribe controllable levers using exact Model Inputs workbook lever ids from strategy_catalog.allowed_model_input_levers.\n"
+      "Use strategy_catalog.allowed_model_input_lever_details to understand what each workbook lever means, whether it is a ratio or direct input, which full quarters it may control, and whether it belongs to revenue, expenses, balance sheet, or schedules.\n"
+      "Do not invent lever names, abstractions, synonyms, or old solver-family vocabulary.\n"
+      "When prescribing a lever, speak in the exact workbook language shown in model_input_view. Controller is not allowed to infer synonyms later.\n"
+      "forbidden_model_input_levers are workbook levers that should stay mostly untouched for this case.\n"
+      "\n"
+      "Revenue Reasoning:\n"
+      "Read the revenue section carefully. Revenue levers are scoped by line of business and product, not just by generic driver name.\n"
+      "Reason explicitly about LOB, product, capacity, unit price, and utilization together.\n"
+      "Do not change revenue drivers in a way that breaks business logic. Price, utilization, capacity, demand pacing, and staffing support must still fit together.\n"
+      "If child products exist, preserve child-first reasoning. Parent behavior should emerge from children rather than replacing them.\n"
+      "Lever impact contract: Unit Price and Utilization change revenue only within the currently available capacity. Material revenue expansion requires an explicit Capacity lever or another true volume lever. Cost levers like COGS, Payroll, Marketing, and G&A do not themselves increase revenue.\n"
+      "Do not prescribe revenue targets above what the active revenue levers can physically produce over the governed quarter.\n"
+      "\n"
+      "Cost and Compensation Reasoning:\n"
+      "Treat payroll, founder pay, leadership compensation, planned hires, marketing, COGS, G&A, lease, interest, depreciation, and taxes as business design choices, not sacred inputs.\n"
+      "If compensation is economically unrealistic, you may cut it, defer it, or phase it back in later.\n"
+      "If inferred or planned roles are not supportable, delay them, reduce them, or reshape the operating model so the staffing plan becomes believable.\n"
+      "If you defer staffing or compensation, the rest of the business must stay coherent: capacity, utilization, growth pacing, support overhead, and demand build must still make sense.\n"
+      "\n"
+      "Time Horizon and Grouping:\n"
+      "You are governing Quarter 1 through Quarter 20.\n"
+      "The application owns the fixed five governed phase groups across the horizon: Q1-Q4, Q5-Q8, Q9-Q12, Q13-Q16, and Q17-Q20.\n"
+      "Do not spend effort inventing alternative groupings. The application will apply the fixed period structure.\n"
+      "Use exact timing inside your lever_adjustment_plan and controlled_output_targets against that fixed five-block horizon.\n"
+      "You must decide when changes start, when they stop, when capacity expands, when roles release, when demand builds, when milestones activate, and when support overhead steps up because scale is real.\n"
+      "\n"
+      "Bands and Targets:\n"
+      "Use exact timing but mostly bounded ranges for controllable inputs. Do not pin exact values unless something truly must be fixed.\n"
+      "Controller needs room to solve numerically inside your bands. If you pin everything exactly, Solver becomes ineffective and feasibility collapses.\n"
+      "For every lever you activate in lever_adjustment_plan, you must provide explicit numeric phase coverage through Quarter 20 with no uncovered gaps. If a lever should stabilize, hold, or revert later, you must still express that later phase explicitly rather than stopping early.\n"
+      "controlled_output_targets should usually be bands by quarter group or year phase, not brittle point targets.\n"
+      "The application derives EBITDA and Revenue target bands from your target_posture and lever package. Do not spend effort hand-authoring EBITDA or Revenue bands.\n"
+      "Use controlled_output_targets only for additional non-EBITDA, non-Revenue outputs when they are genuinely important to the business logic, such as cash constraints.\n"
+      "Any controlled_output_targets you do provide must use Financial Model QTR dollar values for the specified quarter. Do not use margins, percentages, ratios, or annualized values.\n"
+      "Use Financial Model QTR line items like Revenue, EBITDA, Gross Profit, Net Income, Cash, Total Assets, or Total Liabilities & Equity.\n"
+      "\n"
+      "Controller Handoff:\n"
+      "Controller is an execution layer, not a co-strategist.\n"
+      "Your output must be specific enough that controller only has to translate your workbook lever plan into Excel Solver changing-cell instructions and stay within your bands.\n"
+      "Do not rely on hidden controller heuristics or global envelope overrides. You are the source of business logic, timing, and bounds.\n"
+      "The application owns baseline controller directives/posture for all cases. Focus your judgment on lever selection, lever bands, output targets, and release/build logic.\n"
+      "\n"
+      "Required Output Content:\n"
+      "Return a full viability blueprint, not just strategy ids.\n"
+      "You must explain the business_model_assessment, secondary_causes, allowed_model_input_levers, forbidden_model_input_levers, lever_adjustment_plan, controlled_output_targets, target_posture, viability_blueprint_summary, scaling_model_summary, capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, and outer_year_margin_logic.\n"
+      "Do not rely on controller to invent business logic later. Business logic must be fully expressed through lever_adjustment_plan, target_posture, any additional controlled_output_targets for non-EBITDA/non-Revenue outputs, and the release/build plans.\n"
+      "A blueprint with uncovered lever periods or uncovered target periods is invalid.\n"
+      "Application-owned minimum saleability floor: the application will derive EBITDA targets and will not accept a Year 2+ path below breakeven.\n"
+      "\n"
+      "Severity and Retry:\n"
+      "Classify case severity as mild, moderate, or severe and explain why in severity_reason.\n"
+      "Set minimum_package_strength to light, moderate, or strong.\n"
+      "The application owns controller posture for all cases. You do not need to emit controller_directives or governed_period_groups.\n"
+      "If the workbook view shows a structurally broken case, you must return a severe blueprint with a strong multi-lever repair package and materially different lever bands or target posture than a weak baseline plan.\n"
+      "When severity_class is moderate or severe, you must use at least one revenue-side lever, at least one cost-side or staffing lever, include both early-phase and outer-year changes, and produce a non-flat trajectory.\n"
+      "Do not return single-lever or weak adjustments in moderate or severe cases unless the business facts make that the only believable path.\n"
+      "For severe cases, do not return a polite or modest plan. Return a strong but realistic multi-lever restructuring path.\n"
+      "For severe cases, lever_adjustment_plan must cover at least four meaningful workbook levers, include at least one revenue-side lever and at least one cost-side lever, and include both an early-phase action and an outer-year action.\n"
+      "When a business is structurally broken, you are expected to make decisive but believable moves, not small adjustments that preserve failure.\n"
+      "Use retry_context carefully. On retry, do not just rename the same weak strategy. Change the lever package, bounds, timing, or target path enough to materially improve solvability.\n"
+      "If retry_context.escalation_required is true, the prior attempts still produced all-negative degrading five-year paths. In that case, do not repeat the same strategy story. Materially strengthen the operating plan, growth architecture, and target posture.\n"
+      "\n"
+      "Believability Rules:\n"
+      "Business type and business stage matter materially when deciding what is realistic.\n"
+      "If a business is badly broken, do not rely on a single lever unless a single-lever repair is truly believable.\n"
+      "Choose strategies that keep the business believable, preserve the original plan where possible, and avoid nonsense even when Solver could technically force the numbers.\n"
+      "Return JSON only."
+    ),
+    (
+      "You are rescuing a failed strategy-selection attempt for a business-plan realism and repair engine.\n"
+      "The previous strategy choice did not produce a viable repair, or selection output was missing.\n"
+      "You must still choose 1 or 2 strategy ids from the provided catalog.\n"
+      "Do not return an empty selection.\n"
+      "Use retry_context to avoid repeating the same failed strategy story.\n"
+      "If retry_context.coverage_issues is present, you must explicitly repair those numeric gaps.\n"
+      "Do not return another blueprint with uncovered lever periods, missing controlled_output_targets, or output-target coverage gaps anywhere inside Q1-Q20.\n"
+      "A response that still has coverage_issues is invalid.\n"
+      "Pick a different, still-believable operating approach if the previous one missed.\n"
+      "Return JSON only."
+    ),
+    (
+      "You must return a valid strategy selection now.\n"
+      "Select the best 1 or 2 strategy ids from the catalog and provide conservative overrides.\n"
+      "Do not leave selected_strategy_ids empty.\n"
+      "The application will apply the fixed five governed period groups: Q1-Q4, Q5-Q8, Q9-Q12, Q13-Q16, and Q17-Q20.\n"
+      "Every active lever must have explicit phase coverage through Q20, and controlled_output_targets must provide explicit numeric coverage for all governed quarters through Q20.\n"
+      "Do not return another blueprint with coverage gaps.\n"
+      "Prefer believable repair over perfect optimization.\n"
+      "Return JSON only."
+    ),
+  ]
+
+
 def advise_consistency_strategy_selection(
   *,
   baseline_summary: Dict[str, Any],
@@ -1213,6 +1634,7 @@ def advise_consistency_strategy_selection(
   base_user_payload = {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
     "fixed_facts": _sanitize_canonical_live_payload(fixed_facts or {}),
+    "diagnosis": _sanitize_canonical_live_payload(diagnosis or {}),
     "model_input_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("model_input_json") or {}),
     "finmo_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("finmo_json") or {}),
     "viability_mode": bool(viability_mode),
@@ -1221,122 +1643,7 @@ def advise_consistency_strategy_selection(
   if isinstance(retry_context, dict) and retry_context:
     base_user_payload["retry_context"] = _sanitize_canonical_live_payload(retry_context)
 
-  system_prompts = [
-    (
-      "You are the governor for a business-plan realism and repair engine.\n"
-      "\n"
-      "Mission:\n"
-      "Build a believable viable business over 20 quarters, not a cosmetic improvement and not a fake spreadsheet win.\n"
-      "Choose the best 1 or 2 strategy ids from the provided bounded strategy catalog.\n"
-      "Do not invent new strategy ids.\n"
-      "\n"
-      "Thinking Standard:\n"
-      "Reason like a serious operator and investor reviewing a flawed plan.\n"
-      "Use the full business picture: persisted intake facts, consultant outputs, baseline_summary, model_input_view, finmo_view, retry_context, and your own real-world knowledge of how this business type should actually operate.\n"
-      "The persisted SQL state is the client's stated plan and starting point, not the truth. Challenge unrealistic pricing, compensation, staffing, utilization, growth, margin, and timing assumptions when they are not believable.\n"
-      "If the baseline is implausibly weak, stabilize it. If it is implausibly strong, normalize it. Do not simply preserve client optimism.\n"
-      "Avoid long negative paths. A repaired business may still have early pressure, but multi-year flat or worsening losses are usually unacceptable unless the business facts truly force that outcome.\n"
-      "If the business is structurally unprofitable, unrealistic, or failing to converge toward a believable steady state, you must prescribe a coordinated multi-lever restructuring that creates a plausible path to viability.\n"
-      "In those cases, do not return incremental, cosmetic, timid, or overly conservative adjustments that leave the business failing.\n"
-      "A valid repair must materially change the operating structure when needed, coordinate multiple levers across revenue, staffing, utilization, and cost, and produce a believable path toward breakeven or acceptable margins within a reasonable timeframe for the business type and stage.\n"
-      "\n"
-      "Shared Language Contract:\n"
-      "You may only prescribe controllable levers using exact Model Inputs workbook lever ids from strategy_catalog.allowed_model_input_levers.\n"
-      "Use strategy_catalog.allowed_model_input_lever_details to understand what each workbook lever means, whether it is a ratio or direct input, which full quarters it may control, and whether it belongs to revenue, expenses, balance sheet, or schedules.\n"
-      "Do not invent lever names, abstractions, synonyms, or old solver-family vocabulary.\n"
-      "When prescribing a lever, speak in the exact workbook language shown in model_input_view. Controller is not allowed to infer synonyms later.\n"
-      "forbidden_model_input_levers are workbook levers that should stay mostly untouched for this case.\n"
-      "\n"
-      "Revenue Reasoning:\n"
-      "Read the revenue section carefully. Revenue levers are scoped by line of business and product, not just by generic driver name.\n"
-      "Reason explicitly about LOB, product, capacity, unit price, and utilization together.\n"
-      "Do not change revenue drivers in a way that breaks business logic. Price, utilization, capacity, demand pacing, and staffing support must still fit together.\n"
-      "If child products exist, preserve child-first reasoning. Parent behavior should emerge from children rather than replacing them.\n"
-      "Lever impact contract: Unit Price and Utilization change revenue only within the currently available capacity. Material revenue expansion requires an explicit Capacity lever or another true volume lever. Cost levers like COGS, Payroll, Marketing, and G&A do not themselves increase revenue.\n"
-      "Do not prescribe revenue targets above what the active revenue levers can physically produce over the governed quarter.\n"
-      "\n"
-      "Cost and Compensation Reasoning:\n"
-      "Treat payroll, founder pay, leadership compensation, planned hires, marketing, COGS, G&A, lease, interest, depreciation, and taxes as business design choices, not sacred inputs.\n"
-      "If compensation is economically unrealistic, you may cut it, defer it, or phase it back in later.\n"
-      "If inferred or planned roles are not supportable, delay them, reduce them, or reshape the operating model so the staffing plan becomes believable.\n"
-      "If you defer staffing or compensation, the rest of the business must stay coherent: capacity, utilization, growth pacing, support overhead, and demand build must still make sense.\n"
-      "\n"
-      "Time Horizon and Grouping:\n"
-      "You are governing Quarter 1 through Quarter 20.\n"
-      "Use exact timing and mostly grouped quarter phases, not twenty fully independent quarter decisions by default.\n"
-      "Default to five governed phase groups across the horizon: Q1-Q4, Q5-Q8, Q9-Q12, Q13-Q16, and Q17-Q20.\n"
-      "Use fewer than five groups only for truly mild or unusually stable cases, and explain why implicitly through the blueprint.\n"
-      "Use finer quarter-level control only when the business logic truly requires it.\n"
-      "Each governed_period_group must declare input_granularity as grouped or quarterly.\n"
-      "governed_period_groups must cover the full horizon from Quarter 1 through Quarter 20 with no uncovered gaps.\n"
-      "If a group is grouped, controller must keep that phase tied unless you explicitly authorize specific quarterly_expansion_levers for that group.\n"
-      "Do not assume controller will decide where to expand or break phases apart. If quarter-level freedom is needed, you must authorize it explicitly.\n"
-      "You must decide when changes start, when they stop, when capacity expands, when roles release, when demand builds, when milestones activate, and when support overhead steps up because scale is real.\n"
-      "\n"
-      "Bands and Targets:\n"
-      "Use exact timing but mostly bounded ranges for controllable inputs. Do not pin exact values unless something truly must be fixed.\n"
-      "Controller needs room to solve numerically inside your bands. If you pin everything exactly, Solver becomes ineffective and feasibility collapses.\n"
-      "For every lever you activate in lever_adjustment_plan, you must provide explicit numeric phase coverage through Quarter 20 with no uncovered gaps. If a lever should stabilize, hold, or revert later, you must still express that later phase explicitly rather than stopping early.\n"
-      "controlled_output_targets should usually be bands by quarter group or year phase, not brittle point targets.\n"
-      "controlled_output_targets must provide explicit numeric coverage through Quarter 20. At minimum, include EBITDA targets at the ending quarter of every governed_period_group, and if any revenue lever is active, include Revenue targets at the ending quarter of every governed_period_group.\n"
-      "All controlled_output_targets must use Financial Model QTR dollar values for the specified quarter. Do not use margins, percentages, ratios, or annualized values for EBITDA or Revenue targets.\n"
-      "Use Financial Model QTR line items like Revenue, EBITDA, Gross Profit, Net Income, Cash, Total Assets, or Total Liabilities & Equity.\n"
-      "\n"
-      "Controller Handoff:\n"
-      "Controller is an execution layer, not a co-strategist.\n"
-      "Your output must be specific enough that controller only has to translate your workbook lever plan into Excel Solver changing-cell instructions and stay within your bands.\n"
-      "Do not rely on hidden controller heuristics or global envelope overrides. You are the source of business logic, timing, and bounds.\n"
-      "Controller directives tell the numeric layer how strictly to preserve causal links like staffing-to-capacity, price-to-demand, and marketing-to-demand.\n"
-      "\n"
-      "Required Output Content:\n"
-      "Return a full viability blueprint, not just strategy ids.\n"
-      "You must explain the business_model_assessment, secondary_causes, allowed_model_input_levers, forbidden_model_input_levers, controller_directives, governed_period_groups, lever_adjustment_plan, controlled_output_targets, target_posture, viability_blueprint_summary, scaling_model_summary, capacity_release_plan, hiring_release_plan, demand_build_plan, milestone_activation_plan, support_overhead_plan, and outer_year_margin_logic.\n"
-      "Do not rely on controller to invent quarter logic later. Quarter logic must be fully expressed through governed_period_groups, lever_adjustment_plan, controlled_output_targets, and the release/build plans.\n"
-      "A blueprint with uncovered lever periods or uncovered target periods is invalid.\n"
-      "\n"
-      "Severity and Retry:\n"
-      "Classify case severity as mild, moderate, or severe and explain why in severity_reason.\n"
-      "Set minimum_package_strength to light, moderate, or strong.\n"
-      "Set controller_directives.aggression_level to low, moderate, or high based on how broken the business is.\n"
-      "If the case is badly broken, set escalate_on_retry=true and require a higher minimum_meaningful_levers and minimum_package_count.\n"
-      "If the workbook view shows a structurally broken case, you must return a severe blueprint: aggression_level=high, escalate_on_retry=true, minimum_package_strength=strong, minimum_meaningful_levers>=4, minimum_package_count>=2, and materially different quarter groups or lever bands.\n"
-      "When severity_class is moderate or severe, you must use at least one revenue-side lever, at least one cost-side or staffing lever, include both early-phase and outer-year changes, and produce a non-flat trajectory.\n"
-      "Do not return single-lever or weak adjustments in moderate or severe cases unless the business facts make that the only believable path.\n"
-      "For severe cases, do not return a polite or modest plan. Return a strong but realistic multi-lever restructuring path.\n"
-      "For severe cases, lever_adjustment_plan must cover at least four meaningful workbook levers, include at least one revenue-side lever and at least one cost-side lever, and include both an early-phase action and an outer-year action.\n"
-      "When a business is structurally broken, you are expected to make decisive but believable moves, not small adjustments that preserve failure.\n"
-      "Use retry_context carefully. On retry, do not just rename the same weak strategy. Change the lever package, bounds, timing, or target path enough to materially improve solvability.\n"
-      "If retry_context.escalation_required is true, the prior attempts still produced all-negative degrading five-year paths. In that case, do not repeat the same strategy story. Materially strengthen the operating plan, growth architecture, and target posture.\n"
-      "\n"
-      "Believability Rules:\n"
-      "Business type and business stage matter materially when deciding what is realistic.\n"
-      "If a business is badly broken, do not rely on a single lever unless a single-lever repair is truly believable.\n"
-      "Choose strategies that keep the business believable, preserve the original plan where possible, and avoid nonsense even when Solver could technically force the numbers.\n"
-      "Return JSON only."
-    ),
-    (
-      "You are rescuing a failed strategy-selection attempt for a business-plan realism and repair engine.\n"
-      "The previous strategy choice did not produce a viable repair, or selection output was missing.\n"
-      "You must still choose 1 or 2 strategy ids from the provided catalog.\n"
-      "Do not return an empty selection.\n"
-      "Use retry_context to avoid repeating the same failed strategy story.\n"
-      "If retry_context.coverage_issues is present, you must explicitly repair those numeric gaps.\n"
-      "Do not return another blueprint with uncovered lever periods, missing controlled_output_targets, or target coverage that stops before Q20.\n"
-      "A response that still has coverage_issues is invalid.\n"
-      "Pick a different, still-believable operating approach if the previous one missed.\n"
-      "Return JSON only."
-    ),
-    (
-      "You must return a valid strategy selection now.\n"
-      "Select the best 1 or 2 strategy ids from the catalog and provide conservative overrides.\n"
-      "Do not leave selected_strategy_ids empty.\n"
-      "Default to five governed phase groups across Q1-Q20 unless the case is truly mild or unusually stable.\n"
-      "Every active lever must have explicit phase coverage through Q20, and controlled_output_targets must provide explicit numeric coverage through Q20.\n"
-      "Do not return another blueprint with coverage gaps.\n"
-      "Prefer believable repair over perfect optimization.\n"
-      "Return JSON only."
-    ),
-  ]
+  system_prompts = _strategy_system_prompts()
 
   last_error: Optional[str] = None
   last_invalid_selection: Dict[str, Any] = {}

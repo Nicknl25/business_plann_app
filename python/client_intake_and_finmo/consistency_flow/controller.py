@@ -180,6 +180,8 @@ def _selection_lever_adjustment_plan(
         "lever_id": lever_id,
         "direction": str(item.get("direction") or "").strip().lower() or "hold",
         "intensity": str(item.get("intensity") or "").strip().lower() or "moderate",
+        "min_value": item.get("min_value"),
+        "max_value": item.get("max_value"),
         "quarter_start": quarter_start,
         "quarter_end": min(20, quarter_end),
         "rationale": str(item.get("rationale") or "").strip(),
@@ -211,41 +213,6 @@ def _selection_allowed_model_input_levers(
   if forbidden:
     allowed = [item for item in allowed if item not in forbidden]
   return _unique_strings(allowed)
-
-
-def _selection_allowed_levers_matching(
-  selection: Dict[str, Any],
-  *,
-  suffix: Optional[str] = None,
-) -> List[str]:
-  allowed = _selection_allowed_model_input_levers(selection)
-  if not suffix:
-    return allowed
-  return [item for item in allowed if str(item or "").strip().endswith(suffix)]
-
-
-def _selection_payroll_lever(selection: Dict[str, Any]) -> str:
-  payroll_lever = _simple_lever_id("expenses", "Payroll")
-  allowed = set(_selection_allowed_model_input_levers(selection))
-  return payroll_lever if payroll_lever in allowed else ""
-
-
-def _selection_marketing_lever(selection: Dict[str, Any]) -> str:
-  marketing_lever = _simple_lever_id("expenses", "Marketing")
-  allowed = set(_selection_allowed_model_input_levers(selection))
-  return marketing_lever if marketing_lever in allowed else ""
-
-
-def _selection_ganda_lever(selection: Dict[str, Any]) -> str:
-  ganda_lever = _simple_lever_id("expenses", "General & Administrative")
-  allowed = set(_selection_allowed_model_input_levers(selection))
-  return ganda_lever if ganda_lever in allowed else ""
-
-
-def _selection_cogs_lever(selection: Dict[str, Any]) -> str:
-  cogs_lever = _simple_lever_id("expenses", "Cost of Goods Sold")
-  allowed = set(_selection_allowed_model_input_levers(selection))
-  return cogs_lever if cogs_lever in allowed else ""
 
 
 def _iter_year1_products(financials_year1_json: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -325,16 +292,21 @@ def _build_product_driver_basis(
 def _gpt_blueprint_is_usable(selection: Dict[str, Any]) -> bool:
   if not isinstance(selection, dict):
     return False
+  coverage_issues = [
+    str(item or "").strip()
+    for item in (selection.get("coverage_issues") or [])
+    if str(item or "").strip()
+  ]
+  if coverage_issues:
+    return False
   selected_ids = [str(item or "").strip() for item in (selection.get("selected_strategy_ids") or []) if str(item or "").strip()]
   if not selected_ids:
-    return False
-  target_margin_path = selection.get("target_margin_path")
-  if not isinstance(target_margin_path, dict):
     return False
   allowed_model_input_levers = _unique_strings(selection.get("allowed_model_input_levers") or [])
   lever_plan = _selection_lever_adjustment_plan(selection)
   governed_period_groups = [item for item in (selection.get("governed_period_groups") or []) if isinstance(item, dict)]
-  if not allowed_model_input_levers or not lever_plan or not governed_period_groups:
+  controlled_output_targets = [item for item in (selection.get("controlled_output_targets") or []) if isinstance(item, dict)]
+  if not allowed_model_input_levers or not lever_plan or not governed_period_groups or not controlled_output_targets:
     return False
   plan_levers = {str(item.get("lever_id") or "").strip() for item in lever_plan if str(item.get("direction") or "").strip().lower() != "hold"}
   if not set(allowed_model_input_levers).intersection(plan_levers):
@@ -375,68 +347,62 @@ def _build_strategy_catalog(
       for item in _unique_strings(levers)
       if str(item or "").strip()
     ]
-  price_levers = [item for item in all_levers if item.endswith("::Unit Price")]
-  util_levers = [item for item in all_levers if item.endswith("::Utilization")]
-  capacity_levers = [item for item in all_levers if item.endswith("::Capacity")]
-  marketing = [_simple_lever_id("expenses", "Marketing")]
-  ganda = [_simple_lever_id("expenses", "General & Administrative")]
-  cogs = [_simple_lever_id("expenses", "Cost of Goods Sold")]
-  payroll = [_simple_lever_id("expenses", "Payroll")]
+  all_lever_details = _details(all_levers)
   return [
     {
       "strategy_id": "reality_normalization_strategy",
       "strategy_name": "Reality normalization strategy",
       "archetype": "operations",
-      "allowed_model_input_levers": _unique_strings(price_levers + util_levers + marketing + ganda + payroll),
-      "allowed_model_input_lever_details": _details(price_levers + util_levers + marketing + ganda + payroll),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "normalizes unrealistic upside without pretending the business can over-earn indefinitely",
     },
     {
       "strategy_id": "viability_stabilize",
       "strategy_name": "Viability stabilize",
       "archetype": "operations",
-      "allowed_model_input_levers": _unique_strings(price_levers + util_levers + ganda + payroll + cogs + marketing),
-      "allowed_model_input_lever_details": _details(price_levers + util_levers + ganda + payroll + cogs + marketing),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "restores viable unit economics before outer-year growth",
     },
     {
       "strategy_id": "pricing_adjustment",
       "strategy_name": "Pricing adjustment",
       "archetype": "efficiency",
-      "allowed_model_input_levers": _unique_strings(price_levers + util_levers + cogs + ganda),
-      "allowed_model_input_lever_details": _details(price_levers + util_levers + cogs + ganda),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "leans on repricing and margin repair",
     },
     {
       "strategy_id": "demand_supported_growth",
       "strategy_name": "Demand supported growth",
       "archetype": "growth",
-      "allowed_model_input_levers": _unique_strings(marketing + payroll + price_levers + util_levers + capacity_levers + ganda),
-      "allowed_model_input_lever_details": _details(marketing + payroll + price_levers + util_levers + capacity_levers + ganda),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "builds support and demand together",
     },
     {
       "strategy_id": "staffing_ramp_adjustment",
       "strategy_name": "Staffing ramp adjustment",
       "archetype": "operations",
-      "allowed_model_input_levers": _unique_strings(payroll + util_levers + ganda + price_levers + marketing),
-      "allowed_model_input_lever_details": _details(payroll + util_levers + ganda + price_levers + marketing),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "slows staffing cost until the revenue base catches up",
     },
     {
       "strategy_id": "operational_balance_strategy",
       "strategy_name": "Operational balance strategy",
       "archetype": "operations",
-      "allowed_model_input_levers": _unique_strings(price_levers + util_levers + ganda + payroll + cogs),
-      "allowed_model_input_lever_details": _details(price_levers + util_levers + ganda + payroll + cogs),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "balances economics without a full growth reset",
     },
     {
       "strategy_id": "cost_structure_adjustment",
       "strategy_name": "Cost structure adjustment",
       "archetype": "efficiency",
-      "allowed_model_input_levers": _unique_strings(ganda + cogs + payroll + marketing),
-      "allowed_model_input_lever_details": _details(ganda + cogs + payroll + marketing),
+      "allowed_model_input_levers": _unique_strings(all_levers),
+      "allowed_model_input_lever_details": _clone(all_lever_details),
       "dominant_tradeoff": "reduces cost load first",
     },
     ]
@@ -446,41 +412,18 @@ def _contextualize_deterministic_strategy(
   *,
   template: Dict[str, Any],
   diagnosis: Dict[str, Any],
-  constraint_engine_state: Optional[Dict[str, Any]],
+  diagnostic_state: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  del diagnosis
-  next_strategy = _clone(template)
-  violations = {
-    str(item or "").strip()
-    for item in ((constraint_engine_state or {}).get("violations") or [])
-    if str(item or "").strip()
-  }
-  if "payroll_too_light" not in violations:
-    return next_strategy
-  strategy_id = str(next_strategy.get("strategy_id") or "").strip()
-  price_levers = [item for item in (next_strategy.get("allowed_model_input_levers") or []) if str(item).endswith("::Unit Price")]
-  util_levers = [item for item in (next_strategy.get("allowed_model_input_levers") or []) if str(item).endswith("::Utilization")]
-  marketing_lever = _simple_lever_id("expenses", "Marketing")
-  ganda_lever = _simple_lever_id("expenses", "General & Administrative")
-  payroll_lever = _simple_lever_id("expenses", "Payroll")
-  if strategy_id == "staffing_ramp_adjustment":
-    next_strategy["allowed_model_input_levers"] = _unique_strings(price_levers + util_levers + [ganda_lever, payroll_lever, marketing_lever])
-    next_strategy["dominant_tradeoff"] = "adds support payroll and tempers Year-1 throughput until the cost base is believable"
-  elif strategy_id == "operational_balance_strategy":
-    next_strategy["allowed_model_input_levers"] = _unique_strings(price_levers + util_levers + [ganda_lever, payroll_lever])
-    next_strategy["dominant_tradeoff"] = "normalizes an under-supported plan by adding support cost and easing early throughput"
-  elif strategy_id == "viability_stabilize":
-    next_strategy["allowed_model_input_levers"] = _unique_strings(price_levers + util_levers + [marketing_lever, ganda_lever, payroll_lever])
-    next_strategy["dominant_tradeoff"] = "normalizes Year-1 economics before preserving later growth"
-  return next_strategy
+  del diagnosis, diagnostic_state
+  return _clone(template)
 
 
 def _diagnose_case(
   *,
   baseline_summary: Dict[str, Any],
-  constraint_engine_state: Optional[Dict[str, Any]],
+  diagnostic_state: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  state = diagnostic_state if isinstance(diagnostic_state, dict) else {}
   violations = set(str(item or "").strip() for item in (state.get("violations") or []))
   revenue = max(1.0, _safe_float(baseline_summary.get("revenue")))
   ebitda_margin = _safe_float(baseline_summary.get("ebitda")) / revenue
@@ -509,56 +452,41 @@ def _diagnose_case(
     "ebitda_margin_too_low" in violations
     and not violations.intersection({"payroll_too_light", "payroll_too_heavy", "capacity_unsupported", "utilization_too_low", "gross_margin_too_low"})
   )
-  target_margin_path = {
-    "year1_min": round(max(-0.95, ebitda_margin + 0.22), 4),
-    "year1_max": round(max(-0.75, ebitda_margin + 0.38), 4),
-    "year2_min": round(max(-0.55, ebitda_margin + 0.42), 4),
-    "year2_max": round(max(-0.25, ebitda_margin + 0.58), 4),
-    "year3_min": round(max(-0.18, ebitda_margin + 0.62), 4),
-    "year3_max": round(max(0.02, ebitda_margin + 0.72), 4),
-  }
-  if has_ebitda_band and "payroll_too_light" in violations:
-    year1_min = band_min if band_min or band_min == 0 else max(-0.02, min(ebitda_margin, 0.0))
-    year1_max = band_max if band_max or band_max == 0 else max(year1_min, year1_min + 0.08)
-    target_margin_path = {
-      "year1_min": round(year1_min, 4),
-      "year1_max": round(max(year1_min, year1_max), 4),
-      "year2_min": round(year1_min, 4),
-      "year2_max": round(max(year1_min, year1_max), 4),
-      "year3_min": round(year1_min, 4),
-      "year3_max": round(max(year1_min, year1_max), 4),
-    }
-  if structurally_valid_loss:
-    target_margin_path = {
-      "year1_min": round(max(-0.12, ebitda_margin + 0.03), 4),
-      "year1_max": round(max(0.01, ebitda_margin + 0.08), 4),
-      "year2_min": round(max(-0.04, ebitda_margin + 0.08), 4),
-      "year2_max": round(max(0.08, ebitda_margin + 0.14), 4),
-      "year3_min": round(max(0.02, ebitda_margin + 0.14), 4),
-      "year3_max": round(max(0.14, ebitda_margin + 0.2), 4),
-    }
+  if violations.intersection({"gross_margin_too_high", "ebitda_margin_too_high", "utilization_too_high"}):
+    preferred_strategy_ids = ["reality_normalization_strategy", "pricing_adjustment"]
+  elif severity == "severe":
+    if primary == "payroll-driven":
+      preferred_strategy_ids = ["demand_supported_growth", "staffing_ramp_adjustment"]
+    elif primary == "pricing-driven":
+      preferred_strategy_ids = ["demand_supported_growth", "viability_stabilize"]
+    elif primary == "utilization-driven":
+      preferred_strategy_ids = ["demand_supported_growth", "operational_balance_strategy"]
+    else:
+      preferred_strategy_ids = ["demand_supported_growth", "viability_stabilize"]
+  elif structurally_valid_loss:
+    preferred_strategy_ids = ["viability_stabilize", "operational_balance_strategy"]
+  elif primary == "payroll-driven" and "payroll_too_light" in violations:
+    preferred_strategy_ids = ["staffing_ramp_adjustment", "reality_normalization_strategy"]
+  elif primary == "payroll-driven":
+    preferred_strategy_ids = ["staffing_ramp_adjustment", "operational_balance_strategy"]
+  elif primary == "pricing-driven":
+    preferred_strategy_ids = ["pricing_adjustment", "viability_stabilize"]
+  else:
+    preferred_strategy_ids = ["demand_supported_growth", "operational_balance_strategy"]
   return {
     "primary_cause": primary,
     "severity_class": severity,
     "minimum_package_strength": "strong" if severity == "severe" else "moderate",
-      "preferred_strategy_ids": (
-        ["reality_normalization_strategy", "pricing_adjustment"]
-        if violations.intersection({"gross_margin_too_high", "ebitda_margin_too_high", "utilization_too_high"})
-        else ["viability_stabilize", "operational_balance_strategy"]
-        if structurally_valid_loss
-        else ["staffing_ramp_adjustment", "reality_normalization_strategy"]
-        if primary == "payroll-driven" and "payroll_too_light" in violations
-        else ["staffing_ramp_adjustment", "operational_balance_strategy"]
-        if primary == "payroll-driven"
-        else ["pricing_adjustment", "viability_stabilize"]
-      if primary == "pricing-driven"
-      else ["demand_supported_growth", "operational_balance_strategy"]
+    "preferred_strategy_ids": preferred_strategy_ids,
+    "toolset_selector_reason": (
+      "Severe cases should test materially broader toolsets first. Do not default to loss-minimization while a capacity-enabled or growth-supporting package remains available."
+      if severity == "severe"
+      else "Use the preferred strategy shortlist as the default toolset menu for GPT."
     ),
-    "target_margin_path": target_margin_path,
   }
 
 
-def _build_solver_state_model(
+def _build_consistency_state_model(
   *,
   ops_json: Dict[str, Any],
   target_market_json: Optional[Dict[str, Any]] = None,
@@ -568,17 +496,13 @@ def _build_solver_state_model(
   fulfillment_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]],
   baseline_summary: Dict[str, Any],
-  constraint_engine_state: Optional[Dict[str, Any]],
-  normalized_traits: Optional[Dict[str, Any]] = None,
-  benchmark_payload: Optional[Dict[str, Any]] = None,
+  diagnostic_state: Optional[Dict[str, Any]],
   finmo_path: Optional[str] = None,
   business_facts: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  normalized_traits = normalized_traits if isinstance(normalized_traits, dict) else {}
-  benchmark_payload = benchmark_payload if isinstance(benchmark_payload, dict) else {}
-  state = constraint_engine_state if isinstance(constraint_engine_state, dict) else {}
+  state = diagnostic_state if isinstance(diagnostic_state, dict) else {}
   current_other_opex = _safe_float(baseline_summary.get("other_opex_non_rent"))
   current_marketing = _safe_float(baseline_summary.get("marketing"))
   current_revenue = max(1.0, _safe_float(baseline_summary.get("revenue")))
@@ -589,9 +513,9 @@ def _build_solver_state_model(
     ops_json=ops_json,
   )
   raw_product_count = len(_iter_year1_products(financials_year1_json if isinstance(financials_year1_json, dict) else {}))
-  solve_mode = "child_first" if product_driver_basis and (raw_product_count == 0 or len(product_driver_basis) == raw_product_count) else "parent_fallback"
+  revenue_driver_resolution_mode = "child_first" if product_driver_basis and (raw_product_count == 0 or len(product_driver_basis) == raw_product_count) else "parent_fallback"
   commercial_context = _commercial_context_policy(
-    normalized_traits=normalized_traits,
+    normalized_traits=None,
     ops_json=ops_json,
     current_marketing=current_marketing,
     current_other_opex=current_other_opex,
@@ -638,7 +562,7 @@ def _build_solver_state_model(
   gross_margin_band = state.get("gross_margin_band") if isinstance(state.get("gross_margin_band"), dict) else {}
   cogs_ratio_min = max(0.0, 1.0 - (_safe_float((gross_margin_band or {}).get("max")) or max(0.0, 1.0 - current_cogs_ratio)))
   cogs_ratio_max = min(0.98, 1.0 - (_safe_float((gross_margin_band or {}).get("min")) or max(0.0, 1.0 - current_cogs_ratio)))
-  diagnosis = _diagnose_case(baseline_summary=baseline_summary, constraint_engine_state=state)
+  diagnosis = _diagnose_case(baseline_summary=baseline_summary, diagnostic_state=state)
   return {
     "baseline_summary": _clone(baseline_summary),
     "baseline_state": {
@@ -650,16 +574,14 @@ def _build_solver_state_model(
       "fulfillment_json": _clone(fulfillment_json or {}),
       "marketing_model_json": _clone(marketing_model_json or {}),
     },
-    "constraint_engine_state": _clone(state),
-    "normalized_traits": _clone(normalized_traits),
-    "benchmark_payload": _clone(benchmark_payload),
+    "diagnostic_state": _clone(state),
     "fixed_facts": {
-      "business_type": str(normalized_traits.get("business_type") or ops_json.get("business_type") or "").strip(),
-      "business_stage": str(normalized_traits.get("business_stage") or ops_json.get("business_stage") or "").strip(),
-      "capacity_driver": str(normalized_traits.get("capacity_driver") or ops_json.get("capacity_driver") or "").strip(),
-      "sales_modality": str(normalized_traits.get("sales_modality") or ops_json.get("sales_modality") or "").strip(),
-      "customer_type": str(normalized_traits.get("customer_type") or ops_json.get("customer_type") or "").strip(),
-      "unit_cadence": str(normalized_traits.get("unit_cadence") or ops_json.get("unit_cadence") or "").strip(),
+      "business_type": str(ops_json.get("business_type") or "").strip(),
+      "business_stage": str(ops_json.get("business_stage") or "").strip(),
+      "capacity_driver": str(ops_json.get("capacity_driver") or "").strip(),
+      "sales_modality": str(ops_json.get("sales_modality") or "").strip(),
+      "customer_type": str(ops_json.get("customer_type") or "").strip(),
+      "unit_cadence": str(ops_json.get("unit_cadence") or "").strip(),
       "commercial_context": commercial_context,
       "product_driver_basis": _clone(product_driver_basis),
       "baseline_units_year1": max(
@@ -673,14 +595,14 @@ def _build_solver_state_model(
         (_safe_float((state.get("current_metrics") or {}).get("capacity_units_year1")) if isinstance(state.get("current_metrics"), dict) else 0.0),
       ),
       "current_staff": _clone([item for item in (people_json.get("people") or []) if isinstance(item, dict)]),
-      "constraint_engine_state": _clone(state),
+      "diagnostic_state": _clone(state),
       "finmo_path": str(finmo_path or "").strip(),
       "business_facts": _clone(business_facts or {}),
       "model_input_json": _clone(model_input_json or {}),
       "finmo_json": _clone(finmo_json or {}),
     },
-    "constraint_profile": {
-      "constraint_engine_violations": list(state.get("violations") or []),
+    "viability_profile": {
+      "diagnostic_violations": list(state.get("violations") or []),
       "current_metrics": _clone(state.get("current_metrics") or {}),
       "supportable_unit_range": _clone(state.get("supportable_unit_range") or {}),
       "supportable_revenue_range": _clone(state.get("supportable_revenue_range") or {}),
@@ -728,9 +650,9 @@ def _build_solver_state_model(
         "reachable_market": round(_safe_float((marketing_model_json or {}).get("reachable_market")), 4),
       },
     },
-    "objective_policy": {
+    "scoring_policy": {
       "healthy_ebitda_margin_ratio": 0.05,
-      "distortion_weights": {
+      "adjustment_weights": {
         "price_up": 14.0,
         "price_down": 18.0,
         "util_up": 4.0,
@@ -763,17 +685,17 @@ def _build_solver_state_model(
         ],
       },
     },
-    "solve_mode": solve_mode,
+    "revenue_driver_resolution_mode": revenue_driver_resolution_mode,
   }
 
 
-def _build_direct_solver_inputs(*, state_model: Dict[str, Any]) -> Dict[str, Any]:
+def _build_controller_inputs(*, state_model: Dict[str, Any]) -> Dict[str, Any]:
   baseline_summary = (state_model.get("baseline_summary") or {}) if isinstance(state_model, dict) else {}
   baseline_state = (state_model.get("baseline_state") or {}) if isinstance(state_model.get("baseline_state"), dict) else {}
   financials = (baseline_state.get("financials_json") or {}) if isinstance(baseline_state.get("financials_json"), dict) else {}
   year1 = (baseline_state.get("financials_year1_json") or {}) if isinstance(baseline_state.get("financials_year1_json"), dict) else {}
   people = (baseline_state.get("people_json") or {}) if isinstance(baseline_state.get("people_json"), dict) else {}
-  profile = (state_model.get("constraint_profile") or {}) if isinstance(state_model.get("constraint_profile"), dict) else {}
+  profile = (state_model.get("viability_profile") or {}) if isinstance(state_model.get("viability_profile"), dict) else {}
   fixed_facts = (state_model.get("fixed_facts") or {}) if isinstance(state_model.get("fixed_facts"), dict) else {}
   model_input_json = (fixed_facts.get("model_input_json") or {}) if isinstance(fixed_facts.get("model_input_json"), dict) else {}
   finmo_json = (fixed_facts.get("finmo_json") or {}) if isinstance(fixed_facts.get("finmo_json"), dict) else {}
@@ -782,7 +704,7 @@ def _build_direct_solver_inputs(*, state_model: Dict[str, Any]) -> Dict[str, Any
   price_envelope = (profile.get("price_envelope") or {}) if isinstance(profile.get("price_envelope"), dict) else {}
   cogs_envelope = (profile.get("cogs_envelope") or {}) if isinstance(profile.get("cogs_envelope"), dict) else {}
   commercial_context = (fixed_facts.get("commercial_context") or {}) if isinstance(fixed_facts.get("commercial_context"), dict) else {}
-  solve_mode = str(state_model.get("solve_mode") or "parent_fallback")
+  revenue_driver_resolution_mode = str(state_model.get("revenue_driver_resolution_mode") or "parent_fallback")
   revenue = max(1.0, _safe_float(baseline_summary.get("revenue")))
   current_metrics = profile.get("current_metrics") if isinstance(profile.get("current_metrics"), dict) else {}
   product_driver_basis = _clone(fixed_facts.get("product_driver_basis") or [])
@@ -796,13 +718,13 @@ def _build_direct_solver_inputs(*, state_model: Dict[str, Any]) -> Dict[str, Any
   avg_units = _safe_float(year1.get("avg_units_per_period_year1"))
   periods = max(1.0, _safe_float(year1.get("operating_periods_per_year")) or 12.0)
   current_price = (
-    weighted_child_price if solve_mode == "child_first" and weighted_child_price > 0 else 0.0
+    weighted_child_price if revenue_driver_resolution_mode == "child_first" and weighted_child_price > 0 else 0.0
   ) or _safe_float((price_envelope or {}).get("baseline")) or _safe_float(year1.get("unit_price")) or (revenue / max(avg_units * periods, 1.0))
   current_util = (
-    weighted_child_util if solve_mode == "child_first" and weighted_child_util > 0 else 0.0
+    weighted_child_util if revenue_driver_resolution_mode == "child_first" and weighted_child_util > 0 else 0.0
   ) or _safe_float(year1.get("utilization_rate")) or _safe_float((profile.get("utilization_envelope") or {}).get("min")) or 0.65
   baseline_units = (
-    child_units_year1 if solve_mode == "child_first" and child_units_year1 > 0 else 0.0
+    child_units_year1 if revenue_driver_resolution_mode == "child_first" and child_units_year1 > 0 else 0.0
   ) or (avg_units * periods if avg_units > 0 else revenue / max(current_price, 1.0))
   supportable_units = profile.get("supportable_unit_range") or {}
   units_min = _safe_float(supportable_units.get("min")) or (baseline_units * 0.9)
@@ -869,10 +791,10 @@ def _build_direct_solver_inputs(*, state_model: Dict[str, Any]) -> Dict[str, Any
   marketing_children = (profile.get("marketing_children") or {}) if isinstance(profile.get("marketing_children"), dict) else {}
   baseline_expected_units = max(0.0, _safe_float(marketing_children.get("baseline_expected_units_year1")))
   target_payroll_max_total = max(current_payroll_total, people_payroll_floor)
-  if "payroll_too_light" in set((state_model.get("constraint_profile") or {}).get("constraint_engine_violations") or []):
+  if "payroll_too_light" in set((state_model.get("viability_profile") or {}).get("diagnostic_violations") or []):
     target_payroll_max_total = max(target_payroll_max_total, structural_payroll_floor, fixed_people_payroll + planned_payroll)
   result = {
-    "solve_mode": solve_mode,
+    "revenue_driver_resolution_mode": revenue_driver_resolution_mode,
     "current_revenue": revenue,
     "baseline_units": baseline_units,
     "capacity_units": max(0.0, _safe_float(fixed_facts.get("physical_capacity_units_year1")) or units_max),
@@ -911,11 +833,11 @@ def _build_direct_solver_inputs(*, state_model: Dict[str, Any]) -> Dict[str, Any
       ),
       2,
     ),
-    "constraint_violations": list((state_model.get("constraint_profile") or {}).get("constraint_engine_violations") or []),
+    "diagnostic_violations": list((state_model.get("viability_profile") or {}).get("diagnostic_violations") or []),
     "current_staff": _clone(current_staff),
     "roles": role_inputs,
     "product_driver_basis": product_driver_basis,
-    "constraint_profile": _clone(profile),
+    "viability_profile": _clone(profile),
     "model_input_json": _clone(model_input_json),
     "finmo_json": _clone(finmo_json),
     "units_min": units_min,
@@ -987,7 +909,7 @@ def _build_runtime_strategy(strategy_id: str, strategy_selection: Dict[str, Any]
   return runtime
 
 
-def _solver_profiles(*, state_model: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _controller_profiles(*, state_model: Dict[str, Any]) -> List[Dict[str, Any]]:
   strategy_layer = (state_model.get("strategy_layer") or {}) if isinstance(state_model.get("strategy_layer"), dict) else {}
   strategies = [item for item in (strategy_layer.get("strategies") or []) if isinstance(item, dict)]
   if strategies:
@@ -1006,7 +928,7 @@ def _solver_profiles(*, state_model: Dict[str, Any]) -> List[Dict[str, Any]]:
     "other_opex_down_cap_ratio": max(0.06, _safe_float(commercial_context.get("other_opex_down_cap_ratio")) or 0.06),
     "prefer_growth_units": growth_demand_mode_enabled,
   }
-  weights = (state_model.get("objective_policy") or {}).get("distortion_weights") or {}
+  weights = (state_model.get("scoring_policy") or {}).get("adjustment_weights") or {}
   operations_weights = dict(weights)
   growth_weights = dict(weights)
   operations_weights["marketing_up"] = max(operations_weights.get("marketing_up") or 0.0, 7.0)
@@ -1065,37 +987,17 @@ def _controller_enforced_profile(
   directed_allowed = _selection_allowed_model_input_levers(
     selection,
     fallback_allowed=profile.get("allowed_model_input_levers") or [],
-    max_quarter=4,
   )
   if not directed_allowed:
     directed_allowed = _unique_strings(profile.get("allowed_model_input_levers") or [])
   next_profile = _clone(profile)
   next_profile["allowed_model_input_levers"] = directed_allowed
-  lever_plan = _selection_lever_adjustment_plan(selection, max_quarter=4)
+  lever_plan = _selection_lever_adjustment_plan(selection)
   if lever_plan:
     next_profile["lever_adjustment_plan"] = lever_plan
   next_profile["controlled_output_targets"] = _clone(selection.get("controlled_output_targets") or profile.get("controlled_output_targets") or [])
   next_profile["constraints"] = {}
   return {"profile": next_profile}
-
-
-def _default_quarter_policy(profile: Dict[str, Any], quarter_index: int) -> Dict[str, Any]:
-  return {
-    "quarter_start": quarter_index,
-    "quarter_end": quarter_index,
-    "demand_posture": profile.get("demand_posture") or "moderate",
-    "staffing_posture": profile.get("staffing_posture") or "measured",
-    "cost_posture": profile.get("cost_posture") or "moderate",
-    "growth_multiplier": 1.0,
-    "convergence_multiplier": 1.0,
-    "price_growth_bias": 0.0,
-    "utilization_target_bias": 0.0,
-    "marketing_ratio_bias": 0.0,
-    "opex_ratio_bias": 0.0,
-    "payroll_ratio_bias": 0.0,
-    "capacity_release_multiplier": 1.0,
-    "active_levers": [],
-  }
 
 
 def _role_titles_for_scope(scope: str, direct_inputs: Dict[str, Any]) -> List[str]:
@@ -1131,710 +1033,7 @@ def _role_titles_for_scope(scope: str, direct_inputs: Dict[str, Any]) -> List[st
   return _unique_strings(titles)
 
 
-def _compress_quarter_policies(policies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-  if not policies:
-    return []
-  compressed: List[Dict[str, Any]] = []
-  for policy in sorted(policies, key=lambda item: (_safe_int(item.get("quarter_start")) or 1, _safe_int(item.get("quarter_end")) or 1)):
-    current = _clone(policy)
-    if not compressed:
-      compressed.append(current)
-      continue
-    previous = compressed[-1]
-    comparable_prev = _clone(previous)
-    comparable_curr = _clone(current)
-    comparable_prev.pop("quarter_start", None)
-    comparable_prev.pop("quarter_end", None)
-    comparable_curr.pop("quarter_start", None)
-    comparable_curr.pop("quarter_end", None)
-    if comparable_prev == comparable_curr and (_safe_int(previous.get("quarter_end")) + 1) == _safe_int(current.get("quarter_start")):
-      previous["quarter_end"] = _safe_int(current.get("quarter_end"))
-      continue
-    compressed.append(current)
-  return compressed
-
-
-def _overlay_selection_plans_onto_quarter_map(
-  *,
-  quarter_map: Dict[int, Dict[str, Any]],
-  selection: Dict[str, Any],
-  apply_only_to_quarters: Optional[Sequence[int]] = None,
-) -> None:
-  target_quarters = {
-    int(item)
-    for item in (apply_only_to_quarters or [])
-    if _safe_int(item) > 0
-  }
-
-  def _allow_quarter(quarter_index: int) -> bool:
-    if not target_quarters:
-      return True
-    return quarter_index in target_quarters
-
-  lever_plan = _selection_lever_adjustment_plan(selection)
-  for item in lever_plan:
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    direction = str(item.get("direction") or "").strip().lower()
-    lever_id = str(item.get("lever_id") or "").strip()
-    intensity = _intensity_score(item.get("intensity"))
-    for quarter_index in range(start, min(20, end) + 1):
-      if not _allow_quarter(quarter_index):
-        continue
-      policy = quarter_map.setdefault(quarter_index, _default_quarter_policy({}, quarter_index))
-      policy["active_levers"] = _unique_strings((policy.get("active_levers") or []) + ([lever_id] if lever_id else []))
-      if lever_id.endswith("::Unit Price"):
-        delta = round(0.002 * (1.0 + intensity), 6)
-        if direction == "up":
-          policy["price_growth_bias"] = max(_safe_float(policy.get("price_growth_bias")), delta)
-        elif direction == "down":
-          policy["price_growth_bias"] = min(_safe_float(policy.get("price_growth_bias")), -delta)
-      elif lever_id.endswith("::Utilization"):
-        delta = round(0.015 * (1.0 + intensity), 6)
-        if direction == "up":
-          policy["utilization_target_bias"] = max(_safe_float(policy.get("utilization_target_bias")), delta)
-          policy["growth_multiplier"] = max(1.0, round(max(_safe_float(policy.get("growth_multiplier")), 1.0) * 1.03, 6))
-        elif direction == "down":
-          policy["utilization_target_bias"] = min(_safe_float(policy.get("utilization_target_bias")), -delta)
-          policy["growth_multiplier"] = min(1.0, round(max(_safe_float(policy.get("growth_multiplier")), 0.1) * 0.98, 6))
-      elif lever_id == _simple_lever_id("expenses", "Marketing"):
-        delta = round(0.01 * (1.0 + intensity), 6)
-        if direction == "up":
-          policy["marketing_ratio_bias"] = max(_safe_float(policy.get("marketing_ratio_bias")), delta)
-          policy["growth_multiplier"] = max(1.0, round(max(_safe_float(policy.get("growth_multiplier")), 1.0) * 1.04, 6))
-        elif direction == "down":
-          policy["marketing_ratio_bias"] = min(_safe_float(policy.get("marketing_ratio_bias")), -delta)
-      elif lever_id == _simple_lever_id("expenses", "General & Administrative"):
-        delta = round(0.01 * (1.0 + intensity), 6)
-        if direction == "up":
-          policy["opex_ratio_bias"] = max(_safe_float(policy.get("opex_ratio_bias")), delta)
-        elif direction == "down":
-          policy["opex_ratio_bias"] = min(_safe_float(policy.get("opex_ratio_bias")), -delta)
-      elif lever_id == _simple_lever_id("expenses", "Payroll"):
-        delta = round(0.02 * (1.0 + intensity), 6)
-        if direction == "up":
-          policy["payroll_ratio_bias"] = max(_safe_float(policy.get("payroll_ratio_bias")), delta)
-          policy["capacity_release_multiplier"] = max(1.0, round(max(_safe_float(policy.get("capacity_release_multiplier")), 1.0) * 1.08, 6))
-          policy["growth_multiplier"] = max(1.0, round(max(_safe_float(policy.get("growth_multiplier")), 1.0) * 1.05, 6))
-          policy["staffing_posture"] = "add_support"
-        elif direction == "down":
-          policy["payroll_ratio_bias"] = min(_safe_float(policy.get("payroll_ratio_bias")), -delta)
-          policy["capacity_release_multiplier"] = min(1.0, round(max(_safe_float(policy.get("capacity_release_multiplier")), 0.1) * 0.92, 6))
-          policy["growth_multiplier"] = min(1.0, round(max(_safe_float(policy.get("growth_multiplier")), 0.1) * 0.97, 6))
-          policy["staffing_posture"] = "delay"
-
-  for item in (selection.get("demand_build_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    for quarter_index in range(start, min(20, end) + 1):
-      if not _allow_quarter(quarter_index):
-        continue
-      policy = quarter_map.setdefault(quarter_index, _default_quarter_policy({}, quarter_index))
-      if item.get("demand_posture") is not None:
-        policy["demand_posture"] = str(item.get("demand_posture") or "").strip().lower() or policy.get("demand_posture")
-      if item.get("marketing_ratio_bias") is not None:
-        policy["marketing_ratio_bias"] = round(_safe_float(item.get("marketing_ratio_bias")), 6)
-      growth_mult = _safe_float(item.get("growth_multiplier"))
-      if growth_mult > 0:
-        policy["growth_multiplier"] = round(growth_mult, 6)
-      demand_levers: List[str] = []
-      marketing_bias = _safe_float(item.get("marketing_ratio_bias"))
-      if marketing_bias > 0:
-        if _selection_marketing_lever(selection):
-          demand_levers.append(_selection_marketing_lever(selection))
-      elif marketing_bias < 0:
-        if _selection_marketing_lever(selection):
-          demand_levers.append(_selection_marketing_lever(selection))
-      posture = str(item.get("demand_posture") or "").strip().lower()
-      if growth_mult > 1.0 or posture in {"build", "grow", "expand", "accelerate", "preserve"}:
-        demand_levers.extend(_selection_allowed_levers_matching(selection, suffix="::Utilization"))
-      policy["active_levers"] = _unique_strings((policy.get("active_levers") or []) + demand_levers)
-
-  for item in (selection.get("capacity_release_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    for quarter_index in range(start, min(20, end) + 1):
-      if not _allow_quarter(quarter_index):
-        continue
-      policy = quarter_map.setdefault(quarter_index, _default_quarter_policy({}, quarter_index))
-      capacity_mult = _safe_float(item.get("capacity_release_multiplier"))
-      if capacity_mult > 0:
-        policy["capacity_release_multiplier"] = round(capacity_mult, 6)
-      posture = str(item.get("capacity_posture") or "").strip().lower()
-      if posture:
-        if posture in {"expand", "release", "build", "cautious_expand"}:
-          policy["staffing_posture"] = "add_support"
-          policy["active_levers"] = _unique_strings(
-            (policy.get("active_levers") or [])
-            + _selection_allowed_levers_matching(selection, suffix="::Utilization")
-            + ([_selection_payroll_lever(selection)] if _selection_payroll_lever(selection) else [])
-          )
-        elif posture in {"hold", "tight", "constrained"}:
-          policy["staffing_posture"] = "delay"
-          policy["active_levers"] = _unique_strings((policy.get("active_levers") or []) + ([_selection_payroll_lever(selection)] if _selection_payroll_lever(selection) else []))
-
-  for item in (selection.get("support_overhead_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    for quarter_index in range(start, min(20, end) + 1):
-      if not _allow_quarter(quarter_index):
-        continue
-      policy = quarter_map.setdefault(quarter_index, _default_quarter_policy({}, quarter_index))
-      if item.get("cost_posture") is not None:
-        policy["cost_posture"] = str(item.get("cost_posture") or "").strip().lower() or policy.get("cost_posture")
-      if item.get("opex_ratio_bias") is not None:
-        policy["opex_ratio_bias"] = round(_safe_float(item.get("opex_ratio_bias")), 6)
-      if item.get("payroll_ratio_bias") is not None:
-        policy["payroll_ratio_bias"] = round(_safe_float(item.get("payroll_ratio_bias")), 6)
-      support_levers: List[str] = []
-      if _safe_float(item.get("opex_ratio_bias")) > 0:
-        if _selection_ganda_lever(selection):
-          support_levers.append(_selection_ganda_lever(selection))
-      elif _safe_float(item.get("opex_ratio_bias")) < 0:
-        if _selection_ganda_lever(selection):
-          support_levers.append(_selection_ganda_lever(selection))
-      if _safe_float(item.get("payroll_ratio_bias")) > 0:
-        if _selection_payroll_lever(selection):
-          support_levers.append(_selection_payroll_lever(selection))
-      elif _safe_float(item.get("payroll_ratio_bias")) < 0:
-        if _selection_payroll_lever(selection):
-          support_levers.append(_selection_payroll_lever(selection))
-      policy["active_levers"] = _unique_strings((policy.get("active_levers") or []) + support_levers)
-
-
-def _normalize_governed_forecast_orchestration(
-  *,
-  selection: Dict[str, Any],
-  profile: Dict[str, Any],
-  direct_inputs: Dict[str, Any],
-  strict_translation: bool,
-  translation_audit: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-  governed = _clone((translation_audit or {}).get("replacement_forecast_orchestration") or {}) if isinstance((translation_audit or {}).get("replacement_forecast_orchestration"), dict) else {}
-  if not governed:
-    governed = selection.get("governed_forecast_orchestration") if isinstance(selection.get("governed_forecast_orchestration"), dict) else {}
-  if not governed:
-    return {}
-  authoritative_direct = bool([item for item in (governed.get("quarter_policies") or []) if isinstance(item, dict)])
-  expected_levers_by_quarter = _selection_expected_levers_by_quarter(selection)
-  direct_covered_quarters: set[int] = set()
-  direct_active_by_quarter: Dict[int, List[str]] = {}
-  for item in governed.get("quarter_policies") or []:
-    if not isinstance(item, dict):
-      continue
-    direct_active = _unique_strings(item.get("active_levers") or [])
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    for quarter_index in range(start, min(20, end) + 1):
-      direct_covered_quarters.add(quarter_index)
-      if direct_active:
-        direct_active_by_quarter[quarter_index] = _unique_strings((direct_active_by_quarter.get(quarter_index) or []) + direct_active)
-        expected_levers_by_quarter[quarter_index] = _unique_strings((expected_levers_by_quarter.get(quarter_index) or []) + direct_active)
-  quarter_map: Dict[int, Dict[str, Any]] = {
-    quarter_index: _default_quarter_policy(profile, quarter_index)
-    for quarter_index in range(1, 21)
-  }
-  for item in governed.get("quarter_policies") or []:
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    for quarter_index in range(start, min(20, end) + 1):
-      policy = quarter_map.setdefault(quarter_index, _default_quarter_policy(profile, quarter_index))
-      for key in (
-        "demand_posture",
-        "staffing_posture",
-        "cost_posture",
-        "growth_multiplier",
-        "convergence_multiplier",
-        "price_growth_bias",
-        "utilization_target_bias",
-        "marketing_ratio_bias",
-        "opex_ratio_bias",
-        "payroll_ratio_bias",
-        "capacity_release_multiplier",
-      ):
-        if item.get(key) is not None:
-          policy[key] = item.get(key)
-      if item.get("active_levers") is not None:
-        policy["active_levers"] = _unique_strings(item.get("active_levers") or [])
-      direct_covered_quarters.add(quarter_index)
-  if authoritative_direct:
-    first_direct_policy = next(
-      (quarter_map.get(quarter_index) for quarter_index in range(1, 21) if quarter_index in direct_covered_quarters),
-      None,
-    )
-    last_policy = _clone(first_direct_policy or _default_quarter_policy(profile, 1))
-    for quarter_index in range(1, 21):
-      if quarter_index in direct_covered_quarters:
-        last_policy = _clone(quarter_map.get(quarter_index) or last_policy)
-        continue
-      carried = _clone(last_policy or first_direct_policy or _default_quarter_policy(profile, quarter_index))
-      carried["quarter_start"] = quarter_index
-      carried["quarter_end"] = quarter_index
-      quarter_map[quarter_index] = carried
-  else:
-    uncovered_quarters = [quarter_index for quarter_index in range(1, 21) if quarter_index not in direct_covered_quarters]
-    _overlay_selection_plans_onto_quarter_map(
-      quarter_map=quarter_map,
-      selection=selection,
-      apply_only_to_quarters=uncovered_quarters,
-    )
-  forbidden_exact = {
-    str(item or "").strip()
-    for item in (selection.get("forbidden_model_input_levers") or [])
-    if str(item or "").strip()
-  }
-  current_util = max(0.0, _safe_float(direct_inputs.get("current_util")))
-  translation_issues: List[str] = []
-  for quarter_index in range(1, 21):
-    policy = quarter_map.setdefault(quarter_index, _default_quarter_policy(profile, quarter_index))
-    explicit_active = _unique_strings(policy.get("active_levers") or [])
-    direct_active = _unique_strings(direct_active_by_quarter.get(quarter_index) or [])
-    if direct_active:
-      policy["active_levers"] = [
-        item for item in direct_active
-        if str(item or "").strip() not in forbidden_exact
-      ]
-    else:
-      base_active = explicit_active if authoritative_direct else (explicit_active or (expected_levers_by_quarter.get(quarter_index) or []))
-      policy["active_levers"] = _policy_active_levers_from_values(
-        base_active_levers=base_active if (authoritative_direct or strict_translation or explicit_active or expected_levers_by_quarter.get(quarter_index)) else [],
-        marketing_ratio_bias=_safe_float(policy.get("marketing_ratio_bias")),
-        opex_ratio_bias=_safe_float(policy.get("opex_ratio_bias")),
-        payroll_ratio_bias=_safe_float(policy.get("payroll_ratio_bias")),
-        capacity_release_multiplier=max(0.1, _safe_float(policy.get("capacity_release_multiplier")) or 1.0),
-        price_growth_bias=_safe_float(policy.get("price_growth_bias")),
-        utilization_target_bias=_safe_float(policy.get("utilization_target_bias")),
-        growth_multiplier=max(0.1, _safe_float(policy.get("growth_multiplier")) or 1.0),
-      )
-      policy["active_levers"] = [
-        item for item in _reconcile_active_levers_for_quarter(
-          quarter_index=quarter_index,
-          active_levers=policy.get("active_levers") or [],
-          expected_levers_by_quarter=({} if authoritative_direct else expected_levers_by_quarter),
-        )
-        if str(item or "").strip() not in forbidden_exact
-      ]
-    capacity_mult = max(0.1, _safe_float(policy.get("capacity_release_multiplier")) or 1.0)
-    util_bias = _safe_float(policy.get("utilization_target_bias"))
-    minimum_capacity_mult = max(0.9, (current_util + max(0.0, util_bias)) / 0.95) if current_util > 0 else 0.9
-    if capacity_mult < minimum_capacity_mult:
-      policy["capacity_release_multiplier"] = round(minimum_capacity_mult, 6)
-    translation_issues.extend(
-      _quarter_policy_translation_issues(
-        quarter_index=quarter_index,
-        policy=policy,
-        expected_levers_by_quarter=({} if authoritative_direct else expected_levers_by_quarter),
-        current_util=current_util,
-      )
-    )
-  orchestration = {
-    "orchestration_summary": str(governed.get("orchestration_summary") or "").strip(),
-    "quarter_policies": _compress_quarter_policies(list(quarter_map.values())),
-    "role_timing_overrides": [
-      {
-        "role_title": str(item.get("role_title") or "").strip(),
-        "months_until_activate": max(0, _safe_int(item.get("months_until_activate"))),
-      }
-      for item in (governed.get("role_timing_overrides") or [])
-      if isinstance(item, dict) and str(item.get("role_title") or "").strip()
-    ],
-    "milestone_timing_overrides": [
-      {
-        "description": str(item.get("description") or "").strip(),
-        "months_until_activate": max(0, _safe_int(item.get("months_until_activate"))),
-        "target_quarter": max(1, min(20, _safe_int(item.get("target_quarter")) or 1)),
-        "activation_condition": str(item.get("activation_condition") or "").strip(),
-      }
-      for item in (governed.get("milestone_timing_overrides") or [])
-      if isinstance(item, dict) and str(item.get("description") or "").strip()
-    ],
-    "event_response": _clone((governed.get("event_response") or {}) if isinstance(governed.get("event_response"), dict) else {}),
-    "target_margin_path": _clone(selection.get("target_margin_path") or {}),
-    "translated_growth_architecture": {
-      "capacity_release_plan": _clone(selection.get("capacity_release_plan") or []),
-      "hiring_release_plan": _clone(selection.get("hiring_release_plan") or []),
-      "demand_build_plan": _clone(selection.get("demand_build_plan") or []),
-      "milestone_activation_plan": _clone(selection.get("milestone_activation_plan") or []),
-      "support_overhead_plan": _clone(selection.get("support_overhead_plan") or []),
-      "governed_forecast_orchestration": _clone(governed),
-    },
-    "translation_issues": _unique_strings(translation_issues),
-  }
-  event_response = orchestration["event_response"]
-  event_response.setdefault("hire_capacity_multiplier", 1.0)
-  event_response.setdefault("hire_growth_bonus_delta", 0.0)
-  event_response.setdefault("marketing_growth_multiplier", 1.0)
-  event_response.setdefault("milestone_capacity_multiplier", 1.0)
-  event_response.setdefault("milestone_growth_multiplier", 1.0)
-  if authoritative_direct:
-    structural_issues: List[str] = []
-    if not list(orchestration.get("quarter_policies") or []):
-      structural_issues.append("missing_forecast_orchestration")
-    orchestration["translation_issues"] = _unique_strings(list(orchestration.get("translation_issues") or []) + structural_issues)
-  else:
-    orchestration["translation_issues"] = _unique_strings(
-      list(orchestration.get("translation_issues") or [])
-      + _orchestration_translation_issues(
-        selection=selection,
-        orchestration=orchestration,
-        direct_inputs=direct_inputs,
-      )
-    )
-  return orchestration
-
-
-def _selection_expected_levers_by_quarter(selection: Dict[str, Any]) -> Dict[int, List[str]]:
-  expected: Dict[int, List[str]] = {quarter_index: [] for quarter_index in range(1, 21)}
-  for item in _selection_lever_adjustment_plan(selection):
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    lever_id = str(item.get("lever_id") or "").strip()
-    if not lever_id:
-      continue
-    for quarter_index in range(start, min(20, end) + 1):
-      expected[quarter_index] = _unique_strings((expected.get(quarter_index) or []) + [lever_id])
-  for item in (selection.get("demand_build_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    direct: List[str] = []
-    marketing_lever = _selection_marketing_lever(selection)
-    if marketing_lever:
-      direct.append(marketing_lever)
-    direct.extend(_selection_allowed_levers_matching(selection, suffix="::Utilization"))
-    for quarter_index in range(start, min(20, end) + 1):
-      expected[quarter_index] = _unique_strings((expected.get(quarter_index) or []) + direct)
-  for item in (selection.get("capacity_release_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    posture = str(item.get("capacity_posture") or "").strip().lower()
-    direct: List[str] = []
-    if posture in {"expand", "cautious_expand", "release", "build"}:
-      direct.extend(_selection_allowed_levers_matching(selection, suffix="::Utilization"))
-      if _selection_payroll_lever(selection):
-        direct.append(_selection_payroll_lever(selection))
-    elif posture in {"hold", "tight", "constrained"} and _selection_payroll_lever(selection):
-      direct.append(_selection_payroll_lever(selection))
-    for quarter_index in range(start, min(20, end) + 1):
-      expected[quarter_index] = _unique_strings((expected.get(quarter_index) or []) + direct)
-  for item in (selection.get("support_overhead_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    direct: List[str] = []
-    if item.get("opex_ratio_bias") is not None and _selection_ganda_lever(selection):
-      direct.append(_selection_ganda_lever(selection))
-    if item.get("payroll_ratio_bias") is not None and _selection_payroll_lever(selection):
-      direct.append(_selection_payroll_lever(selection))
-    for quarter_index in range(start, min(20, end) + 1):
-      expected[quarter_index] = _unique_strings((expected.get(quarter_index) or []) + direct)
-  return expected
-
-
-def _reconcile_active_levers_for_quarter(
-  *,
-  quarter_index: int,
-  active_levers: Sequence[Any],
-  expected_levers_by_quarter: Dict[int, List[str]],
-) -> List[str]:
-  expected = set(expected_levers_by_quarter.get(quarter_index) or [])
-  cleaned = _unique_strings([str(item or "").strip() for item in (active_levers or []) if str(item or "").strip()])
-  return [item for item in cleaned if not expected or item in expected]
-
-
-def _quarter_policy_translation_issues(
-  *,
-  quarter_index: int,
-  policy: Dict[str, Any],
-  expected_levers_by_quarter: Dict[int, List[str]],
-  current_util: float,
-) -> List[str]:
-  issues: List[str] = []
-  active = set(str(item or "").strip() for item in (policy.get("active_levers") or []) if str(item or "").strip())
-  expected = set(expected_levers_by_quarter.get(quarter_index) or [])
-  if expected and not active:
-    issues.append(f"empty_active_levers_q{quarter_index}")
-  elif expected and not active.intersection(expected):
-    issues.append(f"missing_expected_levers_q{quarter_index}")
-  capacity_mult = max(0.1, _safe_float(policy.get("capacity_release_multiplier")) or 1.0)
-  util_bias = _safe_float(policy.get("utilization_target_bias"))
-  implied_util = (current_util + util_bias) / max(capacity_mult, 1e-9)
-  if implied_util > 0.95:
-    issues.append(f"capacity_utilization_mismatch_q{quarter_index}")
-  return issues
-
-
-def _translation_audit_requires_correction(translation_audit: Optional[Dict[str, Any]]) -> bool:
-  if not isinstance(translation_audit, dict) or not translation_audit:
-    return False
-  status = str(translation_audit.get("audit_status") or "").strip().lower()
-  return (
-    status == "rejected_translation"
-    or bool(translation_audit.get("required_corrections") or [])
-    or bool(translation_audit.get("introduced_conflicts") or [])
-  )
-
-
-def _quarter_span(item: Dict[str, Any]) -> range:
-  start = max(1, _safe_int(item.get("quarter_start")) or _safe_int(item.get("target_quarter")) or 1)
-  end = max(start, _safe_int(item.get("quarter_end")) or start)
-  return range(start, min(20, end) + 1)
-
-
-def _entry_months_until_activate(item: Dict[str, Any]) -> int:
-  explicit_months = _safe_int(item.get("months_until_activate"))
-  if explicit_months > 0:
-    return explicit_months
-  target_quarter = max(1, min(20, _safe_int(item.get("target_quarter")) or 1))
-  return max(0, (target_quarter - 1) * 3)
-
-
-def _policy_active_levers_from_values(
-  *,
-  base_active_levers: Sequence[Any],
-  marketing_ratio_bias: float,
-  opex_ratio_bias: float,
-  payroll_ratio_bias: float,
-  capacity_release_multiplier: float,
-  price_growth_bias: float,
-  utilization_target_bias: float,
-  growth_multiplier: float,
-) -> List[str]:
-  del marketing_ratio_bias, opex_ratio_bias, payroll_ratio_bias
-  del capacity_release_multiplier, price_growth_bias, utilization_target_bias, growth_multiplier
-  return _unique_strings([str(item or "").strip() for item in (base_active_levers or []) if str(item or "").strip()])
-
-
-def _orchestration_required_families(selection: Dict[str, Any]) -> List[str]:
-  required: List[str] = []
-  if selection.get("demand_build_plan"):
-    required.append("demand_build_plan")
-  if selection.get("capacity_release_plan"):
-    required.append("capacity_release_plan")
-  if selection.get("support_overhead_plan"):
-    required.append("support_overhead_plan")
-  if selection.get("hiring_release_plan"):
-    required.append("hiring_release_plan")
-  if selection.get("milestone_activation_plan"):
-    required.append("milestone_activation_plan")
-  return required
-
-
-def _orchestration_translation_issues(
-  *,
-  selection: Dict[str, Any],
-  orchestration: Dict[str, Any],
-  direct_inputs: Dict[str, Any],
-) -> List[str]:
-  issues: List[str] = []
-  quarter_policies = [item for item in (orchestration.get("quarter_policies") or []) if isinstance(item, dict)]
-  role_overrides = [item for item in (orchestration.get("role_timing_overrides") or []) if isinstance(item, dict)]
-  milestone_overrides = [item for item in (orchestration.get("milestone_timing_overrides") or []) if isinstance(item, dict)]
-  event_response = orchestration.get("event_response") if isinstance(orchestration.get("event_response"), dict) else {}
-  translated_growth_architecture = orchestration.get("translated_growth_architecture") if isinstance(orchestration.get("translated_growth_architecture"), dict) else {}
-
-  if _orchestration_required_families(selection) and not quarter_policies:
-    issues.append("missing_forecast_orchestration")
-    return issues
-
-  if selection.get("hiring_release_plan") and not role_overrides:
-    issues.append("missing_hiring_release_translation")
-  if selection.get("milestone_activation_plan") and not milestone_overrides:
-    issues.append("missing_milestone_translation")
-  if selection.get("target_margin_path") and not isinstance(orchestration.get("target_margin_path"), dict):
-    issues.append("missing_target_margin_path_translation")
-  if _orchestration_required_families(selection) and not translated_growth_architecture:
-    issues.append("missing_growth_architecture_translation")
-
-  if selection.get("hiring_release_plan"):
-    translated_titles = {
-      str(item.get("role_title") or "").strip()
-      for item in role_overrides
-      if str(item.get("role_title") or "").strip()
-    }
-    for item in selection.get("hiring_release_plan") or []:
-      if not isinstance(item, dict):
-        continue
-      expected_titles = set(_role_titles_for_scope(str(item.get("role_scope") or "").strip(), direct_inputs))
-      if expected_titles and not expected_titles.intersection(translated_titles):
-        issues.append("missing_hiring_scope_translation")
-      max_months = _entry_months_until_activate(item)
-      for title in expected_titles:
-        actual = next(
-          (max(0, _safe_int(override.get("months_until_activate"))) for override in role_overrides if str(override.get("role_title") or "").strip() == title),
-          None,
-        )
-        if actual is None:
-          continue
-        if actual > max_months + 6:
-          issues.append("overshot_hiring_release_timing")
-
-  if selection.get("milestone_activation_plan"):
-    translated_descriptions = {
-      str(item.get("description") or "").strip().lower()
-      for item in milestone_overrides
-      if str(item.get("description") or "").strip()
-    }
-    for item in selection.get("milestone_activation_plan") or []:
-      if not isinstance(item, dict):
-        continue
-      description = str(item.get("description") or "").strip().lower()
-      if description and description not in translated_descriptions:
-        issues.append("missing_milestone_description_translation")
-
-  expected_by_quarter = _selection_expected_levers_by_quarter(selection)
-  policy_by_quarter: Dict[int, Dict[str, Any]] = {}
-  for item in quarter_policies:
-    for quarter_index in range(max(1, _safe_int(item.get("quarter_start")) or 1), min(20, _safe_int(item.get("quarter_end")) or 1) + 1):
-      policy_by_quarter[quarter_index] = item
-  for quarter_index, expected in expected_by_quarter.items():
-    if not expected:
-      continue
-    policy = policy_by_quarter.get(quarter_index)
-    if not isinstance(policy, dict):
-      issues.append(f"missing_quarter_policy_q{quarter_index}")
-      continue
-    active = set(str(item or "").strip().lower() for item in (policy.get("active_levers") or []) if str(item or "").strip())
-    if not active:
-      issues.append(f"empty_active_levers_q{quarter_index}")
-      continue
-    if not active.intersection(expected):
-      issues.append(f"missing_expected_levers_q{quarter_index}")
-
-  if selection.get("demand_build_plan") and _safe_float(event_response.get("marketing_growth_multiplier")) <= 0:
-    issues.append("missing_demand_event_response")
-  if selection.get("capacity_release_plan") and _safe_float(event_response.get("hire_capacity_multiplier")) <= 0:
-    issues.append("missing_capacity_event_response")
-  if selection.get("milestone_activation_plan") and _safe_float(event_response.get("milestone_capacity_multiplier")) <= 0:
-    issues.append("missing_milestone_event_response")
-
-  return _unique_strings(issues)
-
-
-def _build_forecast_orchestration(
-  *,
-  selection: Dict[str, Any],
-  profile: Dict[str, Any],
-  direct_inputs: Dict[str, Any],
-  retry_attempt: int,
-  translation_audit: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-  strict_translation = _translation_audit_requires_correction(translation_audit)
-  direct_governed = _normalize_governed_forecast_orchestration(
-    selection=selection,
-    profile=profile,
-    direct_inputs=direct_inputs,
-    strict_translation=strict_translation,
-    translation_audit=translation_audit,
-  )
-  if direct_governed:
-    return direct_governed
-  baseline_orchestration = selection.get("baseline_forecast_orchestration") if isinstance(selection.get("baseline_forecast_orchestration"), dict) else {}
-  quarter_map: Dict[int, Dict[str, Any]] = {
-    quarter_index: _default_quarter_policy(profile, quarter_index)
-    for quarter_index in range(1, 21)
-  }
-  for item in (baseline_orchestration.get("quarter_policies") or []):
-    if not isinstance(item, dict):
-      continue
-    start = max(1, _safe_int(item.get("quarter_start")) or 1)
-    end = max(start, _safe_int(item.get("quarter_end")) or start)
-    for quarter_index in range(start, min(20, end) + 1):
-      seeded = quarter_map.setdefault(quarter_index, _default_quarter_policy(profile, quarter_index))
-      for key in (
-        "demand_posture",
-        "staffing_posture",
-        "cost_posture",
-        "growth_multiplier",
-        "convergence_multiplier",
-        "price_growth_bias",
-        "utilization_target_bias",
-        "marketing_ratio_bias",
-        "opex_ratio_bias",
-        "payroll_ratio_bias",
-        "capacity_release_multiplier",
-      ):
-        if item.get(key) is not None:
-          seeded[key] = item.get(key)
-      seeded["active_levers"] = _unique_strings(
-        (seeded.get("active_levers") or [])
-        + [str(lever or "").strip() for lever in (item.get("active_levers") or []) if str(lever or "").strip() and "::" in str(lever or "").strip()]
-      )
-  _overlay_selection_plans_onto_quarter_map(
-    quarter_map=quarter_map,
-    selection=selection,
-  )
-  role_overrides: List[Dict[str, Any]] = [
-    item for item in (baseline_orchestration.get("role_timing_overrides") or [])
-    if isinstance(item, dict)
-  ]
-  milestone_overrides: List[Dict[str, Any]] = [
-    item for item in (baseline_orchestration.get("milestone_timing_overrides") or [])
-    if isinstance(item, dict)
-  ]
-  for item in (selection.get("hiring_release_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    months = _entry_months_until_activate(item)
-    scope = str(item.get("role_scope") or "").strip()
-    for title in _role_titles_for_scope(scope, direct_inputs):
-      role_overrides.append({"role_title": title, "months_until_activate": months})
-  for item in (selection.get("milestone_activation_plan") or []):
-    if not isinstance(item, dict):
-      continue
-    milestone_overrides.append({
-      "description": str(item.get("description") or "").strip(),
-      "months_until_activate": _entry_months_until_activate(item),
-      "target_quarter": max(1, min(20, _safe_int(item.get("target_quarter")) or 1)),
-      "activation_condition": str(item.get("activation_condition") or "").strip(),
-    })
-  event_response = _clone((baseline_orchestration.get("event_response") or {}) if isinstance(baseline_orchestration.get("event_response"), dict) else {})
-  event_response.setdefault("hire_capacity_multiplier", 1.0)
-  event_response.setdefault("hire_growth_bonus_delta", 0.0)
-  event_response.setdefault("marketing_growth_multiplier", 1.0)
-  event_response.setdefault("milestone_capacity_multiplier", 1.0)
-  event_response.setdefault("milestone_growth_multiplier", 1.0)
-  return {
-    "orchestration_summary": str(selection.get("viability_blueprint_summary") or profile.get("dominant_tradeoff") or "").strip(),
-    "quarter_policies": _compress_quarter_policies(list(quarter_map.values())),
-    "role_timing_overrides": role_overrides,
-    "milestone_timing_overrides": milestone_overrides,
-    "event_response": event_response,
-    "target_margin_path": _clone(selection.get("target_margin_path") or {}),
-    "translated_growth_architecture": {
-      "capacity_release_plan": _clone(selection.get("capacity_release_plan") or []),
-      "hiring_release_plan": _clone(selection.get("hiring_release_plan") or []),
-      "demand_build_plan": _clone(selection.get("demand_build_plan") or []),
-      "milestone_activation_plan": _clone(selection.get("milestone_activation_plan") or []),
-      "support_overhead_plan": _clone(selection.get("support_overhead_plan") or []),
-      "governed_forecast_orchestration": {},
-    },
-    "translation_issues": _orchestration_translation_issues(
-      selection=selection,
-      orchestration={
-        "quarter_policies": _compress_quarter_policies(list(quarter_map.values())),
-        "role_timing_overrides": role_overrides,
-        "milestone_timing_overrides": milestone_overrides,
-        "event_response": event_response,
-      },
-      direct_inputs=direct_inputs,
-    ),
-  }
-
-
-def _build_profile_solver_contract(
+def _build_calibration_contract(
   *,
   state_model: Dict[str, Any],
   direct_inputs: Dict[str, Any],
@@ -1852,7 +1051,7 @@ def _build_profile_solver_contract(
   contract_profile = _clone((enforced.get("profile") or {}) if isinstance(enforced, dict) else profile)
   current_revenue = max(1.0, _safe_float(direct_inputs.get("current_revenue")))
   current_ebitda = current_revenue - _safe_float(direct_inputs.get("current_cogs")) - _safe_float(direct_inputs.get("current_payroll_total")) - _safe_float(direct_inputs.get("current_marketing")) - _safe_float(direct_inputs.get("current_other_opex")) - _safe_float(direct_inputs.get("rent_annualized"))
-  selection_plan = _selection_lever_adjustment_plan(selection, max_quarter=4)
+  selection_plan = _selection_lever_adjustment_plan(selection)
   if not selection_plan:
     selection_plan = [item for item in (contract_profile.get("lever_adjustment_plan") or []) if isinstance(item, dict)]
   allowed = set(contract_profile.get("allowed_model_input_levers") or [])
@@ -1860,7 +1059,6 @@ def _build_profile_solver_contract(
     _selection_allowed_model_input_levers(
       selection,
       fallback_allowed=profile.get("allowed_model_input_levers") or [],
-      max_quarter=4,
     )
   )
   contract_profile["allowed_model_input_levers"] = _unique_strings(sorted(allowed))

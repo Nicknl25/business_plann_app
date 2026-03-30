@@ -526,28 +526,73 @@ def _archetype_consistency(candidate: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _role_update_map(candidate: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-  updates = candidate.get("exact_patches") if isinstance(candidate, dict) else {}
-  updates = updates if isinstance(updates, dict) else {}
-  role_updates = updates.get("people_role_updates") if isinstance(updates.get("people_role_updates"), list) else []
-  result: Dict[str, Dict[str, Any]] = {}
-  for item in role_updates:
-    if not isinstance(item, dict):
+  del candidate
+  return {}
+
+
+def _lever_family_from_id(lever_id: Any) -> str:
+  parts = [part.strip() for part in str(lever_id or "").split("::") if part.strip()]
+  if not parts:
+    return ""
+  if parts[0] == "revenue" and len(parts) >= 4:
+    driver = parts[3].lower()
+    if driver == "unit price":
+      return "price"
+    if driver == "utilization":
+      return "utilization"
+    if driver == "capacity":
+      return "capacity"
+  if len(parts) == 2 and parts[0] == "expenses":
+    label = parts[1].lower()
+    if label == "marketing":
+      return "marketing"
+    if label == "payroll":
+      return "payroll"
+    if label == "general & administrative":
+      return "other_opex"
+    if label == "cost of goods sold":
+      return "cogs"
+  return ""
+
+
+def _candidate_lever_summary(candidate: Dict[str, Any]) -> Dict[str, Any]:
+  plan = [item for item in (candidate.get("lever_adjustment_plan") or []) if isinstance(item, dict)]
+  raw_moves: Dict[str, float] = {}
+  for item in plan:
+    family = _lever_family_from_id(item.get("lever_id"))
+    if not family:
       continue
-    title = str(item.get("role_title") or "").strip()
-    if title:
-      result[title] = item
-  return result
+    raw_moves[family] = max(raw_moves.get(family, 0.0), 0.1)
+  meaningful_families = list(dict.fromkeys(family for family in raw_moves.keys() if family))
+  dominant_family = meaningful_families[0] if meaningful_families else ""
+  revenue_move = any(family in {"price", "utilization", "capacity"} for family in meaningful_families)
+  cost_move = any(family in {"marketing", "other_opex", "cogs", "payroll"} for family in meaningful_families)
+  aligned_pairs = 1 if (revenue_move and cost_move) else 0
+  coordination_issues: List[str] = []
+  if revenue_move and not cost_move:
+    coordination_issues.append("revenue_without_cost_support")
+  if cost_move and not revenue_move:
+    coordination_issues.append("cost_without_revenue_support")
+  coordination_score = float(len(meaningful_families)) + (0.75 * aligned_pairs) - (0.75 * len(coordination_issues))
+  dominant_share = (1.0 / max(1, len(meaningful_families))) if dominant_family else 0.0
+  return {
+    "meaningful_families": meaningful_families,
+    "meaningful_lever_count": len(meaningful_families),
+    "raw_family_moves": {key: round(value, 6) for key, value in raw_moves.items()},
+    "dominant_family": dominant_family,
+    "dominant_family_share": round(dominant_share, 6),
+    "aligned_pair_count": aligned_pairs,
+    "coordination_issues": coordination_issues,
+    "changed_products": 0,
+    "moved_product_keys": [],
+    "coordination_score": round(coordination_score, 4),
+  }
 
 
 def _enrich_candidate_strategy(candidate: Dict[str, Any]) -> Dict[str, Any]:
-  from .patches import _build_lever_summary
-
   candidate = dict(candidate or {})
   if not isinstance(candidate.get("lever_summary"), dict):
-    candidate["lever_summary"] = _build_lever_summary(
-      exact_patches=candidate.get("exact_patches") or {},
-      family_raw_components=candidate.get("family_raw_components") or {},
-    )
+    candidate["lever_summary"] = _candidate_lever_summary(candidate)
   if not candidate.get("meaningful_families"):
     merged_families = list(
       dict.fromkeys(
@@ -605,42 +650,13 @@ def _materially_distinct_candidate(left: Dict[str, Any], right: Dict[str, Any]) 
   right_families = tuple(str(item or "").strip() for item in (right.get("lever_families") or []) if str(item or "").strip())
   if left_families and right_families and left_families != right_families:
     return True
-  left_patch = left.get("exact_patches") if isinstance(left, dict) else {}
-  right_patch = right.get("exact_patches") if isinstance(right, dict) else {}
-  left_year1 = left_patch.get("financials_year1_patch") if isinstance(left_patch, dict) else {}
-  right_year1 = right_patch.get("financials_year1_patch") if isinstance(right_patch, dict) else {}
-  left_marketing = left_patch.get("marketing_model_patch") if isinstance(left_patch, dict) else {}
-  right_marketing = right_patch.get("marketing_model_patch") if isinstance(right_patch, dict) else {}
-  left_product_overrides = (left_year1 or {}).get("product_overrides") if isinstance(left_year1, dict) else {}
-  right_product_overrides = (right_year1 or {}).get("product_overrides") if isinstance(right_year1, dict) else {}
-  if isinstance(left_product_overrides, dict) or isinstance(right_product_overrides, dict):
-    left_product_overrides = left_product_overrides if isinstance(left_product_overrides, dict) else {}
-    right_product_overrides = right_product_overrides if isinstance(right_product_overrides, dict) else {}
-    if set(left_product_overrides.keys()) != set(right_product_overrides.keys()):
+  left_years = [item for item in (left.get("forecast_years") or []) if isinstance(item, dict)]
+  right_years = [item for item in (right.get("forecast_years") or []) if isinstance(item, dict)]
+  for idx in range(min(len(left_years), len(right_years), 3)):
+    left_revenue = _safe_float(left_years[idx].get("revenue"))
+    right_revenue = _safe_float(right_years[idx].get("revenue"))
+    if max(left_revenue, right_revenue) > 0 and abs(left_revenue - right_revenue) >= max(1000.0, 0.02 * max(left_revenue, right_revenue)):
       return True
-    for product_name in left_product_overrides.keys():
-      left_override = left_product_overrides.get(product_name) or {}
-      right_override = right_product_overrides.get(product_name) or {}
-      left_price = _safe_float((left_override or {}).get("unit_price"))
-      right_price = _safe_float((right_override or {}).get("unit_price"))
-      if max(left_price, right_price) > 0 and abs(left_price - right_price) >= max(0.25, 0.01 * max(left_price, right_price)):
-        return True
-      left_avg_units = _safe_float((left_override or {}).get("avg_units_per_period_year1"))
-      right_avg_units = _safe_float((right_override or {}).get("avg_units_per_period_year1"))
-      if max(left_avg_units, right_avg_units) > 0 and abs(left_avg_units - right_avg_units) >= max(1.0, 0.02 * max(left_avg_units, right_avg_units)):
-        return True
-      left_prod_util = _normalize_ratio((left_override or {}).get("utilization_rate"))
-      right_prod_util = _normalize_ratio((right_override or {}).get("utilization_rate"))
-      if left_prod_util is not None and right_prod_util is not None and abs(left_prod_util - right_prod_util) >= 0.01:
-        return True
-  left_util = _normalize_ratio((left_year1 or {}).get("utilization_rate"))
-  right_util = _normalize_ratio((right_year1 or {}).get("utilization_rate"))
-  if left_util is not None and right_util is not None and abs(left_util - right_util) >= 0.01:
-    return True
-  left_units = _safe_float((left_marketing or {}).get("expected_units_year1"))
-  right_units = _safe_float((right_marketing or {}).get("expected_units_year1"))
-  if max(left_units, right_units) > 0 and abs(left_units - right_units) >= max(1.0, 0.02 * max(left_units, right_units)):
-    return True
   left_roles = _role_update_map(left)
   right_roles = _role_update_map(right)
   if set(left_roles.keys()) != set(right_roles.keys()):
@@ -667,68 +683,37 @@ def _scenario_marketing_ratio(candidate: Dict[str, Any]) -> Optional[float]:
   return marketing / revenue
 
 
-def _candidate_target_margin_path(candidate: Dict[str, Any], *, state_model: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-  controller_profile = (
-    ((candidate.get("contract_diagnostics") or {}) if isinstance(candidate.get("contract_diagnostics"), dict) else {}).get("controller_profile")
-  )
-  controller_profile = controller_profile if isinstance(controller_profile, dict) else {}
-  path = controller_profile.get("target_margin_path") if isinstance(controller_profile.get("target_margin_path"), dict) else {}
-  if not path and isinstance(state_model, dict):
-    strategy_layer = state_model.get("strategy_layer") if isinstance(state_model.get("strategy_layer"), dict) else {}
-    diagnosis = (strategy_layer or {}).get("diagnosis") if isinstance((strategy_layer or {}).get("diagnosis"), dict) else {}
-    if isinstance(diagnosis, dict):
-      path = diagnosis.get("target_margin_path") if isinstance(diagnosis.get("target_margin_path"), dict) else {}
-  return dict(path or {}) if isinstance(path, dict) else {}
-
-
 def _candidate_target_path_assessment(
   candidate: Dict[str, Any],
   *,
   state_model: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  path = _candidate_target_margin_path(candidate, state_model=state_model)
+  del state_model
   years = candidate.get("forecast_years") if isinstance(candidate.get("forecast_years"), list) else []
-  year_margins: Dict[int, Optional[float]] = {}
+  year_ebitda: Dict[int, Optional[float]] = {}
   for item in years:
     if not isinstance(item, dict):
       continue
     year_index = _safe_int(item.get("year_index"))
-    revenue = max(0.0, _safe_float(item.get("revenue")))
     ebitda = _safe_float(item.get("ebitda"))
-    year_margins[year_index] = (ebitda / revenue) if revenue > 0 else None
-  misses: List[Dict[str, Any]] = []
-  tolerance = 0.03
-  for year_index in (1, 2, 3):
-    margin = year_margins.get(year_index)
-    if margin is None:
-      continue
-    min_key = f"year{year_index}_min"
-    max_key = f"year{year_index}_max"
-    target_min = _safe_float(path.get(min_key))
-    target_max = _safe_float(path.get(max_key))
-    if target_min is not None and margin < (target_min - tolerance):
-      misses.append({"year_index": year_index, "kind": "below_min", "margin": margin, "target": target_min})
-    if target_max is not None and margin > (target_max + tolerance):
-      misses.append({"year_index": year_index, "kind": "above_max", "margin": margin, "target": target_max})
-  year1_margin = year_margins.get(1)
-  year2_margin = year_margins.get(2)
-  year3_margin = year_margins.get(3)
-  year5_margin = year_margins.get(5)
+    year_ebitda[year_index] = ebitda
+  year1_ebitda = year_ebitda.get(1)
+  year2_ebitda = year_ebitda.get(2)
+  year3_ebitda = year_ebitda.get(3)
+  year5_ebitda = year_ebitda.get(5)
   all_negative = all(
-    year_margins.get(idx) is not None and _safe_float(year_margins.get(idx)) < 0.0
+    year_ebitda.get(idx) is not None and _safe_float(year_ebitda.get(idx)) < 0.0
     for idx in (1, 2, 3, 4, 5)
-    if idx in year_margins
-  ) and len(year_margins) >= 5
+    if idx in year_ebitda
+  ) and len(year_ebitda) >= 5
   degrading = False
-  if year1_margin is not None and year2_margin is not None and year3_margin is not None:
-    if year2_margin < (year1_margin - 0.01) or year3_margin < (year2_margin - 0.01):
+  if year1_ebitda is not None and year2_ebitda is not None and year3_ebitda is not None:
+    if year2_ebitda < (year1_ebitda - 1.0) or year3_ebitda < (year2_ebitda - 1.0):
       degrading = True
-  if year3_margin is not None and year5_margin is not None and year5_margin < (year3_margin - 0.02):
+  if year3_ebitda is not None and year5_ebitda is not None and year5_ebitda < (year3_ebitda - 1.0):
     degrading = True
   return {
-    "target_margin_path": _clone(path),
-    "year_margins": {str(key): value for key, value in year_margins.items()},
-    "misses": misses,
+    "year_ebitda": {str(key): value for key, value in year_ebitda.items()},
     "all_negative": all_negative,
     "degrading": degrading,
   }
@@ -751,15 +736,6 @@ def _presentation_issues(
   if any(not _materially_distinct_candidate(candidate, existing) for existing in selected_candidates):
     issues.append("near_duplicate")
 
-  exact_patches = candidate.get("exact_patches") if isinstance(candidate, dict) else {}
-  exact_patches = exact_patches if isinstance(exact_patches, dict) else {}
-  year1_patch = exact_patches.get("financials_year1_patch") if isinstance(exact_patches, dict) else {}
-  year1_patch = year1_patch if isinstance(year1_patch, dict) else {}
-  product_overrides = year1_patch.get("product_overrides") if isinstance(year1_patch, dict) else {}
-  product_overrides = product_overrides if isinstance(product_overrides, dict) else {}
-  if product_overrides and (year1_patch.get("unit_price") is not None or year1_patch.get("utilization_rate") is not None):
-    issues.append("child_parent_contradiction")
-
   fixed_facts = state_model.get("fixed_facts") if isinstance(state_model, dict) else {}
   fixed_facts = fixed_facts if isinstance(fixed_facts, dict) else {}
   sales_modality = str(fixed_facts.get("sales_modality") or "").strip().lower()
@@ -767,16 +743,13 @@ def _presentation_issues(
   commercial_context = fixed_facts.get("commercial_context") if isinstance(fixed_facts.get("commercial_context"), dict) else {}
   marketing_role = str(commercial_context.get("marketing_role") or "").strip().lower()
   space_or_system_scaler = capacity_driver in {"space", "system"}
-  constraint_profile = state_model.get("constraint_profile") if isinstance(state_model, dict) else {}
-  constraint_profile = constraint_profile if isinstance(constraint_profile, dict) else {}
-  util_envelope = (constraint_profile.get("utilization_envelope") if isinstance(constraint_profile, dict) else {}) or {}
+  viability_profile = state_model.get("viability_profile") if isinstance(state_model, dict) else {}
+  viability_profile = viability_profile if isinstance(viability_profile, dict) else {}
+  util_envelope = (viability_profile.get("utilization_envelope") if isinstance(viability_profile, dict) else {}) or {}
   util_floor = _normalize_ratio((util_envelope or {}).get("min"))
   summary = candidate.get("summary") if isinstance(candidate, dict) else {}
   summary = summary if isinstance(summary, dict) else {}
-  scenario_util = _normalize_ratio(
-    ((year1_patch or {}).get("utilization_rate"))
-    or (summary.get("utilization"))
-  )
+  scenario_util = _normalize_ratio(summary.get("utilization"))
   presentation_util_floor = util_floor
   if capacity_driver == "labor" and sales_modality in {"local_service", "project_based"}:
     presentation_util_floor = max(presentation_util_floor or 0.0, 0.45)
@@ -852,7 +825,7 @@ def _presentation_issues(
       issues.append(issue)
   identity_blockers = {
     item for item in issues
-    if item not in {"degrading_five_year_path", "all_negative_five_year_path", "target_path_miss"}
+    if item not in {"degrading_five_year_path", "all_negative_five_year_path"}
   }
   if _safe_float(candidate.get("archetype_consistency_score")) < 1.5 and identity_blockers:
     issues.append("weak_archetype_identity")
@@ -871,8 +844,5 @@ def _presentation_issues(
     issues.append("all_negative_five_year_path")
   if target_path.get("degrading"):
     issues.append("degrading_five_year_path")
-  misses = target_path.get("misses") if isinstance(target_path.get("misses"), list) else []
-  if misses:
-    issues.append("target_path_miss")
 
   return list(dict.fromkeys(issues))

@@ -42,13 +42,11 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   financials: Dict[str, Any] = {}
   marketing_model: Dict[str, Any] = {}
   financials_year1_json: Dict[str, Any] = {}
-  normalized_traits: Dict[str, Any] = {}
-  benchmark_payload: Dict[str, Any] = {}
-  constraint_engine_state: Dict[str, Any] = {}
-  consistency_solver_state: Dict[str, Any] = {}
-  forecast_engine_state: Dict[str, Any] = {}
-  forecast_quarters: Any = []
-  engine_versions: Dict[str, Any] = {}
+  model_input_json: Dict[str, Any] = {}
+  finmo_json: Dict[str, Any] = {}
+  consistency_finmo_attempts: Dict[str, Any] = {}
+  consistency_gpt_governance: Dict[str, Any] = {}
+  consistency_controller_contract: Dict[str, Any] = {}
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -59,28 +57,24 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     target_market = _parse_json_maybe(consult.get("target_market_json"))
     people_capability = _parse_json_maybe(consult.get("people_json"))
     financials = _parse_json_maybe(consult.get("financials_json"))
-    consistency_solver_state = _parse_json_maybe(financials.get("_consistency_solver_state"))
     marketing_model = _parse_json_maybe(consult.get("marketing_model_json"))
     financials_year1_json = _parse_json_maybe(consult.get("financials_year1_json"))
-    normalized_traits = _parse_json_maybe(consult.get("normalized_traits_json"))
-    benchmark_payload = _parse_json_maybe(consult.get("benchmark_payload_json"))
-    constraint_engine_state = _parse_json_maybe(consult.get("constraint_engine_state_json"))
-    forecast_engine_state = _parse_json_maybe(consult.get("forecast_engine_state_json"))
-    forecast_quarters = _parse_json_list_maybe(consult.get("forecast_quarters_json"))
-    engine_versions = _parse_json_maybe(consult.get("engine_versions_json"))
+    model_input_json = _parse_json_maybe(consult.get("model_input_json"))
+    finmo_json = _parse_json_maybe(consult.get("finmo_json"))
+    consistency_finmo_attempts = _parse_json_maybe(consult.get("consistency_finmo_attempts_json"))
+    consistency_gpt_governance = _parse_json_maybe(consult.get("consistency_gpt_governance_json"))
+    consistency_controller_contract = _parse_json_maybe(consult.get("consistency_controller_contract_json"))
   except Exception:
     # Fall back to legacy per-consult drafts below.
     operating_model = {}
     target_market = {}
     people_capability = {}
     financials = {}
-    normalized_traits = {}
-    benchmark_payload = {}
-    constraint_engine_state = {}
-    consistency_solver_state = {}
-    forecast_engine_state = {}
-    forecast_quarters = []
-    engine_versions = {}
+    model_input_json = {}
+    finmo_json = {}
+    consistency_finmo_attempts = {}
+    consistency_gpt_governance = {}
+    consistency_controller_contract = {}
 
   try:
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
@@ -116,8 +110,6 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     for key in ("initial_assets", "initial_lease", "initial_equity", "total_debt_outstanding"):
       if financials.get(key) in (None, "") and key in operating_model:
         financials[key] = operating_model.get(key)
-  consistency_solver_state = _parse_json_maybe(financials.get("_consistency_solver_state"))
-
   return {
     "operating_model": operating_model,
     "target_market": target_market,
@@ -125,13 +117,11 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "financials": financials,
     "marketing": marketing_model,
     "financials_year1_json": financials_year1_json,
-    "normalized_traits": normalized_traits,
-    "benchmark_payload": benchmark_payload,
-    "constraint_engine_state": constraint_engine_state,
-    "consistency_solver_state": consistency_solver_state,
-    "forecast_engine_state": forecast_engine_state,
-    "forecast_quarters": forecast_quarters,
-    "engine_versions": engine_versions,
+    "model_input_json": model_input_json,
+    "finmo_json": finmo_json,
+    "consistency_finmo_attempts": consistency_finmo_attempts,
+    "consistency_gpt_governance": consistency_gpt_governance,
+    "consistency_controller_contract": consistency_controller_contract,
   }
 
 

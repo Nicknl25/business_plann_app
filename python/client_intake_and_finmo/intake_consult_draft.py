@@ -44,19 +44,12 @@ def _normalize_flat_value(value: Any) -> Any:
 
 
 _ENGINE_JSON_COLUMNS = (
-  "normalized_traits_json",
-  "benchmark_payload_json",
-  "constraint_engine_state_json",
-  "forecast_engine_state_json",
-  "forecast_quarters_json",
   "model_input_json",
   "finmo_json",
   "consistency_finmo_attempts_json",
   "consistency_modified_plan_json",
   "consistency_gpt_governance_json",
   "consistency_controller_contract_json",
-  "consistency_solver_execution_json",
-  "engine_versions_json",
 )
 
 _CONSISTENCY_COMPLETION_TRIGGER_INSERT = "trg_consistency_completion_guard_bi_v1"
@@ -258,11 +251,6 @@ def ensure_table(conn) -> None:
         financials_json LONGTEXT NULL,
         marketing_model_json LONGTEXT NULL,
         financials_year1_json LONGTEXT NULL,
-        normalized_traits_json LONGTEXT NULL,
-        benchmark_payload_json LONGTEXT NULL,
-        constraint_engine_state_json LONGTEXT NULL,
-        forecast_engine_state_json LONGTEXT NULL,
-        forecast_quarters_json LONGTEXT NULL,
         finmo_path LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
@@ -270,8 +258,6 @@ def ensure_table(conn) -> None:
         consistency_modified_plan_json LONGTEXT NULL,
         consistency_gpt_governance_json LONGTEXT NULL,
         consistency_controller_contract_json LONGTEXT NULL,
-        consistency_solver_execution_json LONGTEXT NULL,
-        engine_versions_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
         ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
@@ -337,16 +323,6 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN marketing_model_json LONGTEXT NULL")
   if "financials_year1_json" not in cols:
     alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
-  if "normalized_traits_json" not in cols:
-    alterations.append("ADD COLUMN normalized_traits_json LONGTEXT NULL")
-  if "benchmark_payload_json" not in cols:
-    alterations.append("ADD COLUMN benchmark_payload_json LONGTEXT NULL")
-  if "constraint_engine_state_json" not in cols:
-    alterations.append("ADD COLUMN constraint_engine_state_json LONGTEXT NULL")
-  if "forecast_engine_state_json" not in cols:
-    alterations.append("ADD COLUMN forecast_engine_state_json LONGTEXT NULL")
-  if "forecast_quarters_json" not in cols:
-    alterations.append("ADD COLUMN forecast_quarters_json LONGTEXT NULL")
   if "finmo_path" not in cols:
     alterations.append("ADD COLUMN finmo_path LONGTEXT NULL")
   if "model_input_json" not in cols:
@@ -361,10 +337,6 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN consistency_gpt_governance_json LONGTEXT NULL")
   if "consistency_controller_contract_json" not in cols:
     alterations.append("ADD COLUMN consistency_controller_contract_json LONGTEXT NULL")
-  if "consistency_solver_execution_json" not in cols:
-    alterations.append("ADD COLUMN consistency_solver_execution_json LONGTEXT NULL")
-  if "engine_versions_json" not in cols:
-    alterations.append("ADD COLUMN engine_versions_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -552,17 +524,10 @@ def _render_messages_for_storage(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
-  normalized_traits_json: Optional[Dict[str, Any]] = None,
-  benchmark_payload_json: Optional[Dict[str, Any]] = None,
-  constraint_engine_state_json: Optional[Dict[str, Any]] = None,
-  forecast_engine_state_json: Optional[Dict[str, Any]] = None,
-  forecast_quarters_json: Optional[List[Dict[str, Any]]] = None,
   consistency_modified_plan_json: Optional[Dict[str, Any]] = None,
   consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
   consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
-  consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
   consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
-  engine_versions_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -596,25 +561,6 @@ def _render_messages_for_storage(
     "financials_year1_json": (
       financials_year1_json if financials_year1_json is not None else _parse_json_object(row.get("financials_year1_json"))
     ),
-    "normalized_traits": (
-      normalized_traits_json if normalized_traits_json is not None else _parse_json_object(row.get("normalized_traits_json"))
-    ),
-    "benchmark_payload": (
-      benchmark_payload_json if benchmark_payload_json is not None else _parse_json_object(row.get("benchmark_payload_json"))
-    ),
-    "constraint_engine_state": (
-      constraint_engine_state_json
-      if constraint_engine_state_json is not None
-      else _parse_json_object(row.get("constraint_engine_state_json"))
-    ),
-    "consistency_solver_state": _parse_json_object(
-      (_parse_json_object(row.get("financials_json")) or {}).get("_consistency_solver_state")
-    ),
-    "forecast_engine_state": (
-      forecast_engine_state_json
-      if forecast_engine_state_json is not None
-      else _parse_json_object(row.get("forecast_engine_state_json"))
-    ),
     "model_input_json": (
       model_input_json if model_input_json is not None else _parse_json_object(row.get("model_input_json"))
     ),
@@ -640,14 +586,6 @@ def _render_messages_for_storage(
       consistency_controller_contract_json
       if consistency_controller_contract_json is not None
       else _parse_json_object(row.get("consistency_controller_contract_json"))
-    ),
-    "consistency_solver_execution": (
-      consistency_solver_execution_json
-      if consistency_solver_execution_json is not None
-      else _parse_json_object(row.get("consistency_solver_execution_json"))
-    ),
-    "engine_versions": (
-      engine_versions_json if engine_versions_json is not None else _parse_json_object(row.get("engine_versions_json"))
     ),
   }
 
@@ -686,17 +624,10 @@ def append_messages(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
-  normalized_traits_json: Optional[Dict[str, Any]] = None,
-  benchmark_payload_json: Optional[Dict[str, Any]] = None,
-  constraint_engine_state_json: Optional[Dict[str, Any]] = None,
-  forecast_engine_state_json: Optional[Dict[str, Any]] = None,
-  forecast_quarters_json: Optional[List[Dict[str, Any]]] = None,
   consistency_modified_plan_json: Optional[Dict[str, Any]] = None,
   consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
   consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
-  consistency_solver_execution_json: Optional[Dict[str, Any]] = None,
   consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
-  engine_versions_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   finmo_path: Optional[str] = None,
@@ -729,17 +660,10 @@ def append_messages(
     financials_json=financials_json,
     marketing_model_json=marketing_model_json,
     financials_year1_json=financials_year1_json,
-    normalized_traits_json=normalized_traits_json,
-    benchmark_payload_json=benchmark_payload_json,
-    constraint_engine_state_json=constraint_engine_state_json,
-    forecast_engine_state_json=forecast_engine_state_json,
-    forecast_quarters_json=forecast_quarters_json,
     consistency_modified_plan_json=consistency_modified_plan_json,
     consistency_gpt_governance_json=consistency_gpt_governance_json,
     consistency_controller_contract_json=consistency_controller_contract_json,
-    consistency_solver_execution_json=consistency_solver_execution_json,
     consistency_finmo_attempts_json=consistency_finmo_attempts_json,
-    engine_versions_json=engine_versions_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
     business_facts=business_facts,
@@ -782,26 +706,6 @@ def append_messages(
     set_parts.append("financials_year1_json = %s")
     values.append(json.dumps(financials_year1_json, ensure_ascii=False))
 
-  if normalized_traits_json is not None:
-    set_parts.append("normalized_traits_json = %s")
-    values.append(json.dumps(normalized_traits_json, ensure_ascii=False))
-
-  if benchmark_payload_json is not None:
-    set_parts.append("benchmark_payload_json = %s")
-    values.append(json.dumps(benchmark_payload_json, ensure_ascii=False))
-
-  if constraint_engine_state_json is not None:
-    set_parts.append("constraint_engine_state_json = %s")
-    values.append(json.dumps(constraint_engine_state_json, ensure_ascii=False))
-
-  if forecast_engine_state_json is not None:
-    set_parts.append("forecast_engine_state_json = %s")
-    values.append(json.dumps(forecast_engine_state_json, ensure_ascii=False))
-
-  if forecast_quarters_json is not None:
-    set_parts.append("forecast_quarters_json = %s")
-    values.append(json.dumps(forecast_quarters_json, ensure_ascii=False))
-
   if model_input_json is not None:
     set_parts.append("model_input_json = %s")
     values.append(json.dumps(model_input_json, ensure_ascii=False))
@@ -825,14 +729,6 @@ def append_messages(
   if consistency_controller_contract_json is not None:
     set_parts.append("consistency_controller_contract_json = %s")
     values.append(json.dumps(consistency_controller_contract_json, ensure_ascii=False))
-
-  if consistency_solver_execution_json is not None:
-    set_parts.append("consistency_solver_execution_json = %s")
-    values.append(json.dumps(consistency_solver_execution_json, ensure_ascii=False))
-
-  if engine_versions_json is not None:
-    set_parts.append("engine_versions_json = %s")
-    values.append(json.dumps(engine_versions_json, ensure_ascii=False))
 
   if pending_ops_milestone_json is not None:
     set_parts.append("pending_ops_milestone_json = %s")
@@ -917,11 +813,6 @@ def append_messages(
       "financials_json",
       "marketing_model_json",
       "financials_year1_json",
-      "normalized_traits_json",
-      "benchmark_payload_json",
-      "constraint_engine_state_json",
-      "forecast_engine_state_json",
-      "forecast_quarters_json",
       "finmo_path",
       "model_input_json",
       "finmo_json",
@@ -929,8 +820,6 @@ def append_messages(
       "consistency_modified_plan_json",
       "consistency_gpt_governance_json",
       "consistency_controller_contract_json",
-      "consistency_solver_execution_json",
-      "engine_versions_json",
       "pending_ops_milestone_json",
       "fulfillment_json",
       "created_at",
