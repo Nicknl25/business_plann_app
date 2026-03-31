@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from financial_model_engine.model_inputs import QUARTER_COUNT
-from financial_model_engine.solver import LeverControl, OutputTarget
+import requests
+from financial_model_engine.finmo_model import calculate_finmo_model
+from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
+from financial_model_engine.solver import LeverControl, OutputTarget, SolverOptions, solve_financial_model
 
-from client_intake_and_finmo import consistency_flow as consistency_runtime  # type: ignore
 from client_intake_and_finmo.consistency_financials import build_consistency_financial_summary  # type: ignore
-from client_intake_and_finmo.consistency_strategy_advisor import (  # type: ignore
-  _openai_model,
-  _openai_timeout_seconds,
-  _parse_json_response,
-  _post_openai,
-  _require_openai_key,
-  _sanitize_canonical_live_payload,
-  _strategy_system_prompts,
-)
-
 
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
@@ -37,6 +30,169 @@ _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
     "Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection."
   ),
 }
+
+_GRID_EXCLUDED_LEVER_IDS = {
+  "balance_sheet::PPE $ (Excluding Capital Leases)",
+  "balance_sheet::Accumulated Depreciation",
+}
+
+_RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _require_openai_key() -> str:
+  key = (os.getenv("OPENAI_API_KEY") or "").strip()
+  if not key:
+    raise RuntimeError("OPENAI_API_KEY is not configured.")
+  return key
+
+
+def _openai_model() -> str:
+  return (
+    os.getenv("CONSISTENCY_GPT_STRATEGY_MODEL")
+    or os.getenv("OPENAI_MODEL")
+    or "gpt-5.1"
+  ).strip() or "gpt-5.1"
+
+
+def _timeout_env_int(name: str, default: int) -> int:
+  raw = (os.getenv(name) or "").strip()
+  if not raw:
+    return default
+  try:
+    return max(15, int(raw))
+  except Exception:
+    return default
+
+
+def _openai_timeout_seconds(kind: str = "default") -> int:
+  if kind == "strategy":
+    return _timeout_env_int("CONSISTENCY_GPT_STRATEGY_TIMEOUT_SECONDS", 75)
+  return _timeout_env_int("OPENAI_HTTP_TIMEOUT_SECONDS", 180)
+
+
+def _post_openai(
+  *,
+  url: str,
+  headers: Dict[str, str],
+  payload: Dict[str, Any],
+  timeout_seconds: Optional[int] = None,
+  max_attempts: int = 3,
+) -> requests.Response:
+  timeout = max(15, int(timeout_seconds or _openai_timeout_seconds()))
+  attempts = max(1, int(max_attempts or 1))
+  last_exc: Optional[Exception] = None
+  for attempt in range(attempts):
+    try:
+      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+      if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
+        time.sleep(0.75 * (2**attempt))
+        continue
+      return resp
+    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
+      last_exc = exc
+      if attempt >= attempts - 1:
+        raise
+      time.sleep(0.75 * (2**attempt))
+  if last_exc:
+    raise last_exc
+  raise RuntimeError("OpenAI request failed unexpectedly.")
+
+
+def _parse_json_response(data: Dict[str, Any]) -> Dict[str, Any]:
+  for item in data.get("output") or []:
+    if not isinstance(item, dict):
+      continue
+    for part in item.get("content") or []:
+      if not isinstance(part, dict):
+        continue
+      parsed = part.get("parsed")
+      if isinstance(parsed, dict):
+        return parsed
+      raw = str(part.get("text") or "").strip()
+      if not raw:
+        continue
+      try:
+        parsed = json.loads(raw)
+      except Exception:
+        continue
+      if isinstance(parsed, dict):
+        return parsed
+  return {}
+
+
+def _sanitize_canonical_live_payload(value: Any) -> Any:
+  if isinstance(value, dict):
+    return {str(raw_key or ""): _sanitize_canonical_live_payload(raw_val) for raw_key, raw_val in value.items()}
+  if isinstance(value, list):
+    return [_sanitize_canonical_live_payload(item) for item in value]
+  return value
+
+
+def _baseline_summary_from_finmo_json(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
+  quarter_rows = [item for item in ((finmo_json.get("quarter_rows") or []) if isinstance(finmo_json, dict) else []) if isinstance(item, dict)]
+  active_rows = [row for row in quarter_rows if int(row.get("quarter_index") or 0) >= 1]
+  first_year = active_rows[:4]
+  if first_year:
+    revenue = sum(float_or_none(item.get("revenue")) or 0.0 for item in first_year)
+    cogs = sum(float_or_none(item.get("cost_of_goods_sold")) or 0.0 for item in first_year)
+    gross_profit = sum(float_or_none(item.get("gross_profit")) or 0.0 for item in first_year)
+    payroll = sum(float_or_none(item.get("payroll")) or 0.0 for item in first_year)
+    marketing = sum(float_or_none(item.get("marketing")) or 0.0 for item in first_year)
+    other_opex = sum(
+      (float_or_none(item.get("lease_rent")) or 0.0)
+      + (float_or_none(item.get("general_and_administrative")) or 0.0)
+      + (float_or_none(item.get("research_and_development")) or 0.0)
+      for item in first_year
+    )
+    ebitda = sum(float_or_none(item.get("ebitda")) or 0.0 for item in first_year)
+    net_income = sum(float_or_none(item.get("net_income")) or 0.0 for item in first_year)
+    return {
+      "revenue": revenue,
+      "cogs": cogs,
+      "gross_profit": gross_profit,
+      "payroll": payroll,
+      "marketing": marketing,
+      "other_opex": other_opex,
+      "ebitda": ebitda,
+      "net_income": net_income,
+    }
+  return {}
+
+
+def _diagnose_planning_case(
+  *,
+  baseline_summary: Dict[str, Any],
+) -> Dict[str, Any]:
+  revenue = max(1.0, float_or_none((baseline_summary or {}).get("revenue")) or 0.0)
+  ebitda = float_or_none((baseline_summary or {}).get("ebitda")) or 0.0
+  payroll = float_or_none((baseline_summary or {}).get("payroll")) or 0.0
+  marketing = float_or_none((baseline_summary or {}).get("marketing")) or 0.0
+  other_opex = float_or_none((baseline_summary or {}).get("other_opex")) or 0.0
+  ebitda_margin = ebitda / revenue if revenue > 0 else 0.0
+  if payroll >= marketing and payroll >= other_opex:
+    primary_cause = "payroll-driven"
+  elif marketing >= payroll and marketing >= other_opex:
+    primary_cause = "marketing-driven"
+  else:
+    primary_cause = "mixed"
+  if ebitda < -0.10 * revenue:
+    severity = "severe"
+  elif ebitda < 0:
+    severity = "moderate"
+  else:
+    severity = "mild"
+  preferred: List[str] = []
+  if ebitda > 0 and ebitda_margin > 0.30:
+    preferred.append("reality_normalization_strategy")
+  elif ebitda < 0:
+    preferred.extend(["demand_supported_growth", "staffing_ramp_adjustment"])
+  else:
+    preferred.extend(["operational_balance_strategy", "pricing_adjustment"])
+  return {
+    "primary_cause": primary_cause,
+    "severity_class": severity,
+    "preferred_strategy_ids": preferred,
+  }
 
 
 def _prompt_library_dir() -> Path:
@@ -81,6 +237,11 @@ def planning_mode_text(planning_mode: str) -> str:
   return _PLANNING_MODE_DEFAULTS.get(mode) or _PLANNING_MODE_DEFAULTS["turnaround"]
 
 
+def planning_mode_prompt_file(planning_mode: str) -> str:
+  mode = resolve_planning_mode(planning_mode)
+  return str((_prompt_library_dir() / f"{mode}.md").resolve())
+
+
 def classify_planning_mode(
   *,
   baseline_summary: Dict[str, Any],
@@ -110,6 +271,43 @@ def classify_planning_mode(
   return {
     "planning_mode": "rebalance",
     "planning_mode_reason": "app_classified_misaligned_but_salvageable_case",
+  }
+
+
+def determine_planning_mode(
+  *,
+  ops_json: Dict[str, Any],
+  target_market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  business_facts: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  del ops_json, target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
+  baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or build_consistency_financial_summary(
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
+  diagnosis = _diagnose_planning_case(baseline_summary=baseline_summary)
+  classification = classify_planning_mode(
+    baseline_summary=baseline_summary,
+    diagnosis=diagnosis,
+  )
+  planning_mode = resolve_planning_mode(str(classification.get("planning_mode") or ""))
+  return {
+    "planning_mode": planning_mode,
+    "planning_mode_reason": str(classification.get("planning_mode_reason") or "").strip(),
+    "prompt_file": planning_mode_prompt_file(planning_mode),
+    "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
+    "diagnosis": _sanitize_canonical_live_payload(diagnosis or {}),
+    "fixed_facts": {
+      "model_input_json": _sanitize_canonical_live_payload(model_input_json or {}),
+      "finmo_json": _sanitize_canonical_live_payload(finmo_json or {}),
+    },
   }
 
 
@@ -172,6 +370,8 @@ def extract_quarter_grid_rows(
       lever_id = str(item.get("lever_id") or "").strip()
       if not lever_id:
         continue
+      if lever_id in _GRID_EXCLUDED_LEVER_IDS:
+        continue
       values = list(item.get("values") or [])
       if len(values) == QUARTER_COUNT + 1:
         values = values[1:]
@@ -193,6 +393,8 @@ def extract_quarter_grid_rows(
       continue
     lever_id = str(item.get("lever_id") or "").strip()
     if not lever_id:
+      continue
+    if lever_id in _GRID_EXCLUDED_LEVER_IDS:
       continue
     values = list(item.get("values") or [])
     if len(values) == QUARTER_COUNT + 1:
@@ -227,7 +429,6 @@ def build_real_governor_payload(
   source_row: Dict[str, Any],
   model_input_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
-  finmo_path: str,
   parse_json_object,
 ) -> Dict[str, Any]:
   ops_json = parse_json_object(source_row.get("operating_model_json"))
@@ -238,11 +439,7 @@ def build_real_governor_payload(
   fulfillment_json = parse_json_object(source_row.get("fulfillment_json"))
   marketing_model_json = parse_json_object(source_row.get("marketing_model_json"))
 
-  baseline_summary = consistency_runtime._baseline_summary_from_finmo(finmo_json) or build_consistency_financial_summary(
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-  )
-  state_model = consistency_runtime._build_consistency_state_model(
+  return build_governor_payload_from_context(
     ops_json=ops_json,
     target_market_json=target_market_json,
     people_json=people_json,
@@ -250,25 +447,190 @@ def build_real_governor_payload(
     financials_year1_json=financials_year1_json,
     fulfillment_json=fulfillment_json,
     marketing_model_json=marketing_model_json,
-    baseline_summary=baseline_summary,
-    diagnostic_state=None,
-    finmo_path=finmo_path,
-    business_facts={},
     model_input_json=model_input_json,
     finmo_json=finmo_json,
+    business_facts={},
   )
-  direct_inputs = consistency_runtime._build_controller_inputs(state_model=state_model)
-  diagnosis = consistency_runtime._diagnose_case(
-    baseline_summary=baseline_summary,
-    diagnostic_state=None,
+
+
+def build_governor_payload_from_context(
+  *,
+  ops_json: Dict[str, Any],
+  target_market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  business_facts: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  del ops_json, target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
+  baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or build_consistency_financial_summary(
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
   )
-  fixed_facts = (state_model.get("fixed_facts") or {}) if isinstance(state_model.get("fixed_facts"), dict) else {}
   return {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
-    "fixed_facts": _sanitize_canonical_live_payload(fixed_facts or {}),
-    "model_input_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("model_input_json") or {}),
-    "finmo_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("finmo_json") or {}),
+    "fixed_facts": {
+      "model_input_json": _sanitize_canonical_live_payload(model_input_json or {}),
+      "finmo_json": _sanitize_canonical_live_payload(finmo_json or {}),
+    },
+    "model_input_view": _sanitize_canonical_live_payload(model_input_json or {}),
+    "finmo_view": _sanitize_canonical_live_payload(finmo_json or {}),
     "viability_mode": True,
+  }
+
+
+def generate_live_quarter_grid_plan(
+  *,
+  business_name: str,
+  planning_mode: str,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  target_market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  business_facts: Optional[Dict[str, Any]] = None,
+  batch_size: int = 12,
+  use_real_strategy_prompt: bool = True,
+) -> Dict[str, Any]:
+  normalized_mode = resolve_planning_mode(planning_mode)
+  prompt_file = planning_mode_prompt_file(normalized_mode)
+  baseline_inputs = FinancialModelInputs.from_model_input_json(model_input_json)
+  baseline_outputs = calculate_finmo_model(baseline_inputs).quarter_rows()
+  grid_rows = extract_quarter_grid_rows(
+    model_input_json=model_input_json,
+    baseline_outputs=baseline_outputs,
+  )
+  governor_payload = build_governor_payload_from_context(
+    ops_json=ops_json,
+    target_market_json=target_market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+    marketing_model_json=marketing_model_json,
+    model_input_json=model_input_json,
+    finmo_json=finmo_json,
+    business_facts=business_facts or {},
+  )
+  source_row = {"business_name": str(business_name or "").strip()}
+  response_rows: List[Dict[str, Any]] = []
+  batch_summaries: List[str] = []
+  batches = chunk_quarter_grid_rows(grid_rows, batch_size)
+  started = time.perf_counter()
+  for batch_offset, batch_rows in enumerate(batches, start=1):
+    prompt = build_quarter_grid_prompt(
+      source_row=source_row,
+      grid_rows=batch_rows,
+      governor_payload=governor_payload,
+      batch_index=batch_offset,
+      batch_count=len(batches),
+      planning_mode=normalized_mode,
+    )
+    batch_response = call_quarter_grid_openai(
+      prompt,
+      allowed_row_ids=[str(item.get("row_id") or "") for item in batch_rows],
+      use_real_strategy_prompt=bool(use_real_strategy_prompt),
+      planning_mode=normalized_mode,
+    )
+    response_rows.extend(batch_response.get("rows") if isinstance(batch_response.get("rows"), list) else [])
+    batch_summaries.append(str(batch_response.get("summary") or f"Batch {batch_offset} completed."))
+  runtime_seconds = round(time.perf_counter() - started, 3)
+  response_json = {
+    "summary": f"Completed {len(batches)} quarter-grid probe batches.",
+    "rows": response_rows,
+  }
+  validation = validate_quarter_grid_response(
+    requested_rows=grid_rows,
+    response_json=response_json,
+  )
+  metadata = {
+    "planning_mode": normalized_mode,
+    "prompt_file": prompt_file,
+    "runtime_seconds": runtime_seconds,
+    "requested_row_count": validation.get("requested_row_count"),
+    "returned_row_count": validation.get("returned_row_count"),
+    "batch_count": len(batches),
+    "batch_size": int(batch_size or 0),
+    "batch_summaries": batch_summaries,
+    "validation": {
+      "missing_rows": list(validation.get("missing_rows") or []),
+      "extra_rows": list(validation.get("extra_rows") or []),
+      "duplicate_rows": list(validation.get("duplicate_rows") or []),
+      "malformed_rows": list(validation.get("malformed_rows") or []),
+      "flat_rows": list(validation.get("flat_rows") or []),
+    },
+    "response_summary": str(response_json.get("summary") or "").strip(),
+    "response_json": response_json,
+  }
+  return {
+    "planning_mode": normalized_mode,
+    "prompt_file": prompt_file,
+    "grid_json": response_json,
+    "grid_rows": grid_rows,
+    "validation": validation,
+    "metadata": metadata,
+    "gpt_narrative": " ".join(item for item in batch_summaries if str(item or "").strip()).strip() or str(response_json.get("summary") or "").strip(),
+  }
+
+
+def solve_live_quarter_grid_plan(
+  *,
+  baseline_model_input_json: Dict[str, Any],
+  grid_json: Dict[str, Any],
+  max_iterations: int = 300,
+  movement_penalty_weight: float = 0.000001,
+) -> Dict[str, Any]:
+  try:
+    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
+  except Exception:
+    from finmo_bridge import build_python_finmo_json  # type: ignore
+
+  baseline_inputs = FinancialModelInputs.from_model_input_json(
+    baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {}
+  )
+  controls = controls_from_quarter_grid(grid_json if isinstance(grid_json, dict) else {})
+  targets = targets_from_quarter_grid(grid_json if isinstance(grid_json, dict) else {})
+  result = solve_financial_model(
+    baseline_inputs,
+    controls=controls,
+    targets=targets,
+    options=SolverOptions(
+      max_iterations=max(1, int(max_iterations)),
+      movement_penalty_weight=float(movement_penalty_weight),
+    ),
+  )
+  solved_model_input_json = result.solved_model_input_json if isinstance(result.solved_model_input_json, dict) else {}
+  solved_finmo_json = build_python_finmo_json(model_input_json=solved_model_input_json)
+  max_accounting_check = max(
+    abs(float(row.get("accounting_equation_check") or 0.0))
+    for row in (result.solved_outputs or [])
+  ) if result.solved_outputs else 0.0
+  solver_summary = {
+    "success": bool(result.success),
+    "objective_before": float(result.objective_before or 0.0),
+    "objective_after": float(result.objective_after or 0.0),
+    "iterations": len(result.iterations or []),
+    "control_count": len(controls),
+    "target_count": len(targets),
+    "accounting_equation_check_max_abs": float(max_accounting_check),
+    "movement_penalty_weight": float(movement_penalty_weight),
+    "max_iterations": int(max_iterations),
+  }
+  return {
+    "solver_result": result,
+    "controls": controls,
+    "targets": targets,
+    "solved_model_input_json": solved_model_input_json,
+    "solved_finmo_json": solved_finmo_json,
+    "solver_summary": solver_summary,
   }
 
 
@@ -351,7 +713,7 @@ def build_quarter_grid_prompt(
     "For each quarter, min_value must be less than or equal to max_value.\n"
     "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n"
     "For output rows, use dollar values from Financial Model QTR semantics.\n"
-    "For lever rows, use realistic workbook-driver values.\n\n"
+    "For lever rows, use realistic model-input driver values.\n\n"
     "Profitability standard for this probe:\n"
     "- push toward profitability as early as realism allows\n"
     "- do not normalize persistent multi-year losses if a believable operating repair exists\n"
@@ -375,21 +737,18 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
       "Use real business judgment and match the company stage. "
       + planning_mode_text(planning_mode)
     )
-  base_prompt = _strategy_system_prompts()[0]
-  override = (
-    "\n\nQuarter-Grid Override:\n"
-    "This is the quarter-native planning contract, not the grouped-period contract.\n"
-    "Ignore any grouped-period guidance and do not return strategy ids, lever_adjustment_plan, "
-    "controlled_output_targets, or target_posture.\n"
-    "Instead, return only the requested quarter-by-quarter grid rows using the attached schema.\n"
+  return (
+    "You are producing a quarter-native financial planning contract for a real business.\n"
+    "This is not a grouped-period plan and not a strategy-id response.\n"
+    "Do not return strategy ids, lever packages, grouped targets, or target posture.\n"
+    "Return only the requested quarter-by-quarter grid rows using the attached schema.\n"
     "Fill every listed row for every quarter Q1 through Q20.\n"
     "Preserve each row_id exactly as given.\n"
-    "Use the real business context and realism standard from the rest of this prompt.\n"
+    "Use the actual business context, stage, and baseline values to create a realistic path.\n"
     + planning_mode_text(planning_mode)
     + "\n"
     "Express the result as min/max bands in the quarter grid."
   )
-  return base_prompt + override
 
 
 def call_quarter_grid_openai(

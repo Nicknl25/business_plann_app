@@ -44,9 +44,6 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
   financials_year1_json: Dict[str, Any] = {}
   model_input_json: Dict[str, Any] = {}
   finmo_json: Dict[str, Any] = {}
-  consistency_finmo_attempts: Dict[str, Any] = {}
-  consistency_gpt_governance: Dict[str, Any] = {}
-  consistency_controller_contract: Dict[str, Any] = {}
 
   # Preferred: unified draft table (single canonical model).
   try:
@@ -61,9 +58,6 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     financials_year1_json = _parse_json_maybe(consult.get("financials_year1_json"))
     model_input_json = _parse_json_maybe(consult.get("model_input_json"))
     finmo_json = _parse_json_maybe(consult.get("finmo_json"))
-    consistency_finmo_attempts = _parse_json_maybe(consult.get("consistency_finmo_attempts_json"))
-    consistency_gpt_governance = _parse_json_maybe(consult.get("consistency_gpt_governance_json"))
-    consistency_controller_contract = _parse_json_maybe(consult.get("consistency_controller_contract_json"))
   except Exception:
     # Fall back to legacy per-consult drafts below.
     operating_model = {}
@@ -72,9 +66,6 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     financials = {}
     model_input_json = {}
     finmo_json = {}
-    consistency_finmo_attempts = {}
-    consistency_gpt_governance = {}
-    consistency_controller_contract = {}
 
   try:
     from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
@@ -119,9 +110,6 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     "financials_year1_json": financials_year1_json,
     "model_input_json": model_input_json,
     "finmo_json": finmo_json,
-    "consistency_finmo_attempts": consistency_finmo_attempts,
-    "consistency_gpt_governance": consistency_gpt_governance,
-    "consistency_controller_contract": consistency_controller_contract,
   }
 
 

@@ -15,7 +15,7 @@ def post_financials_handler(*, app, request):
   app.logger.info("Intake payload received: %s", payload)
   print("Intake payload received:", payload)
   try:
-    from intake_pipeline import (  # type: ignore
+    from intake_submit_service import (  # type: ignore
       IntakeValidationError,
       process_intake_submission,
     )

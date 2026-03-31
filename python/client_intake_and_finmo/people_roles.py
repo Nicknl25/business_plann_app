@@ -396,12 +396,12 @@ def _get_naics_from_business_type(conn, business_type: Any) -> Optional[str]:
     return None
   naics = None
   try:
-    from intake_business_types import get_naics_from_business_type  # type: ignore
+    from business_type_naics import get_naics_from_business_type  # type: ignore
 
     naics = get_naics_from_business_type(conn, str(business_type).strip())
   except Exception:
     try:
-      from client_intake_and_finmo.intake_business_types import get_naics_from_business_type  # type: ignore
+      from client_intake_and_finmo.business_type_naics import get_naics_from_business_type  # type: ignore
 
       naics = get_naics_from_business_type(conn, str(business_type).strip())
     except Exception:

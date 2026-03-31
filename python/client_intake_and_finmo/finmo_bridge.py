@@ -149,12 +149,7 @@ def _simple_input_semantics(section_key: str, label: str) -> Dict[str, str]:
       return {"value_kind": "ratio", "input_semantics": "percent_of_revenue"}
     if normalized_label == "short term debt (% of ltd)":
       return {"value_kind": "ratio", "input_semantics": "percent_of_long_term_debt"}
-    if normalized_label in {
-      "ppe $ (excluding capital leases)",
-      "accumulated depreciation",
-      "owner's capital",
-      "other equity",
-    }:
+    if normalized_label in {"owner's capital", "other equity"}:
       return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
   if normalized_section == "schedules":
     return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
@@ -1259,8 +1254,6 @@ def _python_model_input_template(
   balance_sheet = [
     "Accounts Receivable Days",
     "Inventory Days",
-    "PPE $ (Excluding Capital Leases)",
-    "Accumulated Depreciation",
     "Accounts Payable Days",
     "Prepaid Expenses",
     "Deferred Revnue",
@@ -1292,6 +1285,7 @@ def _python_model_input_template(
 
   schedule_labels = [
     "Plus: Additions (repayments), net",
+    "Capital Expenditures",
     "Less: Principal Repayments",
     "Plus: Net Additions",
   ]
@@ -1334,6 +1328,13 @@ def _python_model_input_template(
       "schedules": {
         "debt_opening_balance_seed": 0.0,
         "lease_opening_balance_seed": 0.0,
+        "ppe_opening_balance_seed": 0.0,
+        "accumulated_depreciation_opening_seed": 0.0,
+        "cash_opening_balance_seed": 0.0,
+        "accounts_receivable_opening_balance_seed": 0.0,
+        "inventory_opening_balance_seed": 0.0,
+        "accounts_payable_opening_balance_seed": 0.0,
+        "short_term_debt_opening_balance_seed": 0.0,
         "rows": schedule_rows,
       },
     },
@@ -1552,30 +1553,16 @@ def _build_model_input_overlay(
     row["values"] = values
 
   balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
-  opening_ppe = _safe_float((financials_json or {}).get("current_capex"))
-  if opening_ppe is None:
-    opening_ppe = _safe_float((financials_json or {}).get("initial_assets")) or 0.0
-  opening_accum_dep = _safe_float((financials_json or {}).get("accumulated_depreciation")) or 0.0
-  cumulative_capex = 0.0
-  cumulative_dep = 0.0
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
     values: List[float] = []
-    cumulative_capex = 0.0
-    cumulative_dep = 0.0
     base_values = list(row.get("values") or [])
     for slot_idx, slot in enumerate(slots):
       working_capital = slot.get("working_capital") if isinstance(slot.get("working_capital"), dict) else {}
-      cumulative_capex += _safe_float(slot.get("capex")) or 0.0
-      cumulative_dep += _safe_float(slot.get("depreciation")) or 0.0
       if label == "Accounts Receivable Days":
         values.append(round(_safe_float(working_capital.get("dso")) or 0.0, 6))
       elif label == "Inventory Days":
         values.append(round(_safe_float(working_capital.get("inventory_days")) or 0.0, 6))
-      elif label == "PPE $ (Excluding Capital Leases)":
-        values.append(round(opening_ppe + cumulative_capex, 6))
-      elif label == "Accumulated Depreciation":
-        values.append(round(opening_accum_dep - cumulative_dep, 6))
       elif label == "Accounts Payable Days":
         values.append(round(_safe_float(working_capital.get("dpo")) or 0.0, 6))
       elif label == "Prepaid Expenses":
@@ -1600,14 +1587,32 @@ def _build_model_input_overlay(
   lease_seed = _safe_float((financials_json or {}).get("initial_lease"))
   if lease_seed is not None:
     schedules["lease_opening_balance_seed"] = round(lease_seed, 6)
+  ppe_seed = _safe_float((financials_json or {}).get("initial_assets")) or 0.0
+  schedules["ppe_opening_balance_seed"] = round(max(0.0, ppe_seed), 6)
+  accum_dep_seed = _safe_float((financials_json or {}).get("accumulated_depreciation"))
+  if accum_dep_seed is None:
+    accum_dep_seed = 0.0
+  schedules["accumulated_depreciation_opening_seed"] = round(-abs(accum_dep_seed), 6)
+  schedules["cash_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("cash_on_hand")) or 0.0), 6)
+  schedules["accounts_receivable_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("ar_balance")) or 0.0), 6)
+  schedules["inventory_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0), 6)
+  schedules["accounts_payable_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0), 6)
+  schedules["short_term_debt_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("short_term_debt")) or 0.0), 6)
+  annual_capex = _safe_float((financials_json or {}).get("current_capex")) or 0.0
+  quarterly_capex = round(max(0.0, annual_capex) / 4.0, 6) if annual_capex else 0.0
   for row in [item for item in (schedules.get("rows") or []) if isinstance(item, dict)]:
     label = str(row.get("label") or "").strip()
     base_values = list(row.get("values") or [])
     if label == "Plus: Additions (repayments), net":
       row["values"] = [0.0 for _ in slots]
+    elif label == "Capital Expenditures":
+      if projection_mode:
+        row["values"] = [round(max(0.0, _safe_float(slot.get("capex")) or 0.0), 6) for slot in slots]
+      else:
+        row["values"] = [quarterly_capex for _ in slots]
     elif label == "Less: Principal Repayments":
       annual_principal = _safe_float((financials_json or {}).get("annual_principal_payment")) or 0.0
-      quarterly = round(-(annual_principal / 4.0), 6) if annual_principal else 0.0
+      quarterly = round(max(0.0, annual_principal) / 4.0, 6) if annual_principal else 0.0
       row["values"] = [quarterly for _ in slots]
     elif label == "Plus: Net Additions":
       row["values"] = [0.0 for _ in slots]
@@ -1633,6 +1638,56 @@ def normalize_model_input_forecast_anchor(
     start_date_iso=normalized_anchor,
     period_count=period_count,
   )
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  if not isinstance(sections, dict):
+    sections = {}
+    next_payload["sections"] = sections
+  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
+  retained_balance_rows: List[Dict[str, Any]] = []
+  legacy_ppe_row: Optional[Dict[str, Any]] = None
+  legacy_accum_dep_row: Optional[Dict[str, Any]] = None
+  for row in balance_rows:
+    label = str(row.get("label") or "").strip()
+    if label == "PPE $ (Excluding Capital Leases)":
+      legacy_ppe_row = _clone(row)
+      continue
+    if label == "Accumulated Depreciation":
+      legacy_accum_dep_row = _clone(row)
+      continue
+    retained_balance_rows.append(_clone(row))
+  sections["balance_sheet"] = retained_balance_rows
+
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  if not isinstance(schedules, dict):
+    schedules = {}
+  schedule_rows = [row for row in (schedules.get("rows") or []) if isinstance(row, dict)]
+  has_capex_row = any(str(row.get("label") or "").strip() == "Capital Expenditures" for row in schedule_rows)
+  if not has_capex_row:
+    schedule_rows.insert(
+      1 if schedule_rows else 0,
+      {
+        "named_range": "model_input_schedules",
+        "controller_write": True,
+        "lever_id": "schedules::Capital Expenditures",
+        "label": "Capital Expenditures",
+        "value_kind": "direct_number",
+        "input_semantics": "quarter_currency",
+        "values": [0.0 for _ in range(period_count)],
+      },
+    )
+  if schedules.get("ppe_opening_balance_seed") in {None, ""}:
+    legacy_ppe_values = list((legacy_ppe_row or {}).get("values") or [])
+    schedules["ppe_opening_balance_seed"] = round(max(0.0, _safe_float(legacy_ppe_values[0]) or 0.0), 6) if legacy_ppe_values else 0.0
+  if schedules.get("accumulated_depreciation_opening_seed") in {None, ""}:
+    legacy_accum_values = list((legacy_accum_dep_row or {}).get("values") or [])
+    if legacy_accum_values:
+      schedules["accumulated_depreciation_opening_seed"] = round(-abs(_safe_float(legacy_accum_values[0]) or 0.0), 6)
+    else:
+      schedules["accumulated_depreciation_opening_seed"] = 0.0
+  sections["schedules"] = {
+    **schedules,
+    "rows": schedule_rows,
+  }
   return next_payload
 
 

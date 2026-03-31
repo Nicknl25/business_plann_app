@@ -129,8 +129,11 @@ class FinancialModelInputsTests(unittest.TestCase):
           "schedules": {
             "debt_opening_balance_seed": 25000.0,
             "lease_opening_balance_seed": 10000.0,
+            "ppe_opening_balance_seed": 5000.0,
+            "accumulated_depreciation_opening_seed": -1200.0,
             "rows": [
               {"label": "Plus: Additions (repayments), net", "lever_id": "schedules::Plus: Additions (repayments), net", "values": [0.0 for _ in range(20)]},
+              {"label": "Capital Expenditures", "lever_id": "schedules::Capital Expenditures", "values": [250.0 for _ in range(20)]},
               {"label": "Less: Principal Repayments", "lever_id": "schedules::Less: Principal Repayments", "values": [500.0 for _ in range(20)]},
               {"label": "Plus: Net Additions", "lever_id": "schedules::Plus: Net Additions", "values": [1000.0 for _ in range(20)]},
             ],
@@ -143,8 +146,10 @@ class FinancialModelInputsTests(unittest.TestCase):
     self.assertEqual(payload["sections"]["expenses"][0]["label"], "Payroll")
     self.assertEqual(payload["sections"]["balance_sheet"][0]["label"], "Accounts Receivable Days")
     self.assertEqual(payload["sections"]["schedules"]["debt_opening_balance_seed"], 25000.0)
-    self.assertEqual(len(payload["sections"]["schedules"]["rows"]), 3)
-    self.assertEqual(payload["sections"]["schedules"]["rows"][1]["label"], "Less: Principal Repayments")
+    self.assertEqual(payload["sections"]["schedules"]["ppe_opening_balance_seed"], 5000.0)
+    self.assertEqual(payload["sections"]["schedules"]["accumulated_depreciation_opening_seed"], -1200.0)
+    self.assertEqual(len(payload["sections"]["schedules"]["rows"]), 4)
+    self.assertEqual(payload["sections"]["schedules"]["rows"][1]["label"], "Capital Expenditures")
     self.assertEqual(payload["sections"]["revenue"][1]["driver"], "Unit Price")
 
   def test_set_simple_driver_updates_balance_sheet_and_schedule_rows(self) -> None:
@@ -165,7 +170,12 @@ class FinancialModelInputsTests(unittest.TestCase):
       named_range="model_input_schedules",
       lever_id="schedules::Less: Principal Repayments",
     )
-    book.set_schedule_seed(debt_opening_balance_seed=15000.0, lease_opening_balance_seed=2500.0)
+    book.set_schedule_seed(
+      debt_opening_balance_seed=15000.0,
+      lease_opening_balance_seed=2500.0,
+      ppe_opening_balance_seed=12000.0,
+      accumulated_depreciation_opening_seed=-500.0,
+    )
 
     payload = book.to_model_input_json()
     balance_rows = {row["label"]: row for row in payload["sections"]["balance_sheet"]}
@@ -173,6 +183,8 @@ class FinancialModelInputsTests(unittest.TestCase):
     self.assertEqual(balance_rows["Accounts Receivable Days"]["values"][2], 30.0)
     self.assertEqual(schedule_rows["Less: Principal Repayments"]["values"][2], 750.0)
     self.assertEqual(payload["sections"]["schedules"]["lease_opening_balance_seed"], 2500.0)
+    self.assertEqual(payload["sections"]["schedules"]["ppe_opening_balance_seed"], 12000.0)
+    self.assertEqual(payload["sections"]["schedules"]["accumulated_depreciation_opening_seed"], -500.0)
 
 
 if __name__ == "__main__":

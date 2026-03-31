@@ -75,14 +75,15 @@ class FinmoModelTests(unittest.TestCase):
         payroll_amount=80000.0,
         g_and_a_percent=0.10,
       )
-    book.set_simple_driver(
-      section="balance_sheet",
-      label="PPE $ (Excluding Capital Leases)",
-      quarter_index=1,
-      value=25000.0,
-      named_range="model_input_balancehseet",
-      lever_id="balance_sheet::PPE $ (Excluding Capital Leases)",
-    )
+    for quarter_index in range(1, 21):
+      book.set_simple_driver(
+        section="schedules",
+        label="Capital Expenditures",
+        quarter_index=quarter_index,
+        value=0.0,
+        named_range="model_input_schedules",
+        lever_id="schedules::Capital Expenditures",
+      )
     book.set_simple_driver(
       section="balance_sheet",
       label="Owner's Capital",
@@ -90,6 +91,10 @@ class FinmoModelTests(unittest.TestCase):
       value=100000.0,
       named_range="model_input_balancehseet",
       lever_id="balance_sheet::Owner's Capital",
+    )
+    book.set_schedule_seed(
+      ppe_opening_balance_seed=25000.0,
+      accumulated_depreciation_opening_seed=-5000.0,
     )
 
     result = calculate_finmo_model(book)
@@ -150,6 +155,52 @@ class FinmoModelTests(unittest.TestCase):
     self.assertEqual(rows[0]["quarter"], 0)
     self.assertAlmostEqual(rows[0]["debt_closing_balance"], 15000.0, places=6)
     self.assertAlmostEqual(rows[0]["lease_closing_balance_total"], 9000.0, places=6)
+
+  def test_ppe_is_derived_from_opening_balance_capex_and_depreciation(self) -> None:
+    book = FinancialModelInputs.empty(
+      start_date="2026-09-03",
+      business_name="CareFirst Home Health Services",
+    )
+    book.set_expense_drivers(quarter_index=1, depreciation_percent=0.10)
+    book.set_simple_driver(
+      section="schedules",
+      label="Capital Expenditures",
+      quarter_index=1,
+      value=5000.0,
+      named_range="model_input_schedules",
+      lever_id="schedules::Capital Expenditures",
+    )
+    book.set_schedule_seed(
+      ppe_opening_balance_seed=20000.0,
+      accumulated_depreciation_opening_seed=-4000.0,
+    )
+
+    result = calculate_finmo_model(book)
+    first_quarter = result.quarter_rows()[0]
+
+    self.assertAlmostEqual(first_quarter["depreciation"], 2000.0, places=6)
+    self.assertAlmostEqual(first_quarter["ppe"], 23000.0, places=6)
+    self.assertAlmostEqual(first_quarter["capital_expenditures"], 5000.0, places=6)
+
+  def test_lease_balance_is_floored_at_zero(self) -> None:
+    book = FinancialModelInputs.empty(
+      start_date="2026-09-03",
+      business_name="CareFirst Home Health Services",
+    )
+    book.set_schedule_seed(lease_opening_balance_seed=1000.0)
+    book.set_simple_driver(
+      section="schedules",
+      label="Less: Principal Repayments",
+      quarter_index=1,
+      value=1500.0,
+      named_range="model_input_schedules",
+      lever_id="schedules::Less: Principal Repayments",
+    )
+
+    result = calculate_finmo_model(book)
+    first_quarter = result.quarter_rows()[0]
+
+    self.assertAlmostEqual(first_quarter["lease_closing_balance_total"], 0.0, places=6)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 
@@ -46,10 +44,7 @@ def _normalize_flat_value(value: Any) -> Any:
 _ENGINE_JSON_COLUMNS = (
   "model_input_json",
   "finmo_json",
-  "consistency_finmo_attempts_json",
-  "consistency_modified_plan_json",
-  "consistency_gpt_governance_json",
-  "consistency_controller_contract_json",
+  "planning_run_json",
 )
 
 _CONSISTENCY_COMPLETION_TRIGGER_INSERT = "trg_consistency_completion_guard_bi_v1"
@@ -67,7 +62,7 @@ def _parse_json_payload(raw: Any) -> Any:
     return None
 
 
-def _is_valid_consistency_modified_plan_payload(payload: Any) -> bool:
+def _is_valid_planning_run_payload(payload: Any) -> bool:
   data = _parse_json_payload(payload)
   if not isinstance(data, dict) or not data:
     return False
@@ -102,7 +97,7 @@ def _enforce_consistency_completion_payload(
   active_focus: Optional[str],
   consistency_passed: Optional[bool],
   completed: bool,
-  consistency_modified_plan_json: Optional[Dict[str, Any]],
+  planning_run_json: Optional[Dict[str, Any]],
 ) -> None:
   if not _consistency_completion_requested(
     status=status,
@@ -112,12 +107,12 @@ def _enforce_consistency_completion_payload(
   ):
     return
   payload = (
-    consistency_modified_plan_json
-    if consistency_modified_plan_json is not None
-    else _parse_json_payload(row.get("consistency_modified_plan_json"))
+    planning_run_json
+    if planning_run_json is not None
+    else _parse_json_payload(row.get("planning_run_json"))
   )
-  if not _is_valid_consistency_modified_plan_payload(payload):
-    raise RuntimeError("consistency_completion_requires_modified_plan")
+  if not _is_valid_planning_run_payload(payload):
+    raise RuntimeError("consistency_completion_requires_planning_run")
 
 
 def _trigger_exists(conn, trigger_name: str) -> bool:
@@ -157,12 +152,12 @@ def _ensure_consistency_completion_triggers(conn) -> None:
           OR LOWER(COALESCE(NEW.status, '')) = 'completed'
           OR NEW.completed_at IS NOT NULL
         ) AND (
-          NEW.consistency_modified_plan_json IS NULL
-          OR JSON_VALID(NEW.consistency_modified_plan_json) = 0
-          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.resolution_summary') IS NULL
+          NEW.planning_run_json IS NULL
+          OR JSON_VALID(NEW.planning_run_json) = 0
+          OR JSON_EXTRACT(CAST(NEW.planning_run_json AS JSON), '$.resolution_summary') IS NULL
         ) THEN
           SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'consistency_completion_requires_modified_plan';
+            SET MESSAGE_TEXT = 'consistency_completion_requires_planning_run';
         END IF;
       END
       """,
@@ -181,12 +176,12 @@ def _ensure_consistency_completion_triggers(conn) -> None:
           OR LOWER(COALESCE(NEW.status, '')) = 'completed'
           OR NEW.completed_at IS NOT NULL
         ) AND (
-          NEW.consistency_modified_plan_json IS NULL
-          OR JSON_VALID(NEW.consistency_modified_plan_json) = 0
-          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.resolution_summary') IS NULL
+          NEW.planning_run_json IS NULL
+          OR JSON_VALID(NEW.planning_run_json) = 0
+          OR JSON_EXTRACT(CAST(NEW.planning_run_json AS JSON), '$.resolution_summary') IS NULL
         ) THEN
           SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'consistency_completion_requires_modified_plan';
+            SET MESSAGE_TEXT = 'consistency_completion_requires_planning_run';
         END IF;
       END
       """,
@@ -241,13 +236,9 @@ def ensure_table(conn) -> None:
         financials_json LONGTEXT NULL,
         marketing_model_json LONGTEXT NULL,
         financials_year1_json LONGTEXT NULL,
-        finmo_path LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
-        consistency_finmo_attempts_json LONGTEXT NULL,
-        consistency_modified_plan_json LONGTEXT NULL,
-        consistency_gpt_governance_json LONGTEXT NULL,
-        consistency_controller_contract_json LONGTEXT NULL,
+        planning_run_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
         ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
@@ -313,20 +304,15 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN marketing_model_json LONGTEXT NULL")
   if "financials_year1_json" not in cols:
     alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
-  if "finmo_path" not in cols:
-    alterations.append("ADD COLUMN finmo_path LONGTEXT NULL")
   if "model_input_json" not in cols:
     alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in cols:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
-  if "consistency_finmo_attempts_json" not in cols:
-    alterations.append("ADD COLUMN consistency_finmo_attempts_json LONGTEXT NULL")
-  if "consistency_modified_plan_json" not in cols:
-    alterations.append("ADD COLUMN consistency_modified_plan_json LONGTEXT NULL")
-  if "consistency_gpt_governance_json" not in cols:
-    alterations.append("ADD COLUMN consistency_gpt_governance_json LONGTEXT NULL")
-  if "consistency_controller_contract_json" not in cols:
-    alterations.append("ADD COLUMN consistency_controller_contract_json LONGTEXT NULL")
+  if "planning_run_json" not in cols:
+    if "consistency_finmo_attempts_json" in cols:
+      alterations.append("CHANGE COLUMN consistency_finmo_attempts_json planning_run_json LONGTEXT NULL")
+    else:
+      alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -340,11 +326,21 @@ def ensure_table(conn) -> None:
   if "financials_finalize_proposed" not in cols:
     alterations.append("ADD COLUMN financials_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
 
-  if alterations:
+  cleanup_drop_columns = (
+    "consistency_gpt_governance_json",
+    "consistency_controller_contract_json",
+    "finmo_path",
+    "consistency_modified_plan_json",
+  )
+  if alterations or any(column in cols for column in cleanup_drop_columns):
     cur2 = conn.cursor()
     try:
       for alter in alterations:
         cur2.execute(f"ALTER TABLE intake_consult_drafts {alter}")
+      refreshed_cols = _table_columns(conn, "intake_consult_drafts")
+      for column in cleanup_drop_columns:
+        if column in refreshed_cols:
+          cur2.execute(f"ALTER TABLE intake_consult_drafts DROP COLUMN {column}")
       conn.commit()
     except Exception:
       # Best-effort: ignore if ALTER fails due to permissions or race.
@@ -386,7 +382,6 @@ def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
     "draft_id": draft_id,
     "client_id": client_id,
     "status": "in_progress",
-    "finmo_path": None,
   }
 
 
@@ -435,75 +430,6 @@ def _parse_json_object(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
-def _looks_like_legacy_finmo_filename(value: Any) -> bool:
-  name = Path(str(value or "").strip()).name.lower()
-  return bool(name) and name.startswith("client_")
-
-
-def ensure_draft_finmo_workbook(
-  conn,
-  *,
-  draft_id: str,
-) -> Optional[str]:
-  ensure_table(conn)
-  row = get_draft(conn, draft_id=str(draft_id).strip())
-  current_path = str(row.get("finmo_path") or "").strip()
-  if current_path and Path(current_path).exists() and not _looks_like_legacy_finmo_filename(current_path):
-    return current_path
-
-  business_name = str(row.get("business_name") or "").strip()
-  created_at = row.get("created_at")
-  business_start_date = row.get("business_start_date")
-  client_id = str(row.get("client_id") or "").strip()
-  if not business_name or created_at is None or not business_start_date or not client_id:
-    return None
-
-  template_path = str(os.getenv("FINMO") or "").strip()
-  client_finmo_dir = str(os.getenv("CLIENT_FINMO") or "").strip()
-  if not template_path or not client_finmo_dir:
-    return None
-  try:
-    from intake_submission import create_client_finmo_workbook  # type: ignore
-  except Exception:
-    try:
-      from client_intake_and_finmo.intake_submission import create_client_finmo_workbook  # type: ignore
-    except Exception:
-      return None
-  try:
-    copied = create_client_finmo_workbook(
-      template_path=template_path,
-      client_finmo_dir=client_finmo_dir,
-      business_name=business_name,
-      created_at=created_at,
-      business_start_date=business_start_date,
-      client_id=client_id,
-    )
-  except Exception:
-    return None
-  cleaned = str(copied or "").strip()
-  if not cleaned:
-    return None
-
-  cur = conn.cursor()
-  try:
-    cur.execute(
-      """
-      UPDATE intake_consult_drafts
-      SET finmo_path = %s,
-          updated_at = %s
-      WHERE draft_id = %s
-      """,
-      (cleaned, _utc_now_str(), str(draft_id).strip()),
-    )
-    conn.commit()
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
-  return cleaned
-
-
 def _render_messages_for_storage(
   *,
   row: Dict[str, Any],
@@ -514,10 +440,7 @@ def _render_messages_for_storage(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
-  consistency_modified_plan_json: Optional[Dict[str, Any]] = None,
-  consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
-  consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
-  consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
+  planning_run_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -557,25 +480,10 @@ def _render_messages_for_storage(
     "finmo_json": (
       finmo_json if finmo_json is not None else _parse_json_object(row.get("finmo_json"))
     ),
-    "consistency_finmo_attempts": (
-      consistency_finmo_attempts_json
-      if consistency_finmo_attempts_json is not None
-      else _parse_json_object(row.get("consistency_finmo_attempts_json"))
-    ),
-    "consistency_modified_plan": (
-      consistency_modified_plan_json
-      if consistency_modified_plan_json is not None
-      else _parse_json_object(row.get("consistency_modified_plan_json"))
-    ),
-    "consistency_gpt_governance": (
-      consistency_gpt_governance_json
-      if consistency_gpt_governance_json is not None
-      else _parse_json_object(row.get("consistency_gpt_governance_json"))
-    ),
-    "consistency_controller_contract": (
-      consistency_controller_contract_json
-      if consistency_controller_contract_json is not None
-      else _parse_json_object(row.get("consistency_controller_contract_json"))
+    "planning_run": (
+      planning_run_json
+      if planning_run_json is not None
+      else _parse_json_object(row.get("planning_run_json"))
     ),
   }
 
@@ -614,13 +522,9 @@ def append_messages(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
-  consistency_modified_plan_json: Optional[Dict[str, Any]] = None,
-  consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
-  consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
-  consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
+  planning_run_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
-  finmo_path: Optional[str] = None,
   pending_ops_milestone_json: Optional[Any] = None,
   fulfillment_json: Optional[Dict[str, Any]] = None,
   active_focus: Optional[str] = None,
@@ -637,7 +541,7 @@ def append_messages(
     active_focus=active_focus,
     consistency_passed=consistency_passed,
     completed=completed,
-    consistency_modified_plan_json=consistency_modified_plan_json,
+    planning_run_json=planning_run_json,
   )
   messages = _parse_messages(row.get("messages_json"))
   messages.extend(new_messages)
@@ -650,10 +554,7 @@ def append_messages(
     financials_json=financials_json,
     marketing_model_json=marketing_model_json,
     financials_year1_json=financials_year1_json,
-    consistency_modified_plan_json=consistency_modified_plan_json,
-    consistency_gpt_governance_json=consistency_gpt_governance_json,
-    consistency_controller_contract_json=consistency_controller_contract_json,
-    consistency_finmo_attempts_json=consistency_finmo_attempts_json,
+    planning_run_json=planning_run_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
     business_facts=business_facts,
@@ -704,21 +605,9 @@ def append_messages(
     set_parts.append("finmo_json = %s")
     values.append(json.dumps(finmo_json, ensure_ascii=False))
 
-  if consistency_finmo_attempts_json is not None:
-    set_parts.append("consistency_finmo_attempts_json = %s")
-    values.append(json.dumps(consistency_finmo_attempts_json, ensure_ascii=False))
-
-  if consistency_modified_plan_json is not None:
-    set_parts.append("consistency_modified_plan_json = %s")
-    values.append(json.dumps(consistency_modified_plan_json, ensure_ascii=False))
-
-  if consistency_gpt_governance_json is not None:
-    set_parts.append("consistency_gpt_governance_json = %s")
-    values.append(json.dumps(consistency_gpt_governance_json, ensure_ascii=False))
-
-  if consistency_controller_contract_json is not None:
-    set_parts.append("consistency_controller_contract_json = %s")
-    values.append(json.dumps(consistency_controller_contract_json, ensure_ascii=False))
+  if planning_run_json is not None:
+    set_parts.append("planning_run_json = %s")
+    values.append(json.dumps(planning_run_json, ensure_ascii=False))
 
   if pending_ops_milestone_json is not None:
     set_parts.append("pending_ops_milestone_json = %s")
@@ -727,10 +616,6 @@ def append_messages(
   if fulfillment_json is not None:
     set_parts.append("fulfillment_json = %s")
     values.append(json.dumps(fulfillment_json, ensure_ascii=False))
-
-  if finmo_path is not None:
-    set_parts.append("finmo_path = %s")
-    values.append(str(finmo_path).strip() or None)
 
   if active_focus is not None:
     set_parts.append("active_focus = %s")
@@ -803,13 +688,9 @@ def append_messages(
       "financials_json",
       "marketing_model_json",
       "financials_year1_json",
-      "finmo_path",
       "model_input_json",
       "finmo_json",
-      "consistency_finmo_attempts_json",
-      "consistency_modified_plan_json",
-      "consistency_gpt_governance_json",
-      "consistency_controller_contract_json",
+      "planning_run_json",
       "pending_ops_milestone_json",
       "fulfillment_json",
       "created_at",

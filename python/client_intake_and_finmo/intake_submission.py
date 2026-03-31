@@ -2,19 +2,13 @@ from __future__ import annotations
 
 import os
 import secrets
-import shutil
 import smtplib
 import string
 from datetime import date, datetime
 from email.message import EmailMessage
-from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, Set, List
-
-from openpyxl import load_workbook
-from openpyxl.utils import range_boundaries
+from typing import Any, Dict, Tuple, Set, List
 
 
-# Windows filename-safe special characters (avoid <>:"/\\|?*).
 ALLOWED_SPECIALS = "!@#$%^&_-"
 
 
@@ -56,91 +50,6 @@ def _mysql_env() -> Tuple[str, int, str, str, str]:
   except ValueError:
     port = 3306
   return host, port, user, password, database
-
-
-def sanitize_filename_component(value: str, *, max_len: int = 80) -> str:
-  cleaned = "".join(ch for ch in value.strip() if ch not in '<>:"/\\|?*')
-  cleaned = " ".join(cleaned.split())
-  cleaned = cleaned.strip(" .")
-  if not cleaned:
-    cleaned = "client"
-  if len(cleaned) > max_len:
-    cleaned = cleaned[:max_len].rstrip(" .")
-  return cleaned
-
-
-def _sanitize_env_path(value: str) -> str:
-  # Common when .env values get wrapped in quotes.
-  cleaned = str(value).strip()
-  if cleaned.startswith('"') and cleaned.endswith('"') and len(cleaned) >= 2:
-    cleaned = cleaned[1:-1].strip()
-  if cleaned.startswith("'") and cleaned.endswith("'") and len(cleaned) >= 2:
-    cleaned = cleaned[1:-1].strip()
-  return cleaned
-
-
-def created_at_numeric(value: Any) -> str:
-  if isinstance(value, datetime):
-    return value.strftime("%Y%m%d%H%M%S%f")
-  raw = str(value).strip()
-  digits = "".join(ch for ch in raw if ch.isdigit())
-  if not digits:
-    raise ValueError(f"Unable to derive numeric timestamp from created_at={value!r}")
-  return digits
-
-
-def business_start_date_iso(value: Any) -> str:
-  return parse_business_start_date(value).isoformat()
-
-
-def _stamp_model_input_startdate(*, finmo_path: str, business_start_date: Any) -> None:
-  wb = load_workbook(finmo_path, data_only=False)
-  try:
-    defined = wb.defined_names.get("model_input_startdate")
-    if defined is None:
-      return
-    destinations = list(defined.destinations)
-    if not destinations:
-      return
-    sheet_name, ref = destinations[0]
-    min_col, min_row, _max_col, _max_row = range_boundaries(ref)
-    wb[sheet_name].cell(row=min_row, column=min_col).value = business_start_date_iso(business_start_date)
-    wb.save(finmo_path)
-  finally:
-    wb.close()
-
-
-def create_client_finmo_workbook(
-  *,
-  template_path: str,
-  client_finmo_dir: str,
-  business_name: str,
-  created_at: Any,
-  business_start_date: Any,
-  client_id: str,
-) -> str:
-  template = Path(_sanitize_env_path(template_path))
-  if not template.exists():
-    raise FileNotFoundError(f"FINMO template not found at {template}")
-
-  dest_dir = Path(_sanitize_env_path(client_finmo_dir))
-  dest_dir.mkdir(parents=True, exist_ok=True)
-
-  business_part = sanitize_filename_component(business_name)
-  ts_part = created_at_numeric(created_at)
-  # User requirement: name the copy using business_name + numeric created_at only.
-  base_name = f"{business_part}_{ts_part}"
-  dest_path = dest_dir / f"{base_name}.xlsx"
-
-  # Avoid collisions without introducing invalid filename characters.
-  counter = 2
-  while dest_path.exists():
-    dest_path = dest_dir / f"{base_name}_{counter}.xlsx"
-    counter += 1
-
-  shutil.copy2(str(template), str(dest_path))
-  _stamp_model_input_startdate(finmo_path=str(dest_path), business_start_date=business_start_date)
-  return str(dest_path)
 
 
 def insert_intake_submission(
@@ -351,26 +260,6 @@ def fetch_intake_submission_by_client_id(
   if not isinstance(row, dict):
     raise RuntimeError("Unexpected DB row shape for intake_submissions.")
   return row
-
-
-def update_intake_submission_finmo_path(
-  *,
-  conn,
-  submission_id: int,
-  finmo_path: str,
-) -> None:
-  cur = conn.cursor()
-  try:
-    cur.execute(
-      "UPDATE intake_submissions SET finmo_path = %s WHERE id = %s",
-      (finmo_path, submission_id),
-    )
-    conn.commit()
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
 
 
 def update_intake_operating_model_fields(

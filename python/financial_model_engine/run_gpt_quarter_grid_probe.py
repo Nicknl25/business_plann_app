@@ -139,7 +139,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     source_row=source_row,
     model_input_json=model_input_json,
     finmo_json=_finmo_json,
-    finmo_path=finmo_path,
     parse_json_object=_parse_json_object,
   )
   response_rows: List[Dict[str, Any]] = []

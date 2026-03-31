@@ -12,7 +12,7 @@ from flask import jsonify
 
 logger = logging.getLogger(__name__)
 import requests
-from intake_consult_draft import append_messages, ensure_draft_finmo_workbook, get_draft
+from intake_consult_draft import append_messages, get_draft
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -827,7 +827,6 @@ def _build_consistency_runtime_context(
   *,
   client_id: str,
   draft_id: str,
-  finmo_path: Optional[str],
   business_facts: Dict[str, Any],
   business_stage_hint: Optional[str],
   current_date_iso: str,
@@ -843,7 +842,6 @@ def _build_consistency_runtime_context(
   ctx: Dict[str, Any] = {
     "client_id": client_id,
     "draft_id": str(draft_id).strip(),
-    "finmo_path": str(finmo_path or "").strip(),
     "business_name": business_facts.get("name"),
     "business_start_date": business_facts.get("start_date"),
     "address": business_facts.get("address"),
@@ -975,23 +973,15 @@ def _build_violation_resolution_summary(
   }
 
 
-def _require_consistency_modified_plan(closeout: Any) -> Dict[str, Any]:
-  payload = (
-    closeout.get("consistency_modified_plan_json")
-    if isinstance(closeout, dict)
-    else None
-  )
+def _require_planning_run(closeout: Any) -> Dict[str, Any]:
+  payload = closeout.get("planning_run_json") if isinstance(closeout, dict) else None
   if isinstance(payload, dict) and payload:
     return payload
-  raise RuntimeError("consistency_modified_plan_missing")
+  raise RuntimeError("planning_run_missing")
 
 
-def _valid_consistency_modified_plan_from_closeout(closeout: Any) -> Optional[Dict[str, Any]]:
-  payload = (
-    closeout.get("consistency_modified_plan_json")
-    if isinstance(closeout, dict)
-    else None
-  )
+def _valid_planning_run_from_closeout(closeout: Any) -> Optional[Dict[str, Any]]:
+  payload = closeout.get("planning_run_json") if isinstance(closeout, dict) else None
   if not isinstance(payload, dict) or not payload:
     return None
   if not isinstance(payload.get("resolution_summary"), dict) or not payload.get("resolution_summary"):
@@ -1005,22 +995,34 @@ def _consistency_closeout_ready_for_completion(closeout: Any) -> bool:
   governance_state = closeout.get("governance_state") if isinstance(closeout.get("governance_state"), dict) else {}
   if str(governance_state.get("status") or "").strip() == "blocking_unresolved":
     return False
-  return _valid_consistency_modified_plan_from_closeout(closeout) is not None
+  return _valid_planning_run_from_closeout(closeout) is not None
 
 
-def _build_simple_consistency_modified_plan_payload(
+def _build_planning_run_payload(
   *,
-  resolution_summary: Dict[str, Any],
-  assistant_text: str,
-  finalized: bool,
+  stage: str,
+  status: str,
+  resolution_summary: Optional[Dict[str, Any]] = None,
+  planning_mode: Optional[str] = None,
+  planning_mode_reason: Optional[str] = None,
+  prompt_file: Optional[str] = None,
+  gpt_narrative: Optional[str] = None,
+  gpt_grid_metadata: Optional[Dict[str, Any]] = None,
+  solver_summary: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  return {
-    "contract_version": "consistency_reconciliation_v1",
-    "source": "consistency_consultant",
-    "finalized": bool(finalized),
-    "assistant_summary": str(assistant_text or "").strip(),
+  payload: Dict[str, Any] = {
+    "contract_version": "planning_run_v1",
+    "stage": str(stage or "").strip() or "consistency",
+    "status": str(status or "").strip() or "pending",
+    "planning_mode": str(planning_mode or "").strip() or None,
+    "planning_mode_reason": str(planning_mode_reason or "").strip() or None,
+    "prompt_file": str(prompt_file or "").strip() or None,
     "resolution_summary": copy.deepcopy(resolution_summary or {}),
+    "gpt_narrative": str(gpt_narrative or "").strip() or None,
+    "gpt_grid_metadata": copy.deepcopy(gpt_grid_metadata or {}),
+    "solver_summary": copy.deepcopy(solver_summary or {}),
   }
+  return payload
 
 
 def _consistency_trace_scenario_summary(scenario: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1105,6 +1107,13 @@ def _run_consistency_closeout(
       from client_intake_and_finmo.consistency_consultant import consistency_chat_turn  # type: ignore
   except Exception as exc:
     raise RuntimeError(f"consistency_consultant_unavailable:{exc}") from exc
+  try:
+    try:
+      from quarter_grid import determine_planning_mode  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.quarter_grid import determine_planning_mode  # type: ignore
+  except Exception as exc:
+    raise RuntimeError(f"planning_mode_router_unavailable:{exc}") from exc
 
   messages_for_turn = [
     item for item in (conversation_messages or [])
@@ -1149,6 +1158,21 @@ def _run_consistency_closeout(
   ) or {}
   assistant_text = sanitize_fact_template(str(turn.get("assistant_message") or "").strip())
   finalize_ready = bool(turn.get("finalize_ready"))
+  planning_choice = determine_planning_mode(
+    ops_json=dict(ops_json or {}),
+    target_market_json=dict(market_json or {}),
+    people_json=dict(people_json or {}),
+    financials_json=dict(financials_json or {}),
+    financials_year1_json=dict(financials_year1_json or {}),
+    fulfillment_json=dict(fulfillment_json or {}),
+    marketing_model_json=dict(marketing_model_json or {}),
+    model_input_json=copy.deepcopy(updated_shared_context.get("model_input_json") or {}),
+    finmo_json=copy.deepcopy(updated_shared_context.get("finmo_json") or {}),
+    business_facts=copy.deepcopy(business_facts or {}),
+  )
+  planning_mode = str(planning_choice.get("planning_mode") or "").strip()
+  planning_mode_reason = str(planning_choice.get("planning_mode_reason") or "").strip()
+  prompt_file = str(planning_choice.get("prompt_file") or "").strip()
 
   issue_codes = [] if finalize_ready else ["consistency_reconciliation_pending"]
   resolution_summary = _build_violation_resolution_summary(
@@ -1160,13 +1184,17 @@ def _run_consistency_closeout(
     consistency_runtime_payload={},
     modified_forecast_quarters=[],
   )
-  consistency_modified_plan_json = _build_simple_consistency_modified_plan_payload(
+  planning_run_json = _build_planning_run_payload(
+    stage="consistency_reconciliation",
+    status="cleared" if finalize_ready else "blocking_unresolved",
     resolution_summary=resolution_summary,
-    assistant_text=assistant_text,
-    finalized=finalize_ready,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    gpt_narrative=assistant_text,
   )
   updated_shared_context["consistency_resolution_summary"] = copy.deepcopy(resolution_summary)
-  updated_shared_context["consistency_modified_plan"] = copy.deepcopy(consistency_modified_plan_json)
+  updated_shared_context["planning_run"] = copy.deepcopy(planning_run_json)
 
   return {
     "assistant_text": assistant_text,
@@ -1183,10 +1211,10 @@ def _run_consistency_closeout(
     "financials_json": dict(financials_json or {}),
     "financials_year1_json": dict(financials_year1_json or {}),
     "marketing_model_json": dict(marketing_model_json or {}),
-    "consistency_modified_plan_json": consistency_modified_plan_json,
-    "consistency_gpt_governance_json": {},
-    "consistency_controller_contract_json": {},
-    "consistency_finmo_attempts_json": {},
+    "planning_run_json": planning_run_json,
+    "planning_mode": planning_mode,
+    "planning_mode_reason": planning_mode_reason,
+    "prompt_file": prompt_file,
     "model_input_json": copy.deepcopy(updated_shared_context.get("model_input_json") or {}),
     "finmo_json": copy.deepcopy(updated_shared_context.get("finmo_json") or {}),
   }
@@ -4918,9 +4946,9 @@ def _ensure_ops_business_naics(conn, ops_json: Dict[str, Any]) -> None:
     return
   try:
     try:
-      from intake_business_types import get_naics_from_business_type  # type: ignore
+      from business_type_naics import get_naics_from_business_type  # type: ignore
     except Exception:
-      from client_intake_and_finmo.intake_business_types import (  # type: ignore
+      from client_intake_and_finmo.business_type_naics import (  # type: ignore
         get_naics_from_business_type,
       )
     ops_json["business_naics_6"] = get_naics_from_business_type(
@@ -5823,9 +5851,7 @@ def get_intake_consult_draft_handler(*, app, request):
         "fulfillment_json": draft.get("fulfillment_json"),
         "model_input_json": draft.get("model_input_json"),
         "finmo_json": draft.get("finmo_json"),
-        "consistency_finmo_attempts_json": draft.get("consistency_finmo_attempts_json"),
-        "consistency_gpt_governance_json": draft.get("consistency_gpt_governance_json"),
-        "consistency_controller_contract_json": draft.get("consistency_controller_contract_json"),
+        "planning_run_json": draft.get("planning_run_json"),
       }
     )
   finally:
@@ -5858,10 +5884,7 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
     "financials_year1_json",
     "model_input_json",
     "finmo_json",
-    "consistency_finmo_attempts_json",
-    "consistency_modified_plan_json",
-    "consistency_gpt_governance_json",
-    "consistency_controller_contract_json",
+    "planning_run_json",
     "pending_ops_milestone_json",
     "fulfillment_json",
   }
@@ -6136,15 +6159,9 @@ def post_intake_consult_handler(*, app, request):
       flat_fields_value: Optional[Dict[str, Any]] = None,
       include_fulfillment: bool = False,
       ) -> Dict[str, Any]:
-      consistency_modified_plan_json = _require_consistency_modified_plan(closeout)
-      consistency_gpt_governance_json = (
-        closeout.get("consistency_gpt_governance_json")
-        if isinstance(closeout.get("consistency_gpt_governance_json"), dict)
-        else {}
-      )
-      consistency_controller_contract_json = (
-        closeout.get("consistency_controller_contract_json")
-        if isinstance(closeout.get("consistency_controller_contract_json"), dict)
+      planning_run_json = (
+        closeout.get("planning_run_json")
+        if isinstance(closeout.get("planning_run_json"), dict)
         else {}
       )
       model_input_json = (
@@ -6157,11 +6174,6 @@ def post_intake_consult_handler(*, app, request):
         if isinstance(closeout.get("finmo_json"), dict)
         else {}
       )
-      consistency_finmo_attempts_json = (
-        closeout.get("consistency_finmo_attempts_json")
-        if isinstance(closeout.get("consistency_finmo_attempts_json"), dict)
-        else {}
-      )
       return _persist_consistency_modified_plan_completion(
         new_messages=new_messages,
         ops_value=ops_value,
@@ -6171,12 +6183,9 @@ def post_intake_consult_handler(*, app, request):
         financials_year1_value=financials_year1_value,
         marketing_value=marketing_value,
         persisted_runtime_payload=persisted_runtime_payload,
-        consistency_modified_plan_json=consistency_modified_plan_json,
-        consistency_gpt_governance_json=consistency_gpt_governance_json,
-        consistency_controller_contract_json=consistency_controller_contract_json,
+        planning_run_json=planning_run_json,
         model_input_json=model_input_json,
         finmo_json=finmo_json,
-        consistency_finmo_attempts_json=consistency_finmo_attempts_json,
         confirmations_value=confirmations_value,
         flat_fields_value=flat_fields_value,
         include_fulfillment=include_fulfillment,
@@ -6207,16 +6216,8 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_value,
         financials_year1_json=financials_year1_value,
         marketing_model_json=marketing_value,
-        consistency_modified_plan_json=_valid_consistency_modified_plan_from_closeout(closeout),
-        consistency_gpt_governance_json=(
-          closeout.get("consistency_gpt_governance_json")
-          if isinstance(closeout.get("consistency_gpt_governance_json"), dict)
-          else {}
-        ),
-        consistency_controller_contract_json=(
-          closeout.get("consistency_controller_contract_json")
-          if isinstance(closeout.get("consistency_controller_contract_json"), dict)
-          else {}
+        planning_run_json=(
+          _valid_planning_run_from_closeout(closeout) or {}
         ),
         model_input_json=(
           closeout.get("model_input_json")
@@ -6226,11 +6227,6 @@ def post_intake_consult_handler(*, app, request):
         finmo_json=(
           closeout.get("finmo_json")
           if isinstance(closeout.get("finmo_json"), dict)
-          else {}
-        ),
-        consistency_finmo_attempts_json=(
-          closeout.get("consistency_finmo_attempts_json")
-          if isinstance(closeout.get("consistency_finmo_attempts_json"), dict)
           else {}
         ),
         fulfillment_json=fulfillment_json if include_fulfillment else None,
@@ -6254,18 +6250,17 @@ def post_intake_consult_handler(*, app, request):
       financials_year1_value: Dict[str, Any],
       marketing_value: Dict[str, Any],
       persisted_runtime_payload: Dict[str, Any],
-      consistency_modified_plan_json: Dict[str, Any],
-      consistency_gpt_governance_json: Optional[Dict[str, Any]] = None,
-      consistency_controller_contract_json: Optional[Dict[str, Any]] = None,
+      planning_run_json: Optional[Dict[str, Any]] = None,
       model_input_json: Optional[Dict[str, Any]] = None,
       finmo_json: Optional[Dict[str, Any]] = None,
-      consistency_finmo_attempts_json: Optional[Dict[str, Any]] = None,
       confirmations_value: Optional[Dict[str, bool]] = None,
       flat_fields_value: Optional[Dict[str, Any]] = None,
       include_fulfillment: bool = False,
     ) -> Dict[str, Any]:
-      if not isinstance(consistency_modified_plan_json, dict) or not consistency_modified_plan_json:
-        raise RuntimeError("consistency_modified_plan_missing")
+      if not isinstance(planning_run_json, dict) or not planning_run_json:
+        raise RuntimeError("planning_run_missing")
+      if not isinstance(planning_run_json.get("resolution_summary"), dict) or not planning_run_json.get("resolution_summary"):
+        raise RuntimeError("planning_run_missing_resolution_summary")
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -6276,12 +6271,9 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_value,
         financials_year1_json=financials_year1_value,
         **_consistency_runtime_payload_append_kwargs(persisted_runtime_payload),
-        consistency_modified_plan_json=consistency_modified_plan_json,
-        consistency_gpt_governance_json=consistency_gpt_governance_json,
-        consistency_controller_contract_json=consistency_controller_contract_json,
+        planning_run_json=planning_run_json,
         model_input_json=model_input_json,
         finmo_json=finmo_json,
-        consistency_finmo_attempts_json=consistency_finmo_attempts_json,
         fulfillment_json=fulfillment_json if include_fulfillment else None,
         marketing_model_json=marketing_value,
         active_focus="done",
@@ -6293,12 +6285,12 @@ def post_intake_consult_handler(*, app, request):
         flat_fields=flat_fields_value,
       )
       persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
-      persisted_modified = _parse_json_value(persisted_draft.get("consistency_modified_plan_json"))
-      if not isinstance(persisted_modified, dict) or not persisted_modified:
-        raise RuntimeError("consistency_modified_plan_persist_failed")
-      if not isinstance(persisted_modified.get("resolution_summary"), dict) or not persisted_modified.get("resolution_summary"):
-        raise RuntimeError("consistency_modified_plan_missing_resolution_summary")
-      return persisted_modified
+      persisted_run = _parse_json_value(persisted_draft.get("planning_run_json"))
+      if not isinstance(persisted_run, dict) or not persisted_run:
+        raise RuntimeError("planning_run_persist_failed")
+      if not isinstance(persisted_run.get("resolution_summary"), dict) or not persisted_run.get("resolution_summary"):
+        raise RuntimeError("planning_run_missing_resolution_summary")
+      return persisted_run
 
     def _transition_financials_to_consistency_via_sql(
       *,
@@ -6518,6 +6510,66 @@ def post_intake_consult_handler(*, app, request):
         financials_year1_json = dict(closeout.get("financials_year1_json") or financials_year1_json)
         marketing_model_json = dict(closeout.get("marketing_model_json") or _refresh_marketing_model())
         shared_context = dict(closeout.get("shared_context") or shared_context)
+        if _consistency_closeout_ready_for_completion(closeout):
+          try:
+            try:
+              from quarter_grid import generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+            except Exception:
+              from client_intake_and_finmo.quarter_grid import generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+          except Exception as exc:
+            raise RuntimeError(f"quarter_grid_runtime_unavailable:{exc}") from exc
+          planning_result = generate_live_quarter_grid_plan(
+            business_name=str(business_facts.get("name") or draft.get("business_name") or "").strip(),
+            planning_mode=str((closeout.get("planning_mode") or "")).strip(),
+            model_input_json=copy.deepcopy(shared_context.get("model_input_json") or {}),
+            finmo_json=copy.deepcopy(shared_context.get("finmo_json") or {}),
+            ops_json=ops_json,
+            target_market_json=market_json,
+            people_json=people_json,
+            financials_json=financials_json,
+            financials_year1_json=financials_year1_json,
+            fulfillment_json=fulfillment_json,
+            marketing_model_json=marketing_model_json,
+            business_facts=copy.deepcopy(business_facts or {}),
+          )
+          validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
+          if (
+            list(validation.get("missing_rows") or [])
+            or list(validation.get("extra_rows") or [])
+            or list(validation.get("duplicate_rows") or [])
+            or list(validation.get("malformed_rows") or [])
+          ):
+            raise RuntimeError("planning_grid_validation_failed")
+          solver_result = solve_live_quarter_grid_plan(
+            baseline_model_input_json=copy.deepcopy(shared_context.get("model_input_json") or {}),
+            grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
+          )
+          solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
+          if not bool(solver_summary.get("success")):
+            raise RuntimeError("planning_solver_failed")
+          shared_context["model_input_json"] = copy.deepcopy(solver_result.get("solved_model_input_json") or {})
+          shared_context["finmo_json"] = copy.deepcopy(solver_result.get("solved_finmo_json") or {})
+          closeout["model_input_json"] = copy.deepcopy(shared_context.get("model_input_json") or {})
+          closeout["finmo_json"] = copy.deepcopy(shared_context.get("finmo_json") or {})
+          planning_run_json = _build_planning_run_payload(
+            stage="solver_completed",
+            status="solved",
+            resolution_summary=copy.deepcopy(
+              (
+                closeout.get("planning_run_json", {}).get("resolution_summary")
+                if isinstance(closeout.get("planning_run_json"), dict)
+                else {}
+              )
+            ),
+            planning_mode=str(planning_result.get("planning_mode") or closeout.get("planning_mode") or "").strip(),
+            planning_mode_reason=str(closeout.get("planning_mode_reason") or "").strip(),
+            prompt_file=str(planning_result.get("prompt_file") or closeout.get("prompt_file") or "").strip(),
+            gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
+            gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
+            solver_summary=copy.deepcopy(solver_summary or {}),
+          )
+          closeout["planning_run_json"] = planning_run_json
+          shared_context["planning_run"] = copy.deepcopy(planning_run_json)
         turn = {"assistant_message": closeout.get("assistant_text") or "Continue."}
         focus = "done" if _consistency_closeout_ready_for_completion(closeout) else "consistency"
       else:
@@ -6591,6 +6643,21 @@ def post_intake_consult_handler(*, app, request):
           "done": bool(focus == "done"),
           "action": "continue",
           "assistant_message": assistant_text,
+          "planning_mode": (
+            str((closeout or {}).get("planning_mode") or "").strip()
+            if isinstance(closeout, dict)
+            else None
+          ) or None,
+          "planning_mode_reason": (
+            str((closeout or {}).get("planning_mode_reason") or "").strip()
+            if isinstance(closeout, dict)
+            else None
+          ) or None,
+          "prompt_file": (
+            str((closeout or {}).get("prompt_file") or "").strip()
+            if isinstance(closeout, dict)
+            else None
+          ) or None,
         }
       )
 
@@ -6625,13 +6692,6 @@ def post_intake_consult_handler(*, app, request):
           restatement_confirmed_this_turn = True
 
     if restatement_confirmed_this_turn:
-      finmo_path_after_confirmation = ensure_draft_finmo_workbook(
-        conn,
-        draft_id=str(draft_id).strip(),
-      )
-      if not str(finmo_path_after_confirmation or "").strip():
-        return (jsonify({"error": "finmo_workbook_initialization_failed"}), 500)
-      consult["finmo_path"] = str(finmo_path_after_confirmation).strip()
       already_locked = bool(ops_json.get("business_type_candidates_locked"))
       existing_candidates = ops_json.get("business_type_candidates")
       has_candidates = isinstance(existing_candidates, list) and bool(existing_candidates)
@@ -6653,9 +6713,9 @@ def post_intake_consult_handler(*, app, request):
         ops_json["business_type"] = bt_candidates[0]
         try:
           try:
-            from intake_business_types import get_naics_from_business_type  # type: ignore
+            from business_type_naics import get_naics_from_business_type  # type: ignore
           except Exception:
-            from client_intake_and_finmo.intake_business_types import (  # type: ignore
+            from client_intake_and_finmo.business_type_naics import (  # type: ignore
               get_naics_from_business_type,
             )
           if ops_json.get("business_type"):
@@ -7627,9 +7687,9 @@ def post_intake_consult_handler(*, app, request):
         business_type_touched = "ops.business_type" in patch
       try:
         try:
-          from intake_business_types import get_naics_from_business_type  # type: ignore
+          from business_type_naics import get_naics_from_business_type  # type: ignore
         except Exception:
-          from client_intake_and_finmo.intake_business_types import (  # type: ignore
+          from client_intake_and_finmo.business_type_naics import (  # type: ignore
             get_naics_from_business_type,
           )
         if business_type_touched:
@@ -8162,9 +8222,9 @@ def post_intake_consult_handler(*, app, request):
               final_obj["competitive_advantage"] = existing_advantage
             try:
               try:
-                from intake_business_types import get_naics_from_business_type  # type: ignore
+                from business_type_naics import get_naics_from_business_type  # type: ignore
               except Exception:
-                from client_intake_and_finmo.intake_business_types import (  # type: ignore
+                from client_intake_and_finmo.business_type_naics import (  # type: ignore
                   get_naics_from_business_type,
                 )
               if final_obj.get("business_type"):
@@ -9437,9 +9497,9 @@ def post_intake_consult_handler(*, app, request):
       final_obj = _normalize_ops_capacity_compat(final_obj)
       try:
         try:
-          from intake_business_types import get_naics_from_business_type  # type: ignore
+          from business_type_naics import get_naics_from_business_type  # type: ignore
         except Exception:
-          from client_intake_and_finmo.intake_business_types import (  # type: ignore
+          from client_intake_and_finmo.business_type_naics import (  # type: ignore
             get_naics_from_business_type,
           )
 

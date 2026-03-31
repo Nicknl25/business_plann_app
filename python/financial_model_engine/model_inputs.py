@@ -238,6 +238,13 @@ class FinancialModelInputs:
   schedule_rows: Dict[str, ControllerWriteRow] = field(default_factory=dict)
   debt_opening_balance_seed: float = 0.0
   lease_opening_balance_seed: float = 0.0
+  ppe_opening_balance_seed: float = 0.0
+  accumulated_depreciation_opening_seed: float = 0.0
+  cash_opening_balance_seed: float = 0.0
+  accounts_receivable_opening_balance_seed: float = 0.0
+  inventory_opening_balance_seed: float = 0.0
+  accounts_payable_opening_balance_seed: float = 0.0
+  short_term_debt_opening_balance_seed: float = 0.0
 
   def __post_init__(self) -> None:
     if not self.quarters:
@@ -301,6 +308,13 @@ class FinancialModelInputs:
     schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
     next_book.debt_opening_balance_seed = _safe_float(schedules.get("debt_opening_balance_seed"))
     next_book.lease_opening_balance_seed = _safe_float(schedules.get("lease_opening_balance_seed"))
+    next_book.ppe_opening_balance_seed = _safe_float(schedules.get("ppe_opening_balance_seed"))
+    next_book.accumulated_depreciation_opening_seed = _safe_float(schedules.get("accumulated_depreciation_opening_seed"))
+    next_book.cash_opening_balance_seed = _safe_float(schedules.get("cash_opening_balance_seed"))
+    next_book.accounts_receivable_opening_balance_seed = _safe_float(schedules.get("accounts_receivable_opening_balance_seed"))
+    next_book.inventory_opening_balance_seed = _safe_float(schedules.get("inventory_opening_balance_seed"))
+    next_book.accounts_payable_opening_balance_seed = _safe_float(schedules.get("accounts_payable_opening_balance_seed"))
+    next_book.short_term_debt_opening_balance_seed = _safe_float(schedules.get("short_term_debt_opening_balance_seed"))
     next_book._load_simple_rows(
       section_name="schedules",
       rows=schedules.get("rows") or [],
@@ -449,11 +463,37 @@ class FinancialModelInputs:
     if _text(section) == "expenses":
       self._sync_known_expense_driver_from_row(key, _quarter_index(quarter_index))
 
-  def set_schedule_seed(self, *, debt_opening_balance_seed: Optional[Any] = None, lease_opening_balance_seed: Optional[Any] = None) -> None:
+  def set_schedule_seed(
+    self,
+    *,
+    debt_opening_balance_seed: Optional[Any] = None,
+    lease_opening_balance_seed: Optional[Any] = None,
+    ppe_opening_balance_seed: Optional[Any] = None,
+    accumulated_depreciation_opening_seed: Optional[Any] = None,
+    cash_opening_balance_seed: Optional[Any] = None,
+    accounts_receivable_opening_balance_seed: Optional[Any] = None,
+    inventory_opening_balance_seed: Optional[Any] = None,
+    accounts_payable_opening_balance_seed: Optional[Any] = None,
+    short_term_debt_opening_balance_seed: Optional[Any] = None,
+  ) -> None:
     if debt_opening_balance_seed is not None:
       self.debt_opening_balance_seed = _safe_float(debt_opening_balance_seed)
     if lease_opening_balance_seed is not None:
       self.lease_opening_balance_seed = _safe_float(lease_opening_balance_seed)
+    if ppe_opening_balance_seed is not None:
+      self.ppe_opening_balance_seed = _safe_float(ppe_opening_balance_seed)
+    if accumulated_depreciation_opening_seed is not None:
+      self.accumulated_depreciation_opening_seed = _safe_float(accumulated_depreciation_opening_seed)
+    if cash_opening_balance_seed is not None:
+      self.cash_opening_balance_seed = _safe_float(cash_opening_balance_seed)
+    if accounts_receivable_opening_balance_seed is not None:
+      self.accounts_receivable_opening_balance_seed = _safe_float(accounts_receivable_opening_balance_seed)
+    if inventory_opening_balance_seed is not None:
+      self.inventory_opening_balance_seed = _safe_float(inventory_opening_balance_seed)
+    if accounts_payable_opening_balance_seed is not None:
+      self.accounts_payable_opening_balance_seed = _safe_float(accounts_payable_opening_balance_seed)
+    if short_term_debt_opening_balance_seed is not None:
+      self.short_term_debt_opening_balance_seed = _safe_float(short_term_debt_opening_balance_seed)
 
   def to_controller_seed(self) -> List[Dict[str, Any]]:
     return [quarter.to_controller_seed_entry() for quarter in self.quarters]
@@ -530,6 +570,13 @@ class FinancialModelInputs:
         "schedules": {
           "debt_opening_balance_seed": round(self.debt_opening_balance_seed, 6),
           "lease_opening_balance_seed": round(self.lease_opening_balance_seed, 6),
+          "ppe_opening_balance_seed": round(self.ppe_opening_balance_seed, 6),
+          "accumulated_depreciation_opening_seed": round(self.accumulated_depreciation_opening_seed, 6),
+          "cash_opening_balance_seed": round(self.cash_opening_balance_seed, 6),
+          "accounts_receivable_opening_balance_seed": round(self.accounts_receivable_opening_balance_seed, 6),
+          "inventory_opening_balance_seed": round(self.inventory_opening_balance_seed, 6),
+          "accounts_payable_opening_balance_seed": round(self.accounts_payable_opening_balance_seed, 6),
+          "short_term_debt_opening_balance_seed": round(self.short_term_debt_opening_balance_seed, 6),
           "rows": [row.to_model_input_row() for row in self.schedule_rows.values()],
         },
       },
@@ -548,6 +595,13 @@ class FinancialModelInputs:
         "schedules": {
           "debt_opening_balance_seed": round(self.debt_opening_balance_seed, 6),
           "lease_opening_balance_seed": round(self.lease_opening_balance_seed, 6),
+          "ppe_opening_balance_seed": round(self.ppe_opening_balance_seed, 6),
+          "accumulated_depreciation_opening_seed": round(self.accumulated_depreciation_opening_seed, 6),
+          "cash_opening_balance_seed": round(self.cash_opening_balance_seed, 6),
+          "accounts_receivable_opening_balance_seed": round(self.accounts_receivable_opening_balance_seed, 6),
+          "inventory_opening_balance_seed": round(self.inventory_opening_balance_seed, 6),
+          "accounts_payable_opening_balance_seed": round(self.accounts_payable_opening_balance_seed, 6),
+          "short_term_debt_opening_balance_seed": round(self.short_term_debt_opening_balance_seed, 6),
           "rows": [row.to_model_input_row() for row in self.schedule_rows.values()],
         },
       },
