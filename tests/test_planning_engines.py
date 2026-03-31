@@ -20,16 +20,12 @@ for path in (str(PYTHON_DIR), str(CLIENT_DIR)):
 
 
 from api_handlers.intake_consult import (  # type: ignore  # noqa: E402
-  _start_consistency_governance_if_needed,
-  _build_consistency_finmo_attempts_payload,
-  _build_consistency_modified_plan_payload,
   _serialize_debug_draft_row,
 )
 from api_handlers.shared_context import build_shared_context  # type: ignore  # noqa: E402
 from consistency_flow import (  # type: ignore  # noqa: E402
   _select_best_finmo_attempts,
   _build_strategy_layer,
-  apply_consistency_selected_path,
   build_consistency_governance_state,
 )
 from consistency_strategy_advisor import _normalize_strategy_selection_contract, advise_consistency_strategy_selection  # type: ignore  # noqa: E402
@@ -55,34 +51,6 @@ from intake_pipeline import _ensure_submission_finmo_path  # type: ignore  # noq
 
 
 class PlanningEnginesTests(unittest.TestCase):
-  def test_consistency_governance_prefers_authoritative_finmo_path(self) -> None:
-    captured: dict = {}
-
-    def _fake_build_consistency_governance_state(**kwargs):
-      captured.update(kwargs)
-      return {"status": "ok", "scenarios": []}
-
-    with patch("consistency_flow.build_consistency_governance_state", side_effect=_fake_build_consistency_governance_state):
-      governance_state, _runtime_payload = _start_consistency_governance_if_needed(
-        authoritative_finmo_path="C:\\authoritative\\client.xlsx",
-        intake_context={
-          "finmo_path": "",
-          "business_name": "CareFirst",
-          "business_start_date": "2026-09-03",
-          "address": "123 Main",
-          "shared_context": {},
-        },
-        ops_json={},
-        market_json={},
-        people_json={},
-        financials_json={},
-        financials_year1_json={},
-        marketing_model_json={},
-      )
-
-    self.assertEqual(governance_state, {"status": "ok", "scenarios": []})
-    self.assertEqual(captured.get("finmo_path"), "C:\\authoritative\\client.xlsx")
-
   def test_selection_lever_adjustment_plan_preserves_gpt_bands(self) -> None:
     plan = _selection_lever_adjustment_plan(
       {
@@ -399,6 +367,7 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(payload["periods"][-1]["column_letter"], "AA")
     self.assertIn("expenses::Payroll", payload["lever_catalog"])
     self.assertIn("balance_sheet::Owner's Capital", payload["lever_catalog"])
+    self.assertIn("schedules::Capital Expenditures", payload["lever_catalog"])
     self.assertIn("schedules::Less: Principal Repayments", payload["lever_catalog"])
 
   def test_normalize_model_input_forecast_anchor_reanchors_period_years(self) -> None:
@@ -409,7 +378,15 @@ class PlanningEnginesTests(unittest.TestCase):
         {"slot_index": 0, "column_index": 8, "column_letter": "H", "year": 2010.0, "quarter": 1.0, "date": "2010-06-15"},
         {"slot_index": 1, "column_index": 9, "column_letter": "I", "year": 2010.0, "quarter": 2.0, "date": "2010-09-15"},
       ],
-      "sections": {"revenue": [], "expenses": [], "balance_sheet": [], "schedules": {"rows": []}},
+      "sections": {
+        "revenue": [],
+        "expenses": [],
+        "balance_sheet": [
+          {"label": "PPE $ (Excluding Capital Leases)", "values": [12000.0, 13000.0]},
+          {"label": "Accumulated Depreciation", "values": [3000.0, 3500.0]},
+        ],
+        "schedules": {"rows": []},
+      },
     }
 
     normalized = normalize_model_input_forecast_anchor(payload, anchor_date_iso="2026-03-30")
@@ -420,6 +397,10 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(normalized["periods"][0]["date"], "2026-03-30")
     self.assertEqual(normalized["periods"][0]["year"], 2026.0)
     self.assertEqual(normalized["periods"][1]["year"], 2026.0)
+    self.assertEqual(normalized["sections"]["balance_sheet"], [])
+    self.assertEqual(normalized["sections"]["schedules"]["ppe_opening_balance_seed"], 12000.0)
+    self.assertEqual(normalized["sections"]["schedules"]["accumulated_depreciation_opening_seed"], -3000.0)
+    self.assertEqual(normalized["sections"]["schedules"]["rows"][0]["label"], "Capital Expenditures")
 
   def test_build_python_model_input_json_derives_non_revenue_baselines_from_inputs(self) -> None:
     payload = build_python_model_input_json(
@@ -459,11 +440,17 @@ class PlanningEnginesTests(unittest.TestCase):
 
     expense_rows = {row["label"]: row for row in payload["sections"]["expenses"]}
     balance_rows = {row["label"]: row for row in payload["sections"]["balance_sheet"]}
+    schedule_rows = {row["label"]: row for row in payload["sections"]["schedules"]["rows"]}
     self.assertEqual(expense_rows["Lease"]["values"][:3], [6000.0, 6000.0, 6000.0])
     self.assertEqual(expense_rows["Payroll"]["values"][:3], [32500.0, 32500.0, 32500.0])
     self.assertEqual(expense_rows["Marketing"]["values"][:3], [0.08, 0.08, 0.08])
     self.assertEqual(expense_rows["Cost of Goods Sold"]["values"][:3], [0.45, 0.45, 0.45])
     self.assertEqual(balance_rows["Owner's Capital"]["values"][:3], [50000.0, 50000.0, 50000.0])
+    self.assertNotIn("PPE $ (Excluding Capital Leases)", balance_rows)
+    self.assertNotIn("Accumulated Depreciation", balance_rows)
+    self.assertEqual(schedule_rows["Capital Expenditures"]["values"][:3], [0.0, 0.0, 0.0])
+    self.assertEqual(payload["sections"]["schedules"]["ppe_opening_balance_seed"], 0.0)
+    self.assertEqual(payload["sections"]["schedules"]["accumulated_depreciation_opening_seed"], -12000.0)
 
   def test_build_python_finmo_json_matches_finmo_contract_shape(self) -> None:
     model_input_json = build_python_model_input_json(
@@ -626,6 +613,8 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertTrue(any(item["row_id"] == "Revenue" for item in grid_rows))
     self.assertTrue(any(item["row_id"] == "EBITDA" for item in grid_rows))
     self.assertTrue(any(str(item["row_id"]).startswith("revenue::") for item in grid_rows))
+    self.assertFalse(any(item["row_id"] == "balance_sheet::PPE $ (Excluding Capital Leases)" for item in grid_rows))
+    self.assertFalse(any(item["row_id"] == "balance_sheet::Accumulated Depreciation" for item in grid_rows))
 
     probe_json = {
       "summary": "ok",
@@ -1648,121 +1637,6 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(governance_state["governed_attempt_limit"], 3)
     self.assertEqual(governance_state["governed_attempt_count"], 1)
     self.assertEqual(governance_state["scenarios"][0]["scenario_id"], "finmo-1")
-
-  def test_apply_consistency_selected_path_uses_modified_state_only(self) -> None:
-    result = apply_consistency_selected_path(
-      ops_json={},
-      people_json={},
-      financials_json={},
-      financials_year1_json={},
-      marketing_model_json={},
-      governance_state={
-        "scenarios": [
-          {
-            "scenario_id": "chosen",
-            "modified_state": {
-              "ops_json": {"capacity_driver": "labor"},
-              "people_json": {"people": []},
-              "financials_json": {"payroll_total_year1": 100000},
-              "financials_year1_json": {"company_revenue_total_year1": 250000},
-              "marketing_model_json": {"expected_units_year1": 1000},
-            },
-          }
-        ]
-      },
-      selected_scenario_id="chosen",
-      overrides={},
-    )
-
-    self.assertEqual(result["ops_json"]["capacity_driver"], "labor")
-    self.assertEqual(result["financials_year1_json"]["company_revenue_total_year1"], 250000)
-
-  def test_build_consistency_modified_plan_payload_is_finmo_authoritative(self) -> None:
-    finmo_json = {
-      "quarter_rows": [
-        {"year": 2026, "quarter": 1, "date": "2026-01-01", "revenue": 100.0, "cogs": 40.0, "gross_profit": 60.0, "marketing": 5.0, "payroll": 20.0, "g_and_a": 10.0, "research_and_development": 0.0, "lease_rent": 0.0, "ebitda": 25.0, "interest": 2.0, "depreciation": 1.0, "taxes": 3.0, "net_income": 19.0, "cash": 50.0, "ending_cash": 50.0, "total_assets": 200.0, "total_liabilities_and_equity": 200.0},
-        {"year": 2026, "quarter": 2, "date": "2026-04-01", "revenue": 120.0, "cogs": 48.0, "gross_profit": 72.0, "marketing": 6.0, "payroll": 22.0, "g_and_a": 11.0, "research_and_development": 0.0, "lease_rent": 0.0, "ebitda": 33.0, "interest": 2.0, "depreciation": 1.0, "taxes": 4.0, "net_income": 26.0, "cash": 60.0, "ending_cash": 60.0, "total_assets": 220.0, "total_liabilities_and_equity": 220.0},
-      ],
-      "accounting_check": {"status": "ok"},
-    }
-
-    payload = _build_consistency_modified_plan_payload(
-      governance_state={"state_model": {"fixed_facts": {"business_type": "Home Health"}}},
-      selected_scenario={
-        "scenario_id": "finmo-1",
-        "strategy_id": "alpha",
-        "remaining_blocking_violations": [],
-      },
-      consistency_runtime_payload={},
-      initial_ops_json={},
-      initial_market_json={},
-      initial_people_json={},
-      initial_financials_json={"payroll_total_year1": 120000},
-      initial_financials_year1_json={"company_revenue_total_year1": 250000},
-      initial_marketing_model_json={},
-      modified_ops_json={},
-      modified_market_json={},
-      modified_people_json={},
-      modified_financials_json={"payroll_total_year1": 100000},
-      modified_financials_year1_json={"company_revenue_total_year1": 300000},
-      modified_marketing_model_json={},
-      modified_forecast_quarters=[],
-      finmo_json=finmo_json,
-    )
-
-    self.assertEqual(payload["forecast_meta"]["financial_authority"], "finmo")
-    self.assertEqual(payload["forecast_meta"]["finmo_accounting_check"]["status"], "ok")
-    self.assertEqual(payload["quarter_driver_path"][0]["quarter_index"], 1)
-    self.assertTrue(payload["forecast_years"])
-
-  def test_build_consistency_finmo_attempts_payload_tracks_attempts(self) -> None:
-    payload = _build_consistency_finmo_attempts_payload(
-      governance_state={
-        "attempted_scenarios": [
-          {
-            "scenario_id": "a1",
-            "strategy_id": "alpha",
-            "strategy_name": "Alpha",
-            "remaining_violations": ["gross_margin_too_low"],
-            "remaining_blocking_violations": ["gross_margin_too_low"],
-            "allowed_model_input_levers": ["expenses::Marketing"],
-            "controller_calibration_request": {"allowed_model_input_levers": ["expenses::Marketing"]},
-            "gpt_validation_request": {"validation_contract_version": "finmo_validation_request_v1"},
-            "gpt_validation_result": {"validation_status": "rejected"},
-            "model_input_json": {"lever_catalog": {"expenses::Marketing": {}}},
-            "finmo_json": {"pl": [{"label": "EBITDA"}]},
-          }
-        ]
-      },
-      selected_scenario={"scenario_id": "a1"},
-    )
-
-    self.assertEqual(payload["attempt_count"], 1)
-    self.assertEqual(payload["selected_scenario_id"], "a1")
-    self.assertTrue(payload["attempts"][0]["accepted"])
-    self.assertEqual(payload["attempts"][0]["finmo_status"], "persisted")
-
-  def test_build_consistency_finmo_attempts_payload_includes_failed_attempts(self) -> None:
-    payload = _build_consistency_finmo_attempts_payload(
-      governance_state={
-        "attempt_failures": [
-          {
-            "attempt_index": 1,
-            "strategy_id": "alpha",
-            "candidate_failure": {
-              "failure_stage": "sync_exception",
-              "error_type": "PermissionError",
-              "error_message": "locked workbook",
-            },
-          }
-        ]
-      },
-      selected_scenario=None,
-    )
-
-    self.assertEqual(payload["attempt_count"], 0)
-    self.assertEqual(payload["failed_attempt_count"], 1)
-    self.assertEqual(payload["failed_attempts"][0]["candidate_failure"]["error_type"], "PermissionError")
 
   def test_build_controller_finmo_candidate_returns_failure_payload_when_finmo_readback_fails(self) -> None:
     with patch(

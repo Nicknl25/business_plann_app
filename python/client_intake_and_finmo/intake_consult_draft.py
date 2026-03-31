@@ -71,13 +71,7 @@ def _is_valid_consistency_modified_plan_payload(payload: Any) -> bool:
   data = _parse_json_payload(payload)
   if not isinstance(data, dict) or not data:
     return False
-  quarter_driver_path = data.get("quarter_driver_path")
-  forecast_years = data.get("forecast_years")
   resolution_summary = data.get("resolution_summary")
-  if not isinstance(quarter_driver_path, list) or not quarter_driver_path:
-    return False
-  if not isinstance(forecast_years, list) or not forecast_years:
-    return False
   if not isinstance(resolution_summary, dict) or not resolution_summary:
     return False
   return True
@@ -165,8 +159,6 @@ def _ensure_consistency_completion_triggers(conn) -> None:
         ) AND (
           NEW.consistency_modified_plan_json IS NULL
           OR JSON_VALID(NEW.consistency_modified_plan_json) = 0
-          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.quarter_driver_path[0]') IS NULL
-          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.forecast_years[0]') IS NULL
           OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.resolution_summary') IS NULL
         ) THEN
           SIGNAL SQLSTATE '45000'
@@ -191,8 +183,6 @@ def _ensure_consistency_completion_triggers(conn) -> None:
         ) AND (
           NEW.consistency_modified_plan_json IS NULL
           OR JSON_VALID(NEW.consistency_modified_plan_json) = 0
-          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.quarter_driver_path[0]') IS NULL
-          OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.forecast_years[0]') IS NULL
           OR JSON_EXTRACT(CAST(NEW.consistency_modified_plan_json AS JSON), '$.resolution_summary') IS NULL
         ) THEN
           SIGNAL SQLSTATE '45000'
@@ -203,10 +193,10 @@ def _ensure_consistency_completion_triggers(conn) -> None:
     ),
   )
   for trigger_name, _timing, ddl_template in trigger_specs:
-    if _trigger_exists(conn, trigger_name):
-      continue
     cur = conn.cursor()
     try:
+      if _trigger_exists(conn, trigger_name):
+        cur.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
       cur.execute(ddl_template.format(trigger_name=trigger_name))
       conn.commit()
     except Exception:
