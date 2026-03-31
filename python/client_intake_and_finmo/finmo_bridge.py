@@ -68,6 +68,11 @@ def _as_iso_date(value: Any) -> Optional[str]:
     return None
 
 
+def _forecast_anchor_date_iso(*, now: Optional[datetime] = None) -> str:
+  current = now or datetime.now()
+  return current.date().isoformat()
+
+
 def _ratio(numerator: Any, denominator: Any) -> float:
   num = _safe_float(numerator) or 0.0
   den = _safe_float(denominator) or 0.0
@@ -1095,7 +1100,7 @@ def _add_months(base: datetime, months: int) -> datetime:
 
 
 def _python_model_input_periods(*, start_date_iso: Optional[str], period_count: int = 20) -> List[Dict[str, Any]]:
-  normalized_start = _as_iso_date(start_date_iso) or datetime.utcnow().date().isoformat()
+  normalized_start = _as_iso_date(start_date_iso) or _forecast_anchor_date_iso()
   try:
     start_dt = datetime.fromisoformat(normalized_start)
   except Exception:
@@ -1142,6 +1147,7 @@ def _empty_controller_write_row(
 def _python_model_input_template(
   *,
   start_date_iso: Optional[str],
+  business_start_date_iso: Optional[str] = None,
   business_name: Optional[str],
   ops_json: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -1316,7 +1322,8 @@ def _python_model_input_template(
     "canonical_lever_vocabulary": "model_inputs_controller_write_only",
     "finmo_path": "",
     "business_name": str(business_name or "").strip(),
-    "start_date": _as_iso_date(start_date_iso) or datetime.utcnow().date().isoformat(),
+    "start_date": _as_iso_date(start_date_iso) or _forecast_anchor_date_iso(),
+    "business_start_date": _as_iso_date(business_start_date_iso),
     "periods": periods,
     "lever_catalog": lever_catalog,
     "controller_write_levers": controller_write_levers,
@@ -1345,9 +1352,11 @@ def build_python_model_input_json(
   forecast_quarters: Sequence[Dict[str, Any]] = (),
   business_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-  start_date = _as_iso_date((business_facts or {}).get("start_date")) or _as_iso_date((ops_json or {}).get("start_date"))
+  business_start_date = _as_iso_date((business_facts or {}).get("start_date")) or _as_iso_date((ops_json or {}).get("start_date"))
+  forecast_start_date = _forecast_anchor_date_iso()
   baseline_model_input = _python_model_input_template(
-    start_date_iso=start_date,
+    start_date_iso=forecast_start_date,
+    business_start_date_iso=business_start_date,
     business_name=business_name or (business_facts or {}).get("business_name") or (ops_json or {}).get("business_name"),
     ops_json=ops_json or {},
   )
@@ -1389,9 +1398,11 @@ def _build_model_input_overlay(
   else:
     slots = _planned_quarter_slots(target_period_count, forecast_quarters)
   projection_mode = bool(seed_slots) or bool([item for item in (forecast_quarters or []) if isinstance(item, dict)])
-  start_date = _as_iso_date((business_facts or {}).get("start_date"))
-  if start_date:
-    next_payload["start_date"] = start_date
+  forecast_start_date = _forecast_anchor_date_iso()
+  next_payload["start_date"] = forecast_start_date
+  business_start_date = _as_iso_date((business_facts or {}).get("start_date")) or _as_iso_date((ops_json or {}).get("start_date"))
+  if business_start_date:
+    next_payload["business_start_date"] = business_start_date
 
   sections = next_payload.setdefault("sections", {})
   revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
@@ -1603,6 +1614,25 @@ def _build_model_input_overlay(
     else:
       row["values"] = [round(_safe_float(base_values[min(idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0 for idx, _slot in enumerate(slots)]
   sections["schedules"] = schedules
+  return next_payload
+
+
+def normalize_model_input_forecast_anchor(
+  model_input_json: Dict[str, Any],
+  *,
+  anchor_date_iso: Optional[str] = None,
+) -> Dict[str, Any]:
+  if not isinstance(model_input_json, dict) or not model_input_json:
+    return {}
+  next_payload = _clone(model_input_json)
+  normalized_anchor = _as_iso_date(anchor_date_iso) or _forecast_anchor_date_iso()
+  raw_periods = [item for item in (next_payload.get("periods") or []) if isinstance(item, dict)]
+  period_count = len(_full_quarter_slots(raw_periods)) or len(raw_periods) or 20
+  next_payload["start_date"] = normalized_anchor
+  next_payload["periods"] = _python_model_input_periods(
+    start_date_iso=normalized_anchor,
+    period_count=period_count,
+  )
   return next_payload
 
 

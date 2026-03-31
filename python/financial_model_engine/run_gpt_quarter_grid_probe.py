@@ -16,6 +16,7 @@ if str(CLIENT_INTAKE_DIR) not in sys.path:
   sys.path.insert(0, str(CLIENT_INTAKE_DIR))
 
 from client_intake_and_finmo.quarter_grid import (  # type: ignore
+  available_planning_modes,
   build_quarter_grid_prompt,
   build_real_governor_payload,
   call_quarter_grid_openai,
@@ -120,7 +121,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
   parser.add_argument("--output-dir", dest="output_dir", default=str(DEFAULT_OUTPUT_DIR))
   parser.add_argument("--batch-size", dest="batch_size", type=int, default=12)
   parser.add_argument("--use-real-strategy-prompt", dest="use_real_strategy_prompt", action="store_true")
-  parser.add_argument("--planning-mode", dest="planning_mode", choices=["turnaround", "normalize", "rebalance"], default="turnaround")
+  parser.add_argument("--planning-mode", dest="planning_mode", choices=available_planning_modes(), default="turnaround")
   args = parser.parse_args(list(argv) if argv is not None else None)
 
   _load_env()

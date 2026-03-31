@@ -158,8 +158,6 @@ def _load_workbook_views(source_row: Dict[str, Any]) -> Tuple[Dict[str, Any], Di
   model_input_json = _parse_json_object(source_row.get("model_input_json"))
   finmo_json = _parse_json_object(source_row.get("finmo_json"))
   finmo_path = str(source_row.get("finmo_path") or "").strip()
-  if model_input_json and finmo_json:
-    return model_input_json, finmo_json, finmo_path
   if not model_input_json:
     model_input_json = finmo_bridge.build_python_model_input_json(
       business_facts={},
@@ -172,15 +170,20 @@ def _load_workbook_views(source_row: Dict[str, Any]) -> Tuple[Dict[str, Any], Di
       forecast_quarters=[],
       business_name=str(source_row.get("business_name") or "").strip(),
     ) or {}
+  if model_input_json:
+    model_input_json = finmo_bridge.normalize_model_input_forecast_anchor(model_input_json=model_input_json) or {}
   if not finmo_path:
     if model_input_json:
+      finmo_json = finmo_bridge.build_python_finmo_json(
+        model_input_json=model_input_json,
+        finmo_path=finmo_path,
+      ) or {}
       return model_input_json, finmo_json, finmo_path
     raise RuntimeError("Draft is missing model_input_json/finmo_json and has no finmo_path.")
-  if not finmo_json:
-    finmo_json = finmo_bridge.build_python_finmo_json(
-      model_input_json=model_input_json,
-      finmo_path=finmo_path,
-    ) or {}
+  finmo_json = finmo_bridge.build_python_finmo_json(
+    model_input_json=model_input_json,
+    finmo_path=finmo_path,
+  ) or {}
   return model_input_json, finmo_json, finmo_path
 
 
@@ -341,6 +344,129 @@ def _format_quarter_summary(title: str, rows: List[Dict[str, Any]]) -> List[str]
   return lines
 
 
+_ANNUAL_FLOW_KEYS = {
+  "revenue",
+  "cost_of_goods_sold",
+  "cogs",
+  "gross_profit",
+  "marketing",
+  "research_and_development",
+  "lease_rent",
+  "payroll",
+  "general_and_administrative",
+  "g_and_a",
+  "ebitda",
+  "interest",
+  "depreciation",
+  "taxes",
+  "net_income",
+  "capital_expenditures",
+  "changes_in_current_assets",
+  "changes_in_current_liabilities",
+  "operating_cash_flow",
+  "investing_cash_flow",
+  "financing_cash_flow",
+  "net_cash_flow",
+  "debt_additions_repayments_net",
+  "debt_receive_repay",
+  "lease_principal_repayments",
+  "lease_net_additions",
+}
+
+_ANNUAL_SKIP_KEYS = {
+  "year",
+  "quarter",
+  "quarter_index",
+  "slot_index",
+  "date",
+  "days_in_quarter",
+}
+
+_ANNUAL_KEY_ORDER = [
+  "revenue",
+  "cost_of_goods_sold",
+  "gross_profit",
+  "marketing",
+  "research_and_development",
+  "lease_rent",
+  "payroll",
+  "general_and_administrative",
+  "ebitda",
+  "interest",
+  "depreciation",
+  "taxes",
+  "net_income",
+  "operating_cash_flow",
+  "investing_cash_flow",
+  "financing_cash_flow",
+  "net_cash_flow",
+  "beginning_cash",
+  "ending_cash",
+  "cash",
+  "accounts_receivable",
+  "inventory",
+  "prepaid_expenses",
+  "current_assets",
+  "ppe",
+  "accumulated_depreciation",
+  "total_assets",
+  "accounts_payable",
+  "deferred_revenue",
+  "short_term_debt",
+  "long_term_debt",
+  "debt_opening_balance",
+  "debt_closing_balance",
+  "debt_interest_rate",
+  "current_liabilities",
+  "lease_opening_balance_total",
+  "lease_closing_balance_total",
+  "total_liabilities",
+  "owners_capital",
+  "other_equity",
+  "retained_earnings",
+  "equity",
+  "total_equity",
+  "total_liabilities_and_equity",
+  "accounting_equation_check",
+]
+
+
+def _format_annual_summary(title: str, rows: List[Dict[str, Any]]) -> List[str]:
+  lines = [title, "-" * len(title)]
+  grouped: Dict[int, List[Dict[str, Any]]] = {}
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    year = int(row.get("year") or 0)
+    if year <= 0:
+      continue
+    grouped.setdefault(year, []).append(row)
+  for year in sorted(grouped.keys()):
+    group = sorted(grouped[year], key=lambda item: int(item.get("quarter_index") or 0))
+    if not group:
+      continue
+    keys = set()
+    for row in group:
+      for key, value in row.items():
+        if key in _ANNUAL_SKIP_KEYS:
+          continue
+        if isinstance(value, (int, float)):
+          keys.add(key)
+    ordered_keys = [key for key in _ANNUAL_KEY_ORDER if key in keys]
+    ordered_keys.extend(sorted(key for key in keys if key not in ordered_keys))
+    lines.append(f"Year {year}")
+    for key in ordered_keys:
+      if key == "accounting_equation_check":
+        value = max(abs(float(row.get(key) or 0.0)) for row in group)
+      elif key in _ANNUAL_FLOW_KEYS:
+        value = sum(float(row.get(key) or 0.0) for row in group)
+      else:
+        value = float(group[-1].get(key) or 0.0)
+      lines.append(f"- {key}: {value:,.2f}")
+    lines.append("")
+  return lines
+
+
 def _format_iteration_trace(iterations: Sequence[Any]) -> List[str]:
   lines = ["Solver Iterations", "-----------------"]
   for iteration in iterations:
@@ -468,6 +594,7 @@ def run_engine_replay(
       ]
     )
     lines.extend(_format_quarter_summary("Baseline Quarter Summary", baseline_outputs))
+    lines.extend(_format_annual_summary("Baseline Annual Summary", baseline_outputs))
     lines.extend(
       [
         "Selection JSON",
@@ -509,7 +636,9 @@ def run_engine_replay(
   )
   lines.extend(_format_iteration_trace(result.iterations))
   lines.extend(_format_quarter_summary("Baseline Quarter Summary", baseline_outputs))
+  lines.extend(_format_annual_summary("Baseline Annual Summary", baseline_outputs))
   lines.extend(_format_quarter_summary("Solved Quarter Summary", solved_outputs))
+  lines.extend(_format_annual_summary("Solved Annual Summary", solved_outputs))
   lines.extend(
     [
       "Selection JSON",

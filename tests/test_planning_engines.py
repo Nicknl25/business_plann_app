@@ -39,11 +39,15 @@ from client_intake_and_finmo.consistency_flow.finmo_controller import (  # type:
   _build_controller_input_seed_from_profile,
   build_controller_finmo_candidate,
 )
-from client_intake_and_finmo.finmo_bridge import build_python_finmo_json, build_python_model_input_json, build_consistency_forecast_view_from_finmo, _build_model_input_overlay, _execute_finmo_calibration_shell, _read_model_input_json, _write_model_input_json_to_workbook  # type: ignore  # noqa: E402
+from client_intake_and_finmo.finmo_bridge import build_python_finmo_json, build_python_model_input_json, build_consistency_forecast_view_from_finmo, normalize_model_input_forecast_anchor, _build_model_input_overlay, _execute_finmo_calibration_shell, _forecast_anchor_date_iso, _read_model_input_json, _write_model_input_json_to_workbook  # type: ignore  # noqa: E402
 from client_intake_and_finmo.quarter_grid import (  # type: ignore  # noqa: E402
+  available_planning_modes,
+  classify_planning_mode,
   chunk_quarter_grid_rows,
   controls_from_quarter_grid,
   extract_quarter_grid_rows,
+  planning_mode_text,
+  resolve_planning_mode,
   targets_from_quarter_grid,
   validate_quarter_grid_response,
 )
@@ -388,13 +392,34 @@ class PlanningEnginesTests(unittest.TestCase):
         "revenue::Primary line of business::visit of care::Utilization",
       ],
     )
-    self.assertEqual(payload["start_date"], "2026-03-28")
+    self.assertEqual(payload["start_date"], _forecast_anchor_date_iso())
+    self.assertEqual(payload["business_start_date"], "2026-03-28")
     self.assertEqual(len(payload["periods"]), 20)
     self.assertEqual(payload["periods"][0]["column_letter"], "H")
     self.assertEqual(payload["periods"][-1]["column_letter"], "AA")
     self.assertIn("expenses::Payroll", payload["lever_catalog"])
     self.assertIn("balance_sheet::Owner's Capital", payload["lever_catalog"])
     self.assertIn("schedules::Less: Principal Repayments", payload["lever_catalog"])
+
+  def test_normalize_model_input_forecast_anchor_reanchors_period_years(self) -> None:
+    payload = {
+      "start_date": "2010-06-15",
+      "business_start_date": "2010-06-15",
+      "periods": [
+        {"slot_index": 0, "column_index": 8, "column_letter": "H", "year": 2010.0, "quarter": 1.0, "date": "2010-06-15"},
+        {"slot_index": 1, "column_index": 9, "column_letter": "I", "year": 2010.0, "quarter": 2.0, "date": "2010-09-15"},
+      ],
+      "sections": {"revenue": [], "expenses": [], "balance_sheet": [], "schedules": {"rows": []}},
+    }
+
+    normalized = normalize_model_input_forecast_anchor(payload, anchor_date_iso="2026-03-30")
+
+    self.assertEqual(normalized["start_date"], "2026-03-30")
+    self.assertEqual(normalized["business_start_date"], "2010-06-15")
+    self.assertEqual(len(normalized["periods"]), 2)
+    self.assertEqual(normalized["periods"][0]["date"], "2026-03-30")
+    self.assertEqual(normalized["periods"][0]["year"], 2026.0)
+    self.assertEqual(normalized["periods"][1]["year"], 2026.0)
 
   def test_build_python_model_input_json_derives_non_revenue_baselines_from_inputs(self) -> None:
     payload = build_python_model_input_json(
@@ -652,6 +677,37 @@ class PlanningEnginesTests(unittest.TestCase):
     self.assertEqual(validation["missing_rows"], ["EBITDA"])
     self.assertEqual(validation["flat_rows"], ["expenses::Payroll"])
     self.assertEqual(len(chunk_quarter_grid_rows(requested_rows * 2, 2)), 2)
+
+  def test_quarter_grid_prompt_modes_are_file_backed_and_resolved(self) -> None:
+    modes = available_planning_modes()
+    self.assertIn("turnaround", modes)
+    self.assertIn("normalize", modes)
+    self.assertIn("rebalance", modes)
+    self.assertEqual(resolve_planning_mode("TURNAROUND"), "turnaround")
+    self.assertEqual(resolve_planning_mode("unknown-mode"), "turnaround")
+    self.assertIn("profitable as soon as it can become profitable", planning_mode_text("turnaround"))
+    self.assertIn("timing_months_max", planning_mode_text("turnaround"))
+    self.assertIn("months_until_hire", planning_mode_text("turnaround"))
+    self.assertIn("over-optimistic or commercially overstated", planning_mode_text("normalize"))
+    self.assertIn("timing_months_max", planning_mode_text("normalize"))
+    self.assertIn("months_until_hire", planning_mode_text("rebalance"))
+
+  def test_classify_planning_mode_keeps_internal_diagnosis_app_side(self) -> None:
+    turnaround = classify_planning_mode(
+      baseline_summary={"revenue": 100000.0, "ebitda": -30000.0},
+      diagnosis={"severity_class": "severe", "primary_cause": "payroll-driven"},
+    )
+    normalize = classify_planning_mode(
+      baseline_summary={"revenue": 100000.0, "ebitda": 45000.0},
+      diagnosis={"severity_class": "moderate", "preferred_strategy_ids": ["reality_normalization_strategy"]},
+    )
+    rebalance = classify_planning_mode(
+      baseline_summary={"revenue": 100000.0, "ebitda": 8000.0},
+      diagnosis={"severity_class": "moderate", "primary_cause": "mixed"},
+    )
+    self.assertEqual(turnaround["planning_mode"], "turnaround")
+    self.assertEqual(normalize["planning_mode"], "normalize")
+    self.assertEqual(rebalance["planning_mode"], "rebalance")
 
   def test_strategy_selection_contract_normalizes_to_workbook_levers_and_finmo_lines(self) -> None:
     selection = {

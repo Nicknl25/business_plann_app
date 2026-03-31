@@ -81,6 +81,129 @@ def _quarter_summary(rows: List[Dict[str, Any]]) -> List[str]:
   return lines
 
 
+_ANNUAL_FLOW_KEYS = {
+  "revenue",
+  "cost_of_goods_sold",
+  "cogs",
+  "gross_profit",
+  "marketing",
+  "research_and_development",
+  "lease_rent",
+  "payroll",
+  "general_and_administrative",
+  "g_and_a",
+  "ebitda",
+  "interest",
+  "depreciation",
+  "taxes",
+  "net_income",
+  "capital_expenditures",
+  "changes_in_current_assets",
+  "changes_in_current_liabilities",
+  "operating_cash_flow",
+  "investing_cash_flow",
+  "financing_cash_flow",
+  "net_cash_flow",
+  "debt_additions_repayments_net",
+  "debt_receive_repay",
+  "lease_principal_repayments",
+  "lease_net_additions",
+}
+
+_ANNUAL_SKIP_KEYS = {
+  "year",
+  "quarter",
+  "quarter_index",
+  "slot_index",
+  "date",
+  "days_in_quarter",
+}
+
+_ANNUAL_KEY_ORDER = [
+  "revenue",
+  "cost_of_goods_sold",
+  "gross_profit",
+  "marketing",
+  "research_and_development",
+  "lease_rent",
+  "payroll",
+  "general_and_administrative",
+  "ebitda",
+  "interest",
+  "depreciation",
+  "taxes",
+  "net_income",
+  "operating_cash_flow",
+  "investing_cash_flow",
+  "financing_cash_flow",
+  "net_cash_flow",
+  "beginning_cash",
+  "ending_cash",
+  "cash",
+  "accounts_receivable",
+  "inventory",
+  "prepaid_expenses",
+  "current_assets",
+  "ppe",
+  "accumulated_depreciation",
+  "total_assets",
+  "accounts_payable",
+  "deferred_revenue",
+  "short_term_debt",
+  "long_term_debt",
+  "debt_opening_balance",
+  "debt_closing_balance",
+  "debt_interest_rate",
+  "current_liabilities",
+  "lease_opening_balance_total",
+  "lease_closing_balance_total",
+  "total_liabilities",
+  "owners_capital",
+  "other_equity",
+  "retained_earnings",
+  "equity",
+  "total_equity",
+  "total_liabilities_and_equity",
+  "accounting_equation_check",
+]
+
+
+def _annual_summary(title: str, rows: List[Dict[str, Any]]) -> List[str]:
+  lines = [title, "-" * len(title)]
+  year_rows: Dict[int, List[Dict[str, Any]]] = {}
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    year = int(row.get("year") or 0)
+    if year <= 0:
+      continue
+    year_rows.setdefault(year, []).append(row)
+  for year in sorted(year_rows.keys()):
+    group = sorted(year_rows[year], key=lambda item: int(item.get("quarter_index") or 0))
+    if not group:
+      continue
+    keys = set()
+    for row in group:
+      for key, value in row.items():
+        if key in _ANNUAL_SKIP_KEYS:
+          continue
+        if isinstance(value, (int, float)):
+          keys.add(key)
+    ordered_keys = [key for key in _ANNUAL_KEY_ORDER if key in keys]
+    ordered_keys.extend(sorted(key for key in keys if key not in ordered_keys))
+    lines.append(f"Year {year}")
+    for key in ordered_keys:
+      if key == "accounting_equation_check":
+        value = max(abs(float(row.get(key) or 0.0)) for row in group)
+      elif key in _ANNUAL_FLOW_KEYS:
+        value = sum(float(row.get(key) or 0.0) for row in group)
+      else:
+        value = float(group[-1].get(key) or 0.0)
+      lines.append(f"- {key}: {value:,.2f}")
+    lines.append("")
+  return lines
+
+
 def _report_lines(
   *,
   draft_id: str,
@@ -110,6 +233,8 @@ def _report_lines(
   lines.append("Solved Quarter Summary")
   lines.append("----------------------")
   lines.extend(_quarter_summary(result.solved_outputs))
+  lines.append("")
+  lines.extend(_annual_summary("Solved Annual Summary", result.solved_outputs))
   return lines
 
 

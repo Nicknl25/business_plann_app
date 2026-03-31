@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from financial_model_engine.model_inputs import QUARTER_COUNT
@@ -19,25 +20,97 @@ from client_intake_and_finmo.consistency_strategy_advisor import (  # type: igno
 )
 
 
-def planning_mode_text(planning_mode: str) -> str:
-  mode = str(planning_mode or "").strip().lower()
-  if mode == "normalize":
-    return (
-      "This case may be over-optimistic or commercially overstated rather than distressed. "
-      "Your job is to normalize the plan to something believable for the company's stage and business model. "
-      "Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing when needed, but do not force a turnaround story if the business is not truly broken. "
-      "Business stage matters. Preserve real upside where believable, but remove fantasy."
-    )
-  if mode == "rebalance":
-    return (
-      "This case appears directionally sound but misbalanced. "
-      "Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection."
-    )
-  return (
+_PLANNING_MODE_DEFAULTS: Dict[str, str] = {
+  "turnaround": (
     "Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. "
     "Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? "
     "Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve."
-  )
+  ),
+  "normalize": (
+    "This case may be over-optimistic or commercially overstated rather than distressed. "
+    "Your job is to normalize the plan to something believable for the company's stage and business model. "
+    "Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing when needed, but do not force a turnaround story if the business is not truly broken. "
+    "Business stage matters. Preserve real upside where believable, but remove fantasy."
+  ),
+  "rebalance": (
+    "This case appears directionally sound but misbalanced. "
+    "Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection."
+  ),
+}
+
+
+def _prompt_library_dir() -> Path:
+  return Path(__file__).resolve().parent / "prompts" / "quarter_grid"
+
+
+def available_planning_modes() -> List[str]:
+  names = set(_PLANNING_MODE_DEFAULTS.keys())
+  prompt_dir = _prompt_library_dir()
+  if prompt_dir.exists():
+    for path in prompt_dir.glob("*.md"):
+      if path.stem.strip():
+        names.add(path.stem.strip().lower())
+  preferred_order = ["turnaround", "normalize", "rebalance"]
+  ordered = [name for name in preferred_order if name in names]
+  ordered.extend(sorted(name for name in names if name not in preferred_order))
+  return ordered
+
+
+def resolve_planning_mode(planning_mode: str) -> str:
+  mode = str(planning_mode or "").strip().lower()
+  if mode in available_planning_modes():
+    return mode
+  return "turnaround"
+
+
+def _load_planning_mode_prompt_file(planning_mode: str) -> str:
+  mode = resolve_planning_mode(planning_mode)
+  path = _prompt_library_dir() / f"{mode}.md"
+  try:
+    text = path.read_text(encoding="utf-8").strip()
+  except Exception:
+    text = ""
+  return text
+
+
+def planning_mode_text(planning_mode: str) -> str:
+  mode = resolve_planning_mode(planning_mode)
+  prompt_file_text = _load_planning_mode_prompt_file(mode)
+  if prompt_file_text:
+    return prompt_file_text
+  return _PLANNING_MODE_DEFAULTS.get(mode) or _PLANNING_MODE_DEFAULTS["turnaround"]
+
+
+def classify_planning_mode(
+  *,
+  baseline_summary: Dict[str, Any],
+  diagnosis: Dict[str, Any],
+) -> Dict[str, str]:
+  severity = str((diagnosis or {}).get("severity_class") or "").strip().lower()
+  primary = str((diagnosis or {}).get("primary_cause") or "").strip().lower()
+  preferred = [str(item or "").strip().lower() for item in ((diagnosis or {}).get("preferred_strategy_ids") or [])]
+  revenue = max(1.0, float_or_none((baseline_summary or {}).get("revenue")) or 0.0)
+  ebitda = float_or_none((baseline_summary or {}).get("ebitda")) or 0.0
+  ebitda_margin = ebitda / revenue if revenue > 0 else 0.0
+
+  if "reality_normalization_strategy" in preferred or (ebitda > 0 and ebitda_margin > 0.30):
+    return {
+      "planning_mode": "normalize",
+      "planning_mode_reason": "app_classified_overstated_or_overoptimistic_case",
+    }
+  if severity == "severe" or ebitda < 0:
+    return {
+      "planning_mode": "turnaround",
+      "planning_mode_reason": (
+        "app_classified_turnaround_case"
+        if severity == "severe"
+        else f"app_classified_loss_making_case:{primary or 'mixed'}"
+      ),
+    }
+  return {
+    "planning_mode": "rebalance",
+    "planning_mode_reason": "app_classified_misaligned_but_salvageable_case",
+  }
 
 
 def quarter_label(quarter_index: int) -> str:
@@ -189,33 +262,13 @@ def build_real_governor_payload(
     baseline_summary=baseline_summary,
     diagnostic_state=None,
   )
-  strategy_catalog = consistency_runtime._build_strategy_catalog(
-    state_model=state_model,
-    direct_inputs=direct_inputs,
-  )
-  catalog_payload: List[Dict[str, Any]] = []
-  for item in strategy_catalog:
-    if not isinstance(item, dict):
-      continue
-    catalog_payload.append(
-      {
-        "strategy_id": str(item.get("strategy_id") or "").strip(),
-        "strategy_name": str(item.get("strategy_name") or "").strip(),
-        "archetype": str(item.get("archetype") or "").strip(),
-        "allowed_model_input_levers": list(item.get("allowed_model_input_levers") or []),
-        "allowed_model_input_lever_details": _sanitize_canonical_live_payload(item.get("allowed_model_input_lever_details") or []),
-        "dominant_tradeoff": str(item.get("dominant_tradeoff") or "").strip(),
-      }
-    )
   fixed_facts = (state_model.get("fixed_facts") or {}) if isinstance(state_model.get("fixed_facts"), dict) else {}
   return {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
     "fixed_facts": _sanitize_canonical_live_payload(fixed_facts or {}),
-    "diagnosis": _sanitize_canonical_live_payload(diagnosis or {}),
     "model_input_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("model_input_json") or {}),
     "finmo_view": _sanitize_canonical_live_payload((fixed_facts or {}).get("finmo_json") or {}),
     "viability_mode": True,
-    "strategy_catalog": catalog_payload,
   }
 
 
@@ -515,4 +568,3 @@ def targets_from_quarter_grid(grid_json: Dict[str, Any]) -> List[OutputTarget]:
         )
       )
   return targets
-
