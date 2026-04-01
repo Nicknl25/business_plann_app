@@ -15,6 +15,7 @@ if str(CLIENT_DIR) not in sys.path:
   sys.path.insert(0, str(CLIENT_DIR))
 
 from api_handlers.intake_consult import _build_planning_run_payload, _consistency_closeout_ready_for_completion
+from client_intake_and_finmo.finmo_bridge import _annualized_lease_commitment, build_python_finmo_json, build_python_model_input_json
 from client_intake_and_finmo.intake_consult_draft import _is_valid_planning_run_payload
 from client_intake_and_finmo.quarter_grid import (
   available_planning_modes,
@@ -22,6 +23,8 @@ from client_intake_and_finmo.quarter_grid import (
   extract_quarter_grid_rows,
   planning_mode_prompt_file,
 )
+from financial_model_engine.finmo_model import calculate_finmo_model
+from financial_model_engine.model_inputs import FinancialModelInputs
 
 
 def _sample_model_input_json() -> dict:
@@ -111,6 +114,59 @@ def _sample_finmo_json(*, revenue: float, ebitda: float, ending_cash: float) -> 
   return {"quarter_rows": quarter_rows}
 
 
+def _accounting_model_input_json(
+  *,
+  cash_opening: float,
+  ppe_opening: float,
+  lease_opening: float,
+  owners_capital: float,
+  capex: float,
+  lease_additions: float,
+  lease_principal: float,
+  depreciation_rate: float = 0.0,
+) -> dict:
+  zeros = [0.0] * 20
+  return {
+    "start_date": "2026-03-31",
+    "periods": [{"quarter_index": index} for index in range(1, 21)],
+    "sections": {
+      "revenue": [],
+      "expenses": [
+        {"lever_id": "expenses::Cost of Goods Sold", "label": "Cost of Goods Sold", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::Marketing", "label": "Marketing", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::Research & Development", "label": "Research & Development", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::Lease", "label": "Lease", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::Payroll", "label": "Payroll", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::General & Administrative", "label": "General & Administrative", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::Interest Rate", "label": "Interest Rate", "controller_write": True, "values": zeros},
+        {"lever_id": "expenses::Depreciation", "label": "Depreciation", "controller_write": True, "values": [depreciation_rate] * 20},
+        {"lever_id": "expenses::Taxes", "label": "Taxes", "controller_write": True, "values": zeros},
+      ],
+      "balance_sheet": [
+        {"lever_id": "balance_sheet::Accounts Receivable Days", "label": "Accounts Receivable Days", "controller_write": True, "values": zeros},
+        {"lever_id": "balance_sheet::Inventory Days", "label": "Inventory Days", "controller_write": True, "values": zeros},
+        {"lever_id": "balance_sheet::Prepaid Expenses (% of Revenue)", "label": "Prepaid Expenses (% of Revenue)", "controller_write": True, "values": zeros},
+        {"lever_id": "balance_sheet::Accounts Payable Days", "label": "Accounts Payable Days", "controller_write": True, "values": zeros},
+        {"lever_id": "balance_sheet::Short Term Debt (% of LTD)", "label": "Short Term Debt (% of LTD)", "controller_write": True, "values": zeros},
+        {"lever_id": "balance_sheet::Deferred Revenue (% of Revenue)", "label": "Deferred Revenue (% of Revenue)", "controller_write": True, "values": zeros},
+        {"lever_id": "balance_sheet::Owner's Capital", "label": "Owner's Capital", "controller_write": True, "values": [owners_capital] * 20},
+        {"lever_id": "balance_sheet::Other Equity", "label": "Other Equity", "controller_write": True, "values": zeros},
+      ],
+      "schedules": {
+        "cash_opening_balance_seed": cash_opening,
+        "ppe_opening_balance_seed": ppe_opening,
+        "lease_opening_balance_seed": lease_opening,
+        "rows": [
+          {"lever_id": "schedules::Plus: Additions (repayments), net", "label": "Plus: Additions (repayments), net", "controller_write": True, "values": zeros},
+          {"lever_id": "schedules::Capital Expenditures", "label": "Capital Expenditures", "controller_write": True, "values": [capex] + [0.0] * 19},
+          {"lever_id": "schedules::Less: Principal Repayments", "label": "Less: Principal Repayments", "controller_write": True, "values": [lease_principal] + [0.0] * 19},
+          {"lever_id": "schedules::Plus: Net Additions", "label": "Plus: Net Additions", "controller_write": True, "values": [lease_additions] + [0.0] * 19},
+        ],
+      },
+    },
+  }
+
+
 class QuarterGridTests(unittest.TestCase):
   def test_prompt_modes_are_file_backed(self) -> None:
     modes = available_planning_modes()
@@ -164,6 +220,67 @@ class QuarterGridTests(unittest.TestCase):
       business_facts={},
     )
     self.assertEqual(result["planning_mode"], "normalize")
+
+
+class FinmoAccountingTests(unittest.TestCase):
+  def test_lease_additions_flow_to_ppe_and_accounting_holds(self) -> None:
+    model_input_json = _accounting_model_input_json(
+      cash_opening=1000.0,
+      ppe_opening=500.0,
+      lease_opening=1000.0,
+      owners_capital=500.0,
+      capex=100.0,
+      lease_additions=300.0,
+      lease_principal=200.0,
+      depreciation_rate=0.10,
+    )
+    result = calculate_finmo_model(FinancialModelInputs.from_model_input_json(model_input_json))
+    q1 = result.quarter_rows()[0]
+    self.assertAlmostEqual(q1["ppe"], 850.0, places=6)
+    self.assertAlmostEqual(q1["lease_closing_balance_total"], 1100.0, places=6)
+    self.assertAlmostEqual(q1["financing_cash_flow"], -200.0, places=6)
+    self.assertAlmostEqual(q1["investing_cash_flow"], -100.0, places=6)
+    self.assertAlmostEqual(q1["accounting_equation_check"], 0.0, places=6)
+
+    finmo_json = build_python_finmo_json(model_input_json=model_input_json)
+    self.assertTrue(finmo_json["accounting_check"]["all_ok"])
+
+  def test_principal_repayment_is_capped_to_available_lease_balance(self) -> None:
+    model_input_json = _accounting_model_input_json(
+      cash_opening=0.0,
+      ppe_opening=0.0,
+      lease_opening=0.0,
+      owners_capital=0.0,
+      capex=0.0,
+      lease_additions=0.0,
+      lease_principal=500.0,
+      depreciation_rate=0.0,
+    )
+    result = calculate_finmo_model(FinancialModelInputs.from_model_input_json(model_input_json))
+    q1 = result.quarter_rows()[0]
+    self.assertAlmostEqual(q1["lease_principal_repayments"], 0.0, places=6)
+    self.assertAlmostEqual(q1["lease_closing_balance_total"], 0.0, places=6)
+    self.assertAlmostEqual(q1["financing_cash_flow"], 0.0, places=6)
+    self.assertAlmostEqual(q1["accounting_equation_check"], 0.0, places=6)
+
+
+class InitialLeaseModelingTests(unittest.TestCase):
+  def test_annualized_lease_commitment_parses_amount_and_period(self) -> None:
+    self.assertEqual(_annualized_lease_commitment("1200,monthly"), 14400.0)
+    self.assertEqual(_annualized_lease_commitment("500,quarterly"), 2000.0)
+    self.assertEqual(_annualized_lease_commitment("0,none"), 0.0)
+
+  def test_build_python_model_input_json_seeds_lease_from_initial_lease_answer(self) -> None:
+    model_input_json = build_python_model_input_json(
+      business_facts={"business_name": "Lease Test", "start_date": "2026-03-31"},
+      ops_json={},
+      people_json={},
+      financials_json={"initial_lease": "1200,monthly"},
+      financials_year1_json={},
+      marketing_model_json={},
+    )
+    schedules = model_input_json.get("sections", {}).get("schedules", {})
+    self.assertEqual(schedules.get("lease_opening_balance_seed"), 14400.0)
 
 
 class PlanningRunContractTests(unittest.TestCase):

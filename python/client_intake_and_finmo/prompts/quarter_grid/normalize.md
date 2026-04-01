@@ -4,3 +4,4 @@ Dial back unrealistic pricing, utilization, capacity, margins, cash build, or ti
 Business stage matters. Preserve real upside where believable, but remove fantasy.
 Business timing still matters. When the context includes milestones with `timing` and `timing_months_max`, and people context includes `inferred_roles` with `months_until_hire` and `annual_wage`, factor that timing into the quarter path in a meaningful real-world way.
 You may adjust timing or compensation if needed to make the model believable, but do so with restraint. Keep staffing, payroll, capacity, demand build, and profitability timing coherent with the actual stage and operating shape of the business.
+For rows labeled with units like `(% of Revenue)` or `(% of LTD)`, use decimal ratios instead of dollar amounts.

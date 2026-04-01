@@ -13,6 +13,21 @@ from flask import jsonify
 logger = logging.getLogger(__name__)
 import requests
 from intake_consult_draft import append_messages, get_draft
+try:
+  from shared_context import build_shared_context  # type: ignore
+except Exception:
+  try:
+    from api_handlers.shared_context import build_shared_context  # type: ignore
+  except Exception:
+    build_shared_context = None  # type: ignore
+try:
+  from fact_templates import sanitize_fact_template  # type: ignore
+except Exception:
+  try:
+    from client_intake_and_finmo.fact_templates import sanitize_fact_template  # type: ignore
+  except Exception:
+    def sanitize_fact_template(value: str) -> str:
+      return str(value or "")
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -5852,6 +5867,348 @@ def get_intake_consult_draft_handler(*, app, request):
         "model_input_json": draft.get("model_input_json"),
         "finmo_json": draft.get("finmo_json"),
         "planning_run_json": draft.get("planning_run_json"),
+      }
+    )
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+
+
+def _run_planning_system_for_draft(
+  *,
+  conn,
+  draft_id: str,
+) -> Dict[str, Any]:
+  if build_shared_context is None:
+    raise RuntimeError("build_shared_context_unavailable")
+  draft = get_draft(conn, draft_id=str(draft_id).strip())
+  if not bool(draft.get("consistency_passed")):
+    raise RuntimeError("consistency_not_cleared")
+
+  try:
+    from financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
+  except Exception:
+    from client_intake_and_finmo.financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
+  try:
+    from financials_year1 import assemble_financials_year1  # type: ignore
+  except Exception:
+    from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
+
+  ops_json = _parse_json_dict(draft.get("operating_model_json"))
+  market_json = _parse_json_dict(draft.get("target_market_json"))
+  people_json = _parse_json_dict(draft.get("people_json"))
+  financials_json = _parse_json_dict(draft.get("financials_json"))
+  financials_year1_json = _parse_json_dict(draft.get("financials_year1_json"))
+  fulfillment_json = _parse_json_dict(draft.get("fulfillment_json"))
+  marketing_model_json = _parse_json_dict(draft.get("marketing_model_json"))
+  planning_run_json = _parse_json_dict(draft.get("planning_run_json"))
+  resolution_summary = (
+    planning_run_json.get("resolution_summary")
+    if isinstance(planning_run_json.get("resolution_summary"), dict)
+    else {}
+  )
+
+  business_facts: Dict[str, Any] = {
+    "name": draft.get("business_name"),
+    "business_name": draft.get("business_name"),
+    "address": draft.get("business_address"),
+    "start_date": draft.get("business_start_date"),
+    "address_street": draft.get("address_street"),
+    "address_city": draft.get("address_city"),
+    "address_state": draft.get("address_state"),
+    "address_zip": draft.get("address_zip"),
+    "address_country": draft.get("address_country"),
+  }
+
+  def _persist_system_stage(
+    *,
+    stage: str,
+    status: str,
+    planning_mode: str = "",
+    planning_mode_reason: str = "",
+    prompt_file: str = "",
+    gpt_narrative: str = "",
+    gpt_grid_metadata: Optional[Dict[str, Any]] = None,
+    solver_summary: Optional[Dict[str, Any]] = None,
+    model_input_payload: Optional[Dict[str, Any]] = None,
+    finmo_payload: Optional[Dict[str, Any]] = None,
+  ) -> Dict[str, Any]:
+    payload = _build_planning_run_payload(
+      stage=stage,
+      status=status,
+      resolution_summary=copy.deepcopy(resolution_summary),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+      gpt_narrative=gpt_narrative,
+      gpt_grid_metadata=copy.deepcopy(gpt_grid_metadata or {}),
+      solver_summary=copy.deepcopy(solver_summary or {}),
+    )
+    append_messages(
+      conn,
+      draft_id=str(draft_id).strip(),
+      new_messages=[],
+      model_input_json=model_input_payload,
+      finmo_json=finmo_payload,
+      planning_run_json=payload,
+      active_focus="done",
+      consistency_passed=True,
+      status="completed",
+      completed=True,
+    )
+    return payload
+
+  shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
+  shared_context = dict(shared_context or {})
+  shared_context["operating_model"] = ops_json
+  shared_context["target_market"] = market_json
+  shared_context["people_capability"] = people_json
+  shared_context["financials"] = financials_json
+
+  base_year1 = assemble_financials_year1(shared_context, None)
+  if _year1_drivers_conflict(financials_year1_json, base_year1):
+    financials_year1_json = base_year1
+  else:
+    financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+  if isinstance(financials_year1_json, dict) and financials_year1_json:
+    shared_context["financials_year1_json"] = financials_year1_json
+
+  try:
+    marketing_model_json = _compute_marketing_model_json(
+      conn=conn,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_year1_json=financials_year1_json,
+      business_facts=business_facts,
+      existing_marketing_model_json=marketing_model_json,
+      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
+    )
+  except Exception:
+    marketing_model_json = dict(marketing_model_json or {})
+  shared_context["marketing"] = marketing_model_json
+
+  try:
+    from finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+  except Exception:
+    from client_intake_and_finmo.finmo_bridge import sync_consistency_state_to_finmo  # type: ignore
+  try:
+    from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+  except Exception:
+    from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+
+  sync_result = sync_consistency_state_to_finmo(
+    finmo_path="",
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+    controller_input_seed=[],
+    forecast_quarters=[],
+    calibration_spec=None,
+  )
+  model_input_json = (
+    sync_result.get("model_input_json")
+    if isinstance(sync_result.get("model_input_json"), dict)
+    else {}
+  )
+  finmo_json = (
+    sync_result.get("finmo_json")
+    if isinstance(sync_result.get("finmo_json"), dict)
+    else {}
+  )
+  planning_run_json = _persist_system_stage(
+    stage="baseline_ready",
+    status="running",
+    model_input_payload=model_input_json,
+    finmo_payload=finmo_json,
+  )
+
+  planning_choice = determine_planning_mode(
+    ops_json=dict(ops_json or {}),
+    target_market_json=dict(market_json or {}),
+    people_json=dict(people_json or {}),
+    financials_json=dict(financials_json or {}),
+    financials_year1_json=dict(financials_year1_json or {}),
+    fulfillment_json=dict(fulfillment_json or {}),
+    marketing_model_json=dict(marketing_model_json or {}),
+    model_input_json=copy.deepcopy(model_input_json),
+    finmo_json=copy.deepcopy(finmo_json),
+    business_facts=copy.deepcopy(business_facts or {}),
+  )
+  planning_mode = str(planning_choice.get("planning_mode") or "").strip()
+  planning_mode_reason = str(planning_choice.get("planning_mode_reason") or "").strip()
+  planning_run_json = _persist_system_stage(
+    stage="quarter_grid_running",
+    status="running",
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
+    model_input_payload=model_input_json,
+    finmo_payload=finmo_json,
+  )
+
+  planning_result = generate_live_quarter_grid_plan(
+    business_name=str(business_facts.get("name") or "").strip(),
+    planning_mode=planning_mode,
+    model_input_json=copy.deepcopy(model_input_json),
+    finmo_json=copy.deepcopy(finmo_json),
+    ops_json=ops_json,
+    target_market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+    marketing_model_json=marketing_model_json,
+    business_facts=copy.deepcopy(business_facts or {}),
+  )
+  validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
+  if (
+    list(validation.get("missing_rows") or [])
+    or list(validation.get("extra_rows") or [])
+    or list(validation.get("duplicate_rows") or [])
+    or list(validation.get("malformed_rows") or [])
+  ):
+    raise RuntimeError("planning_grid_validation_failed")
+  planning_run_json = _persist_system_stage(
+    stage="quarter_grid_ready",
+    status="ready_for_solver",
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
+    gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
+    model_input_payload=model_input_json,
+    finmo_payload=finmo_json,
+  )
+
+  solver_result = solve_live_quarter_grid_plan(
+    baseline_model_input_json=copy.deepcopy(model_input_json),
+    grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
+  )
+  solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
+  if not bool(solver_summary.get("success")):
+    raise RuntimeError("planning_solver_failed")
+
+  solved_model_input_json = (
+    solver_result.get("solved_model_input_json")
+    if isinstance(solver_result.get("solved_model_input_json"), dict)
+    else {}
+  )
+  solved_finmo_json = (
+    solver_result.get("solved_finmo_json")
+    if isinstance(solver_result.get("solved_finmo_json"), dict)
+    else {}
+  )
+  next_planning_run_json = _build_planning_run_payload(
+    stage="solver_completed",
+    status="solved",
+    resolution_summary=copy.deepcopy(resolution_summary),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
+    gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
+    solver_summary=copy.deepcopy(solver_summary or {}),
+  )
+
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[],
+    operating_model_json=ops_json,
+    target_market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+    fulfillment_json=fulfillment_json,
+    model_input_json=solved_model_input_json,
+    finmo_json=solved_finmo_json,
+    planning_run_json=next_planning_run_json,
+    active_focus="done",
+    business_facts=business_facts,
+    consistency_passed=True,
+    status="completed",
+    completed=True,
+  )
+
+  return {
+    "draft_id": str(draft_id).strip(),
+    "planning_run_json": next_planning_run_json,
+    "model_input_json": solved_model_input_json,
+    "finmo_json": solved_finmo_json,
+  }
+
+
+def post_intake_consult_system_run_handler(*, app, request):
+  if request.method == "OPTIONS":
+    return ("", 204)
+
+  payload = request.get_json(silent=True) or {}
+  draft_id = str(payload.get("draft_id") or "").strip()
+  if not draft_id:
+    return (
+      jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
+      400,
+    )
+
+  try:
+    from intake_submission import get_mysql_connection  # type: ignore
+  except Exception as exc:
+    app.logger.exception("Failed to import MySQL helpers: %s", exc)
+    return (jsonify({"error": "server_error"}), 500)
+  try:
+    try:
+      from consistency_trace import configure_consistency_trace_run, trace_values  # type: ignore
+    except Exception:
+      from client_intake_and_finmo.consistency_trace import configure_consistency_trace_run, trace_values  # type: ignore
+    trace_run_name = str(request.headers.get("X-Solver-Trace-Run-Name") or "").strip()
+    trace_reset_raw = str(request.headers.get("X-Solver-Trace-Reset") or "").strip().lower()
+    configure_consistency_trace_run(
+      trace_run_name,
+      reset_file=trace_reset_raw in {"1", "true", "yes", "on"},
+    )
+    trace_values(
+      "SYSTEM_RUN_REQUEST",
+      "System run request received",
+      draft_id=draft_id,
+      trace_run_name=trace_run_name,
+      trace_reset=trace_reset_raw in {"1", "true", "yes", "on"},
+    )
+  except Exception:
+    pass
+
+  conn = get_mysql_connection()
+  try:
+    try:
+      result = _run_planning_system_for_draft(conn=conn, draft_id=draft_id)
+    except RuntimeError as exc:
+      detail = str(exc).strip() or "system_run_failed"
+      if detail == "consistency_not_cleared":
+        return (jsonify({"error": "conflict", "detail": detail}), 409)
+      app.logger.exception("System run failed for draft %s: %s", draft_id, detail)
+      return (jsonify({"error": "system_run_failed", "detail": detail}), 500)
+    except Exception as exc:
+      app.logger.exception("System run failed for draft %s", draft_id)
+      return (jsonify({"error": "system_run_failed", "detail": str(exc)}), 500)
+
+    planning_run_json = (
+      result.get("planning_run_json")
+      if isinstance(result.get("planning_run_json"), dict)
+      else {}
+    )
+    return jsonify(
+      {
+        "status": "ok",
+        "draft_id": str(result.get("draft_id") or draft_id).strip(),
+        "action": "system_run_complete",
+        "assistant_message": "System run complete.",
+        "planning_run_json": planning_run_json,
       }
     )
   finally:

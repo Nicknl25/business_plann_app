@@ -31,6 +31,7 @@ US_EASTERN = ZoneInfo("America/New_York")
 DEFAULT_TEST_RUNS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs"
 DEFAULT_TEST_RUNS_DATA_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data"
 DEFAULT_TERMINAL_LOGS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs"
+DEFAULT_NEW_RUNNER_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\New Runner"
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 OPS_FACT_FIELDS = {
@@ -416,7 +417,7 @@ def _post_json(
   url: str,
   payload: Dict[str, Any],
   *,
-  timeout: int = 240,
+  timeout: Optional[float] = None,
   headers: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
   resp = requests.post(url, json=payload, timeout=timeout, headers=headers)
@@ -431,7 +432,7 @@ def _post_json(
   return data
 
 
-def _get_json(url: str, params: Dict[str, Any], *, timeout: int = 240) -> Dict[str, Any]:
+def _get_json(url: str, params: Dict[str, Any], *, timeout: Optional[float] = None) -> Dict[str, Any]:
   resp = requests.get(url, params=params, timeout=timeout)
   try:
     data = resp.json()
@@ -823,6 +824,13 @@ def _build_run_artifact_path(*, output_dir: str, seed: str, written_at: datetime
   return os.path.join(output_dir, f"{date_part} -- {scenario_part}.txt")
 
 
+def _build_named_artifact_path(*, output_dir: str, seed: str, written_at: datetime, suffix: str) -> str:
+  date_part = written_at.strftime("%m-%d-%Y")
+  scenario_part = _safe_filename_part(seed)
+  suffix_part = _safe_filename_part(suffix)
+  return os.path.join(output_dir, f"{date_part} -- {scenario_part} -- {suffix_part}.txt")
+
+
 def _build_run_artifact_filename(*, seed: str, written_at: datetime) -> str:
   return os.path.basename(_build_run_artifact_path(output_dir="", seed=seed, written_at=written_at))
 
@@ -959,6 +967,271 @@ def _save_persisted_state_report(
     return None
 
 
+def _annual_summary_from_quarter_rows(quarter_rows: List[Dict[str, Any]]) -> Dict[int, Dict[str, float]]:
+  summary: Dict[int, Dict[str, float]] = {}
+  ending_keys = {
+    "ending_cash",
+    "cash",
+    "accounts_receivable",
+    "inventory",
+    "prepaid_expenses",
+    "ppe",
+    "accumulated_depreciation",
+    "accounts_payable",
+    "deferred_revenue",
+    "lease_closing_balance_total",
+    "short_term_debt",
+    "long_term_debt",
+    "owners_capital",
+    "other_equity",
+    "retained_earnings",
+    "total_assets",
+    "total_liabilities_and_equity",
+    "accounting_equation_check",
+  }
+  for row in quarter_rows:
+    try:
+      quarter_index = int(row.get("quarter_index") or 0)
+    except Exception:
+      quarter_index = 0
+    if quarter_index <= 0:
+      continue
+    year_index = ((quarter_index - 1) // 4) + 1
+    bucket = summary.setdefault(year_index, {})
+    for key, value in row.items():
+      if key in {"quarter_index", "quarter", "date", "year", "slot_index"}:
+        continue
+      try:
+        number = float(value)
+      except Exception:
+        continue
+      if key in ending_keys:
+        bucket[key] = number
+      else:
+        bucket[key] = bucket.get(key, 0.0) + number
+  return summary
+
+
+def _save_new_runner_report(
+  *,
+  base_url: str,
+  output_dir: str,
+  seed: str,
+  bootstrap: Optional[Bootstrap],
+  draft_id: Optional[str],
+  written_at: Optional[datetime] = None,
+) -> Optional[str]:
+  try:
+    os.makedirs(output_dir, exist_ok=True)
+    now = written_at or _eastern_now()
+    path = _build_run_artifact_path(output_dir=output_dir, seed=seed, written_at=now)
+    snapshot = _fetch_persisted_state_snapshot(base_url=base_url, draft_id=draft_id)
+    row = (
+      (((snapshot.get("payload") or {}) if isinstance(snapshot.get("payload"), dict) else {}).get("row") or {})
+      if isinstance(snapshot, dict)
+      else {}
+    )
+    if not isinstance(row, dict) or not row:
+      return None
+
+    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
+    quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
+    accounting_check = finmo_json.get("accounting_check") if isinstance(finmo_json.get("accounting_check"), dict) else {}
+    gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
+    solver_summary = planning_run.get("solver_summary") if isinstance(planning_run.get("solver_summary"), dict) else {}
+    validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}
+    annual = _annual_summary_from_quarter_rows(quarter_rows)
+
+    lines: List[str] = []
+    lines.append(f"Business Name: {str(row.get('business_name') or '').strip()}")
+    lines.append(f"Draft ID: {str(draft_id or row.get('draft_id') or '').strip()}")
+    if bootstrap:
+      lines.append(f"Business Start Date: {bootstrap.business_start_date}")
+    lines.append(f"Planning Mode: {str(planning_run.get('planning_mode') or '').strip()}")
+    lines.append(f"Planning Mode Reason: {str(planning_run.get('planning_mode_reason') or '').strip()}")
+    lines.append(f"Prompt File: {str(planning_run.get('prompt_file') or '').strip()}")
+    lines.append(f"GPT Rows Requested: {gpt_meta.get('requested_row_count')}")
+    lines.append(f"GPT Rows Returned: {gpt_meta.get('returned_row_count')}")
+    lines.append(f"Missing Rows: {len(validation.get('missing_rows') or [])}")
+    lines.append(f"Extra Rows: {len(validation.get('extra_rows') or [])}")
+    lines.append(f"Malformed Rows: {len(validation.get('malformed_rows') or [])}")
+    lines.append(f"Solver Success: {bool(solver_summary.get('success'))}")
+    lines.append(f"Solver Iterations: {solver_summary.get('iterations')}")
+    lines.append(f"Solver Objective Before: {solver_summary.get('objective_before')}")
+    lines.append(f"Solver Objective After: {solver_summary.get('objective_after')}")
+    lines.append(f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}")
+    lines.append(f"Accounting All OK: {accounting_check.get('all_ok')}")
+    lines.append("")
+    lines.append("GPT Narrative:")
+    lines.append(str(planning_run.get("gpt_narrative") or "").strip())
+    lines.append("")
+    lines.append("Quarterly Summary:")
+    for item in quarter_rows:
+      try:
+        quarter_index = int(item.get("quarter_index") or 0)
+      except Exception:
+        quarter_index = 0
+      if quarter_index <= 0:
+        continue
+      lines.append(
+        " | ".join(
+          [
+            f"Q{quarter_index}",
+            f"Revenue {float(item.get('revenue') or 0.0):,.2f}",
+            f"EBITDA {float(item.get('ebitda') or 0.0):,.2f}",
+            f"Cash {float(item.get('ending_cash') or 0.0):,.2f}",
+            f"Acct Check {float(item.get('accounting_equation_check') or 0.0):,.6f}",
+          ]
+        )
+      )
+    lines.append("")
+    lines.append("Annual Summary:")
+    for year_index in sorted(annual.keys()):
+      lines.append(f"Year {year_index}:")
+      for key in sorted(annual[year_index].keys()):
+        lines.append(f"  {key}: {annual[year_index][key]:,.2f}")
+
+    with open(path, "w", encoding="utf-8") as handle:
+      handle.write("\n".join(lines).rstrip() + "\n")
+    return path
+  except Exception:
+    return None
+
+
+def _save_new_runner_grid_report(
+  *,
+  base_url: str,
+  output_dir: str,
+  seed: str,
+  draft_id: Optional[str],
+  written_at: Optional[datetime] = None,
+) -> Optional[str]:
+  try:
+    os.makedirs(output_dir, exist_ok=True)
+    now = written_at or _eastern_now()
+    path = _build_named_artifact_path(output_dir=output_dir, seed=seed, written_at=now, suffix="quarter-grid")
+    snapshot = _fetch_persisted_state_snapshot(base_url=base_url, draft_id=draft_id)
+    row = (
+      (((snapshot.get("payload") or {}) if isinstance(snapshot.get("payload"), dict) else {}).get("row") or {})
+      if isinstance(snapshot, dict)
+      else {}
+    )
+    if not isinstance(row, dict) or not row:
+      return None
+    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
+    validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}
+    grid_rows = []
+    if isinstance(gpt_meta.get("grid_json"), dict):
+      grid_rows = [item for item in (gpt_meta.get("grid_json") or {}).get("rows", []) if isinstance(item, dict)]
+
+    lines: List[str] = []
+    lines.append(f"Business Name: {str(row.get('business_name') or '').strip()}")
+    lines.append(f"Draft ID: {str(draft_id or row.get('draft_id') or '').strip()}")
+    lines.append(f"Planning Mode: {str(planning_run.get('planning_mode') or '').strip()}")
+    lines.append(f"Prompt File: {str(planning_run.get('prompt_file') or '').strip()}")
+    lines.append(f"Requested Rows: {gpt_meta.get('requested_row_count')}")
+    lines.append(f"Returned Rows: {gpt_meta.get('returned_row_count')}")
+    lines.append(f"Batch Count: {gpt_meta.get('batch_count')}")
+    lines.append(f"Runtime Seconds: {gpt_meta.get('runtime_seconds')}")
+    lines.append(f"Missing Rows: {len(validation.get('missing_rows') or [])}")
+    lines.append(f"Extra Rows: {len(validation.get('extra_rows') or [])}")
+    lines.append(f"Malformed Rows: {len(validation.get('malformed_rows') or [])}")
+    lines.append(f"Duplicate Rows: {len(validation.get('duplicate_rows') or [])}")
+    lines.append("")
+    lines.append("GPT Narrative:")
+    lines.append(str(planning_run.get("gpt_narrative") or "").strip())
+    lines.append("")
+    lines.append("Grid Rows:")
+    for item in grid_rows:
+      row_id = str(item.get("row_id") or "").strip()
+      row_type = str(item.get("row_type") or "").strip()
+      lines.append(f"{row_id} [{row_type}]")
+      quarter_bands = [band for band in (item.get("quarter_bands") or []) if isinstance(band, dict)]
+      for band in quarter_bands:
+        lines.append(
+          f"  Q{int(band.get('quarter_index') or 0)}: {float(band.get('min_value') or 0.0):,.6f} to {float(band.get('max_value') or 0.0):,.6f}"
+        )
+      lines.append("")
+
+    with open(path, "w", encoding="utf-8") as handle:
+      handle.write("\n".join(lines).rstrip() + "\n")
+    return path
+  except Exception:
+    return None
+
+
+def _save_new_runner_solver_report(
+  *,
+  base_url: str,
+  output_dir: str,
+  seed: str,
+  draft_id: Optional[str],
+  written_at: Optional[datetime] = None,
+) -> Optional[str]:
+  try:
+    os.makedirs(output_dir, exist_ok=True)
+    now = written_at or _eastern_now()
+    path = _build_named_artifact_path(output_dir=output_dir, seed=seed, written_at=now, suffix="solver")
+    snapshot = _fetch_persisted_state_snapshot(base_url=base_url, draft_id=draft_id)
+    row = (
+      (((snapshot.get("payload") or {}) if isinstance(snapshot.get("payload"), dict) else {}).get("row") or {})
+      if isinstance(snapshot, dict)
+      else {}
+    )
+    if not isinstance(row, dict) or not row:
+      return None
+    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
+    quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
+    solver_summary = planning_run.get("solver_summary") if isinstance(planning_run.get("solver_summary"), dict) else {}
+    annual = _annual_summary_from_quarter_rows(quarter_rows)
+
+    lines: List[str] = []
+    lines.append(f"Business Name: {str(row.get('business_name') or '').strip()}")
+    lines.append(f"Draft ID: {str(draft_id or row.get('draft_id') or '').strip()}")
+    lines.append(f"Solver Success: {bool(solver_summary.get('success'))}")
+    lines.append(f"Iterations: {solver_summary.get('iterations')}")
+    lines.append(f"Control Count: {solver_summary.get('control_count')}")
+    lines.append(f"Target Count: {solver_summary.get('target_count')}")
+    lines.append(f"Objective Before: {solver_summary.get('objective_before')}")
+    lines.append(f"Objective After: {solver_summary.get('objective_after')}")
+    lines.append(f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}")
+    lines.append("")
+    lines.append("Quarterly Summary:")
+    for item in quarter_rows:
+      try:
+        quarter_index = int(item.get("quarter_index") or 0)
+      except Exception:
+        quarter_index = 0
+      if quarter_index <= 0:
+        continue
+      lines.append(
+        " | ".join(
+          [
+            f"Q{quarter_index}",
+            f"Revenue {float(item.get('revenue') or 0.0):,.2f}",
+            f"EBITDA {float(item.get('ebitda') or 0.0):,.2f}",
+            f"Cash {float(item.get('ending_cash') or 0.0):,.2f}",
+            f"Acct Check {float(item.get('accounting_equation_check') or 0.0):,.6f}",
+          ]
+        )
+      )
+    lines.append("")
+    lines.append("Annual Summary:")
+    for year_index in sorted(annual.keys()):
+      lines.append(f"Year {year_index}:")
+      for key in sorted(annual[year_index].keys()):
+        lines.append(f"  {key}: {annual[year_index][key]:,.2f}")
+
+    with open(path, "w", encoding="utf-8") as handle:
+      handle.write("\n".join(lines).rstrip() + "\n")
+    return path
+  except Exception:
+    return None
+
+
 def _detect_failure(
   *,
   transcript: List[Dict[str, str]],
@@ -1063,6 +1336,34 @@ def _run_single_seed(
     )
     if persisted_path:
       print(f"Saved persisted state report: {persisted_path}")
+    new_runner_path = _save_new_runner_report(
+      base_url=base_url,
+      output_dir=DEFAULT_NEW_RUNNER_DIR,
+      seed=artifact_seed,
+      bootstrap=bootstrap,
+      draft_id=draft_id,
+      written_at=written_at,
+    )
+    if new_runner_path:
+      print(f"Saved New Runner report: {new_runner_path}")
+    new_runner_grid_path = _save_new_runner_grid_report(
+      base_url=base_url,
+      output_dir=DEFAULT_NEW_RUNNER_DIR,
+      seed=artifact_seed,
+      draft_id=draft_id,
+      written_at=written_at,
+    )
+    if new_runner_grid_path:
+      print(f"Saved New Runner grid report: {new_runner_grid_path}")
+    new_runner_solver_path = _save_new_runner_solver_report(
+      base_url=base_url,
+      output_dir=DEFAULT_NEW_RUNNER_DIR,
+      seed=artifact_seed,
+      draft_id=draft_id,
+      written_at=written_at,
+    )
+    if new_runner_solver_path:
+      print(f"Saved New Runner solver report: {new_runner_solver_path}")
     if trace_file_name:
       print(f"Expected terminal log file: {os.path.join(DEFAULT_TERMINAL_LOGS_DIR, trace_file_name)}")
 
@@ -1142,7 +1443,21 @@ def _run_single_seed(
 
       if response.get("done"):
         print("\nSimulation completed.")
-        draft = draft_snapshot
+        system_run_started = time.perf_counter()
+        system_run_response = _post_json(
+          f"{base_url}/api/intake-consult/system-run",
+          {
+            "draft_id": draft_id,
+            "client_id": client_id,
+          },
+          timeout=None,
+          headers=trace_headers,
+        )
+        system_run_ms = int(round((time.perf_counter() - system_run_started) * 1000.0))
+        system_message = str(system_run_response.get("assistant_message") or "").strip() or "System run complete."
+        transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
+        print(system_message)
+        draft = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
         print(
           "Final flags:",
           json.dumps(
@@ -1164,14 +1479,14 @@ def _run_single_seed(
           turn_started_at=turn_started_at,
           draft_fetch_ms=draft_fetch_ms,
           client_answer_ms=None,
-          app_response_ms=None,
+          app_response_ms=system_run_ms,
           assistant_chars=len(assistant_message),
           user_chars=0,
           stop_flag=True,
-          stop_reason="intake completed",
+          stop_reason="system run complete",
         )
-        _finish_metrics(status="completed", stop_reason="intake completed", total_turns=turn_index + 1)
-        _persist_report(status="completed", stop_reason="intake completed")
+        _finish_metrics(status="completed", stop_reason="system run complete", total_turns=turn_index + 1)
+        _persist_report(status="completed", stop_reason="system run complete")
         return 0
 
       failure = _detect_failure(

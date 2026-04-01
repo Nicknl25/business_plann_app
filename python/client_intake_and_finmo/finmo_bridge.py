@@ -35,6 +35,50 @@ def _safe_float(value: Any) -> Optional[float]:
     return None
 
 
+def _annualized_lease_commitment(value: Any) -> Optional[float]:
+  if value is None or value == "":
+    return None
+  if isinstance(value, (int, float)):
+    return max(0.0, float(value))
+  raw = str(value).strip()
+  if not raw:
+    return None
+  lowered = raw.lower()
+  if lowered in {"0", "0,none", "none", "no", "n/a", "na", "zero"}:
+    return 0.0
+
+  amount_part = raw
+  period_part = ""
+  if "," in raw:
+    pieces = [piece.strip() for piece in raw.split(",")]
+    if pieces:
+      amount_part = pieces[0]
+    if len(pieces) > 1:
+      period_part = pieces[1].lower()
+
+  amount = _safe_float(amount_part)
+  if amount is None:
+    return None
+  amount = max(0.0, amount)
+  if not period_part:
+    return amount
+  if period_part == "annual":
+    period_part = "yearly"
+  multiplier = {
+    "daily": 365.0,
+    "weekly": 52.0,
+    "monthly": 12.0,
+    "quarterly": 4.0,
+    "yearly": 1.0,
+    "one-time": 1.0,
+    "unknown": 1.0,
+    "none": 0.0,
+  }.get(period_part)
+  if multiplier is None:
+    return amount
+  return round(amount * multiplier, 6)
+
+
 def _safe_int(value: Any) -> int:
   if value is None or value == "":
     return 0
@@ -648,9 +692,9 @@ def build_python_finmo_json(
     {"label": "Accumulated Depreciation", "values": _series("accumulated_depreciation")},
     {"label": "Total Assets", "values": _series("total_assets")},
     {"label": "Accounts Payable", "values": _series("accounts_payable")},
-    {"label": "Prepaid Expenses", "values": _series("prepaid_expenses")},
+    {"label": "Prepaid Expenses (% of Revenue)", "values": _series("prepaid_expenses")},
     {"label": "Short Term Debt", "values": _series("short_term_debt")},
-    {"label": "Deferred Revenue", "values": _series("deferred_revenue")},
+    {"label": "Deferred Revenue (% of Revenue)", "values": _series("deferred_revenue")},
     {"label": "Current Liabilites", "values": _series("current_liabilities")},
     {"label": "Long Term Debt", "values": _series("long_term_debt")},
     {"label": "Total Liabilities", "values": _series("total_liabilities")},
@@ -1255,8 +1299,8 @@ def _python_model_input_template(
     "Accounts Receivable Days",
     "Inventory Days",
     "Accounts Payable Days",
-    "Prepaid Expenses",
-    "Deferred Revnue",
+    "Prepaid Expenses (% of Revenue)",
+    "Deferred Revenue (% of Revenue)",
     "Short Term Debt (% of LTD)",
     "Owner's Capital",
     "Other Equity",
@@ -1565,9 +1609,9 @@ def _build_model_input_overlay(
         values.append(round(_safe_float(working_capital.get("inventory_days")) or 0.0, 6))
       elif label == "Accounts Payable Days":
         values.append(round(_safe_float(working_capital.get("dpo")) or 0.0, 6))
-      elif label == "Prepaid Expenses":
+      elif label == "Prepaid Expenses (% of Revenue)":
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
-      elif label == "Deferred Revnue":
+      elif label == "Deferred Revenue (% of Revenue)":
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
       elif label == "Short Term Debt (% of LTD)":
         short_term_ratio = _ratio((financials_json or {}).get("short_term_debt"), (financials_json or {}).get("total_debt_outstanding"))
@@ -1584,7 +1628,7 @@ def _build_model_input_overlay(
   debt_seed = _safe_float((financials_json or {}).get("total_debt_outstanding"))
   if debt_seed is not None:
     schedules["debt_opening_balance_seed"] = round(debt_seed, 6)
-  lease_seed = _safe_float((financials_json or {}).get("initial_lease"))
+  lease_seed = _annualized_lease_commitment((financials_json or {}).get("initial_lease"))
   if lease_seed is not None:
     schedules["lease_opening_balance_seed"] = round(lease_seed, 6)
   ppe_seed = _safe_float((financials_json or {}).get("initial_assets")) or 0.0

@@ -53,20 +53,20 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "General & Administrative": "Revenue * expenses::General & Administrative",
   "EBITDA": "Gross Profit - SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
   "Interest": "Debt Schedule Interest Expense = AVERAGE(Debt Opening Balance, Debt Closing Balance) * expenses::Interest Rate",
-  "Depreciation": "Revenue * expenses::Depreciation",
+  "Depreciation": "min(previous PPE * expenses::Depreciation, previous PPE)",
   "Taxes": "Revenue * expenses::Taxes",
   "Net Income": "EBITDA - SUM(Interest, Depreciation, Taxes)",
   "Cash": "Ending Cash",
   "Accounts Receivable": "(balance_sheet::Accounts Receivable Days / days_in_quarter) * Revenue",
   "Inventory": "(balance_sheet::Inventory Days / days_in_quarter) * Cost of Goods Sold",
   "Current Assets": "Cash + Accounts Receivable + Inventory",
-  "PPE": "previous PPE + schedules::Capital Expenditures - Depreciation",
+  "PPE": "previous PPE + schedules::Capital Expenditures + Capital Lease Additions - Depreciation",
   "Accumulated Depreciation": "previous Accumulated Depreciation - Depreciation",
   "Total Assets": "Current Assets + PPE",
   "Accounts Payable": "(balance_sheet::Accounts Payable Days / days_in_quarter) * SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
-  "Prepaid Expenses": "Revenue * balance_sheet::Prepaid Expenses",
+  "Prepaid Expenses": "Revenue * balance_sheet::Prepaid Expenses (% of Revenue)",
   "Short Term Debt": "balance_sheet::Short Term Debt (% of LTD) * Long Term Debt",
-  "Deferred Revenue": "balance_sheet::Deferred Revnue * Revenue",
+  "Deferred Revenue": "balance_sheet::Deferred Revenue (% of Revenue) * Revenue",
   "Current Liabilities": "SUM(Accounts Payable, Prepaid Expenses, Short Term Debt, Deferred Revenue)",
   "Long Term Debt": "Debt Schedule Closing Balance",
   "Total Liabilities": "Current Liabilities + Long Term Debt + Capital Lease Closing Balance (Total)",
@@ -83,7 +83,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Investing Cash Flow": "-Capital Expenditures",
   "Dept Receive(Repay)": "Long Term Debt_t - Long Term Debt_(t-1)",
   "Equity": "(Owner's Capital_t - Owner's Capital_(t-1)) + (Other Equity_t - Other Equity_(t-1))",
-  "Financing Cash Flow": "Dept Receive(Repay) + Equity + Capital Lease Additions - Capital Lease Principal Repayments",
+  "Financing Cash Flow": "Dept Receive(Repay) + Equity - Capital Lease Principal Repayments",
   "Net Cash Flow": "Operating Cash Flow + Investing Cash Flow + Financing Cash Flow",
   "Ending Cash": "Beginning Cash + Net Cash Flow",
   "Debt Schedule / Opening Balance": "previous Debt Schedule Closing Balance, seeded from schedules.debt_opening_balance_seed",
@@ -94,7 +94,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Capital Leases Schedule / Opening Balance (Total)": "previous Capital Lease Closing Balance (Total), seeded from schedules.lease_opening_balance_seed",
   "Capital Leases Schedule / Less: Principal Repayments": "schedules::Less: Principal Repayments",
   "Capital Leases Schedule / Plus: Net Additions": "schedules::Plus: Net Additions",
-  "Capital Leases Schedule / Closing Balance (Total)": "max(0, Capital Lease Opening Balance (Total) + Plus: Net Additions - Less: Principal Repayments)",
+  "Capital Leases Schedule / Closing Balance (Total)": "Capital Lease Opening Balance (Total) + Plus: Net Additions - effective Principal Repayments, floored at 0",
 }
 
 
@@ -223,14 +223,24 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       current_assets=model_inputs.cash_opening_balance_seed + model_inputs.accounts_receivable_opening_balance_seed + model_inputs.inventory_opening_balance_seed,
       ppe=model_inputs.ppe_opening_balance_seed,
       accumulated_depreciation=model_inputs.accumulated_depreciation_opening_seed,
-      total_assets=model_inputs.ppe_opening_balance_seed + model_inputs.accumulated_depreciation_opening_seed,
+      total_assets=(
+        model_inputs.cash_opening_balance_seed
+        + model_inputs.accounts_receivable_opening_balance_seed
+        + model_inputs.inventory_opening_balance_seed
+        + model_inputs.ppe_opening_balance_seed
+      ),
       accounts_payable=model_inputs.accounts_payable_opening_balance_seed,
       prepaid_expenses=0.0,
       short_term_debt=model_inputs.short_term_debt_opening_balance_seed,
       deferred_revenue=0.0,
       current_liabilities=model_inputs.accounts_payable_opening_balance_seed + model_inputs.short_term_debt_opening_balance_seed,
       long_term_debt=0.0,
-      total_liabilities=model_inputs.debt_opening_balance_seed + model_inputs.lease_opening_balance_seed,
+      total_liabilities=(
+        model_inputs.accounts_payable_opening_balance_seed
+        + model_inputs.short_term_debt_opening_balance_seed
+        + model_inputs.debt_opening_balance_seed
+        + model_inputs.lease_opening_balance_seed
+      ),
       owners_capital=max(
         0.0,
         (
@@ -238,7 +248,6 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
           + model_inputs.accounts_receivable_opening_balance_seed
           + model_inputs.inventory_opening_balance_seed
           + model_inputs.ppe_opening_balance_seed
-          + model_inputs.accumulated_depreciation_opening_seed
         ) - (
           model_inputs.accounts_payable_opening_balance_seed
           + model_inputs.short_term_debt_opening_balance_seed
@@ -275,7 +284,6 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
             + model_inputs.accounts_receivable_opening_balance_seed
             + model_inputs.inventory_opening_balance_seed
             + model_inputs.ppe_opening_balance_seed
-            + model_inputs.accumulated_depreciation_opening_seed
           ) - (
             model_inputs.accounts_payable_opening_balance_seed
             + model_inputs.short_term_debt_opening_balance_seed
@@ -361,16 +369,17 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
 
     accounts_receivable = (_row_value(model_inputs, "balance_sheet", "Accounts Receivable Days", quarter.quarter_index) / max(1, days_in_quarter)) * revenue
     inventory = (_row_value(model_inputs, "balance_sheet", "Inventory Days", quarter.quarter_index) / max(1, days_in_quarter)) * cogs
-    prepaid_expenses = revenue * _row_value(model_inputs, "balance_sheet", "Prepaid Expenses", quarter.quarter_index)
-    deferred_revenue = revenue * _row_value(model_inputs, "balance_sheet", "Deferred Revnue", quarter.quarter_index)
+    prepaid_expenses = revenue * _row_value(model_inputs, "balance_sheet", "Prepaid Expenses (% of Revenue)", quarter.quarter_index)
+    deferred_revenue = revenue * _row_value(model_inputs, "balance_sheet", "Deferred Revenue (% of Revenue)", quarter.quarter_index)
 
     lease_opening = previous_lease_closing_balance
-    lease_principal = _row_value(model_inputs, "schedules", "Less: Principal Repayments", quarter.quarter_index)
+    requested_lease_principal = _row_value(model_inputs, "schedules", "Less: Principal Repayments", quarter.quarter_index)
     lease_additions = _row_value(model_inputs, "schedules", "Plus: Net Additions", quarter.quarter_index)
+    lease_principal = min(max(0.0, requested_lease_principal), max(0.0, lease_opening + lease_additions))
     lease_closing = max(0.0, lease_opening + lease_additions - lease_principal)
     capex = _row_value(model_inputs, "schedules", "Capital Expenditures", quarter.quarter_index)
     depreciation = min(depreciation, max(0.0, previous_ppe))
-    ppe = max(0.0, previous_ppe + capex - depreciation)
+    ppe = max(0.0, previous_ppe + capex + lease_additions - depreciation)
     accumulated_depreciation = previous_accumulated_depreciation - depreciation
 
     accounts_payable = (_row_value(model_inputs, "balance_sheet", "Accounts Payable Days", quarter.quarter_index) / max(1, days_in_quarter)) * (marketing + r_and_d + lease_rent + payroll + g_and_a)
@@ -393,7 +402,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     investing_cash_flow = -capex
     debt_receive_repay = long_term_debt - previous_long_term_debt
     equity = (owners_capital - previous_owners_capital) + (other_equity - previous_other_equity)
-    financing_cash_flow = debt_receive_repay + equity + lease_additions - lease_principal
+    financing_cash_flow = debt_receive_repay + equity - lease_principal
     net_cash_flow = operating_cash_flow + investing_cash_flow + financing_cash_flow
     ending_cash = beginning_cash + net_cash_flow
     cash = ending_cash
