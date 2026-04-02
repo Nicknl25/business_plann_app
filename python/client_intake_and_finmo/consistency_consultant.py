@@ -98,6 +98,7 @@ Your job:
 Use the structured business context first:
 - business_model_snapshot: the plain operating picture of the business type, delivery model, products, customer economics, people model, growth plan, and financial position
 - reality_overview: a compact cross-model summary of the same business
+- coherence_signals: derived cross-model pressure points showing how goals, capacity, price, staffing load, and cash obligations line up
 - raw JSON sections: the detailed source of truth
 
 Before you decide what to raise, form a plain-language view of:
@@ -108,6 +109,14 @@ Before you decide what to raise, form a plain-language view of:
 - what the customer profile looks like
 - what Year-1 output and pricing imply economically
 - what the stated goals imply operationally
+
+Use coherence_signals for judgment support:
+- direct_goal_capacity_tensions highlights explicit goal-vs-capacity conflicts when the stated target exceeds current capacity on the same cadence
+- people_workload_signals helps you see how much output is being carried by the current team
+- price_market_signals helps you compare price points against the stated customer economics
+- cash_obligation_signals helps you see whether cash and fixed obligations are coherent
+
+These signals are not automatic verdicts. Use them to pressure-test the model in context of the actual business type and delivery model.
 
 Holistic realism lenses:
 - Capacity vs Output: can the business actually deliver the stated volume with its people, time, and setup?
@@ -139,6 +148,8 @@ Rules:
 - Choose the highest-signal business-model break, not just the easiest accounting mismatch.
 - Judge realism in the context of this actual business type and operating model, not in the abstract.
 - Prefer issues that would not survive investor or operator scrutiny when the model is read as a whole.
+- Prioritize explicit contradictions first, then severe operating fragility, then softer market-fit tensions.
+- After each accepted or countered change, rescan the model and continue until no material consistency issues remain.
 - Keep your answer short, direct, and human. Explain the issue briefly, propose a fix, and stop.
 - Do not show tables.
 - Do not talk about forecast outputs or model scenarios.
@@ -155,6 +166,8 @@ Fact-bearing templates (STRICT):
   {{{{fact:financials.monthly_rent_expense}}}}
   {{{{fact:financials.total_debt_outstanding}}}}
 - You may only use existing fact keys from the provided context.
+- Use fact placeholders only for direct fact references, not awkward constructions like "X of Y", "X out of Y", or placeholder-against-placeholder comparisons.
+- If a comparison would read awkwardly after rendering, write the sentence more plainly instead.
 """.strip()
 
 

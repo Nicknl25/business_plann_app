@@ -15,8 +15,12 @@ if str(CLIENT_DIR) not in sys.path:
   sys.path.insert(0, str(CLIENT_DIR))
 
 from api_handlers.intake_consult import (
+  _build_financials_live_turn,
   _build_consistency_business_model_snapshot,
+  _build_consistency_coherence_signals,
   _build_consistency_reality_overview,
+  _render_consistency_assistant_text,
+  _normalize_financials_router_patch,
   _build_planning_run_payload,
   _consistency_closeout_ready_for_completion,
 )
@@ -420,6 +424,7 @@ class ConsistencyConsultTests(unittest.TestCase):
     prompt = _build_consistency_system_prompt()
     self.assertIn("holistic realism pass", prompt)
     self.assertIn("business_model_snapshot", prompt)
+    self.assertIn("coherence_signals", prompt)
     self.assertIn("understand what kind of business this is", prompt)
     self.assertIn("Capacity vs Output", prompt)
     self.assertIn("Pricing vs Customer Ability to Pay", prompt)
@@ -429,7 +434,10 @@ class ConsistencyConsultTests(unittest.TestCase):
     self.assertIn("Ask ONE thing per message", prompt)
     self.assertIn("single most important unresolved issue first", prompt)
     self.assertIn("highest-signal business-model break", prompt)
+    self.assertIn("explicit contradictions first", prompt)
+    self.assertIn("continue until no material consistency issues remain", prompt)
     self.assertIn("Keep your answer short, direct, and human", prompt)
+    self.assertIn("Use fact placeholders only for direct fact references", prompt)
 
   def test_consistency_reality_overview_includes_cross_model_fields(self) -> None:
     overview = _build_consistency_reality_overview(
@@ -543,6 +551,156 @@ class ConsistencyConsultTests(unittest.TestCase):
     self.assertEqual(snapshot["growth_plan"]["milestones"][0]["timing_months_max"], 12)
     self.assertEqual(snapshot["target_customer"]["income_intent_summary"], "$60,000-$1,000,000")
     self.assertEqual(snapshot["financial_position"]["total_debt_outstanding"], 120000)
+
+  def test_consistency_coherence_signals_surface_goal_capacity_and_price_signals(self) -> None:
+    signals = _build_consistency_coherence_signals(
+      ops_json={
+        "business_type": "medical spa",
+        "consumer_type": "consumer",
+        "capacity_driver": "licensed provider time",
+        "shipping_method": "in_person",
+        "sales_modality": "appointment",
+        "milestones": [
+          {"description": "Reach about 70 treatment sessions per week within 12 months.", "timing": "within 12 months", "timing_months_max": 12}
+        ],
+      },
+      market_json={
+        "consumer_type": "consumer",
+        "target_market_summary": "Affluent but broad consumers.",
+        "income_intent": [{"income_min": 60000, "income_max": 1000000}],
+      },
+      people_json={
+        "people": [{"full_name": "Alex Stone", "role_title": "Owner / Nurse Practitioner"}],
+        "inferred_roles": [],
+      },
+      financials_json={
+        "payroll_total_year1": 120000,
+        "cash_on_hand": 15000,
+        "monthly_rent_expense": 9500,
+        "other_operating_expense": 4000,
+        "other_monthly_debt_payments": 1500,
+      },
+      financials_year1_json={
+        "lobs": [
+          {
+            "lob_name": "Primary line of business",
+            "products": [
+              {
+                "product_name": "Advanced aesthetic treatment",
+                "unit_cadence": "weekly",
+                "unit_price": 875,
+                "units_per_period_capacity": 55,
+                "units_per_week_capacity": 55,
+                "operating_periods_per_year": 52,
+                "utilization_rate": 0.88,
+                "avg_units_per_period_year1": 48.4,
+                "annual_units_year1": 2516.8,
+                "revenue_total_year1": 2202200,
+              }
+            ],
+          }
+        ]
+      },
+      fulfillment_json={"personnel": "owner", "time": "scheduled appointments"},
+    )
+    self.assertEqual(signals["people_workload_signals"]["current_people_count"], 1)
+    self.assertEqual(signals["goal_signals"][0]["cadence_hint"], "weekly")
+    self.assertEqual(signals["direct_goal_capacity_tensions"][0]["goal_value"], 70.0)
+    self.assertEqual(signals["direct_goal_capacity_tensions"][0]["product_capacity"], 55.0)
+    self.assertEqual(signals["price_market_signals"]["price_points"][0]["income_floor"], 60000)
+    self.assertEqual(signals["cash_obligation_signals"]["fixed_monthly_burden_estimate"], 25000.0)
+
+  def test_render_consistency_assistant_text_renders_fact_templates_and_cleans_zero_pairs(self) -> None:
+    rendered = _render_consistency_assistant_text(
+      "Cash is {{fact:financials.cash_on_hand}} and debt is {{fact:financials.total_debt_outstanding}}. That is 0 of 0.",
+      shared_context={"financials": {"cash_on_hand": 0, "total_debt_outstanding": 0}},
+      business_facts={},
+    )
+    self.assertNotIn("{{fact:", rendered)
+    self.assertNotIn("0 of 0", rendered)
+    self.assertIn("$0", rendered)
+
+
+class FinancialsRouterPatchTests(unittest.TestCase):
+  def test_financials_router_patch_annualizes_owner_comp_monthly_answer(self) -> None:
+    patched = _normalize_financials_router_patch(
+      patch={"owner_compensation": 10000},
+      active_stage="owner_compensation",
+      financials_json={},
+      financials_year1_json={},
+      last_assistant="For owner compensation, as of last month, about how much did you pay yourself from the business, in dollars per month on average?",
+    )
+    self.assertIsInstance(patched, dict)
+    self.assertEqual(patched["owner_compensation"], 120000.0)
+
+  def test_financials_router_patch_accepts_employee_count_stage(self) -> None:
+    patched = _normalize_financials_router_patch(
+      patch={"current_num_employees": 1},
+      active_stage="current_num_employees",
+      financials_json={},
+      financials_year1_json={},
+      last_assistant="What number should I record for current employee count? A whole number is fine.",
+    )
+    self.assertIsInstance(patched, dict)
+    self.assertEqual(patched["current_num_employees"], 1)
+
+  def test_build_financials_live_turn_sets_active_stage(self) -> None:
+    captured: dict = {}
+
+    def _fake_financials_chat_turn(*, intake_context, conversation_messages):
+      captured["active_stage"] = intake_context.get("financials_active_stage")
+      return {"assistant_message": "Question", "finalize_ready": False}
+
+    turn, financials_json = _build_financials_live_turn(
+      financials_chat_turn=_fake_financials_chat_turn,
+      intake_context={},
+      conversation_messages=[],
+      shared_context={},
+      financials_json={"_financials_revenue_intro_done": True},
+      financials_year1_json={},
+      guardrail_triggered=False,
+    )
+    self.assertEqual(captured["active_stage"], "cogs")
+    self.assertEqual(turn["assistant_message"], "Question")
+    self.assertIsInstance(financials_json, dict)
+
+  def test_build_financials_live_turn_completes_when_no_stage_left(self) -> None:
+    turn, financials_json = _build_financials_live_turn(
+      financials_chat_turn=lambda **_: {"assistant_message": "Should not run"},
+      intake_context={},
+      conversation_messages=[],
+      shared_context={},
+      financials_json={
+        "_financials_revenue_intro_done": True,
+        "current_cogs": 1000.0,
+        "cogs_total_year1": 1000.0,
+        "current_payroll": 120000.0,
+        "payroll_total_year1": 120000.0,
+        "marketing_total_year1": 24000.0,
+        "monthly_rent_expense": 1000.0,
+        "future_rent_expected": False,
+        "owner_compensation": 60000.0,
+        "other_operating_expense": 500.0,
+        "current_num_employees": 1,
+        "current_capex": 0.0,
+        "initial_assets": 10000.0,
+        "initial_lease": "0,none",
+        "initial_equity": 5000.0,
+        "total_debt_outstanding": 0.0,
+        "other_monthly_debt_payments": 0.0,
+        "annual_interest_payment": 0.0,
+        "annual_principal_payment": 0.0,
+        "cash_on_hand": 5000.0,
+        "ar_balance": 0.0,
+        "ap_balance": 0.0,
+        "inventory_balance": 0.0,
+      },
+      financials_year1_json={},
+      guardrail_triggered=False,
+    )
+    self.assertTrue(turn.get("transition_to_consistency"))
+    self.assertIn("consistency pass", str(turn.get("assistant_message") or "").lower())
+    self.assertIsInstance(financials_json, dict)
 
 
 class PlanningRunContractTests(unittest.TestCase):
