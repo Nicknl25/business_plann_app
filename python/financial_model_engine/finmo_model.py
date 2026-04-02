@@ -59,7 +59,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Cash": "Ending Cash",
   "Accounts Receivable": "(balance_sheet::Accounts Receivable Days / days_in_quarter) * Revenue",
   "Inventory": "(balance_sheet::Inventory Days / days_in_quarter) * Cost of Goods Sold",
-  "Current Assets": "Cash + Accounts Receivable + Inventory",
+  "Current Assets": "Cash + Accounts Receivable + Inventory + Prepaid Expenses",
   "PPE": "previous PPE + schedules::Capital Expenditures + Capital Lease Additions - Depreciation",
   "Accumulated Depreciation": "previous Accumulated Depreciation - Depreciation",
   "Total Assets": "Current Assets + PPE",
@@ -67,7 +67,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Prepaid Expenses": "Revenue * balance_sheet::Prepaid Expenses (% of Revenue)",
   "Short Term Debt": "balance_sheet::Short Term Debt (% of LTD) * Long Term Debt",
   "Deferred Revenue": "balance_sheet::Deferred Revenue (% of Revenue) * Revenue",
-  "Current Liabilities": "SUM(Accounts Payable, Prepaid Expenses, Short Term Debt, Deferred Revenue)",
+  "Current Liabilities": "SUM(Accounts Payable, Short Term Debt, Deferred Revenue)",
   "Long Term Debt": "Debt Schedule Closing Balance",
   "Total Liabilities": "Current Liabilities + Long Term Debt + Capital Lease Closing Balance (Total)",
   "Owner's Capital": "balance_sheet::Owner's Capital",
@@ -76,7 +76,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Total Equity": "SUM(Owner's Capital, Retained Earnings, Other Equity)",
   "Total Liabilities & Equity": "Total Liabilities + Total Equity",
   "Beginning Cash": "previous Ending Cash",
-  "Changes in Current Assets": "-((Accounts Receivable + Inventory)_t - (Accounts Receivable + Inventory)_(t-1))",
+  "Changes in Current Assets": "-((Accounts Receivable + Inventory + Prepaid Expenses)_t - (Accounts Receivable + Inventory + Prepaid Expenses)_(t-1))",
   "Changes in Current Liabilites": "Current Liabilities_t - Current Liabilities_(t-1)",
   "Operating Cash Flow": "Net Income + Depreciation + Changes in Current Assets + Changes in Current Liabilites",
   "Capital Expenditures": "schedules::Capital Expenditures",
@@ -196,6 +196,33 @@ def _row_value(book: FinancialModelInputs, section: str, label: str, quarter_ind
 
 def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResult:
   start = _parse_start_date(model_inputs.start_date)
+  opening_short_term_debt = max(0.0, model_inputs.short_term_debt_opening_balance_seed)
+  opening_total_debt = max(0.0, model_inputs.debt_opening_balance_seed)
+  opening_long_term_debt = opening_total_debt
+  opening_owner_capital = _row_value(model_inputs, "balance_sheet", "Owner's Capital", 1)
+  opening_other_equity = _row_value(model_inputs, "balance_sheet", "Other Equity", 1)
+  opening_total_assets = (
+    model_inputs.cash_opening_balance_seed
+    + model_inputs.accounts_receivable_opening_balance_seed
+    + model_inputs.inventory_opening_balance_seed
+    + model_inputs.ppe_opening_balance_seed
+  )
+  opening_current_liabilities = (
+    model_inputs.accounts_payable_opening_balance_seed
+    + opening_short_term_debt
+  )
+  opening_total_liabilities = (
+    opening_current_liabilities
+    + opening_long_term_debt
+    + model_inputs.lease_opening_balance_seed
+  )
+  opening_retained_earnings = (
+    opening_total_assets
+    - opening_total_liabilities
+    - opening_owner_capital
+    - opening_other_equity
+  )
+  opening_total_equity = opening_owner_capital + opening_retained_earnings + opening_other_equity
   quarter_results: List[FinmoQuarterResult] = [
     FinmoQuarterResult(
       quarter_index=0,
@@ -220,78 +247,26 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       cash=model_inputs.cash_opening_balance_seed,
       accounts_receivable=model_inputs.accounts_receivable_opening_balance_seed,
       inventory=model_inputs.inventory_opening_balance_seed,
-      current_assets=model_inputs.cash_opening_balance_seed + model_inputs.accounts_receivable_opening_balance_seed + model_inputs.inventory_opening_balance_seed,
-      ppe=model_inputs.ppe_opening_balance_seed,
-      accumulated_depreciation=model_inputs.accumulated_depreciation_opening_seed,
-      total_assets=(
+      current_assets=(
         model_inputs.cash_opening_balance_seed
         + model_inputs.accounts_receivable_opening_balance_seed
         + model_inputs.inventory_opening_balance_seed
-        + model_inputs.ppe_opening_balance_seed
       ),
+      ppe=model_inputs.ppe_opening_balance_seed,
+      accumulated_depreciation=model_inputs.accumulated_depreciation_opening_seed,
+      total_assets=opening_total_assets,
       accounts_payable=model_inputs.accounts_payable_opening_balance_seed,
       prepaid_expenses=0.0,
-      short_term_debt=model_inputs.short_term_debt_opening_balance_seed,
+      short_term_debt=opening_short_term_debt,
       deferred_revenue=0.0,
-      current_liabilities=model_inputs.accounts_payable_opening_balance_seed + model_inputs.short_term_debt_opening_balance_seed,
-      long_term_debt=0.0,
-      total_liabilities=(
-        model_inputs.accounts_payable_opening_balance_seed
-        + model_inputs.short_term_debt_opening_balance_seed
-        + model_inputs.debt_opening_balance_seed
-        + model_inputs.lease_opening_balance_seed
-      ),
-      owners_capital=max(
-        0.0,
-        (
-          model_inputs.cash_opening_balance_seed
-          + model_inputs.accounts_receivable_opening_balance_seed
-          + model_inputs.inventory_opening_balance_seed
-          + model_inputs.ppe_opening_balance_seed
-        ) - (
-          model_inputs.accounts_payable_opening_balance_seed
-          + model_inputs.short_term_debt_opening_balance_seed
-          + model_inputs.debt_opening_balance_seed
-          + model_inputs.lease_opening_balance_seed
-        ),
-      ),
-      retained_earnings=0.0,
-      other_equity=0.0,
-      total_equity=max(
-        0.0,
-        (
-          model_inputs.cash_opening_balance_seed
-          + model_inputs.accounts_receivable_opening_balance_seed
-          + model_inputs.inventory_opening_balance_seed
-          + model_inputs.ppe_opening_balance_seed
-          + model_inputs.accumulated_depreciation_opening_seed
-        ) - (
-          model_inputs.accounts_payable_opening_balance_seed
-          + model_inputs.short_term_debt_opening_balance_seed
-          + model_inputs.debt_opening_balance_seed
-          + model_inputs.lease_opening_balance_seed
-        ),
-      ),
-      total_liabilities_and_equity=(
-        model_inputs.accounts_payable_opening_balance_seed
-        + model_inputs.short_term_debt_opening_balance_seed
-        + model_inputs.debt_opening_balance_seed
-        + model_inputs.lease_opening_balance_seed
-        + max(
-          0.0,
-          (
-            model_inputs.cash_opening_balance_seed
-            + model_inputs.accounts_receivable_opening_balance_seed
-            + model_inputs.inventory_opening_balance_seed
-            + model_inputs.ppe_opening_balance_seed
-          ) - (
-            model_inputs.accounts_payable_opening_balance_seed
-            + model_inputs.short_term_debt_opening_balance_seed
-            + model_inputs.debt_opening_balance_seed
-            + model_inputs.lease_opening_balance_seed
-          ),
-        )
-      ),
+      current_liabilities=opening_current_liabilities,
+      long_term_debt=opening_long_term_debt,
+      total_liabilities=opening_total_liabilities,
+      owners_capital=opening_owner_capital,
+      retained_earnings=opening_retained_earnings,
+      other_equity=opening_other_equity,
+      total_equity=opening_total_equity,
+      total_liabilities_and_equity=opening_total_liabilities + opening_total_equity,
       beginning_cash=model_inputs.cash_opening_balance_seed,
       changes_in_current_assets=0.0,
       changes_in_current_liabilities=0.0,
@@ -302,10 +277,10 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       equity=0.0,
       financing_cash_flow=0.0,
       net_cash_flow=0.0,
-      ending_cash=0.0,
-      debt_opening_balance=model_inputs.debt_opening_balance_seed,
+      ending_cash=model_inputs.cash_opening_balance_seed,
+      debt_opening_balance=opening_total_debt,
       debt_additions_repayments_net=0.0,
-      debt_closing_balance=model_inputs.debt_opening_balance_seed,
+      debt_closing_balance=opening_total_debt,
       debt_interest_expense=0.0,
       debt_interest_rate=0.0,
       lease_opening_balance_total=model_inputs.lease_opening_balance_seed,
@@ -318,28 +293,15 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   previous_ending_cash = model_inputs.cash_opening_balance_seed
   previous_accounts_receivable = model_inputs.accounts_receivable_opening_balance_seed
   previous_inventory = model_inputs.inventory_opening_balance_seed
-  previous_current_liabilities = model_inputs.accounts_payable_opening_balance_seed + model_inputs.short_term_debt_opening_balance_seed
+  previous_prepaid_expenses = 0.0
+  previous_current_liabilities = opening_current_liabilities
   previous_ppe = model_inputs.ppe_opening_balance_seed
-  previous_long_term_debt = model_inputs.debt_opening_balance_seed
-  previous_owners_capital = max(
-    0.0,
-    (
-      model_inputs.cash_opening_balance_seed
-      + model_inputs.accounts_receivable_opening_balance_seed
-      + model_inputs.inventory_opening_balance_seed
-      + model_inputs.ppe_opening_balance_seed
-      + model_inputs.accumulated_depreciation_opening_seed
-    ) - (
-      model_inputs.accounts_payable_opening_balance_seed
-      + model_inputs.short_term_debt_opening_balance_seed
-      + model_inputs.debt_opening_balance_seed
-      + model_inputs.lease_opening_balance_seed
-    ),
-  )
-  previous_other_equity = 0.0
-  previous_retained_earnings = 0.0
+  previous_long_term_debt = opening_long_term_debt
+  previous_owners_capital = opening_owner_capital
+  previous_other_equity = opening_other_equity
+  previous_retained_earnings = opening_retained_earnings
   previous_accumulated_depreciation = model_inputs.accumulated_depreciation_opening_seed
-  previous_debt_closing_balance = model_inputs.debt_opening_balance_seed
+  previous_debt_closing_balance = opening_total_debt
   previous_lease_closing_balance = model_inputs.lease_opening_balance_seed
 
   for quarter in model_inputs.quarters:
@@ -384,7 +346,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
 
     accounts_payable = (_row_value(model_inputs, "balance_sheet", "Accounts Payable Days", quarter.quarter_index) / max(1, days_in_quarter)) * (marketing + r_and_d + lease_rent + payroll + g_and_a)
     short_term_debt = _row_value(model_inputs, "balance_sheet", "Short Term Debt (% of LTD)", quarter.quarter_index) * debt_closing
-    current_liabilities = accounts_payable + prepaid_expenses + short_term_debt + deferred_revenue
+    current_liabilities = accounts_payable + short_term_debt + deferred_revenue
     long_term_debt = debt_closing
     total_liabilities = current_liabilities + long_term_debt + lease_closing
 
@@ -395,7 +357,10 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     total_liabilities_and_equity = total_liabilities + total_equity
 
     beginning_cash = previous_ending_cash
-    changes_in_current_assets = -((accounts_receivable + inventory) - (previous_accounts_receivable + previous_inventory))
+    changes_in_current_assets = -(
+      (accounts_receivable + inventory + prepaid_expenses)
+      - (previous_accounts_receivable + previous_inventory + previous_prepaid_expenses)
+    )
     changes_in_current_liabilities = current_liabilities - previous_current_liabilities
     operating_cash_flow = net_income + depreciation + changes_in_current_assets + changes_in_current_liabilities
     capital_expenditures = capex
@@ -407,7 +372,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     ending_cash = beginning_cash + net_cash_flow
     cash = ending_cash
 
-    current_assets = cash + accounts_receivable + inventory
+    current_assets = cash + accounts_receivable + inventory + prepaid_expenses
     total_assets = current_assets + ppe
 
     quarter_results.append(
@@ -476,6 +441,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     previous_ending_cash = ending_cash
     previous_accounts_receivable = accounts_receivable
     previous_inventory = inventory
+    previous_prepaid_expenses = prepaid_expenses
     previous_current_liabilities = current_liabilities
     previous_ppe = ppe
     previous_long_term_debt = long_term_debt

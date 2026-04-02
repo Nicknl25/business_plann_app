@@ -311,6 +311,163 @@ def determine_planning_mode(
   }
 
 
+def _ops_lob_product_summary(ops_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  summary: List[Dict[str, Any]] = []
+  lob_models = ops_json.get("lob_models") if isinstance((ops_json or {}).get("lob_models"), list) else []
+  for lob in lob_models:
+    if not isinstance(lob, dict):
+      continue
+    products = []
+    for product in (lob.get("products") or []):
+      if not isinstance(product, dict):
+        continue
+      products.append(
+        {
+          "product_name": str(product.get("product_name") or "").strip(),
+          "unit_name": str(product.get("unit_name") or "").strip(),
+          "unit_cadence": str(product.get("unit_cadence") or "").strip(),
+          "unit_description": str(product.get("unit_description") or "").strip(),
+        }
+      )
+    if products:
+      summary.append(
+        {
+          "lob_name": str(lob.get("lob_name") or "").strip() or "Primary line of business",
+          "product_count": len(products),
+          "products": products,
+        }
+      )
+  return summary
+
+
+def _shared_capacity_lobs(
+  *,
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  groups: List[Dict[str, Any]] = []
+  ops_lobs = ops_json.get("lob_models") if isinstance((ops_json or {}).get("lob_models"), list) else []
+  year1_lobs = {
+    str(item.get("lob_name") or "").strip() or "Primary line of business": item
+    for item in (financials_year1_json.get("lobs") or [])
+    if isinstance(item, dict)
+  }
+  for lob in ops_lobs:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip() or "Primary line of business"
+    ops_products = [item for item in (lob.get("products") or []) if isinstance(item, dict)]
+    if len(ops_products) < 2:
+      continue
+    year1_lob = year1_lobs.get(lob_name) if isinstance(year1_lobs.get(lob_name), dict) else {}
+    year1_products = {
+      str(item.get("product_name") or "").strip(): item
+      for item in (year1_lob.get("products") or [])
+      if isinstance(item, dict) and str(item.get("product_name") or "").strip()
+    }
+    product_names = [str(item.get("product_name") or "").strip() for item in ops_products if str(item.get("product_name") or "").strip()]
+    if len(product_names) < 2:
+      continue
+    quarter_caps: List[float] = []
+    for product_name in product_names:
+      year1_product = year1_products.get(product_name) if isinstance(year1_products.get(product_name), dict) else {}
+      units_per_period = float_or_none(year1_product.get("units_per_period_capacity")) or 0.0
+      periods_per_year = float_or_none(year1_product.get("operating_periods_per_year")) or 0.0
+      quarter_cap = units_per_period * (periods_per_year / 4.0) if units_per_period > 0 and periods_per_year > 0 else 0.0
+      if quarter_cap > 0:
+        quarter_caps.append(quarter_cap)
+    capacity_ceiling = max(quarter_caps) if quarter_caps else 0.0
+    if capacity_ceiling <= 0:
+      continue
+    groups.append(
+      {
+        "lob_name": lob_name,
+        "product_names": product_names,
+        "capacity_ceiling": capacity_ceiling,
+      }
+    )
+  return groups
+
+
+def _quarter_band_by_index(row: Dict[str, Any], quarter_index: int) -> Optional[Dict[str, Any]]:
+  for item in (row.get("quarter_bands") or []):
+    if not isinstance(item, dict):
+      continue
+    try:
+      if int(item.get("quarter_index") or 0) == int(quarter_index):
+        return item
+    except Exception:
+      continue
+  return None
+
+
+def _clip_shared_capacity_max_bands(
+  *,
+  response_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  rows = response_json.get("rows") if isinstance(response_json.get("rows"), list) else []
+  row_map = {
+    str(item.get("row_id") or "").strip(): item
+    for item in rows
+    if isinstance(item, dict) and str(item.get("row_id") or "").strip()
+  }
+  clips: List[Dict[str, Any]] = []
+  for group in _shared_capacity_lobs(ops_json=ops_json, financials_year1_json=financials_year1_json):
+    lob_name = str(group.get("lob_name") or "").strip()
+    product_names = [str(item or "").strip() for item in (group.get("product_names") or []) if str(item or "").strip()]
+    capacity_ceiling = float(group.get("capacity_ceiling") or 0.0)
+    if len(product_names) < 2 or capacity_ceiling <= 0:
+      continue
+    for quarter_index in range(1, QUARTER_COUNT + 1):
+      product_caps: Dict[str, Dict[str, Any]] = {}
+      total_max = 0.0
+      for product_name in product_names:
+        row_id = f"revenue::{lob_name}::{product_name}::Capacity"
+        row = row_map.get(row_id)
+        if not isinstance(row, dict):
+          continue
+        band = _quarter_band_by_index(row, quarter_index)
+        if not isinstance(band, dict):
+          continue
+        max_value = float_or_none(band.get("max_value"))
+        min_value = float_or_none(band.get("min_value"))
+        if max_value is None:
+          continue
+        total_max += float(max_value)
+        product_caps[product_name] = {
+          "band": band,
+          "max_value": float(max_value),
+          "min_value": float(min_value or 0.0),
+        }
+      if total_max <= capacity_ceiling + 1e-9 or len(product_caps) < 2:
+        continue
+      scale_factor = capacity_ceiling / total_max if total_max > 0 else 1.0
+      for product_name, info in product_caps.items():
+        current_max = float(info["max_value"])
+        current_min = float(info["min_value"])
+        clipped_max = max(current_min, current_max * scale_factor)
+        if clipped_max >= current_max - 1e-9:
+          continue
+        info["band"]["max_value"] = round(float(clipped_max), 6)
+        clips.append(
+          {
+            "lob_name": lob_name,
+            "product_name": product_name,
+            "quarter_index": quarter_index,
+            "capacity_ceiling": round(capacity_ceiling, 6),
+            "scale_factor": round(scale_factor, 6),
+            "from_max": round(current_max, 6),
+            "to_max": round(float(clipped_max), 6),
+          }
+        )
+  return {
+    "response_json": response_json,
+    "clips": clips,
+  }
+
+
 def quarter_label(quarter_index: int) -> str:
   return f"Q{int(quarter_index)}"
 
@@ -466,7 +623,7 @@ def build_governor_payload_from_context(
   finmo_json: Dict[str, Any],
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  del ops_json, target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
+  del target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
   baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or build_consistency_financial_summary(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
@@ -479,6 +636,16 @@ def build_governor_payload_from_context(
     },
     "model_input_view": _sanitize_canonical_live_payload(model_input_json or {}),
     "finmo_view": _sanitize_canonical_live_payload(finmo_json or {}),
+    "ops_lob_product_summary": _sanitize_canonical_live_payload(_ops_lob_product_summary(ops_json or {})),
+    "shared_capacity_guidance": {
+      "apply_within_lob": True,
+      "rules": [
+        "When products inside the same LOB share one operating engine, treat that LOB's capacity as one conserved 100% pool.",
+        "Do not assume every product inside the same LOB has full standalone service capacity.",
+        "Split that shared LOB capacity realistically across the products rather than giving each product its own independent full-capacity envelope.",
+        "Only treat product capacities as fully independent when the business context clearly supports separate operating capacity.",
+      ],
+    },
     "viability_mode": True,
   }
 
@@ -547,6 +714,13 @@ def generate_live_quarter_grid_plan(
     "summary": f"Completed {len(batches)} quarter-grid probe batches.",
     "rows": response_rows,
   }
+  clip_result = _clip_shared_capacity_max_bands(
+    response_json=response_json,
+    ops_json=ops_json if isinstance(ops_json, dict) else {},
+    financials_year1_json=financials_year1_json if isinstance(financials_year1_json, dict) else {},
+  )
+  response_json = clip_result.get("response_json") if isinstance(clip_result.get("response_json"), dict) else response_json
+  shared_capacity_clips = clip_result.get("clips") if isinstance(clip_result.get("clips"), list) else []
   validation = validate_quarter_grid_response(
     requested_rows=grid_rows,
     response_json=response_json,
@@ -567,6 +741,7 @@ def generate_live_quarter_grid_plan(
       "malformed_rows": list(validation.get("malformed_rows") or []),
       "flat_rows": list(validation.get("flat_rows") or []),
     },
+    "shared_capacity_clips": list(shared_capacity_clips),
     "response_summary": str(response_json.get("summary") or "").strip(),
     "response_json": response_json,
   }
@@ -714,6 +889,13 @@ def build_quarter_grid_prompt(
     "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n"
     "For output rows, use dollar values from Financial Model QTR semantics.\n"
     "For lever rows, use realistic model-input driver values.\n\n"
+    "Shared-capacity rule:\n"
+    "- reason at the LOB and product level, not just row by row\n"
+    "- when products inside the same LOB share one operating engine, treat that LOB's capacity as one conserved 100% pool\n"
+    "- do not silently give every product in the same LOB full standalone service capacity\n"
+    "- split that shared LOB capacity realistically across the products in the grid\n"
+    "- your product breakout inside a shared LOB must fit within that one whole capacity pool rather than multiple independent pools\n"
+    "- only treat product capacities as fully independent when the business context clearly supports separate operating capacity\n\n"
     "Profitability standard for this probe:\n"
     "- push toward profitability as early as realism allows\n"
     "- do not normalize persistent multi-year losses if a believable operating repair exists\n"

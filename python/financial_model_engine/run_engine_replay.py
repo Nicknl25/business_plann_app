@@ -92,6 +92,10 @@ def _build_report_path(*, output_dir: Path, seed: str, written_at: datetime) -> 
   return output_dir / f"{written_at.strftime('%m-%d-%Y %H-%M-%S')} -- {_safe_filename_part(seed)}.txt"
 
 
+def _build_named_report_path(*, output_dir: Path, seed: str, written_at: datetime, suffix: str) -> Path:
+  return output_dir / f"{written_at.strftime('%m-%d-%Y %H-%M-%S')} -- {_safe_filename_part(seed)} -- {_safe_filename_part(suffix)}.txt"
+
+
 def _select_source_row(conn, *, draft_id: Optional[str], client_id: Optional[str]) -> Dict[str, Any]:
   cur = conn.cursor(dictionary=True)
   try:
@@ -112,6 +116,10 @@ def _select_source_row(conn, *, draft_id: Optional[str], client_id: Optional[str
   return row
 
 
+def _select_source_draft(conn, source_draft_id: Optional[str], source_client_id: Optional[str]) -> Dict[str, Any]:
+  return _select_source_row(conn, draft_id=source_draft_id, client_id=source_client_id)
+
+
 def _load_python_views(source_row: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
   model_input_json = _parse_json_object(source_row.get("model_input_json"))
   finmo_json = _parse_json_object(source_row.get("finmo_json"))
@@ -121,6 +129,11 @@ def _load_python_views(source_row: Dict[str, Any]) -> tuple[Dict[str, Any], Dict
     baseline_inputs = FinancialModelInputs.from_model_input_json(model_input_json)
     finmo_json = calculate_finmo_model(baseline_inputs).to_finmo_json()
   return model_input_json, finmo_json
+
+
+def _load_workbook_views(source_row: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any], str]:
+  model_input_json, finmo_json = _load_python_views(source_row)
+  return model_input_json, finmo_json, ""
 
 
 def _annual_summary(quarter_rows: List[Dict[str, Any]]) -> Dict[int, Dict[str, float]]:
@@ -176,6 +189,7 @@ def _report_lines(
   quarter_rows = [row for row in (solved_finmo.get("quarter_rows") or []) if isinstance(row, dict)]
   solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
   validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
+  metadata = planning_result.get("metadata") if isinstance(planning_result.get("metadata"), dict) else {}
   annual = _annual_summary(quarter_rows)
 
   lines = [
@@ -184,8 +198,8 @@ def _report_lines(
     f"Planning Mode: {planning_choice.get('planning_mode') or ''}",
     f"Planning Mode Reason: {planning_choice.get('planning_mode_reason') or ''}",
     f"Prompt File: {planning_choice.get('prompt_file') or ''}",
-    f"GPT Rows Requested: {len(planning_result.get('requested_rows') or [])}",
-    f"GPT Rows Returned: {len((planning_result.get('grid_json') or {}).get('rows') or [])}",
+    f"GPT Rows Requested: {metadata.get('requested_row_count')}",
+    f"GPT Rows Returned: {metadata.get('returned_row_count')}",
     f"Missing Rows: {len(validation.get('missing_rows') or [])}",
     f"Extra Rows: {len(validation.get('extra_rows') or [])}",
     f"Malformed Rows: {len(validation.get('malformed_rows') or [])}",
@@ -197,6 +211,93 @@ def _report_lines(
     "",
     "GPT Narrative:",
     str(planning_result.get("gpt_narrative") or "").strip(),
+    "",
+    "Quarterly Summary:",
+  ]
+  for row in quarter_rows:
+    quarter_index = int(row.get("quarter_index") or 0)
+    if quarter_index <= 0:
+      continue
+    lines.append(
+      " | ".join(
+        [
+          f"Q{quarter_index}",
+          f"Revenue {float(row.get('revenue') or 0.0):,.2f}",
+          f"EBITDA {float(row.get('ebitda') or 0.0):,.2f}",
+          f"Cash {float(row.get('ending_cash') or 0.0):,.2f}",
+          f"Acct Check {float(row.get('accounting_equation_check') or 0.0):,.6f}",
+        ]
+      )
+    )
+  lines.append("")
+  lines.append("Annual Summary:")
+  for year_index in sorted(annual.keys()):
+    lines.append(f"Year {year_index}:")
+    for key in sorted(annual[year_index].keys()):
+      lines.append(f"  {key}: {annual[year_index][key]:,.2f}")
+  return lines
+
+
+def _grid_report_lines(
+  *,
+  source_row: Dict[str, Any],
+  planning_choice: Dict[str, Any],
+  planning_result: Dict[str, Any],
+) -> List[str]:
+  metadata = planning_result.get("metadata") if isinstance(planning_result.get("metadata"), dict) else {}
+  validation = metadata.get("validation") if isinstance(metadata.get("validation"), dict) else {}
+  response_json = metadata.get("response_json") if isinstance(metadata.get("response_json"), dict) else {}
+  grid_rows = [item for item in (response_json.get("rows") or []) if isinstance(item, dict)]
+  lines = [
+    f"Business Name: {str(source_row.get('business_name') or '').strip()}",
+    f"Draft ID: {str(source_row.get('draft_id') or '').strip()}",
+    f"Planning Mode: {planning_choice.get('planning_mode') or ''}",
+    f"Prompt File: {planning_choice.get('prompt_file') or ''}",
+    f"Requested Rows: {metadata.get('requested_row_count')}",
+    f"Returned Rows: {metadata.get('returned_row_count')}",
+    f"Batch Count: {metadata.get('batch_count')}",
+    f"Runtime Seconds: {metadata.get('runtime_seconds')}",
+    f"Missing Rows: {len(validation.get('missing_rows') or [])}",
+    f"Extra Rows: {len(validation.get('extra_rows') or [])}",
+    f"Malformed Rows: {len(validation.get('malformed_rows') or [])}",
+    f"Duplicate Rows: {len(validation.get('duplicate_rows') or [])}",
+    "",
+    "GPT Narrative:",
+    str(planning_result.get("gpt_narrative") or "").strip(),
+    "",
+    "Grid Rows:",
+  ]
+  for item in grid_rows:
+    row_id = str(item.get("row_id") or "").strip()
+    row_type = str(item.get("row_type") or "").strip()
+    lines.append(f"{row_id} [{row_type}]")
+    for band in [band for band in (item.get("quarter_bands") or []) if isinstance(band, dict)]:
+      lines.append(
+        f"  Q{int(band.get('quarter_index') or 0)}: {float(band.get('min_value') or 0.0):,.6f} to {float(band.get('max_value') or 0.0):,.6f}"
+      )
+    lines.append("")
+  return lines
+
+
+def _solver_report_lines(
+  *,
+  source_row: Dict[str, Any],
+  solver_result: Dict[str, Any],
+) -> List[str]:
+  solved_finmo = solver_result.get("solved_finmo_json") if isinstance(solver_result.get("solved_finmo_json"), dict) else {}
+  quarter_rows = [row for row in (solved_finmo.get("quarter_rows") or []) if isinstance(row, dict)]
+  solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
+  annual = _annual_summary(quarter_rows)
+  lines = [
+    f"Business Name: {str(source_row.get('business_name') or '').strip()}",
+    f"Draft ID: {str(source_row.get('draft_id') or '').strip()}",
+    f"Solver Success: {bool(solver_summary.get('success'))}",
+    f"Iterations: {solver_summary.get('iterations')}",
+    f"Control Count: {solver_summary.get('control_count')}",
+    f"Target Count: {solver_summary.get('target_count')}",
+    f"Objective Before: {solver_summary.get('objective_before')}",
+    f"Objective After: {solver_summary.get('objective_after')}",
+    f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}",
     "",
     "Quarterly Summary:",
   ]
@@ -272,17 +373,39 @@ def main() -> int:
     baseline_model_input_json=model_input_json,
     grid_json=planning_result.get("grid_json") if isinstance(planning_result.get("grid_json"), dict) else {},
   )
-
+  written_at = datetime.now()
   report_path = _build_report_path(
     output_dir=output_dir,
     seed=str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay"),
-    written_at=datetime.now(),
+    written_at=written_at,
   )
   report_path.write_text(
     "\n".join(_report_lines(source_row=source_row, planning_choice=planning_choice, planning_result=planning_result, solver_result=solver_result)),
     encoding="utf-8",
   )
+  grid_report_path = _build_named_report_path(
+    output_dir=output_dir,
+    seed=str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay"),
+    written_at=written_at,
+    suffix="quarter-grid",
+  )
+  grid_report_path.write_text(
+    "\n".join(_grid_report_lines(source_row=source_row, planning_choice=planning_choice, planning_result=planning_result)),
+    encoding="utf-8",
+  )
+  solver_report_path = _build_named_report_path(
+    output_dir=output_dir,
+    seed=str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay"),
+    written_at=written_at,
+    suffix="solver",
+  )
+  solver_report_path.write_text(
+    "\n".join(_solver_report_lines(source_row=source_row, solver_result=solver_result)),
+    encoding="utf-8",
+  )
   print(str(report_path))
+  print(str(grid_report_path))
+  print(str(solver_report_path))
   return 0
 
 

@@ -1882,6 +1882,12 @@ Interpretation rules:
 
 Consistency inference (active_focus == "consistency"):
 
+- In consistency, the user may correct or accept changes to ANY scoped field across business / ops / market / people / financials / fulfillment.
+
+- If the last assistant message proposes a concrete realism fix and the user agrees, partially agrees, or counters with a concrete alternative, return edit_patch and apply the implied field changes.
+
+- Keep the patch narrow: only the specific field(s) the user actually changed.
+
 - If the last assistant message offered reconciliation choices (A/B/C or similar) and the user picks one
 
   (letter, short phrase, or a clear paraphrase), return edit_patch and apply the implied update.

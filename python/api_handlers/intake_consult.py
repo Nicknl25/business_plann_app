@@ -872,7 +872,347 @@ def _build_consistency_runtime_context(
   }
   if isinstance(marketing_model_json, dict):
     ctx["marketing_model_json"] = marketing_model_json
+  ctx["reality_overview"] = _build_consistency_reality_overview(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+  )
+  ctx["business_model_snapshot"] = _build_consistency_business_model_snapshot(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    market_json=market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+  )
   return ctx
+
+
+def _build_consistency_reality_overview(
+  *,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  market = market_json if isinstance(market_json, dict) else {}
+  people = people_json if isinstance(people_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  fulfillment = fulfillment_json if isinstance(fulfillment_json, dict) else {}
+  lob_models = ops.get("lob_models") if isinstance(ops.get("lob_models"), list) else []
+  product_count = 0
+  if lob_models:
+    for lob in lob_models:
+      products = lob.get("products") if isinstance(lob, dict) and isinstance(lob.get("products"), list) else []
+      product_count += len(products)
+  else:
+    product_count = 1 if str(ops.get("unit_name") or "").strip() else 0
+  people_items = people.get("people") if isinstance(people.get("people"), list) else []
+  return {
+    "business_name": str(business_facts.get("name") or "").strip(),
+    "business_stage": str(ops.get("business_stage") or "").strip(),
+    "product_count": product_count,
+    "core_unit_name": str(ops.get("unit_name") or "").strip(),
+    "core_unit_cadence": str(ops.get("unit_cadence") or "").strip(),
+    "core_unit_price": ops.get("unit_price"),
+    "capacity_driver": str(ops.get("capacity_driver") or "").strip(),
+    "primary_growth_lever": str(ops.get("primary_growth_lever") or "").strip(),
+    "customer_type": str(ops.get("consumer_type") or market.get("consumer_type") or "").strip(),
+    "target_market_summary": str(market.get("target_market_summary") or "").strip(),
+    "people_count": len([item for item in people_items if isinstance(item, dict)]),
+    "key_people_summary": str(people.get("key_people_summary") or "").strip(),
+    "fulfillment_personnel": str(fulfillment.get("personnel") or "").strip(),
+    "fulfillment_time": str(fulfillment.get("time") or "").strip(),
+    "year1_revenue": year1.get("company_revenue_total_year1"),
+    "year1_payroll": financials.get("payroll_total_year1") or financials.get("current_payroll"),
+    "cash_on_hand": financials.get("cash_on_hand"),
+    "monthly_rent_expense": financials.get("monthly_rent_expense"),
+    "other_operating_expense": financials.get("other_operating_expense"),
+    "other_monthly_debt_payments": financials.get("other_monthly_debt_payments"),
+    "initial_assets": financials.get("initial_assets"),
+    "initial_equity": financials.get("initial_equity"),
+    "total_debt_outstanding": financials.get("total_debt_outstanding"),
+    "annual_interest_payment": financials.get("annual_interest_payment"),
+    "annual_principal_payment": financials.get("annual_principal_payment"),
+  }
+
+
+def _summarize_income_intent(market_json: Dict[str, Any]) -> str:
+  market = market_json if isinstance(market_json, dict) else {}
+  values = market.get("income_intent")
+  if not isinstance(values, list):
+    return ""
+  parts: List[str] = []
+  for item in values:
+    if not isinstance(item, dict):
+      continue
+    income_min = _safe_float(item.get("income_min"))
+    income_max = _safe_float(item.get("income_max"))
+    if income_min is None and income_max is None:
+      continue
+    if income_min is not None and income_max is not None:
+      parts.append(f"{_format_currency(income_min)}-{_format_currency(income_max)}")
+    elif income_min is not None:
+      parts.append(f"{_format_currency(income_min)}+")
+    else:
+      parts.append(f"up to {_format_currency(income_max)}")
+  return ", ".join(parts[:3])
+
+
+def _summarize_gender_age_intent(market_json: Dict[str, Any]) -> str:
+  market = market_json if isinstance(market_json, dict) else {}
+  values = market.get("gender_age_intent")
+  if not isinstance(values, list):
+    return ""
+  parts: List[str] = []
+  for item in values:
+    if not isinstance(item, dict):
+      continue
+    gender = str(item.get("gender") or "").strip()
+    age_min = _safe_int(item.get("age_min"))
+    age_max = _safe_int(item.get("age_max"))
+    age_part = ""
+    if age_min is not None and age_max is not None:
+      age_part = f"{age_min}-{age_max}"
+    elif age_min is not None:
+      age_part = f"{age_min}+"
+    elif age_max is not None:
+      age_part = f"up to {age_max}"
+    piece = ", ".join(part for part in [gender, age_part] if part)
+    if piece:
+      parts.append(piece)
+  return "; ".join(parts[:3])
+
+
+def _summarize_market_selections(market_json: Dict[str, Any]) -> List[str]:
+  market = market_json if isinstance(market_json, dict) else {}
+  selections = market.get("selections")
+  if not isinstance(selections, list):
+    return []
+  labels: List[str] = []
+  seen = set()
+  for item in selections:
+    if isinstance(item, dict):
+      label = str(
+        item.get("segment_name")
+        or item.get("label")
+        or item.get("selection_name")
+        or item.get("name")
+        or ""
+      ).strip()
+    else:
+      label = str(item or "").strip()
+    if not label or label in seen:
+      continue
+    seen.add(label)
+    labels.append(label)
+  return labels[:8]
+
+
+def _build_consistency_people_snapshot(people_json: Dict[str, Any]) -> Dict[str, Any]:
+  people = people_json if isinstance(people_json, dict) else {}
+  people_items = people.get("people") if isinstance(people.get("people"), list) else []
+  role_items = people.get("inferred_roles") if isinstance(people.get("inferred_roles"), list) else []
+  roster: List[Dict[str, Any]] = []
+  for person in people_items:
+    if not isinstance(person, dict):
+      continue
+    roster.append(
+      {
+        "full_name": str(person.get("full_name") or "").strip(),
+        "role_title": str(person.get("role_title") or "").strip(),
+        "annual_wage": person.get("annual_wage"),
+      }
+    )
+  planned_roles: List[Dict[str, Any]] = []
+  for role in role_items:
+    if not isinstance(role, dict):
+      continue
+    planned_roles.append(
+      {
+        "role_title": str(role.get("role_title") or "").strip(),
+        "annual_wage": role.get("annual_wage"),
+        "months_until_hire": role.get("months_until_hire"),
+      }
+    )
+  return {
+    "people_count": len(roster),
+    "key_people_summary": str(people.get("key_people_summary") or "").strip(),
+    "current_people": roster,
+    "planned_roles": planned_roles,
+    "inferred_roles_summary": str(people.get("inferred_roles_summary") or "").strip(),
+  }
+
+
+def _build_consistency_goal_snapshot(ops_json: Dict[str, Any]) -> Dict[str, Any]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  milestones_out: List[Dict[str, Any]] = []
+  for item in _parse_milestones(ops.get("milestones")):
+    if not isinstance(item, dict):
+      continue
+    milestones_out.append(
+      {
+        "description": str(item.get("description") or "").strip(),
+        "timing": str(item.get("timing") or "").strip(),
+        "timing_months_max": _safe_int(item.get("timing_months_max")),
+      }
+    )
+  return {
+    "primary_growth_lever": str(ops.get("primary_growth_lever") or "").strip(),
+    "milestones": milestones_out,
+  }
+
+
+def _build_consistency_product_snapshot(
+  ops_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  lobs = year1.get("lobs") if isinstance(year1.get("lobs"), list) else []
+  lob_summaries: List[Dict[str, Any]] = []
+  product_count = 0
+  for lob in lobs:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or "").strip()
+    products = lob.get("products") if isinstance(lob.get("products"), list) else []
+    product_rows: List[Dict[str, Any]] = []
+    for product in products:
+      if not isinstance(product, dict):
+        continue
+      product_count += 1
+      product_rows.append(
+        {
+          "product_name": str(product.get("product_name") or "").strip(),
+          "unit_name": str(product.get("unit_name") or "").strip(),
+          "unit_description": str(product.get("unit_description") or "").strip(),
+          "unit_cadence": str(product.get("unit_cadence") or "").strip(),
+          "unit_price": product.get("unit_price"),
+          "units_per_period_capacity": product.get("units_per_period_capacity"),
+          "units_per_week_capacity": product.get("units_per_week_capacity"),
+          "operating_periods_per_year": product.get("operating_periods_per_year"),
+          "utilization_rate": product.get("utilization_rate"),
+          "avg_units_per_period_year1": product.get("avg_units_per_period_year1"),
+          "annual_units_year1": product.get("annual_units_year1"),
+          "revenue_total_year1": product.get("revenue_total_year1"),
+        }
+      )
+    if product_rows:
+      lob_summaries.append(
+        {
+          "lob_name": lob_name,
+          "revenue_total_year1": lob.get("revenue_total_year1"),
+          "products": product_rows,
+        }
+      )
+  if lob_summaries:
+    return {
+      "product_count": product_count,
+      "lobs": lob_summaries,
+      "company_revenue_total_year1": year1.get("company_revenue_total_year1"),
+    }
+  return {
+    "product_count": 1 if str(ops.get("unit_name") or "").strip() else 0,
+    "lobs": [
+      {
+        "lob_name": "Primary",
+        "revenue_total_year1": year1.get("revenue_total_year1"),
+        "products": [
+          {
+            "product_name": str(ops.get("unit_name") or "").strip(),
+            "unit_name": str(ops.get("unit_name") or "").strip(),
+            "unit_description": str(ops.get("unit_description") or "").strip(),
+            "unit_cadence": str(ops.get("unit_cadence") or "").strip(),
+            "unit_price": ops.get("unit_price"),
+            "units_per_period_capacity": ops.get("units_per_period_capacity"),
+            "units_per_week_capacity": ops.get("units_per_week_capacity"),
+            "operating_periods_per_year": ops.get("operating_periods_per_year"),
+            "utilization_rate": ops.get("utilization_rate"),
+            "avg_units_per_period_year1": year1.get("avg_units_per_period_year1"),
+            "annual_units_year1": year1.get("annual_units_year1"),
+            "revenue_total_year1": year1.get("revenue_total_year1"),
+          }
+        ],
+      }
+    ],
+    "company_revenue_total_year1": year1.get("company_revenue_total_year1") or year1.get("revenue_total_year1"),
+  }
+
+
+def _build_consistency_business_model_snapshot(
+  *,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  market = market_json if isinstance(market_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  fulfillment = fulfillment_json if isinstance(fulfillment_json, dict) else {}
+  return {
+    "business_identity": {
+      "business_name": str(business_facts.get("name") or "").strip(),
+      "business_type": str(ops.get("business_type") or "").strip(),
+      "business_naics_6": str(ops.get("business_naics_6") or "").strip(),
+      "business_stage": str(ops.get("business_stage") or "").strip(),
+      "legal_entity": str(ops.get("legal_entity") or "").strip(),
+      "business_description_summary": str(ops.get("business_description_summary") or "").strip(),
+    },
+    "operating_model": {
+      "consumer_type": str(ops.get("consumer_type") or market.get("consumer_type") or "").strip(),
+      "delivery_model": {
+        "shipping_method": str(ops.get("shipping_method") or "").strip(),
+        "sales_modality": str(ops.get("sales_modality") or "").strip(),
+        "geographic_scope": str(ops.get("geographic_scope") or "").strip(),
+        "geographic_coverage": str(ops.get("geographic_coverage") or "").strip(),
+        "capacity_driver": str(ops.get("capacity_driver") or "").strip(),
+        "fulfillment_personnel": str(fulfillment.get("personnel") or "").strip(),
+        "fulfillment_time": str(fulfillment.get("time") or "").strip(),
+      },
+      "competitive_advantage": str(ops.get("competitive_advantage") or "").strip(),
+    },
+    "products_and_economics": _build_consistency_product_snapshot(ops, financials_year1_json),
+    "target_customer": {
+      "target_market_summary": str(market.get("target_market_summary") or "").strip(),
+      "marketing_plan_summary": str(market.get("marketing_plan_summary") or "").strip(),
+      "income_intent_summary": _summarize_income_intent(market),
+      "gender_age_intent_summary": _summarize_gender_age_intent(market),
+      "selected_segments": _summarize_market_selections(market),
+      "b2b_industry_terms": market.get("b2b_industry_terms") or [],
+      "b2b_size_bands": market.get("b2b_size_bands") or [],
+    },
+    "people_model": _build_consistency_people_snapshot(people_json),
+    "growth_plan": _build_consistency_goal_snapshot(ops),
+    "financial_position": {
+      "year1_revenue": financials_year1_json.get("company_revenue_total_year1"),
+      "year1_payroll": financials.get("payroll_total_year1") or financials.get("current_payroll"),
+      "owner_compensation": financials.get("owner_compensation"),
+      "cash_on_hand": financials.get("cash_on_hand"),
+      "monthly_rent_expense": financials.get("monthly_rent_expense"),
+      "other_operating_expense": financials.get("other_operating_expense"),
+      "other_monthly_debt_payments": financials.get("other_monthly_debt_payments"),
+      "initial_assets": financials.get("initial_assets"),
+      "initial_equity": financials.get("initial_equity"),
+      "total_debt_outstanding": financials.get("total_debt_outstanding"),
+      "annual_interest_payment": financials.get("annual_interest_payment"),
+      "annual_principal_payment": financials.get("annual_principal_payment"),
+    },
+  }
 
 
 def _build_consistency_runtime_payload_for_persistence(
@@ -1165,6 +1505,24 @@ def _run_consistency_closeout(
     "fulfillment": copy.deepcopy(fulfillment_json or {}),
     "model_input_json": copy.deepcopy(updated_shared_context.get("model_input_json") or {}),
     "finmo_json": copy.deepcopy(updated_shared_context.get("finmo_json") or {}),
+    "reality_overview": _build_consistency_reality_overview(
+      business_facts=business_facts,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    ),
+    "business_model_snapshot": _build_consistency_business_model_snapshot(
+      business_facts=business_facts,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    ),
   }
 
   turn = consistency_chat_turn(

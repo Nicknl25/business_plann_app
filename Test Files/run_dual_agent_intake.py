@@ -1123,8 +1123,11 @@ def _save_new_runner_grid_report(
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
     validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}
     grid_rows = []
-    if isinstance(gpt_meta.get("grid_json"), dict):
-      grid_rows = [item for item in (gpt_meta.get("grid_json") or {}).get("rows", []) if isinstance(item, dict)]
+    response_payload = gpt_meta.get("response_json") if isinstance(gpt_meta.get("response_json"), dict) else {}
+    legacy_grid_payload = gpt_meta.get("grid_json") if isinstance(gpt_meta.get("grid_json"), dict) else {}
+    rows_payload = response_payload or legacy_grid_payload
+    if isinstance(rows_payload, dict):
+      grid_rows = [item for item in (rows_payload.get("rows") or []) if isinstance(item, dict)]
 
     lines: List[str] = []
     lines.append(f"Business Name: {str(row.get('business_name') or '').strip()}")

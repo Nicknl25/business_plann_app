@@ -1,0 +1,89 @@
+{
+  "bootstrap": {
+    "business_name": "Example Wellness Business",
+    "business_start_date": "08/05/2024",
+    "address": "123 Example Street, Austin, TX 78701",
+    "address_street": "123 Example Street",
+    "address_city": "Austin",
+    "address_state": "TX",
+    "address_zip": "78701",
+    "address_country": "USA"
+  },
+  "ops": {
+    "business_description": "",
+    "customer_type": "",
+    "products_confirmed": "Yes, track those as separate products.",
+    "legal_entity": "",
+    "delivery_method": "",
+    "fulfillment_confirmation": "Yes, that's accurate.",
+    "sales_channel": "",
+    "geography": "",
+    "growth_lever": "",
+    "competitive_advantage": "",
+    "goal_12_months": "",
+    "confirmation": "Yes, that's correct.",
+    "products": [
+      {
+        "product_name": "Product 1",
+        "aliases": [],
+        "unit_definition": "",
+        "capacity": "",
+        "utilization": "",
+        "price": ""
+      }
+    ]
+  },
+  "market": {
+    "gender": "",
+    "age_range": "",
+    "income_range": "",
+    "education": "",
+    "profile_detail_choice": "",
+    "employment_mix": "",
+    "confirmation": "Yes, that looks right."
+  },
+  "people": {
+    "owner_background": "",
+    "other_key_people": "I'm currently the only key person involved in the business.",
+    "confirmation": "Yes, that looks right."
+  },
+  "financials": {
+    "revenue_setup": "",
+    "cogs": "",
+    "payroll": "",
+    "payroll_detail": "",
+    "monthly_rent_expense": "",
+    "other_operating_expense": "",
+    "other_monthly_debt_payments": "",
+    "cash_on_hand": "",
+    "ar_balance": "",
+    "ap_balance": "",
+    "inventory_balance": "",
+    "current_capex": "",
+    "initial_assets": "",
+    "initial_lease": "",
+    "initial_equity": "",
+    "total_debt_outstanding": "",
+    "annual_interest_payment": "",
+    "annual_principal_payment": "",
+    "owner_compensation": "",
+    "confirmation": "Yes, that's right."
+  },
+  "consistency": {
+    "confirmation": "Yes, that works for me."
+  },
+  "fallback": {
+    "ops": [],
+    "market": [],
+    "people": [],
+    "financials": [],
+    "consistency": []
+  },
+  "overrides": [
+    {
+      "focus": "consistency",
+      "contains": "",
+      "answer": ""
+    }
+  ]
+}
