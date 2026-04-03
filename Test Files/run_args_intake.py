@@ -16,6 +16,7 @@ SCRIPTED_RUNNER_PATH = THIS_DIR / "run_scripted_intake.py"
 DUAL_RUNNER_PATH = THIS_DIR / "run_dual_agent_intake.py"
 INTAKE_SUBMISSION_PATH = CLIENT_DIR / "intake_submission.py"
 INTAKE_DRAFT_PATH = CLIENT_DIR / "intake_consult_draft.py"
+REALISM_MEMO_PATH = CLIENT_DIR / "realism_memo.py"
 
 for extra_path in (str(PYTHON_DIR), str(CLIENT_DIR)):
   if extra_path not in sys.path:
@@ -35,6 +36,7 @@ _SCRIPTED = _load_module(SCRIPTED_RUNNER_PATH, "run_scripted_intake_shared_args"
 _DUAL = _load_module(DUAL_RUNNER_PATH, "run_dual_agent_intake_shared_args")
 _SUBMISSION = _load_module(INTAKE_SUBMISSION_PATH, "intake_submission_shared_args")
 _DRAFT = _load_module(INTAKE_DRAFT_PATH, "intake_consult_draft_shared_args")
+_REALISM = _load_module(REALISM_MEMO_PATH, "realism_memo_shared_args")
 
 
 KEY_HELP = """
@@ -94,8 +96,6 @@ financials.annual_interest_payment
 financials.annual_principal_payment
 financials.owner_compensation
 financials.confirmation
-
-consistency.confirmation
 
 product1.name
 product1.aliases
@@ -207,14 +207,13 @@ def _blank_spec() -> Dict[str, Any]:
       "confirmation": "Yes, that's right.",
     },
     "consistency": {
-      "confirmation": "Yes, that works for me.",
+      "confirmation": "",
     },
     "fallback": {
       "ops": [],
       "market": [],
       "people": [],
       "financials": [],
-      "consistency": [],
     },
     "overrides": [],
   }
@@ -253,8 +252,15 @@ def _apply_set(spec: Dict[str, Any], key: str, value: str) -> None:
   if not raw_key or "=" in raw_key:
     raise RuntimeError(f"Invalid key: {raw_key}")
   parts = raw_key.split(".")
-  if len(parts) == 2 and parts[0] in {"bootstrap", "ops", "market", "people", "financials", "consistency"}:
+  if len(parts) == 2 and parts[0] in {"bootstrap", "ops", "market", "people", "financials"}:
     spec[parts[0]][parts[1]] = value
+    return
+  if len(parts) == 2 and parts[0] == "consistency":
+    consistency = spec.get("consistency")
+    if not isinstance(consistency, dict):
+      spec["consistency"] = {}
+      consistency = spec["consistency"]
+    consistency[parts[1]] = value
     return
   if len(parts) == 2 and parts[0].startswith("product") and parts[0][7:].isdigit():
     product = _ensure_product(spec, int(parts[0][7:]))
@@ -637,14 +643,13 @@ def _build_financials_json(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _planning_resolution_payload(spec: Dict[str, Any]) -> Dict[str, Any]:
-  confirmation = _text(((spec.get("consistency") or {}) if isinstance(spec.get("consistency"), dict) else {}).get("confirmation"))
   return {
-    "stage": "consistency_reconciliation",
-    "status": "cleared",
+    "stage": "intake_complete",
+    "status": "completed",
     "resolution_summary": {
-      "status": "cleared",
+      "status": "completed",
       "all_resolved": True,
-      "resolved_items": [{"message": confirmation or "Direct-runner seeded consistency clearance."}],
+      "resolved_items": [{"message": "Direct-runner seeded intake completion."}],
       "blocking_items": [],
       "open_items": [],
     },
@@ -772,6 +777,10 @@ def _run_direct_seeded(
   people_json = _build_people_json(spec)
   financials_json = _build_financials_json(spec)
   planning_run_json = _planning_resolution_payload(spec)
+  realism_memo_json = _REALISM.generate_realism_memo_payload_safe(
+    ops_json=ops_json,
+    financials_json=financials_json,
+  )
   business_facts = {
     "name": bootstrap.business_name,
     "address": bootstrap.address,
@@ -795,11 +804,11 @@ def _run_direct_seeded(
       target_market_json=market_json,
       people_json=people_json,
       financials_json=financials_json,
+      realism_memo_json=realism_memo_json,
       planning_run_json=planning_run_json,
       active_focus="done",
       confirmations={"ops": True, "market": True, "people": True, "financials": True},
       business_facts=business_facts,
-      consistency_passed=True,
       status="completed",
       completed=True,
     )
@@ -825,6 +834,7 @@ def _run_direct_seeded(
   transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
   print(system_message)
   draft = _DUAL._get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
+  memo = _DUAL._parse_realism_memo(draft.get("realism_memo_json"))
   print(
     "Final flags:",
     json.dumps(
@@ -833,7 +843,8 @@ def _run_direct_seeded(
         "market_confirmed": draft.get("market_confirmed"),
         "people_confirmed": draft.get("people_confirmed"),
         "financials_confirmed": draft.get("financials_confirmed"),
-        "consistency_passed": draft.get("consistency_passed"),
+        "realism_memo_status": memo.get("status"),
+        "realism_memo_issue_count": len(memo.get("issues") or []),
       },
       ensure_ascii=False,
     ),

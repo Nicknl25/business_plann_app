@@ -12,6 +12,17 @@ from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_CO
 from financial_model_engine.solver import LeverControl, OutputTarget, SolverOptions, solve_financial_model
 
 from client_intake_and_finmo.consistency_financials import build_consistency_financial_summary  # type: ignore
+try:
+  from realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
+except Exception:
+  try:
+    from client_intake_and_finmo.realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
+  except Exception:
+    def load_realism_memo_grid_advisory_prompt() -> str:
+      return "The realism memo is additional context only."
+
+    def normalize_realism_memo_payload(payload: Any) -> Dict[str, Any]:
+      return {"status": "not_generated", "issues": []}
 
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
@@ -663,6 +674,7 @@ def generate_live_quarter_grid_plan(
   financials_year1_json: Dict[str, Any],
   fulfillment_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
+  realism_memo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
   batch_size: int = 12,
   use_real_strategy_prompt: bool = True,
@@ -687,7 +699,10 @@ def generate_live_quarter_grid_plan(
     finmo_json=finmo_json,
     business_facts=business_facts or {},
   )
-  source_row = {"business_name": str(business_name or "").strip()}
+  source_row = {
+    "business_name": str(business_name or "").strip(),
+    "realism_memo_json": normalize_realism_memo_payload(realism_memo_json),
+  }
   response_rows: List[Dict[str, Any]] = []
   batch_summaries: List[str] = []
   batches = chunk_quarter_grid_rows(grid_rows, batch_size)
@@ -706,6 +721,7 @@ def generate_live_quarter_grid_plan(
       allowed_row_ids=[str(item.get("row_id") or "") for item in batch_rows],
       use_real_strategy_prompt=bool(use_real_strategy_prompt),
       planning_mode=normalized_mode,
+      realism_memo_present=bool((source_row.get("realism_memo_json") or {}).get("issues")),
     )
     response_rows.extend(batch_response.get("rows") if isinstance(batch_response.get("rows"), list) else [])
     batch_summaries.append(str(batch_response.get("summary") or f"Batch {batch_offset} completed."))
@@ -865,6 +881,33 @@ def quarter_grid_schema(allowed_row_ids: Sequence[str]) -> Dict[str, Any]:
   }
 
 
+def _realism_memo_prompt_block(source_row: Dict[str, Any]) -> str:
+  memo = normalize_realism_memo_payload(
+    source_row.get("realism_memo_json") if isinstance(source_row, dict) else {}
+  )
+  issues = memo.get("issues") if isinstance(memo.get("issues"), list) else []
+  if not issues:
+    return ""
+  issue_lines: List[str] = []
+  for item in issues:
+    if not isinstance(item, dict):
+      continue
+    issue = str(item.get("issue") or "").strip()
+    detail = str(item.get("detail") or "").strip()
+    if not issue or not detail:
+      continue
+    issue_lines.append(f"- {issue} {detail}".strip())
+  if not issue_lines:
+    return ""
+  return (
+    "Advisory realism memo:\n"
+    + load_realism_memo_grid_advisory_prompt().strip()
+    + "\n"
+    + "\n".join(issue_lines)
+    + "\n\n"
+  )
+
+
 def build_quarter_grid_prompt(
   *,
   source_row: Dict[str, Any],
@@ -876,47 +919,57 @@ def build_quarter_grid_prompt(
 ) -> str:
   business_name = str(source_row.get("business_name") or "").strip() or "Unknown business"
   row_descriptions = [f"- {item['row_id']} ({item['row_type']})" for item in grid_rows]
-  return (
-    f"You are building a quarter-by-quarter financial planning grid for {business_name}.\n"
-    + planning_mode_text(planning_mode)
-    + "\n"
-    "Return a min/max band for every listed row and every quarter Q1 through Q20.\n"
-    "Fill every box. Every listed row must have a min/max band in every quarter.\n"
-    "Do not group periods. Do not omit rows. Do not invent rows.\n"
-    "You must preserve every row_id exactly as given. Do not add suffixes, prefixes, labels, or parentheses.\n"
-    "Every returned row must contain exactly 20 quarter_bands, one for each quarter_index from 1 to 20.\n"
-    "For each quarter, min_value must be less than or equal to max_value.\n"
-    "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n"
-    "For output rows, use dollar values from Financial Model QTR semantics.\n"
-    "For lever rows, use realistic model-input driver values.\n\n"
-    "Shared-capacity rule:\n"
-    "- reason at the LOB and product level, not just row by row\n"
-    "- when products inside the same LOB share one operating engine, treat that LOB's capacity as one conserved 100% pool\n"
-    "- do not silently give every product in the same LOB full standalone service capacity\n"
-    "- split that shared LOB capacity realistically across the products in the grid\n"
-    "- your product breakout inside a shared LOB must fit within that one whole capacity pool rather than multiple independent pools\n"
-    "- only treat product capacities as fully independent when the business context clearly supports separate operating capacity\n\n"
-    "Profitability standard for this probe:\n"
-    "- push toward profitability as early as realism allows\n"
-    "- do not normalize persistent multi-year losses if a believable operating repair exists\n"
-    "- use the full set of listed variables if needed to create a credible path\n"
-    "- the resulting grid should read like a real company plan for this specific business and stage\n\n"
-    f"This is batch {batch_index} of {batch_count}. Return only the rows listed in this batch.\n\n"
-    "Real governor context payload:\n"
-    + json.dumps(governor_payload, ensure_ascii=False)
-    + "\n\n"
-    "Rows you must fill:\n"
-    + "\n".join(row_descriptions)
-    + "\n\nBaseline quarter grid:\n"
-    + grid_markdown(grid_rows)
+  realism_memo_block = _realism_memo_prompt_block(source_row)
+  return "".join(
+    [
+      f"You are building a quarter-by-quarter financial planning grid for {business_name}.\n",
+      planning_mode_text(planning_mode),
+      "\n",
+      "Return a min/max band for every listed row and every quarter Q1 through Q20.\n",
+      "Fill every box. Every listed row must have a min/max band in every quarter.\n",
+      "Do not group periods. Do not omit rows. Do not invent rows.\n",
+      "You must preserve every row_id exactly as given. Do not add suffixes, prefixes, labels, or parentheses.\n",
+      "Every returned row must contain exactly 20 quarter_bands, one for each quarter_index from 1 to 20.\n",
+      "For each quarter, min_value must be less than or equal to max_value.\n",
+      "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n",
+      "For output rows, use dollar values from Financial Model QTR semantics.\n",
+      "For lever rows, use realistic model-input driver values.\n\n",
+      "Shared-capacity rule:\n",
+      "- reason at the LOB and product level, not just row by row\n",
+      "- when products inside the same LOB share one operating engine, treat that LOB's capacity as one conserved 100% pool\n",
+      "- do not silently give every product in the same LOB full standalone service capacity\n",
+      "- split that shared LOB capacity realistically across the products in the grid\n",
+      "- your product breakout inside a shared LOB must fit within that one whole capacity pool rather than multiple independent pools\n",
+      "- only treat product capacities as fully independent when the business context clearly supports separate operating capacity\n\n",
+      "Profitability standard for this probe:\n",
+      "- push toward profitability as early as realism allows\n",
+      "- do not normalize persistent multi-year losses if a believable operating repair exists\n",
+      "- use the full set of listed variables if needed to create a credible path\n",
+      "- the resulting grid should read like a real company plan for this specific business and stage\n\n",
+      realism_memo_block,
+      f"This is batch {batch_index} of {batch_count}. Return only the rows listed in this batch.\n\n",
+      "Real governor context payload:\n",
+      json.dumps(governor_payload, ensure_ascii=False),
+      "\n\n",
+      "Rows you must fill:\n",
+      "\n".join(row_descriptions),
+      "\n\nBaseline quarter grid:\n",
+      grid_markdown(grid_rows),
+    ]
   )
 
 
-def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode: str) -> str:
+def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode: str, realism_memo_present: bool = False) -> str:
+  realism_boundary = (
+    load_realism_memo_grid_advisory_prompt().strip() + "\n"
+    if realism_memo_present
+    else ""
+  )
   if not use_real_strategy_prompt:
     return (
       "Fill the full quarter grid exactly. Return only the structured JSON schema response. "
       "Use real business judgment and match the company stage. "
+      + realism_boundary
       + planning_mode_text(planning_mode)
     )
   return (
@@ -927,6 +980,7 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
     "Fill every listed row for every quarter Q1 through Q20.\n"
     "Preserve each row_id exactly as given.\n"
     "Use the actual business context, stage, and baseline values to create a realistic path.\n"
+    + realism_boundary
     + planning_mode_text(planning_mode)
     + "\n"
     "Express the result as min/max bands in the quarter grid."
@@ -939,6 +993,7 @@ def call_quarter_grid_openai(
   allowed_row_ids: Sequence[str],
   use_real_strategy_prompt: bool,
   planning_mode: str,
+  realism_memo_present: bool = False,
 ) -> Dict[str, Any]:
   api_key = _require_openai_key()
   headers = {
@@ -956,6 +1011,7 @@ def call_quarter_grid_openai(
             "text": quarter_grid_system_prompt(
               use_real_strategy_prompt=use_real_strategy_prompt,
               planning_mode=planning_mode,
+              realism_memo_present=realism_memo_present,
             ),
           }
         ],

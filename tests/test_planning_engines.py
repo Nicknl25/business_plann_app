@@ -4,6 +4,7 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,18 +16,40 @@ if str(CLIENT_DIR) not in sys.path:
   sys.path.insert(0, str(CLIENT_DIR))
 
 from api_handlers.intake_consult import (
+  _backfill_planning_run_from_closeout,
+  _apply_scoped_patch,
   _build_financials_live_turn,
+  _build_intake_complete_planning_run_payload,
   _build_consistency_business_model_snapshot,
+  _build_consistency_candidate_issues,
   _build_consistency_coherence_signals,
+  _build_consistency_controller_state,
   _build_consistency_reality_overview,
+  _build_consistency_runtime_payload_for_persistence,
+  _consistency_followup_state,
+  _next_focus_from_consistency_closeout,
   _render_consistency_assistant_text,
   _normalize_financials_router_patch,
+  _run_financials_turn_and_sync,
+  _run_consistency_closeout,
+  _financials_stage_default_patch,
+  _should_run_consistency_on_confirm,
   _build_planning_run_payload,
   _consistency_closeout_ready_for_completion,
 )
-from client_intake_and_finmo.consistency_consultant import _build_consistency_system_prompt
 from client_intake_and_finmo.finmo_bridge import _annualized_lease_commitment, build_python_finmo_json, build_python_model_input_json
 from client_intake_and_finmo.intake_consult_draft import _is_valid_planning_run_payload
+from client_intake_and_finmo.realism_memo import (
+  build_realism_memo_input,
+  empty_realism_memo_payload,
+  generate_realism_memo_payload,
+  generate_realism_memo_payload_safe,
+  is_valid_realism_memo_payload,
+  load_realism_memo_grid_advisory_prompt,
+  load_realism_memo_reviewer_prompt,
+  normalize_realism_memo_payload,
+  realism_memo_schema,
+)
 from client_intake_and_finmo.quarter_grid import (
   _clip_shared_capacity_max_bands,
   available_planning_modes,
@@ -35,6 +58,7 @@ from client_intake_and_finmo.quarter_grid import (
   determine_planning_mode,
   extract_quarter_grid_rows,
   planning_mode_prompt_file,
+  quarter_grid_system_prompt,
 )
 from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs
@@ -420,25 +444,6 @@ class InitialLeaseModelingTests(unittest.TestCase):
 
 
 class ConsistencyConsultTests(unittest.TestCase):
-  def test_consistency_prompt_mentions_holistic_realism_and_single_issue_flow(self) -> None:
-    prompt = _build_consistency_system_prompt()
-    self.assertIn("holistic realism pass", prompt)
-    self.assertIn("business_model_snapshot", prompt)
-    self.assertIn("coherence_signals", prompt)
-    self.assertIn("understand what kind of business this is", prompt)
-    self.assertIn("Capacity vs Output", prompt)
-    self.assertIn("Pricing vs Customer Ability to Pay", prompt)
-    self.assertIn("People vs Workload", prompt)
-    self.assertIn("Cash vs Obligations", prompt)
-    self.assertIn("Internal Consistency of the Model", prompt)
-    self.assertIn("Ask ONE thing per message", prompt)
-    self.assertIn("single most important unresolved issue first", prompt)
-    self.assertIn("highest-signal business-model break", prompt)
-    self.assertIn("explicit contradictions first", prompt)
-    self.assertIn("continue until no material consistency issues remain", prompt)
-    self.assertIn("Keep your answer short, direct, and human", prompt)
-    self.assertIn("Use fact placeholders only for direct fact references", prompt)
-
   def test_consistency_reality_overview_includes_cross_model_fields(self) -> None:
     overview = _build_consistency_reality_overview(
       business_facts={"name": "Test Clinic"},
@@ -629,6 +634,19 @@ class FinancialsRouterPatchTests(unittest.TestCase):
       financials_json={},
       financials_year1_json={},
       last_assistant="For owner compensation, as of last month, about how much did you pay yourself from the business, in dollars per month on average?",
+      user_message="I paid myself 10000 last month.",
+    )
+    self.assertIsInstance(patched, dict)
+    self.assertEqual(patched["owner_compensation"], 120000.0)
+
+  def test_financials_router_patch_does_not_double_annualize_owner_comp(self) -> None:
+    patched = _normalize_financials_router_patch(
+      patch={"owner_compensation": 120000},
+      active_stage="owner_compensation",
+      financials_json={},
+      financials_year1_json={},
+      last_assistant="As of last month, how much did you pay yourself from the business in wages, draws, or other owner compensation? A dollar amount is fine.",
+      user_message="I paid myself 10000 last month, which aligns with my annual owner compensation of 120000.",
     )
     self.assertIsInstance(patched, dict)
     self.assertEqual(patched["owner_compensation"], 120000.0)
@@ -640,33 +658,70 @@ class FinancialsRouterPatchTests(unittest.TestCase):
       financials_json={},
       financials_year1_json={},
       last_assistant="What number should I record for current employee count? A whole number is fine.",
+      user_message="There is just one person on payroll.",
     )
     self.assertIsInstance(patched, dict)
     self.assertEqual(patched["current_num_employees"], 1)
 
-  def test_build_financials_live_turn_sets_active_stage(self) -> None:
-    captured: dict = {}
-
-    def _fake_financials_chat_turn(*, intake_context, conversation_messages):
-      captured["active_stage"] = intake_context.get("financials_active_stage")
-      return {"assistant_message": "Question", "finalize_ready": False}
-
-    turn, financials_json = _build_financials_live_turn(
-      financials_chat_turn=_fake_financials_chat_turn,
-      intake_context={},
-      conversation_messages=[],
-      shared_context={},
-      financials_json={"_financials_revenue_intro_done": True},
-      financials_year1_json={},
-      guardrail_triggered=False,
+  def test_financials_router_patch_converts_cogs_percent_to_amount(self) -> None:
+    patched = _normalize_financials_router_patch(
+      patch={"cogs_percent_of_revenue": 0.22},
+      active_stage="cogs",
+      financials_json={},
+      financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      last_assistant="Should I use this Year-1 direct-cost baseline?",
+      user_message="Use 22% COGS.",
     )
-    self.assertEqual(captured["active_stage"], "cogs")
-    self.assertEqual(turn["assistant_message"], "Question")
+    self.assertIsInstance(patched, dict)
+    self.assertEqual(float(patched["current_cogs"]), 220000.0)
+    self.assertEqual(float(patched["cogs_total_year1"]), 220000.0)
+
+  def test_financials_router_patch_normalizes_whole_number_cogs_percent(self) -> None:
+    patched = _normalize_financials_router_patch(
+      patch={"cogs_percent_of_revenue": 22},
+      active_stage="cogs",
+      financials_json={},
+      financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      last_assistant="Does that broadly match how your business works, or should we adjust it because your direct costs are materially different?",
+      user_message="Please use 22% COGS.",
+    )
+    self.assertIsInstance(patched, dict)
+    self.assertAlmostEqual(float(patched["cogs_percent_of_revenue"]), 0.22, places=6)
+    self.assertEqual(float(patched["cogs_total_year1"]), 220000.0)
+
+  def test_financials_router_patch_annualizes_marketing_monthly_amount(self) -> None:
+    patched = _normalize_financials_router_patch(
+      patch={"marketing_total_year1": 4000},
+      active_stage="marketing",
+      financials_json={},
+      financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      last_assistant="Does that broadly match what it will take to attract and convert customers in Year 1, or should we adjust it because your marketing spend will be materially different?",
+      user_message="Use 4000 per month for marketing.",
+    )
+    self.assertIsInstance(patched, dict)
+    self.assertEqual(float(patched["marketing_total_year1"]), 48000.0)
+    self.assertAlmostEqual(float(patched["marketing_percent_of_revenue"]), 0.048, places=6)
+
+  def test_build_financials_live_turn_sets_active_stage(self) -> None:
+    with patch(
+      "api_handlers.intake_consult._resolve_cogs_baseline_or_raise",
+      return_value={"baseline_cogs": 220000.0, "baseline_cogs_percent": 0.22},
+    ):
+      turn, financials_json = _build_financials_live_turn(
+        conn=None,
+        intake_context={},
+        conversation_messages=[],
+        shared_context={"operating_model": {"business_naics_6": "812199"}},
+        financials_json={"_financials_revenue_intro_done": True},
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+        guardrail_triggered=False,
+      )
+    self.assertIn("cogs baseline", str(turn["assistant_message"] or "").lower())
     self.assertIsInstance(financials_json, dict)
 
   def test_build_financials_live_turn_completes_when_no_stage_left(self) -> None:
     turn, financials_json = _build_financials_live_turn(
-      financials_chat_turn=lambda **_: {"assistant_message": "Should not run"},
+      conn=None,
       intake_context={},
       conversation_messages=[],
       shared_context={},
@@ -698,9 +753,269 @@ class FinancialsRouterPatchTests(unittest.TestCase):
       financials_year1_json={},
       guardrail_triggered=False,
     )
-    self.assertTrue(turn.get("transition_to_consistency"))
-    self.assertIn("consistency pass", str(turn.get("assistant_message") or "").lower())
+    self.assertTrue(turn.get("transition_to_done"))
+    self.assertIn("intake", str(turn.get("assistant_message") or "").lower())
     self.assertIsInstance(financials_json, dict)
+
+  def test_run_financials_turn_and_sync_falls_back_for_marketing_monthly_reply(self) -> None:
+    baseline_financials = {
+      "_financials_revenue_intro_done": True,
+      "current_cogs": 220000.0,
+      "cogs_total_year1": 220000.0,
+      "cogs_percent_of_revenue": 0.22,
+      "current_payroll": 120000.0,
+      "payroll_total_year1": 120000.0,
+    }
+
+    def _route_intent(**kwargs):
+      del kwargs
+      return {
+        "action": "answer_readonly",
+        "assistant_message": "Got it - I'll treat your spend as part of a 4000 per month marketing bucket.",
+      }
+
+    with patch(
+      "api_handlers.intake_consult._advance_persisted_financials_stage",
+      return_value=(
+        {"assistant_message": "next", "finalize_ready": False},
+        {"marketing_total_year1": 48000.0, "marketing_percent_of_revenue": 0.048},
+        {},
+      ),
+    ) as advance_mock:
+      turn, updated_financials = _run_financials_turn_and_sync(
+        route_intent=_route_intent,
+        conn=None,
+        intake_context={"draft_id": "draft-1"},
+        conversation_messages=[],
+        business_facts={},
+        shared_context={"marketing": {}},
+        last_assistant="Does that broadly match what it will take to attract and convert customers in Year 1, or should we adjust it because your marketing spend will be materially different?",
+        user_message="Use 4000 per month for marketing and related costs.",
+        financials_json=baseline_financials,
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      )
+
+    self.assertEqual(turn["assistant_message"], "next")
+    self.assertEqual(float(updated_financials["marketing_total_year1"]), 48000.0)
+    persisted_financials = advance_mock.call_args.kwargs["financials_json"]
+    self.assertEqual(float(persisted_financials["marketing_total_year1"]), 48000.0)
+    self.assertAlmostEqual(float(persisted_financials["marketing_percent_of_revenue"]), 0.048, places=6)
+
+  def test_run_financials_turn_and_sync_revenue_intro_confirm_proceed_persists_baseline(self) -> None:
+    with patch(
+      "api_handlers.intake_consult._advance_persisted_financials_stage",
+      return_value=(
+        {"assistant_message": "A reasonable Year-1 direct-cost baseline is about $220,000.", "finalize_ready": False},
+        {"_financials_revenue_intro_done": True, "current_revenue": 1000000.0},
+        {},
+      ),
+    ):
+      turn, next_financials = _run_financials_turn_and_sync(
+        route_intent=lambda **_: {"action": "confirm_proceed", "assistant_message": "", "patch": None},
+        conn=None,
+        intake_context={
+          "draft_id": "draft-1",
+          "financials_json": {},
+          "shared_context": {"operating_model": {"business_naics_6": "812199"}},
+        },
+        conversation_messages=[{"role": "assistant", "content": "Year 1 revenue summary"}],
+        business_facts={"name": "Test Business"},
+        shared_context={"operating_model": {"business_naics_6": "812199"}},
+        last_assistant="Year 1 revenue summary",
+        user_message="Yes, that's right.",
+        financials_json={},
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      )
+
+    self.assertTrue(bool(next_financials.get("_financials_revenue_intro_done")))
+    self.assertFalse(bool(turn.get("transition_to_done")))
+    self.assertEqual(float(next_financials.get("current_revenue") or 0.0), 1000000.0)
+    self.assertIn("direct-cost baseline", str(turn.get("assistant_message") or "").lower())
+
+  def test_run_financials_turn_and_sync_revenue_intro_uses_router_and_not_auto_advance(self) -> None:
+    called: dict = {}
+
+    def _router(**kwargs):
+      called["confirm_question"] = kwargs.get("confirm_question_override")
+      called["shared_context"] = kwargs.get("shared_context")
+      return {"action": "confirm_proceed", "assistant_message": "", "patch": None}
+
+    with patch(
+      "api_handlers.intake_consult._advance_persisted_financials_stage",
+      return_value=(
+        {"assistant_message": "A reasonable Year-1 direct-cost baseline is about $220,000.", "finalize_ready": False},
+        {"_financials_revenue_intro_done": True, "current_revenue": 1000000.0},
+        {},
+      ),
+    ):
+      turn, next_financials = _run_financials_turn_and_sync(
+        route_intent=_router,
+        conn=None,
+        intake_context={
+          "draft_id": "draft-1",
+          "financials_json": {},
+          "shared_context": {"operating_model": {"business_naics_6": "812199"}},
+        },
+        conversation_messages=[{"role": "assistant", "content": "Year 1 revenue summary"}],
+        business_facts={"name": "Test Business"},
+        shared_context={"operating_model": {"business_naics_6": "812199"}},
+        last_assistant="Year 1 revenue summary",
+        user_message="Yes, that's right.",
+        financials_json={},
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      )
+
+    self.assertTrue(bool(next_financials.get("_financials_revenue_intro_done")))
+    self.assertIn("revenue baseline", str(called["confirm_question"] or "").lower())
+    controller_ctx = dict(called["shared_context"].get("financials_controller") or {})
+    self.assertEqual(
+      dict(controller_ctx.get("current_stage") or {}).get("patch_targets"),
+      ["current_revenue"],
+    )
+    self.assertIn("direct-cost baseline", str(turn.get("assistant_message") or "").lower())
+
+  def test_run_financials_turn_and_sync_revenue_intro_accepts_concrete_override(self) -> None:
+    def _router(**_kwargs):
+      return {
+        "action": "edit_patch",
+        "assistant_message": "Got it. I'll use $900,000 as the Year-1 revenue baseline.",
+        "patch": {"current_revenue": 900000.0},
+      }
+
+    with patch(
+      "api_handlers.intake_consult._advance_persisted_financials_stage",
+      return_value=(
+        {"assistant_message": "A reasonable Year-1 direct-cost baseline is about $198,000.", "finalize_ready": False},
+        {"_financials_revenue_intro_done": True, "current_revenue": 900000.0},
+        {},
+      ),
+    ):
+      turn, next_financials = _run_financials_turn_and_sync(
+        route_intent=_router,
+        conn=None,
+        intake_context={
+          "draft_id": "draft-1",
+          "financials_json": {},
+          "shared_context": {"operating_model": {"business_naics_6": "812199"}},
+        },
+        conversation_messages=[{"role": "assistant", "content": "Year 1 revenue summary"}],
+        business_facts={"name": "Test Business"},
+        shared_context={"operating_model": {"business_naics_6": "812199"}},
+        last_assistant="Year 1 revenue summary",
+        user_message="Use 900000 instead.",
+        financials_json={},
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      )
+
+    self.assertTrue(bool(next_financials.get("_financials_revenue_intro_done")))
+    self.assertEqual(float(next_financials.get("current_revenue") or 0.0), 900000.0)
+    self.assertIn("direct-cost baseline", str(turn.get("assistant_message") or "").lower())
+
+  def test_run_financials_turn_and_sync_payroll_stage_uses_router_and_persists(self) -> None:
+    def _router(**_kwargs):
+      return {
+        "action": "edit_patch",
+        "assistant_message": "Got it. I’ll use Year-1 payroll of $120,000.",
+        "patch": {"current_payroll": 120000.0},
+      }
+
+    with patch(
+      "api_handlers.intake_consult._advance_persisted_financials_stage",
+      return_value=(
+        {"assistant_message": "What do you pay each month for the space you use to run the business?", "finalize_ready": False},
+        {
+          "_financials_revenue_intro_done": True,
+          "current_cogs": 220000.0,
+          "marketing_total_year1": 50000.0,
+          "current_payroll": 120000.0,
+          "payroll_total_year1": 120000.0,
+        },
+        {},
+      ),
+    ):
+      turn, next_financials = _run_financials_turn_and_sync(
+        route_intent=_router,
+        conn=None,
+        intake_context={
+          "draft_id": "draft-1",
+          "financials_json": {
+            "_financials_revenue_intro_done": True,
+            "current_cogs": 220000.0,
+            "marketing_total_year1": 50000.0,
+          },
+          "shared_context": {
+            "people_capability": {
+              "people": [{"full_name": "Founder", "role_title": "Provider", "annual_wage": 90000.0}],
+              "inferred_roles": [],
+            },
+            "operating_model": {"business_stage": "operating"},
+          },
+        },
+        conversation_messages=[{"role": "assistant", "content": "What should we use for Year-1 payroll?"}],
+        business_facts={"name": "Test Business"},
+        shared_context={
+          "people_capability": {
+            "people": [{"full_name": "Founder", "role_title": "Provider", "annual_wage": 90000.0}],
+            "inferred_roles": [],
+          },
+          "operating_model": {"business_stage": "operating"},
+        },
+        last_assistant="What should we use for Year-1 payroll?",
+        user_message="Only the owner is on payroll in Year 1, at $120,000.",
+        financials_json={
+          "_financials_revenue_intro_done": True,
+          "current_cogs": 220000.0,
+          "marketing_total_year1": 50000.0,
+        },
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      )
+
+    self.assertEqual(float(next_financials.get("current_payroll") or 0.0), 120000.0)
+    self.assertEqual(float(next_financials.get("payroll_total_year1") or 0.0), 120000.0)
+    self.assertIn("space", str(turn.get("assistant_message") or "").lower())
+
+  def test_run_financials_turn_and_sync_cogs_percent_phrase_persists_without_parser_logic(self) -> None:
+    def _router(**_kwargs):
+      return {
+        "action": "edit_patch",
+        "assistant_message": "Got it. I'll use 22% for Year-1 direct costs.",
+        "patch": {"cogs_percent_of_revenue": 0.22},
+      }
+
+    with patch(
+      "api_handlers.intake_consult._advance_persisted_financials_stage",
+      return_value=(
+        {"assistant_message": "What should we use for Year-1 payroll?", "finalize_ready": False},
+        {
+          "_financials_revenue_intro_done": True,
+          "current_cogs": 220000.0,
+          "cogs_total_year1": 220000.0,
+          "cogs_percent_of_revenue": 0.22,
+        },
+        {},
+      ),
+    ):
+      turn, next_financials = _run_financials_turn_and_sync(
+        route_intent=_router,
+        conn=None,
+        intake_context={
+          "draft_id": "draft-1",
+          "financials_json": {"_financials_revenue_intro_done": True},
+          "shared_context": {"operating_model": {"business_naics_6": "812199"}},
+        },
+        conversation_messages=[{"role": "assistant", "content": "What should we use for Year-1 direct costs?"}],
+        business_facts={"name": "Test Business"},
+        shared_context={"operating_model": {"business_naics_6": "812199"}},
+        last_assistant="What should we use for Year-1 direct costs?",
+        user_message="Use 22% COGS.",
+        financials_json={"_financials_revenue_intro_done": True},
+        financials_year1_json={"company_revenue_total_year1": 1000000.0},
+      )
+
+    self.assertEqual(float(next_financials.get("current_cogs") or 0.0), 220000.0)
+    self.assertEqual(float(next_financials.get("cogs_total_year1") or 0.0), 220000.0)
+    self.assertAlmostEqual(float(next_financials.get("cogs_percent_of_revenue") or 0.0), 0.22, places=6)
+    self.assertIn("payroll", str(turn.get("assistant_message") or "").lower())
 
 
 class PlanningRunContractTests(unittest.TestCase):
@@ -718,6 +1033,547 @@ class PlanningRunContractTests(unittest.TestCase):
     self.assertEqual(payload["resolution_summary"], resolution_summary)
     self.assertTrue(_is_valid_planning_run_payload(copy.deepcopy(payload)))
 
+
+class ConsistencyControllerTests(unittest.TestCase):
+  def _medspa_consistency_state(self) -> tuple[dict, dict, dict, dict, dict, dict]:
+    ops_json = {
+      "unit_name": "treatment session",
+      "unit_cadence": "weekly",
+      "unit_price": 875.0,
+      "units_per_week_capacity": 55.0,
+      "capacity_driver": "labor",
+      "shipping_method": "in-person service at studio location",
+      "sales_modality": "hybrid",
+      "competitive_advantage": "Focused premium clinic",
+      "primary_growth_lever": "add providers",
+      "milestones": [
+        {"description": "Reach about 70 treatment sessions per week.", "timing": "within 12 months"}
+      ],
+    }
+    market_json = {
+      "consumer_type": "consumer",
+      "income_intent": [{"income_min": 60000}],
+      "target_market_summary": "Adults 30 to 65 with household income of $60k and above.",
+    }
+    people_json = {
+      "people": [{"full_name": "Dr. Elaine Thompson", "role_title": "Founder & Lead Injector"}],
+      "inferred_roles": [],
+    }
+    financials_json = {
+      "current_payroll": 120000.0,
+      "monthly_rent_expense": 9500.0,
+      "other_operating_expense": 4000.0,
+      "other_monthly_debt_payments": 1500.0,
+      "cash_on_hand": 15000.0,
+      "total_debt_outstanding": 120000.0,
+      "initial_assets": 180000.0,
+      "initial_equity": 50000.0,
+      "marketing_total_year1": 528000.0,
+      "marketing_percent_of_revenue": 528000.0 / 2202200.0,
+    }
+    financials_year1_json = {
+      "company_revenue_total_year1": 2202200.0,
+      "lobs": [
+        {
+          "lob_name": "Primary line of business",
+          "revenue_total_year1": 2202200.0,
+          "products": [
+            {
+              "product_name": "treatment session",
+              "unit_cadence": "weekly",
+              "unit_price": 875.0,
+              "units_per_period_capacity": 55.0,
+              "units_per_week_capacity": 55.0,
+              "utilization_rate": 0.88,
+              "avg_units_per_period_year1": 48.4,
+              "annual_units_year1": 2516.8,
+              "revenue_total_year1": 2202200.0,
+              "operating_periods_per_year": 52.0,
+            }
+          ],
+        }
+      ],
+    }
+    fulfillment_json = {"personnel": "Founder performs treatments", "time": "In-person appointments"}
+    return ops_json, market_json, people_json, financials_json, financials_year1_json, fulfillment_json
+
+  def test_consistency_controller_prioritizes_goal_capacity_conflict(self) -> None:
+    ops_json = {
+      "unit_name": "treatment session",
+      "unit_cadence": "weekly",
+      "unit_price": 875.0,
+      "units_per_week_capacity": 55.0,
+      "capacity_driver": "labor",
+      "shipping_method": "in-person service at studio location",
+      "sales_modality": "hybrid",
+      "competitive_advantage": "Focused premium clinic",
+      "primary_growth_lever": "add providers",
+      "milestones": [
+        {"description": "Reach about 70 treatment sessions per week.", "timing": "within 12 months"}
+      ],
+    }
+    market_json = {
+      "consumer_type": "consumer",
+      "income_intent": [{"income_min": 60000}],
+      "target_market_summary": "Adults 30 to 65 with household income of $60k and above.",
+    }
+    people_json = {
+      "people": [{"full_name": "Dr. Elaine Thompson", "role_title": "Founder & Lead Injector"}],
+      "inferred_roles": [],
+    }
+    financials_json = {
+      "current_payroll": 38580.0,
+      "monthly_rent_expense": 6000.0,
+      "other_operating_expense": 2000.0,
+      "other_monthly_debt_payments": 0.0,
+      "cash_on_hand": 50000.0,
+      "total_debt_outstanding": 0.0,
+      "initial_assets": 100000.0,
+      "initial_equity": 50000.0,
+    }
+    financials_year1_json = {
+      "company_revenue_total_year1": 2202200.0,
+      "lobs": [
+        {
+          "lob_name": "Primary line of business",
+          "revenue_total_year1": 2202200.0,
+          "products": [
+            {
+              "product_name": "treatment session",
+              "unit_cadence": "weekly",
+              "unit_price": 875.0,
+              "units_per_period_capacity": 55.0,
+              "units_per_week_capacity": 55.0,
+              "utilization_rate": 0.88,
+              "avg_units_per_period_year1": 48.4,
+              "annual_units_year1": 2516.8,
+              "revenue_total_year1": 2202200.0,
+              "operating_periods_per_year": 52.0,
+            }
+          ],
+        }
+      ],
+    }
+
+    controller = _build_consistency_controller_state(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json={"personnel": "Founder performs treatments", "time": "In-person appointments"},
+    )
+
+    self.assertEqual(controller["status"], "issue_pending")
+    current_issue = controller["current_issue"]
+    self.assertIsInstance(current_issue, dict)
+    self.assertEqual(current_issue["issue_code"], "goal_capacity_conflict")
+    self.assertIn("ops.milestones", current_issue["default_patch"])
+
+  def test_consistency_controller_regression_surfaces_full_medspa_issue_stack(self) -> None:
+    ops_json, market_json, people_json, financials_json, financials_year1_json, fulfillment_json = self._medspa_consistency_state()
+
+    issues = _build_consistency_candidate_issues(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    )
+
+    issue_codes = [str(issue.get("issue_code") or "") for issue in issues if isinstance(issue, dict)]
+    self.assertEqual(
+      issue_codes[:4],
+      [
+        "goal_capacity_conflict",
+        "cash_obligation_gap",
+        "people_workload_capacity_tension",
+        "price_customer_fit_tension",
+      ],
+    )
+
+  def test_consistency_controller_regression_rescans_until_all_material_issues_clear(self) -> None:
+    ops_json, market_json, people_json, financials_json, financials_year1_json, fulfillment_json = self._medspa_consistency_state()
+
+    controller = _build_consistency_controller_state(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    )
+    self.assertEqual(str(dict(controller.get("current_issue") or {}).get("issue_code") or ""), "goal_capacity_conflict")
+
+    business_facts: dict = {}
+
+    business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
+      dict(dict(controller.get("current_issue") or {}).get("default_patch") or {}),
+      business_facts=business_facts,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      fulfillment_json=fulfillment_json,
+    )
+
+    controller = _build_consistency_controller_state(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    )
+    self.assertEqual(str(dict(controller.get("current_issue") or {}).get("issue_code") or ""), "cash_obligation_gap")
+
+    business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
+      {"financials.cash_on_hand": 100000.0},
+      business_facts=business_facts,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      fulfillment_json=fulfillment_json,
+    )
+
+    controller = _build_consistency_controller_state(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    )
+    self.assertEqual(str(dict(controller.get("current_issue") or {}).get("issue_code") or ""), "people_workload_capacity_tension")
+
+    upgraded_people = list(people_json.get("people") or [])
+    upgraded_people.append({"full_name": "Jordan Patel", "role_title": "Provider"})
+    business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
+      {"people.people": upgraded_people},
+      business_facts=business_facts,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      fulfillment_json=fulfillment_json,
+    )
+
+    controller = _build_consistency_controller_state(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    )
+    self.assertEqual(str(dict(controller.get("current_issue") or {}).get("issue_code") or ""), "price_customer_fit_tension")
+
+    business_facts, ops_json, market_json, people_json, financials_json, fulfillment_json = _apply_scoped_patch(
+      {"market.income_intent": [{"income_min": 120000}]},
+      business_facts=business_facts,
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      fulfillment_json=fulfillment_json,
+    )
+
+    controller = _build_consistency_controller_state(
+      ops_json=ops_json,
+      market_json=market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      financials_year1_json=financials_year1_json,
+      fulfillment_json=fulfillment_json,
+    )
+    self.assertEqual(str(controller.get("status") or ""), "clear")
+
+  def test_consistency_candidate_issues_include_price_and_workload_tensions(self) -> None:
+    issues = _build_consistency_candidate_issues(
+      ops_json={
+        "capacity_driver": "labor",
+        "shipping_method": "in-person service at studio location",
+        "sales_modality": "hybrid",
+        "milestones": [],
+      },
+      market_json={
+        "consumer_type": "consumer",
+        "income_intent": [{"income_min": 60000}],
+        "target_market_summary": "Adults with household income of $60k and above.",
+      },
+      people_json={
+        "people": [{"full_name": "Solo Founder", "role_title": "Provider"}],
+        "inferred_roles": [],
+      },
+      financials_json={
+        "current_payroll": 38580.0,
+        "monthly_rent_expense": 5000.0,
+        "other_operating_expense": 2000.0,
+        "other_monthly_debt_payments": 0.0,
+        "cash_on_hand": 50000.0,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 2202200.0,
+        "lobs": [
+          {
+            "lob_name": "Primary",
+            "products": [
+              {
+                "product_name": "treatment session",
+                "unit_cadence": "weekly",
+                "unit_price": 875.0,
+                "units_per_period_capacity": 55.0,
+                "units_per_week_capacity": 55.0,
+                "utilization_rate": 0.88,
+                "avg_units_per_period_year1": 48.4,
+                "annual_units_year1": 2516.8,
+                "revenue_total_year1": 2202200.0,
+                "operating_periods_per_year": 52.0,
+              }
+            ],
+          }
+        ],
+      },
+      fulfillment_json={"personnel": "Founder performs treatments", "time": "In-person appointments"},
+    )
+
+    issue_codes = [issue["issue_code"] for issue in issues]
+    self.assertIn("people_workload_capacity_tension", issue_codes)
+    self.assertIn("price_customer_fit_tension", issue_codes)
+
+  def test_consistency_candidate_issue_exposes_patch_targets(self) -> None:
+    issues = _build_consistency_candidate_issues(
+      ops_json={
+        "capacity_driver": "labor",
+        "shipping_method": "in-person service at studio location",
+        "sales_modality": "hybrid",
+        "milestones": [],
+      },
+      market_json={
+        "consumer_type": "consumer",
+        "income_intent": [{"income_min": 60000}],
+      },
+      people_json={
+        "people": [{"full_name": "Solo Founder", "role_title": "Provider"}],
+        "inferred_roles": [],
+      },
+      financials_json={
+        "current_payroll": 38580.0,
+        "monthly_rent_expense": 5000.0,
+        "other_operating_expense": 2000.0,
+        "other_monthly_debt_payments": 0.0,
+        "cash_on_hand": 50000.0,
+      },
+      financials_year1_json={
+        "company_revenue_total_year1": 2202200.0,
+        "lobs": [
+          {
+            "lob_name": "Primary",
+            "products": [
+              {
+                "product_name": "treatment session",
+                "unit_cadence": "weekly",
+                "unit_price": 875.0,
+                "units_per_period_capacity": 55.0,
+                "units_per_week_capacity": 55.0,
+                "utilization_rate": 0.88,
+                "avg_units_per_period_year1": 48.4,
+                "annual_units_year1": 2516.8,
+                "revenue_total_year1": 2202200.0,
+                "operating_periods_per_year": 52.0,
+              }
+            ],
+          }
+        ],
+      },
+      fulfillment_json={"personnel": "Founder performs treatments", "time": "In-person appointments"},
+    )
+
+    workload_issue = next(
+      issue for issue in issues
+      if isinstance(issue, dict) and str(issue.get("issue_code") or "") == "people_workload_capacity_tension"
+    )
+    patch_targets = workload_issue.get("patch_targets")
+    self.assertIsInstance(patch_targets, list)
+    self.assertIn("people.inferred_roles", patch_targets)
+    self.assertIn("ops.milestones", patch_targets)
+
+  def test_consistency_controller_current_issue_has_completion_rule(self) -> None:
+    controller = _build_consistency_controller_state(
+      ops_json={
+        "unit_name": "treatment session",
+        "unit_cadence": "weekly",
+        "unit_price": 875.0,
+        "units_per_week_capacity": 55.0,
+        "capacity_driver": "labor",
+        "shipping_method": "in-person service at studio location",
+        "sales_modality": "hybrid",
+        "milestones": [{"description": "Reach 70 treatment sessions per week.", "timing": "within 12 months"}],
+      },
+      market_json={"consumer_type": "consumer", "income_intent": [{"income_min": 60000}]},
+      people_json={"people": [{"full_name": "Solo Founder", "role_title": "Provider"}], "inferred_roles": []},
+      financials_json={"cash_on_hand": 10000.0, "monthly_rent_expense": 5000.0, "other_operating_expense": 2000.0},
+      financials_year1_json={
+        "company_revenue_total_year1": 2202200.0,
+        "lobs": [{
+          "lob_name": "Primary",
+          "products": [{
+            "product_name": "treatment session",
+            "unit_cadence": "weekly",
+            "unit_price": 875.0,
+            "units_per_period_capacity": 55.0,
+            "units_per_week_capacity": 55.0,
+            "utilization_rate": 0.88,
+            "avg_units_per_period_year1": 48.4,
+            "annual_units_year1": 2516.8,
+            "revenue_total_year1": 2202200.0,
+            "operating_periods_per_year": 52.0,
+          }],
+        }],
+      },
+      fulfillment_json={"personnel": "Founder performs treatments", "time": "In-person appointments"},
+    )
+    current_issue = dict(controller.get("current_issue") or {})
+    self.assertEqual(
+      dict(current_issue.get("completion_rule") or {}).get("type"),
+      "issue_absent_after_rescan",
+    )
+    edit_surface = controller.get("edit_surface")
+    self.assertIsInstance(edit_surface, list)
+    self.assertIn("business.name", edit_surface)
+    self.assertIn("ops.milestones", edit_surface)
+    self.assertIn("ops.lob_models", edit_surface)
+    self.assertIn("market.income_intent", edit_surface)
+    self.assertIn("people.people", edit_surface)
+    self.assertIn("financials.cash_on_hand", edit_surface)
+    self.assertIn("fulfillment.personnel", edit_surface)
+
+  def test_legacy_consistency_closeout_compatibility_now_completes_cleanly(self) -> None:
+    ops_json = {
+      "unit_name": "treatment session",
+      "unit_cadence": "weekly",
+      "unit_price": 875.0,
+      "units_per_week_capacity": 55.0,
+      "capacity_driver": "labor",
+      "shipping_method": "in-person service at studio location",
+      "sales_modality": "hybrid",
+      "milestones": [{"description": "Reach about 70 treatment sessions per week.", "timing": "within 12 months"}],
+    }
+    market_json = {
+      "consumer_type": "consumer",
+      "income_intent": [{"income_min": 60000}],
+      "target_market_summary": "Adults 30 to 65 with household income of $60k and above.",
+    }
+    people_json = {
+      "people": [{"full_name": "Dr. Elaine Thompson", "role_title": "Founder & Lead Injector"}],
+      "inferred_roles": [],
+    }
+    financials_json = {
+      "current_payroll": 38580.0,
+      "monthly_rent_expense": 6000.0,
+      "other_operating_expense": 2000.0,
+      "other_monthly_debt_payments": 0.0,
+      "cash_on_hand": 50000.0,
+      "total_debt_outstanding": 0.0,
+      "initial_assets": 100000.0,
+      "initial_equity": 50000.0,
+    }
+    financials_year1_json = {
+      "company_revenue_total_year1": 2202200.0,
+      "lobs": [{
+        "lob_name": "Primary line of business",
+        "revenue_total_year1": 2202200.0,
+        "products": [{
+          "product_name": "treatment session",
+          "unit_cadence": "weekly",
+          "unit_price": 875.0,
+          "units_per_period_capacity": 55.0,
+          "units_per_week_capacity": 55.0,
+          "utilization_rate": 0.88,
+          "avg_units_per_period_year1": 48.4,
+          "annual_units_year1": 2516.8,
+          "revenue_total_year1": 2202200.0,
+          "operating_periods_per_year": 52.0,
+        }],
+      }],
+    }
+    with patch(
+      "quarter_grid.determine_planning_mode",
+      return_value={"planning_mode": "rebalance", "planning_mode_reason": "test", "prompt_file": "rebalance.md"},
+    ):
+      closeout = _run_consistency_closeout(
+        conversation_messages=[{"role": "user", "content": "continue"}],
+        conn=None,
+        client_id="client-1",
+        draft_id="draft-1",
+        business_facts={"name": "Test Business", "start_date": "2026-01-01", "address": "Dallas, TX"},
+        business_stage_hint="operating",
+        current_date_iso="2026-04-02",
+        shared_context={},
+        ops_json=ops_json,
+        market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        fulfillment_json={"personnel": "Founder performs treatments", "time": "In-person appointments"},
+        marketing_model_json={},
+      )
+
+    self.assertTrue(_consistency_closeout_ready_for_completion(closeout))
+    self.assertEqual(str(closeout.get("governance_state", {}).get("status") or ""), "cleared")
+    planning_run = dict(closeout.get("planning_run_json") or {})
+    self.assertEqual(str(planning_run.get("status") or ""), "cleared")
+    resolution_summary = dict(planning_run.get("resolution_summary") or {})
+    self.assertEqual(str(resolution_summary.get("status") or ""), "all_cleared")
+
+  def test_consistency_runtime_payload_carries_controller_state(self) -> None:
+    bundle = _build_consistency_runtime_payload_for_persistence(
+      intake_context={
+        "consistency_controller": {"status": "issue_pending", "current_issue": {"issue_code": "cash_obligation_gap"}},
+        "coherence_signals": {"cash_obligation_signals": {"runway_months_pre_revenue": 1.2}},
+        "business_model_snapshot": {"business_identity": {"business_name": "Test Business"}},
+        "reality_overview": {"cash_on_hand": 15000.0},
+      },
+      ops_json={},
+      market_json={},
+      people_json={},
+      financials_json={"cash_on_hand": 15000.0},
+      financials_year1_json={},
+      marketing_model_json={},
+    )
+    self.assertEqual(
+      dict(bundle.get("consistency_controller") or {}).get("current_issue", {}).get("issue_code"),
+      "cash_obligation_gap",
+    )
+
+  def test_consistency_followup_state_stays_blocked_until_clear(self) -> None:
+    blocked = {
+      "planning_run_json": {
+        "status": "blocking_unresolved",
+        "resolution_summary": {"status": "hard_issues_remaining"},
+      }
+    }
+    cleared = {
+      "planning_run_json": {
+        "status": "cleared",
+        "resolution_summary": {"status": "all_cleared"},
+      }
+    }
+
+    blocked_state = _consistency_followup_state(blocked)
+    self.assertEqual(blocked_state["active_focus_out"], "consistency")
+    self.assertFalse(blocked_state["consistency_passed_out"])
+    self.assertFalse(blocked_state["completed_out"])
+    self.assertIsNone(blocked_state["status_out"])
+
+    cleared_state = _consistency_followup_state(cleared)
+    self.assertEqual(cleared_state["active_focus_out"], "done")
+    self.assertTrue(cleared_state["consistency_passed_out"])
+    self.assertTrue(cleared_state["completed_out"])
+    self.assertEqual(cleared_state["status_out"], "completed")
+
   def test_consistency_closeout_requires_resolution_summary(self) -> None:
     closeout = {
       "governance_state": {"status": "cleared"},
@@ -729,6 +1585,238 @@ class PlanningRunContractTests(unittest.TestCase):
     self.assertTrue(_consistency_closeout_ready_for_completion(closeout))
     closeout["planning_run_json"] = {"status": "cleared"}
     self.assertFalse(_consistency_closeout_ready_for_completion(closeout))
+
+  def test_backfill_planning_run_from_closeout_builds_missing_payload(self) -> None:
+    closeout = {
+      "assistant_text": "All clear.",
+      "governance_state": {"status": "cleared", "blocking_violations": []},
+      "selected_scenario": {},
+      "planning_mode": "normalize",
+      "planning_mode_reason": "app_classified_normal_case",
+      "prompt_file": "normalize.md",
+      "planning_run_json": {},
+    }
+    payload = _backfill_planning_run_from_closeout(closeout)
+    self.assertIsInstance(payload, dict)
+    self.assertEqual(payload["stage"], "consistency_reconciliation")
+    self.assertEqual(payload["status"], "cleared")
+    self.assertTrue(isinstance(payload.get("resolution_summary"), dict) and payload["resolution_summary"])
+
+  def test_next_focus_from_consistency_closeout_respects_blocked_vs_done(self) -> None:
+    blocked = {
+      "governance_state": {"status": "blocking_unresolved"},
+      "planning_run_json": {
+        "status": "blocking_unresolved",
+        "resolution_summary": {"status": "blocking_unresolved"},
+      },
+    }
+    cleared = {
+      "governance_state": {"status": "cleared"},
+      "planning_run_json": {
+        "status": "cleared",
+        "resolution_summary": {"status": "all_cleared"},
+      },
+    }
+    self.assertEqual(_next_focus_from_consistency_closeout(blocked), "consistency")
+    self.assertEqual(_next_focus_from_consistency_closeout(cleared), "done")
+
+  def test_should_run_consistency_on_confirm_only_at_consistency_boundary(self) -> None:
+    self.assertFalse(_should_run_consistency_on_confirm(focus="ops", next_focus="market"))
+    self.assertFalse(_should_run_consistency_on_confirm(focus="market", next_focus="people"))
+    self.assertFalse(_should_run_consistency_on_confirm(focus="people", next_focus="financials"))
+    self.assertFalse(_should_run_consistency_on_confirm(focus="financials", next_focus="done"))
+    self.assertFalse(_should_run_consistency_on_confirm(focus="consistency", next_focus="done"))
+
+  def test_intake_complete_planning_run_payload_is_db_safe(self) -> None:
+    payload = _build_intake_complete_planning_run_payload()
+    self.assertEqual(payload.get("stage"), "intake_complete")
+    self.assertEqual(payload.get("status"), "pending")
+    resolution_summary = payload.get("resolution_summary") or {}
+    self.assertEqual(resolution_summary.get("status"), "intake_complete")
+    self.assertTrue(_is_valid_planning_run_payload(payload))
+
+  def test_realism_memo_contract_validates_compact_issue_payload(self) -> None:
+    payload = {
+      "status": "ready",
+      "issues": [
+        {
+          "issue": "The staffing model looks tight against the operating load.",
+          "detail": "The business appears to depend on a delivery pace that leaves limited room for normal friction.",
+        }
+      ],
+    }
+    self.assertTrue(is_valid_realism_memo_payload(payload))
+
+  def test_realism_memo_normalization_clips_and_filters_invalid_entries(self) -> None:
+    payload = normalize_realism_memo_payload(
+      {
+        "status": "",
+        "issues": [
+          {"issue": "A", "detail": "B"},
+          {"issue": "", "detail": "skip"},
+          {"issue": "C", "detail": "D"},
+          {"issue": "E", "detail": "F"},
+          {"issue": "G", "detail": "H"},
+          {"issue": "I", "detail": "J"},
+        ],
+      }
+    )
+    self.assertEqual(payload.get("status"), "ready")
+    self.assertEqual(len(payload.get("issues") or []), 4)
+    self.assertEqual((payload.get("issues") or [])[0], {"issue": "A", "detail": "B"})
+
+  def test_realism_memo_empty_payload_is_valid(self) -> None:
+    payload = empty_realism_memo_payload()
+    self.assertTrue(is_valid_realism_memo_payload(payload))
+    self.assertEqual(payload.get("status"), "not_generated")
+
+  def test_realism_memo_prompts_define_json_contract_and_advisory_boundary(self) -> None:
+    reviewer_prompt = load_realism_memo_reviewer_prompt().lower()
+    advisory_prompt = load_realism_memo_grid_advisory_prompt().lower()
+    self.assertIn("return json only", reviewer_prompt)
+    self.assertIn("\"issues\"", reviewer_prompt)
+    self.assertIn("additional context only", advisory_prompt)
+    self.assertIn("does not override your normal planning logic", advisory_prompt)
+
+  def test_quarter_grid_prompt_includes_realism_memo_as_advisory_context_only(self) -> None:
+    prompt = build_quarter_grid_prompt(
+      source_row={
+        "business_name": "Precision Aesthetics Lab",
+        "realism_memo_json": {
+          "status": "ready",
+          "issues": [
+            {
+              "issue": "The staffing model looks tight against the operating load.",
+              "detail": "The business appears to depend on a demanding level of execution with limited room for friction.",
+            }
+          ],
+        },
+      },
+      grid_rows=[{"row_id": "revenue::price", "row_type": "lever", "quarter_bands": []}],
+      governor_payload={"company_stage": "operating"},
+      batch_index=1,
+      batch_count=1,
+      planning_mode="normalize",
+    )
+    prompt_lower = prompt.lower()
+    self.assertIn("advisory realism memo", prompt_lower)
+    self.assertIn("additional context only", prompt_lower)
+    self.assertIn("does not override your normal planning logic", prompt_lower)
+    self.assertIn("staffing model looks tight", prompt_lower)
+
+  def test_quarter_grid_system_prompt_repeats_advisory_boundary_when_memo_present(self) -> None:
+    prompt = quarter_grid_system_prompt(
+      use_real_strategy_prompt=True,
+      planning_mode="normalize",
+      realism_memo_present=True,
+    ).lower()
+    self.assertIn("additional context only", prompt)
+    self.assertIn("does not override your normal planning logic", prompt)
+
+  def test_realism_memo_input_contains_ops_and_financials_context(self) -> None:
+    prompt = build_realism_memo_input(
+      ops_json={"business_model": "service", "unit_price": 875},
+      financials_json={"cash_on_hand": 15000, "monthly_rent_expense": 9500},
+    )
+    self.assertIn("ops_json", prompt)
+    self.assertIn("financials_json", prompt)
+    self.assertIn("unit_price", prompt)
+    self.assertIn("cash_on_hand", prompt)
+
+  def test_realism_memo_schema_is_strict_and_limited(self) -> None:
+    schema = realism_memo_schema()
+    self.assertEqual(schema.get("name"), "realism_memo")
+    self.assertTrue(bool(schema.get("strict")))
+    issues = dict(dict(schema.get("schema") or {}).get("properties") or {}).get("issues") or {}
+    self.assertEqual(issues.get("maxItems"), 4)
+
+  def test_generate_realism_memo_payload_parses_strict_json_response(self) -> None:
+    class _FakeResponse:
+      status_code = 200
+      text = ""
+
+      @staticmethod
+      def json() -> dict:
+        return {
+          "output": [
+            {
+              "content": [
+                {
+                  "parsed": {
+                    "status": "ready",
+                    "issues": [
+                      {
+                        "issue": "The operating model appears stretched.",
+                        "detail": "The plan depends on a demanding level of execution with limited room for friction.",
+                      }
+                    ],
+                  }
+                }
+              ]
+            }
+          ]
+        }
+
+    with patch("client_intake_and_finmo.realism_memo._require_openai_key", return_value="test-key"), patch(
+      "client_intake_and_finmo.realism_memo._post_openai",
+      return_value=_FakeResponse(),
+    ):
+      payload = generate_realism_memo_payload(
+        ops_json={"business_model": "service"},
+        financials_json={"cash_on_hand": 15000},
+      )
+    self.assertTrue(is_valid_realism_memo_payload(payload))
+    self.assertEqual(payload.get("status"), "ready")
+    self.assertEqual(len(payload.get("issues") or []), 1)
+
+  def test_generate_realism_memo_payload_safe_fails_soft(self) -> None:
+    with patch(
+      "client_intake_and_finmo.realism_memo.generate_realism_memo_payload",
+      side_effect=RuntimeError("boom"),
+    ):
+      payload = generate_realism_memo_payload_safe(
+        ops_json={"business_model": "service"},
+        financials_json={"cash_on_hand": 15000},
+      )
+    self.assertEqual(payload.get("status"), "failed")
+    self.assertEqual(payload.get("issues"), [])
+
+  def test_financials_confirmable_marketing_stage_has_default_patch(self) -> None:
+    shared_context = {
+      "operating_model": {
+        "business_stage": "operating",
+        "unit_name": "treatment session",
+        "unit_price": 875.0,
+      },
+      "target_market": {
+        "consumer_type": "consumer",
+        "marketing_plan_summary": "Google + Instagram",
+      },
+      "people_capability": {
+        "people": [{"full_name": "Founder", "role_title": "Provider"}],
+      },
+      "marketing": {},
+    }
+    financials_year1_json = {
+      "company_revenue_total_year1": 2202200.0,
+    }
+    with patch(
+      "api_handlers.intake_consult._resolve_marketing_model_or_raise",
+      return_value={
+        "baseline_marketing": 352352.0,
+        "baseline_marketing_percent": 0.16,
+      },
+    ):
+      default_patch = _financials_stage_default_patch(
+        stage_name="marketing",
+        shared_context=shared_context,
+        financials_year1_json=financials_year1_json,
+        business_facts={"name": "Precision Aesthetics Lab", "start_date": "2024-08-05", "address": "Dallas, TX"},
+        conn=None,
+      )
+    self.assertIsInstance(default_patch, dict)
+    self.assertGreater(float(default_patch.get("marketing_total_year1") or 0.0), 0.0)
+    self.assertGreater(float(default_patch.get("marketing_percent_of_revenue") or 0.0), 0.0)
 
 
 if __name__ == "__main__":

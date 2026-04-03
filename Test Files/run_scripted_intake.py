@@ -99,23 +99,13 @@ TEMPLATE_SPEC: Dict[str, Any] = {
     "owner_compensation": "",
     "confirmation": "Yes, that's right.",
   },
-  "consistency": {
-    "confirmation": "Yes, that works for me.",
-  },
   "fallback": {
     "ops": [],
     "market": [],
     "people": [],
     "financials": [],
-    "consistency": [],
   },
-  "overrides": [
-    {
-      "focus": "consistency",
-      "contains": "",
-      "answer": "",
-    }
-  ],
+  "overrides": [],
 }
 
 
@@ -370,12 +360,6 @@ class ScriptedClientAgent:
       return _string_value(financials.get("confirmation")) or "Yes, that's right."
     return None
 
-  def _answer_consistency(self, assistant_message: str) -> Optional[str]:
-    consistency = _spec_section(self.spec, "consistency")
-    if _string_value(consistency.get("confirmation")):
-      return _string_value(consistency.get("confirmation"))
-    return None
-
   def answer(
     self,
     *,
@@ -392,7 +376,6 @@ class ScriptedClientAgent:
       "market": self._answer_market,
       "people": self._answer_people,
       "financials": self._answer_financials,
-      "consistency": self._answer_consistency,
     }
     answer = None
     fn = dispatch.get(_normalize(active_focus))
@@ -596,6 +579,7 @@ def _run_spec(
         transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
         print(system_message)
         draft = _SHARED._get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
+        memo = _SHARED._parse_realism_memo(draft.get("realism_memo_json"))
         print(
           "Final flags:",
           json.dumps(
@@ -604,7 +588,8 @@ def _run_spec(
               "market_confirmed": draft.get("market_confirmed"),
               "people_confirmed": draft.get("people_confirmed"),
               "financials_confirmed": draft.get("financials_confirmed"),
-              "consistency_passed": draft.get("consistency_passed"),
+              "realism_memo_status": memo.get("status"),
+              "realism_memo_issue_count": len(memo.get("issues") or []),
             },
             ensure_ascii=False,
           ),

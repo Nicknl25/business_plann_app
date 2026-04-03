@@ -713,103 +713,15 @@ def _run_consistency_replay(
 
 
 def main() -> int:
-  _load_env()
-  parser = argparse.ArgumentParser(
-    description="Replay consistency only against the real local app using a preloaded SQL draft/client state."
+  print(
+    "run_consistency_replay.py is deprecated. Live intake now ends at financials, then generates realism_memo_json for system-run.",
+    file=sys.stderr,
   )
-  parser.add_argument(
-    "--draft-id",
-    action="append",
-    default=[],
-    help="Source intake_consult_drafts.draft_id to replay from. Repeat the flag or comma-separate values.",
+  print(
+    "Use a live runner or direct-seeded runner and inspect the saved persisted state / New Runner report for the realism memo instead.",
+    file=sys.stderr,
   )
-  parser.add_argument(
-    "--client-id",
-    action="append",
-    default=[],
-    help="Source intake_consult_drafts.client_id to replay from. Repeat the flag or comma-separate values.",
-  )
-  parser.add_argument("--base-url", default=os.getenv("INTAKE_BASE_URL", "http://127.0.0.1:5050"))
-  parser.add_argument("--max-turns", type=int, default=5)
-  parser.add_argument(
-    "--parallel-workers",
-    type=int,
-    default=0,
-    help="Number of replay jobs to run in parallel. Default auto-runs up to 4 workers when multiple jobs are supplied.",
-  )
-  parser.add_argument("--output-dir", default=DEFAULT_TEST_RUNS_DIR)
-  parser.add_argument("--persisted-output-dir", default=DEFAULT_TEST_RUNS_DATA_DIR)
-  args = parser.parse_args()
-
-  draft_ids = _parse_multi_args(args.draft_id)
-  client_ids = _parse_multi_args(args.client_id)
-  jobs: List[Tuple[Optional[str], Optional[str], str]] = []
-  for draft_id in draft_ids:
-    jobs.append((draft_id, None, _job_name(draft_id=draft_id, client_id=None)))
-  for client_id in client_ids:
-    jobs.append((None, client_id, _job_name(draft_id=None, client_id=client_id)))
-
-  if not jobs:
-    print("Provide --draft-id or --client-id.", file=sys.stderr)
-    return 2
-
-  base_url = str(args.base_url or "").rstrip("/")
-  output_dir = str(args.output_dir or DEFAULT_TEST_RUNS_DIR)
-  persisted_output_dir = str(args.persisted_output_dir or DEFAULT_TEST_RUNS_DATA_DIR)
-  max_turns = max(1, int(args.max_turns or 5))
-  worker_count = int(args.parallel_workers or 0)
-  if worker_count <= 0:
-    worker_count = min(4, len(jobs)) if len(jobs) > 1 else 1
-
-  try:
-    if len(jobs) == 1 or worker_count == 1:
-      for idx, (source_draft_id, source_client_id, label) in enumerate(jobs, start=1):
-        if len(jobs) > 1:
-          print(f"\n=== Replay {idx}/{len(jobs)}: {label or source_draft_id or source_client_id} ===\n")
-        result = _run_consistency_replay(
-          base_url=base_url,
-          source_draft_id=source_draft_id,
-          source_client_id=source_client_id,
-          output_dir=output_dir,
-          persisted_output_dir=persisted_output_dir,
-          max_turns=max_turns,
-        )
-        if result != 0:
-          return result
-      return 0
-
-    futures: Dict[concurrent.futures.Future[int], Tuple[Optional[str], Optional[str], str]] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
-      for source_draft_id, source_client_id, label in jobs:
-        future = executor.submit(
-          _run_consistency_replay,
-          base_url=base_url,
-          source_draft_id=source_draft_id,
-          source_client_id=source_client_id,
-          output_dir=output_dir,
-          persisted_output_dir=persisted_output_dir,
-          max_turns=max_turns,
-        )
-        futures[future] = (source_draft_id, source_client_id, label)
-      overall = 0
-      for future in concurrent.futures.as_completed(futures):
-        source_draft_id, source_client_id, label = futures[future]
-        job_name = label or source_draft_id or source_client_id or "replay"
-        try:
-          result = future.result()
-          if result != 0:
-            overall = result
-            print(f"\nReplay failed: {job_name}", file=sys.stderr)
-        except Exception as exc:
-          overall = 1
-          print(f"\nReplay failed: {job_name}: {type(exc).__name__}: {exc}", file=sys.stderr)
-      return overall
-  except KeyboardInterrupt:
-    print("\nStopped by user.")
-    return 130
-  except Exception as exc:
-    print(f"\nSTOP: runner error: {type(exc).__name__}: {exc}", file=sys.stderr)
-    return 1
+  return 2
 
 
 if __name__ == "__main__":

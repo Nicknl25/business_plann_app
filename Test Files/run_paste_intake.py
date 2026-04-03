@@ -94,8 +94,6 @@ TEMPLATE = textwrap.dedent(
   FINANCIALS_OWNER_COMPENSATION: Replace with exact owner compensation answer.
   FINANCIALS_CONFIRMATION: Yes, that's right.
 
-  CONSISTENCY_CONFIRMATION: Yes, that works for me.
-
   OVERRIDE_1_FOCUS:
   OVERRIDE_1_CONTAINS:
   OVERRIDE_1_ANSWER:
@@ -209,15 +207,11 @@ def _build_spec(values: Dict[str, str]) -> Dict[str, Any]:
       "owner_compensation": values.get("FINANCIALS_OWNER_COMPENSATION", "").strip(),
       "confirmation": values.get("FINANCIALS_CONFIRMATION", "").strip(),
     },
-    "consistency": {
-      "confirmation": values.get("CONSISTENCY_CONFIRMATION", "").strip(),
-    },
     "fallback": {
       "ops": [],
       "market": [],
       "people": [],
       "financials": [],
-      "consistency": [],
     },
     "overrides": overrides,
   }

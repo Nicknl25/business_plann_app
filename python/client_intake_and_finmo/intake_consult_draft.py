@@ -236,6 +236,7 @@ def ensure_table(conn) -> None:
         financials_json LONGTEXT NULL,
         marketing_model_json LONGTEXT NULL,
         financials_year1_json LONGTEXT NULL,
+        realism_memo_json LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
@@ -304,6 +305,8 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN marketing_model_json LONGTEXT NULL")
   if "financials_year1_json" not in cols:
     alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
+  if "realism_memo_json" not in cols:
+    alterations.append("ADD COLUMN realism_memo_json LONGTEXT NULL")
   if "model_input_json" not in cols:
     alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in cols:
@@ -440,6 +443,7 @@ def _render_messages_for_storage(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
+  realism_memo_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
@@ -473,6 +477,9 @@ def _render_messages_for_storage(
     "marketing": marketing_model_json if marketing_model_json is not None else _parse_json_object(row.get("marketing_model_json")),
     "financials_year1_json": (
       financials_year1_json if financials_year1_json is not None else _parse_json_object(row.get("financials_year1_json"))
+    ),
+    "realism_memo_json": (
+      realism_memo_json if realism_memo_json is not None else _parse_json_object(row.get("realism_memo_json"))
     ),
     "model_input_json": (
       model_input_json if model_input_json is not None else _parse_json_object(row.get("model_input_json"))
@@ -522,6 +529,7 @@ def append_messages(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
+  realism_memo_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
@@ -554,6 +562,7 @@ def append_messages(
     financials_json=financials_json,
     marketing_model_json=marketing_model_json,
     financials_year1_json=financials_year1_json,
+    realism_memo_json=realism_memo_json,
     planning_run_json=planning_run_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
@@ -604,6 +613,10 @@ def append_messages(
   if finmo_json is not None:
     set_parts.append("finmo_json = %s")
     values.append(json.dumps(finmo_json, ensure_ascii=False))
+
+  if realism_memo_json is not None:
+    set_parts.append("realism_memo_json = %s")
+    values.append(json.dumps(realism_memo_json, ensure_ascii=False))
 
   if planning_run_json is not None:
     set_parts.append("planning_run_json = %s")
@@ -688,6 +701,7 @@ def append_messages(
       "financials_json",
       "marketing_model_json",
       "financials_year1_json",
+      "realism_memo_json",
       "model_input_json",
       "finmo_json",
       "planning_run_json",

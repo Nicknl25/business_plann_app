@@ -367,6 +367,7 @@ def main() -> int:
     financials_year1_json=_parse_json_object(source_row.get("financials_year1_json")),
     fulfillment_json=_parse_json_object(source_row.get("fulfillment_json")),
     marketing_model_json=_parse_json_object(source_row.get("marketing_model_json")),
+    realism_memo_json=_parse_json_object(source_row.get("realism_memo_json")),
     business_facts={},
   )
   solver_result = solve_live_quarter_grid_plan(

@@ -188,6 +188,16 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
     add("business", "start_date", {"type": "string"})
 
+    add("business", "address_street", {"type": "string"})
+
+    add("business", "address_city", {"type": "string"})
+
+    add("business", "address_state", {"type": "string"})
+
+    add("business", "address_zip", {"type": "string"})
+
+    add("business", "address_country", {"type": "string"})
+
 
 
     # ops
@@ -1506,6 +1516,8 @@ def route_intent(
       "current_revenue",
 
       "current_cogs",
+      "cogs_total_year1",
+      "cogs_percent_of_revenue",
 
       "marketing_total_year1",
 
@@ -1520,6 +1532,7 @@ def route_intent(
       "other_monthly_debt_payments",
 
       "current_payroll",
+      "payroll_total_year1",
 
       "current_num_employees",
 
@@ -1581,118 +1594,24 @@ def route_intent(
 
       "business.start_date",
 
-      *[f"ops.{f}" for f in _value_schema_by_consult_field(consult_type="ops").keys() if f in {
+      "business.address_street",
 
-        "consumer_type",
+      "business.address_city",
 
-        "business_type",
+      "business.address_state",
 
-        "unit_name",
+      "business.address_zip",
 
-        "unit_description",
+      "business.address_country",
 
-        "unit_cadence",
-        "units_per_week_capacity",
-        "units_per_period_capacity",
-        "operating_periods_per_year",
-        "unit_price",
-        "shipping_method",
-        "sales_modality",
-        "geographic_scope",
-        "geographic_coverage",
-        "countries",
-        "competitive_advantage",
-        "milestones",
-        "capacity_driver",
-        "primary_growth_lever",
+      *[f"ops.{f}" for f in _value_schema_by_consult_field(consult_type="ops").keys()],
 
-        "legal_entity",
+      *[f"market.{f}" for f in _value_schema_by_consult_field(consult_type="target_market").keys()],
 
-        "lob_models",
+      *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys()],
+      *[f"financials.{f}" for f in _value_schema_by_consult_field(consult_type="financials").keys()],
 
-      }],
-
-      *[f"market.{f}" for f in _value_schema_by_consult_field(consult_type="target_market").keys() if f in {
-
-        "consumer_type",
-
-        "gender_age_intent",
-
-        "income_intent",
-
-        "selections",
-
-        "b2b_industry_terms",
-
-        "b2b_naics_6",
-
-        "b2b_size_bands",
-
-        "b2b_age_bands",
-
-        "marketing_plan_summary",
-
-      }],
-
-      *[f"people.{f}" for f in _value_schema_by_consult_field(consult_type="people").keys() if f in {
-        "people",
-        "inferred_roles",
-      }],
-      *[f"financials.{f}" for f in _value_schema_by_consult_field(consult_type="financials").keys() if f in {
-
-        "current_revenue",
-
-        "current_cogs",
-
-        "marketing_total_year1",
-
-        "marketing_percent_of_revenue",
-
-        "other_operating_expense",
-
-        "monthly_rent_expense",
-
-        "future_rent_expected",
-
-        "other_monthly_debt_payments",
-
-        "current_payroll",
-
-        "current_num_employees",
-
-        "current_capex",
-
-        "ar_balance",
-
-        "ap_balance",
-
-        "inventory_balance",
-
-        "initial_assets",
-
-        "initial_lease",
-
-        "initial_equity",
-
-        "total_debt_outstanding",
-
-        "annual_interest_payment",
-
-        "annual_principal_payment",
-
-        "owner_compensation",
-
-        "cash_on_hand",
-
-      }],
-
-      *[f"fulfillment.{f}" for f in _value_schema_by_consult_field(consult_type="fulfillment").keys() if f in {
-
-        "time",
-
-        "personnel",
-
-      }],
+      *[f"fulfillment.{f}" for f in _value_schema_by_consult_field(consult_type="fulfillment").keys()],
 
     ],
 
@@ -1725,6 +1644,12 @@ def route_intent(
   ):
     extra_instructions = (
       extra_instructions
+      + "Financials stage inference:\n"
+      + "- Use shared_context.financials_controller.current_stage as the source of truth for the active financial stage.\n"
+      + "- If patch_targets is present there, prefer those field(s) when translating the user's reply into a patch.\n"
+      + "- If the active financial stage presented a baseline and the user briefly agrees, return confirm_proceed.\n"
+      + "- If the user gives a concrete replacement for the active financial stage, return edit_patch for the narrow stage field(s) only.\n"
+      + "- If the user gives directionally clear intent but one concrete number or boolean is still missing for the active stage, return confirm_clarify with one short question for that missing fact.\n"
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"
@@ -1884,13 +1809,25 @@ Consistency inference (active_focus == "consistency"):
 
 - In consistency, the user may correct or accept changes to ANY scoped field across business / ops / market / people / financials / fulfillment.
 
+- consistency_controller.edit_surface is the full writable intake surface for consistency. Any field in that surface is fair game if it is the real fix.
+
 - If the last assistant message proposes a concrete realism fix and the user agrees, partially agrees, or counters with a concrete alternative, return edit_patch and apply the implied field changes.
 
 - Keep the patch narrow: only the specific field(s) the user actually changed.
 
+- Use consistency_controller.current_issue as the source of truth for what is being resolved right now.
+
+- If consistency_controller.current_issue.patch_targets is present, prefer those field(s) first, but treat them as hints rather than hard limits if the user's chosen fix clearly belongs on a different scoped field in consistency_controller.edit_surface.
+
 - If the last assistant message offered reconciliation choices (A/B/C or similar) and the user picks one
 
   (letter, short phrase, or a clear paraphrase), return edit_patch and apply the implied update.
+
+- If the user chooses an alternative resolution path that is concrete enough to write safely, return edit_patch. Do NOT return confirm_proceed while the issue still requires a field change.
+
+- If the user's intended fix is directionally clear but still missing one concrete fact needed to persist it safely, return confirm_clarify with one short question aimed at that missing fact. Do NOT return confirm_proceed in that case.
+
+- In consistency, confirm_proceed should only be used when the current issue is already structurally resolved and the user is merely acknowledging that state.
 
 - Use baseline_json values for amounts when available (especially financials.other_operating_expense).
 

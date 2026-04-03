@@ -69,21 +69,11 @@
     "owner_compensation": "",
     "confirmation": "Yes, that's right."
   },
-  "consistency": {
-    "confirmation": "Yes, that works for me."
-  },
   "fallback": {
     "ops": [],
     "market": [],
     "people": [],
-    "financials": [],
-    "consistency": []
+    "financials": []
   },
-  "overrides": [
-    {
-      "focus": "consistency",
-      "contains": "",
-      "answer": ""
-    }
-  ]
+  "overrides": []
 }

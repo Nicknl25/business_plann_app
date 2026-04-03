@@ -92,15 +92,11 @@ SCENARIO: Dict[str, Any] = {
     "owner_compensation": "Replace with exact owner compensation answer.",
     "confirmation": "Yes, that's right.",
   },
-  "consistency": {
-    "confirmation": "Yes, that works for me.",
-  },
   "fallback": {
     "ops": [],
     "market": [],
     "people": [],
     "financials": [],
-    "consistency": [],
   },
   "overrides": [],
 }

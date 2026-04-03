@@ -127,7 +127,6 @@ class LiveControlledAgent:
       "market": self.spec.get("market") if isinstance(self.spec.get("market"), dict) else {},
       "people": self.spec.get("people") if isinstance(self.spec.get("people"), dict) else {},
       "financials": self.spec.get("financials") if isinstance(self.spec.get("financials"), dict) else {},
-      "consistency": self.spec.get("consistency") if isinstance(self.spec.get("consistency"), dict) else {},
       "operating_model_projection": operating_model,
       "target_market_projection": target_market,
       "people_projection": people_json,
@@ -150,9 +149,6 @@ class LiveControlledAgent:
 
   def _financials(self) -> Dict[str, Any]:
     return self.spec.get("financials") if isinstance(self.spec.get("financials"), dict) else {}
-
-  def _consistency(self) -> Dict[str, Any]:
-    return self.spec.get("consistency") if isinstance(self.spec.get("consistency"), dict) else {}
 
   def _product_for_message(self, assistant_message: str) -> Optional[Dict[str, Any]]:
     message = _normalize(assistant_message)
@@ -285,11 +281,6 @@ class LiveControlledAgent:
         return _string(fin.get(key)) or _string(fin.get("confirmation")) or "Yes, that's right."
     return _string(fin.get("confirmation")) or "Yes, that's right."
 
-  def _answer_consistency(self, assistant_message: str) -> str:
-    del assistant_message
-    consistency = self._consistency()
-    return _string(consistency.get("confirmation")) or "Yes, that works for me."
-
   def _preferred_answer(
     self,
     *,
@@ -305,8 +296,6 @@ class LiveControlledAgent:
       return self._answer_people(assistant_message)
     if focus == "financials":
       return self._answer_financials(assistant_message)
-    if focus == "consistency":
-      return self._answer_consistency(assistant_message)
     return "Yes, that's correct."
 
   def answer(
@@ -566,6 +555,7 @@ def _run_live_spec(
         transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
         print(system_message)
         draft = _DUAL._get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
+        memo = _DUAL._parse_realism_memo(draft.get("realism_memo_json"))
         print(
           "Final flags:",
           json.dumps(
@@ -574,7 +564,8 @@ def _run_live_spec(
               "market_confirmed": draft.get("market_confirmed"),
               "people_confirmed": draft.get("people_confirmed"),
               "financials_confirmed": draft.get("financials_confirmed"),
-              "consistency_passed": draft.get("consistency_passed"),
+              "realism_memo_status": memo.get("status"),
+              "realism_memo_issue_count": len(memo.get("issues") or []),
             },
             ensure_ascii=False,
           ),
