@@ -9,7 +9,19 @@ from typing import Any, Callable, Optional, TextIO
 
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-DEFAULT_TRACE_LOG_DIR = Path(r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs")
+
+
+def _default_trace_log_dir() -> Path:
+  env_root = str(os.getenv("INTAKE_APPS_ROOT") or "").strip()
+  if env_root:
+    return Path(env_root) / "Terminal Logs"
+  one_drive_root = str(os.getenv("OneDriveCommercial") or os.getenv("OneDrive") or "").strip()
+  if one_drive_root:
+    return Path(one_drive_root) / "Apps" / "Terminal Logs"
+  return Path.home() / "OneDrive - Tithe Financial Wealth Management" / "Apps" / "Terminal Logs"
+
+
+DEFAULT_TRACE_LOG_DIR = _default_trace_log_dir()
 _THREAD_STATE = threading.local()
 
 
@@ -111,8 +123,17 @@ def configure_consistency_trace_run(name: str, *, reset_file: bool = False) -> N
       pass
 
 
+def _safe_print(line: str = "") -> None:
+  try:
+    print(line, flush=True)
+  except OSError:
+    pass
+  except ValueError:
+    pass
+
+
 def _emit_line(line: str = "") -> None:
-  print(line, flush=True)
+  _safe_print(line)
   handle = _ensure_trace_log_handle()
   if handle is None:
     return
@@ -134,7 +155,7 @@ def _ensure_trace_log_handle() -> Optional[TextIO]:
   except Exception as exc:
     if not getattr(_THREAD_STATE, "consistency_trace_file_error_logged", False):
       _THREAD_STATE.consistency_trace_file_error_logged = True
-      print(f"[consistency_trace_file_error] {exc}", flush=True)
+      _safe_print(f"[consistency_trace_file_error] {exc}")
     _THREAD_STATE.consistency_trace_file_handle = None
     return None
   _THREAD_STATE.consistency_trace_file_handle = handle

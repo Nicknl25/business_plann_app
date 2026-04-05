@@ -2601,8 +2601,6 @@ def _build_financials_stage_acknowledgement(
     value = (financials_json or {}).get(stage)
     if stage == "future_rent_expected":
       return "Got it. I’ll treat future dedicated space as part of the model." if bool(value) else "Got it. I’ll treat future dedicated space as not expected for now."
-    if stage == "initial_lease":
-      return f"Got it. I’ll use {str(value or '').strip() or '0,none'} for leased equipment or space beyond main rent."
     return _build_financials_scalar_stage_acknowledgement(stage, float(value or 0.0))
   return "Got it."
 
@@ -3985,8 +3983,8 @@ def _sync_marketing_field_family(
 def _build_initial_lease_message() -> str:
   return (
     "Now let's capture any leased or rented equipment or space beyond your main rent. "
-    "Do you pay to use any equipment, vehicles, servers, or other space you do not own, and if so, about how much and how often "
-    "(for example, $5,000 per month or $20,000 per year)?"
+    "What monthly amount should we use for any leased equipment, vehicles, servers, or additional space you do not own? "
+    "If there is none, use 0."
   )
 
 
@@ -4041,10 +4039,7 @@ def _financials_field_resolved(financials_json: Dict[str, Any], field: str) -> b
     return False
   if field not in financials_json:
     return False
-  value = financials_json.get(field)
-  if field == "initial_lease":
-    return bool(str(value or "").strip())
-  return value is not None
+  return financials_json.get(field) is not None
 
 
 def _ensure_financials_stage_defaults(financials_json: Dict[str, Any]) -> Dict[str, Any]:
@@ -4156,7 +4151,7 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "patch_targets": ("initial_lease",),
     "completion_fields": ("initial_lease",),
     "confirmable_baseline": False,
-    "clarifier": "What lease entry should I record? Use the form amount,frequency such as 0,none or 2500,monthly.",
+    "clarifier": "What monthly lease amount should I record for leased equipment or space beyond main rent?",
   },
   "initial_equity": {
     "patch_targets": ("initial_equity",),
@@ -4280,6 +4275,7 @@ _GENERIC_FINANCIALS_SCALAR_FIELDS = {
   "current_num_employees",
   "current_capex",
   "initial_assets",
+  "initial_lease",
   "initial_equity",
   "total_debt_outstanding",
   "other_monthly_debt_payments",
@@ -4297,6 +4293,7 @@ _GENERIC_FINANCIALS_FIELD_LABELS = {
   "current_num_employees": "current employee count",
   "current_capex": "current capital spending",
   "initial_assets": "initial assets already in the business",
+  "initial_lease": "monthly lease commitment beyond main rent",
   "initial_equity": "money invested so far",
   "total_debt_outstanding": "total debt outstanding",
   "other_monthly_debt_payments": "other monthly debt payments",
@@ -4401,7 +4398,10 @@ def _normalize_financials_router_patch(
       touched.add(field_name)
       continue
     if field_name == "initial_lease":
-      next_financials[field_name] = str(raw_value or "").strip()
+      numeric = _safe_float(raw_value)
+      if numeric is None:
+        continue
+      next_financials[field_name] = float(numeric)
       touched.add(field_name)
       continue
     if field_name in {"cogs_percent_of_revenue", "marketing_percent_of_revenue"}:

@@ -28,10 +28,23 @@ except Exception:
 OPENAI_URL = "https://api.openai.com/v1/responses"
 _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 US_EASTERN = ZoneInfo("America/New_York")
-DEFAULT_TEST_RUNS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs"
-DEFAULT_TEST_RUNS_DATA_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data"
-DEFAULT_TERMINAL_LOGS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs"
-DEFAULT_NEW_RUNNER_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\New Runner"
+
+
+def _default_apps_root() -> str:
+  env_root = str(os.getenv("INTAKE_APPS_ROOT") or "").strip()
+  if env_root:
+    return env_root
+  one_drive_root = str(os.getenv("OneDriveCommercial") or os.getenv("OneDrive") or "").strip()
+  if one_drive_root:
+    return os.path.join(one_drive_root, "Apps")
+  return os.path.join(os.path.expanduser("~"), "OneDrive - Tithe Financial Wealth Management", "Apps")
+
+
+DEFAULT_APPS_ROOT = _default_apps_root()
+DEFAULT_TEST_RUNS_DIR = os.path.join(DEFAULT_APPS_ROOT, "Test Runs")
+DEFAULT_TEST_RUNS_DATA_DIR = os.path.join(DEFAULT_APPS_ROOT, "Test Runs Data")
+DEFAULT_TERMINAL_LOGS_DIR = os.path.join(DEFAULT_APPS_ROOT, "Terminal Logs")
+DEFAULT_NEW_RUNNER_DIR = os.path.join(DEFAULT_APPS_ROOT, "New Runner")
 
 BUSINESS_FACT_FIELDS = {"name", "address", "start_date"}
 OPS_FACT_FIELDS = {

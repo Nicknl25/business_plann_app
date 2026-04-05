@@ -1,17 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
-import subprocess
-import tempfile
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter, range_boundaries
-from openpyxl.utils.datetime import from_excel
 
 try:
   from financial_model_engine.finmo_model import calculate_finmo_model
@@ -24,6 +18,17 @@ except Exception:
     sys.path.insert(0, str(ROOT))
   from financial_model_engine.finmo_model import calculate_finmo_model
   from financial_model_engine.model_inputs import FinancialModelInputs
+
+
+def _column_letter(column_index: Any) -> str:
+  index = int(column_index or 0)
+  if index <= 0:
+    return ""
+  letters = ""
+  while index > 0:
+    index, remainder = divmod(index - 1, 26)
+    letters = chr(65 + remainder) + letters
+  return letters
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -39,7 +44,7 @@ def _annualized_lease_commitment(value: Any) -> Optional[float]:
   if value is None or value == "":
     return None
   if isinstance(value, (int, float)):
-    return max(0.0, float(value))
+    return max(0.0, float(value)) * 12.0
   raw = str(value).strip()
   if not raw:
     return None
@@ -61,7 +66,7 @@ def _annualized_lease_commitment(value: Any) -> Optional[float]:
     return None
   amount = max(0.0, amount)
   if not period_part:
-    return amount
+    return amount * 12.0
   if period_part == "annual":
     period_part = "yearly"
   multiplier = {
@@ -106,10 +111,7 @@ def _as_iso_date(value: Any) -> Optional[str]:
   numeric = _safe_float(value)
   if numeric is None:
     return None
-  try:
-    return from_excel(numeric).date().isoformat()
-  except Exception:
-    return None
+  return None
 
 
 def _forecast_anchor_date_iso(*, now: Optional[datetime] = None) -> str:
@@ -252,339 +254,6 @@ def _named_product(value: Any, fallback: str) -> str:
   return text or fallback
 
 
-def _normalize_finmo_path(finmo_path: Any) -> str:
-  cleaned = str(finmo_path or "").strip()
-  if not cleaned:
-    raise ValueError("finmo_path is required")
-  return cleaned
-
-
-def _defined_range_bounds(wb, name: str) -> Tuple[Any, int, int, int, int]:
-  if name not in wb.defined_names:
-    raise KeyError(f"Named range not found in workbook: {name}")
-  destinations = list(wb.defined_names[name].destinations)
-  if not destinations:
-    raise ValueError(f"Named range has no destinations: {name}")
-  sheet_name, ref = destinations[0]
-  min_col, min_row, max_col, max_row = range_boundaries(ref)
-  return wb[sheet_name], min_row, max_row, min_col, max_col
-
-
-def _period_slots_from_model_inputs(wb) -> List[Dict[str, Any]]:
-  ws, min_row, _max_row, min_col, max_col = _defined_range_bounds(wb, "model_input_periods")
-  label_to_row: Dict[str, int] = {}
-  for row_idx in range(min_row, min_row + 5):
-    label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip().lower()
-    if label:
-      label_to_row[label] = row_idx
-  quarter_row = label_to_row.get("quarter")
-  year_row = label_to_row.get("year")
-  date_row = label_to_row.get("date")
-  fraction_row = label_to_row.get("year fraction")
-  if quarter_row is None:
-    return []
-  slots: List[Dict[str, Any]] = []
-  slot_index = 0
-  for col_idx in range(min_col + 2, max_col + 1):
-    quarter_val = _safe_float(ws.cell(row=quarter_row, column=col_idx).value)
-    if quarter_val is None:
-      continue
-    year_val = _safe_float(ws.cell(row=year_row, column=col_idx).value) if year_row is not None else None
-    slots.append(
-      {
-        "slot_index": slot_index,
-        "column_index": col_idx,
-        "column_letter": get_column_letter(col_idx),
-        "year": year_val,
-        "quarter": quarter_val,
-        "date": _as_iso_date(ws.cell(row=date_row, column=col_idx).value) if date_row is not None else None,
-        "year_fraction": _safe_float(ws.cell(row=fraction_row, column=col_idx).value) if fraction_row is not None else None,
-        "is_stub": quarter_val == 0.0,
-      }
-    )
-    slot_index += 1
-  return slots
-
-
-def _period_slots_from_finmo(wb) -> List[Dict[str, Any]]:
-  ws, min_row, _max_row, min_col, max_col = _defined_range_bounds(wb, "finmo_periods")
-  label_to_row: Dict[str, int] = {}
-  for row_idx in range(min_row, min_row + 3):
-    label = str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower()
-    if label:
-      label_to_row[label] = row_idx
-  quarter_row = label_to_row.get("quarter")
-  year_row = label_to_row.get("year")
-  date_row = label_to_row.get("date")
-  if quarter_row is None or year_row is None or date_row is None:
-    return []
-  slots: List[Dict[str, Any]] = []
-  slot_index = 0
-  for col_idx in range(min_col + 1, max_col + 1):
-    quarter_val = ws.cell(row=quarter_row, column=col_idx).value
-    if quarter_val in (None, ""):
-      continue
-    slots.append(
-      {
-        "slot_index": slot_index,
-        "column_index": col_idx,
-        "column_letter": get_column_letter(col_idx),
-        "year": _safe_float(ws.cell(row=year_row, column=col_idx).value),
-        "quarter": _safe_float(quarter_val),
-        "date": _as_iso_date(ws.cell(row=date_row, column=col_idx).value),
-      }
-    )
-    slot_index += 1
-  return slots
-
-
-def _read_named_cell(wb, name: str) -> Any:
-  if name not in wb.defined_names:
-    raise KeyError(f"Named range not found in workbook: {name}")
-  destinations = list(wb.defined_names[name].destinations)
-  if not destinations:
-    raise ValueError(f"Named range has no destinations: {name}")
-  sheet_name, cell_ref = destinations[0]
-  return wb[sheet_name][cell_ref].value
-
-
-def _write_named_cell(wb, name: str, value: Any) -> None:
-  if name not in wb.defined_names:
-    raise KeyError(f"Named range not found in workbook: {name}")
-  destinations = list(wb.defined_names[name].destinations)
-  if not destinations:
-    raise ValueError(f"Named range has no destinations: {name}")
-  sheet_name, cell_ref = destinations[0]
-  wb[sheet_name][cell_ref].value = value
-
-
-def _model_input_slot_for_full_quarter(slots: Sequence[Dict[str, Any]], quarter_index: int) -> Optional[Dict[str, Any]]:
-  quarter_index = max(1, int(quarter_index or 1))
-  full_slots = [slot for slot in (slots or []) if _safe_float(slot.get("quarter")) not in (None, 0.0)]
-  if quarter_index <= len(full_slots):
-    return full_slots[quarter_index - 1]
-  return full_slots[-1] if full_slots else None
-
-
-def _finmo_slot_for_full_quarter(slots: Sequence[Dict[str, Any]], quarter_index: int) -> Optional[Dict[str, Any]]:
-  quarter_index = max(1, int(quarter_index or 1))
-  full_slots = [slot for slot in (slots or []) if _safe_float(slot.get("quarter")) not in (None, 0.0)]
-  if quarter_index <= len(full_slots):
-    return full_slots[quarter_index - 1]
-  return full_slots[-1] if full_slots else None
-
-
-def _read_model_input_json(finmo_path: str) -> Dict[str, Any]:
-  wb = load_workbook(finmo_path, data_only=False)
-  try:
-    slots = _period_slots_from_model_inputs(wb)
-    slot_columns = [int(slot["column_index"]) for slot in slots]
-    quarter_scope = _full_quarter_scope(slots)
-    controller_write_levers: List[Dict[str, Any]] = []
-    lever_catalog: Dict[str, Dict[str, Any]] = {}
-
-    def _register_lever(metadata: Dict[str, Any]) -> None:
-      lever_id = str(metadata.get("lever_id") or "").strip()
-      if not lever_id:
-        return
-      lever_meta = {
-        **_clone(metadata),
-        **quarter_scope,
-      }
-      lever_catalog[lever_id] = lever_meta
-      controller_write_levers.append(_clone(lever_meta))
-
-    revenue_rows: List[Dict[str, Any]] = []
-    ws, min_row, max_row, min_col, max_col = _defined_range_bounds(wb, "model_input_revenue")
-    revenue_row_ordinal = 0
-    for row_idx in range(min_row, max_row + 1):
-      controller_marker = str(ws.cell(row=row_idx, column=min_col).value or "").strip()
-      if controller_marker.lower() != "controller write":
-        continue
-      lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
-      product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
-      driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
-      slot_identity = _revenue_slot_identity(
-        row_lob=lob,
-        row_product=product,
-        revenue_row_ordinal=revenue_row_ordinal,
-      )
-      lever_id = _revenue_lever_id(lob, product, driver)
-      semantics = _revenue_input_semantics(driver)
-      revenue_rows.append(
-        {
-          "named_range": "model_input_revenue",
-          "controller_write": True,
-          "lever_id": lever_id,
-          "placeholder_lob": lob,
-          "placeholder_product": product,
-          **slot_identity,
-          "lob": lob,
-          "product": product,
-          "driver": driver,
-          **semantics,
-          **quarter_scope,
-          "values": [ws.cell(row=row_idx, column=col_idx).value for col_idx in slot_columns if col_idx <= max_col],
-        }
-      )
-      _register_lever(
-        {
-          "lever_id": lever_id,
-          "named_range": "model_input_revenue",
-          "section": "revenue",
-          **slot_identity,
-          "lob": lob,
-          "product": product,
-          "driver": driver,
-          "label_path": f"{lob} > {product} > {driver}",
-          **semantics,
-        }
-      )
-      revenue_row_ordinal += 1
-
-    def _read_simple_rows(range_name: str, *, section_key: str) -> List[Dict[str, Any]]:
-      local_ws, local_min_row, local_max_row, local_min_col, local_max_col = _defined_range_bounds(wb, range_name)
-      rows: List[Dict[str, Any]] = []
-      for row_idx in range(local_min_row, local_max_row + 1):
-        controller_marker = str(local_ws.cell(row=row_idx, column=local_min_col).value or "").strip()
-        if controller_marker.lower() != "controller write":
-          continue
-        label = str(local_ws.cell(row=row_idx, column=local_min_col + 1).value or "").strip()
-        lever_id = _simple_lever_id(section_key, label)
-        semantics = _simple_input_semantics(section_key, label)
-        rows.append(
-          {
-            "named_range": range_name,
-            "controller_write": True,
-            "lever_id": lever_id,
-            "label": label,
-            **semantics,
-            **quarter_scope,
-            "values": [local_ws.cell(row=row_idx, column=col_idx).value for col_idx in slot_columns if col_idx <= local_max_col],
-          }
-        )
-        _register_lever(
-          {
-            "lever_id": lever_id,
-            "named_range": range_name,
-            "section": section_key,
-            "label": label,
-            "label_path": label,
-            **semantics,
-          }
-        )
-      return rows
-
-    schedule_ws, sched_min_row, sched_max_row, sched_min_col, sched_max_col = _defined_range_bounds(wb, "model_input_schedules")
-    seed_col = slot_columns[0] - 1 if slot_columns else sched_min_col + 2
-    schedule_rows = _read_simple_rows("model_input_schedules", section_key="schedules")
-
-    return {
-      "contract_version": "finmo_model_input_v3",
-      "canonical_lever_vocabulary": "model_inputs_controller_write_only",
-      "finmo_path": finmo_path,
-      "start_date": _as_iso_date(_read_named_cell(wb, "model_input_startdate")),
-      "periods": slots,
-      "lever_catalog": lever_catalog,
-      "controller_write_levers": controller_write_levers,
-      "sections": {
-        "revenue": revenue_rows,
-        "expenses": _read_simple_rows("model_input_expenses", section_key="expenses"),
-        "balance_sheet": _read_simple_rows("model_input_balancehseet", section_key="balance_sheet"),
-        "schedules": {
-          "debt_opening_balance_seed": schedule_ws.cell(row=sched_min_row + 3, column=seed_col).value,
-          "lease_opening_balance_seed": schedule_ws.cell(row=sched_min_row + 12, column=seed_col).value,
-          "rows": schedule_rows,
-        },
-      },
-    }
-  finally:
-    wb.close()
-
-
-def _read_finmo_json(finmo_path: str) -> Dict[str, Any]:
-  wb = load_workbook(finmo_path, data_only=True)
-  try:
-    slots = _period_slots_from_finmo(wb)
-    slot_columns = [int(slot["column_index"]) for slot in slots]
-
-    def _read_rows(range_name: str) -> List[Dict[str, Any]]:
-      ws, min_row, max_row, min_col, max_col = _defined_range_bounds(wb, range_name)
-      rows: List[Dict[str, Any]] = []
-      for row_idx in range(min_row, max_row + 1):
-        label = str(ws.cell(row=row_idx, column=min_col).value or "").strip()
-        if not label:
-          continue
-        rows.append(
-          {
-            "label": label,
-            "values": [ws.cell(row=row_idx, column=col_idx).value for col_idx in slot_columns if col_idx <= max_col],
-          }
-        )
-      return rows
-
-    accounting_rows = _read_rows("finmo_accountingcheck")
-    pl_rows = _read_rows("finmo_pl")
-    balance_rows = _read_rows("finmo_balancesheet")
-    cfs_rows = _read_rows("finmo_cfs")
-
-    row_maps = {
-      "pl": {row["label"]: row["values"] for row in pl_rows},
-      "balance": {row["label"]: row["values"] for row in balance_rows},
-      "cfs": {row["label"]: row["values"] for row in cfs_rows},
-    }
-    quarter_rows: List[Dict[str, Any]] = []
-    for slot in slots:
-      idx = int(slot["slot_index"])
-      quarter_rows.append(
-        {
-          "slot_index": idx,
-          "year": slot.get("year"),
-          "quarter": slot.get("quarter"),
-          "date": slot.get("date"),
-          "revenue": (row_maps["pl"].get("Revenue") or [None])[idx] if idx < len(row_maps["pl"].get("Revenue") or []) else None,
-          "cogs": (row_maps["pl"].get("Cost of Goods Sold") or [None])[idx] if idx < len(row_maps["pl"].get("Cost of Goods Sold") or []) else None,
-          "gross_profit": (row_maps["pl"].get("Gross Profit") or [None])[idx] if idx < len(row_maps["pl"].get("Gross Profit") or []) else None,
-          "marketing": (row_maps["pl"].get("Marketing") or [None])[idx] if idx < len(row_maps["pl"].get("Marketing") or []) else None,
-          "research_and_development": (row_maps["pl"].get("Research & Development") or [None])[idx] if idx < len(row_maps["pl"].get("Research & Development") or []) else None,
-          "lease_rent": (row_maps["pl"].get("Lease/Rent") or [None])[idx] if idx < len(row_maps["pl"].get("Lease/Rent") or []) else None,
-          "payroll": (row_maps["pl"].get("Payroll") or [None])[idx] if idx < len(row_maps["pl"].get("Payroll") or []) else None,
-          "g_and_a": (row_maps["pl"].get("General & Administrative") or [None])[idx] if idx < len(row_maps["pl"].get("General & Administrative") or []) else None,
-          "ebitda": (row_maps["pl"].get("EBITDA") or [None])[idx] if idx < len(row_maps["pl"].get("EBITDA") or []) else None,
-          "interest": (row_maps["pl"].get("Interest") or [None])[idx] if idx < len(row_maps["pl"].get("Interest") or []) else None,
-          "depreciation": (row_maps["pl"].get("Depreciation") or [None])[idx] if idx < len(row_maps["pl"].get("Depreciation") or []) else None,
-          "taxes": (row_maps["pl"].get("Taxes") or [None])[idx] if idx < len(row_maps["pl"].get("Taxes") or []) else None,
-          "net_income": (row_maps["pl"].get("Net Income") or [None])[idx] if idx < len(row_maps["pl"].get("Net Income") or []) else None,
-          "cash": (row_maps["balance"].get("Cash") or [None])[idx] if idx < len(row_maps["balance"].get("Cash") or []) else None,
-          "total_assets": (row_maps["balance"].get("Total Assets") or [None])[idx] if idx < len(row_maps["balance"].get("Total Assets") or []) else None,
-          "total_liabilities_and_equity": (row_maps["balance"].get("Total Liabilities & Equity") or [None])[idx] if idx < len(row_maps["balance"].get("Total Liabilities & Equity") or []) else None,
-          "ending_cash": (row_maps["cfs"].get("Ending Cash") or [None])[idx] if idx < len(row_maps["cfs"].get("Ending Cash") or []) else None,
-        }
-      )
-
-    check_status_values = accounting_rows[0]["values"] if accounting_rows else []
-    check_numeric_values = accounting_rows[1]["values"] if len(accounting_rows) > 1 else []
-    all_ok = all(str(value or "").strip().upper() == "OK" for value in check_status_values if value not in (None, ""))
-
-    return {
-      "contract_version": "finmo_output_v1",
-      "finmo_path": finmo_path,
-      "periods": slots,
-      "accounting_check": {
-        "rows": accounting_rows,
-        "all_ok": all_ok,
-        "status_values": check_status_values,
-        "numeric_values": check_numeric_values,
-      },
-      "pl": pl_rows,
-      "balance_sheet": balance_rows,
-      "cash_flow": cfs_rows,
-      "quarter_rows": quarter_rows,
-    }
-  finally:
-    wb.close()
-
-
 def build_python_finmo_json(
   *,
   model_input_json: Dict[str, Any],
@@ -622,7 +291,7 @@ def build_python_finmo_json(
         {
           "slot_index": idx,
           "column_index": 4 + idx,
-          "column_letter": get_column_letter(4 + idx),
+          "column_letter": _column_letter(4 + idx),
           "year": item.get("year"),
           "quarter": item.get("quarter"),
           "date": item.get("date"),
@@ -653,7 +322,7 @@ def build_python_finmo_json(
         {
           "slot_index": idx,
           "column_index": 4 + idx,
-          "column_letter": get_column_letter(4 + idx),
+          "column_letter": _column_letter(4 + idx),
           "year": row.get("year"),
           "quarter": row.get("quarter"),
           "date": row.get("date"),
@@ -1153,7 +822,7 @@ def _python_model_input_periods(*, start_date_iso: Optional[str], period_count: 
       {
         "slot_index": slot_index,
         "column_index": column_index,
-        "column_letter": get_column_letter(column_index),
+        "column_letter": _column_letter(column_index),
         "year": float(period_date.year),
         "quarter": float(slot_index + 1),
         "date": period_date.date().isoformat(),
@@ -1735,654 +1404,6 @@ def normalize_model_input_forecast_anchor(
   return next_payload
 
 
-def _write_model_input_json_to_workbook(finmo_path: str, model_input_json: Dict[str, Any]) -> None:
-  wb = load_workbook(finmo_path, data_only=False)
-  try:
-    period_slots = _period_slots_from_model_inputs(wb)
-    period_columns = [int(slot["column_index"]) for slot in period_slots]
-    full_period_columns = [int(slot["column_index"]) for slot in _full_quarter_slots(period_slots)]
-
-    def _target_period_columns(values: Sequence[Any]) -> List[int]:
-      if len(values) == len(full_period_columns) and full_period_columns:
-        return list(full_period_columns)
-      return list(period_columns)
-
-    if isinstance(model_input_json.get("start_date"), str) and str(model_input_json.get("start_date")).strip():
-      _write_named_cell(wb, "model_input_startdate", str(model_input_json.get("start_date")).strip())
-
-    revenue_section = [row for row in (((model_input_json.get("sections") or {}) if isinstance(model_input_json.get("sections"), dict) else {}).get("revenue") or []) if isinstance(row, dict)]
-    ws, min_row, max_row, min_col, max_col = _defined_range_bounds(wb, "model_input_revenue")
-    revenue_row_lookup: Dict[Tuple[str, str, str], int] = {}
-    revenue_slot_lookup: Dict[Tuple[str, str], int] = {}
-    revenue_row_ordinal = 0
-    for row_idx in range(min_row, max_row + 1):
-      marker = str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower()
-      if marker != "controller write":
-        continue
-      row_lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
-      row_product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
-      row_driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
-      slot_identity = _revenue_slot_identity(
-        row_lob=row_lob,
-        row_product=row_product,
-        revenue_row_ordinal=revenue_row_ordinal,
-      )
-      revenue_row_lookup[
-        (
-          row_lob,
-          row_product,
-          row_driver,
-        )
-      ] = row_idx
-      revenue_slot_lookup[(str(slot_identity.get("revenue_slot_key") or "").strip(), row_driver)] = row_idx
-      revenue_row_ordinal += 1
-    for row in revenue_section:
-      driver = str(row.get("driver") or "").strip()
-      row_idx = revenue_slot_lookup.get((str(row.get("revenue_slot_key") or "").strip(), driver))
-      if row_idx is None:
-        key = (str(row.get("lob") or "").strip(), str(row.get("product") or "").strip(), driver)
-        row_idx = revenue_row_lookup.get(key)
-      if row_idx is None:
-        fallback_key = (
-          str(row.get("placeholder_lob") or "").strip(),
-          str(row.get("placeholder_product") or "").strip(),
-          driver,
-        )
-        row_idx = revenue_row_lookup.get(fallback_key)
-      if row_idx is None:
-        continue
-      if str(row.get("lob") or "").strip():
-        ws.cell(row=row_idx, column=min_col + 2).value = str(row.get("lob") or "").strip()
-      if str(row.get("product") or "").strip():
-        ws.cell(row=row_idx, column=min_col + 3).value = str(row.get("product") or "").strip()
-      values = list(row.get("values") or [])
-      for idx, col_idx in enumerate(_target_period_columns(values)):
-        if col_idx > max_col:
-          continue
-        ws.cell(row=row_idx, column=col_idx).value = values[idx] if idx < len(values) else 0
-
-    def _write_simple_rows(range_name: str, rows_payload: Sequence[Dict[str, Any]]) -> None:
-      local_ws, local_min_row, local_max_row, local_min_col, local_max_col = _defined_range_bounds(wb, range_name)
-      label_lookup: Dict[str, int] = {}
-      for row_idx in range(local_min_row, local_max_row + 1):
-        marker = str(local_ws.cell(row=row_idx, column=local_min_col).value or "").strip().lower()
-        if marker != "controller write":
-          continue
-        label_lookup[str(local_ws.cell(row=row_idx, column=local_min_col + 1).value or "").strip()] = row_idx
-      for row in rows_payload:
-        label = str(row.get("label") or "").strip()
-        row_idx = label_lookup.get(label)
-        if row_idx is None:
-          continue
-        values = list(row.get("values") or [])
-        for idx, col_idx in enumerate(_target_period_columns(values)):
-          if col_idx > local_max_col:
-            continue
-          local_ws.cell(row=row_idx, column=col_idx).value = values[idx] if idx < len(values) else 0
-
-    sections = model_input_json.get("sections") if isinstance(model_input_json.get("sections"), dict) else {}
-    _write_simple_rows("model_input_expenses", [row for row in (sections.get("expenses") or []) if isinstance(row, dict)])
-    _write_simple_rows("model_input_balancehseet", [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)])
-
-    schedule_section = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
-    schedule_ws, sched_min_row, sched_max_row, sched_min_col, sched_max_col = _defined_range_bounds(wb, "model_input_schedules")
-    label_lookup: Dict[str, int] = {}
-    for row_idx in range(sched_min_row, sched_max_row + 1):
-      label = str(schedule_ws.cell(row=row_idx, column=sched_min_col + 1).value or "").strip()
-      if label:
-        label_lookup[label] = row_idx
-    seed_col = period_columns[0] - 1 if period_columns else sched_min_col + 2
-    debt_seed_row = label_lookup.get("Closing Balance")
-    if debt_seed_row is not None and seed_col <= sched_max_col:
-      debt_seed = schedule_section.get("debt_opening_balance_seed")
-      if debt_seed is not None:
-        schedule_ws.cell(row=debt_seed_row, column=seed_col).value = debt_seed
-    lease_seed_row = label_lookup.get("Closing Balance (Total)")
-    if lease_seed_row is not None and seed_col <= sched_max_col:
-      lease_seed = schedule_section.get("lease_opening_balance_seed")
-      if lease_seed is not None:
-        schedule_ws.cell(row=lease_seed_row, column=seed_col).value = lease_seed
-    for row in [item for item in (schedule_section.get("rows") or []) if isinstance(item, dict)]:
-      label = str(row.get("label") or "").strip()
-      row_idx = label_lookup.get(label)
-      if row_idx is None:
-        continue
-      values = list(row.get("values") or [])
-      for idx, col_idx in enumerate(period_columns):
-        if col_idx > sched_max_col:
-          continue
-        schedule_ws.cell(row=row_idx, column=col_idx).value = values[idx] if idx < len(values) else 0
-
-    wb.save(finmo_path)
-  finally:
-    wb.close()
-
-
-def _resolve_finmo_calibration_shell(
-  *,
-  finmo_path: str,
-  model_input_json: Dict[str, Any],
-  finmo_json: Dict[str, Any],
-  calibration_spec: Dict[str, Any],
-) -> Dict[str, Any]:
-  wb = load_workbook(finmo_path, data_only=False)
-  try:
-    model_slots = [item for item in (model_input_json.get("periods") or []) if isinstance(item, dict)]
-    finmo_slots = [item for item in (finmo_json.get("periods") or []) if isinstance(item, dict)]
-
-    def _resolve_model_input_cell(spec: Dict[str, Any]) -> Dict[str, Any]:
-      section = str(spec.get("section") or "").strip().lower()
-      lever_id = str(spec.get("lever_id") or "").strip()
-      quarter_index = _safe_int(spec.get("quarter_index")) or 1
-      slot = _model_input_slot_for_full_quarter(model_slots, quarter_index)
-      if slot is None:
-        return {}
-      if section == "revenue":
-        ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_revenue")
-        revenue_row_ordinal = 0
-        for row_idx in range(min_row, max_row + 1):
-          if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
-            continue
-          row_lob = str(ws.cell(row=row_idx, column=min_col + 2).value or "").strip()
-          row_product = str(ws.cell(row=row_idx, column=min_col + 3).value or "").strip()
-          row_driver = str(ws.cell(row=row_idx, column=min_col + 4).value or "").strip()
-          row_lever_id = _revenue_lever_id(row_lob, row_product, row_driver)
-          row_slot_identity = _revenue_slot_identity(
-            row_lob=row_lob,
-            row_product=row_product,
-            revenue_row_ordinal=revenue_row_ordinal,
-          )
-          revenue_row_ordinal += 1
-          if (
-            (str(spec.get("revenue_slot_key") or "").strip() and str(row_slot_identity.get("revenue_slot_key") or "").strip() == str(spec.get("revenue_slot_key") or "").strip() and row_driver == str(spec.get("driver") or "").strip())
-            or
-            (lever_id and row_lever_id == lever_id)
-            or (
-              not lever_id
-              and row_lob == str(spec.get("lob") or "").strip()
-              and row_product == str(spec.get("product") or "").strip()
-              and row_driver == str(spec.get("driver") or "").strip()
-            )
-          ):
-            col_idx = int(slot["column_index"])
-            return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
-      if section == "expenses":
-        ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_expenses")
-        for row_idx in range(min_row, max_row + 1):
-          if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
-            continue
-          label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip()
-          row_lever_id = _simple_lever_id("expenses", label)
-          if (lever_id and row_lever_id == lever_id) or (not lever_id and label == str(spec.get("label") or "").strip()):
-            col_idx = int(slot["column_index"])
-            return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
-      if section == "balance_sheet":
-        ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_balancehseet")
-        for row_idx in range(min_row, max_row + 1):
-          if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
-            continue
-          label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip()
-          row_lever_id = _simple_lever_id("balance_sheet", label)
-          if (lever_id and row_lever_id == lever_id) or (not lever_id and label == str(spec.get("label") or "").strip()):
-            col_idx = int(slot["column_index"])
-            return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
-      if section == "schedules":
-        ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, "model_input_schedules")
-        for row_idx in range(min_row, max_row + 1):
-          if str(ws.cell(row=row_idx, column=min_col).value or "").strip().lower() != "controller write":
-            continue
-          label = str(ws.cell(row=row_idx, column=min_col + 1).value or "").strip()
-          row_lever_id = _simple_lever_id("schedules", label)
-          if (lever_id and row_lever_id == lever_id) or (not lever_id and label == str(spec.get("label") or "").strip()):
-            col_idx = int(slot["column_index"])
-            return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
-      return {}
-
-    def _resolve_finmo_output_cell(objective: Dict[str, Any]) -> Dict[str, Any]:
-      range_name = str(objective.get("sheet_range") or "").strip()
-      if not range_name:
-        return {}
-      ws, min_row, max_row, min_col, _max_col = _defined_range_bounds(wb, range_name)
-      slot = _finmo_slot_for_full_quarter(finmo_slots, _safe_int(objective.get("quarter_index")) or 1)
-      if slot is None:
-        return {}
-      for row_idx in range(min_row, max_row + 1):
-        if str(ws.cell(row=row_idx, column=min_col).value or "").strip() == str(objective.get("line_item") or "").strip():
-          col_idx = int(slot["column_index"])
-          return {"sheet": ws.title, "cell": f"{get_column_letter(col_idx)}{row_idx}"}
-      return {}
-
-    next_shell = _clone(calibration_spec if isinstance(calibration_spec, dict) else {})
-    for request in [item for item in (next_shell.get("goal_seek_requests") or []) if isinstance(item, dict)]:
-      request["objective_cell"] = _resolve_finmo_output_cell((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {})
-      request["changing_input_cells"] = [
-        _resolve_model_input_cell(item)
-        for item in (request.get("changing_inputs") or [])
-        if isinstance(item, dict)
-      ]
-    for request in [item for item in (next_shell.get("solver_requests") or []) if isinstance(item, dict)]:
-      request["objective_cell"] = _resolve_finmo_output_cell((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {})
-      resolved_inputs = []
-      resolved_constraints = [item for item in (request.get("constraints") or []) if isinstance(item, dict)]
-      grouped_anchor_cells: Dict[str, str] = {}
-      for item in (request.get("changing_inputs") or []):
-        if not isinstance(item, dict):
-          continue
-        resolved = _resolve_model_input_cell(item)
-        if not resolved:
-          continue
-        resolved_inputs.append(resolved)
-        band = item.get("band") if isinstance(item.get("band"), dict) else {}
-        min_value = _safe_float(band.get("min"))
-        max_value = _safe_float(band.get("max"))
-        if min_value is not None:
-          resolved_constraints.append({"cell": f"{resolved.get('sheet')}!{resolved.get('cell')}", "relation": 3, "value": min_value})
-        if max_value is not None:
-          resolved_constraints.append({"cell": f"{resolved.get('sheet')}!{resolved.get('cell')}", "relation": 1, "value": max_value})
-        if str(item.get("grouping_mode") or "").strip().lower() == "grouped":
-          group_key = str(item.get("group_key") or "").strip()
-          if group_key:
-            resolved_ref = f"{resolved.get('sheet')}!{resolved.get('cell')}"
-            anchor_ref = grouped_anchor_cells.get(group_key)
-            if anchor_ref:
-              resolved_constraints.append({"cell": resolved_ref, "relation": 2, "value_ref": anchor_ref})
-            else:
-              grouped_anchor_cells[group_key] = resolved_ref
-      for band_constraint in [item for item in (request.get("band_constraints") or []) if isinstance(item, dict)]:
-        resolved_target = _resolve_finmo_output_cell((band_constraint.get("target") or {}) if isinstance(band_constraint.get("target"), dict) else {})
-        if not resolved_target:
-          continue
-        goal_band = band_constraint.get("goal_band") if isinstance(band_constraint.get("goal_band"), dict) else {}
-        min_value = _safe_float(goal_band.get("min"))
-        max_value = _safe_float(goal_band.get("max"))
-        if min_value is not None:
-          resolved_constraints.append({"cell": f"{resolved_target.get('sheet')}!{resolved_target.get('cell')}", "relation": 3, "value": min_value})
-        if max_value is not None:
-          resolved_constraints.append({"cell": f"{resolved_target.get('sheet')}!{resolved_target.get('cell')}", "relation": 1, "value": max_value})
-      request["changing_input_cells"] = resolved_inputs
-      request["constraints"] = resolved_constraints
-      request["execution_mode"] = "excel_solver_shell"
-    return next_shell
-  finally:
-    wb.close()
-
-
-def _execute_finmo_calibration_shell(
-  *,
-  finmo_path: str,
-  calibration_shell: Dict[str, Any],
-) -> Dict[str, Any]:
-  shell = calibration_shell if isinstance(calibration_shell, dict) else {}
-  goal_seek_requests: List[Dict[str, Any]] = []
-  solver_requests: List[Dict[str, Any]] = []
-  for request in [item for item in (shell.get("solver_requests") or []) if isinstance(item, dict)]:
-    objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
-    changing_cells = [item for item in (request.get("changing_input_cells") or []) if isinstance(item, dict)]
-    if not objective_cell or not changing_cells:
-      continue
-    goal_band = (((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}).get("goal_band") or {})
-    solver_requests.append(
-      {
-        "request_id": str(request.get("request_id") or "").strip(),
-        "objective_cell": objective_cell,
-        "changing_input_cells": changing_cells,
-        "objective_mode": str((((request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}).get("objective_mode") or "maximize")).strip().lower() or "maximize",
-        "goal_band": _clone(goal_band if isinstance(goal_band, dict) else {}),
-        "constraints": [item for item in (request.get("constraints") or []) if isinstance(item, dict)],
-      }
-    )
-  if not goal_seek_requests and not solver_requests:
-    return {"goal_seek_results": [], "solver_results": []}
-
-  workbook_path = _normalize_finmo_path(finmo_path)
-  payload = {
-    "goal_seek_requests": goal_seek_requests,
-    "solver_requests": solver_requests,
-  }
-  payload_path = ""
-  with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as handle:
-    json.dump(payload, handle)
-    payload_path = handle.name
-  script = (
-    "$path = " + json.dumps(workbook_path) + ";"
-    "$payloadPath = " + json.dumps(payload_path) + ";"
-    "$payload = Get-Content -Raw $payloadPath | ConvertFrom-Json -Depth 100;"
-    "$excel = New-Object -ComObject Excel.Application;"
-    "$excel.Visible = $false;"
-    "$excel.DisplayAlerts = $false;"
-    "$goalResults = New-Object System.Collections.ArrayList;"
-    "$solverResults = New-Object System.Collections.ArrayList;"
-    "$wb = $null;"
-    "try {"
-    "$solver = $excel.AddIns.Item('Solver Add-in');"
-    "if ($solver -and -not $solver.Installed) { $solver.Installed = $true }"
-    "$wb = $excel.Workbooks.Open($path, $false, $false);"
-    "foreach ($request in $payload.solver_requests) {"
-    "  $excel.Run('Solver.xlam!SolverReset');"
-    "  $objectiveSpec = \"'\" + $request.objective_cell.sheet + \"'!\" + $request.objective_cell.cell;"
-    "  $changeSpec = (($request.changing_input_cells | ForEach-Object { \"'\" + $_.sheet + \"'!\" + $_.cell }) -join ',');"
-    "  $objectiveMode = ($request.objective_mode | Out-String).Trim().ToLower();"
-    "  if ($objectiveMode -eq 'minimize') {"
-    "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 2, $null, $changeSpec);"
-    "  } else {"
-    "    $excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 1, $null, $changeSpec);"
-    "  }"
-    "  if ($request.goal_band.min -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 3, [double]$request.goal_band.min) }"
-    "  if ($request.goal_band.max -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 1, [double]$request.goal_band.max) }"
-    "  foreach ($constraint in $request.constraints) {"
-    "    if (-not $constraint.cell) { continue }"
-    "    $parts = $constraint.cell.ToString().Split('!');"
-    "    $constraintSpec = \"'\" + $parts[0] + \"'!\" + $parts[1];"
-    "    if ($constraint.PSObject.Properties.Match('value_ref').Count -gt 0 -and $constraint.value_ref) {"
-    "      $valueParts = $constraint.value_ref.ToString().Split('!');"
-    "      $valueSpec = \"'\" + $valueParts[0] + \"'!\" + $valueParts[1];"
-    "      $excel.Run('Solver.xlam!SolverAdd', $constraintSpec, [int]$constraint.relation, $valueSpec);"
-    "    } else {"
-    "      $excel.Run('Solver.xlam!SolverAdd', $constraintSpec, [int]$constraint.relation, $constraint.value);"
-    "    }"
-    "  }"
-    "  $solveResult = $excel.Run('Solver.xlam!SolverSolve', $true);"
-    "  $excel.Run('Solver.xlam!SolverFinish', 1);"
-    "  $excel.CalculateFullRebuild();"
-    "  $solveCode = [int]$solveResult;"
-    "  $solveSuccess = ($solveCode -eq 0 -or $solveCode -eq 1);"
-    "  [void]$solverResults.Add(@{ request_id = $request.request_id; success = $solveSuccess; solver_result = $solveResult.ToString(); solver_code = $solveCode; objective_mode = $objectiveMode });"
-    "}"
-    "$wb.Save();"
-    "$wb.Close($true);"
-    "Write-Output (@{ goal_seek_results = $goalResults; solver_results = $solverResults } | ConvertTo-Json -Compress -Depth 100);"
-    "} finally {"
-    "if ($wb) { try { $wb.Close($false) } catch {} }"
-    "$excel.Quit();"
-    "}"
-  )
-  try:
-    try:
-      completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as exc:
-      return {
-        "goal_seek_results": [],
-        "solver_results": [],
-        "success": False,
-        "error": str(exc.stderr or exc.stdout or exc),
-      }
-    except Exception as exc:
-      return {
-        "goal_seek_results": [],
-        "solver_results": [],
-        "success": False,
-        "error": str(exc),
-      }
-    try:
-      parsed = json.loads(str(completed.stdout or "").strip() or "{}")
-    except Exception:
-      parsed = {}
-    if isinstance(parsed, dict):
-      parsed.setdefault("success", True)
-      return parsed
-    return {"goal_seek_results": [], "solver_results": [], "success": False, "error": "invalid_calibration_response"}
-  finally:
-    if payload_path:
-      try:
-        Path(payload_path).unlink(missing_ok=True)
-      except Exception:
-        pass
-
-
-def _recalculate_excel_workbook(finmo_path: str) -> None:
-  workbook_path = _normalize_finmo_path(finmo_path)
-  script = (
-    "$path = " + json.dumps(workbook_path) + ";"
-    "$excel = New-Object -ComObject Excel.Application;"
-    "$excel.Visible = $false;"
-    "$excel.DisplayAlerts = $false;"
-    "try {"
-    "$wb = $excel.Workbooks.Open($path, $false, $false);"
-    "$excel.CalculateFullRebuild();"
-    "$wb.Save();"
-    "$wb.Close($true);"
-    "} finally {"
-    "if ($wb) { try { $wb.Close($false) } catch {} }"
-    "$excel.Quit();"
-    "}"
-  )
-  subprocess.run(
-    ["powershell", "-NoProfile", "-Command", script],
-    check=True,
-    capture_output=True,
-    text=True,
-  )
-
-
-def run_finmo_goal_seek(
-  *,
-  finmo_path: str,
-  objective_cell: Dict[str, Any],
-  changing_input_cell: Dict[str, Any],
-  goal_value: float,
-) -> Dict[str, Any]:
-  workbook_path = _normalize_finmo_path(finmo_path)
-  objective_ref = f"{objective_cell.get('sheet')}!{objective_cell.get('cell')}"
-  changing_ref = f"{changing_input_cell.get('sheet')}!{changing_input_cell.get('cell')}"
-  script = (
-    "$path = " + json.dumps(workbook_path) + ";"
-    "$objective = " + json.dumps(objective_ref) + ";"
-    "$changing = " + json.dumps(changing_ref) + ";"
-    "$goal = " + json.dumps(goal_value) + ";"
-    "$excel = New-Object -ComObject Excel.Application;"
-    "$excel.Visible = $false;"
-    "$excel.DisplayAlerts = $false;"
-    "try {"
-    "$wb = $excel.Workbooks.Open($path, $false, $false);"
-    "$parts = $objective.Split('!');"
-    "$objectiveRange = $wb.Worksheets.Item($parts[0]).Range($parts[1]);"
-    "$parts2 = $changing.Split('!');"
-    "$changingRange = $wb.Worksheets.Item($parts2[0]).Range($parts2[1]);"
-    "$result = $objectiveRange.GoalSeek($goal, $changingRange);"
-    "$excel.CalculateFullRebuild();"
-    "$wb.Save();"
-    "$wb.Close($true);"
-    "Write-Output ($result.ToString());"
-    "} finally {"
-    "if ($wb) { try { $wb.Close($false) } catch {} }"
-    "$excel.Quit();"
-    "}"
-  )
-  completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
-  return {
-    "objective_cell": objective_cell,
-    "changing_input_cell": changing_input_cell,
-    "goal_value": goal_value,
-    "success": "True" in str(completed.stdout or ""),
-  }
-
-
-def _goal_value_from_band(goal_band: Optional[Dict[str, Any]]) -> Optional[float]:
-  band = goal_band if isinstance(goal_band, dict) else {}
-  min_value = _safe_float(band.get("min"))
-  max_value = _safe_float(band.get("max"))
-  if min_value is not None and max_value is not None:
-    return (min_value + max_value) / 2.0
-  if min_value is not None:
-    return min_value
-  if max_value is not None:
-    return max_value
-  return None
-
-
-def run_finmo_goal_seek_request(
-  *,
-  finmo_path: str,
-  request: Dict[str, Any],
-) -> Dict[str, Any]:
-  objective = (request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}
-  objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
-  changing_inputs = [item for item in (request.get("changing_input_cells") or []) if isinstance(item, dict)]
-  goal_value = _goal_value_from_band(objective.get("goal_band") if isinstance(objective, dict) else {})
-  if not objective_cell or not changing_inputs or goal_value is None:
-    return {
-      "request_id": str(request.get("request_id") or "").strip(),
-      "success": False,
-      "error": "goal_seek_request_incomplete",
-    }
-  result = run_finmo_goal_seek(
-    finmo_path=finmo_path,
-    objective_cell=objective_cell,
-    changing_input_cell=changing_inputs[0],
-    goal_value=goal_value,
-  )
-  result["request_id"] = str(request.get("request_id") or "").strip()
-  result["goal_band"] = _clone(objective.get("goal_band") or {})
-  return result
-
-
-def run_finmo_excel_solver(
-  *,
-  finmo_path: str,
-  objective_cell: Dict[str, Any],
-  changing_input_cells: Sequence[Dict[str, Any]],
-  goal_band: Optional[Dict[str, Any]] = None,
-  constraints: Optional[Sequence[Dict[str, Any]]] = None,
-  objective_mode: str = "maximize",
-) -> Dict[str, Any]:
-  workbook_path = _normalize_finmo_path(finmo_path)
-  objective_ref = f"{objective_cell.get('sheet')}!{objective_cell.get('cell')}"
-  changing_refs = [
-    f"{item.get('sheet')}!{item.get('cell')}"
-    for item in (changing_input_cells or [])
-    if isinstance(item, dict) and item.get("sheet") and item.get("cell")
-  ]
-  if not objective_ref or not changing_refs:
-    return {
-      "objective_cell": objective_cell,
-      "changing_input_cells": list(changing_input_cells or []),
-      "goal_band": _clone(goal_band or {}),
-      "success": False,
-      "error": "excel_solver_request_incomplete",
-    }
-  min_value = _safe_float((goal_band or {}).get("min"))
-  max_value = _safe_float((goal_band or {}).get("max"))
-  constraints_payload = [item for item in (constraints or []) if isinstance(item, dict)]
-  normalized_objective_mode = str(objective_mode or "maximize").strip().lower() or "maximize"
-  payload_path = ""
-  solver_payload = {
-    "objective": objective_ref,
-    "changingRefs": changing_refs,
-    "objectiveMode": normalized_objective_mode,
-    "minGoal": min_value,
-    "maxGoal": max_value,
-    "constraints": constraints_payload,
-  }
-  with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as handle:
-    json.dump(solver_payload, handle)
-    payload_path = handle.name
-  script = (
-    "$path = " + json.dumps(workbook_path) + ";"
-    "$payloadPath = " + json.dumps(payload_path) + ";"
-    "$payload = Get-Content -Raw $payloadPath | ConvertFrom-Json -Depth 100;"
-    "$objective = $payload.objective;"
-    "$changingRefs = @($payload.changingRefs);"
-    "$objectiveMode = ($payload.objectiveMode | Out-String).Trim().ToLower();"
-    "$minGoal = $payload.minGoal;"
-    "$maxGoal = $payload.maxGoal;"
-    "$constraints = @($payload.constraints);"
-    "$excel = New-Object -ComObject Excel.Application;"
-    "$excel.Visible = $false;"
-    "$excel.DisplayAlerts = $false;"
-    "$wb = $null;"
-    "try {"
-    "$solver = $excel.AddIns.Item('Solver Add-in');"
-    "if (-not $solver.Installed) { $solver.Installed = $true }"
-    "$wb = $excel.Workbooks.Open($path, $false, $false);"
-    "$excel.Run('Solver.xlam!SolverReset');"
-    "$changeSpec = ($changingRefs | ForEach-Object { $parts = $_.Split('!'); $sheet = $parts[0]; $cell = $parts[1]; \"'\" + $sheet + \"'!\" + $cell }) -join ',';"
-    "$parts = $objective.Split('!');"
-    "$objectiveSpec = \"'\" + $parts[0] + \"'!\" + $parts[1];"
-    "if ($objectiveMode -eq 'minimize') {"
-    "$excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 2, $null, $changeSpec);"
-    "} else {"
-    "$excel.Run('Solver.xlam!SolverOK', $objectiveSpec, 1, $null, $changeSpec);"
-    "}"
-    "if ($minGoal -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 3, $minGoal) }"
-    "if ($maxGoal -ne $null) { $excel.Run('Solver.xlam!SolverAdd', $objectiveSpec, 1, $maxGoal) }"
-    "foreach ($constraint in $constraints) {"
-    "if (-not $constraint.cell) { continue }"
-    "$relation = [int]($constraint.relation);"
-    "if ($relation -lt 1) { continue }"
-    "$constraintParts = $constraint.cell.Split('!');"
-    "$constraintSpec = \"'\" + $constraintParts[0] + \"'!\" + $constraintParts[1];"
-    "if ($constraint.PSObject.Properties.Match('value_ref').Count -gt 0 -and $constraint.value_ref) {"
-    "$valueParts = $constraint.value_ref.Split('!');"
-    "$valueSpec = \"'\" + $valueParts[0] + \"'!\" + $valueParts[1];"
-    "$excel.Run('Solver.xlam!SolverAdd', $constraintSpec, $relation, $valueSpec);"
-    "} else {"
-    "$formulaText = $constraint.value;"
-    "$excel.Run('Solver.xlam!SolverAdd', $constraintSpec, $relation, $formulaText);"
-    "}"
-    "}"
-    "$solveResult = $excel.Run('Solver.xlam!SolverSolve', $true);"
-    "$excel.Run('Solver.xlam!SolverFinish', 1);"
-    "$excel.CalculateFullRebuild();"
-    "$wb.Save();"
-    "$wb.Close($true);"
-    "$solveCode = [int]$solveResult;"
-    "$solveSuccess = ($solveCode -eq 0 -or $solveCode -eq 1);"
-    "Write-Output ((@{ solver_result = $solveResult.ToString(); solver_code = $solveCode; success = $solveSuccess; objective_mode = $objectiveMode } | ConvertTo-Json -Compress -Depth 10));"
-    "} finally {"
-    "if ($wb) { try { $wb.Close($false) } catch {} }"
-    "$excel.Quit();"
-    "}"
-  )
-  try:
-    completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, capture_output=True, text=True)
-    try:
-      parsed = json.loads(str(completed.stdout or "").strip() or "{}")
-    except Exception:
-      parsed = {}
-    return {
-      "objective_cell": objective_cell,
-      "changing_input_cells": list(changing_input_cells or []),
-      "goal_band": _clone(goal_band or {}),
-      "constraints": _clone(list(constraints or [])),
-      "objective_mode": normalized_objective_mode,
-      "success": bool(parsed.get("success")) if isinstance(parsed, dict) else False,
-      "solver_result": str((parsed.get("solver_result") if isinstance(parsed, dict) else None) or str(completed.stdout or "").strip()),
-      "solver_code": _safe_int(parsed.get("solver_code")) if isinstance(parsed, dict) else 0,
-    }
-  finally:
-    if payload_path:
-      try:
-        Path(payload_path).unlink(missing_ok=True)
-      except Exception:
-        pass
-
-
-def run_finmo_excel_solver_request(
-  *,
-  finmo_path: str,
-  request: Dict[str, Any],
-) -> Dict[str, Any]:
-  objective = (request.get("objective") or {}) if isinstance(request.get("objective"), dict) else {}
-  objective_cell = (request.get("objective_cell") or {}) if isinstance(request.get("objective_cell"), dict) else {}
-  changing_inputs = [item for item in (request.get("changing_input_cells") or []) if isinstance(item, dict)]
-  if not objective_cell or not changing_inputs:
-    return {
-      "request_id": str(request.get("request_id") or "").strip(),
-      "success": False,
-      "error": "excel_solver_request_incomplete",
-    }
-  result = run_finmo_excel_solver(
-    finmo_path=finmo_path,
-    objective_cell=objective_cell,
-    changing_input_cells=changing_inputs,
-    goal_band=(objective.get("goal_band") or {}) if isinstance(objective, dict) else {},
-    constraints=request.get("constraints") if isinstance(request.get("constraints"), list) else [],
-    objective_mode=str((objective.get("objective_mode") if isinstance(objective, dict) else None) or "maximize"),
-  )
-  result["request_id"] = str(request.get("request_id") or "").strip()
-  return result
-
-
 def sync_consistency_state_to_finmo(
   *,
   finmo_path: Any,
@@ -2404,7 +1425,7 @@ def sync_consistency_state_to_finmo(
       from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
     trace_lazy(
       "FINMO_SYNC_REQUEST",
-      "Finmo workbook sync request",
+      "Finmo sync request",
       lambda: {
         "finmo_path": path,
         "business_facts": _clone(business_facts or {}),
@@ -2467,7 +1488,7 @@ def sync_consistency_state_to_finmo(
       from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
       trace_lazy(
         "FINMO_SYNC_RESULT",
-        "Current persisted workbook state",
+        "Current persisted python state",
         lambda: {
           "finmo_path": path,
           "model_input_json": _clone(model_input_json),
@@ -2481,3 +1502,4 @@ def sync_consistency_state_to_finmo(
     "model_input_json": model_input_json,
     "finmo_json": finmo_json,
   }
+

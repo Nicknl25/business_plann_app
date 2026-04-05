@@ -22,9 +22,22 @@ except Exception:
 
 
 US_EASTERN = ZoneInfo("America/New_York")
-DEFAULT_TEST_RUNS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs"
-DEFAULT_TEST_RUNS_DATA_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data"
-DEFAULT_TERMINAL_LOGS_DIR = r"C:\Users\ignat\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs"
+
+
+def _default_apps_root() -> str:
+  env_root = str(os.getenv("INTAKE_APPS_ROOT") or "").strip()
+  if env_root:
+    return env_root
+  one_drive_root = str(os.getenv("OneDriveCommercial") or os.getenv("OneDrive") or "").strip()
+  if one_drive_root:
+    return os.path.join(one_drive_root, "Apps")
+  return os.path.join(os.path.expanduser("~"), "OneDrive - Tithe Financial Wealth Management", "Apps")
+
+
+DEFAULT_APPS_ROOT = _default_apps_root()
+DEFAULT_TEST_RUNS_DIR = os.path.join(DEFAULT_APPS_ROOT, "Test Runs")
+DEFAULT_TEST_RUNS_DATA_DIR = os.path.join(DEFAULT_APPS_ROOT, "Test Runs Data")
+DEFAULT_TERMINAL_LOGS_DIR = os.path.join(DEFAULT_APPS_ROOT, "Terminal Logs")
 LOCAL_FALLBACK_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "_consistency_replay_output"))
 REQUEST_TIMEOUT_SECONDS = None
 

@@ -675,7 +675,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "initial_assets": {"type": "number"},
 
-      "initial_lease": {"type": "string"},
+      "initial_lease": {"type": "number"},
 
       "initial_equity": {"type": "number"},
 
@@ -1653,6 +1653,7 @@ def route_intent(
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If the last assistant message is asking whether paid dedicated business space is expected later, interpret clear yes/no style answers as a boolean patch for future_rent_expected rather than confirm_proceed.\n"
+      + "- If the last assistant message is asking about leased equipment or space beyond main rent, interpret clear no/none style answers as initial_lease = 0 and interpret amount answers as the monthly lease amount.\n"
     )
 
   if consult_type_norm == "people" or (
