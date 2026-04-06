@@ -2049,7 +2049,7 @@ Semantic commitment + consultant authority:
 End by either:
 - Asking the client to select, modify, or reject one of the proposed feasible paths and provide the necessary resource justification, or
 - Requesting explicit acknowledgement to proceed only when the revenue is internally coherent and properly supported.
-// ADDED: Do not propose alternative business paths unless a structural inconsistency exists.
+// ADDED: Do not propose alternative business paths unless a structural conflict exists.
 
 Do not mention steady-state or long-run targets here.
 

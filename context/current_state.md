@@ -11,14 +11,14 @@
 ## Recent Breakthroughs
 - Baby AI is now separated from the main planner and has a narrow advisory contract.
 - Legacy workbook-heavy / old forecast-planning path has been purged from the main system path.
-- Heavy consistency-as-controller logic has been reduced; the real planning path is now critic -> grid -> solver.
+- The old closeout governor path has been removed; the real planning path is now critic -> grid -> solver.
 - Financials flow has been tightened to align more directly with ops context.
 - Live planning outputs are persisted in `planning_run_json` rather than hidden behind chat-only state.
 
 ## Important Nuance
-- Some reconciliation / closeout / compatibility code still exists under `intake_consult.py`.
-- Treat that as persistence/back-compat scaffolding, not as the core planning brain.
-- Do not rebuild the old consistency governor model.
+- The live intake flow now ends at Financials and hands off to planning artifacts plus system-run.
+- Treat planning persistence as infrastructure, not as a second controller layer.
+- Do not rebuild the old closeout governor model.
 
 ## Actively Being Worked On
 - Simplifying the financials consult so it captures less noise and reaches planning faster.

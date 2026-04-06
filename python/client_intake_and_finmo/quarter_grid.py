@@ -11,7 +11,6 @@ from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
 from financial_model_engine.solver import LeverControl, OutputTarget, SolverOptions, solve_financial_model
 
-from client_intake_and_finmo.consistency_financials import build_consistency_financial_summary  # type: ignore
 try:
   from realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
 except Exception:
@@ -48,6 +47,71 @@ _GRID_EXCLUDED_LEVER_IDS = {
 }
 
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _safe_float(value: Any) -> float:
+  try:
+    num = float(value)
+  except Exception:
+    return 0.0
+  if num != num:
+    return 0.0
+  return num
+
+
+def _build_baseline_financial_summary(
+  *,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  revenue = _safe_float(year1.get("company_revenue_total_year1") or financials.get("current_revenue"))
+  cogs = _safe_float(
+    financials.get("cogs_total_year1")
+    or year1.get("company_cogs_total_year1")
+    or year1.get("cogs_total_year1")
+  )
+  if cogs <= 0:
+    cogs = _safe_float(financials.get("current_cogs"))
+  gross_profit = revenue - cogs
+  payroll = _safe_float(
+    financials.get("current_payroll")
+    or financials.get("payroll_total_year1")
+    or year1.get("company_payroll_total_year1")
+    or year1.get("payroll_total_year1")
+  )
+  marketing = _safe_float(
+    financials.get("marketing_total_year1")
+    or year1.get("company_marketing_total_year1")
+    or year1.get("marketing_total_year1")
+  )
+  rent_annualized = _safe_float(financials.get("monthly_rent_expense")) * 12.0
+  other_opex_non_rent = _safe_float(
+    financials.get("other_operating_expense")
+    or year1.get("other_operating_expense_total_year1")
+    or year1.get("other_operating_expense")
+  )
+  other_opex = other_opex_non_rent + rent_annualized
+  ebitda = gross_profit - payroll - marketing - other_opex
+  interest = _safe_float(financials.get("annual_interest_payment"))
+  taxes = 0.0
+  net_income = ebitda - interest - taxes
+  return {
+    "revenue": revenue,
+    "cogs": cogs,
+    "gross_profit": gross_profit,
+    "payroll": payroll,
+    "marketing": marketing,
+    "other_opex": other_opex,
+    "other_opex_non_rent": other_opex_non_rent,
+    "rent_annualized": rent_annualized,
+    "ebitda": ebitda,
+    "interest": interest,
+    "taxes": taxes,
+    "net_income": net_income,
+    "taxes_assumed_zero": True,
+  }
 
 
 def _require_openai_key() -> str:
@@ -299,7 +363,7 @@ def determine_planning_mode(
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   del ops_json, target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
-  baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or build_consistency_financial_summary(
+  baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or _build_baseline_financial_summary(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
   )
@@ -621,6 +685,69 @@ def build_real_governor_payload(
   )
 
 
+def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  strategy = str(financials.get("cash_strategy") or "").strip().lower()
+  option_map = {
+    "reinvest": {
+      "value": "reinvest",
+      "label": "Reinvest",
+      "description": "The client would generally prefer extra cash to be put back into growth, capacity, or expansion when that is realistic.",
+      "capital_allocation_posture": "Favor staged redeployment of excess cash into credible growth needs instead of leaving cash to build smoothly with no use.",
+      "timing_expectation": "If the business economics support it, reflect periods of cash buildup followed by realistic deployment through existing planning choices such as hiring pace, capex timing, marketing intensity, or debt behavior.",
+      "consistency_test": "A reinvest plan should not read like management is simply hoarding cash while also claiming to prioritize growth.",
+      "visual_goal": "The grid and resulting cash path should usually show some visible redeployment behavior rather than a perfectly smooth cash staircase.",
+    },
+    "preserve_cash": {
+      "value": "preserve_cash",
+      "label": "Preserve cash",
+      "description": "The client would generally prefer a thicker cash cushion and a more conservative liquidity posture.",
+      "capital_allocation_posture": "Favor retaining more liquidity and deploying capital more cautiously unless the operating case clearly justifies faster use of cash.",
+      "timing_expectation": "Let cash cushions build earlier and keep deployment pacing more measured across capex, hiring, marketing, and debt choices.",
+      "consistency_test": "A preserve-cash plan should not look overly aggressive in capital deployment while still claiming a conservative cash posture.",
+      "visual_goal": "The grid and resulting cash path should usually show stronger retained buffers and fewer sharp deployments than a reinvest case.",
+    },
+    "shareholder_return": {
+      "value": "shareholder_return",
+      "label": "Shareholder return",
+      "description": "The client would generally prefer excess cash to be available for owner or shareholder distributions rather than simply accumulating on the balance sheet.",
+      "capital_allocation_posture": "Avoid plans where excess cash piles up indefinitely with no believable use; allow the plan to read like management is willing to extract excess capital when appropriate.",
+      "timing_expectation": "Use existing planning choices to avoid unnecessary cash accumulation and support a posture where excess cash is not always retained inside the business.",
+      "consistency_test": "A shareholder-return plan should not look like a pure cash-hoarding or growth-at-all-costs plan unless the economics truly leave no better option.",
+      "visual_goal": "The grid and resulting cash path should usually look flatter or less accumulation-heavy than preserve-cash or balanced cases when the business is throwing off excess cash.",
+    },
+    "balanced": {
+      "value": "balanced",
+      "label": "Balanced",
+      "description": "The client wants a mix of cash preservation and selective reinvestment rather than pushing to either extreme.",
+      "capital_allocation_posture": "Blend healthy retained liquidity with selective reinvestment when the business case is strong.",
+      "timing_expectation": "Allow some buildup and some deployment, but keep both the narrative and the grid from leaning too far toward hoarding or aggressive redeployment.",
+      "consistency_test": "A balanced plan should not collapse into an extreme cash-hoarding or extreme redeployment posture without a strong business reason.",
+      "visual_goal": "The grid and resulting cash path should sit between preserve-cash and reinvest behavior, with visible but measured deployment of excess cash.",
+    },
+  }
+  selected = dict(option_map.get(strategy) or {})
+  if not selected:
+    return {}
+  selected["planning_role"] = "required planning consistency dimension"
+  selected["advisory_only"] = True
+  selected["non_override_rule"] = (
+    "Do not override core business drivers like revenue realism, operating capacity, or baseline feasibility. "
+    "Instead, use the selected cash strategy to shape capital timing and allocation decisions within the existing planning system."
+  )
+  selected["required_alignment_dimensions"] = [
+    "capex timing",
+    "hiring pace",
+    "marketing intensity",
+    "debt behavior",
+    "liquidity posture",
+  ]
+  selected["narrative_requirement"] = (
+    "Explicitly explain how the selected cash strategy is reflected in the quarter plan so the narrative and the grid tell the same capital allocation story."
+  )
+  return selected
+
+
 def build_governor_payload_from_context(
   *,
   ops_json: Dict[str, Any],
@@ -635,10 +762,11 @@ def build_governor_payload_from_context(
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   del target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
-  baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or build_consistency_financial_summary(
+  baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or _build_baseline_financial_summary(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
   )
+  cash_strategy_context = _cash_strategy_context(financials_json)
   return {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
     "fixed_facts": {
@@ -657,6 +785,7 @@ def build_governor_payload_from_context(
         "Only treat product capacities as fully independent when the business context clearly supports separate operating capacity.",
       ],
     },
+    "cash_strategy_context": _sanitize_canonical_live_payload(cash_strategy_context),
     "viability_mode": True,
   }
 
@@ -946,6 +1075,18 @@ def build_quarter_grid_prompt(
       "- do not normalize persistent multi-year losses if a believable operating repair exists\n",
       "- use the full set of listed variables if needed to create a credible path\n",
       "- the resulting grid should read like a real company plan for this specific business and stage\n\n",
+      "Cash-strategy handling:\n",
+      "- if the governor context includes cash_strategy_context, treat it as a required planning consistency dimension, not a throwaway note\n",
+      "- do not override core business drivers like revenue realism, operating capacity, or baseline feasibility\n",
+      "- instead, make capital allocation choices that are consistent with the selected cash posture using the existing planning levers already in the grid\n",
+      "- make sure capex timing, hiring pace, marketing intensity, debt behavior, and retained liquidity read like one coherent management posture\n",
+      "- explicitly reflect that posture in the summary so the narrative explains how the selected cash strategy shows up in the plan\n",
+      "- the resulting quarter grid should make the cash posture visually legible where the business supports it, rather than leaving cash_strategy invisible in the outputs\n",
+      "- for reinvest, if the economics support it, do not let excess cash simply rise smoothly with no believable redeployment path\n",
+      "- for preserve cash, keep a visibly more conservative liquidity posture and avoid overly eager cash deployment\n",
+      "- for shareholder return, avoid letting excess cash pile up indefinitely without a believable reason to retain it\n",
+      "- for balanced, show a middle path with some retained cushion and some selective deployment\n",
+      "- do not treat any of the above as rigid rules; they are consistency expectations that must still respect realism and economics\n\n",
       realism_memo_block,
       f"This is batch {batch_index} of {batch_count}. Return only the rows listed in this batch.\n\n",
       "Real governor context payload:\n",

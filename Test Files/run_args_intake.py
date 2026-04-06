@@ -206,9 +206,6 @@ def _blank_spec() -> Dict[str, Any]:
       "owner_compensation": "",
       "confirmation": "Yes, that's right.",
     },
-    "consistency": {
-      "confirmation": "",
-    },
     "fallback": {
       "ops": [],
       "market": [],
@@ -254,13 +251,6 @@ def _apply_set(spec: Dict[str, Any], key: str, value: str) -> None:
   parts = raw_key.split(".")
   if len(parts) == 2 and parts[0] in {"bootstrap", "ops", "market", "people", "financials"}:
     spec[parts[0]][parts[1]] = value
-    return
-  if len(parts) == 2 and parts[0] == "consistency":
-    consistency = spec.get("consistency")
-    if not isinstance(consistency, dict):
-      spec["consistency"] = {}
-      consistency = spec["consistency"]
-    consistency[parts[1]] = value
     return
   if len(parts) == 2 and parts[0].startswith("product") and parts[0][7:].isdigit():
     product = _ensure_product(spec, int(parts[0][7:]))

@@ -466,7 +466,7 @@ def build_python_finmo_json(
   }
 
 
-def build_consistency_forecast_view_from_finmo(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
+def build_forecast_view_from_finmo(finmo_json: Dict[str, Any]) -> Dict[str, Any]:
   finmo_obj = finmo_json if isinstance(finmo_json, dict) else {}
   raw_rows = [row for row in (finmo_obj.get("quarter_rows") or []) if isinstance(row, dict)]
   full_quarters = [
@@ -1404,7 +1404,7 @@ def normalize_model_input_forecast_anchor(
   return next_payload
 
 
-def sync_consistency_state_to_finmo(
+def sync_planning_state_to_finmo(
   *,
   finmo_path: Any,
   business_facts: Optional[Dict[str, Any]],
@@ -1418,29 +1418,6 @@ def sync_consistency_state_to_finmo(
   calibration_spec: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   path = str(finmo_path or "").strip()
-  try:
-    try:
-      from consistency_trace import trace_lazy  # type: ignore
-    except Exception:
-      from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
-    trace_lazy(
-      "FINMO_SYNC_REQUEST",
-      "Finmo sync request",
-      lambda: {
-        "finmo_path": path,
-        "business_facts": _clone(business_facts or {}),
-        "ops_json": _clone(ops_json or {}),
-        "people_json": _clone(people_json or {}),
-        "financials_json": _clone(financials_json or {}),
-        "financials_year1_json": _clone(financials_year1_json or {}),
-        "marketing_model_json": _clone(marketing_model_json or {}),
-        "controller_input_seed": _clone(controller_input_seed or []),
-        "forecast_quarters": _clone(forecast_quarters or []),
-        "calibration_spec": _clone(calibration_spec or {}),
-      },
-    )
-  except Exception:
-    pass
   model_input_json = build_python_model_input_json(
     business_facts=business_facts or {},
     ops_json=ops_json or {},
@@ -1465,38 +1442,6 @@ def sync_consistency_state_to_finmo(
     }
     model_input_json["calibration_results"] = _clone(calibration_results)
     finmo_json["calibration_results"] = _clone(calibration_results)
-    try:
-      try:
-        from consistency_trace import trace_lazy  # type: ignore
-      except Exception:
-        from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
-      trace_lazy(
-        "FINMO_CALIBRATION",
-        "Finmo calibration shell and results",
-        lambda: {
-          "finmo_path": path,
-          "calibration_shell": {},
-          "calibration_results": _clone(calibration_results),
-        },
-      )
-    except Exception:
-      pass
-  try:
-    try:
-      from consistency_trace import trace_lazy  # type: ignore
-    except Exception:
-      from client_intake_and_finmo.consistency_trace import trace_lazy  # type: ignore
-      trace_lazy(
-        "FINMO_SYNC_RESULT",
-        "Current persisted python state",
-        lambda: {
-          "finmo_path": path,
-          "model_input_json": _clone(model_input_json),
-          "finmo_json": _clone(finmo_json),
-        },
-      )
-  except Exception:
-    pass
   return {
     "finmo_path": path,
     "model_input_json": model_input_json,

@@ -47,9 +47,6 @@ _ENGINE_JSON_COLUMNS = (
   "planning_run_json",
 )
 
-_CONSISTENCY_COMPLETION_TRIGGER_INSERT = "trg_consistency_completion_guard_bi_v1"
-_CONSISTENCY_COMPLETION_TRIGGER_UPDATE = "trg_consistency_completion_guard_bu_v1"
-
 
 def _parse_json_payload(raw: Any) -> Any:
   if raw is None:
@@ -72,140 +69,6 @@ def _is_valid_planning_run_payload(payload: Any) -> bool:
   return True
 
 
-def _consistency_completion_requested(
-  *,
-  status: Optional[str],
-  active_focus: Optional[str],
-  consistency_passed: Optional[bool],
-  completed: bool,
-) -> bool:
-  if completed:
-    return True
-  if consistency_passed is True:
-    return True
-  if str(active_focus or "").strip().lower() == "done":
-    return True
-  if str(status or "").strip().lower() == "completed":
-    return True
-  return False
-
-
-def _enforce_consistency_completion_payload(
-  *,
-  row: Dict[str, Any],
-  status: Optional[str],
-  active_focus: Optional[str],
-  consistency_passed: Optional[bool],
-  completed: bool,
-  planning_run_json: Optional[Dict[str, Any]],
-) -> None:
-  if not _consistency_completion_requested(
-    status=status,
-    active_focus=active_focus,
-    consistency_passed=consistency_passed,
-    completed=completed,
-  ):
-    return
-  payload = (
-    planning_run_json
-    if planning_run_json is not None
-    else _parse_json_payload(row.get("planning_run_json"))
-  )
-  if not _is_valid_planning_run_payload(payload):
-    raise RuntimeError("consistency_completion_requires_planning_run")
-
-
-def _trigger_exists(conn, trigger_name: str) -> bool:
-  cur = conn.cursor()
-  try:
-    cur.execute(
-      """
-      SELECT 1
-      FROM INFORMATION_SCHEMA.TRIGGERS
-      WHERE TRIGGER_SCHEMA = DATABASE()
-        AND TRIGGER_NAME = %s
-      LIMIT 1
-      """,
-      (trigger_name,),
-    )
-    return bool(cur.fetchone())
-  finally:
-    try:
-      cur.close()
-    except Exception:
-      pass
-
-
-def _ensure_consistency_completion_triggers(conn) -> None:
-  trigger_specs = (
-    (
-      _CONSISTENCY_COMPLETION_TRIGGER_INSERT,
-      "BEFORE INSERT",
-      """
-      CREATE TRIGGER {trigger_name}
-      BEFORE INSERT ON intake_consult_drafts
-      FOR EACH ROW
-      BEGIN
-        IF (
-          COALESCE(NEW.consistency_passed, 0) = 1
-          OR LOWER(COALESCE(NEW.active_focus, '')) = 'done'
-          OR LOWER(COALESCE(NEW.status, '')) = 'completed'
-          OR NEW.completed_at IS NOT NULL
-        ) AND (
-          NEW.planning_run_json IS NULL
-          OR JSON_VALID(NEW.planning_run_json) = 0
-          OR JSON_EXTRACT(CAST(NEW.planning_run_json AS JSON), '$.resolution_summary') IS NULL
-        ) THEN
-          SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'consistency_completion_requires_planning_run';
-        END IF;
-      END
-      """,
-    ),
-    (
-      _CONSISTENCY_COMPLETION_TRIGGER_UPDATE,
-      "BEFORE UPDATE",
-      """
-      CREATE TRIGGER {trigger_name}
-      BEFORE UPDATE ON intake_consult_drafts
-      FOR EACH ROW
-      BEGIN
-        IF (
-          COALESCE(NEW.consistency_passed, 0) = 1
-          OR LOWER(COALESCE(NEW.active_focus, '')) = 'done'
-          OR LOWER(COALESCE(NEW.status, '')) = 'completed'
-          OR NEW.completed_at IS NOT NULL
-        ) AND (
-          NEW.planning_run_json IS NULL
-          OR JSON_VALID(NEW.planning_run_json) = 0
-          OR JSON_EXTRACT(CAST(NEW.planning_run_json AS JSON), '$.resolution_summary') IS NULL
-        ) THEN
-          SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'consistency_completion_requires_planning_run';
-        END IF;
-      END
-      """,
-    ),
-  )
-  for trigger_name, _timing, ddl_template in trigger_specs:
-    cur = conn.cursor()
-    try:
-      if _trigger_exists(conn, trigger_name):
-        cur.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
-      cur.execute(ddl_template.format(trigger_name=trigger_name))
-      conn.commit()
-    except Exception:
-      try:
-        conn.rollback()
-      except Exception:
-        pass
-    finally:
-      try:
-        cur.close()
-      except Exception:
-        pass
-
-
 def ensure_table(conn) -> None:
   cur = conn.cursor()
   try:
@@ -220,7 +83,6 @@ def ensure_table(conn) -> None:
         market_confirmed TINYINT(1) NOT NULL DEFAULT 0,
         people_confirmed TINYINT(1) NOT NULL DEFAULT 0,
         financials_confirmed TINYINT(1) NOT NULL DEFAULT 0,
-        consistency_passed TINYINT(1) NOT NULL DEFAULT 0,
         business_name VARCHAR(255) NULL,
         business_address LONGTEXT NULL,
         address_street VARCHAR(255) NULL,
@@ -277,8 +139,6 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN people_confirmed TINYINT(1) NOT NULL DEFAULT 0")
   if "financials_confirmed" not in cols:
     alterations.append("ADD COLUMN financials_confirmed TINYINT(1) NOT NULL DEFAULT 0")
-  if "consistency_passed" not in cols:
-    alterations.append("ADD COLUMN consistency_passed TINYINT(1) NOT NULL DEFAULT 0")
   if "business_name" not in cols:
     alterations.append("ADD COLUMN business_name VARCHAR(255) NULL")
   if "business_address" not in cols:
@@ -312,10 +172,7 @@ def ensure_table(conn) -> None:
   if "finmo_json" not in cols:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
   if "planning_run_json" not in cols:
-    if "consistency_finmo_attempts_json" in cols:
-      alterations.append("CHANGE COLUMN consistency_finmo_attempts_json planning_run_json LONGTEXT NULL")
-    else:
-      alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
+    alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -330,10 +187,7 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN financials_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
 
   cleanup_drop_columns = (
-    "consistency_gpt_governance_json",
-    "consistency_controller_contract_json",
     "finmo_path",
-    "consistency_modified_plan_json",
   )
   if alterations or any(column in cols for column in cleanup_drop_columns):
     cur2 = conn.cursor()
@@ -356,8 +210,6 @@ def ensure_table(conn) -> None:
         cur2.close()
       except Exception:
         pass
-
-  _ensure_consistency_completion_triggers(conn)
 
 
 def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
@@ -538,19 +390,18 @@ def append_messages(
   active_focus: Optional[str] = None,
   confirmations: Optional[Dict[str, bool]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
-  consistency_passed: Optional[bool] = None,
   flat_fields: Optional[Dict[str, Any]] = None,
   completed: bool = False,
 ) -> Dict[str, Any]:
   row = get_draft(conn, draft_id=draft_id)
-  _enforce_consistency_completion_payload(
-    row=row,
-    status=status,
-    active_focus=active_focus,
-    consistency_passed=consistency_passed,
-    completed=completed,
-    planning_run_json=planning_run_json,
-  )
+  if completed or str(active_focus or "").strip().lower() == "done" or str(status or "").strip().lower() == "completed":
+    payload = (
+      planning_run_json
+      if planning_run_json is not None
+      else _parse_json_payload(row.get("planning_run_json"))
+    )
+    if not _is_valid_planning_run_payload(payload):
+      raise RuntimeError("completion_requires_planning_run")
   messages = _parse_messages(row.get("messages_json"))
   messages.extend(new_messages)
   messages = _render_messages_for_storage(
@@ -577,7 +428,7 @@ def append_messages(
     set_parts.append("status = %s")
     values.append(status)
     # If we are reopening a previously completed consult (e.g. an edit after the
-    # consistency check), clear completed_at so the UI does not treat it as
+    # completion), clear completed_at so the UI does not treat it as
     # "done" while the model is being refined.
     if str(status).strip().lower() == "in_progress":
       set_parts.append("completed_at = NULL")
@@ -671,10 +522,6 @@ def append_messages(
       set_parts.append("business_start_date = %s")
       values.append(str(business_facts.get("start_date") or "").strip() or None)
 
-  if consistency_passed is not None:
-    set_parts.append("consistency_passed = %s")
-    values.append(1 if consistency_passed else 0)
-
   if flat_fields:
     reserved = {
       "draft_id",
@@ -685,7 +532,6 @@ def append_messages(
       "market_confirmed",
       "people_confirmed",
       "financials_confirmed",
-      "consistency_passed",
       "business_name",
       "business_address",
       "address_street",

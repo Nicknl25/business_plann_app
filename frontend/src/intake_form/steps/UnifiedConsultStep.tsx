@@ -31,7 +31,6 @@ type DraftMeta = {
   marketConfirmed: boolean;
   peopleConfirmed: boolean;
   financialsConfirmed: boolean;
-  consistencyPassed: boolean;
 };
 
 const STAGE_HINT_PREFIX =
@@ -123,7 +122,6 @@ function normalizeDraftMeta(body: any): DraftMeta {
     marketConfirmed: Boolean(body?.market_confirmed),
     peopleConfirmed: Boolean(body?.people_confirmed),
     financialsConfirmed: Boolean(body?.financials_confirmed),
-    consistencyPassed: Boolean(body?.consistency_passed),
   };
 }
 
@@ -691,13 +689,12 @@ export default function UnifiedConsultStep() {
   const activeStep = useMemo(() => {
     if (!draftMeta) return null;
     const focus = String(draftMeta.activeFocus || "").trim().toLowerCase();
-    if (["ops", "market", "people", "financials", "consistency"].includes(focus)) return focus;
+    if (["ops", "market", "people", "financials"].includes(focus)) return focus;
     if (draftMeta.status === "completed") return null;
     if (!draftMeta.opsConfirmed) return "ops";
     if (!draftMeta.marketConfirmed) return "market";
     if (!draftMeta.peopleConfirmed) return "people";
     if (!draftMeta.financialsConfirmed) return "financials";
-    if (!draftMeta.consistencyPassed) return "consistency";
     return null;
   }, [draftMeta]);
 
@@ -707,7 +704,6 @@ export default function UnifiedConsultStep() {
       { key: "market", label: "Target Market", done: Boolean(draftMeta?.marketConfirmed) },
       { key: "people", label: "Human Resources", done: Boolean(draftMeta?.peopleConfirmed) },
       { key: "financials", label: "Financials", done: Boolean(draftMeta?.financialsConfirmed) },
-      { key: "consistency", label: "Consistency", done: Boolean(draftMeta?.consistencyPassed) },
     ],
     [draftMeta]
   );

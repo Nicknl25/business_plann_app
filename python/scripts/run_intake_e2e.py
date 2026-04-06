@@ -145,9 +145,6 @@ def _reply_for(assistant_message: str, active_focus: str) -> str:
   if "does this look right" in msg or "confirm" in msg or "look right" in msg:
     return "yes"
 
-  if active_focus == "consistency":
-    return "yes"
-
   return "yes"
 
 
@@ -197,9 +194,6 @@ def main() -> int:
       {"draft_id": draft_id, "client_id": client_id, "message": reply},
     )
 
-    if active_focus == "financials" and response.get("active_focus") == "consistency":
-      break
-
   draft = _get(base_url, "/api/intake-consult/draft", {"draft_id": draft_id})
 
   print("Draft ID:", draft_id)
@@ -209,7 +203,6 @@ def main() -> int:
     "market": draft.get("market_confirmed"),
     "people": draft.get("people_confirmed"),
     "financials": draft.get("financials_confirmed"),
-    "consistency": draft.get("consistency_passed"),
   })
 
   print("\nFinal operating_model_json present:", bool(draft.get("operating_model_json")))

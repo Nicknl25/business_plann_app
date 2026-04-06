@@ -98,7 +98,6 @@ def main() -> None:
       "market_confirmed": 1,
       "people_confirmed": 0,
       "financials_confirmed": 0,
-      "consistency_passed": 0,
       "active_focus": "people",
     }
     update_draft(conn, draft_id=draft_id, updates=updates)

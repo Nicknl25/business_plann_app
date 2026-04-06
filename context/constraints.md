@@ -17,8 +17,8 @@
 - If a plan sounds good but fails solver reality, the answer is to fix inputs, constraints, or upstream assumptions.
 - Do not bypass solver pressure with narrative or manual overrides.
 
-### 4. No Reintroduction Of Heavy Consistency Logic
-- Do not rebuild a large consistency governor, override engine, or controller layer.
+### 4. No Reintroduction Of Heavy Closeout Logic
+- Do not rebuild a large closeout governor, override engine, or controller layer.
 - Do not add another AI that tries to centrally arbitrate everything.
 - Keep validation light, targeted, and subordinate to the main pipeline.
 

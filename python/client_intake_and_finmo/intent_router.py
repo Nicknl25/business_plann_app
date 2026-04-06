@@ -689,6 +689,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "cash_on_hand": {"type": "number"},
 
+      "cash_strategy": {"type": "string", "enum": ["reinvest", "preserve_cash", "shareholder_return", "balanced"]},
+
       "confidence": {"type": "number"},
 
     }
@@ -947,6 +949,10 @@ def _confirm_clarify_message(
     return (
       "Just to confirm, please provide an income range formatted like this for example: "
       "60000 to 120000"
+    )
+  if field_norm.endswith("cash_strategy"):
+    return (
+      "Just to confirm, which is closer to what you want for extra cash: Reinvest, Preserve cash, Shareholder return, or Balanced?"
     )
   if field_norm.endswith("units_per_week_capacity") or field_norm.endswith("units_per_period_capacity"):
     cadence = ""
@@ -1560,6 +1566,8 @@ def route_intent(
 
       "cash_on_hand",
 
+      "cash_strategy",
+
     ],
 
     "financials_year1": [
@@ -1647,6 +1655,12 @@ def route_intent(
       + "Financials stage inference:\n"
       + "- Use shared_context.financials_controller.current_stage as the source of truth for the active financial stage.\n"
       + "- If patch_targets is present there, prefer those field(s) when translating the user's reply into a patch.\n"
+      + "- If shared_context.financials_controller.current_stage.allowed_values is present, treat that list as the exact persisted values allowed for the active stage.\n"
+      + "- If shared_context.financials_controller.current_stage.name is cash_strategy, use shared_context.financials_controller.current_stage.options to map the user's preference to one allowed value.\n"
+      + "- If current_stage.name is cash_strategy and current_stage.decision_mode is initial: if the user's preference is clear, return edit_patch; if it is ambiguous, return confirm_clarify with one short closed question.\n"
+      + "- If current_stage.name is cash_strategy and current_stage.decision_mode is clarify: if the user's intent is clear enough, return edit_patch; if it is still ambiguous, return confirm_clarify that asks the user to choose one of the listed options directly.\n"
+      + "- If current_stage.name is cash_strategy and current_stage.decision_mode is forced_choice: do not return confirm_proceed; infer the selected option from the user's reply, nearby context, and any numbered choice in the last assistant message, then return edit_patch.\n"
+      + "- If current_stage.name is cash_strategy and current_stage.decision_mode is forced_choice and the user is still indirect, choose the single best-fit allowed value from context and return edit_patch so the stage can persist.\n"
       + "- If the active financial stage presented a baseline and the user briefly agrees, return confirm_proceed.\n"
       + "- If the user gives a concrete replacement for the active financial stage, return edit_patch for the narrow stage field(s) only.\n"
       + "- If the user gives directionally clear intent but one concrete number or boolean is still missing for the active stage, return confirm_clarify with one short question for that missing fact.\n"
@@ -1803,42 +1817,6 @@ Interpretation rules:
 
 
 {extra_instructions}
-
-
-
-Consistency inference (active_focus == "consistency"):
-
-- In consistency, the user may correct or accept changes to ANY scoped field across business / ops / market / people / financials / fulfillment.
-
-- consistency_controller.edit_surface is the full writable intake surface for consistency. Any field in that surface is fair game if it is the real fix.
-
-- If the last assistant message proposes a concrete realism fix and the user agrees, partially agrees, or counters with a concrete alternative, return edit_patch and apply the implied field changes.
-
-- Keep the patch narrow: only the specific field(s) the user actually changed.
-
-- Use consistency_controller.current_issue as the source of truth for what is being resolved right now.
-
-- If consistency_controller.current_issue.patch_targets is present, prefer those field(s) first, but treat them as hints rather than hard limits if the user's chosen fix clearly belongs on a different scoped field in consistency_controller.edit_surface.
-
-- If the last assistant message offered reconciliation choices (A/B/C or similar) and the user picks one
-
-  (letter, short phrase, or a clear paraphrase), return edit_patch and apply the implied update.
-
-- If the user chooses an alternative resolution path that is concrete enough to write safely, return edit_patch. Do NOT return confirm_proceed while the issue still requires a field change.
-
-- If the user's intended fix is directionally clear but still missing one concrete fact needed to persist it safely, return confirm_clarify with one short question aimed at that missing fact. Do NOT return confirm_proceed in that case.
-
-- In consistency, confirm_proceed should only be used when the current issue is already structurally resolved and the user is merely acknowledging that state.
-
-- Use baseline_json values for amounts when available (especially financials.other_operating_expense).
-
-- A / personal funds / owner funding -> increase financials.initial_equity by that amount (add to existing financials.initial_equity if numeric).
-
-- B / card / loan / debt / payable -> set financials.ap_balance to that amount (use financials.total_debt_outstanding only if the user explicitly says loan/debt).
-
-- C / not spent / change expenses to 0 -> set financials.other_operating_expense to 0.
-
-- Do NOT ask for confirmation in this case; acknowledge and apply.
 
 
 

@@ -139,9 +139,6 @@ def _reply_for(msg: str, focus: str, scenario: Dict[str, Any]) -> str:
         if "inventory" in m:
             return "0"
 
-    if focus == "consistency":
-        return "yes"
-
     return "yes"
 
 
@@ -261,9 +258,6 @@ def run_scenario(base_url: str, scenario: Dict[str, Any]) -> Dict[str, Any]:
             "/api/intake-consult",
             {"draft_id": draft_id, "client_id": client_id, "message": reply},
         )
-
-        if active_focus == "financials" and response.get("active_focus") == "consistency":
-            break
 
     draft = _get(base_url, "/api/intake-consult/draft", {"draft_id": draft_id})
     ok, errors = _check_invariants(draft)

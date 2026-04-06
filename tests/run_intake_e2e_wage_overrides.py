@@ -239,7 +239,6 @@ def run_scenario(base_url: str, scenario: Dict[str, Any]) -> Dict[str, Any]:
             "market": list(scenario.get("market_answers", [])),
             "people": list(scenario.get("people_answers", [])),
             "financials": list(scenario.get("financials_answers", [])),
-            "consistency": list(scenario.get("consistency_answers", [])),
         },
     }
 
@@ -319,12 +318,9 @@ def run_scenario(base_url: str, scenario: Dict[str, Any]) -> Dict[str, Any]:
         next_focus = str(response.get("active_focus") or "").strip().lower()
         action = str(response.get("action") or "").strip().lower()
         if last_focus and next_focus and next_focus != last_focus:
-            if action not in ("confirm_proceed", "consistency_passed"):
+            if action != "confirm_proceed":
                 state["auto_advance_detected"] = True
         last_focus = next_focus
-
-        if active_focus == "financials" and response.get("active_focus") == "consistency":
-            last_focus = "consistency"
 
     draft = _get(base_url, "/api/intake-consult/draft", {"draft_id": draft_id})
     ok, errors = _check_invariants(
@@ -400,7 +396,6 @@ def main() -> int:
             ],
             "financials_answers": ["0", "0", "500", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
             + ["0"] * 8,
-            "consistency_answers": ["yes"],
             "override_people_wage": 145000,
             "override_role_wage": 40000,
         },
@@ -440,7 +435,6 @@ def main() -> int:
             ],
             "financials_answers": ["0", "0", "500", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
             + ["0"] * 8,
-            "consistency_answers": ["yes"],
             "override_people_wage": 90000,
             "override_role_wage": 42000,
         },
@@ -480,7 +474,6 @@ def main() -> int:
             ],
             "financials_answers": ["0", "0", "500", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
             + ["0"] * 8,
-            "consistency_answers": ["yes"],
             "override_people_wage": 120000,
             "override_role_wage": 55000,
         },
