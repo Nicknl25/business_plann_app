@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 from scipy.optimize import minimize
 
 from .finmo_model import calculate_finmo_model
@@ -13,7 +14,7 @@ from .model_inputs import FinancialModelInputs, QUARTER_COUNT, _safe_float
 OUTPUT_METRIC_MAP: Dict[str, str] = {
   "revenue": "revenue",
   "ebitda": "ebitda",
-  "cash": "cash",
+  "cash": "ending_cash",
   "net income": "net_income",
   "net_income": "net_income",
   "gross profit": "gross_profit",
@@ -32,15 +33,6 @@ def _quarter_bounds(start: int, end: int) -> Tuple[int, int]:
   quarter_start = min(max(int(start or 1), 1), QUARTER_COUNT)
   quarter_end = min(max(int(end or quarter_start), quarter_start), QUARTER_COUNT)
   return quarter_start, quarter_end
-
-
-def _penalty_against_band(value: float, minimum: Optional[float], maximum: Optional[float]) -> float:
-  if minimum is not None and value < minimum:
-    return (minimum - value) ** 2
-  if maximum is not None and value > maximum:
-    return (value - maximum) ** 2
-  return 0.0
-
 
 @dataclass(slots=True)
 class LeverControl:
@@ -99,6 +91,7 @@ class OutputTarget:
 class SolverOptions:
   max_iterations: int = 100
   movement_penalty_weight: float = 0.0001
+  target_center_weight: float = 1.0
   tolerance: float = 1e-6
 
 
@@ -114,6 +107,8 @@ class SolverResult:
   success: bool
   objective_before: float
   objective_after: float
+  target_constraints_satisfied: bool
+  max_target_violation: float
   solved_inputs: FinancialModelInputs
   solved_controller_seed: List[Dict[str, Any]]
   solved_model_input_json: Dict[str, Any]
@@ -246,34 +241,75 @@ def _apply_control_values(
   return next_book
 
 
-def _objective_value(
-  candidate_inputs: FinancialModelInputs,
+def _movement_objective_value(
   *,
   controls: List[LeverControl],
   baseline_values: Dict[str, float],
   variable_values: Dict[str, float],
-  targets: List[OutputTarget],
   movement_penalty_weight: float,
-) -> Tuple[float, List[Dict[str, Any]]]:
-  solved_rows = calculate_finmo_model(candidate_inputs).quarter_rows()
+) -> float:
   total_penalty = 0.0
-  for target in targets:
-    metric = target.normalized_metric()
-    q_start, q_end = target.normalized_quarters()
-    for quarter_index in range(q_start, q_end + 1):
-      row = solved_rows[quarter_index - 1]
-      total_penalty += target.weight * _penalty_against_band(
-        _safe_float(row.get(metric)),
-        target.min_value,
-        target.max_value,
-      )
   for control in controls:
     key = _variable_key(control)
     baseline = baseline_values[key]
     proposed = variable_values[key]
     scale = max(abs(control.upper_bound()), abs(control.lower_bound()), abs(baseline), 1.0)
     total_penalty += movement_penalty_weight * control.weight * (((proposed - baseline) / scale) ** 2)
-  return total_penalty, solved_rows
+  return total_penalty
+
+
+def _target_center_objective_value(
+  solved_rows: List[Dict[str, Any]],
+  targets: List[OutputTarget],
+  *,
+  target_center_weight: float,
+) -> float:
+  total_penalty = 0.0
+  if target_center_weight <= 0:
+    return total_penalty
+  for target in targets:
+    metric = target.normalized_metric()
+    q_start, q_end = target.normalized_quarters()
+    for quarter_index in range(q_start, q_end + 1):
+      row = solved_rows[quarter_index - 1]
+      value = _safe_float(row.get(metric))
+      minimum = _safe_float(target.min_value) if target.min_value is not None else None
+      maximum = _safe_float(target.max_value) if target.max_value is not None else None
+      if minimum is not None and maximum is not None:
+        center = (minimum + maximum) / 2.0
+        half_width = max(abs(maximum - minimum) / 2.0, 1.0)
+        total_penalty += target_center_weight * target.weight * (((value - center) / half_width) ** 2)
+      elif minimum is not None:
+        scale = max(abs(minimum), 1.0)
+        total_penalty += target_center_weight * target.weight * (((value - minimum) / scale) ** 2)
+      elif maximum is not None:
+        scale = max(abs(maximum), 1.0)
+        total_penalty += target_center_weight * target.weight * (((value - maximum) / scale) ** 2)
+  return total_penalty
+
+
+def _target_constraint_residuals(
+  solved_rows: List[Dict[str, Any]],
+  targets: List[OutputTarget],
+) -> List[float]:
+  residuals: List[float] = []
+  for target in targets:
+    metric = target.normalized_metric()
+    q_start, q_end = target.normalized_quarters()
+    for quarter_index in range(q_start, q_end + 1):
+      row = solved_rows[quarter_index - 1]
+      value = _safe_float(row.get(metric))
+      if target.min_value is not None:
+        residuals.append(value - _safe_float(target.min_value))
+      if target.max_value is not None:
+        residuals.append(_safe_float(target.max_value) - value)
+  return residuals
+
+
+def _max_target_violation(residuals: List[float]) -> float:
+  if not residuals:
+    return 0.0
+  return max(0.0, max(-float(item) for item in residuals))
 
 
 def solve_financial_model(
@@ -298,18 +334,36 @@ def solve_financial_model(
       control.exact_value if control.exact_value is not None else current
     )
 
-  candidate_book = _apply_control_values(baseline_book, normalized_controls, variable_values)
-  objective_before, baseline_outputs = _objective_value(
-    candidate_book,
-    controls=normalized_controls,
-    baseline_values=baseline_values,
-    variable_values=variable_values,
-    targets=normalized_targets,
-    movement_penalty_weight=solve_options.movement_penalty_weight,
-  )
-  best_objective = objective_before
-  iterations = [SolverIteration(iteration_index=0, objective_value=objective_before, variable_values=dict(variable_values))]
   variable_keys = [_variable_key(control) for control in normalized_controls]
+  evaluation_cache: Dict[Tuple[float, ...], Tuple[float, List[Dict[str, Any]]]] = {}
+
+  def _values_cache_key(proposal_values: Dict[str, float]) -> Tuple[float, ...]:
+    return tuple(round(float(proposal_values.get(key, 0.0)), 12) for key in variable_keys)
+
+  def _evaluate_values(proposal_values: Dict[str, float]) -> Tuple[float, List[Dict[str, Any]]]:
+    cache_key = _values_cache_key(proposal_values)
+    cached = evaluation_cache.get(cache_key)
+    if cached is not None:
+      return cached
+    proposal_book = _apply_control_values(baseline_book, normalized_controls, proposal_values)
+    solved_rows = calculate_finmo_model(proposal_book).quarter_rows()
+    objective_value = _movement_objective_value(
+      controls=normalized_controls,
+      baseline_values=baseline_values,
+      variable_values=proposal_values,
+      movement_penalty_weight=solve_options.movement_penalty_weight,
+    )
+    objective_value += _target_center_objective_value(
+      solved_rows,
+      normalized_targets,
+      target_center_weight=solve_options.target_center_weight,
+    )
+    cached = (objective_value, solved_rows)
+    evaluation_cache[cache_key] = cached
+    return cached
+
+  objective_before, baseline_outputs = _evaluate_values(variable_values)
+  iterations = [SolverIteration(iteration_index=0, objective_value=objective_before, variable_values=dict(variable_values))]
   x0 = [variable_values[key] for key in variable_keys]
   bounds = [(control.lower_bound(), control.upper_bound()) for control in normalized_controls]
 
@@ -323,29 +377,13 @@ def solve_financial_model(
 
   def _objective(vector: List[float]) -> float:
     proposal_values = _vector_to_values(vector)
-    proposal_book = _apply_control_values(baseline_book, normalized_controls, proposal_values)
-    proposal_objective, _ = _objective_value(
-      proposal_book,
-      controls=normalized_controls,
-      baseline_values=baseline_values,
-      variable_values=proposal_values,
-      targets=normalized_targets,
-      movement_penalty_weight=solve_options.movement_penalty_weight,
-    )
+    proposal_objective, _ = _evaluate_values(proposal_values)
     return proposal_objective
 
   def _callback(vector: List[float]) -> None:
     callback_iteration["count"] += 1
     proposal_values = _vector_to_values(vector)
-    proposal_book = _apply_control_values(baseline_book, normalized_controls, proposal_values)
-    proposal_objective, _ = _objective_value(
-      proposal_book,
-      controls=normalized_controls,
-      baseline_values=baseline_values,
-      variable_values=proposal_values,
-      targets=normalized_targets,
-      movement_penalty_weight=solve_options.movement_penalty_weight,
-    )
+    proposal_objective, _ = _evaluate_values(proposal_values)
     iterations.append(
       SolverIteration(
         iteration_index=callback_iteration["count"],
@@ -354,20 +392,40 @@ def solve_financial_model(
       )
     )
 
-  scipy_result = minimize(
-    _objective,
-    x0,
-    method="L-BFGS-B",
-    bounds=bounds,
-    options={
-      "maxiter": solve_options.max_iterations,
-      "ftol": solve_options.tolerance,
-    },
-    callback=_callback if variable_keys else None,
-  )
+  constraints: List[Dict[str, Any]] = []
+  if normalized_targets:
+    def _constraint_fun(vector: List[float]) -> np.ndarray:
+      proposal_values = _vector_to_values(vector)
+      _, solved_rows = _evaluate_values(proposal_values)
+      return np.asarray(_target_constraint_residuals(solved_rows, normalized_targets), dtype=float)
 
-  best_values = _vector_to_values(list(scipy_result.x)) if variable_keys else {}
-  best_objective = float(scipy_result.fun if scipy_result.fun is not None else objective_before)
+    constraints.append({"type": "ineq", "fun": _constraint_fun})
+
+  if variable_keys:
+    scipy_result = minimize(
+      _objective,
+      x0,
+      method="SLSQP",
+      bounds=bounds,
+      constraints=constraints,
+      options={
+        "maxiter": solve_options.max_iterations,
+        "ftol": solve_options.tolerance,
+      },
+      callback=_callback,
+    )
+    best_values = _vector_to_values(list(scipy_result.x))
+    best_objective = float(scipy_result.fun if scipy_result.fun is not None else objective_before)
+  else:
+    class _NoopResult:
+      success = True
+      x: List[float] = []
+      fun: float = objective_before
+
+    scipy_result = _NoopResult()
+    best_values = dict(variable_values)
+    best_objective = objective_before
+
   if not iterations or iterations[-1].objective_value != best_objective:
     iterations.append(
       SolverIteration(
@@ -378,18 +436,15 @@ def solve_financial_model(
     )
 
   solved_book = _apply_control_values(baseline_book, normalized_controls, best_values)
-  objective_after, solved_outputs = _objective_value(
-    solved_book,
-    controls=normalized_controls,
-    baseline_values=baseline_values,
-    variable_values=best_values if best_values else variable_values,
-    targets=normalized_targets,
-    movement_penalty_weight=solve_options.movement_penalty_weight,
-  )
+  objective_after, solved_outputs = _evaluate_values(best_values if best_values else variable_values)
+  solved_residuals = _target_constraint_residuals(solved_outputs, normalized_targets)
+  target_constraints_satisfied = _max_target_violation(solved_residuals) <= max(1e-8, float(solve_options.tolerance))
   return SolverResult(
-    success=bool(scipy_result.success) or objective_after <= objective_before + 1e-12,
+    success=bool(target_constraints_satisfied),
     objective_before=objective_before,
     objective_after=objective_after,
+    target_constraints_satisfied=bool(target_constraints_satisfied),
+    max_target_violation=_max_target_violation(solved_residuals),
     solved_inputs=solved_book,
     solved_controller_seed=solved_book.to_controller_seed(),
     solved_model_input_json=solved_book.to_model_input_json(),

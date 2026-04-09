@@ -394,6 +394,10 @@ def determine_planning_mode(
     "prompt_file": planning_mode_prompt_file(planning_mode),
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
     "diagnosis": _sanitize_canonical_live_payload(diagnosis or {}),
+    "fixed_facts": {
+      "model_input_json": _sanitize_canonical_live_payload(model_input_json or {}),
+      "finmo_json": _sanitize_canonical_live_payload(finmo_json or {}),
+    },
   }
 
 
@@ -2033,8 +2037,7 @@ def build_quarter_grid_prompt(
       "Quarter treatment:\n",
       "- Q1 is the most anchored forecast quarter and should usually stay closer to the business's real starting position unless the context clearly requires otherwise\n",
       "- Q2 through Q20 are fair game for material change when realism and the hard cash law require it\n",
-      "- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\n",      "- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\n",
-
+      "- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\n",
       "- do not preserve flat spread-placeholder schedule rows just because intake started from one number\n",
       "- especially for discretionary deployment rows like capex, debt movement, and other schedule rows, do not treat flat placeholder values as recommendations to keep the row flat\n",
       "- realism means believable business behavior, not loyalty to a synthetic spread pattern\n\n",
@@ -2063,8 +2066,7 @@ def build_quarter_grid_prompt(
       "- your role is not to shape cash directly; your role is to make the non-cash grid work coherently under the hard cash law\n",
       "- your role is also not to reinvent app-owned capital-allocation rows when they are omitted; instead, make the remaining rows fit coherently around that capital-allocation plan\n",
       "- you may adjust any realistic lever in the grid if that is what it takes to satisfy the quarter-by-quarter Cash constraint while keeping the business believable\n",
-      "- if the cash law requires meaningful deployment or absorption, you are expected to move discretionary non-cash rows materially after Q1 when that is what a believable business would do\n",      "- if the operating engine still generates excess cash after that, you must also moderate the operating rows realistically rather than assuming deployment rows alone can absorb everything\n",
-
+      "- if the cash law requires meaningful deployment or absorption, you are expected to move discretionary non-cash rows materially after Q1 when that is what a believable business would do\n",
       "- the hard cash bands come from a sequential baby-AI path: the client cash seed is opening cash only, Q1 cash is app-supplied from a feasibility solve, and each later quarter is derived from the prior quarter; treat that sequential cash law as given\n",
       "- treat Q1 as a feasibility-owned anchor quarter, not as the main strategy-expression quarter for cash posture\n",
       "- the selected cash strategy should show up mainly from Q2 through Q20 in the surrounding non-cash grid decisions\n",

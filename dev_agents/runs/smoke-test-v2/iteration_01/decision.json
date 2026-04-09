@@ -1,0 +1,7 @@
+{
+  "decision": "escalate",
+  "reasons": [
+    "High-risk change requires user review: Increase midpoint pressure so feasible solves gravitate more strongly toward band centers."
+  ],
+  "escalate": true
+}
