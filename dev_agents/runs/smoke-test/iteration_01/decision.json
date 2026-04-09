@@ -1,7 +1,0 @@
-{
-  "decision": "stop",
-  "reasons": [
-    "Reached max iterations."
-  ],
-  "escalate": true
-}

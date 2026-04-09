@@ -1,9 +1,0 @@
-{
-  "command": "Write-Output 'smoke'",
-  "returncode": 0,
-  "stdout": "smoke\n",
-  "stderr": "",
-  "started_at": "2026-04-08T21:57:52.763776",
-  "ended_at": "2026-04-08T21:57:53.235316",
-  "detected_draft_id": ""
-}

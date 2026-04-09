@@ -1,0 +1,659 @@
+{
+  "session_dir": "C:\\dev\\business_plann_app\\dev_agents\\runs\\20260409-102751",
+  "agent_runtime_context": {
+    "expected_runtime_commit": "5367da4",
+    "production_ai_shape": "baby_ai_plus_grid_ai",
+    "max_iterations": 5,
+    "root_cause_only": true
+  },
+  "iterations": [
+    {
+      "iteration": 1,
+      "draft_id": "388da2d272384f98b96b1146215d3987",
+      "diagnosis": {
+        "first_failing_quarter": "",
+        "band_violation": "",
+        "primary_cause": "no_cash_band_violation_detected",
+        "secondary_cause": "none",
+        "affected_rows": [],
+        "confidence": "medium",
+        "max_violation": 0.0,
+        "mismatch_count": 0
+      },
+      "prompt_audit": {
+        "baseline_anchoring_detected": true,
+        "conflicting_instructions": true,
+        "prompt_leakage": true,
+        "cash_constraint_clear": false,
+        "grid_baseline_bias_risk": true,
+        "issues": [
+          "Later-quarter placeholder non-authority language is missing from one or more AI paths.",
+          "Prompt stack still appears to give later-quarter placeholders authority.",
+          "Main planner prompt may be preserving operating baseline too strongly."
+        ],
+        "evidence": [
+          "quarter_grid: found '\"baseline_summary\": _sanitize_canonical_live_payload'"
+        ]
+      },
+      "feasibility": {
+        "cash_too_tight": false,
+        "levers_insufficient": false,
+        "engine_overpowered": false,
+        "recommendation": "Current run is solver-feasible under the current cash bands."
+      },
+      "fixer": {
+        "actions": [
+          {
+            "action_type": "prompt_modification",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language in the main planner prompt.",
+            "details": {
+              "patch_kind": "insert_after",
+              "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
+              "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "payload_sanitization",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+            "details": {
+              "patch_kind": "remove_block",
+              "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n"
+            },
+            "risk_level": "medium",
+            "supported_for_auto_apply": true,
+            "applied": true
+          },
+          {
+            "action_type": "llm_code_edit",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen the planner prompt to emphasize that later-quarter baseline values (Q2-Q20) are non-authoritative placeholders and should be overridden when realism, strategy, or cash constraints demand it. This reduces prompt baseline bias and better enforces baby-AI cash constraints in the grid planning.",
+            "details": {
+              "patch_kind": "replace_once",
+              "old": "  \"turnaround\": (  \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"  \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"  \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"  ),",
+              "new": "  \"turnaround\": (  \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"  \"Later-quarter baseline values (Q2 through Q20) are non-authoritative placeholders that should be overridden wherever necessary by realism, strategy, and cash constraints, especially the baby-AI cash posture which must be obeyed quarter by quarter. \"  \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"  \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"  ),"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": false
+          }
+        ],
+        "applied_count": 1,
+        "change_log": [
+          "Applied payload_sanitization to python/client_intake_and_finmo/quarter_grid.py"
+        ]
+      },
+      "regression": {
+        "improved": false,
+        "regressed": false,
+        "moved_failure": "",
+        "shape_change": "staircase",
+        "current_shape": "staircase",
+        "previous_shape": ""
+      },
+      "decision": {
+        "decision": "continue",
+        "reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ],
+        "escalate": false
+      },
+      "user_summary": {
+        "status": "Run succeeded",
+        "draft_id": "388da2d272384f98b96b1146215d3987",
+        "root_cause": {
+          "primary": "no_cash_band_violation_detected",
+          "secondary": "none",
+          "affected_rows": [],
+          "band_violation": ""
+        },
+        "feasibility": {
+          "cash_too_tight": false,
+          "levers_insufficient": false,
+          "engine_overpowered": false,
+          "recommendation": "Current run is solver-feasible under the current cash bands."
+        },
+        "fix_applied": [
+          "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+        ],
+        "fix_proposed": [
+          "Strengthen later-quarter non-authority language in the main planner prompt.",
+          "Strengthen the planner prompt to emphasize that later-quarter baseline values (Q2-Q20) are non-authoritative placeholders and should be overridden when realism, strategy, or cash constraints demand it. This reduces prompt baseline bias and better enforces baby-AI cash constraints in the grid planning."
+        ],
+        "replay_result": {
+          "moved_failure": "n/a",
+          "shape_change": "staircase",
+          "current_shape": "staircase"
+        },
+        "decision": "continue",
+        "decision_reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ]
+      }
+    },
+    {
+      "iteration": 2,
+      "draft_id": "8d49a05fca78467ca6128cf555a1194d",
+      "diagnosis": {
+        "first_failing_quarter": "",
+        "band_violation": "",
+        "primary_cause": "no_cash_band_violation_detected",
+        "secondary_cause": "none",
+        "affected_rows": [],
+        "confidence": "medium",
+        "max_violation": 0.0,
+        "mismatch_count": 0
+      },
+      "prompt_audit": {
+        "baseline_anchoring_detected": true,
+        "conflicting_instructions": true,
+        "prompt_leakage": true,
+        "cash_constraint_clear": false,
+        "grid_baseline_bias_risk": true,
+        "issues": [
+          "Later-quarter placeholder non-authority language is missing from one or more AI paths.",
+          "Prompt stack still appears to give later-quarter placeholders authority.",
+          "Main planner prompt may be preserving operating baseline too strongly."
+        ],
+        "evidence": [
+          "quarter_grid: found '\"baseline_summary\": _sanitize_canonical_live_payload'"
+        ]
+      },
+      "feasibility": {
+        "cash_too_tight": false,
+        "levers_insufficient": false,
+        "engine_overpowered": false,
+        "recommendation": "Current run is solver-feasible under the current cash bands."
+      },
+      "fixer": {
+        "actions": [
+          {
+            "action_type": "prompt_modification",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language in the main planner prompt.",
+            "details": {
+              "patch_kind": "insert_after",
+              "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
+              "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "payload_sanitization",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+            "details": {
+              "patch_kind": "remove_block",
+              "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n"
+            },
+            "risk_level": "medium",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "llm_code_edit",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language in the main planner prompt to reduce baseline anchoring and enforce baby-AI cash constraint obedience.",
+            "details": {
+              "patch_kind": "replace_once",
+              "needle": "  \"turnaround\": (",
+              "old": "_PLANNING_MODE_DEFAULTS: Dict[str, str] = {\n  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"\n    \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),\n  \"normalize\": (\n    \"This case may be over-optimistic or commercially overstated rather than distressed. \"\n    \"Your job is to normalize the plan to something believable for the company's stage and business model. \"\n    \"Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing when needed, but do not force a turnaround story if the business is not truly broken. \"\n    \"Business stage matters. Preserve real upside where believable, but remove fantasy.\"\n  ),\n  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection.\"\n  ),\n}",
+              "new": "_PLANNING_MODE_DEFAULTS: Dict[str, str] = {\n  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values are placeholders and carry no authority beyond Q1. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as constraints, not suggestions. \"\n    \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"\n    \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),\n  \"normalize\": (\n    \"This case may be over-optimistic or commercially overstated rather than distressed. \"\n    \"Later-quarter baseline figures are synthetic scaffolds, not fixed targets. \"\n    \"Your job is to normalize the plan to something believable for the company's stage and business model. \"\n    \"Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing when needed, but do not force a turnaround story if the business is not truly broken. \"\n    \"Business stage matters. Preserve real upside where believable, but remove fantasy.\"\n  ),\n  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Later-quarter baseline inputs are not authoritative and should be overridden to maintain realism and cash posture integrity. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection.\"\n  ),\n}\n"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": true
+          }
+        ],
+        "applied_count": 1,
+        "change_log": [
+          "Applied llm_code_edit to python/client_intake_and_finmo/quarter_grid.py"
+        ]
+      },
+      "regression": {
+        "improved": false,
+        "regressed": false,
+        "moved_failure": "",
+        "shape_change": "staircase",
+        "current_shape": "staircase",
+        "previous_shape": "staircase"
+      },
+      "decision": {
+        "decision": "continue",
+        "reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ],
+        "escalate": false
+      },
+      "user_summary": {
+        "status": "Run succeeded",
+        "draft_id": "8d49a05fca78467ca6128cf555a1194d",
+        "root_cause": {
+          "primary": "no_cash_band_violation_detected",
+          "secondary": "none",
+          "affected_rows": [],
+          "band_violation": ""
+        },
+        "feasibility": {
+          "cash_too_tight": false,
+          "levers_insufficient": false,
+          "engine_overpowered": false,
+          "recommendation": "Current run is solver-feasible under the current cash bands."
+        },
+        "fix_applied": [
+          "Strengthen later-quarter non-authority language in the main planner prompt to reduce baseline anchoring and enforce baby-AI cash constraint obedience."
+        ],
+        "fix_proposed": [
+          "Strengthen later-quarter non-authority language in the main planner prompt.",
+          "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+        ],
+        "replay_result": {
+          "moved_failure": "n/a",
+          "shape_change": "staircase",
+          "current_shape": "staircase"
+        },
+        "decision": "continue",
+        "decision_reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ]
+      }
+    },
+    {
+      "iteration": 3,
+      "draft_id": "ea0f3367685343eeaacc13defb5c40e9",
+      "diagnosis": {
+        "first_failing_quarter": "",
+        "band_violation": "",
+        "primary_cause": "no_cash_band_violation_detected",
+        "secondary_cause": "none",
+        "affected_rows": [],
+        "confidence": "medium",
+        "max_violation": 0.0,
+        "mismatch_count": 0
+      },
+      "prompt_audit": {
+        "baseline_anchoring_detected": true,
+        "conflicting_instructions": true,
+        "prompt_leakage": true,
+        "cash_constraint_clear": false,
+        "grid_baseline_bias_risk": true,
+        "issues": [
+          "Later-quarter placeholder non-authority language is missing from one or more AI paths.",
+          "Prompt stack still appears to give later-quarter placeholders authority.",
+          "Main planner prompt may be preserving operating baseline too strongly."
+        ],
+        "evidence": [
+          "quarter_grid: found '\"baseline_summary\": _sanitize_canonical_live_payload'"
+        ]
+      },
+      "feasibility": {
+        "cash_too_tight": false,
+        "levers_insufficient": false,
+        "engine_overpowered": false,
+        "recommendation": "Current run is solver-feasible under the current cash bands."
+      },
+      "fixer": {
+        "actions": [
+          {
+            "action_type": "prompt_modification",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language in the main planner prompt.",
+            "details": {
+              "patch_kind": "insert_after",
+              "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
+              "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "payload_sanitization",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+            "details": {
+              "patch_kind": "remove_block",
+              "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n"
+            },
+            "risk_level": "medium",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "llm_code_edit",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen prompt non-authority language for Q2-Q20 baseline values in AI planning mode payload assembly to fix over-preservation and baseline leakage in later quarters.",
+            "details": {
+              "patch_kind": "replace_once",
+              "old": "  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values are placeholders and carry no authority beyond Q1. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as constraints, not suggestions. \"\n    \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"\n    \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),",
+              "new": "  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values (Q2 through Q20) are only placeholders and must NOT be treated as authoritative targets or fixed constraints. \"\n    \"Do not preserve or lock later-quarter baseline values overly strongly; override them when the cash law and realism require changes. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as constraints, not suggestions. \"\n    \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"\n    \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),\n\n"
+            },
+            "risk_level": "medium",
+            "supported_for_auto_apply": true,
+            "applied": true
+          }
+        ],
+        "applied_count": 1,
+        "change_log": [
+          "Applied llm_code_edit to python/client_intake_and_finmo/quarter_grid.py"
+        ]
+      },
+      "regression": {
+        "improved": false,
+        "regressed": false,
+        "moved_failure": "",
+        "shape_change": "staircase",
+        "current_shape": "staircase",
+        "previous_shape": "staircase"
+      },
+      "decision": {
+        "decision": "continue",
+        "reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ],
+        "escalate": false
+      },
+      "user_summary": {
+        "status": "Run succeeded",
+        "draft_id": "ea0f3367685343eeaacc13defb5c40e9",
+        "root_cause": {
+          "primary": "no_cash_band_violation_detected",
+          "secondary": "none",
+          "affected_rows": [],
+          "band_violation": ""
+        },
+        "feasibility": {
+          "cash_too_tight": false,
+          "levers_insufficient": false,
+          "engine_overpowered": false,
+          "recommendation": "Current run is solver-feasible under the current cash bands."
+        },
+        "fix_applied": [
+          "Strengthen prompt non-authority language for Q2-Q20 baseline values in AI planning mode payload assembly to fix over-preservation and baseline leakage in later quarters."
+        ],
+        "fix_proposed": [
+          "Strengthen later-quarter non-authority language in the main planner prompt.",
+          "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+        ],
+        "replay_result": {
+          "moved_failure": "n/a",
+          "shape_change": "staircase",
+          "current_shape": "staircase"
+        },
+        "decision": "continue",
+        "decision_reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ]
+      }
+    },
+    {
+      "iteration": 4,
+      "draft_id": "56f899bb1a5b403d9c1a6b976d25b4d6",
+      "diagnosis": {
+        "first_failing_quarter": "",
+        "band_violation": "",
+        "primary_cause": "no_cash_band_violation_detected",
+        "secondary_cause": "none",
+        "affected_rows": [],
+        "confidence": "medium",
+        "max_violation": 0.0,
+        "mismatch_count": 0
+      },
+      "prompt_audit": {
+        "baseline_anchoring_detected": true,
+        "conflicting_instructions": true,
+        "prompt_leakage": true,
+        "cash_constraint_clear": false,
+        "grid_baseline_bias_risk": true,
+        "issues": [
+          "Later-quarter placeholder non-authority language is missing from one or more AI paths.",
+          "Prompt stack still appears to give later-quarter placeholders authority.",
+          "Main planner prompt may be preserving operating baseline too strongly."
+        ],
+        "evidence": [
+          "quarter_grid: found '\"baseline_summary\": _sanitize_canonical_live_payload'"
+        ]
+      },
+      "feasibility": {
+        "cash_too_tight": false,
+        "levers_insufficient": false,
+        "engine_overpowered": false,
+        "recommendation": "Current run is solver-feasible under the current cash bands."
+      },
+      "fixer": {
+        "actions": [
+          {
+            "action_type": "prompt_modification",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language in the main planner prompt.",
+            "details": {
+              "patch_kind": "insert_after",
+              "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
+              "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "payload_sanitization",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+            "details": {
+              "patch_kind": "remove_block",
+              "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n"
+            },
+            "risk_level": "medium",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "llm_code_edit",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language to reduce baseline anchoring and enforce baby-AI cash constraint authority in grid AI payload prompt.",
+            "details": {
+              "patch_kind": "replace_once",
+              "old": "_PLANNING_MODE_DEFAULTS: Dict[str, str] = {\n  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values (Q2 through Q20) are only placeholders and must NOT be treated as authoritative targets or fixed constraints. \"\n    \"Do not preserve or lock later-quarter baseline values overly strongly; override them when the cash law and realism require changes. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as constraints, not suggestions. \"\n    \"Realistically, what would make this business profitable as soon as it can become profitable without breaking business reality? \"\n    \"Use the full company context and behave like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),\n\n\n  \"normalize\": (\n    \"This case may be over-optimistic or commercially overstated rather than distressed. \"\n    \"Later-quarter baseline figures are synthetic scaffolds, not fixed targets. \"\n    \"Your job is to normalize the plan to something believable for the company's stage and business model. \"\n    \"Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing when needed, but do not force a turnaround story if the business is not truly broken. \"\n    \"Business stage matters. Preserve real upside where believable, but remove fantasy.\"\n  ),\n  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Later-quarter baseline inputs are not authoritative and should be overridden to maintain realism and cash posture integrity. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection.\"\n  ),\n}",
+              "new": "_PLANNING_MODE_DEFAULTS: Dict[str, str] = {\n  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values (Q2 through Q20) are only placeholders and must NEVER be treated as authoritative targets or fixed constraints anywhere in the plan. \"\n    \"Under no circumstances allow later-quarter baseline values to dominate or overly influence planning. \"\n    \"Do not preserve or lock later-quarter baseline values; override them anytime realism, strategy, or baby-AI cash constraints require changes. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as binding constraints, not suggestions or soft guidelines. \"\n    \"Make the business plan truly work quarter by quarter, aligning cash with baby AI intent without softening the cash law. \"\n    \"Use the full company context and behave exactly like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),\n\n  \"normalize\": (\n    \"This case may be over-optimistic or commercially overstated rather than distressed. \"\n    \"Later-quarter baseline figures are synthetic scaffolds and must NEVER be treated as authoritative constraints or fixed targets anywhere. \"\n    \"Your job is to normalize the plan to something believable for the company's stage and business model. \"\n    \"Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing as needed, but do NOT allow any later-quarter baseline inputs to override the intended cash posture or realism constraints. \"\n    \"Business stage matters. Preserve real upside where truly believable, but remove fantasy and any soft baseline lock-in.\"\n  ),\n\n  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Later-quarter baseline inputs are NOT authoritative and should be overridden to maintain realism and baby-AI cash posture integrity exactly. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection. \"\n    \"Never treat baseline as fixed; enforce baby-AI cash constraints strictly across all 20 quarters.\"\n  ),\n}"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": true
+          }
+        ],
+        "applied_count": 1,
+        "change_log": [
+          "Applied llm_code_edit to python/client_intake_and_finmo/quarter_grid.py"
+        ]
+      },
+      "regression": {
+        "improved": false,
+        "regressed": false,
+        "moved_failure": "",
+        "shape_change": "staircase",
+        "current_shape": "staircase",
+        "previous_shape": "staircase"
+      },
+      "decision": {
+        "decision": "continue",
+        "reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ],
+        "escalate": false
+      },
+      "user_summary": {
+        "status": "Run succeeded",
+        "draft_id": "56f899bb1a5b403d9c1a6b976d25b4d6",
+        "root_cause": {
+          "primary": "no_cash_band_violation_detected",
+          "secondary": "none",
+          "affected_rows": [],
+          "band_violation": ""
+        },
+        "feasibility": {
+          "cash_too_tight": false,
+          "levers_insufficient": false,
+          "engine_overpowered": false,
+          "recommendation": "Current run is solver-feasible under the current cash bands."
+        },
+        "fix_applied": [
+          "Strengthen later-quarter non-authority language to reduce baseline anchoring and enforce baby-AI cash constraint authority in grid AI payload prompt."
+        ],
+        "fix_proposed": [
+          "Strengthen later-quarter non-authority language in the main planner prompt.",
+          "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+        ],
+        "replay_result": {
+          "moved_failure": "n/a",
+          "shape_change": "staircase",
+          "current_shape": "staircase"
+        },
+        "decision": "continue",
+        "decision_reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ]
+      }
+    },
+    {
+      "iteration": 5,
+      "draft_id": "0291b08521e84d5e8686bd0ccdb18958",
+      "diagnosis": {
+        "first_failing_quarter": "",
+        "band_violation": "",
+        "primary_cause": "no_cash_band_violation_detected",
+        "secondary_cause": "none",
+        "affected_rows": [],
+        "confidence": "medium",
+        "max_violation": 0.0,
+        "mismatch_count": 0
+      },
+      "prompt_audit": {
+        "baseline_anchoring_detected": true,
+        "conflicting_instructions": true,
+        "prompt_leakage": true,
+        "cash_constraint_clear": false,
+        "grid_baseline_bias_risk": true,
+        "issues": [
+          "Later-quarter placeholder non-authority language is missing from one or more AI paths.",
+          "Prompt stack still appears to give later-quarter placeholders authority.",
+          "Main planner prompt may be preserving operating baseline too strongly."
+        ],
+        "evidence": [
+          "quarter_grid: found '\"baseline_summary\": _sanitize_canonical_live_payload'"
+        ]
+      },
+      "feasibility": {
+        "cash_too_tight": false,
+        "levers_insufficient": false,
+        "engine_overpowered": false,
+        "recommendation": "Current run is solver-feasible under the current cash bands."
+      },
+      "fixer": {
+        "actions": [
+          {
+            "action_type": "prompt_modification",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen later-quarter non-authority language in the main planner prompt.",
+            "details": {
+              "patch_kind": "insert_after",
+              "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
+              "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "payload_sanitization",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+            "details": {
+              "patch_kind": "remove_block",
+              "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n"
+            },
+            "risk_level": "medium",
+            "supported_for_auto_apply": true,
+            "applied": false
+          },
+          {
+            "action_type": "llm_code_edit",
+            "target": "python/client_intake_and_finmo/quarter_grid.py",
+            "summary": "Strengthen prompt payload anti-baseline-authority language to reduce baseline Q2-Q20 flatness and leakage in grid AI planning.",
+            "details": {
+              "patch_kind": "replace_once",
+              "old": "  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values (Q2 through Q20) are only placeholders and must NEVER be treated as authoritative targets or fixed constraints anywhere in the plan. \"\n    \"Under no circumstances allow later-quarter baseline values to dominate or overly influence planning. \"\n    \"Do not preserve or lock later-quarter baseline values; override them anytime realism, strategy, or baby-AI cash constraints require changes. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as binding constraints, not suggestions or soft guidelines. \"\n    \"Make the business plan truly work quarter by quarter, aligning cash with baby AI intent without softening the cash law. \"\n    \"Use the full company context and behave exactly like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),",
+              "new": "  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values (Q2 through Q20) are only placeholders and must NEVER be treated as authoritative targets or fixed constraints anywhere in the plan. \"\n    \"Under NO circumstances treat baseline placeholder values in later quarters as fixed or directive. Do NOT preserve, lock, or allow later-quarter baseline values to dominate or unduly influence planning. \"\n    \"Overriding these placeholders is mandatory whenever realism, strategy, or baby-AI cash constraints require changes. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as binding constraints, not suggestions or soft guidelines. \"\n    \"Make the business plan truly work quarter by quarter, aligning cash with baby AI intent without softening the cash law. \"\n    \"Use the full company context and behave exactly like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),\n  \"normalize\": (\n    \"This case may be over-optimistic or commercially overstated rather than distressed. \"\n    \"Later-quarter baseline figures are synthetic scaffolds and MUST NEVER be treated as authoritative constraints or fixed targets anywhere. \"\n    \"Your job is to normalize the plan to something believable for the company's stage and business model. \"\n    \"Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing as needed, and explicitly OVERRIDE any later-quarter baseline inputs that contradict intended cash posture or realism constraints. \"\n    \"Business stage matters. Preserve real upside where truly believable, but REMOVE or ADJUST any soft baseline lock-in in favor of realism and the binding baby-AI cash posture.\"\n  ),\n  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Later-quarter baseline inputs are NOT authoritative and should be overridden to maintain realism and baby-AI cash posture integrity EXACTLY. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection. \"\n    \"Never treat baseline as fixed; enforce baby-AI cash constraints strictly across all 20 quarters.\"\n  ),"
+            },
+            "risk_level": "low",
+            "supported_for_auto_apply": true,
+            "applied": true
+          }
+        ],
+        "applied_count": 1,
+        "change_log": [
+          "Applied llm_code_edit to python/client_intake_and_finmo/quarter_grid.py"
+        ]
+      },
+      "regression": {
+        "improved": false,
+        "regressed": false,
+        "moved_failure": "",
+        "shape_change": "staircase",
+        "current_shape": "staircase",
+        "previous_shape": "staircase"
+      },
+      "decision": {
+        "decision": "continue",
+        "reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ],
+        "escalate": false
+      },
+      "user_summary": {
+        "status": "Run succeeded",
+        "draft_id": "0291b08521e84d5e8686bd0ccdb18958",
+        "root_cause": {
+          "primary": "no_cash_band_violation_detected",
+          "secondary": "none",
+          "affected_rows": [],
+          "band_violation": ""
+        },
+        "feasibility": {
+          "cash_too_tight": false,
+          "levers_insufficient": false,
+          "engine_overpowered": false,
+          "recommendation": "Current run is solver-feasible under the current cash bands."
+        },
+        "fix_applied": [
+          "Strengthen prompt payload anti-baseline-authority language to reduce baseline Q2-Q20 flatness and leakage in grid AI planning."
+        ],
+        "fix_proposed": [
+          "Strengthen later-quarter non-authority language in the main planner prompt.",
+          "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+        ],
+        "replay_result": {
+          "moved_failure": "n/a",
+          "shape_change": "staircase",
+          "current_shape": "staircase"
+        },
+        "decision": "continue",
+        "decision_reasons": [
+          "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+        ]
+      }
+    }
+  ],
+  "final_decision": {
+    "decision": "continue",
+    "reasons": [
+      "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+    ],
+    "escalate": false
+  }
+}

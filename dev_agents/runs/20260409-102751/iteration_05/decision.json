@@ -1,0 +1,7 @@
+{
+  "decision": "continue",
+  "reasons": [
+    "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+  ],
+  "escalate": false
+}

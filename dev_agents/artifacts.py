@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from datetime import datetime, timedelta
@@ -16,6 +17,58 @@ NEW_RUNNER_DIR = Path(r"C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth
 TERMINAL_LOGS_DIR = Path(r"C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs")
 
 
+def _read_text_if_exists(path: Path) -> str:
+  try:
+    return path.read_text(encoding="utf-8")
+  except Exception:
+    return ""
+
+
+def _load_agent_context(repo_root: Path) -> Dict[str, Any]:
+  guidance_dir = repo_root / "dev_agents"
+  files = {
+    "playbook": guidance_dir / "PLAYBOOK.md",
+    "critical_context": guidance_dir / "CRITICAL_CONTEXT.md",
+    "app_map": guidance_dir / "APP_MAP.md",
+    "evaluation_rules": guidance_dir / "EVAL_RULES.md",
+    "learnings": guidance_dir / "LEARNINGS.md",
+    "readme": guidance_dir / "README.md",
+  }
+  texts = {name: _read_text_if_exists(path) for name, path in files.items()}
+  recent_sessions: List[Dict[str, Any]] = []
+  runs_dir = guidance_dir / "runs"
+  if runs_dir.exists():
+    for session_dir in sorted(
+      [item for item in runs_dir.iterdir() if item.is_dir()],
+      key=lambda item: item.stat().st_mtime,
+      reverse=True,
+    )[:5]:
+      summary_path = session_dir / "executive_summary.json"
+      summary = json_loads_dict(_read_text_if_exists(summary_path))
+      if summary:
+        recent_sessions.append({
+          "session_dir": str(session_dir),
+          "summary": summary,
+        })
+  return {
+    "expected_runtime_commit": "5367da4",
+    "runtime_files": [
+      "python/client_intake_and_finmo/quarter_grid.py",
+      "python/financial_model_engine/solver.py",
+      "python/api_handlers/intake_consult.py",
+    ],
+    "production_ai_shape": "baby_ai_plus_grid_ai",
+    "fix_scope": "any_file_inside_repo",
+    "deleted_experimental_modules": [
+      "python/client_intake_and_finmo/cash_contract_baby_ai.py",
+      "python/client_intake_and_finmo/capital_allocation_baby_ai.py",
+    ],
+    "guidance_files": {name: str(path) for name, path in files.items()},
+    "guidance_text": texts,
+    "recent_sessions": recent_sessions,
+  }
+
+
 def _bootstrap_repo() -> Path:
   root = repo_root_from_here()
   load_dotenv_fallback(root)
@@ -24,21 +77,41 @@ def _bootstrap_repo() -> Path:
 
 
 def run_planning_command(*, command: str, cwd: Path) -> CommandResult:
+  def _decode_output(raw: Any) -> str:
+    if raw is None:
+      return ""
+    if isinstance(raw, str):
+      return raw
+    if isinstance(raw, bytes):
+      for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+          return raw.decode(encoding)
+        except Exception:
+          continue
+      return raw.decode("utf-8", errors="replace")
+    return str(raw)
+
   started_at = datetime.now()
+  env = dict(os.environ)
+  env["PYTHONUTF8"] = "1"
+  env["PYTHONIOENCODING"] = "utf-8"
   proc = subprocess.run(
     ["powershell", "-NoProfile", "-Command", str(command)],
     cwd=str(cwd),
-    text=True,
+    text=False,
     capture_output=True,
+    env=env,
   )
   ended_at = datetime.now()
-  output = "\n".join([proc.stdout or "", proc.stderr or ""]).strip()
+  stdout_text = _decode_output(proc.stdout)
+  stderr_text = _decode_output(proc.stderr)
+  output = "\n".join([stdout_text, stderr_text]).strip()
   match = re.search(r"Draft ID:\s*([A-Za-z0-9_-]+)", output, flags=re.IGNORECASE)
   return CommandResult(
     command=command,
     returncode=int(proc.returncode),
-    stdout=proc.stdout or "",
-    stderr=proc.stderr or "",
+    stdout=stdout_text,
+    stderr=stderr_text,
     started_at=started_at,
     ended_at=ended_at,
     detected_draft_id=str(match.group(1)).strip() if match else "",
@@ -51,7 +124,7 @@ def _get_mysql_connection():
   return get_mysql_connection()
 
 
-def _fetch_draft_row(*, draft_id: str = "", since: Optional[datetime] = None) -> Dict[str, Any]:
+def _fetch_draft_row(*, draft_id: str = "", since: Optional[datetime] = None, allow_latest_fallback: bool = True) -> Dict[str, Any]:
   conn = _get_mysql_connection()
   cur = conn.cursor(dictionary=True)
   try:
@@ -73,7 +146,7 @@ def _fetch_draft_row(*, draft_id: str = "", since: Optional[datetime] = None) ->
       row = cur.fetchone()
     else:
       row = None
-    if not row:
+    if not row and allow_latest_fallback:
       cur.execute(
         "SELECT * FROM intake_consult_drafts ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1"
       )
@@ -144,12 +217,25 @@ def build_artifact_bundle(
   draft_id: str = "",
   command_result: Optional[CommandResult] = None,
 ) -> ArtifactBundle:
+  repo_root = _bootstrap_repo()
   since = command_result.started_at - timedelta(seconds=30) if command_result is not None else None
   row = _fetch_draft_row(
     draft_id=draft_id or (command_result.detected_draft_id if command_result else ""),
     since=since,
+    allow_latest_fallback=False if command_result is not None else True,
   )
   resolved_draft_id = str(row.get("draft_id") or draft_id or (command_result.detected_draft_id if command_result else "")).strip()
+  fresh_run = False
+  if resolved_draft_id and command_result is not None:
+    row_updated = row.get("updated_at") or row.get("created_at")
+    if command_result.detected_draft_id and str(command_result.detected_draft_id).strip() == resolved_draft_id:
+      fresh_run = True
+    elif row_updated is not None:
+      try:
+        row_dt = row_updated if isinstance(row_updated, datetime) else datetime.fromisoformat(str(row_updated))
+        fresh_run = row_dt >= (command_result.started_at - timedelta(seconds=30))
+      except Exception:
+        fresh_run = False
   planning_run_json = json_loads_dict(row.get("planning_run_json"))
   prompt_file = str(planning_run_json.get("prompt_file") or "").strip()
   prompt_file_text = ""
@@ -168,6 +254,8 @@ def build_artifact_bundle(
   stored_solver_summary = planning_run_json.get("solver_summary") if isinstance(planning_run_json.get("solver_summary"), dict) else {}
   return ArtifactBundle(
     draft_id=resolved_draft_id,
+    is_fresh_run=fresh_run,
+    agent_context=_load_agent_context(repo_root),
     row=row,
     planning_run_json=planning_run_json,
     prompt_file=prompt_file,

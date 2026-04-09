@@ -1,0 +1,31 @@
+{
+  "status": "Run succeeded",
+  "draft_id": "ec6dd217923b4770803f01068142bd5f",
+  "root_cause": {
+    "primary": "no_cash_band_violation_detected",
+    "secondary": "none",
+    "affected_rows": [],
+    "band_violation": ""
+  },
+  "feasibility": {
+    "cash_too_tight": false,
+    "levers_insufficient": false,
+    "engine_overpowered": false,
+    "recommendation": "Current run is solver-feasible under the current cash bands."
+  },
+  "fix_applied": [],
+  "fix_proposed": [
+    "Strengthen later-quarter non-authority language in the main planner prompt.",
+    "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+    "Add stronger later-quarter non-authority language to planner prompt payload to reduce baseline leakage and prevent Q2-Q20 baseline flattening in grid AI planning"
+  ],
+  "replay_result": {
+    "moved_failure": "n/a",
+    "shape_change": "staircase",
+    "current_shape": "staircase"
+  },
+  "decision": "continue",
+  "decision_reasons": [
+    "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+  ]
+}

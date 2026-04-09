@@ -5,7 +5,6 @@ from typing import Dict, List, Optional
 
 from .agents import DiagnoserAgent, FeasibilityAgent, FixerAgent, PromptAuditorAgent, RegressionAgent
 from .artifacts import build_artifact_bundle, run_planning_command
-from .checkpoints import restore_checkpoint
 from .models import ArtifactBundle, Diagnosis, LoopConfig, OrchestratorDecision
 from .utils import repo_root_from_here, utcish_timestamp, write_json, write_text
 
@@ -24,30 +23,42 @@ class OrchestratorAgent:
 
   def _decision_for_iteration(self, *, iteration_index: int, bundle: ArtifactBundle, audit, fixer_result) -> OrchestratorDecision:
     reasons: List[str] = []
+    current_shape = ""
+    try:
+      current_shape = self.regression.run(
+        current=bundle,
+        previous=None,
+        current_diag=Diagnosis(),
+        previous_diag=None,
+      ).current_shape
+    except Exception:
+      current_shape = ""
     if bundle.local_solver_summary.get("success"):
-      reasons.append("Solver succeeded under the current grid.")
-      return OrchestratorDecision(decision="stop", reasons=reasons, escalate=False)
-    if audit.conflicting_instructions:
-      reasons.append("Prompt audit found conflicting instructions.")
-      return OrchestratorDecision(decision="escalate", reasons=reasons, escalate=True)
+      if current_shape and current_shape != "staircase":
+        reasons.append(f"Solver succeeded and cash shape is no longer a generic staircase ({current_shape}).")
+        return OrchestratorDecision(decision="stop", reasons=reasons, escalate=False)
+      if self.config.apply_fixes and fixer_result.applied_count <= 0:
+        reasons.append("Solver succeeded but staircase remains, and no real fix was applied; stopping to avoid burning another paid rerun.")
+        if fixer_result.no_fix_reason:
+          reasons.append(fixer_result.no_fix_reason)
+        return OrchestratorDecision(decision="stop", reasons=reasons, escalate=False)
+      reasons.append("Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression.")
+      return OrchestratorDecision(decision="continue", reasons=reasons, escalate=False)
     if iteration_index >= self.config.max_iterations:
       reasons.append("Reached max iterations.")
-      return OrchestratorDecision(decision="stop", reasons=reasons, escalate=True)
-    if not fixer_result.actions:
-      reasons.append("No actionable fix proposal was generated.")
-      return OrchestratorDecision(decision="stop", reasons=reasons, escalate=True)
+      return OrchestratorDecision(decision="stop", reasons=reasons, escalate=False)
     if self.config.apply_fixes and fixer_result.applied_count > 0:
-      reasons.append("Applied at least one supported fix; continue iteration.")
+      reasons.append("Applied at least one fix; continue iteration.")
       return OrchestratorDecision(decision="continue", reasons=reasons, escalate=False)
-    if self.config.apply_fixes and fixer_result.applied_count == 0:
-      reasons.append("Only unsupported auto-fix actions remain.")
-      return OrchestratorDecision(decision="stop", reasons=reasons, escalate=True)
-    reasons.append("Fix proposals prepared; auto-apply is disabled so the loop stops here.")
+    if fixer_result.actions:
+      reasons.append("Fixes were generated but none landed on disk; stopping to avoid a no-change rerun.")
+      if fixer_result.no_fix_reason:
+        reasons.append(fixer_result.no_fix_reason)
+      return OrchestratorDecision(decision="stop", reasons=reasons, escalate=False)
+    reasons.append("No fix proposal was generated; stopping instead of spending another run unchanged.")
+    if fixer_result.no_fix_reason:
+      reasons.append(fixer_result.no_fix_reason)
     return OrchestratorDecision(decision="stop", reasons=reasons, escalate=False)
-
-  def _confidence_value(self, label: str) -> int:
-    mapping = {"low": 1, "medium": 2, "high": 3}
-    return mapping.get(str(label or "").strip().lower(), 0)
 
   def _iteration_user_summary(
     self,
@@ -177,13 +188,86 @@ class OrchestratorAgent:
     lines.extend(f"- {reason}" for reason in final_decision.reasons)
     return "\n".join(lines)
 
+  def _update_persistent_learnings(self, *, final_payload: Dict[str, object], iteration_summaries: List[Dict[str, object]]) -> None:
+    learning_path = self.repo_root / "dev_agents" / "LEARNINGS.md"
+    latest = iteration_summaries[-1]["user_summary"] if iteration_summaries else {}
+    if not isinstance(latest, dict):
+      latest = {}
+    latest_root = latest.get("root_cause") if isinstance(latest.get("root_cause"), dict) else {}
+    latest_replay = latest.get("replay_result") if isinstance(latest.get("replay_result"), dict) else {}
+    status = str(latest.get("status") or "unknown")
+    decision = str(latest.get("decision") or "unknown")
+    primary = str(latest_root.get("primary") or "unknown")
+    secondary = str(latest_root.get("secondary") or "unknown")
+    applied = [str(item) for item in (latest.get("fix_applied") or []) if str(item).strip()]
+    proposed = [str(item) for item in (latest.get("fix_proposed") or []) if str(item).strip()]
+    shape = str(latest_replay.get("current_shape") or "unknown")
+    shape_change = str(latest_replay.get("shape_change") or "unknown")
+    iterations_completed = len(iteration_summaries)
+
+    verdict = "mixed"
+    if "succeeded" in status.lower() and shape != "staircase":
+      verdict = "good"
+    elif "failed" in status.lower():
+      verdict = "bad"
+    elif "succeeded" in status.lower():
+      verdict = "mixed"
+
+    confidence = "low"
+    if iterations_completed >= 3 and verdict == "good":
+      confidence = "medium"
+    if iterations_completed >= 4 and verdict == "good" and shape not in {"unknown", "staircase"}:
+      confidence = "high"
+    if verdict == "bad":
+      confidence = "medium" if iterations_completed >= 2 else "low"
+
+    scope = "unknown"
+    notes_parts: List[str] = []
+    if any("med-spa" in item.lower() for item in applied + proposed):
+      scope = "case-specific"
+    elif confidence == "high" and "architecture" not in f"{primary} {secondary}".lower():
+      scope = "general"
+    elif confidence in {"low", "medium"}:
+      scope = "unknown"
+    if shape == "staircase":
+      notes_parts.append("Solver success still produced a staircase cash shape.")
+    if applied:
+      notes_parts.append("Applied fixes: " + "; ".join(applied))
+    elif proposed:
+      notes_parts.append("Only proposed fixes were available: " + "; ".join(proposed))
+    final_reasons = list((final_payload.get("final_decision") or {}).get("reasons") or []) if isinstance(final_payload.get("final_decision"), dict) else []
+    if final_reasons:
+      notes_parts.append("Final reasons: " + "; ".join(str(item) for item in final_reasons))
+    if "architecture" in f"{primary} {secondary}".lower():
+      confidence = "low"
+      scope = "unknown"
+      notes_parts.append("Architecture-level takeaway kept conservative unless repeated evidence accumulates.")
+
+    block_lines = [
+      "",
+      f"## Learning {self.session_dir.name}",
+      "",
+      f"- issue: {primary} / {secondary}",
+      f"- fix_attempted: {'; '.join(applied) if applied else ('; '.join(proposed) if proposed else 'none')}",
+      f"- result: {status}; cash shape={shape}; shape_change={shape_change}; decision={decision}",
+      f"- verdict: {verdict}",
+      f"- learning_confidence: {confidence}",
+      f"- scope: {scope}",
+      f"- notes: {' '.join(notes_parts).strip() or 'n/a'}",
+    ]
+
+    existing = ""
+    try:
+      existing = learning_path.read_text(encoding="utf-8")
+    except Exception:
+      existing = "# Persistent Learnings\n"
+    learning_path.write_text(existing.rstrip() + "\n" + "\n".join(block_lines) + "\n", encoding="utf-8")
+
   def run(self) -> Dict[str, object]:
     previous_bundle: Optional[ArtifactBundle] = None
     previous_diagnosis: Optional[Diagnosis] = None
-    previous_fixer_result = None
     iteration_summaries: List[Dict[str, object]] = []
-    final_decision = OrchestratorDecision(decision="stop", reasons=["Loop did not run."], escalate=True)
-    no_improvement_streak = 0
+    final_decision = OrchestratorDecision(decision="stop", reasons=["Loop did not run."], escalate=False)
 
     for iteration_index in range(1, max(1, int(self.config.max_iterations)) + 1):
       iter_dir = self.session_dir / f"iteration_{iteration_index:02d}"
@@ -191,15 +275,65 @@ class OrchestratorAgent:
 
       command_result = run_planning_command(command=self.config.command, cwd=self.repo_root)
       bundle = build_artifact_bundle(command_result=command_result)
+      if not bundle.is_fresh_run and command_result.returncode == 0 and iteration_index > 1:
+        final_decision = OrchestratorDecision(
+          decision="stop",
+          reasons=["No fresh draft/run artifact was detected after rerun; stopping instead of reusing stale artifacts."],
+          escalate=False,
+        )
+        write_json(iter_dir / "command_result.json", {
+          "command": command_result.command,
+          "returncode": command_result.returncode,
+          "stdout": command_result.stdout,
+          "stderr": command_result.stderr,
+          "started_at": command_result.started_at.isoformat(),
+          "ended_at": command_result.ended_at.isoformat(),
+          "detected_draft_id": command_result.detected_draft_id,
+        })
+        write_json(iter_dir / "artifact_bundle.json", bundle.to_dict())
+        write_json(iter_dir / "decision.json", final_decision.to_dict())
+        iteration_summaries.append(
+          {
+            "iteration": iteration_index,
+            "draft_id": bundle.draft_id,
+            "diagnosis": {},
+            "prompt_audit": {},
+            "feasibility": {},
+            "fixer": {},
+            "regression": {},
+            "decision": final_decision.to_dict(),
+            "user_summary": {
+              "status": "No fresh run artifact detected",
+              "draft_id": bundle.draft_id,
+              "root_cause": {
+                "primary": "stale_artifact_reuse",
+                "secondary": "command_did_not_create_new_run",
+                "affected_rows": [],
+                "band_violation": "",
+              },
+              "feasibility": {},
+              "fix_applied": [],
+              "fix_proposed": [],
+              "replay_result": {"moved_failure": "n/a", "shape_change": "unknown", "current_shape": "unknown"},
+              "decision": final_decision.decision,
+              "decision_reasons": list(final_decision.reasons or []),
+            },
+          }
+        )
+        break
+      if not bundle.is_fresh_run and command_result.returncode != 0 and not str(bundle.draft_id or "").strip():
+        bundle.command_result = command_result
       diagnosis = self.diagnoser.run(bundle)
       audit = self.prompt_auditor.run(bundle)
       feasibility = self.feasibility.run(bundle)
       fixer_result = self.fixer.run(
+        bundle=bundle,
         diagnosis=diagnosis,
         audit=audit,
         feasibility=feasibility,
         apply=bool(self.config.apply_fixes),
         allow_high_risk_fixes=bool(getattr(self.config, "allow_high_risk_fixes", False)),
+        root_cause_only=bool(getattr(self.config, "root_cause_only", True)),
         checkpoint_dir=iter_dir / "checkpoint",
       )
       regression_result = self.regression.run(
@@ -208,51 +342,12 @@ class OrchestratorAgent:
         current_diag=diagnosis,
         previous_diag=previous_diagnosis,
       )
-      confidence_threshold_value = self._confidence_value(self.config.confidence_threshold)
-      diagnosis_confidence_value = self._confidence_value(diagnosis.confidence)
-      if diagnosis_confidence_value < confidence_threshold_value:
-        final_decision = OrchestratorDecision(
-          decision="escalate",
-          reasons=[f"Diagnosis confidence {diagnosis.confidence} fell below threshold {self.config.confidence_threshold}."],
-          escalate=True,
-        )
-      elif regression_result.regressed and previous_fixer_result and getattr(previous_fixer_result, "checkpoint_manifest", ""):
-        restored = restore_checkpoint(repo_root=self.repo_root, manifest_path=str(previous_fixer_result.checkpoint_manifest))
-        final_decision = OrchestratorDecision(
-          decision="escalate",
-          reasons=[f"Regression detected after applied fixes; restored {len(restored)} file(s) from previous checkpoint."],
-          escalate=True,
-        )
-      else:
-        if previous_bundle is not None:
-          if regression_result.improved:
-            no_improvement_streak = 0
-          else:
-            no_improvement_streak += 1
-        decision = self._decision_for_iteration(
-          iteration_index=iteration_index,
-          bundle=bundle,
-          audit=audit,
-          fixer_result=fixer_result,
-        )
-        if no_improvement_streak >= 2:
-          decision = OrchestratorDecision(
-            decision="escalate",
-            reasons=["No improvement for two consecutive iterations."],
-            escalate=True,
-          )
-        high_risk_actions = [
-          item.summary
-          for item in fixer_result.actions
-          if str(item.risk_level or "medium").strip().lower() == "high" and not item.applied
-        ]
-        if high_risk_actions and not bool(getattr(self.config, "allow_high_risk_fixes", False)):
-          decision = OrchestratorDecision(
-            decision="escalate",
-            reasons=["High-risk change requires user review: " + "; ".join(high_risk_actions)],
-            escalate=True,
-          )
-        final_decision = decision
+      final_decision = self._decision_for_iteration(
+        iteration_index=iteration_index,
+        bundle=bundle,
+        audit=audit,
+        fixer_result=fixer_result,
+      )
       user_summary = self._iteration_user_summary(
         bundle=bundle,
         diagnosis=diagnosis,
@@ -296,12 +391,17 @@ class OrchestratorAgent:
       )
       previous_bundle = bundle
       previous_diagnosis = diagnosis
-      previous_fixer_result = fixer_result
       if final_decision.decision != "continue":
         break
 
     final_payload: Dict[str, object] = {
       "session_dir": str(self.session_dir),
+      "agent_runtime_context": {
+        "expected_runtime_commit": "5367da4",
+        "production_ai_shape": "baby_ai_plus_grid_ai",
+        "max_iterations": int(self.config.max_iterations),
+        "root_cause_only": bool(getattr(self.config, "root_cause_only", True)),
+      },
       "iterations": iteration_summaries,
       "final_decision": final_decision.to_dict(),
     }
@@ -324,4 +424,5 @@ class OrchestratorAgent:
     write_json(self.session_dir / "executive_summary.json", executive_payload)
     write_text(self.session_dir / "final_report.md", self._render_final_markdown(iteration_summaries=iteration_summaries, final_decision=final_decision))
     write_text(self.session_dir / "executive_summary.md", self._render_final_markdown(iteration_summaries=iteration_summaries, final_decision=final_decision))
+    self._update_persistent_learnings(final_payload=final_payload, iteration_summaries=iteration_summaries)
     return final_payload

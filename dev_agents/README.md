@@ -2,7 +2,15 @@
 
 This folder is intentionally **not part of the production app**.
 
-It is a dev-only helper system for iterating on planning failures, especially the cash-path problem. It watches a run, gathers artifacts, diagnoses the failure, audits prompt risk, checks feasibility, proposes or applies controlled fixes, reruns, compares results, and stops after a bounded number of iterations.
+It is a dev-only helper system for iterating on planning failures, especially the cash-path problem. It watches a run, gathers artifacts, diagnoses the failure, audits prompt risk, checks feasibility, proposes or applies fixes, reruns, compares results, and stops after a bounded number of iterations.
+
+The agents now also read permanent guidance files before they reason about fixes:
+
+- `dev_agents/PLAYBOOK.md`
+- `dev_agents/CRITICAL_CONTEXT.md`
+- `dev_agents/APP_MAP.md`
+- `dev_agents/EVAL_RULES.md`
+- `dev_agents/LEARNINGS.md`
 
 ## Agents
 
@@ -20,41 +28,42 @@ From repo root:
 ```powershell
 $env:PYTHONPATH = "python"
 .\.venv\Scripts\python.exe -m dev_agents.cli `
-  --command "& '.\.venv\Scripts\python.exe' 'Test Files\run_live_args_intake_1_product.py'" `
-  --max-iterations 3
+  --command-file "dev_agents/commands/med_spa_one_product.ps1" `
+  --max-iterations 5
 ```
 
-If you want it to auto-apply supported prompt fixes between iterations:
+For your current med-spa scenario, the repo already includes:
 
-```powershell
-$env:PYTHONPATH = "python"
-.\.venv\Scripts\python.exe -m dev_agents.cli `
-  --command "& '.\.venv\Scripts\python.exe' 'Test Files\run_live_args_intake_1_product.py'" `
-  --max-iterations 3 `
-  --apply-fixes
-```
+- `dev_agents/commands/med_spa_one_product.ps1`
 
-If you want it to apply the broader high-risk fixes too:
+By default the helper now:
 
-```powershell
-$env:PYTHONPATH = "python"
-.\.venv\Scripts\python.exe -m dev_agents.cli `
-  --command "& '.\.venv\Scripts\python.exe' 'Test Files\run_live_args_intake_1_product.py'" `
-  --max-iterations 3 `
-  --apply-fixes `
-  --allow-high-risk-fixes
-```
+- auto-applies fixes
+- applies high-risk fixes too
+- keeps iterating until it solves or reaches the iteration cap
+- prioritizes root-cause fixes over bandaids
+- reads persistent learnings from `dev_agents/LEARNINGS.md`
+- logs every change and decision path under `dev_agents/runs/<timestamp>/`
+
+Important:
+
+- `dev_agents/LEARNINGS.md` is helper-maintained
+- the helper appends structured learnings after each run
+- learnings are written conservatively with verdict, confidence, and scope so single-case conclusions do not become overconfident doctrine
+
+The optional flags `--apply-fixes` and `--allow-high-risk-fixes` are now effectively compatibility flags. The helper behaves as if both are on.
+
+Root-cause invariant:
+
+- when diagnosis points to upstream causes like prompt leakage, cash bands, capital allocation, or an overpowered operating engine, the fixer targets those first
+- it does not reach for solver tuning as a default bandaid while those upstream causes are still present
+- it uses the playbook/app-map/evaluation rules as persistent product context when proposing broader code changes
 
 ## Auto-Apply Scope
 
-When `--apply-fixes` is used, the fixer is allowed to patch only this bounded allowlist:
+The fixer is no longer limited to the old four-file allowlist. It can patch any file inside the repo root, as long as the proposed target path stays inside the repository.
 
-- `python/client_intake_and_finmo/quarter_grid.py`
-- `python/client_intake_and_finmo/cash_contract_baby_ai.py`
-- `python/client_intake_and_finmo/capital_allocation_baby_ai.py`
-- `python/financial_model_engine/solver.py`
-
-Current supported auto-fix categories:
+Current built-in fix categories still include:
 
 - prompt modifications
 - AI-facing payload sanitization
@@ -66,13 +75,12 @@ Every proposed and applied change is logged in the session output.
 
 ## Safety / Autonomy Behavior
 
-- auto-fixes are limited to the allowlist above
 - every applied iteration creates a checkpoint before changing files
-- if a later iteration regresses after an applied fix, the helper restores the previous checkpoint and escalates
-- if diagnosis confidence falls below the configured threshold, the helper escalates
-- if there is no improvement for two consecutive iterations, the helper escalates
-- high-risk changes are surfaced but not auto-applied
-- unless you explicitly pass `--allow-high-risk-fixes`
+- the main loop no longer stops early for low confidence, no-improvement streaks, or high-risk review
+- the practical stop conditions are:
+  - solver success
+  - max iterations reached
+- you can still manually reset to git if you dislike the outcome, which is why this folder is kept separate from the production runtime
 
 ## Outputs
 

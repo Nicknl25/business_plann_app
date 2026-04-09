@@ -1,0 +1,50 @@
+{
+  "session_dir": "C:\\dev\\business_plann_app\\dev_agents\\runs\\20260409-091555",
+  "iterations_completed": 1,
+  "latest": {
+    "status": "Run succeeded",
+    "draft_id": "d497281e5e8441e49ee4101132ff4a30",
+    "root_cause": {
+      "primary": "no_cash_band_violation_detected",
+      "secondary": "none",
+      "affected_rows": [],
+      "band_violation": ""
+    },
+    "feasibility": {
+      "cash_too_tight": false,
+      "levers_insufficient": false,
+      "engine_overpowered": false,
+      "recommendation": "Current run is solver-feasible under the current cash bands."
+    },
+    "fix_applied": [
+      "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+    ],
+    "fix_proposed": [
+      "Strengthen later-quarter non-authority language in the main planner prompt."
+    ],
+    "replay_result": {
+      "moved_failure": "n/a",
+      "shape_change": "staircase",
+      "current_shape": "staircase"
+    },
+    "decision": "stop",
+    "decision_reasons": [
+      "Solver succeeded under the current grid."
+    ]
+  },
+  "final_decision": {
+    "decision": "stop",
+    "reasons": [
+      "Solver succeeded under the current grid."
+    ],
+    "escalate": false
+  },
+  "timeline": [
+    {
+      "iteration": 1,
+      "draft_id": "d497281e5e8441e49ee4101132ff4a30",
+      "status": "Run succeeded",
+      "decision": "stop"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "status": "Run succeeded",
+  "draft_id": "ea0f3367685343eeaacc13defb5c40e9",
+  "root_cause": {
+    "primary": "no_cash_band_violation_detected",
+    "secondary": "none",
+    "affected_rows": [],
+    "band_violation": ""
+  },
+  "feasibility": {
+    "cash_too_tight": false,
+    "levers_insufficient": false,
+    "engine_overpowered": false,
+    "recommendation": "Current run is solver-feasible under the current cash bands."
+  },
+  "fix_applied": [
+    "Strengthen prompt non-authority language for Q2-Q20 baseline values in AI planning mode payload assembly to fix over-preservation and baseline leakage in later quarters."
+  ],
+  "fix_proposed": [
+    "Strengthen later-quarter non-authority language in the main planner prompt.",
+    "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+  ],
+  "replay_result": {
+    "moved_failure": "n/a",
+    "shape_change": "staircase",
+    "current_shape": "staircase"
+  },
+  "decision": "continue",
+  "decision_reasons": [
+    "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+  ]
+}

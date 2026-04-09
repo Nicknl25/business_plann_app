@@ -1,0 +1,45 @@
+{
+  "actions": [
+    {
+      "action_type": "prompt_modification",
+      "target": "python/client_intake_and_finmo/quarter_grid.py",
+      "summary": "Strengthen later-quarter non-authority language in the main planner prompt.",
+      "details": {
+        "patch_kind": "insert_after",
+        "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
+        "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n"
+      },
+      "risk_level": "low",
+      "supported_for_auto_apply": true,
+      "applied": false
+    },
+    {
+      "action_type": "payload_sanitization",
+      "target": "python/client_intake_and_finmo/quarter_grid.py",
+      "summary": "Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
+      "details": {
+        "patch_kind": "remove_block",
+        "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n"
+      },
+      "risk_level": "medium",
+      "supported_for_auto_apply": true,
+      "applied": false
+    },
+    {
+      "action_type": "llm_code_edit",
+      "target": "python/client_intake_and_finmo/quarter_grid.py",
+      "summary": "Add stronger later-quarter non-authority language to planner prompt payload to reduce baseline leakage and prevent Q2-Q20 baseline flattening in grid AI planning",
+      "details": {
+        "patch_kind": "insert_after",
+        "needle": "_PLANNING_MODE_DEFAULTS: Dict[str, str] = {\n  \"turnaround\": (\n    \"Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. \"\n    \"Later-quarter baseline values (Q2 through Q20) are only placeholders and must NEVER be treated as authoritative targets or fixed constraints anywhere in the plan. \"\n    \"Under NO circumstances treat baseline placeholder values in later quarters as fixed or directive. Do NOT preserve, lock, or allow later-quarter baseline values to dominate or unduly influence planning. \"\n    \"Overriding these placeholders is mandatory whenever realism, strategy, or baby-AI cash constraints require changes. \"\n    \"Enforce the quarter-by-quarter cash posture defined by baby AI strictly as binding constraints, not suggestions or soft guidelines. \"\n    \"Make the business plan truly work quarter by quarter, aligning cash with baby AI intent without softening the cash law. \"\n    \"Use the full company context and behave exactly like an operator trying to make the company truly work, not just cosmetically improve.\"\n  ),",
+        "old": "  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Later-quarter baseline inputs are NOT authoritative and should be overridden to maintain realism and baby-AI cash posture integrity EXACTLY. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection. \"\n    \"Never treat baseline as fixed; enforce baby-AI cash constraints strictly across all 20 quarters.\"\n  ),",
+        "new": "  \"rebalance\": (\n    \"This case appears directionally sound but misbalanced. \"\n    \"Later-quarter baseline inputs are NOT authoritative and should be overridden to maintain realism and baby-AI cash posture integrity EXACTLY. \"\n    \"Your job is to rebalance the model to a more believable operating path for the company's stage, tightening weak assumptions without forcing an unnecessary rescue or overcorrection. \"\n    \"Never treat baseline as fixed; enforce baby-AI cash constraints strictly across all 20 quarters.\"\n  ),\n\n# Add explicit anti-baseline-authority text for all main planning modes\n\"Ensure that in quarters Q2 through Q20, any baseline or fallback data is treated strictly as non-authoritative placeholder data. \"\n\"Do NOT preserve, lock, or smooth these quarters based on baseline values unless explicitly required by the baby-AI cash posture or realism constraints. \"\n\"The grid AI must override any soft baseline lock-in and enforce quarter-by-quarter baby-AI cash constraints exactly without softening or relaxing them. \"\n\"Eliminate any baseline leakage or unintended default smoothing in the plan rows for Q2-Q20, and ensure clear visible strategy expression from baby AI guidance.\""
+      },
+      "risk_level": "medium",
+      "supported_for_auto_apply": true,
+      "applied": false
+    }
+  ],
+  "applied_count": 0,
+  "change_log": []
+}

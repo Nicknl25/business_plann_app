@@ -1,0 +1,75 @@
+{
+  "session_dir": "C:\\dev\\business_plann_app\\dev_agents\\runs\\20260409-102751",
+  "iterations_completed": 5,
+  "latest": {
+    "status": "Run succeeded",
+    "draft_id": "0291b08521e84d5e8686bd0ccdb18958",
+    "root_cause": {
+      "primary": "no_cash_band_violation_detected",
+      "secondary": "none",
+      "affected_rows": [],
+      "band_violation": ""
+    },
+    "feasibility": {
+      "cash_too_tight": false,
+      "levers_insufficient": false,
+      "engine_overpowered": false,
+      "recommendation": "Current run is solver-feasible under the current cash bands."
+    },
+    "fix_applied": [
+      "Strengthen prompt payload anti-baseline-authority language to reduce baseline Q2-Q20 flatness and leakage in grid AI planning."
+    ],
+    "fix_proposed": [
+      "Strengthen later-quarter non-authority language in the main planner prompt.",
+      "Remove raw fixed-facts model views from the AI-facing planning-mode payload."
+    ],
+    "replay_result": {
+      "moved_failure": "n/a",
+      "shape_change": "staircase",
+      "current_shape": "staircase"
+    },
+    "decision": "continue",
+    "decision_reasons": [
+      "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+    ]
+  },
+  "final_decision": {
+    "decision": "continue",
+    "reasons": [
+      "Solver succeeded, but cash shape is still a generic staircase; continue iterating on visible strategy expression."
+    ],
+    "escalate": false
+  },
+  "timeline": [
+    {
+      "iteration": 1,
+      "draft_id": "388da2d272384f98b96b1146215d3987",
+      "status": "Run succeeded",
+      "decision": "continue"
+    },
+    {
+      "iteration": 2,
+      "draft_id": "8d49a05fca78467ca6128cf555a1194d",
+      "status": "Run succeeded",
+      "decision": "continue"
+    },
+    {
+      "iteration": 3,
+      "draft_id": "ea0f3367685343eeaacc13defb5c40e9",
+      "status": "Run succeeded",
+      "decision": "continue"
+    },
+    {
+      "iteration": 4,
+      "draft_id": "56f899bb1a5b403d9c1a6b976d25b4d6",
+      "status": "Run succeeded",
+      "decision": "continue"
+    },
+    {
+      "iteration": 5,
+      "draft_id": "0291b08521e84d5e8686bd0ccdb18958",
+      "status": "Run succeeded",
+      "decision": "continue"
+    }
+  ]
+}

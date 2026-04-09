@@ -18,10 +18,11 @@ def _serialize(value: Any) -> Any:
 @dataclass
 class LoopConfig:
   command: str
-  max_iterations: int = 3
-  apply_fixes: bool = False
-  allow_high_risk_fixes: bool = False
-  confidence_threshold: str = "medium"
+  max_iterations: int = 5
+  apply_fixes: bool = True
+  allow_high_risk_fixes: bool = True
+  confidence_threshold: str = "low"
+  root_cause_only: bool = True
   focus: str = "cash"
   repo_root: str = ""
   session_dir: str = ""
@@ -41,6 +42,8 @@ class CommandResult:
 @dataclass
 class ArtifactBundle:
   draft_id: str
+  is_fresh_run: bool = False
+  agent_context: Dict[str, Any] = field(default_factory=dict)
   row: Dict[str, Any] = field(default_factory=dict)
   planning_run_json: Dict[str, Any] = field(default_factory=dict)
   prompt_file: str = ""
@@ -118,15 +121,21 @@ class FixAction:
 class FixerResult:
   actions: List[FixAction] = field(default_factory=list)
   applied_count: int = 0
+  applicable_count: int = 0
   change_log: List[str] = field(default_factory=list)
   changed_files: List[str] = field(default_factory=list)
   checkpoint_manifest: str = ""
+  no_fix_reason: str = ""
 
   def to_dict(self) -> Dict[str, Any]:
     return {
       "actions": [item.to_dict() for item in self.actions],
       "applied_count": self.applied_count,
+      "applicable_count": self.applicable_count,
       "change_log": list(self.change_log),
+      "changed_files": list(self.changed_files),
+      "checkpoint_manifest": self.checkpoint_manifest,
+      "no_fix_reason": self.no_fix_reason,
     }
 
 
