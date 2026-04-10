@@ -45,6 +45,7 @@ _ENGINE_JSON_COLUMNS = (
   "model_input_json",
   "finmo_json",
   "planning_run_json",
+  "app_agents_run_json",
 )
 
 
@@ -98,10 +99,10 @@ def ensure_table(conn) -> None:
         financials_json LONGTEXT NULL,
         marketing_model_json LONGTEXT NULL,
         financials_year1_json LONGTEXT NULL,
-        realism_memo_json LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
+        app_agents_run_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
         ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
@@ -165,14 +166,14 @@ def ensure_table(conn) -> None:
     alterations.append("ADD COLUMN marketing_model_json LONGTEXT NULL")
   if "financials_year1_json" not in cols:
     alterations.append("ADD COLUMN financials_year1_json LONGTEXT NULL")
-  if "realism_memo_json" not in cols:
-    alterations.append("ADD COLUMN realism_memo_json LONGTEXT NULL")
   if "model_input_json" not in cols:
     alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in cols:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
   if "planning_run_json" not in cols:
     alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
+  if "app_agents_run_json" not in cols:
+    alterations.append("ADD COLUMN app_agents_run_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -186,8 +187,8 @@ def ensure_table(conn) -> None:
   if "financials_finalize_proposed" not in cols:
     alterations.append("ADD COLUMN financials_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0")
 
-  cleanup_drop_columns = (
-    "finmo_path",
+  cleanup_drop_columns = tuple(
+    ["finmo_path"] + [column for column in cols if str(column or "").strip().endswith("_memo_json")]
   )
   if alterations or any(column in cols for column in cleanup_drop_columns):
     cur2 = conn.cursor()
@@ -295,8 +296,8 @@ def _render_messages_for_storage(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
-  realism_memo_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
+  app_agents_run_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -330,9 +331,6 @@ def _render_messages_for_storage(
     "financials_year1_json": (
       financials_year1_json if financials_year1_json is not None else _parse_json_object(row.get("financials_year1_json"))
     ),
-    "realism_memo_json": (
-      realism_memo_json if realism_memo_json is not None else _parse_json_object(row.get("realism_memo_json"))
-    ),
     "model_input_json": (
       model_input_json if model_input_json is not None else _parse_json_object(row.get("model_input_json"))
     ),
@@ -343,6 +341,11 @@ def _render_messages_for_storage(
       planning_run_json
       if planning_run_json is not None
       else _parse_json_object(row.get("planning_run_json"))
+    ),
+    "app_agents_run_json": (
+      app_agents_run_json
+      if app_agents_run_json is not None
+      else _parse_json_object(row.get("app_agents_run_json"))
     ),
   }
 
@@ -381,8 +384,8 @@ def append_messages(
   financials_json: Optional[Dict[str, Any]] = None,
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
-  realism_memo_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
+  app_agents_run_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   pending_ops_milestone_json: Optional[Any] = None,
@@ -413,8 +416,8 @@ def append_messages(
     financials_json=financials_json,
     marketing_model_json=marketing_model_json,
     financials_year1_json=financials_year1_json,
-    realism_memo_json=realism_memo_json,
     planning_run_json=planning_run_json,
+    app_agents_run_json=app_agents_run_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
     business_facts=business_facts,
@@ -465,13 +468,13 @@ def append_messages(
     set_parts.append("finmo_json = %s")
     values.append(json.dumps(finmo_json, ensure_ascii=False))
 
-  if realism_memo_json is not None:
-    set_parts.append("realism_memo_json = %s")
-    values.append(json.dumps(realism_memo_json, ensure_ascii=False))
-
   if planning_run_json is not None:
     set_parts.append("planning_run_json = %s")
     values.append(json.dumps(planning_run_json, ensure_ascii=False))
+
+  if app_agents_run_json is not None:
+    set_parts.append("app_agents_run_json = %s")
+    values.append(json.dumps(app_agents_run_json, ensure_ascii=False))
 
   if pending_ops_milestone_json is not None:
     set_parts.append("pending_ops_milestone_json = %s")
@@ -547,10 +550,10 @@ def append_messages(
       "financials_json",
       "marketing_model_json",
       "financials_year1_json",
-      "realism_memo_json",
       "model_input_json",
       "finmo_json",
       "planning_run_json",
+      "app_agents_run_json",
       "pending_ops_milestone_json",
       "fulfillment_json",
       "created_at",

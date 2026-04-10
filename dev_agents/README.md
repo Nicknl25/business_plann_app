@@ -4,13 +4,18 @@ This folder is intentionally **not part of the production app**.
 
 It is a dev-only helper system for iterating on planning failures, especially the cash-path problem. It watches a run, gathers artifacts, diagnoses the failure, audits prompt risk, checks feasibility, proposes or applies fixes, reruns, compares results, and stops after a bounded number of iterations.
 
+Current runtime note:
+
+- the production planner is now the four-agent app planner under `python/client_intake_and_finmo/app_agents/`
+- the helper should inspect `app_agents_run_json` and the app-agent modules, not deleted legacy planner files
+
 The agents now also read permanent guidance files before they reason about fixes:
 
-- `dev_agents/PLAYBOOK.md`
-- `dev_agents/CRITICAL_CONTEXT.md`
-- `dev_agents/APP_MAP.md`
-- `dev_agents/EVAL_RULES.md`
-- `dev_agents/LEARNINGS.md`
+- `dev_agents/PLAYBOOK_APP_AGENTS.md`
+- `dev_agents/CRITICAL_CONTEXT_APP_AGENTS.md`
+- `dev_agents/APP_MAP_APP_AGENTS.md`
+- `dev_agents/EVAL_RULES_APP_AGENTS.md`
+- `dev_agents/LEARNINGS_APP_AGENTS.md`
 
 ## Agents
 
@@ -42,12 +47,12 @@ By default the helper now:
 - applies high-risk fixes too
 - keeps iterating until it solves or reaches the iteration cap
 - prioritizes root-cause fixes over bandaids
-- reads persistent learnings from `dev_agents/LEARNINGS.md`
+- reads persistent learnings from `dev_agents/LEARNINGS_APP_AGENTS.md`
 - logs every change and decision path under `dev_agents/runs/<timestamp>/`
 
 Important:
 
-- `dev_agents/LEARNINGS.md` is helper-maintained
+- `dev_agents/LEARNINGS_APP_AGENTS.md` is helper-maintained
 - the helper appends structured learnings after each run
 - learnings are written conservatively with verdict, confidence, and scope so single-case conclusions do not become overconfident doctrine
 
@@ -65,11 +70,11 @@ The fixer is no longer limited to the old four-file allowlist. It can patch any 
 
 Current built-in fix categories still include:
 
-- prompt modifications
-- AI-facing payload sanitization
-- cash-feasibility guidance strengthening
-- capital-allocation deployment strengthening
-- limited solver tuning
+- prompt and schema fixes
+- app-agent orchestration fixes
+- persistence and artifact-capture fixes
+- solver-bridge and contract-preservation fixes
+- limited solver changes only when clearly justified
 
 Every proposed and applied change is logged in the session output.
 

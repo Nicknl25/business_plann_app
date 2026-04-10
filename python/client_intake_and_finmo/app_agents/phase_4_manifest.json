@@ -1,0 +1,23 @@
+{
+  "phase": 4,
+  "recorded_on": "2026-04-09",
+  "depends_on_phase": 3,
+  "new_runtime_logic_added": false,
+  "live_runtime_cutover_done": false,
+  "artifacts": [
+    "python/client_intake_and_finmo/app_agents/openai_client.py",
+    "python/client_intake_and_finmo/app_agents/prompt_loader.py",
+    "python/client_intake_and_finmo/app_agents/prompts/realism_agent.md",
+    "python/client_intake_and_finmo/app_agents/prompts/operations_agent.md",
+    "python/client_intake_and_finmo/app_agents/prompts/capital_agent.md",
+    "python/client_intake_and_finmo/app_agents/prompts/grid_agent.md"
+  ],
+  "specialist_capabilities": [
+    "strict json-schema OpenAI responses",
+    "agent-specific prompt files",
+    "agent-specific model and timeout env hooks",
+    "realism_agent.generate(...)",
+    "operations_agent.generate(...)",
+    "capital_agent.generate(...)"
+  ]
+}

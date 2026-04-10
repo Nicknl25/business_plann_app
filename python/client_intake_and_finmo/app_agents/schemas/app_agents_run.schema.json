@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "app_agents/app_agents_run.schema.json",
+  "title": "App Agents Run Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": { "type": "string" },
+    "planner_status": { "type": "string", "enum": ["ready", "blocked"] },
+    "execution_trace": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "event": { "type": "string" },
+          "status": { "type": "string" },
+          "component": { "type": "string" },
+          "detail": { "type": "string" }
+        },
+        "required": ["event", "status", "component", "detail"]
+      }
+    },
+    "shared_context": { "$ref": "./shared_context.schema.json" },
+    "realism_agent": { "$ref": "./realism_agent_output.schema.json" },
+    "operations_agent": { "$ref": "./operations_agent_output.schema.json" },
+    "capital_agent": { "$ref": "./capital_agent_output.schema.json" },
+    "grid_agent": { "$ref": "./grid_agent_output.schema.json" }
+  },
+  "required": [
+    "contract_version",
+    "planner_status",
+    "execution_trace",
+    "shared_context",
+    "realism_agent",
+    "operations_agent",
+    "capital_agent",
+    "grid_agent"
+  ]
+}

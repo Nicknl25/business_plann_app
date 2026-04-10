@@ -16,7 +16,6 @@ SCRIPTED_RUNNER_PATH = THIS_DIR / "run_scripted_intake.py"
 DUAL_RUNNER_PATH = THIS_DIR / "run_dual_agent_intake.py"
 INTAKE_SUBMISSION_PATH = CLIENT_DIR / "intake_submission.py"
 INTAKE_DRAFT_PATH = CLIENT_DIR / "intake_consult_draft.py"
-REALISM_MEMO_PATH = CLIENT_DIR / "realism_memo.py"
 
 for extra_path in (str(PYTHON_DIR), str(CLIENT_DIR)):
   if extra_path not in sys.path:
@@ -36,7 +35,6 @@ _SCRIPTED = _load_module(SCRIPTED_RUNNER_PATH, "run_scripted_intake_shared_args"
 _DUAL = _load_module(DUAL_RUNNER_PATH, "run_dual_agent_intake_shared_args")
 _SUBMISSION = _load_module(INTAKE_SUBMISSION_PATH, "intake_submission_shared_args")
 _DRAFT = _load_module(INTAKE_DRAFT_PATH, "intake_consult_draft_shared_args")
-_REALISM = _load_module(REALISM_MEMO_PATH, "realism_memo_shared_args")
 
 
 KEY_HELP = """
@@ -767,10 +765,6 @@ def _run_direct_seeded(
   people_json = _build_people_json(spec)
   financials_json = _build_financials_json(spec)
   planning_run_json = _planning_resolution_payload(spec)
-  realism_memo_json = _REALISM.generate_realism_memo_payload_safe(
-    ops_json=ops_json,
-    financials_json=financials_json,
-  )
   business_facts = {
     "name": bootstrap.business_name,
     "address": bootstrap.address,
@@ -794,7 +788,6 @@ def _run_direct_seeded(
       target_market_json=market_json,
       people_json=people_json,
       financials_json=financials_json,
-      realism_memo_json=realism_memo_json,
       planning_run_json=planning_run_json,
       active_focus="done",
       confirmations={"ops": True, "market": True, "people": True, "financials": True},
@@ -824,7 +817,7 @@ def _run_direct_seeded(
   transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
   print(system_message)
   draft = _DUAL._get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
-  memo = _DUAL._parse_realism_memo(draft.get("realism_memo_json"))
+  app_agents_run = _DUAL._parse_app_agents_run(draft.get("app_agents_run_json"))
   print(
     "Final flags:",
     json.dumps(
@@ -833,8 +826,8 @@ def _run_direct_seeded(
         "market_confirmed": draft.get("market_confirmed"),
         "people_confirmed": draft.get("people_confirmed"),
         "financials_confirmed": draft.get("financials_confirmed"),
-        "realism_memo_status": memo.get("status"),
-        "realism_memo_issue_count": len(memo.get("issues") or []),
+        "planner_status": app_agents_run.get("planner_status"),
+        "blocking_conflict_count": app_agents_run.get("blocking_conflict_count"),
       },
       ensure_ascii=False,
     ),

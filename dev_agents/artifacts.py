@@ -27,11 +27,11 @@ def _read_text_if_exists(path: Path) -> str:
 def _load_agent_context(repo_root: Path) -> Dict[str, Any]:
   guidance_dir = repo_root / "dev_agents"
   files = {
-    "playbook": guidance_dir / "PLAYBOOK.md",
-    "critical_context": guidance_dir / "CRITICAL_CONTEXT.md",
-    "app_map": guidance_dir / "APP_MAP.md",
-    "evaluation_rules": guidance_dir / "EVAL_RULES.md",
-    "learnings": guidance_dir / "LEARNINGS.md",
+    "playbook": guidance_dir / "PLAYBOOK_APP_AGENTS.md",
+    "critical_context": guidance_dir / "CRITICAL_CONTEXT_APP_AGENTS.md",
+    "app_map": guidance_dir / "APP_MAP_APP_AGENTS.md",
+    "evaluation_rules": guidance_dir / "EVAL_RULES_APP_AGENTS.md",
+    "learnings": guidance_dir / "LEARNINGS_APP_AGENTS.md",
     "readme": guidance_dir / "README.md",
   }
   texts = {name: _read_text_if_exists(path) for name, path in files.items()}
@@ -51,17 +51,23 @@ def _load_agent_context(repo_root: Path) -> Dict[str, Any]:
           "summary": summary,
         })
   return {
-    "expected_runtime_commit": "5367da4",
+    "expected_runtime_commit": "",
     "runtime_files": [
-      "python/client_intake_and_finmo/quarter_grid.py",
-      "python/financial_model_engine/solver.py",
+      "python/client_intake_and_finmo/app_agents/planner.py",
+      "python/client_intake_and_finmo/app_agents/shared_context.py",
+      "python/client_intake_and_finmo/app_agents/solver_bridge.py",
+      "python/client_intake_and_finmo/app_agents/realism_agent.py",
+      "python/client_intake_and_finmo/app_agents/operations_agent.py",
+      "python/client_intake_and_finmo/app_agents/capital_agent.py",
+      "python/client_intake_and_finmo/app_agents/grid_agent.py",
       "python/api_handlers/intake_consult.py",
+      "python/client_intake_and_finmo/intake_consult_draft.py",
     ],
-    "production_ai_shape": "baby_ai_plus_grid_ai",
+    "production_ai_shape": "app_agents_four_agent_planner",
     "fix_scope": "any_file_inside_repo",
-    "deleted_experimental_modules": [
-      "python/client_intake_and_finmo/cash_contract_baby_ai.py",
-      "python/client_intake_and_finmo/capital_allocation_baby_ai.py",
+    "deleted_legacy_planner_modules": [
+      "python/client_intake_and_finmo/quarter_grid.py",
+      "python/client_intake_and_finmo/realism_memo.py",
     ],
     "guidance_files": {name: str(path) for name, path in files.items()},
     "guidance_text": texts,
@@ -180,25 +186,60 @@ def _locate_saved_paths(draft_id: str) -> Dict[str, str]:
   return located
 
 
-def _extract_authoritative_cash_bands(gpt_meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _extract_authoritative_cash_bands(gpt_meta: Dict[str, Any], app_agents_run_json: Dict[str, Any]) -> List[Dict[str, Any]]:
   contract = gpt_meta.get("cash_constraint_contract") if isinstance(gpt_meta.get("cash_constraint_contract"), dict) else {}
   items = contract.get("authoritative_cash_bands") if isinstance(contract.get("authoritative_cash_bands"), list) else []
-  return [dict(item) for item in items if isinstance(item, dict)]
+  if items:
+    return [dict(item) for item in items if isinstance(item, dict)]
+  grid_agent = app_agents_run_json.get("grid_agent") if isinstance(app_agents_run_json.get("grid_agent"), dict) else {}
+  grid_json = grid_agent.get("grid_json") if isinstance(grid_agent.get("grid_json"), dict) else {}
+  rows = grid_json.get("rows") if isinstance(grid_json.get("rows"), list) else []
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    if str(row.get("row_id") or "").strip() != "Cash":
+      continue
+    out: List[Dict[str, Any]] = []
+    for band in row.get("quarter_bands") or []:
+      if not isinstance(band, dict):
+        continue
+      out.append(
+        {
+          "quarter_index": int(safe_float(band.get("quarter_index")) or 0),
+          "min_value": safe_float(band.get("min_value")),
+          "max_value": safe_float(band.get("max_value")),
+        }
+      )
+    return out
+  return []
 
 
-def _extract_authoritative_capital_rows(gpt_meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _extract_authoritative_capital_rows(gpt_meta: Dict[str, Any], app_agents_run_json: Dict[str, Any]) -> List[Dict[str, Any]]:
   rows = gpt_meta.get("authoritative_capital_rows") if isinstance(gpt_meta.get("authoritative_capital_rows"), list) else []
-  return [dict(item) for item in rows if isinstance(item, dict)]
+  if rows:
+    return [dict(item) for item in rows if isinstance(item, dict)]
+  grid_agent = app_agents_run_json.get("grid_agent") if isinstance(app_agents_run_json.get("grid_agent"), dict) else {}
+  grid_json = grid_agent.get("grid_json") if isinstance(grid_agent.get("grid_json"), dict) else {}
+  capital_tokens = ("capital expenditures", "capex", "owner", "equity", "debt", "principal", "cash")
+  out: List[Dict[str, Any]] = []
+  for row in grid_json.get("rows") or []:
+    if not isinstance(row, dict):
+      continue
+    row_id = str(row.get("row_id") or "").strip()
+    lowered = row_id.lower()
+    if row_id == "Cash" or any(token in lowered for token in capital_tokens):
+      out.append(dict(row))
+  return out
 
 
 def _run_local_solver(*, baseline_model_input_json: Dict[str, Any], grid_response_json: Dict[str, Any]) -> Dict[str, Any]:
   if not baseline_model_input_json or not grid_response_json:
     return {}
   _bootstrap_repo()
-  from client_intake_and_finmo.quarter_grid import solve_live_quarter_grid_plan  # type: ignore
+  from client_intake_and_finmo.app_agents.solver_bridge import solve_solver_grid_plan  # type: ignore
 
   try:
-    result = solve_live_quarter_grid_plan(
+    result = solve_solver_grid_plan(
       baseline_model_input_json=dict(baseline_model_input_json),
       grid_json=dict(grid_response_json),
     )
@@ -237,7 +278,8 @@ def build_artifact_bundle(
       except Exception:
         fresh_run = False
   planning_run_json = json_loads_dict(row.get("planning_run_json"))
-  prompt_file = str(planning_run_json.get("prompt_file") or "").strip()
+  app_agents_run_json = json_loads_dict(row.get("app_agents_run_json"))
+  prompt_file = str((repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "prompts" / "grid_agent.md").resolve())
   prompt_file_text = ""
   if prompt_file:
     try:
@@ -245,29 +287,35 @@ def build_artifact_bundle(
     except Exception:
       prompt_file_text = ""
   gpt_meta = planning_run_json.get("gpt_grid_metadata") if isinstance(planning_run_json.get("gpt_grid_metadata"), dict) else {}
-  grid_response_json = gpt_meta.get("response_json") if isinstance(gpt_meta.get("response_json"), dict) else {}
+  app_agents_trace = [dict(item) for item in (gpt_meta.get("app_agents_trace") or []) if isinstance(item, dict)]
+  grid_agent = app_agents_run_json.get("grid_agent") if isinstance(app_agents_run_json.get("grid_agent"), dict) else {}
+  grid_response_json = grid_agent.get("grid_json") if isinstance(grid_agent.get("grid_json"), dict) else {}
   baseline_model_input_json = json_loads_dict(row.get("model_input_json"))
   local_solver = _run_local_solver(
     baseline_model_input_json=baseline_model_input_json,
     grid_response_json=grid_response_json,
   )
   stored_solver_summary = planning_run_json.get("solver_summary") if isinstance(planning_run_json.get("solver_summary"), dict) else {}
+  if not stored_solver_summary:
+    stored_solver_summary = dict(local_solver.get("solver_summary") or {})
   return ArtifactBundle(
     draft_id=resolved_draft_id,
     is_fresh_run=fresh_run,
     agent_context=_load_agent_context(repo_root),
     row=row,
     planning_run_json=planning_run_json,
+    app_agents_run_json=app_agents_run_json,
     prompt_file=prompt_file,
     prompt_file_text=prompt_file_text,
-    gpt_narrative=str(planning_run_json.get("gpt_narrative") or "").strip(),
+    gpt_narrative=str(grid_agent.get("summary") or planning_run_json.get("gpt_narrative") or "").strip(),
     gpt_grid_metadata=gpt_meta,
+    app_agents_trace=app_agents_trace,
     grid_response_json=grid_response_json,
     solver_summary=stored_solver_summary,
     local_solver_summary=dict(local_solver.get("solver_summary") or {}),
     local_solved_outputs=[dict(item) for item in (local_solver.get("solved_outputs") or []) if isinstance(item, dict)],
-    authoritative_cash_bands=_extract_authoritative_cash_bands(gpt_meta),
-    authoritative_capital_rows=_extract_authoritative_capital_rows(gpt_meta),
+    authoritative_cash_bands=_extract_authoritative_cash_bands(gpt_meta, app_agents_run_json),
+    authoritative_capital_rows=_extract_authoritative_capital_rows(gpt_meta, app_agents_run_json),
     saved_paths=_locate_saved_paths(resolved_draft_id),
     command_result=command_result,
   )

@@ -1,0 +1,94 @@
+{
+  "version": "phase7_v1",
+  "scenarios": [
+    {
+      "scenario_id": "med_spa_reinvest",
+      "business_type": "med_spa",
+      "business_model": "in_person_service",
+      "cash_strategy": "reinvest",
+      "validation_focus": [
+        "deployment visibility",
+        "staffing support",
+        "capex realism",
+        "anti_staircase"
+      ]
+    },
+    {
+      "scenario_id": "med_spa_preserve_cash",
+      "business_type": "med_spa",
+      "business_model": "in_person_service",
+      "cash_strategy": "preserve_cash",
+      "validation_focus": [
+        "buffer retention",
+        "measured deployment",
+        "realism"
+      ]
+    },
+    {
+      "scenario_id": "med_spa_shareholder_return",
+      "business_type": "med_spa",
+      "business_model": "in_person_service",
+      "cash_strategy": "shareholder_return",
+      "validation_focus": [
+        "reduced trapped cash",
+        "anti_staircase",
+        "extraction visibility"
+      ]
+    },
+    {
+      "scenario_id": "med_spa_balanced",
+      "business_type": "med_spa",
+      "business_model": "in_person_service",
+      "cash_strategy": "balanced",
+      "validation_focus": [
+        "middle_path",
+        "buffer plus deployment",
+        "realism"
+      ]
+    },
+    {
+      "scenario_id": "saas_reinvest",
+      "business_type": "saas",
+      "business_model": "subscription_software",
+      "cash_strategy": "reinvest",
+      "validation_focus": [
+        "hiring support",
+        "sales_and_marketing support",
+        "anti_staircase"
+      ]
+    },
+    {
+      "scenario_id": "manufacturing_balanced",
+      "business_type": "manufacturing",
+      "business_model": "asset_heavy_production",
+      "cash_strategy": "balanced",
+      "validation_focus": [
+        "capacity realism",
+        "working_capital realism",
+        "capex realism"
+      ]
+    },
+    {
+      "scenario_id": "trucking_preserve_cash",
+      "business_type": "trucking",
+      "business_model": "asset_and_labor_heavy_service",
+      "cash_strategy": "preserve_cash",
+      "validation_focus": [
+        "fleet realism",
+        "liquidity buffer",
+        "measured deployment"
+      ]
+    },
+    {
+      "scenario_id": "retail_shareholder_return",
+      "business_type": "retail",
+      "business_model": "store_based_retail",
+      "cash_strategy": "shareholder_return",
+      "validation_focus": [
+        "reduced excess cash hoarding",
+        "inventory and store support coherence"
+      ]
+    }
+  ]
+}
+

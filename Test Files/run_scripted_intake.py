@@ -579,7 +579,7 @@ def _run_spec(
         transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
         print(system_message)
         draft = _SHARED._get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
-        memo = _SHARED._parse_realism_memo(draft.get("realism_memo_json"))
+        app_agents_run = _SHARED._parse_app_agents_run(draft.get("app_agents_run_json"))
         print(
           "Final flags:",
           json.dumps(
@@ -588,8 +588,8 @@ def _run_spec(
               "market_confirmed": draft.get("market_confirmed"),
               "people_confirmed": draft.get("people_confirmed"),
               "financials_confirmed": draft.get("financials_confirmed"),
-              "realism_memo_status": memo.get("status"),
-              "realism_memo_issue_count": len(memo.get("issues") or []),
+              "planner_status": app_agents_run.get("planner_status"),
+              "blocking_conflict_count": app_agents_run.get("blocking_conflict_count"),
             },
             ensure_ascii=False,
           ),

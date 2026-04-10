@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "app_agents/validation_result.schema.json",
+  "title": "App Agents Validation Result",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "scenario_id": { "type": "string" },
+    "planner_status": { "type": "string" },
+    "overall_pass": { "type": "boolean" },
+    "contract_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["pass", "issues"]
+    },
+    "planner_readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["pass", "issues"]
+    },
+    "strategy_visibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } },
+        "moved_row_count": { "type": "integer" }
+      },
+      "required": ["pass", "issues", "moved_row_count"]
+    },
+    "staircase_risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } },
+        "cash_monotonic_non_decreasing": { "type": "boolean" },
+        "cash_monotonicity_expectation": { "type": "string" }
+      },
+      "required": ["pass", "issues", "cash_monotonic_non_decreasing", "cash_monotonicity_expectation"]
+    },
+    "row_coherence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["pass", "issues"]
+    },
+    "business_mechanics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["pass", "issues"]
+    }
+  },
+  "required": [
+    "scenario_id",
+    "planner_status",
+    "overall_pass",
+    "contract_integrity",
+    "planner_readiness",
+    "strategy_visibility",
+    "staircase_risk",
+    "row_coherence",
+    "business_mechanics"
+  ]
+}

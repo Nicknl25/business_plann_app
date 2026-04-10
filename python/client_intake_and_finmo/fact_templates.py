@@ -191,11 +191,6 @@ def _format_number(value: Any, *, money: bool) -> str:
 def _format_lease(value: Any) -> str:
   if value is None:
     return "none"
-  if isinstance(value, (int, float)):
-    amount = float(value)
-    if amount <= 1e-9:
-      return "none"
-    return f"{_format_number(amount, money=True)}/month"
   raw = str(value).strip()
   if not raw:
     return "none"
@@ -205,9 +200,7 @@ def _format_lease(value: Any) -> str:
   if not amount or amount <= 1e-9:
     return "none" if (period.lower() in ("none", "n/a", "na", "")) else f"$0/{period}"
   money = _format_number(amount, money=True)
-  if not period:
-    return f"{money}/month"
-  if period.lower() in ("none",):
+  if not period or period.lower() in ("none",):
     return money
   return f"{money}/{period}"
 

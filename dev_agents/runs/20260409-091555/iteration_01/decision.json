@@ -1,7 +1,0 @@
-{
-  "decision": "stop",
-  "reasons": [
-    "Solver succeeded under the current grid."
-  ],
-  "escalate": false
-}

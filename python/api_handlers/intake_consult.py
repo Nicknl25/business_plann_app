@@ -1,4 +1,4 @@
-import copy
+﻿import copy
 import json
 import os
 import re
@@ -21,6 +21,13 @@ except Exception:
   except Exception:
     build_shared_context = None  # type: ignore
 try:
+  from client_intake_and_finmo.app_agents import AppAgentsPlanner  # type: ignore
+except Exception:
+  try:
+    from app_agents import AppAgentsPlanner  # type: ignore
+  except Exception:
+    AppAgentsPlanner = None  # type: ignore
+try:
   from fact_templates import sanitize_fact_template  # type: ignore
 except Exception:
   try:
@@ -28,14 +35,6 @@ except Exception:
   except Exception:
     def sanitize_fact_template(value: str) -> str:
       return str(value or "")
-try:
-  from realism_memo import generate_realism_memo_payload_safe  # type: ignore
-except Exception:
-  try:
-    from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
-  except Exception:
-    def generate_realism_memo_payload_safe(*, ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> Dict[str, Any]:
-      return {"status": "failed", "issues": []}
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -1304,24 +1303,24 @@ def _build_financials_stage_acknowledgement(
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))
-    return f"Got it. I’ll use Year-1 direct costs of {total} ({percent} of revenue)."
+    return f"Got it. Iâ€™ll use Year-1 direct costs of {total} ({percent} of revenue)."
   if stage == "current_payroll":
-    return f"Got it. I’ll use Year-1 payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))}."
+    return f"Got it. Iâ€™ll use Year-1 payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))}."
   if stage == "marketing":
     total = _format_currency((financials_json or {}).get("marketing_total_year1"))
     percent = _format_percent((financials_json or {}).get("marketing_percent_of_revenue"))
-    return f"Got it. I’ll use a Year-1 marketing budget of {total} ({percent} of revenue)."
+    return f"Got it. Iâ€™ll use a Year-1 marketing budget of {total} ({percent} of revenue)."
   if stage == "revenue_intro":
-    return "Understood. We’ll use the current Year-1 revenue model as the baseline and move into the rest of financials."
+    return "Understood. Weâ€™ll use the current Year-1 revenue model as the baseline and move into the rest of financials."
   if stage == "cash_strategy":
     return _build_cash_strategy_acknowledgement((financials_json or {}).get("cash_strategy"))
   if stage == "current_num_employees":
-    return f"Got it. I’ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
+    return f"Got it. Iâ€™ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
   scalar_field = stage if stage in _GENERIC_FINANCIALS_FIELD_LABELS else ""
   if scalar_field:
     value = (financials_json or {}).get(stage)
     if stage == "future_rent_expected":
-      return "Got it. I’ll treat future dedicated space as part of the model." if bool(value) else "Got it. I’ll treat future dedicated space as not expected for now."
+      return "Got it. Iâ€™ll treat future dedicated space as part of the model." if bool(value) else "Got it. Iâ€™ll treat future dedicated space as not expected for now."
     return _build_financials_scalar_stage_acknowledgement(stage, float(value or 0.0))
   return "Got it."
 
@@ -3117,7 +3116,7 @@ def _build_cash_strategy_message_legacy_unused() -> str:
     "One last financial planning question before I wrap this section up: when this business starts building extra cash, "
     "what would you want to do with it?\n\n"
     + "\n".join(option_lines)
-    + "\n\nYou can answer in plain language and I’ll map it to the closest approach."
+    + "\n\nYou can answer in plain language and Iâ€™ll map it to the closest approach."
   )
 
 
@@ -3134,7 +3133,7 @@ def _build_cash_strategy_acknowledgement(value: Any) -> str:
   option = _cash_strategy_option(value)
   if not option:
     return "Got it."
-  return f"Got it. I’ll treat {option['label'].lower()} as the preferred cash posture."
+  return f"Got it. Iâ€™ll treat {option['label'].lower()} as the preferred cash posture."
 
 
 def _is_generic_financials_scalar_stage(stage_name: Optional[str]) -> bool:
@@ -4683,7 +4682,7 @@ def _propose_ops_competitive_advantage(
   if not key:
     raise RuntimeError("OPENAI_API_KEY is not configured.")
   system = (
-    "You are a senior business consultant defining a company’s competitive advantage.\n\n"
+    "You are a senior business consultant defining a companyâ€™s competitive advantage.\n\n"
     "This is NOT marketing language.\n"
     "This is an execution-based advantage grounded in how the business actually operates.\n\n"
     "Context:\n"
@@ -4701,13 +4700,13 @@ def _propose_ops_competitive_advantage(
     "3) Why it matters economically or experientially to the customer\n"
     "4) Why it is not trivial for competitors to replicate\n\n"
     "Hard rules:\n"
-    "- Do NOT use generic phrases (e.g., “high quality,” “great service,” “customer-focused,” “fast,” “personalized”) unless you explain *how* they are structurally enabled.\n"
-    "- Do NOT describe multiple advantages — pick the single most defensible one.\n"
+    "- Do NOT use generic phrases (e.g., â€œhigh quality,â€ â€œgreat service,â€ â€œcustomer-focused,â€ â€œfast,â€ â€œpersonalizedâ€) unless you explain *how* they are structurally enabled.\n"
+    "- Do NOT describe multiple advantages â€” pick the single most defensible one.\n"
     "- Do NOT restate the business description.\n"
     "- Tie the advantage to at least ONE concrete operational choice (e.g., menu design, staffing model, throughput discipline, geographic focus, fulfillment cadence).\n"
-    "- Keep it to 2–3 sentences total.\n\n"
+    "- Keep it to 2â€“3 sentences total.\n\n"
     "After proposing the advantage, ask ONE confirmation question:\n"
-    "“Does this accurately reflect what truly sets the business apart?”\n\n"
+    "â€œDoes this accurately reflect what truly sets the business apart?â€\n\n"
     "If the client disagrees:\n"
     "- Ask ONE targeted clarification question.\n"
     "- Revise the advantage once and ask for confirmation again."
@@ -5226,6 +5225,8 @@ def _run_planning_system_for_draft(
 ) -> Dict[str, Any]:
   if build_shared_context is None:
     raise RuntimeError("build_shared_context_unavailable")
+  if AppAgentsPlanner is None:
+    raise RuntimeError("app_agents_planner_unavailable")
   draft = get_draft(conn, draft_id=str(draft_id).strip())
   if str(draft.get("active_focus") or "").strip().lower() != "done":
     raise RuntimeError("draft_not_complete")
@@ -5252,6 +5253,8 @@ def _run_planning_system_for_draft(
     if isinstance(planning_run_json.get("resolution_summary"), dict)
     else {}
   )
+  app_agents_trace: List[Dict[str, str]] = []
+  app_agents_partial_payload: Dict[str, Any] = {}
 
   business_facts: Dict[str, Any] = {
     "name": draft.get("business_name"),
@@ -5277,7 +5280,11 @@ def _run_planning_system_for_draft(
     solver_summary: Optional[Dict[str, Any]] = None,
     model_input_payload: Optional[Dict[str, Any]] = None,
     finmo_payload: Optional[Dict[str, Any]] = None,
+    app_agents_run_payload: Optional[Dict[str, Any]] = None,
   ) -> Dict[str, Any]:
+    next_grid_metadata = copy.deepcopy(gpt_grid_metadata or {})
+    if app_agents_trace:
+      next_grid_metadata["app_agents_trace"] = copy.deepcopy(app_agents_trace)
     payload = _build_planning_run_payload(
       stage=stage,
       status=status,
@@ -5286,7 +5293,7 @@ def _run_planning_system_for_draft(
       planning_mode_reason=planning_mode_reason,
       prompt_file=prompt_file,
       gpt_narrative=gpt_narrative,
-      gpt_grid_metadata=copy.deepcopy(gpt_grid_metadata or {}),
+      gpt_grid_metadata=next_grid_metadata,
       solver_summary=copy.deepcopy(solver_summary or {}),
     )
     append_messages(
@@ -5296,11 +5303,44 @@ def _run_planning_system_for_draft(
       model_input_json=model_input_payload,
       finmo_json=finmo_payload,
       planning_run_json=payload,
+      app_agents_run_json=copy.deepcopy(app_agents_run_payload if app_agents_run_payload is not None else app_agents_partial_payload),
       active_focus="done",
       status="completed",
       completed=True,
     )
     return payload
+
+  def _record_app_agents_trace(
+    trace_item: Optional[Dict[str, Any]] = None,
+    event: str = "",
+    status_value: str = "",
+    component: str = "",
+    detail: str = "",
+  ) -> None:
+    if isinstance(trace_item, dict):
+      app_agents_trace.append(
+        {
+          "event": str(trace_item.get("event") or "").strip(),
+          "status": str(trace_item.get("status") or "").strip(),
+          "component": str(trace_item.get("component") or "").strip(),
+          "detail": str(trace_item.get("detail") or "").strip(),
+        }
+      )
+      return
+    app_agents_trace.append(
+      {
+        "event": str(event or "").strip(),
+        "status": str(status_value or "").strip(),
+        "component": str(component or "").strip(),
+        "detail": str(detail or "").strip(),
+      }
+    )
+
+  def _merge_app_agents_snapshot(snapshot: Dict[str, Any]) -> None:
+    if not isinstance(snapshot, dict):
+      return
+    app_agents_partial_payload.clear()
+    app_agents_partial_payload.update(copy.deepcopy(snapshot))
 
   shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
   shared_context = dict(shared_context or {})
@@ -5337,9 +5377,9 @@ def _run_planning_system_for_draft(
   except Exception:
     from client_intake_and_finmo.finmo_bridge import sync_planning_state_to_finmo  # type: ignore
   try:
-    from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+    from app_agents.solver_bridge import solve_solver_grid_plan, validate_solver_grid_response  # type: ignore
   except Exception:
-    from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+    from client_intake_and_finmo.app_agents.solver_bridge import solve_solver_grid_plan, validate_solver_grid_response  # type: ignore
 
   sync_result = sync_planning_state_to_finmo(
     finmo_path="",
@@ -5370,46 +5410,119 @@ def _run_planning_system_for_draft(
     finmo_payload=finmo_json,
   )
 
-  planning_choice = determine_planning_mode(
-    ops_json=dict(ops_json or {}),
-    target_market_json=dict(market_json or {}),
-    people_json=dict(people_json or {}),
-    financials_json=dict(financials_json or {}),
-    financials_year1_json=dict(financials_year1_json or {}),
-    fulfillment_json=dict(fulfillment_json or {}),
-    marketing_model_json=dict(marketing_model_json or {}),
-    model_input_json=copy.deepcopy(model_input_json),
-    finmo_json=copy.deepcopy(finmo_json),
-    business_facts=copy.deepcopy(business_facts or {}),
+  planner = AppAgentsPlanner(
+    trace_callback=_record_app_agents_trace,
+    snapshot_callback=_merge_app_agents_snapshot,
   )
-  planning_mode = str(planning_choice.get("planning_mode") or "").strip()
-  planning_mode_reason = str(planning_choice.get("planning_mode_reason") or "").strip()
+  planning_mode = "app_agents"
+  planning_mode_reason = "app_agents_multi_specialist_planner"
   planning_run_json = _persist_system_stage(
-    stage="quarter_grid_running",
+    stage="app_agents_running",
     status="running",
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
+    prompt_file="client_intake_and_finmo/app_agents",
     model_input_payload=model_input_json,
     finmo_payload=finmo_json,
   )
-
-  planning_result = generate_live_quarter_grid_plan(
-    business_name=str(business_facts.get("name") or "").strip(),
-    planning_mode=planning_mode,
-    model_input_json=copy.deepcopy(model_input_json),
-    finmo_json=copy.deepcopy(finmo_json),
-    ops_json=ops_json,
-    target_market_json=market_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    fulfillment_json=fulfillment_json,
-    marketing_model_json=marketing_model_json,
-    realism_memo_json=_parse_json_dict(draft.get("realism_memo_json")),
-    business_facts=copy.deepcopy(business_facts or {}),
+  try:
+    app_agents_shared_context = planner.build_shared_context(
+      draft_id=str(draft_id).strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      target_market_json=copy.deepcopy(market_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      marketing_model_json=copy.deepcopy(marketing_model_json or {}),
+      fulfillment_json=copy.deepcopy(fulfillment_json or {}),
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+    )
+    planning_run_json = _persist_system_stage(
+      stage="app_agents_context_ready",
+      status="running",
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file="client_intake_and_finmo/app_agents",
+      model_input_payload=model_input_json,
+      finmo_payload=finmo_json,
+    )
+    app_agents_run_json = planner.run(shared_context=app_agents_shared_context)
+  except Exception as exc:
+    _record_app_agents_trace(
+      event="planner_failure",
+      status_value="failed",
+      component="planner",
+      detail=str(exc),
+    )
+    _persist_system_stage(
+      stage="app_agents_failed",
+      status="failed",
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file="client_intake_and_finmo/app_agents",
+      gpt_grid_metadata={"failure_detail": str(exc)},
+      model_input_payload=model_input_json,
+      finmo_payload=finmo_json,
+    )
+    raise
+  if str(app_agents_run_json.get("planner_status") or "").strip().lower() != "ready":
+    blocking = list((((app_agents_run_json.get("grid_agent") or {}).get("blocking_conflicts")) or []))
+    _persist_system_stage(
+      stage="app_agents_blocked",
+      status="blocked",
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file="client_intake_and_finmo/app_agents",
+      gpt_narrative=str((((app_agents_run_json.get("grid_agent") or {}) if isinstance(app_agents_run_json.get("grid_agent"), dict) else {}).get("summary")) or "").strip(),
+      gpt_grid_metadata={
+        "planner_type": "app_agents",
+        "planner_status": str(app_agents_run_json.get("planner_status") or "").strip(),
+        "blocking_conflicts": copy.deepcopy(blocking),
+      },
+      model_input_payload=model_input_json,
+      finmo_payload=finmo_json,
+      app_agents_run_payload=app_agents_run_json,
+    )
+    detail = "app_agents_planner_blocked"
+    if blocking:
+      detail += ":" + "; ".join(str(item or "").strip() for item in blocking if str(item or "").strip())
+    raise RuntimeError(detail)
+  grid_agent_payload = (
+    app_agents_run_json.get("grid_agent")
+    if isinstance(app_agents_run_json.get("grid_agent"), dict)
+    else {}
   )
-  validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
+  planning_result = {
+    "prompt_file": "client_intake_and_finmo/app_agents",
+    "gpt_narrative": str(grid_agent_payload.get("summary") or "").strip(),
+    "grid_json": (
+      grid_agent_payload.get("grid_json")
+      if isinstance(grid_agent_payload.get("grid_json"), dict)
+      else {}
+    ),
+    "metadata": {
+      "planner_type": "app_agents",
+      "planner_version": str(((app_agents_run_json.get("shared_context") or {}).get("contract") or {}).get("planner_version") or "").strip(),
+      "planner_status": str(app_agents_run_json.get("planner_status") or "").strip(),
+      "grid_agent_self_check": copy.deepcopy(grid_agent_payload.get("self_check") or {}),
+      "blocking_conflicts": list(grid_agent_payload.get("blocking_conflicts") or []),
+      "conflict_resolutions": copy.deepcopy(grid_agent_payload.get("conflict_resolutions") or []),
+    },
+  }
+  requested_rows = [
+    {
+      "row_id": str(item.get("row_id") or "").strip(),
+      "row_type": str(item.get("row_type") or "").strip(),
+    }
+    for item in (app_agents_shared_context.get("row_catalog") or [])
+    if isinstance(item, dict) and str(item.get("row_id") or "").strip()
+  ]
+  validation = validate_solver_grid_response(
+    requested_rows=requested_rows,
+    response_json=planning_result.get("grid_json") if isinstance(planning_result.get("grid_json"), dict) else {},
+  )
   if (
     list(validation.get("missing_rows") or [])
     or list(validation.get("extra_rows") or [])
@@ -5418,18 +5531,22 @@ def _run_planning_system_for_draft(
   ):
     raise RuntimeError("planning_grid_validation_failed")
   planning_run_json = _persist_system_stage(
-    stage="quarter_grid_ready",
+    stage="solver_grid_ready",
     status="ready_for_solver",
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     prompt_file=str(planning_result.get("prompt_file") or "").strip(),
     gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
-    gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
+    gpt_grid_metadata={
+      **copy.deepcopy(planning_result.get("metadata") or {}),
+      "validation": copy.deepcopy(validation or {}),
+    },
     model_input_payload=model_input_json,
     finmo_payload=finmo_json,
+    app_agents_run_payload=app_agents_run_json,
   )
 
-  solver_result = solve_live_quarter_grid_plan(
+  solver_result = solve_solver_grid_plan(
     baseline_model_input_json=copy.deepcopy(model_input_json),
     grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
   )
@@ -5473,6 +5590,7 @@ def _run_planning_system_for_draft(
     model_input_json=solved_model_input_json,
     finmo_json=solved_finmo_json,
     planning_run_json=next_planning_run_json,
+    app_agents_run_json=app_agents_run_json,
     active_focus="done",
     business_facts=business_facts,
     status="completed",
@@ -5482,6 +5600,7 @@ def _run_planning_system_for_draft(
   return {
     "draft_id": str(draft_id).strip(),
     "planning_run_json": next_planning_run_json,
+    "app_agents_run_json": app_agents_run_json,
     "model_input_json": solved_model_input_json,
     "finmo_json": solved_finmo_json,
   }
@@ -5524,6 +5643,11 @@ def post_intake_consult_system_run_handler(*, app, request):
       if isinstance(result.get("planning_run_json"), dict)
       else {}
     )
+    app_agents_run_json = (
+      result.get("app_agents_run_json")
+      if isinstance(result.get("app_agents_run_json"), dict)
+      else {}
+    )
     return jsonify(
       {
         "status": "ok",
@@ -5531,6 +5655,7 @@ def post_intake_consult_system_run_handler(*, app, request):
         "action": "system_run_complete",
         "assistant_message": "System run complete.",
         "planning_run_json": planning_run_json,
+        "app_agents_run_json": app_agents_run_json,
       }
     )
   finally:
@@ -5561,10 +5686,10 @@ def _serialize_debug_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
     "financials_json",
     "marketing_model_json",
     "financials_year1_json",
-    "realism_memo_json",
     "model_input_json",
     "finmo_json",
     "planning_run_json",
+    "app_agents_run_json",
     "pending_ops_milestone_json",
     "fulfillment_json",
   }
@@ -5799,10 +5924,6 @@ def post_intake_consult_handler(*, app, request):
       flat_fields_value: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
       planning_run_json = _build_intake_complete_planning_run_payload()
-      realism_memo_json = generate_realism_memo_payload_safe(
-        ops_json=ops_value,
-        financials_json=financials_value,
-      )
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -5813,7 +5934,6 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_value,
         financials_year1_json=financials_year1_value,
         marketing_model_json=marketing_value,
-        realism_memo_json=realism_memo_json,
         planning_run_json=planning_run_json,
         active_focus="done",
         confirmations=confirmations_value,
@@ -6554,7 +6674,7 @@ def post_intake_consult_handler(*, app, request):
 
     # If the intake is fully complete, "continue" should guide the user to submission.
     if focus == "done" and action == "continue_chat":
-      assistant_text = 'Consistency check is complete and the facts line up well enough to proceed.\n\nClick "Submit intake" to finish.'
+      assistant_text = 'Intake review is complete and the facts line up well enough to proceed.\n\nClick "Submit intake" to finish.'
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -7109,7 +7229,7 @@ def post_intake_consult_handler(*, app, request):
       # conversational turn. Showing both messages causes duplicated acknowledgements
       # and repeated questions.
       #
-      # Exception: if the edit re-opens a completed intake into Consistency, keep the
+      # Exception: if the edit re-opens a completed intake into final planning review, keep the
       # router acknowledgement so the user clearly sees the update before the audit.
       assistant_text = router_msg if (confirm_question_live or active_focus_out != focus) else ""
       # If we're awaiting a section-final confirmation, re-ask the confirm question
@@ -8671,5 +8791,6 @@ def post_intake_consult_handler(*, app, request):
       conn.close()
     except Exception:
       pass
+
 
 

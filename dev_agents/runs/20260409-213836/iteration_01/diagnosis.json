@@ -1,0 +1,10 @@
+{
+  "first_failing_quarter": "",
+  "band_violation": "Traceback (most recent call last):\r\n  File \"C:\\dev\\business_plann_app\\Test Files\\run_live_args_intake_1_product.py\", line 21, in <module>\r\n    raise SystemExit(mod.main(sys.argv[1:], forced_product_count=1))\r\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\dev\\busines",
+  "primary_cause": "system_run_failed",
+  "secondary_cause": "backend_pipeline_failure",
+  "affected_rows": [],
+  "confidence": "medium",
+  "max_violation": 0.0,
+  "mismatch_count": 0
+}

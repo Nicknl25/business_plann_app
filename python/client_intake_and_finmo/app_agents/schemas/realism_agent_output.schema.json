@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "app_agents/realism_agent_output.schema.json",
+  "title": "Realism Agent Output",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agent_name": { "type": "string", "const": "realism_agent" },
+    "summary": { "type": "string" },
+    "detailed_reasoning_memo": { "type": "string" },
+    "critical_assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "business_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "business_model_summary": { "type": "string" },
+        "business_type_summary": { "type": "string" },
+        "key_realism_pressures": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["business_model_summary", "business_type_summary", "key_realism_pressures"]
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/constraint" }
+    },
+    "vetoes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/veto" }
+    },
+    "forbidden_patterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "row_implications": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rowImplication" }
+    },
+    "quarter_implications": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/quarterImplication" }
+    },
+    "must_change_rows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/revisionRequest" }
+    },
+    "draft_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "review_mode_used": { "type": "boolean" },
+        "overall_assessment": { "type": "string" },
+        "passes": { "type": "array", "items": { "type": "string" } },
+        "failures": { "type": "array", "items": { "type": "string" } },
+        "required_revisions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/revisionRequest" }
+        }
+      },
+      "required": ["review_mode_used", "overall_assessment", "passes", "failures", "required_revisions"]
+    }
+  },
+  "required": [
+    "agent_name",
+    "summary",
+    "detailed_reasoning_memo",
+    "critical_assumptions",
+    "business_read",
+    "constraints",
+    "vetoes",
+    "forbidden_patterns",
+    "row_implications",
+    "quarter_implications",
+    "must_change_rows",
+    "draft_review"
+  ],
+  "$defs": {
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "constraint_id": { "type": "string" },
+        "binding_level": { "type": "string", "enum": ["binding", "strong", "guidance"] },
+        "description": { "type": "string" },
+        "affected_rows": { "type": "array", "items": { "type": "string" } },
+        "affected_quarters": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 20 } },
+        "rationale": { "type": "string" }
+      },
+      "required": ["constraint_id", "binding_level", "description", "affected_rows", "affected_quarters", "rationale"]
+    },
+    "veto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "veto_id": { "type": "string" },
+        "description": { "type": "string" },
+        "blocking_reason": { "type": "string" },
+        "affected_rows": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["veto_id", "description", "blocking_reason", "affected_rows"]
+    },
+    "rowImplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row_id": { "type": "string" },
+        "expectation": { "type": "string" },
+        "magnitude_guidance": { "type": "string" },
+        "rationale": { "type": "string" }
+      },
+      "required": ["row_id", "expectation", "magnitude_guidance", "rationale"]
+    },
+    "quarterImplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quarter_start": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "quarter_end": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "expectation": { "type": "string" },
+        "rationale": { "type": "string" }
+      },
+      "required": ["quarter_start", "quarter_end", "expectation", "rationale"]
+    },
+    "revisionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row_id": { "type": "string" },
+        "required_change": { "type": "string" },
+        "urgency": { "type": "string", "enum": ["high", "medium", "low"] },
+        "business_reason": { "type": "string" }
+      },
+      "required": ["row_id", "required_change", "urgency", "business_reason"]
+    }
+  }
+}

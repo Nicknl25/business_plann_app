@@ -474,39 +474,39 @@ def _parse_json_dict(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
-def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
-  memo = _parse_json_dict(raw)
-  issues_raw = memo.get("issues") if isinstance(memo.get("issues"), list) else []
-  issues: List[Dict[str, str]] = []
-  for item in issues_raw:
-    if not isinstance(item, dict):
-      continue
-    issue = str(item.get("issue") or "").strip()
-    detail = str(item.get("detail") or "").strip()
-    if issue or detail:
-      issues.append({"issue": issue, "detail": detail})
+def _parse_app_agents_run(raw: Any) -> Dict[str, Any]:
+  payload = _parse_json_dict(raw)
+  shared_context = payload.get("shared_context") if isinstance(payload.get("shared_context"), dict) else {}
+  contract = shared_context.get("contract") if isinstance(shared_context.get("contract"), dict) else {}
+  grid_agent = payload.get("grid_agent") if isinstance(payload.get("grid_agent"), dict) else {}
+  blocking_conflicts = [
+    str(item or "").strip()
+    for item in (grid_agent.get("blocking_conflicts") or [])
+    if str(item or "").strip()
+  ]
   return {
-    "status": str(memo.get("status") or "").strip() or "missing",
-    "issues": issues,
+    "planner_status": str(payload.get("planner_status") or "").strip() or "missing",
+    "planner_version": str(contract.get("planner_version") or "").strip(),
+    "blocking_conflict_count": len(blocking_conflicts),
+    "blocking_conflicts": blocking_conflicts,
+    "grid_summary": str(grid_agent.get("summary") or "").strip(),
   }
 
 
-def _append_realism_memo_lines(lines: List[str], memo: Dict[str, Any]) -> None:
-  lines.append("Realism Memo:")
-  lines.append(f"Status: {str(memo.get('status') or '').strip() or 'missing'}")
-  issues = memo.get("issues") if isinstance(memo.get("issues"), list) else []
-  lines.append(f"Issue Count: {len(issues)}")
-  if not issues:
-    lines.append("No memo issues recorded.")
+def _append_app_agents_lines(lines: List[str], app_agents_run: Dict[str, Any]) -> None:
+  lines.append("App Agents Planner:")
+  lines.append(f"Planner Status: {str(app_agents_run.get('planner_status') or '').strip() or 'missing'}")
+  lines.append(f"Planner Version: {str(app_agents_run.get('planner_version') or '').strip() or 'unknown'}")
+  lines.append(f"Blocking Conflict Count: {int(app_agents_run.get('blocking_conflict_count') or 0)}")
+  summary = str(app_agents_run.get("grid_summary") or "").strip()
+  if summary:
+    lines.append(f"Grid Summary: {summary}")
+  conflicts = app_agents_run.get("blocking_conflicts") if isinstance(app_agents_run.get("blocking_conflicts"), list) else []
+  if not conflicts:
+    lines.append("No blocking conflicts recorded.")
     return
-  for item in issues:
-    if not isinstance(item, dict):
-      continue
-    issue = str(item.get("issue") or "").strip()
-    detail = str(item.get("detail") or "").strip()
-    text = issue
-    if detail:
-      text = f"{text} {detail}".strip()
+  for item in conflicts:
+    text = str(item or "").strip()
     if text:
       lines.append(f"- {text}")
 
@@ -995,7 +995,7 @@ def _save_persisted_state_report(
       if isinstance(snapshot, dict)
       else {}
     )
-    memo = _parse_realism_memo((row or {}).get("realism_memo_json"))
+    app_agents_run = _parse_app_agents_run((row or {}).get("app_agents_run_json"))
 
     lines: List[str] = []
     lines.append(f"Test Run: {seed}")
@@ -1011,7 +1011,7 @@ def _save_persisted_state_report(
     lines.append(f"Status: {status}")
     lines.append(f"Stop Reason: {stop_reason}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_app_agents_lines(lines, app_agents_run)
     lines.append("")
     lines.append("Persisted State")
     lines.append("---------------")
@@ -1094,7 +1094,7 @@ def _save_new_runner_report(
 
     planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
     finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
-    memo = _parse_realism_memo(row.get("realism_memo_json"))
+    app_agents_run = _parse_app_agents_run(row.get("app_agents_run_json"))
     quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
     accounting_check = finmo_json.get("accounting_check") if isinstance(finmo_json.get("accounting_check"), dict) else {}
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
@@ -1122,7 +1122,7 @@ def _save_new_runner_report(
     lines.append(f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}")
     lines.append(f"Accounting All OK: {accounting_check.get('all_ok')}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_app_agents_lines(lines, app_agents_run)
     lines.append("")
     lines.append("GPT Narrative:")
     lines.append(str(planning_run.get("gpt_narrative") or "").strip())
@@ -1181,7 +1181,7 @@ def _save_new_runner_grid_report(
     if not isinstance(row, dict) or not row:
       return None
     planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
-    memo = _parse_realism_memo(row.get("realism_memo_json"))
+    app_agents_run = _parse_app_agents_run(row.get("app_agents_run_json"))
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
     validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}
     grid_rows = []
@@ -1205,7 +1205,7 @@ def _save_new_runner_grid_report(
     lines.append(f"Malformed Rows: {len(validation.get('malformed_rows') or [])}")
     lines.append(f"Duplicate Rows: {len(validation.get('duplicate_rows') or [])}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_app_agents_lines(lines, app_agents_run)
     lines.append("")
     lines.append("GPT Narrative:")
     lines.append(str(planning_run.get("gpt_narrative") or "").strip())
@@ -1251,7 +1251,7 @@ def _save_new_runner_solver_report(
       return None
     planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
     finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
-    memo = _parse_realism_memo(row.get("realism_memo_json"))
+    app_agents_run = _parse_app_agents_run(row.get("app_agents_run_json"))
     quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
     solver_summary = planning_run.get("solver_summary") if isinstance(planning_run.get("solver_summary"), dict) else {}
     annual = _annual_summary_from_quarter_rows(quarter_rows)
@@ -1267,7 +1267,7 @@ def _save_new_runner_solver_report(
     lines.append(f"Objective After: {solver_summary.get('objective_after')}")
     lines.append(f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_app_agents_lines(lines, app_agents_run)
     lines.append("")
     lines.append("Quarterly Summary:")
     for item in quarter_rows:
@@ -1528,7 +1528,7 @@ def _run_single_seed(
         transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
         print(system_message)
         draft = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
-        memo = _parse_realism_memo(draft.get("realism_memo_json"))
+        app_agents_run = _parse_app_agents_run(draft.get("app_agents_run_json"))
         print(
           "Final flags:",
           json.dumps(
@@ -1537,8 +1537,8 @@ def _run_single_seed(
               "market_confirmed": draft.get("market_confirmed"),
               "people_confirmed": draft.get("people_confirmed"),
               "financials_confirmed": draft.get("financials_confirmed"),
-              "realism_memo_status": memo.get("status"),
-              "realism_memo_issue_count": len(memo.get("issues") or []),
+              "planner_status": app_agents_run.get("planner_status"),
+              "blocking_conflict_count": app_agents_run.get("blocking_conflict_count"),
             },
             ensure_ascii=False,
           ),

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "app_agents/grid_agent_output.schema.json",
+  "title": "Grid Agent Output",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agent_name": { "type": "string", "const": "grid_agent" },
+    "summary": { "type": "string" },
+    "planner_status": { "type": "string", "enum": ["ready", "blocked"] },
+    "conflict_resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "resolution_id": { "type": "string" },
+          "description": { "type": "string" },
+          "inputs_considered": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "outcome": { "type": "string" }
+        },
+        "required": ["resolution_id", "description", "inputs_considered", "outcome"]
+      }
+    },
+    "blocking_conflicts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "self_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "realism_satisfied": { "type": "boolean" },
+        "operations_satisfied": { "type": "boolean" },
+        "capital_satisfied": { "type": "boolean" },
+        "row_coherence_satisfied": { "type": "boolean" },
+        "solver_contract_preserved": { "type": "boolean" }
+      },
+      "required": [
+        "realism_satisfied",
+        "operations_satisfied",
+        "capital_satisfied",
+        "row_coherence_satisfied",
+        "solver_contract_preserved"
+      ]
+    },
+    "grid_json": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "string" },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "row_id": { "type": "string" },
+              "row_type": { "type": "string", "enum": ["lever", "output"] },
+              "quarter_bands": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "quarter_index": { "type": "integer", "minimum": 1, "maximum": 20 },
+                    "min_value": { "type": "number" },
+                    "max_value": { "type": "number" }
+                  },
+                  "required": ["quarter_index", "min_value", "max_value"]
+                }
+              }
+            },
+            "required": ["row_id", "row_type", "quarter_bands"]
+          }
+        }
+      },
+      "required": ["summary", "rows"]
+    },
+    "row_rationales": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "row_id": { "type": "string" },
+          "rationale": { "type": "string" }
+        },
+        "required": ["row_id", "rationale"]
+      }
+    }
+  },
+  "required": [
+    "agent_name",
+    "summary",
+    "planner_status",
+    "conflict_resolutions",
+    "blocking_conflicts",
+    "self_check",
+    "grid_json",
+    "row_rationales"
+  ]
+}

@@ -1,0 +1,2 @@
+APP_AGENTS_CONTRACT_VERSION = "app_agents_v1"
+APP_AGENTS_PLANNER_VERSION = "phase7_validation"

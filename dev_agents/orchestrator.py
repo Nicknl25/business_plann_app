@@ -92,6 +92,12 @@ class OrchestratorAgent:
       },
       "decision": decision.decision,
       "decision_reasons": list(decision.reasons or []),
+      "no_fix_reason": str(fixer_result.no_fix_reason or ""),
+      "fix_status": {
+        "applied_count": int(fixer_result.applied_count or 0),
+        "applicable_count": int(fixer_result.applicable_count or 0),
+        "changed_files": list(fixer_result.changed_files or []),
+      },
     }
 
   def _render_iteration_markdown(self, payload: Dict[str, object]) -> str:
@@ -130,6 +136,19 @@ class OrchestratorAgent:
       ]
     )
     lines.extend([f"- {item}" for item in proposed] or ["- none"])
+    no_fix_reason = str(payload.get("no_fix_reason") or "").strip()
+    fix_status = payload.get("fix_status") if isinstance(payload.get("fix_status"), dict) else {}
+    lines.extend(
+      [
+        "",
+        "Fix status:",
+        f"- applied count: {int(fix_status.get('applied_count') or 0)}",
+        f"- applicable count: {int(fix_status.get('applicable_count') or 0)}",
+        f"- changed files: {', '.join(fix_status.get('changed_files') or []) or 'none'}",
+      ]
+    )
+    if no_fix_reason:
+      lines.append(f"- no-fix reason: {no_fix_reason}")
     lines.extend(
       [
         "",
@@ -153,6 +172,7 @@ class OrchestratorAgent:
     ]
     latest = iteration_summaries[-1]["user_summary"] if iteration_summaries else {}
     if isinstance(latest, dict) and latest:
+      latest_fix_status = latest.get("fix_status") if isinstance(latest.get("fix_status"), dict) else {}
       lines.extend(
         [
           "Where We Are At:",
@@ -166,8 +186,16 @@ class OrchestratorAgent:
           f"- moved failure: {str(((latest.get('replay_result') or {}) if isinstance(latest.get('replay_result'), dict) else {}).get('moved_failure') or 'n/a')}",
           f"- shape change: {str(((latest.get('replay_result') or {}) if isinstance(latest.get('replay_result'), dict) else {}).get('shape_change') or 'unknown')}",
           "",
+          "Fix status:",
+          f"- applied count: {int(latest_fix_status.get('applied_count') or 0)}",
+          f"- applicable count: {int(latest_fix_status.get('applicable_count') or 0)}",
+          f"- changed files: {', '.join(latest_fix_status.get('changed_files') or []) or 'none'}",
+          "",
         ]
       )
+      if str(latest.get("no_fix_reason") or "").strip():
+        lines.append(f"No-fix reason: {str(latest.get('no_fix_reason') or '').strip()}")
+        lines.append("")
     lines.append("Iteration timeline:")
     for item in iteration_summaries:
       user_summary = item.get("user_summary") if isinstance(item.get("user_summary"), dict) else {}
@@ -189,7 +217,7 @@ class OrchestratorAgent:
     return "\n".join(lines)
 
   def _update_persistent_learnings(self, *, final_payload: Dict[str, object], iteration_summaries: List[Dict[str, object]]) -> None:
-    learning_path = self.repo_root / "dev_agents" / "LEARNINGS.md"
+    learning_path = self.repo_root / "dev_agents" / "LEARNINGS_APP_AGENTS.md"
     latest = iteration_summaries[-1]["user_summary"] if iteration_summaries else {}
     if not isinstance(latest, dict):
       latest = {}
@@ -314,6 +342,8 @@ class OrchestratorAgent:
               "feasibility": {},
               "fix_applied": [],
               "fix_proposed": [],
+              "no_fix_reason": "No fresh draft/run artifact was detected after rerun.",
+              "fix_status": {"applied_count": 0, "applicable_count": 0, "changed_files": []},
               "replay_result": {"moved_failure": "n/a", "shape_change": "unknown", "current_shape": "unknown"},
               "decision": final_decision.decision,
               "decision_reasons": list(final_decision.reasons or []),
@@ -397,8 +427,8 @@ class OrchestratorAgent:
     final_payload: Dict[str, object] = {
       "session_dir": str(self.session_dir),
       "agent_runtime_context": {
-        "expected_runtime_commit": "5367da4",
-        "production_ai_shape": "baby_ai_plus_grid_ai",
+        "expected_runtime_commit": "",
+        "production_ai_shape": "app_agents_four_agent_planner",
         "max_iterations": int(self.config.max_iterations),
         "root_cause_only": bool(getattr(self.config, "root_cause_only", True)),
       },

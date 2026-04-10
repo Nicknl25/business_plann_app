@@ -5,5 +5,3 @@ mysql-connector-python
 requests
 openai
 scipy
-tzdata
-

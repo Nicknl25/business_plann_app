@@ -1,0 +1,19 @@
+{
+  "phase": 6,
+  "recorded_on": "2026-04-09",
+  "depends_on_phase": 5,
+  "new_runtime_logic_added": true,
+  "live_runtime_cutover_done": true,
+  "artifacts": [
+    "python/api_handlers/intake_consult.py",
+    "python/client_intake_and_finmo/intake_consult_draft.py",
+    "python/client_intake_and_finmo/app_agents/phase_6_manifest.json"
+  ],
+  "cutover_capabilities": [
+    "live system-run now routes through AppAgentsPlanner",
+    "app_agents_run_json persisted to draft table",
+    "existing solver handoff remains unchanged",
+    "legacy realism memo generation removed from intake completion path"
+  ]
+}
+

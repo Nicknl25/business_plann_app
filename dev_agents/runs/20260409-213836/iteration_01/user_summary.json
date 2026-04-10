@@ -1,0 +1,37 @@
+{
+  "status": "Run failed in unknown quarter",
+  "draft_id": "42a1d4b9f005420082707ded05c18700",
+  "root_cause": {
+    "primary": "system_run_failed",
+    "secondary": "backend_pipeline_failure",
+    "affected_rows": [],
+    "band_violation": "Traceback (most recent call last):\r\n  File \"C:\\dev\\business_plann_app\\Test Files\\run_live_args_intake_1_product.py\", line 21, in <module>\r\n    raise SystemExit(mod.main(sys.argv[1:], forced_product_count=1))\r\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\dev\\busines"
+  },
+  "feasibility": {
+    "cash_too_tight": false,
+    "levers_insufficient": false,
+    "engine_overpowered": false,
+    "recommendation": "Current run is solver-feasible under the current cash bands."
+  },
+  "fix_applied": [
+    "Loosen and generalize local $ref resolution so app-agent schemas using #/$defs/constraint and similar paths validate correctly instead of raising 'Unknown local schema ref'."
+  ],
+  "fix_proposed": [],
+  "replay_result": {
+    "moved_failure": "n/a",
+    "shape_change": "unknown",
+    "current_shape": "unknown"
+  },
+  "decision": "continue",
+  "decision_reasons": [
+    "Applied at least one fix; continue iteration."
+  ],
+  "no_fix_reason": "",
+  "fix_status": {
+    "applied_count": 1,
+    "applicable_count": 1,
+    "changed_files": [
+      "python/client_intake_and_finmo/app_agents/schema_validation.py"
+    ]
+  }
+}

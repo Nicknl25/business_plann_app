@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "app_agents/shared_context.schema.json",
+  "title": "App Agents Shared Context",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": { "type": "string" },
+        "planner_version": { "type": "string" },
+        "recorded_at": { "type": "string" },
+        "draft_id": { "type": "string" },
+        "business_name": { "type": "string" }
+      },
+      "required": ["contract_version", "planner_version", "recorded_at", "draft_id", "business_name"]
+    },
+    "business_profile": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "business_name": { "type": "string" },
+        "business_description": { "type": "string" },
+        "business_model": { "type": "string" },
+        "business_type": { "type": "string" },
+        "legal_entity": { "type": "string" },
+        "geography": { "type": "string" },
+        "business_stage": { "type": "string" },
+        "business_start_date": { "type": "string" },
+        "customer_type": { "type": "string" },
+        "delivery_method": { "type": "string" },
+        "sales_channel": { "type": "string" },
+        "growth_lever": { "type": "string" },
+        "competitive_advantage": { "type": "string" }
+      },
+      "required": ["business_name", "business_description", "business_model", "business_type", "legal_entity", "geography", "business_stage", "business_start_date", "customer_type", "delivery_method", "sales_channel", "growth_lever", "competitive_advantage"]
+    },
+    "strategy_profile": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "cash_strategy_value": { "type": "string" },
+        "cash_strategy_label": { "type": "string" },
+        "strategy_intent_summary": { "type": "string" },
+        "goal_summary": { "type": "string" },
+        "strategy_visibility_expectations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["cash_strategy_value", "cash_strategy_label", "strategy_intent_summary", "goal_summary", "strategy_visibility_expectations"]
+    },
+    "intake_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ops_json": { "type": "object" },
+        "target_market_json": { "type": "object" },
+        "people_json": { "type": "object" },
+        "financials_json": { "type": "object" },
+        "financials_year1_json": { "type": "object" },
+        "marketing_model_json": { "type": "object" },
+        "fulfillment_json": { "type": "object" },
+        "business_facts": { "type": "object" }
+      },
+      "required": [
+        "ops_json",
+        "target_market_json",
+        "people_json",
+        "financials_json",
+        "financials_year1_json",
+        "marketing_model_json",
+        "fulfillment_json",
+        "business_facts"
+      ]
+    },
+    "financial_baseline": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "model_input_json": { "type": "object" },
+        "finmo_json": { "type": "object" },
+        "baseline_summary": { "type": "object" },
+        "opening_balance_seeds": { "type": "object" }
+      },
+      "required": ["model_input_json", "finmo_json", "baseline_summary", "opening_balance_seeds"]
+    },
+    "row_catalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "row_id": { "type": "string" },
+          "row_type": { "type": "string", "enum": ["lever", "output"] },
+          "section": { "type": "string" },
+          "label": { "type": "string" },
+          "baseline_values": {
+            "type": "array",
+            "items": { "type": ["number", "null"] }
+          },
+          "row_semantics": { "type": "string" },
+          "capital_allocation_relevant": { "type": "boolean" },
+          "shared_capacity_relevant": { "type": "boolean" }
+        },
+        "required": ["row_id", "row_type", "section", "label", "baseline_values", "row_semantics", "capital_allocation_relevant", "shared_capacity_relevant"]
+      }
+    },
+    "business_mechanics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "planning_mode": { "type": "string", "enum": ["turnaround", "normalize", "rebalance"] },
+        "planning_mode_reason": { "type": "string" },
+        "growth_story_present": { "type": "boolean" },
+        "acquisition_motion_required": { "type": "boolean" },
+        "labor_scaling_required": { "type": "boolean" },
+        "capital_deployment_required": { "type": "boolean" },
+        "working_capital_motion_expected": { "type": "boolean" },
+        "baseline_pressure_points": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "profitability_standard": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "shared_capacity_rules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "anti_flat_rules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "driver_groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "group_id": { "type": "string" },
+              "label": { "type": "string" },
+              "row_ids": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["group_id", "label", "row_ids"]
+          }
+        },
+        "interaction_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rule_id": { "type": "string" },
+              "description": { "type": "string" },
+              "trigger_rows": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "required_rows": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["rule_id", "description", "trigger_rows", "required_rows"]
+          }
+        }
+      },
+      "required": [
+        "planning_mode",
+        "planning_mode_reason",
+        "growth_story_present",
+        "acquisition_motion_required",
+        "labor_scaling_required",
+        "capital_deployment_required",
+        "working_capital_motion_expected",
+        "baseline_pressure_points",
+        "profitability_standard",
+        "shared_capacity_rules",
+        "anti_flat_rules",
+        "driver_groups",
+        "interaction_rules"
+      ]
+    },
+    "planner_invariants": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "external_business_reasoning_requirements": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": [
+    "contract",
+    "business_profile",
+    "strategy_profile",
+    "intake_context",
+    "financial_baseline",
+    "row_catalog",
+    "business_mechanics",
+    "planner_invariants",
+    "external_business_reasoning_requirements"
+  ]
+}

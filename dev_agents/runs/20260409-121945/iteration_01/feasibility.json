@@ -1,6 +1,0 @@
-{
-  "cash_too_tight": false,
-  "levers_insufficient": false,
-  "engine_overpowered": false,
-  "recommendation": "Current run is solver-feasible under the current cash bands."
-}

@@ -1,0 +1,13 @@
+{
+  "baseline_anchoring_detected": false,
+  "conflicting_instructions": true,
+  "prompt_leakage": true,
+  "cash_constraint_clear": true,
+  "grid_baseline_bias_risk": false,
+  "issues": [
+    "Grid agent appears allowed to bypass specialist constraints."
+  ],
+  "evidence": [
+    "shared_context: found 'realism memo'"
+  ]
+}

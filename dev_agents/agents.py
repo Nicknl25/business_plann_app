@@ -66,8 +66,14 @@ class DiagnoserAgent:
         return diagnosis
       if "system_run_failed" in lower_error:
         diagnosis.primary_cause = "system_run_failed"
-        diagnosis.secondary_cause = "backend_pipeline_failure"
+        last_trace = bundle.app_agents_trace[-1] if bundle.app_agents_trace else {}
+        component = str(last_trace.get("component") or "").strip()
+        event = str(last_trace.get("event") or "").strip()
+        diagnosis.secondary_cause = component or event or "backend_pipeline_failure"
         diagnosis.band_violation = command_error[:300]
+        if component or event:
+          detail = str(last_trace.get("detail") or "").strip()
+          diagnosis.band_violation = f"{event or 'trace'}::{component or 'unknown'}::{detail}"[:300]
         diagnosis.confidence = "medium"
         return diagnosis
       diagnosis.primary_cause = "no_cash_band_violation_detected"
@@ -121,40 +127,60 @@ class PromptAuditorAgent:
     audit = PromptAudit()
     guidance = bundle.agent_context.get("guidance_text") if isinstance(bundle.agent_context.get("guidance_text"), dict) else {}
     files = {
-      "quarter_grid": self.repo_root / "python" / "client_intake_and_finmo" / "quarter_grid.py",
+      "planner": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "planner.py",
+      "shared_context": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "shared_context.py",
+      "realism_agent": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "realism_agent.py",
+      "operations_agent": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "operations_agent.py",
+      "capital_agent": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "capital_agent.py",
+      "grid_agent": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "grid_agent.py",
+      "solver_bridge": self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "solver_bridge.py",
       "intake_consult": self.repo_root / "python" / "api_handlers" / "intake_consult.py",
     }
+    prompt_dir = self.repo_root / "python" / "client_intake_and_finmo" / "app_agents" / "prompts"
     text_by_file = {name: path.read_text(encoding="utf-8") for name, path in files.items() if path.exists()}
+    if prompt_dir.exists():
+      for path in sorted(prompt_dir.glob("*.md")):
+        text_by_file[f"prompt_{path.stem}"] = path.read_text(encoding="utf-8")
     for name, text in guidance.items():
       if isinstance(text, str) and text.strip():
         text_by_file[f"guidance_{name}"] = text
     if bundle.prompt_file_text:
       text_by_file["planning_mode_prompt"] = bundle.prompt_file_text
     leak_patterns = [
-      "\"baseline_summary\": _sanitize_canonical_live_payload",
-      "\"baseline_cash_path\": _sanitize_canonical_live_payload",
-      "baseline values as reference context",
-      "Baseline treatment:",
+      "quarter_grid.py",
+      "realism_memo.py",
+      "baby ai",
+      "grid ai",
+      "realism memo",
     ]
-    for name, text in text_by_file.items():
+    runtime_and_prompt_items = {
+      name: text for name, text in text_by_file.items()
+      if not name.startswith("guidance_")
+    }
+    for name, text in runtime_and_prompt_items.items():
       for pattern in leak_patterns:
-        if pattern in text:
+        if pattern in text.lower():
           audit.prompt_leakage = True
           audit.evidence.append(f"{name}: found '{pattern}'")
-    audit.cash_constraint_clear = any("hard cash law" in text or "cash constraint as binding" in text for text in text_by_file.values())
-    if any("carry no planning authority" in text or "Do not infer later-quarter defaults" in text for text in text_by_file.values()):
+    audit.cash_constraint_clear = any(
+      ("binding" in text.lower() and "capital_agent" in text.lower()) or "must not ignore" in text.lower()
+      for text in text_by_file.values()
+    )
+    if any("must not ignore the binding outputs" in text.lower() or "surface a blocked status" in text.lower() for text in text_by_file.values()):
       audit.grid_baseline_bias_risk = False
     else:
       audit.grid_baseline_bias_risk = True
-      audit.issues.append("Later-quarter placeholder non-authority language is missing from one or more AI paths.")
-    if any("spread-placeholder" in text or "placeholder-like" in text for text in text_by_file.values()):
+      audit.issues.append("Grid-agent constraint-binding language is weak or missing.")
+    if any("all four cash strategies" in text.lower() or "four cash strategies" in text.lower() for text in text_by_file.values()):
       audit.baseline_anchoring_detected = False
     else:
       audit.baseline_anchoring_detected = True
-      audit.issues.append("Prompt stack still appears to give later-quarter placeholders authority.")
-    if "do not override core business drivers" in text_by_file.get("quarter_grid", "") and "fair game for material change" not in text_by_file.get("quarter_grid", ""):
+      audit.issues.append("Prompt stack does not clearly enforce universal four-strategy expression.")
+    if any("legacy" in text.lower() and "deleted" in text.lower() for text in text_by_file.values()):
+      audit.conflicting_instructions = False
+    if "ignore the binding outputs" in text_by_file.get("grid_agent", "").lower():
       audit.conflicting_instructions = True
-      audit.issues.append("Main planner prompt may be preserving operating baseline too strongly.")
+      audit.issues.append("Grid agent appears allowed to bypass specialist constraints.")
     return audit
 
 
@@ -275,13 +301,12 @@ class FixerAgent:
     return True
 
   def _apply_rewrite_file(self, *, file_path: Path, content: str) -> bool:
-    if not file_path.exists():
-      return False
     if not str(content or "").strip():
       return False
-    existing = file_path.read_text(encoding="utf-8")
+    existing = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
     if existing == content:
       return False
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
     return True
 
@@ -292,9 +317,7 @@ class FixerAgent:
       file_path = self._target_path(action.target)
     except Exception:
       return False
-    if not file_path.exists():
-      return False
-    text = file_path.read_text(encoding="utf-8")
+    text = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
     if patch_kind == "insert_after":
       needle = str(details.get("needle") or "")
       snippet = str(details.get("snippet") or "")
@@ -383,28 +406,68 @@ class FixerAgent:
 
   def _candidate_context_files(self, diagnosis: Diagnosis) -> List[str]:
     targets = [
-      "python/client_intake_and_finmo/quarter_grid.py",
-      "python/financial_model_engine/solver.py",
+      "python/client_intake_and_finmo/app_agents/planner.py",
+      "python/client_intake_and_finmo/app_agents/shared_context.py",
+      "python/client_intake_and_finmo/app_agents/solver_bridge.py",
+      "python/client_intake_and_finmo/app_agents/realism_agent.py",
+      "python/client_intake_and_finmo/app_agents/operations_agent.py",
+      "python/client_intake_and_finmo/app_agents/capital_agent.py",
+      "python/client_intake_and_finmo/app_agents/grid_agent.py",
+      "python/client_intake_and_finmo/app_agents/run_payload.py",
+      "python/client_intake_and_finmo/app_agents/schema_validation.py",
+      "python/client_intake_and_finmo/app_agents/prompts/realism_agent.md",
+      "python/client_intake_and_finmo/app_agents/prompts/operations_agent.md",
+      "python/client_intake_and_finmo/app_agents/prompts/capital_agent.md",
+      "python/client_intake_and_finmo/app_agents/prompts/grid_agent.md",
+      "python/client_intake_and_finmo/app_agents/schemas/shared_context.schema.json",
+      "python/client_intake_and_finmo/app_agents/schemas/realism_agent_output.schema.json",
+      "python/client_intake_and_finmo/app_agents/schemas/operations_agent_output.schema.json",
+      "python/client_intake_and_finmo/app_agents/schemas/capital_agent_output.schema.json",
+      "python/client_intake_and_finmo/app_agents/schemas/grid_agent_output.schema.json",
       "python/api_handlers/intake_consult.py",
+      "python/client_intake_and_finmo/intake_consult_draft.py",
       "Test Files/run_live_args_intake.py",
       "Test Files/run_dual_agent_intake.py",
     ]
     primary = str(diagnosis.primary_cause or "").strip().lower()
     if "anchor" in primary or "system_run_failed" in primary:
       targets.extend([
-        "python/client_intake_and_finmo/intake_submission.py",
-        "python/api_handlers/shared_context.py",
+        "python/client_intake_and_finmo/app_agents/openai_client.py",
+        "python/client_intake_and_finmo/app_agents/schemas/shared_context.schema.json",
       ])
     if "solver" in primary:
       targets.extend([
         "python/financial_model_engine/finmo_model.py",
         "python/financial_model_engine/model_inputs.py",
+        "python/financial_model_engine/solver.py",
       ])
     deduped: List[str] = []
     for item in targets:
       if item not in deduped:
         deduped.append(item)
     return deduped
+
+  def _repo_file_map(self) -> List[str]:
+    roots = [
+      self.repo_root / "python",
+      self.repo_root / "Test Files",
+      self.repo_root / "dev_agents",
+    ]
+    results: List[str] = []
+    for root in roots:
+      if not root.exists():
+        continue
+      for path in root.rglob("*"):
+        if not path.is_file():
+          continue
+        if any(part in {".venv", "__pycache__", "runs"} for part in path.parts):
+          continue
+        try:
+          rel = path.relative_to(self.repo_root).as_posix()
+        except Exception:
+          continue
+        results.append(rel)
+    return sorted(set(results))
 
   def _llm_actions(
     self,
@@ -449,28 +512,31 @@ class FixerAgent:
       "local_solved_outputs_preview": list(bundle.local_solved_outputs[:6]),
       "root_cause_only": bool(root_cause_only),
       "context_files": context_files,
+      "repo_file_map": self._repo_file_map(),
     }
     system_prompt = (
       "You are a dev-only repo repair agent for a financial planning application. "
       "Read the supplied playbook, critical context, app map, evaluation rules, persistent learnings, recent session summaries, artifacts, and code excerpts as authoritative context. "
       "Propose root-cause code edits to fix the planning/cash system. "
+      "You are operating in autonomous coding mode, not canned patch mode. "
       "Prefer upstream fixes over bandaids. "
       "Treat solver as downstream unless the evidence clearly proves solver logic is the root issue. "
-      "Preserve the current intended production shape: the runtime should use the original baby-AI plus grid-AI flow, "
-      "with realistic P&L behavior and no reintroduction of deleted experimental cash-contract or capital-allocation AI modules unless absolutely necessary. "
-      "You may modify any file inside the repo. "
+      "Preserve the current intended production shape: the runtime should use the four-agent app planner "
+      "(realism_agent, operations_agent, capital_agent, grid_agent) with solver contract unchanged, "
+      "and no reintroduction of deleted legacy planner infrastructure unless absolutely necessary. "
+      "You may modify any file inside the repo, including intake and helper files, and you may create new repo files if truly useful. "
       "Return strict JSON with shape "
       "{\"actions\":[{\"action_type\":\"llm_code_edit\",\"target\":\"repo/relative/path.py\","
       "\"summary\":\"...\",\"details\":{\"patch_kind\":\"rewrite_file|replace_once|insert_after|remove_block\","
       "\"content\":\"...full file text when rewrite_file...\",\"old\":\"...\",\"new\":\"...\",\"needle\":\"...\",\"snippet\":\"...\",\"block\":\"...\"},"
       "\"risk_level\":\"low|medium|high\",\"supported_for_auto_apply\":true}]}. "
-      "You are allowed to rewrite entire files when necessary. "
+      "You are allowed to rewrite entire files when necessary and that is preferred over fragile anchor edits. "
       "Only include actions you expect to be applicable immediately. "
-      "Do not suggest solver tuning if upstream root causes are present. "
       "Do not propose med-spa-specific hardcodes. "
-      "Do not remove baseline visibility or realism context unless the evidence shows that exact prompt/payload authority is the root issue. "
-      "Every returned action must be immediately applicable to the current file contents using the exact old/needle/block text you supply. "
+      "Do not weaken specialist constraints or solver-contract preservation unless the evidence shows that exact logic is the root issue. "
+      "Every returned action must be immediately applicable to the current file contents. "
       "For substantial logic changes, prefer rewrite_file so you can make real code edits instead of fragile anchor patches. "
+      "If the best fix spans multiple files, return multiple rewrite_file actions. "
       "Do not return speculative edits that will no-op."
     )
     if must_apply:
@@ -540,76 +606,6 @@ class FixerAgent:
     checkpoint_dir: Optional[Path] = None,
   ) -> FixerResult:
     result = FixerResult()
-    if audit.prompt_leakage or audit.baseline_anchoring_detected:
-      result.actions.append(
-        FixAction(
-          action_type="prompt_modification",
-          target="python/client_intake_and_finmo/quarter_grid.py",
-          summary="Strengthen later-quarter non-authority language in the main planner prompt.",
-          details={
-            "patch_kind": "insert_after",
-            "needle": "\"- the displayed Q2 through Q20 row values are intentionally blank; do not infer hidden defaults from them\\n\",",
-            "snippet": "      \"- every Q2 through Q20 cell must be actively chosen from business reality and the hard cash law rather than reconstructed from placeholder history\\n\",\n",
-          },
-          risk_level="low",
-          supported_for_auto_apply=True,
-        )
-      )
-      result.actions.append(
-        FixAction(
-          action_type="payload_sanitization",
-          target="python/client_intake_and_finmo/quarter_grid.py",
-          summary="Remove raw fixed-facts model views from the AI-facing planning-mode payload.",
-          details={
-            "patch_kind": "remove_block",
-            "block": "    \"fixed_facts\": {\n      \"model_input_json\": _sanitize_canonical_live_payload(model_input_json or {}),\n      \"finmo_json\": _sanitize_canonical_live_payload(finmo_json or {}),\n    },\n",
-          },
-          risk_level="medium",
-          supported_for_auto_apply=True,
-        )
-      )
-    if feasibility.engine_overpowered:
-      result.actions.append(
-        FixAction(
-          action_type="prompt_modification",
-          target="python/client_intake_and_finmo/quarter_grid.py",
-          summary="Strengthen non-cash planning pressure against an overpowered operating engine.",
-          details={
-            "patch_kind": "insert_after",
-            "needle": "\"- if the cash law requires meaningful deployment or absorption, you are expected to move discretionary non-cash rows materially after Q1 when that is what a believable business would do\\n\",",
-            "snippet": "      \"- if the operating engine still generates excess cash after that, you must also moderate the operating rows realistically rather than assuming deployment rows alone can absorb everything\\n\",\n",
-          },
-          risk_level="medium",
-          supported_for_auto_apply=True,
-        )
-      )
-    has_upstream_root_cause = bool(
-      audit.prompt_leakage
-      or audit.baseline_anchoring_detected
-      or feasibility.cash_too_tight
-      or feasibility.levers_insufficient
-      or feasibility.engine_overpowered
-      or diagnosis.primary_cause in {
-        "capital allocation insufficient",
-        "cash band too tight",
-        "cash band too loose on downside",
-      }
-    )
-    if not root_cause_only or not has_upstream_root_cause:
-      result.actions.append(
-        FixAction(
-          action_type="solver_tuning",
-          target="python/financial_model_engine/solver.py",
-          summary="Increase midpoint pressure so feasible solves gravitate more strongly toward band centers.",
-          details={
-            "patch_kind": "replace_once",
-            "old": "  target_center_weight: float = 1.0\n",
-            "new": "  target_center_weight: float = 2.5\n",
-          },
-          risk_level="high",
-          supported_for_auto_apply=True,
-        )
-      )
     llm_actions = self._llm_actions(
       bundle=bundle,
       diagnosis=diagnosis,

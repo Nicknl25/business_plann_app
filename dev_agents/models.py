@@ -46,10 +46,12 @@ class ArtifactBundle:
   agent_context: Dict[str, Any] = field(default_factory=dict)
   row: Dict[str, Any] = field(default_factory=dict)
   planning_run_json: Dict[str, Any] = field(default_factory=dict)
+  app_agents_run_json: Dict[str, Any] = field(default_factory=dict)
   prompt_file: str = ""
   prompt_file_text: str = ""
   gpt_narrative: str = ""
   gpt_grid_metadata: Dict[str, Any] = field(default_factory=dict)
+  app_agents_trace: List[Dict[str, Any]] = field(default_factory=list)
   grid_response_json: Dict[str, Any] = field(default_factory=dict)
   solver_summary: Dict[str, Any] = field(default_factory=dict)
   local_solver_summary: Dict[str, Any] = field(default_factory=dict)

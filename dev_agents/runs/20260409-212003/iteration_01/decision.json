@@ -1,0 +1,7 @@
+{
+  "decision": "continue",
+  "reasons": [
+    "Applied at least one fix; continue iteration."
+  ],
+  "escalate": false
+}

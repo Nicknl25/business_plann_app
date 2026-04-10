@@ -75,11 +75,30 @@ def _format_float_compact(value: float) -> str:
   return f"{float(value):g}"
 
 
-def _normalize_initial_lease(value: Any) -> float:
-  amount_val = _parse_float(value)
+def _normalize_initial_lease(value: Any) -> str:
+  raw = "" if value is None else str(value).strip()
+  if not raw:
+    return "0,none"
+  lowered = raw.lower()
+  if lowered in ("0", "none", "no", "n/a", "na", "zero"):
+    return "0,none"
+
+  amount_part = raw
+  period_part = "unknown"
+  if "," in raw:
+    parts = [p.strip() for p in raw.split(",") if p.strip() or p == "0"]
+    if len(parts) >= 1:
+      amount_part = parts[0]
+    if len(parts) >= 2:
+      period_part = parts[1]
+
+  amount_val = _parse_float(amount_part)
   if amount_val is None or amount_val < 0:
-    return 0.0
-  return float(amount_val)
+    amount_val = 0.0
+  period_norm = _normalize_lease_period(period_part)
+  if period_norm == "none":
+    return "0,none"
+  return f"{_format_float_compact(amount_val)},{period_norm}"
 
 
 def _normalize_capacity_driver(value: Any) -> Optional[str]:

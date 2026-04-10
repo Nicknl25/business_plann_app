@@ -1,0 +1,23 @@
+{
+  "phase": 7,
+  "recorded_on": "2026-04-09",
+  "depends_on_phase": 6,
+  "new_runtime_logic_added": false,
+  "live_runtime_cutover_done": true,
+  "artifacts": [
+    "python/client_intake_and_finmo/app_agents/PHASE_7_VALIDATION.md",
+    "python/client_intake_and_finmo/app_agents/validation.py",
+    "python/client_intake_and_finmo/app_agents/scenario_matrix.json",
+    "python/client_intake_and_finmo/app_agents/schemas/validation_result.schema.json",
+    "python/scripts/run_app_agents_validation.py"
+  ],
+  "validation_capabilities": [
+    "contract integrity checks",
+    "planner readiness checks",
+    "strategy visibility checks",
+    "staircase risk checks",
+    "row coherence checks",
+    "multi-scenario battery definitions"
+  ]
+}
+
