@@ -123,7 +123,7 @@ def _require_openai_key() -> str:
 
 def _openai_model() -> str:
   return (
-    os.getenv("CONSISTENCY_GPT_STRATEGY_MODEL")
+    os.getenv("GRID_STRATEGY_MODEL")
     or os.getenv("OPENAI_MODEL")
     or "gpt-5.1"
   ).strip() or "gpt-5.1"
@@ -141,7 +141,7 @@ def _timeout_env_int(name: str, default: int) -> int:
 
 def _openai_timeout_seconds(kind: str = "default") -> int:
   if kind == "strategy":
-    return _timeout_env_int("CONSISTENCY_GPT_STRATEGY_TIMEOUT_SECONDS", 75)
+    return _timeout_env_int("GRID_STRATEGY_TIMEOUT_SECONDS", 75)
   return _timeout_env_int("OPENAI_HTTP_TIMEOUT_SECONDS", 180)
 
 
@@ -695,7 +695,7 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
       "description": "The client would generally prefer extra cash to be put back into growth, capacity, or expansion when that is realistic.",
       "capital_allocation_posture": "Favor staged redeployment of excess cash into credible growth needs instead of leaving cash to build smoothly with no use.",
       "timing_expectation": "If the business economics support it, reflect periods of cash buildup followed by realistic deployment through existing planning choices such as hiring pace, capex timing, marketing intensity, or debt behavior.",
-      "consistency_test": "A reinvest plan should not read like management is simply hoarding cash while also claiming to prioritize growth.",
+      "alignment_test": "A reinvest plan should not read like management is simply hoarding cash while also claiming to prioritize growth.",
       "visual_goal": "The grid and resulting cash path should usually show some visible redeployment behavior rather than a perfectly smooth cash staircase.",
     },
     "preserve_cash": {
@@ -704,7 +704,7 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
       "description": "The client would generally prefer a thicker cash cushion and a more conservative liquidity posture.",
       "capital_allocation_posture": "Favor retaining more liquidity and deploying capital more cautiously unless the operating case clearly justifies faster use of cash.",
       "timing_expectation": "Let cash cushions build earlier and keep deployment pacing more measured across capex, hiring, marketing, and debt choices.",
-      "consistency_test": "A preserve-cash plan should not look overly aggressive in capital deployment while still claiming a conservative cash posture.",
+      "alignment_test": "A preserve-cash plan should not look overly aggressive in capital deployment while still claiming a conservative cash posture.",
       "visual_goal": "The grid and resulting cash path should usually show stronger retained buffers and fewer sharp deployments than a reinvest case.",
     },
     "shareholder_return": {
@@ -713,7 +713,7 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
       "description": "The client would generally prefer excess cash to be available for owner or shareholder distributions rather than simply accumulating on the balance sheet.",
       "capital_allocation_posture": "Avoid plans where excess cash piles up indefinitely with no believable use; allow the plan to read like management is willing to extract excess capital when appropriate.",
       "timing_expectation": "Use existing planning choices to avoid unnecessary cash accumulation and support a posture where excess cash is not always retained inside the business.",
-      "consistency_test": "A shareholder-return plan should not look like a pure cash-hoarding or growth-at-all-costs plan unless the economics truly leave no better option.",
+      "alignment_test": "A shareholder-return plan should not look like a pure cash-hoarding or growth-at-all-costs plan unless the economics truly leave no better option.",
       "visual_goal": "The grid and resulting cash path should usually look flatter or less accumulation-heavy than preserve-cash or balanced cases when the business is throwing off excess cash.",
     },
     "balanced": {
@@ -722,14 +722,14 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
       "description": "The client wants a mix of cash preservation and selective reinvestment rather than pushing to either extreme.",
       "capital_allocation_posture": "Blend healthy retained liquidity with selective reinvestment when the business case is strong.",
       "timing_expectation": "Allow some buildup and some deployment, but keep both the narrative and the grid from leaning too far toward hoarding or aggressive redeployment.",
-      "consistency_test": "A balanced plan should not collapse into an extreme cash-hoarding or extreme redeployment posture without a strong business reason.",
+      "alignment_test": "A balanced plan should not collapse into an extreme cash-hoarding or extreme redeployment posture without a strong business reason.",
       "visual_goal": "The grid and resulting cash path should sit between preserve-cash and reinvest behavior, with visible but measured deployment of excess cash.",
     },
   }
   selected = dict(option_map.get(strategy) or {})
   if not selected:
     return {}
-  selected["planning_role"] = "required planning consistency dimension"
+  selected["planning_role"] = "required planning dimension"
   selected["advisory_only"] = True
   selected["non_override_rule"] = (
     "Do not override core business drivers like revenue realism, operating capacity, or baseline feasibility. "
@@ -1076,7 +1076,7 @@ def build_quarter_grid_prompt(
       "- use the full set of listed variables if needed to create a credible path\n",
       "- the resulting grid should read like a real company plan for this specific business and stage\n\n",
       "Cash-strategy handling:\n",
-      "- if the governor context includes cash_strategy_context, treat it as a required planning consistency dimension, not a throwaway note\n",
+      "- if the governor context includes cash_strategy_context, treat it as a required planning dimension, not a throwaway note\n",
       "- do not override core business drivers like revenue realism, operating capacity, or baseline feasibility\n",
       "- instead, make capital allocation choices that are consistent with the selected cash posture using the existing planning levers already in the grid\n",
       "- make sure capex timing, hiring pace, marketing intensity, debt behavior, and retained liquidity read like one coherent management posture\n",
@@ -1086,7 +1086,7 @@ def build_quarter_grid_prompt(
       "- for preserve cash, keep a visibly more conservative liquidity posture and avoid overly eager cash deployment\n",
       "- for shareholder return, avoid letting excess cash pile up indefinitely without a believable reason to retain it\n",
       "- for balanced, show a middle path with some retained cushion and some selective deployment\n",
-      "- do not treat any of the above as rigid rules; they are consistency expectations that must still respect realism and economics\n\n",
+      "- do not treat any of the above as rigid rules; they are planning expectations that must still respect realism and economics\n\n",
       realism_memo_block,
       f"This is batch {batch_index} of {batch_count}. Return only the rows listed in this batch.\n\n",
       "Real governor context payload:\n",

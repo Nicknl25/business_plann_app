@@ -6554,7 +6554,7 @@ def post_intake_consult_handler(*, app, request):
 
     # If the intake is fully complete, "continue" should guide the user to submission.
     if focus == "done" and action == "continue_chat":
-      assistant_text = 'Consistency check is complete and the facts line up well enough to proceed.\n\nClick "Submit intake" to finish.'
+      assistant_text = 'Final review is complete and the facts line up well enough to proceed.\n\nClick "Submit intake" to finish.'
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
@@ -7109,7 +7109,7 @@ def post_intake_consult_handler(*, app, request):
       # conversational turn. Showing both messages causes duplicated acknowledgements
       # and repeated questions.
       #
-      # Exception: if the edit re-opens a completed intake into Consistency, keep the
+      # Exception: if the edit re-opens a completed intake into final review, keep the
       # router acknowledgement so the user clearly sees the update before the audit.
       assistant_text = router_msg if (confirm_question_live or active_focus_out != focus) else ""
       # If we're awaiting a section-final confirmation, re-ask the confirm question

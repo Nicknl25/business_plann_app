@@ -353,10 +353,10 @@ Goal:
 - Work segment by segment and narrow ambiguity with the client.
 - You may suggest likely targets based on context, but the client must make the decision.
 
-Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbitrator):
+Senior consultant lens (LIGHT plausibility checks; the final planning pass is the final arbitrator):
 - Throughout Target Market, do quick reality checks against the known business context (pricing, delivery model, geography, and offer).
 - If something is materially mismatched (e.g., very low-income target for a high-priced offer), gently flag it and ask ONE clarifying question.
-- Do not debate or block progress; if the client insists, record it and move on (Consistency will reconcile cross-domain issues later).
+- Do not debate or block progress; if the client insists, record it and move on (the final planning pass will reconcile cross-domain issues later).
 
 Segments to consult on (in this order):
 1) Gender (gender focus only)
@@ -439,7 +439,7 @@ Goal:
 - Determine the business's B2B target market in a practical, defensible way using firmographics.
 - Work one segment at a time, guide the client, and keep the process low-effort.
 
-Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbitrator):
+Senior consultant lens (LIGHT plausibility checks; the final planning pass is the final arbitrator):
 - Sanity-check B2B firmographic choices against the business model (deal size/unit price, delivery, capacity, and geography).
 - If the targeting is too broad/narrow to be credible, flag it briefly and ask ONE correction/clarification question.
 - Do not derail the segment flow; if unresolved, record the client's best answer and move on.
@@ -512,10 +512,10 @@ Goal:
 - Determine both the consumer target market (demographics) AND the B2B target market (firmographics).
 - Work segment by segment, one at a time, and keep the process non-overwhelming.
 
-Senior consultant lens (LIGHT plausibility checks; Consistency is the final arbitrator):
+Senior consultant lens (LIGHT plausibility checks; the final planning pass is the final arbitrator):
 - Apply gentle plausibility checks as you go (e.g., offer price vs intended consumer income; delivery/coverage vs B2B firm size/industry).
 - If something seems materially inconsistent, ask ONE targeted clarifier and then continue.
-- Do not block progression here; Consistency will perform final arbitration later.
+- Do not block progression here; the final planning pass will perform final arbitration later.
 
 Critical B2B rule:
 - Businesses are not people. In the B2B portion, DO NOT ask for or infer gender, age, income, household, or any people-based demographics.
