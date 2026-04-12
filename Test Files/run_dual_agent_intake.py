@@ -511,7 +511,7 @@ def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
 
 def _realism_final_flags_from_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
   memo = _parse_realism_memo(draft.get("realism_memo_json"))
-  planning_run = draft.get("planning_run_json") if isinstance(draft.get("planning_run_json"), dict) else {}
+  planning_run = _parse_json_dict(draft.get("planning_run_json"))
   resolution_summary = (
     planning_run.get("resolution_summary")
     if isinstance(planning_run.get("resolution_summary"), dict)
@@ -521,26 +521,25 @@ def _realism_final_flags_from_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
   issues = memo.get("issues") if isinstance(memo.get("issues"), list) else []
   status = str(memo.get("status") or "").strip() or "missing"
 
-  if not remaining:
-    summary_remaining = resolution_summary.get("remaining_violations")
-    if isinstance(summary_remaining, list):
-      remaining = [item for item in summary_remaining if isinstance(item, dict)]
-  if not remaining:
+  summary_remaining = resolution_summary.get("remaining_violations")
+  if isinstance(summary_remaining, list) and summary_remaining:
+    remaining = [item for item in summary_remaining if isinstance(item, dict)]
+  elif not remaining:
     summary_blocking = resolution_summary.get("remaining_blocking_violations")
     if isinstance(summary_blocking, list):
       remaining = [item for item in summary_blocking if isinstance(item, dict)]
 
-  if status == "missing" and isinstance(resolution_summary, dict) and resolution_summary:
+  if isinstance(resolution_summary, dict) and resolution_summary:
     summary_status = str(resolution_summary.get("status") or "").strip()
     if summary_status:
       status = summary_status
-    else:
+    elif status == "missing":
       status = "resolved" if bool(resolution_summary.get("all_cleared")) else "issues_remaining"
 
   issue_count = len(remaining) if remaining else len(issues)
   return {
-    "realism_memo_status": status or "missing",
-    "realism_memo_issue_count": issue_count,
+    "resolution_summary_status": status or "missing",
+    "remaining_issue_count": issue_count,
   }
 
 

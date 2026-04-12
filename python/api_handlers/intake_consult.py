@@ -1607,96 +1607,107 @@ def _build_persisted_realism_memo_payload(
   }
 
 
-def _build_resolution_summary_from_realism_memos(
-  before_memo: Optional[Dict[str, Any]],
-  after_memo: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  before_payload = before_memo if isinstance(before_memo, dict) else {}
-  after_payload = after_memo if isinstance(after_memo, dict) else {}
-  before_status = str(before_payload.get("status") or "").strip().lower()
-  after_status = str(after_payload.get("status") or "").strip().lower()
-  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
-  remaining_issues = _memo_issue_records(after_payload, "remaining_issues", "issues")
-  if before_status not in {"ready", "resolved"} or after_status not in {"ready", "resolved"}:
-    return {
-      "status": "memo_not_ready",
-      "display_status": "memo not ready",
-      "baseline_violations": baseline_issues,
-      "resolved_violations": [],
-      "remaining_violations": remaining_issues,
-      "remaining_blocking_violations": remaining_issues,
-      "all_cleared": False,
-      "hard_cleared": False,
-    }
-  remaining_keys = {_issue_text_key(item) for item in remaining_issues}
-  resolved_issues = [item for item in baseline_issues if _issue_text_key(item) not in remaining_keys]
-  status = "all_cleared" if not remaining_issues else "issues_remaining"
-  display_status = "all cleared" if not remaining_issues else "issues remaining"
-  return {
-    "status": status,
-    "display_status": display_status,
-    "baseline_violations": baseline_issues,
-    "resolved_violations": resolved_issues,
-    "remaining_violations": remaining_issues,
-    "remaining_blocking_violations": remaining_issues,
-    "all_cleared": not remaining_issues,
-    "hard_cleared": not remaining_issues,
-  }
+def _issue_keys_from_status_records(
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  *,
+  status_filter: Optional[str] = None,
+) -> List[str]:
+  keys: List[str] = []
+  for item in (issue_status_records or []):
+    if not isinstance(item, dict):
+      continue
+    if status_filter and str(item.get("status") or "").strip().lower() != str(status_filter).strip().lower():
+      continue
+    key = _issue_text_key(item)
+    if key:
+      keys.append(key)
+  return keys
 
 
-def _build_resolution_summary_from_realism_verification(
+def _filter_issue_status_records(
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  issue_keys: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+  if not issue_keys:
+    return [copy.deepcopy(item) for item in (issue_status_records or []) if isinstance(item, dict)]
+  allowed = {str(item).strip() for item in issue_keys if str(item).strip()}
+  return [
+    copy.deepcopy(item)
+    for item in (issue_status_records or [])
+    if isinstance(item, dict) and _issue_text_key(item) in allowed
+  ]
+
+
+def _merge_issue_status_records(
+  *,
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  incoming_records: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+  records_by_key: Dict[str, Dict[str, Any]] = {}
+  order: List[str] = []
+  for item in (issue_status_records or []):
+    if not isinstance(item, dict):
+      continue
+    key = _issue_text_key(item)
+    if not key:
+      continue
+    records_by_key[key] = copy.deepcopy(item)
+    order.append(key)
+
+  for item in (incoming_records or []):
+    if not isinstance(item, dict):
+      continue
+    key = _issue_text_key(item)
+    if not key:
+      continue
+    existing = copy.deepcopy(records_by_key.get(key) or {})
+    if not existing:
+      order.append(key)
+    existing.update(copy.deepcopy(item))
+    records_by_key[key] = existing
+
+  out: List[Dict[str, Any]] = []
+  for key in order:
+    record = records_by_key.get(key)
+    if isinstance(record, dict):
+      out.append(record)
+  return out
+
+
+def _build_resolution_summary_from_issue_ledger(
   *,
   before_memo: Optional[Dict[str, Any]],
-  verification_payload: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  verification_payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
   before_payload = before_memo if isinstance(before_memo, dict) else {}
+  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
+  ledger_records = [copy.deepcopy(item) for item in (issue_status_records or []) if isinstance(item, dict)]
+
+  baseline_keys = {_issue_text_key(item) for item in baseline_issues}
+  for item in ledger_records:
+    key = _issue_text_key(item)
+    if key and key not in baseline_keys:
+      baseline_issues.append(_core_issue_record(item))
+      baseline_keys.add(key)
+
+  resolved_issues = [
+    _core_issue_record(item)
+    for item in ledger_records
+    if str(item.get("status") or "").strip().lower() == "resolved"
+  ]
+  remaining_issues = [
+    _core_issue_record(item)
+    for item in ledger_records
+    if str(item.get("status") or "").strip().lower() != "resolved"
+  ]
   verification = (
     verification_payload.get("verification")
     if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
     else {}
   )
-  if not verification:
-    return None
-
-  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
-  baseline_by_code = {
-    str(item.get("issue_code") or item.get("issue") or "").strip().lower(): copy.deepcopy(item)
-    for item in baseline_issues
-    if str(item.get("issue_code") or item.get("issue") or "").strip()
-  }
-  issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
-  resolved_issues: List[Dict[str, Any]] = []
-  remaining_issues: List[Dict[str, Any]] = []
-  seen_codes = set()
-
-  for item in issue_results:
-    code = str(item.get("issue_code") or "").strip().lower()
-    if not code:
-      continue
-    seen_codes.add(code)
-    base = copy.deepcopy(baseline_by_code.get(code) or {"issue_code": code, "issue": code})
-    reason = str(item.get("verification_reason") or "").strip()
-    if reason:
-      base["detail"] = reason
-    status = str(item.get("status") or "").strip().lower()
-    if status == "resolved":
-      resolved_issues.append(base)
-    else:
-      remaining_issues.append(base)
-
-  for code, base in baseline_by_code.items():
-    if code in seen_codes:
-      continue
-    remaining_issues.append(copy.deepcopy(base))
-
-  overall = str(verification.get("overall_assessment") or "").strip().lower()
-  if overall == "all_resolved" and not remaining_issues:
-    status = "all_cleared"
-    display_status = "all cleared"
-  else:
-    status = "issues_remaining"
-    display_status = "issues remaining"
-
+  status = "all_cleared" if not remaining_issues else "issues_remaining"
+  display_status = "all cleared" if not remaining_issues else "issues remaining"
   return {
     "status": status,
     "display_status": display_status,
@@ -1710,102 +1721,181 @@ def _build_resolution_summary_from_realism_verification(
   }
 
 
-def _build_verified_realism_memo_payload(
+def _build_realism_memo_from_issue_ledger(
   *,
   before_memo: Optional[Dict[str, Any]],
-  current_memo: Optional[Dict[str, Any]],
-  verification_payload: Optional[Dict[str, Any]],
+  issue_status_records: Optional[List[Dict[str, Any]]],
   resolution_summary: Optional[Dict[str, Any]],
   iteration: int,
-) -> Optional[Dict[str, Any]]:
+  verification_payload: Optional[Dict[str, Any]] = None,
+  issue_keys: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+  before_payload = before_memo if isinstance(before_memo, dict) else {}
+  ledger_records = _filter_issue_status_records(issue_status_records, issue_keys)
+  if issue_keys:
+    detected_issues = [_core_issue_record(item) for item in ledger_records]
+  else:
+    detected_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
+    detected_keys = {_issue_text_key(item) for item in detected_issues}
+    for item in ledger_records:
+      key = _issue_text_key(item)
+      if key and key not in detected_keys:
+        detected_issues.append(_core_issue_record(item))
+        detected_keys.add(key)
+  resolved_issues = [
+    _core_issue_record(item)
+    for item in ledger_records
+    if str(item.get("status") or "").strip().lower() == "resolved"
+  ]
+  remaining_issues = [
+    _core_issue_record(item)
+    for item in ledger_records
+    if str(item.get("status") or "").strip().lower() != "resolved"
+  ]
   verification = (
     verification_payload.get("verification")
     if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
     else {}
   )
-  if not verification:
-    return None
-
-  before_payload = before_memo if isinstance(before_memo, dict) else {}
-  current_payload = current_memo if isinstance(current_memo, dict) else {}
-  summary = resolution_summary if isinstance(resolution_summary, dict) else {}
-  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
-  baseline_by_code = {
-    str(item.get("issue_code") or item.get("issue") or "").strip().lower(): copy.deepcopy(item)
-    for item in baseline_issues
-    if str(item.get("issue_code") or item.get("issue") or "").strip()
-  }
-  issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
-  issue_status_records: List[Dict[str, Any]] = []
-  seen_codes = set()
-
-  for item in issue_results:
-    code = str(item.get("issue_code") or "").strip().lower()
-    if not code:
-      continue
-    seen_codes.add(code)
-    base = copy.deepcopy(baseline_by_code.get(code) or {"issue_code": code, "issue": code})
-    verification_reason = str(item.get("verification_reason") or "").strip()
-    status = str(item.get("status") or "").strip().lower()
-    issue_status_records.append(
-      {
-        "issue": str(base.get("issue") or code).strip(),
-        "issue_code": str(base.get("issue_code") or code).strip().lower(),
-        "detail": verification_reason or str(base.get("detail") or "").strip(),
-        "status": "resolved" if status == "resolved" else "open",
-        "first_detected_iteration": 0,
-        "last_seen_iteration": int(iteration),
-        "resolved_iteration": int(iteration) if status == "resolved" else None,
-        "verification_reason": verification_reason,
-        "remaining_problem_quarters": [
-          int(_safe_float(q) or 0)
-          for q in (item.get("remaining_problem_quarters") or [])
-          if int(_safe_float(q) or 0) >= 1
-        ],
-        "next_required_lever_ids": [
-          str(lever_id or "").strip()
-          for lever_id in (item.get("next_required_lever_ids") or [])
-          if str(lever_id or "").strip()
-        ],
-      }
-    )
-
-  for code, base in baseline_by_code.items():
-    if code in seen_codes:
-      continue
-    issue_status_records.append(
-      {
-        "issue": str(base.get("issue") or code).strip(),
-        "issue_code": str(base.get("issue_code") or code).strip().lower(),
-        "detail": str(base.get("detail") or "").strip(),
-        "status": "open",
-        "first_detected_iteration": 0,
-        "last_seen_iteration": int(iteration),
-        "resolved_iteration": None,
-        "verification_reason": "Verification result omitted this issue, so it remains open.",
-        "remaining_problem_quarters": [],
-        "next_required_lever_ids": [],
-      }
-    )
-
-  detected_issues = [_core_issue_record(item) for item in issue_status_records]
-  resolved_issues = [_core_issue_record(item) for item in issue_status_records if str(item.get("status") or "").strip().lower() == "resolved"]
-  remaining_issues = [_core_issue_record(item) for item in issue_status_records if str(item.get("status") or "").strip().lower() == "open"]
-  status = "resolved" if not remaining_issues else str(current_payload.get("status") or "ready").strip() or "ready"
   return {
-    "status": status,
+    "status": "resolved" if not remaining_issues else "ready",
     "issues": remaining_issues,
     "detected_issues": detected_issues,
     "resolved_issues": resolved_issues,
     "remaining_issues": remaining_issues,
-    "resolution_summary": copy.deepcopy(summary),
-    "issue_status_records": issue_status_records,
+    "resolution_summary": copy.deepcopy(resolution_summary or {}),
+    "issue_status_records": ledger_records,
     "last_review_iteration": int(iteration),
     "verification_summary": {
       "overall_assessment": str(verification.get("overall_assessment") or "").strip(),
       "executive_summary": str(verification.get("executive_summary") or "").strip(),
     },
   }
+
+
+def _apply_realism_verification_to_issue_status_records(
+  *,
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  verification_payload: Optional[Dict[str, Any]],
+  iteration: int,
+  allowed_issue_keys: Optional[List[str]] = None,
+  allow_new_records: bool = True,
+) -> List[Dict[str, Any]]:
+  base_records = [copy.deepcopy(item) for item in (issue_status_records or []) if isinstance(item, dict)]
+  verification = (
+    verification_payload.get("verification")
+    if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
+    else {}
+  )
+  if not verification:
+    return base_records
+
+  allowed = {str(item).strip() for item in (allowed_issue_keys or []) if str(item).strip()}
+  records_by_key: Dict[str, Dict[str, Any]] = {}
+  order: List[str] = []
+  for item in base_records:
+    key = _issue_text_key(item)
+    if not key:
+      continue
+    records_by_key[key] = copy.deepcopy(item)
+    order.append(key)
+
+  issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
+  for item in issue_results:
+    code = str(item.get("issue_code") or "").strip().lower()
+    issue = str(item.get("issue") or code).strip()
+    key = f"code::{code}" if code else _issue_text_key({"issue": issue, "detail": str(item.get("verification_reason") or "").strip()})
+    if not key:
+      continue
+    if allowed and key not in allowed:
+      continue
+    existing = copy.deepcopy(records_by_key.get(key) or {})
+    if not existing:
+      if not allow_new_records:
+        continue
+      existing = {
+        "issue": issue or code,
+        "detail": "",
+        "status": "open",
+        "first_detected_iteration": int(iteration),
+        "last_seen_iteration": int(iteration),
+        "resolved_iteration": None,
+      }
+      order.append(key)
+
+    verification_reason = str(item.get("verification_reason") or "").strip()
+    status = str(item.get("status") or "").strip().lower()
+    normalized_status = "resolved" if status == "resolved" else "open"
+    if code:
+      existing["issue_code"] = code
+    if issue and not str(existing.get("issue") or "").strip():
+      existing["issue"] = issue
+    existing["detail"] = verification_reason or str(existing.get("detail") or "").strip()
+    existing["status"] = normalized_status
+    if int(_safe_float(existing.get("first_detected_iteration")) or 0) <= 0:
+      existing["first_detected_iteration"] = int(iteration)
+    existing["last_seen_iteration"] = int(iteration)
+    existing["resolved_iteration"] = int(iteration) if normalized_status == "resolved" else None
+    existing["verification_reason"] = verification_reason
+    existing["remaining_problem_quarters"] = [
+      int(_safe_float(q) or 0)
+      for q in (item.get("remaining_problem_quarters") or [])
+      if int(_safe_float(q) or 0) >= 1
+    ]
+    existing["next_required_lever_ids"] = [
+      str(lever_id or "").strip()
+      for lever_id in (item.get("next_required_lever_ids") or [])
+      if str(lever_id or "").strip()
+    ]
+    existing["observed_improvement_summary"] = str(item.get("observed_improvement_summary") or "").strip()
+    records_by_key[key] = existing
+
+  out: List[Dict[str, Any]] = []
+  for key in order:
+    record = records_by_key.get(key)
+    if isinstance(record, dict):
+      out.append(record)
+  return out
+
+
+def _detect_fresh_realism_issue_candidates(
+  *,
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  fresh_memo: Optional[Dict[str, Any]],
+  iteration: int,
+) -> List[Dict[str, Any]]:
+  ledger_records = [copy.deepcopy(item) for item in (issue_status_records or []) if isinstance(item, dict)]
+  current_open_keys = {
+    _issue_text_key(item)
+    for item in ledger_records
+    if str(item.get("status") or "").strip().lower() != "resolved"
+  }
+  ledger_by_key = {
+    _issue_text_key(item): copy.deepcopy(item)
+    for item in ledger_records
+    if _issue_text_key(item)
+  }
+  candidates: List[Dict[str, Any]] = []
+  for item in _memo_issue_records(fresh_memo, "remaining_issues", "issues"):
+    key = _issue_text_key(item)
+    if not key or key in current_open_keys:
+      continue
+    existing = copy.deepcopy(ledger_by_key.get(key) or {})
+    candidate_kind = "reopened_issue" if existing else "new_issue"
+    merged = {
+      "status": "open",
+      "first_detected_iteration": int(_safe_float(existing.get("first_detected_iteration")) or 0) or int(iteration),
+      "last_seen_iteration": int(iteration),
+      "resolved_iteration": None,
+      **_core_issue_record(existing if existing else item),
+    }
+    merged.update(_core_issue_record(item))
+    issue_code = str(existing.get("issue_code") or item.get("issue_code") or "").strip().lower()
+    if issue_code:
+      merged["issue_code"] = issue_code
+    merged["candidate_kind"] = candidate_kind
+    candidates.append(merged)
+  return candidates
 
 
 def _extract_open_verification_feedback(
@@ -3137,20 +3227,25 @@ def _run_realism_resolution_loop(
     catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
   )
   current_finmo = copy.deepcopy(applied_finmo_json if isinstance(applied_finmo_json, dict) else {})
-  initial_memo = generate_realism_memo_payload_safe(
+  initial_scan_memo = generate_realism_memo_payload_safe(
     ops_json=ops_json,
     financials_json=financials_json,
     solved_model_input_json=copy.deepcopy(current_model_input),
     solved_finmo_json=copy.deepcopy(current_finmo),
   )
-  trace: List[Dict[str, Any]] = []
-  initial_resolution_summary = _build_resolution_summary_from_realism_memos(
-    before_memo=copy.deepcopy(initial_memo),
-    after_memo=copy.deepcopy(initial_memo),
-  )
-  persisted_initial_memo = _build_persisted_realism_memo_payload(
+  issue_ledger = _build_issue_status_records(
     previous_memo=None,
-    current_memo=copy.deepcopy(initial_memo),
+    current_memo=copy.deepcopy(initial_scan_memo),
+    iteration=0,
+  )
+  trace: List[Dict[str, Any]] = []
+  initial_resolution_summary = _build_resolution_summary_from_issue_ledger(
+    before_memo=copy.deepcopy(initial_scan_memo),
+    issue_status_records=copy.deepcopy(issue_ledger),
+  )
+  persisted_initial_memo = _build_realism_memo_from_issue_ledger(
+    before_memo=copy.deepcopy(initial_scan_memo),
+    issue_status_records=copy.deepcopy(issue_ledger),
     resolution_summary=copy.deepcopy(initial_resolution_summary),
     iteration=0,
   )
@@ -3163,7 +3258,7 @@ def _run_realism_resolution_loop(
     planning_mode_reason=planning_mode_reason,
     prompt_file=prompt_file,
     grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    realism_memo_before_resolution=copy.deepcopy(initial_memo),
+    realism_memo_before_resolution=copy.deepcopy(persisted_initial_memo),
     realism_resolution_decision={},
     realism_resolution_plan={},
     realism_resolution_result={},
@@ -3181,12 +3276,22 @@ def _run_realism_resolution_loop(
   last_result: Dict[str, Any] = {}
   last_verification: Dict[str, Any] = {}
   stop_reason = "not_started"
-  active_memo = copy.deepcopy(persisted_initial_memo)
+  active_issue_keys = _issue_keys_from_status_records(issue_ledger, status_filter="open")
   for iteration in range(1, _REALISM_MAX_ITERATIONS + 1):
+    active_memo = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      issue_status_records=copy.deepcopy(issue_ledger),
+      resolution_summary=copy.deepcopy(final_resolution_summary),
+      iteration=iteration - 1,
+      verification_payload=copy.deepcopy(last_verification),
+      issue_keys=copy.deepcopy(active_issue_keys),
+    )
     active_issues = _memo_issue_records(active_memo, "remaining_issues", "issues")
     iteration_record: Dict[str, Any] = {
       "iteration": iteration,
+      "phase": "main",
       "memo_before": copy.deepcopy(active_memo),
+      "active_issue_codes": [str(item.get("issue_code") or "").strip().lower() for item in active_issues if isinstance(item, dict)],
       "prior_verification_feedback": copy.deepcopy(_extract_open_verification_feedback(last_verification)),
     }
 
@@ -3197,13 +3302,14 @@ def _run_realism_resolution_loop(
       final_memo = copy.deepcopy(active_memo)
       break
 
-    if not active_issues:
+    if not active_issues or not active_issue_keys:
       iteration_record["status"] = "stopped_no_remaining_issues"
       trace.append(iteration_record)
-      stop_reason = "no_remaining_issues"
+      stop_reason = "main_loop_no_remaining_active_issues"
       final_memo = copy.deepcopy(active_memo)
       break
 
+    prior_feedback = _extract_open_verification_feedback(last_verification)
     decision = _run_realism_resolution_openai(
       draft_id=str(draft_id or "").strip(),
       business_facts=copy.deepcopy(business_facts or {}),
@@ -3212,7 +3318,7 @@ def _run_realism_resolution_loop(
       realism_memo_before_resolution=copy.deepcopy(active_memo),
       solved_model_input_json=copy.deepcopy(current_model_input),
       solved_finmo_json=copy.deepcopy(current_finmo),
-      prior_verification_feedback=_extract_open_verification_feedback(last_verification),
+      prior_verification_feedback=copy.deepcopy(prior_feedback),
       current_iteration=iteration,
     )
     if isinstance(decision, dict):
@@ -3256,12 +3362,6 @@ def _run_realism_resolution_loop(
       else copy.deepcopy(current_finmo)
     )
 
-    memo_after = generate_realism_memo_payload_safe(
-      ops_json=ops_json,
-      financials_json=financials_json,
-      solved_model_input_json=copy.deepcopy(next_model_input),
-      solved_finmo_json=copy.deepcopy(next_finmo),
-    )
     verification_after = _run_realism_verification_openai(
       draft_id=str(draft_id or "").strip(),
       business_facts=copy.deepcopy(business_facts or {}),
@@ -3274,32 +3374,29 @@ def _run_realism_resolution_loop(
       updated_finmo_json=copy.deepcopy(next_finmo),
     )
     last_verification = copy.deepcopy(verification_after)
-    persisted_memo_after = _build_persisted_realism_memo_payload(
-      previous_memo=copy.deepcopy(active_memo),
-      current_memo=copy.deepcopy(memo_after),
-      resolution_summary={},
+    issue_ledger = _apply_realism_verification_to_issue_status_records(
+      issue_status_records=copy.deepcopy(issue_ledger),
+      verification_payload=copy.deepcopy(verification_after),
       iteration=iteration,
+      allowed_issue_keys=copy.deepcopy(active_issue_keys),
+      allow_new_records=False,
     )
-    resolution_summary_after = _build_resolution_summary_from_realism_verification(
+    resolution_summary_after = _build_resolution_summary_from_issue_ledger(
       before_memo=copy.deepcopy(persisted_initial_memo),
+      issue_status_records=copy.deepcopy(issue_ledger),
       verification_payload=copy.deepcopy(verification_after),
-    ) or _build_resolution_summary_from_realism_memos(
-      before_memo=copy.deepcopy(persisted_initial_memo),
-      after_memo=copy.deepcopy(persisted_memo_after),
     )
-    resolved_memo_after = _build_verified_realism_memo_payload(
+    resolved_memo_after = _build_realism_memo_from_issue_ledger(
       before_memo=copy.deepcopy(persisted_initial_memo),
-      current_memo=copy.deepcopy(memo_after),
-      verification_payload=copy.deepcopy(verification_after),
+      issue_status_records=copy.deepcopy(issue_ledger),
       resolution_summary=copy.deepcopy(resolution_summary_after),
       iteration=iteration,
-    ) or _build_persisted_realism_memo_payload(
-      previous_memo=copy.deepcopy(active_memo),
-      current_memo=copy.deepcopy(memo_after),
-      resolution_summary=copy.deepcopy(resolution_summary_after),
-      iteration=iteration,
+      verification_payload=copy.deepcopy(verification_after),
     )
-    next_remaining_issues = _memo_issue_records(resolved_memo_after, "remaining_issues", "issues")
+    active_issue_keys = [
+      key for key in active_issue_keys
+      if key in set(_issue_keys_from_status_records(issue_ledger, status_filter="open"))
+    ]
     iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
     iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
     iteration_record["verification_after"] = copy.deepcopy(verification_after)
@@ -3308,7 +3405,6 @@ def _run_realism_resolution_loop(
     current_finmo = copy.deepcopy(next_finmo)
     final_memo = copy.deepcopy(resolved_memo_after)
     final_resolution_summary = copy.deepcopy(resolution_summary_after)
-    active_memo = copy.deepcopy(resolved_memo_after)
     _persist_realism_loop_state(
       conn=conn,
       draft_id=str(draft_id).strip(),
@@ -3318,7 +3414,7 @@ def _run_realism_resolution_loop(
       planning_mode_reason=planning_mode_reason,
       prompt_file=prompt_file,
       grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      realism_memo_before_resolution=copy.deepcopy(initial_memo),
+      realism_memo_before_resolution=copy.deepcopy(persisted_initial_memo),
       realism_resolution_decision=copy.deepcopy(decision),
       realism_resolution_plan=copy.deepcopy(plan),
       realism_resolution_result=copy.deepcopy(result),
@@ -3330,15 +3426,190 @@ def _run_realism_resolution_loop(
       finmo_json=copy.deepcopy(current_finmo),
     )
 
-    if not next_remaining_issues:
-      stop_reason = "no_remaining_issues_after_resolution"
+    if not active_issue_keys:
+      stop_reason = "main_loop_no_remaining_active_issues"
       break
 
     if iteration >= _REALISM_MAX_ITERATIONS:
-      stop_reason = "max_iterations_reached_with_remaining_issues"
+      stop_reason = "main_loop_max_iterations_reached_with_active_issues"
       break
 
-    stop_reason = "issues_remaining_after_iteration"
+    stop_reason = "main_loop_active_issues_remaining_after_iteration"
+
+  fresh_scan_iteration = len(trace) + 1
+  fresh_scan_memo = generate_realism_memo_payload_safe(
+    ops_json=ops_json,
+    financials_json=financials_json,
+    solved_model_input_json=copy.deepcopy(current_model_input),
+    solved_finmo_json=copy.deepcopy(current_finmo),
+  )
+  fresh_issue_candidates = _detect_fresh_realism_issue_candidates(
+    issue_status_records=copy.deepcopy(issue_ledger),
+    fresh_memo=copy.deepcopy(fresh_scan_memo),
+    iteration=fresh_scan_iteration,
+  )
+  if fresh_issue_candidates:
+    cleanup_issue_keys = _issue_keys_from_status_records(fresh_issue_candidates, status_filter="open")
+    issue_ledger = _merge_issue_status_records(
+      issue_status_records=copy.deepcopy(issue_ledger),
+      incoming_records=copy.deepcopy(fresh_issue_candidates),
+    )
+    cleanup_memo_before = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      issue_status_records=copy.deepcopy(issue_ledger),
+      resolution_summary=copy.deepcopy(final_resolution_summary),
+      iteration=fresh_scan_iteration,
+      issue_keys=copy.deepcopy(cleanup_issue_keys),
+    )
+    cleanup_record: Dict[str, Any] = {
+      "iteration": fresh_scan_iteration,
+      "phase": "cleanup",
+      "memo_before": copy.deepcopy(cleanup_memo_before),
+      "active_issue_codes": [str(item.get("issue_code") or "").strip().lower() for item in fresh_issue_candidates if isinstance(item, dict)],
+      "fresh_scan_memo": copy.deepcopy(fresh_scan_memo),
+      "fresh_issue_candidates": [
+        {
+          **_core_issue_record(item),
+          "candidate_kind": str(item.get("candidate_kind") or "").strip(),
+        }
+        for item in fresh_issue_candidates
+      ],
+      "prior_verification_feedback": {},
+    }
+    decision = _run_realism_resolution_openai(
+      draft_id=str(draft_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      realism_memo_before_resolution=copy.deepcopy(cleanup_memo_before),
+      solved_model_input_json=copy.deepcopy(current_model_input),
+      solved_finmo_json=copy.deepcopy(current_finmo),
+      prior_verification_feedback={},
+      current_iteration=fresh_scan_iteration,
+    )
+    if isinstance(decision, dict):
+      decision["iteration"] = fresh_scan_iteration
+      decision["repair_owner"] = "realism_ai_direct_write"
+      decision["issue_count"] = len(cleanup_issue_keys)
+      decision["resolution_phase"] = "cleanup"
+    plan = _build_realism_resolution_plan(
+      review_decision_payload=copy.deepcopy(decision),
+      solved_model_input_json=copy.deepcopy(current_model_input),
+      solved_finmo_json=copy.deepcopy(current_finmo),
+    )
+    result = _apply_followup_exact_updates(
+      review_plan=copy.deepcopy(plan),
+      current_model_input_json=copy.deepcopy(current_model_input),
+      contract_version="realism_resolution_result_v3",
+    )
+    cleanup_record["decision"] = copy.deepcopy(decision)
+    cleanup_record["plan"] = copy.deepcopy(plan)
+    cleanup_record["result"] = copy.deepcopy(result)
+    trace.append(cleanup_record)
+    last_decision = copy.deepcopy(decision)
+    last_plan = copy.deepcopy(plan)
+    last_result = copy.deepcopy(result)
+
+    if str(result.get("status") or "").strip() in {"completed", "skipped_maintain_first_pass"}:
+      next_model_input = (
+        _model_input_with_controller_catalog(
+          model_input_json=copy.deepcopy(result.get("updated_model_input_json") or {}),
+          catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
+        )
+        if isinstance(result.get("updated_model_input_json"), dict)
+        else copy.deepcopy(current_model_input)
+      )
+      next_finmo = (
+        copy.deepcopy(result.get("updated_finmo_json") or {})
+        if isinstance(result.get("updated_finmo_json"), dict) and result.get("updated_finmo_json")
+        else copy.deepcopy(current_finmo)
+      )
+      verification_after = _run_realism_verification_openai(
+        draft_id=str(draft_id or "").strip(),
+        business_facts=copy.deepcopy(business_facts or {}),
+        ops_json=copy.deepcopy(ops_json or {}),
+        realism_memo_before_resolution=copy.deepcopy(cleanup_memo_before),
+        realism_resolution_decision=copy.deepcopy(decision),
+        realism_resolution_plan=copy.deepcopy(plan),
+        realism_resolution_result=copy.deepcopy(result),
+        updated_model_input_json=copy.deepcopy(next_model_input),
+        updated_finmo_json=copy.deepcopy(next_finmo),
+      )
+      last_verification = copy.deepcopy(verification_after)
+      issue_ledger = _apply_realism_verification_to_issue_status_records(
+        issue_status_records=copy.deepcopy(issue_ledger),
+        verification_payload=copy.deepcopy(verification_after),
+        iteration=fresh_scan_iteration,
+        allowed_issue_keys=copy.deepcopy(cleanup_issue_keys),
+        allow_new_records=False,
+      )
+      current_model_input = copy.deepcopy(next_model_input)
+      current_finmo = copy.deepcopy(next_finmo)
+      final_resolution_summary = _build_resolution_summary_from_issue_ledger(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        issue_status_records=copy.deepcopy(issue_ledger),
+        verification_payload=copy.deepcopy(verification_after),
+      )
+      final_memo = _build_realism_memo_from_issue_ledger(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        issue_status_records=copy.deepcopy(issue_ledger),
+        resolution_summary=copy.deepcopy(final_resolution_summary),
+        iteration=fresh_scan_iteration,
+        verification_payload=copy.deepcopy(verification_after),
+      )
+      cleanup_record["verification_after"] = copy.deepcopy(verification_after)
+      cleanup_record["resolution_summary_after"] = copy.deepcopy(final_resolution_summary)
+      cleanup_record["memo_after"] = copy.deepcopy(final_memo)
+      cleanup_record["status"] = "completed_iteration"
+      stop_reason = "cleanup_pass_completed"
+    else:
+      cleanup_record["status"] = "stopped_write_failed"
+      stop_reason = str(result.get("status") or "").strip() or "cleanup_write_failed"
+      final_resolution_summary = _build_resolution_summary_from_issue_ledger(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        issue_status_records=copy.deepcopy(issue_ledger),
+        verification_payload=copy.deepcopy(last_verification),
+      )
+      final_memo = _build_realism_memo_from_issue_ledger(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        issue_status_records=copy.deepcopy(issue_ledger),
+        resolution_summary=copy.deepcopy(final_resolution_summary),
+        iteration=fresh_scan_iteration,
+        verification_payload=copy.deepcopy(last_verification),
+      )
+    _persist_realism_loop_state(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      stage="realism_resolution_running",
+      status="running",
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution=copy.deepcopy(persisted_initial_memo),
+      realism_resolution_decision=copy.deepcopy(last_decision),
+      realism_resolution_plan=copy.deepcopy(last_plan),
+      realism_resolution_result=copy.deepcopy(last_result),
+      realism_resolution_verification=copy.deepcopy(last_verification),
+      realism_resolution_iterations=copy.deepcopy(trace),
+      resolution_summary=copy.deepcopy(final_resolution_summary),
+      realism_memo_json=copy.deepcopy(final_memo),
+      model_input_json=copy.deepcopy(current_model_input),
+      finmo_json=copy.deepcopy(current_finmo),
+    )
+  else:
+    final_resolution_summary = _build_resolution_summary_from_issue_ledger(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      issue_status_records=copy.deepcopy(issue_ledger),
+      verification_payload=copy.deepcopy(last_verification),
+    )
+    final_memo = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      issue_status_records=copy.deepcopy(issue_ledger),
+      resolution_summary=copy.deepcopy(final_resolution_summary),
+      iteration=len(trace),
+      verification_payload=copy.deepcopy(last_verification),
+    )
 
   resolution_summary = copy.deepcopy(final_resolution_summary)
   realism_memo_json = copy.deepcopy(final_memo)
@@ -3356,6 +3627,14 @@ def _run_realism_resolution_loop(
     "last_plan": copy.deepcopy(last_plan),
     "last_result": copy.deepcopy(last_result),
     "last_verification": copy.deepcopy(last_verification),
+    "fresh_scan_memo": copy.deepcopy(fresh_scan_memo),
+    "fresh_issue_candidates": [
+      {
+        **_core_issue_record(item),
+        "candidate_kind": str(item.get("candidate_kind") or "").strip(),
+      }
+      for item in fresh_issue_candidates
+    ],
   }
 
 
