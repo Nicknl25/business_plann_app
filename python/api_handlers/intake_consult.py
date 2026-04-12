@@ -6,6 +6,7 @@ import time
 import calendar
 import logging
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify
@@ -34,8 +35,22 @@ except Exception:
   try:
     from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
   except Exception:
-    def generate_realism_memo_payload_safe(*, ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> Dict[str, Any]:
-      return {"status": "failed", "issues": []}
+    def generate_realism_memo_payload_safe(
+      *,
+      ops_json: Dict[str, Any],
+      financials_json: Dict[str, Any],
+      solved_model_input_json: Optional[Dict[str, Any]] = None,
+      solved_finmo_json: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+      del solved_model_input_json, solved_finmo_json
+      return {
+        "status": "failed",
+        "issues": [],
+        "detected_issues": [],
+        "resolved_issues": [],
+        "remaining_issues": [],
+        "resolution_summary": {},
+      }
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -47,6 +62,10 @@ PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?
 COMPETITIVE_ADVANTAGE_PREFIX = "Proposed competitive advantage:"
 COMPETITIVE_ADVANTAGE_QUESTION = "Does this accurately reflect what truly sets the business apart?"
 _RETRYABLE_STATUS = {429, 502, 503, 504}
+_CASH_STRATEGY_REVIEW_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "cash_strategy_review"
+_CASH_STRATEGY_REVIEW_PROMPT_PATH = _CASH_STRATEGY_REVIEW_PROMPTS_DIR / "reviewer.md"
+_REALISM_RESOLUTION_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "realism_resolution"
+_REALISM_RESOLUTION_PROMPT_PATH = _REALISM_RESOLUTION_PROMPTS_DIR / "reviewer.md"
 
 
 def _parse_json_dict(raw: Any) -> Dict[str, Any]:
@@ -930,6 +949,17 @@ def _build_planning_run_payload(
   gpt_narrative: Optional[str] = None,
   gpt_grid_metadata: Optional[Dict[str, Any]] = None,
   solver_summary: Optional[Dict[str, Any]] = None,
+  realism_memo_before_resolution: Optional[Dict[str, Any]] = None,
+  realism_resolution_decision: Optional[Dict[str, Any]] = None,
+  realism_resolution_plan: Optional[Dict[str, Any]] = None,
+  realism_resolution_result: Optional[Dict[str, Any]] = None,
+  realism_resolution_iterations: Optional[List[Dict[str, Any]]] = None,
+  first_pass_handoff: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_context: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_decision: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
+  cash_strategy_effect_summary: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   payload: Dict[str, Any] = {
     "contract_version": "planning_run_v1",
@@ -942,8 +972,2161 @@ def _build_planning_run_payload(
     "gpt_narrative": str(gpt_narrative or "").strip() or None,
     "gpt_grid_metadata": copy.deepcopy(gpt_grid_metadata or {}),
     "solver_summary": copy.deepcopy(solver_summary or {}),
+    "realism_memo_before_resolution": copy.deepcopy(realism_memo_before_resolution or {}),
+    "realism_resolution_decision": copy.deepcopy(realism_resolution_decision or {}),
+    "realism_resolution_plan": copy.deepcopy(realism_resolution_plan or {}),
+    "realism_resolution_result": copy.deepcopy(realism_resolution_result or {}),
+    "realism_resolution_iterations": copy.deepcopy(realism_resolution_iterations or []),
+    "first_pass_handoff": copy.deepcopy(first_pass_handoff or {}),
+    "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context or {}),
+    "cash_strategy_review_decision": copy.deepcopy(cash_strategy_review_decision or {}),
+    "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan or {}),
+    "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result or {}),
+    "cash_strategy_effect_summary": copy.deepcopy(cash_strategy_effect_summary or {}),
   }
   return payload
+
+
+def _first_pass_finmo_summary(finmo_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  finmo_obj = finmo_payload if isinstance(finmo_payload, dict) else {}
+  quarter_rows = [row for row in (finmo_obj.get("quarter_rows") or []) if isinstance(row, dict)]
+  live_rows = [row for row in quarter_rows if int(float(row.get("quarter_index") or 0)) >= 1]
+  if not live_rows:
+    return {}
+
+  def _row_metrics(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+      "quarter_index": int(float(row.get("quarter_index") or 0)),
+      "year": row.get("year"),
+      "quarter": row.get("quarter"),
+      "date": row.get("date"),
+      "revenue": _safe_float(row.get("revenue")),
+      "ebitda": _safe_float(row.get("ebitda")),
+      "net_income": _safe_float(row.get("net_income")),
+      "ending_cash": _safe_float(row.get("ending_cash")),
+      "total_assets": _safe_float(row.get("total_assets")),
+      "total_liabilities_and_equity": _safe_float(row.get("total_liabilities_and_equity")),
+    }
+
+  cash_values = [_safe_float(row.get("ending_cash")) or 0.0 for row in live_rows]
+  return {
+    "quarter_count": len(live_rows),
+    "first_quarter": _row_metrics(live_rows[0]),
+    "last_quarter": _row_metrics(live_rows[-1]),
+    "cash_peak": max(cash_values) if cash_values else 0.0,
+    "cash_trough": min(cash_values) if cash_values else 0.0,
+  }
+
+
+def _build_first_pass_handoff_payload(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  solver_summary: Optional[Dict[str, Any]],
+  solved_model_input_json: Optional[Dict[str, Any]],
+  solved_finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  business = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  model_input = solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
+  finmo = solved_finmo_json if isinstance(solved_finmo_json, dict) else {}
+  periods = [item for item in (model_input.get("periods") or []) if isinstance(item, dict)]
+  return {
+    "contract_version": "first_pass_handoff_v1",
+    "status": "ready",
+    "handoff_role": "baseline_for_cash_strategy_review",
+    "draft_id": str(draft_id or "").strip(),
+    "planning_mode": str(planning_mode or "").strip(),
+    "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    "prompt_file": str(prompt_file or "").strip(),
+    "business_snapshot": {
+      "business_name": str(business.get("name") or business.get("business_name") or "").strip(),
+      "business_type": str(ops.get("business_type") or "").strip(),
+      "business_stage": str(ops.get("business_stage") or "").strip(),
+      "cash_strategy": str(financials.get("cash_strategy") or "").strip(),
+      "forecast_quarter_count": len(periods),
+    },
+    "artifacts": {
+      "solved_model_input_persisted": bool(model_input),
+      "solved_finmo_persisted": bool(finmo),
+      "draft_fields": ["model_input_json", "finmo_json"],
+    },
+    "solver_summary": copy.deepcopy(solver_summary or {}),
+    "finmo_summary": _first_pass_finmo_summary(finmo),
+    "ready_for_cash_strategy_review": True,
+  }
+
+
+def _finmo_labeled_series(
+  finmo_payload: Optional[Dict[str, Any]],
+  *,
+  section_key: str,
+  label: str,
+) -> List[float]:
+  finmo_obj = finmo_payload if isinstance(finmo_payload, dict) else {}
+  rows = [row for row in (finmo_obj.get(section_key) or []) if isinstance(row, dict)]
+  for row in rows:
+    if str(row.get("label") or "").strip() != str(label or "").strip():
+      continue
+    return [float(_safe_float(item) or 0.0) for item in (row.get("values") or [])]
+  return []
+
+
+def _cash_review_quarter_metrics(finmo_payload: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  finmo_obj = finmo_payload if isinstance(finmo_payload, dict) else {}
+  quarter_rows = [row for row in (finmo_obj.get("quarter_rows") or []) if isinstance(row, dict)]
+  live_rows = [row for row in quarter_rows if int(float(row.get("quarter_index") or 0)) >= 1]
+  metrics: List[Dict[str, Any]] = []
+  for row in live_rows:
+    metrics.append(
+      {
+        "quarter_index": int(float(row.get("quarter_index") or 0)),
+        "year": row.get("year"),
+        "quarter": row.get("quarter"),
+        "date": row.get("date"),
+        "revenue": _safe_float(row.get("revenue")),
+        "ebitda": _safe_float(row.get("ebitda")),
+        "net_income": _safe_float(row.get("net_income")),
+        "ending_cash": _safe_float(row.get("ending_cash")),
+        "total_assets": _safe_float(row.get("total_assets")),
+        "total_liabilities_and_equity": _safe_float(row.get("total_liabilities_and_equity")),
+      }
+    )
+  return metrics
+
+
+def _realism_metric_series(
+  finmo_payload: Optional[Dict[str, Any]],
+  *,
+  metric: str,
+) -> List[float]:
+  metric_norm = str(metric or "").strip().lower().replace(" ", "_")
+  metric_key_map = {
+    "revenue": "revenue",
+    "ebitda": "ebitda",
+    "cash": "ending_cash",
+    "net_income": "net_income",
+  }
+  key = metric_key_map.get(metric_norm, metric_norm)
+  series: List[float] = []
+  for row in _cash_review_quarter_metrics(finmo_payload):
+    series.append(float(_safe_float(row.get(key)) or 0.0))
+  return series
+
+
+def _lever_catalog_map(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+  out: Dict[str, Dict[str, Any]] = {}
+  for item in _build_writable_lever_review_catalog(model_input_json):
+    lever_id = str(item.get("lever_id") or "").strip()
+    if lever_id:
+      out[lever_id] = dict(item)
+  return out
+
+
+def _relative_move_limit(
+  *,
+  baseline_value: float,
+  max_relative_change: float,
+  value_kind: str,
+  input_semantics: str,
+) -> float:
+  baseline_abs = abs(float(baseline_value or 0.0))
+  max_rel = max(0.0, min(1.0, float(max_relative_change or 0.0)))
+  value_kind_norm = str(value_kind or "").strip().lower()
+  semantics_norm = str(input_semantics or "").strip().lower()
+  if value_kind_norm == "ratio":
+    anchor = max(baseline_abs, 0.05)
+    return min(0.5, anchor * max_rel)
+  if value_kind_norm == "day_count":
+    anchor = max(baseline_abs, 5.0)
+    return max(1.0, anchor * max_rel)
+  if "percent_of_revenue" in semantics_norm or "percent_of_long_term_debt" in semantics_norm:
+    anchor = max(baseline_abs, 0.05)
+    return min(0.5, anchor * max_rel)
+  anchor = max(baseline_abs, 1.0)
+  return anchor * max_rel
+
+
+def _translate_realism_lever_adjustment(
+  *,
+  adjustment: Dict[str, Any],
+  baseline_map: Dict[str, List[float]],
+  lever_catalog_map: Dict[str, Dict[str, Any]],
+  quarter_count: int,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+  lever_id = str(adjustment.get("lever_id") or "").strip()
+  if not lever_id:
+    return None, "missing lever_id"
+  baseline_values = baseline_map.get(lever_id)
+  if not baseline_values:
+    return None, f"unknown lever_id {lever_id}"
+  quarter_index = int(_safe_float(adjustment.get("quarter_index")) or 0)
+  if quarter_index < 1 or quarter_index > max(1, int(quarter_count or 0)):
+    return None, f"{lever_id} has invalid quarter_index {quarter_index or 'missing'}"
+  direction = str(adjustment.get("direction") or "").strip().lower()
+  if direction not in {"increase", "decrease", "either", "hold"}:
+    return None, f"{lever_id} has unsupported direction {direction or 'missing'}"
+  max_relative_change = _safe_float(adjustment.get("max_relative_change"))
+  if max_relative_change is None:
+    return None, f"{lever_id} missing max_relative_change"
+  max_relative_change = max(0.0, min(1.0, float(max_relative_change)))
+  meta = lever_catalog_map.get(lever_id) or {}
+  baseline_window = _baseline_window_summary(baseline_values, start_q=quarter_index, end_q=quarter_index)
+  baseline_value = float(_safe_float(baseline_window.get("value_end")) or 0.0)
+  move_limit = _relative_move_limit(
+    baseline_value=baseline_value,
+    max_relative_change=max_relative_change,
+    value_kind=str(meta.get("value_kind") or "").strip(),
+    input_semantics=str(meta.get("input_semantics") or "").strip(),
+  )
+  if direction == "hold":
+    min_value = baseline_value - move_limit
+    max_value = baseline_value + move_limit
+  elif direction == "increase":
+    min_value = baseline_value
+    max_value = baseline_value + move_limit
+  elif direction == "decrease":
+    min_value = baseline_value - move_limit
+    max_value = baseline_value
+  else:
+    min_value = baseline_value - move_limit
+    max_value = baseline_value + move_limit
+
+  translated = {
+    "lever_id": lever_id,
+    "section": str(adjustment.get("section") or meta.get("section") or "").strip(),
+    "direction": direction,
+    "control_mode": "band",
+    "quarter_index": quarter_index,
+    "baseline_window": baseline_window,
+    "business_reason": str(adjustment.get("business_reason") or "").strip(),
+    "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
+    "max_relative_change": max_relative_change,
+    "exact_value": None,
+    "min_value": float(min(min_value, max_value)),
+    "max_value": float(max(min_value, max_value)),
+  }
+  return translated, None
+
+
+def _translate_realism_output_target(
+  *,
+  target: Dict[str, Any],
+  finmo_json: Optional[Dict[str, Any]],
+  quarter_count: int,
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+  metric = str(target.get("metric") or "").strip()
+  if not metric:
+    return [], "missing target metric"
+  quarter_index = int(_safe_float(target.get("quarter_index")) or 0)
+  if quarter_index < 1 or quarter_index > max(1, int(quarter_count or 0)):
+    return [], f"{metric} has invalid quarter_index {quarter_index or 'missing'}"
+  direction = str(target.get("direction") or "").strip().lower()
+  if direction not in {"increase", "decrease", "hold"}:
+    return [], f"{metric} has unsupported direction {direction or 'missing'}"
+  min_relative_change = _safe_float(target.get("min_relative_change"))
+  max_relative_change = _safe_float(target.get("max_relative_change"))
+  if min_relative_change is None or max_relative_change is None:
+    return [], f"{metric} missing min_relative_change or max_relative_change"
+  low_rel = max(0.0, min(1.0, float(min(min_relative_change, max_relative_change))))
+  high_rel = max(0.0, min(1.0, float(max(min_relative_change, max_relative_change))))
+  baseline_series = _realism_metric_series(finmo_json, metric=metric)
+  if not baseline_series:
+    return [], f"{metric} has no baseline series"
+
+  base_value = float(_safe_float(baseline_series[quarter_index - 1]) or 0.0)
+  scale = max(abs(base_value), 1.0)
+  if direction == "increase":
+    min_value = base_value + (low_rel * scale)
+    max_value = base_value + (high_rel * scale)
+  elif direction == "decrease":
+    min_value = base_value - (high_rel * scale)
+    max_value = base_value - (low_rel * scale)
+  else:
+    min_value = base_value - (high_rel * scale)
+    max_value = base_value + (high_rel * scale)
+  return (
+    [
+      {
+        "metric": metric,
+        "quarter_index": quarter_index,
+        "direction": direction,
+        "baseline_value": base_value,
+        "min_value": float(min(min_value, max_value)),
+        "max_value": float(max(min_value, max_value)),
+        "business_reason": str(target.get("business_reason") or "").strip(),
+      }
+    ],
+    None,
+  )
+
+
+def _extract_controller_lever_catalog(model_input_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  model_input = model_input_json if isinstance(model_input_json, dict) else {}
+  direct = [item for item in (model_input.get("controller_write_levers") or []) if isinstance(item, dict)]
+  if direct:
+    return direct
+  lever_catalog = model_input.get("lever_catalog") if isinstance(model_input.get("lever_catalog"), dict) else {}
+  return [item for item in lever_catalog.values() if isinstance(item, dict)]
+
+
+def _build_writable_lever_review_catalog(model_input_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  review_catalog: List[Dict[str, Any]] = []
+  for item in _extract_controller_lever_catalog(model_input_json):
+    lever_id = str(item.get("lever_id") or "").strip()
+    if not lever_id:
+      continue
+    review_catalog.append(
+      {
+        "lever_id": lever_id,
+        "section": str(item.get("section") or "").strip(),
+        "label_path": str(item.get("label_path") or "").strip(),
+        "driver": str(item.get("driver") or item.get("label") or "").strip(),
+        "lob": str(item.get("lob") or "").strip(),
+        "product": str(item.get("product") or "").strip(),
+        "value_kind": str(item.get("value_kind") or "").strip(),
+        "input_semantics": str(item.get("input_semantics") or "").strip(),
+      }
+    )
+  return review_catalog
+
+
+def _model_input_with_controller_catalog(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  catalog_source_model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  current = copy.deepcopy(model_input_json or {}) if isinstance(model_input_json, dict) else {}
+  source = catalog_source_model_input_json if isinstance(catalog_source_model_input_json, dict) else {}
+  if not current:
+    current = {}
+  if isinstance(source.get("canonical_lever_vocabulary"), str) and not str(current.get("canonical_lever_vocabulary") or "").strip():
+    current["canonical_lever_vocabulary"] = str(source.get("canonical_lever_vocabulary") or "").strip()
+  if isinstance(source.get("lever_catalog"), dict) and not isinstance(current.get("lever_catalog"), dict):
+    current["lever_catalog"] = copy.deepcopy(source.get("lever_catalog") or {})
+  if not _extract_controller_lever_catalog(current):
+    source_catalog = _extract_controller_lever_catalog(source)
+    if source_catalog:
+      current["controller_write_levers"] = copy.deepcopy(source_catalog)
+  return current
+
+
+def _build_cash_strategy_review_context_payload(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  solved_model_input_json: Optional[Dict[str, Any]],
+  solved_finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  business = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  model_input = solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
+  finmo = solved_finmo_json if isinstance(solved_finmo_json, dict) else {}
+  lever_catalog = _extract_controller_lever_catalog(model_input)
+  lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
+  section_counts: Dict[str, int] = {}
+  for item in lever_catalog:
+    section_name = str(item.get("section") or "").strip() or "unknown"
+    section_counts[section_name] = int(section_counts.get(section_name) or 0) + 1
+  quarter_metrics = _cash_review_quarter_metrics(finmo)
+  ending_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in quarter_metrics]
+  return {
+    "contract_version": "cash_strategy_review_context_v1",
+    "status": "ready",
+    "review_required": True,
+    "review_role": "mandatory_post_solve_cash_strategy_review",
+    "draft_id": str(draft_id or "").strip(),
+    "planning_mode": str(planning_mode or "").strip(),
+    "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    "prompt_file": str(prompt_file or "").strip(),
+    "selected_cash_strategy": str(financials.get("cash_strategy") or "").strip(),
+    "business_snapshot": {
+      "business_name": str(business.get("name") or business.get("business_name") or "").strip(),
+      "business_type": str(ops.get("business_type") or "").strip(),
+      "business_stage": str(ops.get("business_stage") or "").strip(),
+      "capacity_driver": str(ops.get("capacity_driver") or "").strip(),
+      "unit_name": str(ops.get("unit_name") or "").strip(),
+      "sales_modality": str(ops.get("sales_modality") or "").strip(),
+      "geographic_scope": str(ops.get("geographic_scope") or "").strip(),
+    },
+    "source_artifacts": {
+      "model_input_json_field": "model_input_json",
+      "finmo_json_field": "finmo_json",
+      "solved_model_input_persisted": bool(model_input),
+      "solved_finmo_persisted": bool(finmo),
+    },
+    "writable_lever_catalog": {
+      "lever_count": len(lever_ids),
+      "section_counts": section_counts,
+      "lever_ids": lever_ids,
+    },
+    "quarter_metrics": quarter_metrics,
+    "strategy_relevant_series": {
+      "revenue": [float(_safe_float(item.get("revenue")) or 0.0) for item in quarter_metrics],
+      "ebitda": [float(_safe_float(item.get("ebitda")) or 0.0) for item in quarter_metrics],
+      "net_income": [float(_safe_float(item.get("net_income")) or 0.0) for item in quarter_metrics],
+      "ending_cash": ending_cash_series,
+      "marketing": _finmo_labeled_series(finmo, section_key="pl", label="Marketing"),
+      "payroll": _finmo_labeled_series(finmo, section_key="pl", label="Payroll"),
+      "lease_rent": _finmo_labeled_series(finmo, section_key="pl", label="Lease/Rent"),
+      "capital_expenditures": _finmo_labeled_series(finmo, section_key="cash_flow", label="Capital Expenditures"),
+      "principal_repayments": _finmo_labeled_series(finmo, section_key="cash_flow", label="Dept Receive(Repay)"),
+      "long_term_debt": _finmo_labeled_series(finmo, section_key="balance_sheet", label="Long Term Debt"),
+      "total_liabilities": _finmo_labeled_series(finmo, section_key="balance_sheet", label="Total Liabilities"),
+    },
+    "cash_profile_summary": {
+      "quarter_count": len(quarter_metrics),
+      "cash_peak": max(ending_cash_series) if ending_cash_series else 0.0,
+      "cash_trough": min(ending_cash_series) if ending_cash_series else 0.0,
+      "ending_cash_final": ending_cash_series[-1] if ending_cash_series else 0.0,
+    },
+  }
+
+
+def _load_cash_strategy_review_prompt() -> str:
+  try:
+    return _CASH_STRATEGY_REVIEW_PROMPT_PATH.read_text(encoding="utf-8").strip()
+  except Exception:
+    return (
+      "You are the post-solve cash strategy reviewer for a real business plan.\n"
+      "You are reviewing an already solved, coherent business model.\n"
+      "Your job is to decide whether the solved business visibly reflects the selected cash strategy and, if not, prescribe realistic coordinated management actions using only the provided writable lever ids.\n"
+      "Be bold within reason: make the selected strategy visible when the solved economics support it, but do not force reckless or fake moves.\n"
+      "Levers do not operate in silos. When a real-world action requires coordinated changes across multiple rows, return a linked lever package rather than isolated row tweaks.\n"
+      "Do not invent lever ids. Do not rebuild the whole business from scratch."
+    )
+
+
+def _load_realism_resolution_prompt() -> str:
+  try:
+    return _REALISM_RESOLUTION_PROMPT_PATH.read_text(encoding="utf-8").strip()
+  except Exception:
+    return (
+      "You are the mandatory realism resolution planner. "
+      "Use only provided writable lever ids and return structured JSON only."
+    ).strip()
+
+
+def _normalized_issue_records(items: Any) -> List[Dict[str, str]]:
+  out: List[Dict[str, str]] = []
+  for item in (items or []):
+    if not isinstance(item, dict):
+      continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    issue = str(item.get("issue") or "").strip()
+    detail = str(item.get("detail") or "").strip()
+    if not issue or not detail:
+      continue
+    record: Dict[str, str] = {"issue": issue, "detail": detail}
+    if issue_code:
+      record["issue_code"] = issue_code
+    out.append(record)
+  return out
+
+
+def _memo_issue_records(payload: Optional[Dict[str, Any]], *fields: str) -> List[Dict[str, str]]:
+  memo = payload if isinstance(payload, dict) else {}
+  for field in fields:
+    items = _normalized_issue_records(memo.get(field))
+    if items:
+      return items
+  return []
+
+
+def _issue_text_key(item: Dict[str, Any]) -> str:
+  issue_code = str(item.get("issue_code") or "").strip().lower()
+  if issue_code:
+    return f"code::{issue_code}"
+  issue = str(item.get("issue") or "").strip().lower()
+  detail = str(item.get("detail") or "").strip().lower()
+  return f"{issue}::{detail}"
+
+
+def _core_issue_record(item: Dict[str, Any]) -> Dict[str, str]:
+  record: Dict[str, str] = {
+    "issue": str(item.get("issue") or "").strip(),
+    "detail": str(item.get("detail") or "").strip(),
+  }
+  issue_code = str(item.get("issue_code") or "").strip().lower()
+  if issue_code:
+    record["issue_code"] = issue_code
+  return record
+
+
+def _issue_status_records(payload: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  memo = payload if isinstance(payload, dict) else {}
+  raw_records = memo.get("issue_status_records")
+  records: List[Dict[str, Any]] = []
+  if isinstance(raw_records, list):
+    for item in raw_records:
+      if not isinstance(item, dict):
+        continue
+      core = _core_issue_record(item)
+      if not core.get("issue") or not core.get("detail"):
+        continue
+      status = str(item.get("status") or "").strip().lower()
+      if status not in {"open", "resolved"}:
+        status = "open"
+      records.append(
+        {
+          **core,
+          "status": status,
+          "first_detected_iteration": int(_safe_float(item.get("first_detected_iteration")) or 0),
+          "last_seen_iteration": int(_safe_float(item.get("last_seen_iteration")) or 0),
+          "resolved_iteration": (
+            int(_safe_float(item.get("resolved_iteration")) or 0)
+            if _safe_float(item.get("resolved_iteration")) is not None
+            else None
+          ),
+        }
+      )
+  if records:
+    return records
+
+  seeded_records: List[Dict[str, Any]] = []
+  for item in _memo_issue_records(memo, "detected_issues", "remaining_issues", "issues"):
+    seeded_records.append(
+      {
+        **_core_issue_record(item),
+        "status": "open",
+        "first_detected_iteration": 0,
+        "last_seen_iteration": 0,
+        "resolved_iteration": None,
+      }
+    )
+  return seeded_records
+
+
+def _build_issue_status_records(
+  *,
+  previous_memo: Optional[Dict[str, Any]],
+  current_memo: Optional[Dict[str, Any]],
+  iteration: int,
+) -> List[Dict[str, Any]]:
+  previous_records = _issue_status_records(previous_memo)
+  records_by_key: Dict[str, Dict[str, Any]] = {}
+  order: List[str] = []
+  for item in previous_records:
+    key = _issue_text_key(item)
+    if not key:
+      continue
+    records_by_key[key] = copy.deepcopy(item)
+    order.append(key)
+
+  current_issues = _memo_issue_records(current_memo, "remaining_issues", "issues")
+  current_keys: List[str] = []
+  for item in current_issues:
+    key = _issue_text_key(item)
+    if not key:
+      continue
+    current_keys.append(key)
+    existing = copy.deepcopy(records_by_key.get(key) or {})
+    if not existing:
+      existing = {
+        "status": "open",
+        "first_detected_iteration": int(iteration),
+        "last_seen_iteration": int(iteration),
+        "resolved_iteration": None,
+      }
+      order.append(key)
+    existing.update(_core_issue_record(item))
+    existing["status"] = "open"
+    if int(_safe_float(existing.get("first_detected_iteration")) or 0) <= 0:
+      existing["first_detected_iteration"] = int(iteration)
+    existing["last_seen_iteration"] = int(iteration)
+    existing["resolved_iteration"] = None
+    records_by_key[key] = existing
+
+  current_key_set = set(current_keys)
+  for key in order:
+    if key in current_key_set:
+      continue
+    existing = copy.deepcopy(records_by_key.get(key) or {})
+    if not existing:
+      continue
+    existing["status"] = "resolved"
+    if _safe_float(existing.get("resolved_iteration")) is None:
+      existing["resolved_iteration"] = int(iteration)
+    records_by_key[key] = existing
+
+  out: List[Dict[str, Any]] = []
+  for key in order:
+    record = records_by_key.get(key)
+    if isinstance(record, dict):
+      out.append(record)
+  return out
+
+
+def _build_persisted_realism_memo_payload(
+  *,
+  previous_memo: Optional[Dict[str, Any]],
+  current_memo: Optional[Dict[str, Any]],
+  resolution_summary: Optional[Dict[str, Any]],
+  iteration: int,
+) -> Dict[str, Any]:
+  current_payload = current_memo if isinstance(current_memo, dict) else {}
+  summary = resolution_summary if isinstance(resolution_summary, dict) else {}
+  issue_status_records = _build_issue_status_records(
+    previous_memo=previous_memo,
+    current_memo=current_payload,
+    iteration=iteration,
+  )
+  detected_issues = [_core_issue_record(item) for item in issue_status_records]
+  resolved_issues = [_core_issue_record(item) for item in issue_status_records if str(item.get("status") or "").strip().lower() == "resolved"]
+  remaining_issues = [_core_issue_record(item) for item in issue_status_records if str(item.get("status") or "").strip().lower() == "open"]
+  status = "resolved" if not remaining_issues else str(current_payload.get("status") or "ready").strip() or "ready"
+  return {
+    "status": status,
+    "issues": remaining_issues,
+    "detected_issues": detected_issues,
+    "resolved_issues": resolved_issues,
+    "remaining_issues": remaining_issues,
+    "resolution_summary": copy.deepcopy(summary),
+    "issue_status_records": issue_status_records,
+    "last_review_iteration": int(iteration),
+  }
+
+
+def _build_resolution_summary_from_realism_memos(
+  before_memo: Optional[Dict[str, Any]],
+  after_memo: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  before_payload = before_memo if isinstance(before_memo, dict) else {}
+  after_payload = after_memo if isinstance(after_memo, dict) else {}
+  before_status = str(before_payload.get("status") or "").strip().lower()
+  after_status = str(after_payload.get("status") or "").strip().lower()
+  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
+  remaining_issues = _memo_issue_records(after_payload, "remaining_issues", "issues")
+  if before_status not in {"ready", "resolved"} or after_status not in {"ready", "resolved"}:
+    return {
+      "status": "memo_not_ready",
+      "display_status": "memo not ready",
+      "baseline_violations": baseline_issues,
+      "resolved_violations": [],
+      "remaining_violations": remaining_issues,
+      "remaining_blocking_violations": remaining_issues,
+      "all_cleared": False,
+      "hard_cleared": False,
+    }
+  remaining_keys = {_issue_text_key(item) for item in remaining_issues}
+  resolved_issues = [item for item in baseline_issues if _issue_text_key(item) not in remaining_keys]
+  status = "all_cleared" if not remaining_issues else "issues_remaining"
+  display_status = "all cleared" if not remaining_issues else "issues remaining"
+  return {
+    "status": status,
+    "display_status": display_status,
+    "baseline_violations": baseline_issues,
+    "resolved_violations": resolved_issues,
+    "remaining_violations": remaining_issues,
+    "remaining_blocking_violations": remaining_issues,
+    "all_cleared": not remaining_issues,
+    "hard_cleared": not remaining_issues,
+  }
+
+
+def _build_resolved_realism_memo_payload(
+  *,
+  before_memo: Optional[Dict[str, Any]],
+  after_memo: Optional[Dict[str, Any]],
+  resolution_summary: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  before_payload = before_memo if isinstance(before_memo, dict) else {}
+  after_payload = after_memo if isinstance(after_memo, dict) else {}
+  summary = resolution_summary if isinstance(resolution_summary, dict) else {}
+  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
+  remaining_issues = _memo_issue_records(after_payload, "remaining_issues", "issues")
+  resolved_issues = _memo_issue_records(summary, "resolved_violations")
+  status = "resolved" if not remaining_issues else str(after_payload.get("status") or "ready").strip() or "ready"
+  return {
+    "status": status,
+    "issues": remaining_issues,
+    "detected_issues": baseline_issues,
+    "resolved_issues": resolved_issues,
+    "remaining_issues": remaining_issues,
+    "resolution_summary": copy.deepcopy(summary),
+  }
+
+
+def _persist_realism_loop_state(
+  *,
+  conn,
+  draft_id: str,
+  stage: str,
+  status: str,
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  solver_summary: Optional[Dict[str, Any]],
+  realism_memo_before_resolution: Optional[Dict[str, Any]],
+  realism_resolution_decision: Optional[Dict[str, Any]],
+  realism_resolution_plan: Optional[Dict[str, Any]],
+  realism_resolution_result: Optional[Dict[str, Any]],
+  realism_resolution_iterations: Optional[List[Dict[str, Any]]],
+  resolution_summary: Optional[Dict[str, Any]],
+  realism_memo_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = _build_planning_run_payload(
+    stage=stage,
+    status=status,
+    resolution_summary=copy.deepcopy(resolution_summary or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    solver_summary=copy.deepcopy(solver_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution or {}),
+    realism_resolution_decision=copy.deepcopy(realism_resolution_decision or {}),
+    realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
+    realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations or []),
+  )
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[],
+    realism_memo_json=copy.deepcopy(realism_memo_json or {}),
+    planning_run_json=copy.deepcopy(payload),
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    finmo_json=copy.deepcopy(finmo_json or {}),
+  )
+  return payload
+
+
+def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+  output = data.get("output") or []
+  for item in output:
+    for part in item.get("content", []) or []:
+      if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        return part["json"]
+  try:
+    parsed = json.loads(_parse_responses_text(data))
+  except Exception:
+    return None
+  return parsed if isinstance(parsed, dict) else None
+
+
+def _cash_strategy_review_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "recommendation_mode": {"type": "string", "enum": ["maintain", "adjust"]},
+      "alignment_assessment": {
+        "type": "string",
+        "enum": ["aligned", "underexpressed", "overexpressed", "misaligned"],
+      },
+      "executive_summary": {"type": "string"},
+      "capital_posture_summary": {"type": "string"},
+      "hold_cash_justification": {"type": "string"},
+      "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+      "recommended_actions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "action_id": {"type": "string"},
+            "business_move": {"type": "string"},
+            "why_now": {"type": "string"},
+            "expected_visual_effect": {"type": "string"},
+            "coordination_notes": {"type": "string"},
+            "timing_start_q": {"type": "integer", "minimum": 1, "maximum": 20},
+            "timing_end_q": {"type": "integer", "minimum": 1, "maximum": 20},
+            "priority": {"type": "integer", "minimum": 1, "maximum": 10},
+            "boldness": {"type": "string", "enum": ["light", "moderate", "strong"]},
+            "lever_adjustments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
+                  "section": {"type": "string"},
+                  "direction": {"type": "string", "enum": ["increase", "decrease", "hold", "retime"]},
+                  "value_mode": {"type": "string", "enum": ["exact", "band"]},
+                  "exact_value": {"type": ["number", "null"]},
+                  "min_value": {"type": ["number", "null"]},
+                  "max_value": {"type": ["number", "null"]},
+                  "timing_start_q": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "timing_end_q": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "business_reason": {"type": "string"},
+                  "linked_action_effect": {"type": "string"},
+                },
+                "required": [
+                  "lever_id",
+                  "section",
+                  "direction",
+                  "value_mode",
+                  "exact_value",
+                  "min_value",
+                  "max_value",
+                  "timing_start_q",
+                  "timing_end_q",
+                  "business_reason",
+                  "linked_action_effect",
+                ],
+              },
+            },
+          },
+          "required": [
+            "action_id",
+            "business_move",
+            "why_now",
+            "expected_visual_effect",
+            "coordination_notes",
+            "timing_start_q",
+            "timing_end_q",
+            "priority",
+            "boldness",
+            "lever_adjustments",
+          ],
+        },
+      },
+    },
+    "required": [
+      "recommendation_mode",
+      "alignment_assessment",
+      "executive_summary",
+      "capital_posture_summary",
+      "hold_cash_justification",
+      "confidence",
+      "recommended_actions",
+    ],
+  }
+
+
+def _cash_strategy_review_failure_payload(
+  *,
+  selected_cash_strategy: str,
+  prompt_file: str,
+  status: str,
+  detail: str = "",
+) -> Dict[str, Any]:
+  return {
+    "contract_version": "cash_strategy_review_decision_v1",
+    "status": status,
+    "prompt_file": prompt_file,
+    "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
+    "review_status": "not_completed",
+    "detail": str(detail or "").strip(),
+    "decision": {},
+  }
+
+
+def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "recommendation_mode": {"type": "string", "enum": ["maintain", "adjust"]},
+      "resolution_assessment": {
+        "type": "string",
+        "enum": ["already_realistic", "issues_addressable", "partially_addressable"],
+      },
+      "executive_summary": {"type": "string"},
+      "issue_resolution_summary": {"type": "string"},
+      "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+      "recommended_actions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "action_id": {"type": "string"},
+            "business_move": {"type": "string"},
+            "why_now": {"type": "string"},
+            "expected_visual_effect": {"type": "string"},
+            "coordination_notes": {"type": "string"},
+            "priority": {"type": "integer", "minimum": 1, "maximum": 10},
+            "boldness": {"type": "string", "enum": ["light", "moderate", "strong"]},
+            "lever_adjustments": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
+                  "section": {"type": "string"},
+                  "direction": {"type": "string", "enum": ["increase", "decrease", "either", "hold"]},
+                  "max_relative_change": {"type": "number", "minimum": 0, "maximum": 1},
+                  "quarter_index": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "business_reason": {"type": "string"},
+                  "linked_action_effect": {"type": "string"},
+                },
+                "required": [
+                  "lever_id",
+                  "section",
+                  "direction",
+                  "max_relative_change",
+                  "quarter_index",
+                  "business_reason",
+                  "linked_action_effect",
+                ],
+              },
+            },
+            "output_targets": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "metric": {"type": "string", "enum": ["Revenue", "EBITDA", "Cash", "Net Income"]},
+                  "direction": {"type": "string", "enum": ["increase", "decrease", "hold"]},
+                  "min_relative_change": {"type": "number", "minimum": 0, "maximum": 1},
+                  "max_relative_change": {"type": "number", "minimum": 0, "maximum": 1},
+                  "quarter_index": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "business_reason": {"type": "string"},
+                },
+                "required": [
+                  "metric",
+                  "direction",
+                  "min_relative_change",
+                  "max_relative_change",
+                  "quarter_index",
+                  "business_reason",
+                ],
+              },
+            },
+          },
+          "required": [
+            "action_id",
+            "business_move",
+            "why_now",
+            "expected_visual_effect",
+            "coordination_notes",
+            "priority",
+            "boldness",
+            "lever_adjustments",
+            "output_targets",
+          ],
+        },
+      },
+    },
+    "required": [
+      "recommendation_mode",
+      "resolution_assessment",
+      "executive_summary",
+      "issue_resolution_summary",
+      "confidence",
+      "recommended_actions",
+    ],
+  }
+
+
+def _realism_resolution_failure_payload(
+  *,
+  prompt_file: str,
+  status: str,
+  detail: str = "",
+) -> Dict[str, Any]:
+  return {
+    "contract_version": "realism_resolution_decision_v1",
+    "status": status,
+    "prompt_file": prompt_file,
+    "review_status": "not_completed",
+    "detail": str(detail or "").strip(),
+    "decision": {},
+  }
+
+
+def _run_realism_resolution_openai(
+  *,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  realism_memo_before_resolution: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any],
+  solved_finmo_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  prompt_file = "client_intake_and_finmo/prompts/realism_resolution/reviewer.md"
+  active_issues = _memo_issue_records(realism_memo_before_resolution, "remaining_issues", "issues")
+  if not active_issues:
+    return _realism_resolution_failure_payload(
+      prompt_file=prompt_file,
+      status="skipped_no_realism_issues",
+      detail="No realism issues were active before the resolution pass.",
+    )
+  api_key = _openai_key()
+  if not api_key:
+    return _realism_resolution_failure_payload(
+      prompt_file=prompt_file,
+      status="skipped_missing_openai_key",
+      detail="OPENAI_API_KEY is not configured.",
+    )
+
+  lever_catalog = _build_writable_lever_review_catalog(solved_model_input_json)
+  allowed_lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
+  if not allowed_lever_ids:
+    return _realism_resolution_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_missing_levers",
+      detail="No writable lever ids were available for realism resolution.",
+    )
+
+  system_prompt = _load_realism_resolution_prompt()
+  user_context = {
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "ops_json": ops_json,
+    "financials_json": financials_json,
+    "realism_memo_before_resolution": realism_memo_before_resolution,
+    "writable_lever_catalog": lever_catalog,
+    "writable_lever_current_values": _solved_lever_value_map(solved_model_input_json),
+    "solved_model_input_json": solved_model_input_json,
+    "solved_finmo_quarter_rows": [
+      row for row in ((solved_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
+    ],
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "realism_resolution_decision",
+        "schema": _realism_resolution_schema(allowed_lever_ids),
+        "strict": True,
+      }
+    },
+  }
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+  except Exception as exc:
+    return _realism_resolution_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_openai_request",
+      detail=str(exc),
+    )
+  if resp.status_code >= 400:
+    return _realism_resolution_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_openai_status",
+      detail=resp.text[:1200],
+    )
+  parsed = _parse_responses_json_dict(resp.json())
+  if not isinstance(parsed, dict):
+    return _realism_resolution_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_parse",
+      detail="Unable to parse realism resolution JSON.",
+    )
+  return {
+    "contract_version": "realism_resolution_decision_v1",
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "review_status": "completed",
+    "detail": "",
+    "decision": parsed,
+  }
+
+
+def _run_cash_strategy_review_openai(
+  *,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  first_pass_handoff: Dict[str, Any],
+  cash_strategy_review_context: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any],
+  solved_finmo_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  prompt_file = "client_intake_and_finmo/prompts/cash_strategy_review/reviewer.md"
+  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or "").strip()
+  if not selected_cash_strategy:
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy="",
+      prompt_file=prompt_file,
+      status="skipped_no_cash_strategy",
+      detail="No cash strategy was selected for this draft.",
+    )
+  api_key = _openai_key()
+  if not api_key:
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="skipped_missing_openai_key",
+      detail="OPENAI_API_KEY is not configured.",
+    )
+
+  allowed_lever_ids = [
+    str(item or "").strip()
+    for item in ((cash_strategy_review_context or {}).get("writable_lever_catalog", {}) or {}).get("lever_ids", [])
+    if str(item or "").strip()
+  ]
+  if not allowed_lever_ids:
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_missing_levers",
+      detail="No writable lever ids were available for cash strategy review.",
+    )
+
+  system_prompt = _load_cash_strategy_review_prompt()
+  user_context = {
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "selected_cash_strategy": selected_cash_strategy,
+    "first_pass_handoff": first_pass_handoff,
+    "cash_strategy_review_context": cash_strategy_review_context,
+    "solved_model_input_json": solved_model_input_json,
+    "solved_finmo_quarter_rows": [
+      row for row in ((solved_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
+    ],
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "cash_strategy_review_decision",
+        "schema": _cash_strategy_review_schema(allowed_lever_ids),
+        "strict": True,
+      }
+    },
+  }
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+  except Exception as exc:
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_openai_request",
+      detail=str(exc),
+    )
+  if resp.status_code >= 400:
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_openai_status",
+      detail=resp.text[:1200],
+    )
+  parsed = _parse_responses_json_dict(resp.json())
+  if not isinstance(parsed, dict):
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_parse",
+      detail="Unable to parse cash strategy review JSON.",
+    )
+  return {
+    "contract_version": "cash_strategy_review_decision_v1",
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "selected_cash_strategy": selected_cash_strategy,
+    "review_status": "completed",
+    "detail": "",
+    "decision": parsed,
+  }
+
+
+def _quarter_count_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> int:
+  model_input = model_input_json if isinstance(model_input_json, dict) else {}
+  periods = [item for item in (model_input.get("periods") or []) if isinstance(item, dict)]
+  return max(1, len(periods)) if periods else 20
+
+
+def _normalized_quarter_window(start_q: Any, end_q: Any, *, quarter_count: int) -> Tuple[int, int]:
+  start = int(_safe_float(start_q) or 1)
+  end = int(_safe_float(end_q) or start)
+  start = max(1, min(int(quarter_count or 1), start))
+  end = max(start, min(int(quarter_count or 1), end))
+  return start, end
+
+
+def _solved_lever_value_map(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, List[float]]:
+  model_input = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = model_input.get("sections") if isinstance(model_input.get("sections"), dict) else {}
+  lever_map: Dict[str, List[float]] = {}
+
+  for row in [item for item in (sections.get("revenue") or []) if isinstance(item, dict)]:
+    lever_id = str(row.get("lever_id") or "").strip()
+    if lever_id:
+      lever_map[lever_id] = [float(_safe_float(value) or 0.0) for value in (row.get("values") or [])]
+  for section_name in ("expenses", "balance_sheet"):
+    for row in [item for item in (sections.get(section_name) or []) if isinstance(item, dict)]:
+      lever_id = str(row.get("lever_id") or "").strip()
+      if lever_id:
+        lever_map[lever_id] = [float(_safe_float(value) or 0.0) for value in (row.get("values") or [])]
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  for row in [item for item in (schedules.get("rows") or []) if isinstance(item, dict)]:
+    lever_id = str(row.get("lever_id") or "").strip()
+    if lever_id:
+      lever_map[lever_id] = [float(_safe_float(value) or 0.0) for value in (row.get("values") or [])]
+  return lever_map
+
+
+def _window_values(values: List[float], *, start_q: int, end_q: int) -> List[float]:
+  if not values:
+    return []
+  start_idx = max(0, int(start_q) - 1)
+  end_idx = max(start_idx, int(end_q) - 1)
+  return [float(_safe_float(item) or 0.0) for item in values[start_idx:end_idx + 1]]
+
+
+def _baseline_window_summary(values: List[float], *, start_q: int, end_q: int) -> Dict[str, Any]:
+  window = _window_values(values, start_q=start_q, end_q=end_q)
+  if not window:
+    return {
+      "quarter_start": start_q,
+      "quarter_end": end_q,
+      "value_start": 0.0,
+      "value_end": 0.0,
+      "value_min": 0.0,
+      "value_max": 0.0,
+    }
+  return {
+    "quarter_start": start_q,
+    "quarter_end": end_q,
+    "value_start": window[0],
+    "value_end": window[-1],
+    "value_min": min(window),
+    "value_max": max(window),
+  }
+
+
+def _translate_cash_strategy_adjustment(
+  *,
+  adjustment: Dict[str, Any],
+  baseline_map: Dict[str, List[float]],
+  quarter_count: int,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+  lever_id = str(adjustment.get("lever_id") or "").strip()
+  if not lever_id:
+    return None, "missing lever_id"
+  baseline_values = baseline_map.get(lever_id)
+  if not baseline_values:
+    return None, f"unknown lever_id {lever_id}"
+
+  start_q, end_q = _normalized_quarter_window(
+    adjustment.get("timing_start_q"),
+    adjustment.get("timing_end_q"),
+    quarter_count=quarter_count,
+  )
+  value_mode = str(adjustment.get("value_mode") or "").strip().lower()
+  direction = str(adjustment.get("direction") or "").strip().lower()
+  translated: Dict[str, Any] = {
+    "lever_id": lever_id,
+    "section": str(adjustment.get("section") or "").strip(),
+    "direction": direction,
+    "control_mode": value_mode,
+    "timing_start_q": start_q,
+    "timing_end_q": end_q,
+    "baseline_window": _baseline_window_summary(baseline_values, start_q=start_q, end_q=end_q),
+    "business_reason": str(adjustment.get("business_reason") or "").strip(),
+    "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
+  }
+
+  if value_mode == "exact":
+    exact_value = _safe_float(adjustment.get("exact_value"))
+    if exact_value is None:
+      return None, f"{lever_id} exact mode missing exact_value"
+    translated["exact_value"] = float(exact_value)
+    translated["min_value"] = None
+    translated["max_value"] = None
+    return translated, None
+
+  if value_mode == "band":
+    min_value = _safe_float(adjustment.get("min_value"))
+    max_value = _safe_float(adjustment.get("max_value"))
+    if min_value is None or max_value is None:
+      return None, f"{lever_id} band mode missing min_value or max_value"
+    low = float(min(min_value, max_value))
+    high = float(max(min_value, max_value))
+    translated["exact_value"] = None
+    translated["min_value"] = low
+    translated["max_value"] = high
+    return translated, None
+
+  return None, f"{lever_id} has unsupported value_mode {value_mode}"
+
+
+def _build_cash_strategy_second_pass_plan(
+  *,
+  review_decision_payload: Optional[Dict[str, Any]],
+  solved_model_input_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  review_payload = review_decision_payload if isinstance(review_decision_payload, dict) else {}
+  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or review_payload.get("selected_cash_strategy") or "").strip()
+  review_status = str(review_payload.get("status") or "").strip()
+  prompt_file = str(review_payload.get("prompt_file") or "").strip()
+  if review_status != "completed":
+    return {
+      "contract_version": "cash_strategy_second_pass_plan_v1",
+      "status": "skipped_review_not_completed",
+      "selected_cash_strategy": selected_cash_strategy,
+      "prompt_file": prompt_file,
+      "review_status": review_status,
+      "default_unspecified_lever_policy": {},
+      "translated_action_packages": [],
+      "translation_warnings": [],
+      "next_step": "wait_for_completed_cash_strategy_review",
+    }
+
+  decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
+  alignment_assessment = str(decision.get("alignment_assessment") or "").strip()
+  quarter_count = _quarter_count_from_model_input(solved_model_input_json)
+  baseline_map = _solved_lever_value_map(solved_model_input_json)
+  warnings: List[str] = []
+  translated_packages: List[Dict[str, Any]] = []
+  touched_lever_ids: List[str] = []
+
+  for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
+    translated_controls: List[Dict[str, Any]] = []
+    for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
+      translated, warning = _translate_cash_strategy_adjustment(
+        adjustment=adjustment,
+        baseline_map=baseline_map,
+        quarter_count=quarter_count,
+      )
+      if warning:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
+        continue
+      if translated:
+        translated_controls.append(translated)
+        lever_id = str(translated.get("lever_id") or "").strip()
+        if lever_id and lever_id not in touched_lever_ids:
+          touched_lever_ids.append(lever_id)
+    translated_packages.append(
+      {
+        "action_id": str(action.get("action_id") or "").strip(),
+        "business_move": str(action.get("business_move") or "").strip(),
+        "why_now": str(action.get("why_now") or "").strip(),
+        "expected_visual_effect": str(action.get("expected_visual_effect") or "").strip(),
+        "coordination_notes": str(action.get("coordination_notes") or "").strip(),
+        "timing_start_q": int(_safe_float(action.get("timing_start_q")) or 1),
+        "timing_end_q": int(_safe_float(action.get("timing_end_q")) or max(1, int(_safe_float(action.get("timing_start_q")) or 1))),
+        "priority": int(_safe_float(action.get("priority")) or 1),
+        "boldness": str(action.get("boldness") or "").strip(),
+        "translated_controls": translated_controls,
+      }
+    )
+
+  status = "ready"
+  next_step = "ready_for_second_pass_solver"
+  if recommendation_mode == "maintain":
+    status = "ready_maintain_first_pass"
+    next_step = "no_second_pass_adjustment_required"
+  elif recommendation_mode == "adjust" and not touched_lever_ids:
+    status = "ready_no_valid_translated_controls"
+    next_step = "review_translation_warnings_before_second_pass_solver"
+
+  return {
+    "contract_version": "cash_strategy_second_pass_plan_v1",
+    "status": status,
+    "selected_cash_strategy": selected_cash_strategy,
+    "prompt_file": prompt_file,
+    "review_status": review_status,
+    "recommendation_mode": recommendation_mode,
+    "alignment_assessment": alignment_assessment,
+    "executive_summary": str(decision.get("executive_summary") or "").strip(),
+    "capital_posture_summary": str(decision.get("capital_posture_summary") or "").strip(),
+    "hold_cash_justification": str(decision.get("hold_cash_justification") or "").strip(),
+    "confidence": str(decision.get("confidence") or "").strip(),
+    "baseline_source": "first_pass_solved_model",
+    "default_unspecified_lever_policy": {
+      "mode": "lock_to_first_pass_solved_values",
+      "scope": "all_unspecified_writable_levers",
+      "rationale": "Second pass should only move levers explicitly prescribed by the cash strategy review.",
+    },
+    "translated_action_packages": translated_packages,
+    "translated_control_count": sum(len(item.get("translated_controls") or []) for item in translated_packages),
+    "touched_lever_ids": touched_lever_ids,
+    "translation_warnings": warnings,
+    "next_step": next_step,
+  }
+
+
+def _build_realism_resolution_plan(
+  *,
+  review_decision_payload: Optional[Dict[str, Any]],
+  solved_model_input_json: Optional[Dict[str, Any]],
+  solved_finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  review_payload = review_decision_payload if isinstance(review_decision_payload, dict) else {}
+  review_status = str(review_payload.get("status") or "").strip()
+  prompt_file = str(review_payload.get("prompt_file") or "").strip()
+  if review_status != "completed":
+    return {
+      "contract_version": "realism_resolution_plan_v1",
+      "status": "skipped_review_not_completed",
+      "prompt_file": prompt_file,
+      "review_status": review_status,
+      "default_unspecified_lever_policy": {},
+      "translated_action_packages": [],
+      "translation_warnings": [],
+      "next_step": "wait_for_completed_realism_resolution_review",
+    }
+
+  decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
+  resolution_assessment = str(decision.get("resolution_assessment") or "").strip()
+  quarter_count = _quarter_count_from_model_input(solved_model_input_json)
+  baseline_map = _solved_lever_value_map(solved_model_input_json)
+  lever_meta_map = _lever_catalog_map(solved_model_input_json)
+  warnings: List[str] = []
+  translated_packages: List[Dict[str, Any]] = []
+  touched_lever_ids: List[str] = []
+  translated_target_count = 0
+
+  for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
+    translated_controls: List[Dict[str, Any]] = []
+    translated_targets: List[Dict[str, Any]] = []
+    action_quarters: List[int] = []
+    for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
+      translated, warning = _translate_realism_lever_adjustment(
+        adjustment=adjustment,
+        baseline_map=baseline_map,
+        lever_catalog_map=lever_meta_map,
+        quarter_count=quarter_count,
+      )
+      if warning:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
+        continue
+      if translated:
+        translated_controls.append(translated)
+        lever_id = str(translated.get("lever_id") or "").strip()
+        if lever_id and lever_id not in touched_lever_ids:
+          touched_lever_ids.append(lever_id)
+        quarter_index = int(_safe_float(translated.get("quarter_index")) or 0)
+        if quarter_index > 0:
+          action_quarters.append(quarter_index)
+    for target in [item for item in (action.get("output_targets") or []) if isinstance(item, dict)]:
+      translated_target_rows, warning = _translate_realism_output_target(
+        target=target,
+        finmo_json=solved_finmo_json,
+        quarter_count=quarter_count,
+      )
+      if warning:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
+        continue
+      translated_targets.extend(translated_target_rows)
+      for translated_target in translated_target_rows:
+        quarter_index = int(_safe_float(translated_target.get("quarter_index")) or 0)
+        if quarter_index > 0:
+          action_quarters.append(quarter_index)
+    translated_target_count += len(translated_targets)
+    action_quarters = sorted({quarter for quarter in action_quarters if quarter > 0})
+    translated_packages.append(
+      {
+        "action_id": str(action.get("action_id") or "").strip(),
+        "business_move": str(action.get("business_move") or "").strip(),
+        "why_now": str(action.get("why_now") or "").strip(),
+        "expected_visual_effect": str(action.get("expected_visual_effect") or "").strip(),
+        "coordination_notes": str(action.get("coordination_notes") or "").strip(),
+        "quarter_indices": action_quarters,
+        "timing_start_q": action_quarters[0] if action_quarters else 1,
+        "timing_end_q": action_quarters[-1] if action_quarters else 1,
+        "priority": int(_safe_float(action.get("priority")) or 1),
+        "boldness": str(action.get("boldness") or "").strip(),
+        "translated_controls": translated_controls,
+        "translated_targets": translated_targets,
+      }
+    )
+
+  status = "ready"
+  next_step = "ready_for_realism_resolution_solver"
+  if recommendation_mode == "maintain":
+    status = "ready_maintain_first_pass"
+    next_step = "no_realism_resolution_adjustment_required"
+  elif recommendation_mode == "adjust" and (not touched_lever_ids or translated_target_count <= 0):
+    status = "ready_no_valid_translated_controls"
+    next_step = "review_translation_warnings_before_realism_resolution_solver"
+
+  return {
+    "contract_version": "realism_resolution_plan_v1",
+    "status": status,
+    "prompt_file": prompt_file,
+    "review_status": review_status,
+    "recommendation_mode": recommendation_mode,
+    "resolution_assessment": resolution_assessment,
+    "executive_summary": str(decision.get("executive_summary") or "").strip(),
+    "issue_resolution_summary": str(decision.get("issue_resolution_summary") or "").strip(),
+    "confidence": str(decision.get("confidence") or "").strip(),
+    "baseline_source": "first_pass_solved_model",
+    "default_unspecified_lever_policy": {
+      "mode": "lock_to_first_pass_solved_values",
+      "scope": "all_unspecified_writable_levers",
+      "rationale": "Realism resolution should only move levers explicitly prescribed by the realism resolution review.",
+    },
+    "translated_action_packages": translated_packages,
+    "translated_control_count": sum(len(item.get("translated_controls") or []) for item in translated_packages),
+    "translated_target_count": translated_target_count,
+    "touched_lever_ids": touched_lever_ids,
+    "translation_warnings": warnings,
+    "next_step": next_step,
+  }
+
+
+def _clamp_value(value: float, *, minimum: Optional[float], maximum: Optional[float]) -> float:
+  next_value = float(value)
+  if minimum is not None:
+    next_value = max(next_value, float(minimum))
+  if maximum is not None:
+    next_value = min(next_value, float(maximum))
+  return float(next_value)
+
+
+def _preferred_exact_from_band_control(control: Dict[str, Any], *, boldness: str) -> Optional[float]:
+  minimum = _safe_float(control.get("min_value"))
+  maximum = _safe_float(control.get("max_value"))
+  if minimum is None and maximum is None:
+    return None
+  baseline_window = control.get("baseline_window") if isinstance(control.get("baseline_window"), dict) else {}
+  baseline_value = _safe_float(baseline_window.get("value_end"))
+  if baseline_value is None:
+    baseline_value = _safe_float(baseline_window.get("value_start"))
+  if baseline_value is None:
+    baseline_value = 0.0
+  direction = str(control.get("direction") or "").strip().lower()
+  boldness_norm = str(boldness or "").strip().lower()
+
+  if direction == "increase":
+    if maximum is None:
+      return minimum
+    edge = float(maximum)
+    if boldness_norm == "light":
+      return float((baseline_value + edge) / 2.0)
+    if boldness_norm == "moderate":
+      return float(baseline_value + 0.75 * (edge - baseline_value))
+    return edge
+
+  if direction == "decrease":
+    if minimum is None:
+      return maximum
+    edge = float(minimum)
+    if boldness_norm == "light":
+      return float((baseline_value + edge) / 2.0)
+    if boldness_norm == "moderate":
+      return float(baseline_value + 0.75 * (edge - baseline_value))
+    return edge
+
+  if direction == "hold":
+    return _clamp_value(float(baseline_value), minimum=minimum, maximum=maximum)
+
+  if direction == "retime":
+    return _clamp_value(float(baseline_value), minimum=minimum, maximum=maximum)
+
+  candidate = baseline_value
+  if minimum is not None and maximum is not None:
+    candidate = (float(minimum) + float(maximum)) / 2.0
+  elif minimum is not None:
+    candidate = float(minimum)
+  elif maximum is not None:
+    candidate = float(maximum)
+  return float(candidate)
+
+
+def _build_second_pass_solver_controls(
+  second_pass_plan: Optional[Dict[str, Any]],
+) -> Tuple[List[Any], List[Dict[str, Any]], List[str]]:
+  plan = second_pass_plan if isinstance(second_pass_plan, dict) else {}
+  warnings = [str(item).strip() for item in (plan.get("translation_warnings") or []) if str(item).strip()]
+  if str(plan.get("status") or "").strip() != "ready":
+    return [], [], warnings
+
+  try:
+    from financial_model_engine.solver import LeverControl  # type: ignore
+  except Exception:
+    from solver import LeverControl  # type: ignore
+
+  controls: List[Any] = []
+  applied_controls: List[Dict[str, Any]] = []
+  for action in sorted(
+    [item for item in (plan.get("translated_action_packages") or []) if isinstance(item, dict)],
+    key=lambda item: int(_safe_float(item.get("priority")) or 0),
+  ):
+    for control in [item for item in (action.get("translated_controls") or []) if isinstance(item, dict)]:
+      quarter_index = int(_safe_float(control.get("quarter_index")) or 1)
+      controls.append(
+        LeverControl(
+          lever_id=str(control.get("lever_id") or "").strip(),
+          quarter_start=quarter_index,
+          quarter_end=quarter_index,
+          exact_value=_safe_float(control.get("exact_value")),
+          min_value=_safe_float(control.get("min_value")),
+          max_value=_safe_float(control.get("max_value")),
+        )
+      )
+      applied_controls.append(
+        {
+          "action_id": str(action.get("action_id") or "").strip(),
+          "lever_id": str(control.get("lever_id") or "").strip(),
+          "quarter_index": quarter_index,
+          "exact_value": _safe_float(control.get("exact_value")),
+          "min_value": _safe_float(control.get("min_value")),
+          "max_value": _safe_float(control.get("max_value")),
+          "derived_from_mode": str(control.get("control_mode") or "").strip(),
+          "direction": str(control.get("direction") or "").strip(),
+          "boldness": str(action.get("boldness") or "").strip(),
+          "baseline_window": copy.deepcopy(control.get("baseline_window") or {}),
+        }
+      )
+  return controls, applied_controls, warnings
+
+
+def _build_second_pass_solver_targets(
+  second_pass_plan: Optional[Dict[str, Any]],
+) -> Tuple[List[Any], List[Dict[str, Any]], List[str]]:
+  plan = second_pass_plan if isinstance(second_pass_plan, dict) else {}
+  warnings: List[str] = []
+  if str(plan.get("status") or "").strip() != "ready":
+    return [], [], warnings
+
+  try:
+    from financial_model_engine.solver import OutputTarget  # type: ignore
+  except Exception:
+    from solver import OutputTarget  # type: ignore
+
+  targets: List[Any] = []
+  applied_targets: List[Dict[str, Any]] = []
+  for action in sorted(
+    [item for item in (plan.get("translated_action_packages") or []) if isinstance(item, dict)],
+    key=lambda item: int(_safe_float(item.get("priority")) or 0),
+  ):
+    for target in [item for item in (action.get("translated_targets") or []) if isinstance(item, dict)]:
+      metric = str(target.get("metric") or "").strip()
+      if not metric:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: missing target metric")
+        continue
+      quarter_index = int(_safe_float(target.get("quarter_index")) or 1)
+      min_value = _safe_float(target.get("min_value"))
+      max_value = _safe_float(target.get("max_value"))
+      if min_value is None or max_value is None:
+        warnings.append(f"{metric}: missing min_value or max_value")
+        continue
+      targets.append(
+        OutputTarget(
+          metric=metric,
+          quarter_start=quarter_index,
+          quarter_end=quarter_index,
+          min_value=float(min(min_value, max_value)),
+          max_value=float(max(min_value, max_value)),
+        )
+      )
+      applied_targets.append(
+        {
+          "action_id": str(action.get("action_id") or "").strip(),
+          "metric": metric,
+          "quarter_index": quarter_index,
+          "min_value": float(min(min_value, max_value)),
+          "max_value": float(max(min_value, max_value)),
+          "direction": str(target.get("direction") or "").strip(),
+          "baseline_value": _safe_float(target.get("baseline_value")),
+        }
+      )
+  return targets, applied_targets, warnings
+
+
+def _run_followup_second_pass_solver(
+  *,
+  second_pass_plan: Optional[Dict[str, Any]],
+  solved_model_input_json: Optional[Dict[str, Any]],
+  contract_version: str,
+) -> Dict[str, Any]:
+  plan = second_pass_plan if isinstance(second_pass_plan, dict) else {}
+  plan_status = str(plan.get("status") or "").strip()
+  if plan_status == "ready_maintain_first_pass":
+    return {
+      "contract_version": contract_version,
+      "status": "skipped_maintain_first_pass",
+      "final_model_source": "first_pass",
+      "applied_control_count": 0,
+      "applied_controls": [],
+      "applied_target_count": 0,
+      "applied_targets": [],
+      "warnings": [],
+      "solver_summary": {},
+      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
+      "solved_finmo_json": {},
+    }
+  if plan_status != "ready":
+    return {
+      "contract_version": contract_version,
+      "status": "skipped_not_ready",
+      "final_model_source": "first_pass",
+      "applied_control_count": 0,
+      "applied_controls": [],
+      "applied_target_count": 0,
+      "applied_targets": [],
+      "warnings": [str(item).strip() for item in (plan.get("translation_warnings") or []) if str(item).strip()],
+      "solver_summary": {},
+      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
+      "solved_finmo_json": {},
+    }
+
+  controls, applied_controls, warnings = _build_second_pass_solver_controls(plan)
+  targets, applied_targets, target_warnings = _build_second_pass_solver_targets(plan)
+  warnings.extend(target_warnings)
+  if not controls or not targets:
+    return {
+      "contract_version": contract_version,
+      "status": "skipped_no_controls" if not controls else "skipped_no_targets",
+      "final_model_source": "first_pass",
+      "applied_control_count": 0,
+      "applied_controls": [],
+      "applied_target_count": 0,
+      "applied_targets": [],
+      "warnings": warnings,
+      "solver_summary": {},
+      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
+      "solved_finmo_json": {},
+    }
+
+  try:
+    from financial_model_engine.model_inputs import FinancialModelInputs  # type: ignore
+    from financial_model_engine.solver import SolverOptions, solve_financial_model  # type: ignore
+  except Exception:
+    from model_inputs import FinancialModelInputs  # type: ignore
+    from solver import SolverOptions, solve_financial_model  # type: ignore
+  try:
+    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
+  except Exception:
+    from finmo_bridge import build_python_finmo_json  # type: ignore
+
+  baseline_inputs = FinancialModelInputs.from_model_input_json(
+    solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
+  )
+  try:
+    result = solve_financial_model(
+      baseline_inputs,
+      controls=controls,
+      targets=targets,
+      options=SolverOptions(
+        max_iterations=300,
+        movement_penalty_weight=0.000001,
+      ),
+    )
+  except Exception as exc:
+    return {
+      "contract_version": contract_version,
+      "status": "failed_solver_exception",
+      "final_model_source": "first_pass",
+      "applied_control_count": len(applied_controls),
+      "applied_controls": applied_controls,
+      "applied_target_count": len(applied_targets),
+      "applied_targets": applied_targets,
+      "warnings": warnings + [str(exc)],
+      "solver_summary": {},
+      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
+      "solved_finmo_json": {},
+    }
+
+  solved_model_input_json_second = result.solved_model_input_json if isinstance(result.solved_model_input_json, dict) else {}
+  solved_finmo_json_second = build_python_finmo_json(model_input_json=solved_model_input_json_second)
+  max_accounting_check = max(
+    abs(float(row.get("accounting_equation_check") or 0.0))
+    for row in (result.solved_outputs or [])
+  ) if result.solved_outputs else 0.0
+  solver_summary = {
+    "success": bool(result.success),
+    "objective_before": float(result.objective_before or 0.0),
+    "objective_after": float(result.objective_after or 0.0),
+    "iterations": len(result.iterations or []),
+    "control_count": len(controls),
+    "target_count": len(targets),
+    "accounting_equation_check_max_abs": float(max_accounting_check),
+    "movement_penalty_weight": 0.000001,
+    "max_iterations": 300,
+  }
+  return {
+    "contract_version": contract_version,
+    "status": "completed" if bool(result.success) else "failed_solver_result",
+    "final_model_source": "second_pass" if bool(result.success) else "first_pass",
+    "applied_control_count": len(applied_controls),
+    "applied_controls": applied_controls,
+    "applied_target_count": len(applied_targets),
+    "applied_targets": applied_targets,
+    "warnings": warnings,
+    "solver_summary": solver_summary,
+    "solved_model_input_json": solved_model_input_json_second if bool(result.success) else (solved_model_input_json if isinstance(solved_model_input_json, dict) else {}),
+    "solved_finmo_json": solved_finmo_json_second if bool(result.success) else {},
+  }
+
+
+def _run_cash_strategy_second_pass_solver(
+  *,
+  second_pass_plan: Optional[Dict[str, Any]],
+  solved_model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  return _run_followup_second_pass_solver(
+    second_pass_plan=second_pass_plan,
+    solved_model_input_json=solved_model_input_json,
+    contract_version="cash_strategy_second_pass_result_v1",
+  )
+
+
+def _run_realism_resolution_loop(
+  *,
+  conn,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  target_market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  solver_summary: Optional[Dict[str, Any]],
+  catalog_source_model_input_json: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any],
+  solved_finmo_json: Dict[str, Any],
+  max_iterations: int = 3,
+) -> Dict[str, Any]:
+  del target_market_json, people_json, financials_year1_json, fulfillment_json, marketing_model_json
+  current_model_input = _model_input_with_controller_catalog(
+    model_input_json=copy.deepcopy(solved_model_input_json),
+    catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
+  )
+  current_finmo = copy.deepcopy(solved_finmo_json if isinstance(solved_finmo_json, dict) else {})
+  initial_memo = generate_realism_memo_payload_safe(
+    ops_json=ops_json,
+    financials_json=financials_json,
+    solved_model_input_json=copy.deepcopy(current_model_input),
+    solved_finmo_json=copy.deepcopy(current_finmo),
+  )
+  trace: List[Dict[str, Any]] = []
+  initial_resolution_summary = _build_resolution_summary_from_realism_memos(
+    before_memo=copy.deepcopy(initial_memo),
+    after_memo=copy.deepcopy(initial_memo),
+  )
+  persisted_initial_memo = _build_persisted_realism_memo_payload(
+    previous_memo=None,
+    current_memo=copy.deepcopy(initial_memo),
+    resolution_summary=copy.deepcopy(initial_resolution_summary),
+    iteration=0,
+  )
+  _persist_realism_loop_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage="realism_resolution_running",
+    status="running",
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    solver_summary=copy.deepcopy(solver_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(initial_memo),
+    realism_resolution_decision={},
+    realism_resolution_plan={},
+    realism_resolution_result={},
+    realism_resolution_iterations=[],
+    resolution_summary=copy.deepcopy(initial_resolution_summary),
+    realism_memo_json=copy.deepcopy(persisted_initial_memo),
+    model_input_json=copy.deepcopy(current_model_input),
+    finmo_json=copy.deepcopy(current_finmo),
+  )
+  final_memo = copy.deepcopy(persisted_initial_memo)
+  last_decision: Dict[str, Any] = {}
+  last_plan: Dict[str, Any] = {}
+  last_result: Dict[str, Any] = {}
+  stop_reason = "max_iterations_reached"
+  seen_issue_signatures: set[tuple[str, ...]] = set()
+
+  for iteration in range(1, max(1, int(max_iterations)) + 1):
+    persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
+    active_memo = _parse_json_dict(persisted_draft.get("realism_memo_json"))
+    if not active_memo:
+      active_memo = copy.deepcopy(final_memo if iteration > 1 else persisted_initial_memo)
+    active_issues = _memo_issue_records(active_memo, "remaining_issues", "issues")
+    active_issue_signature = tuple(sorted(_issue_text_key(item) for item in active_issues))
+    iteration_record: Dict[str, Any] = {
+      "iteration": iteration,
+      "memo_before": copy.deepcopy(active_memo),
+    }
+    if str(active_memo.get("status") or "").strip().lower() not in {"ready", "resolved"}:
+      iteration_record["status"] = "stopped_memo_not_ready"
+      trace.append(iteration_record)
+      stop_reason = str(active_memo.get("status") or "").strip() or "memo_not_ready"
+      final_memo = copy.deepcopy(active_memo)
+      break
+    if not active_issues:
+      iteration_record["status"] = "stopped_no_remaining_issues"
+      trace.append(iteration_record)
+      stop_reason = "no_remaining_issues"
+      break
+
+    decision = _run_realism_resolution_openai(
+      draft_id=str(draft_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      realism_memo_before_resolution=copy.deepcopy(active_memo),
+      solved_model_input_json=copy.deepcopy(current_model_input),
+      solved_finmo_json=copy.deepcopy(current_finmo),
+    )
+    if isinstance(decision, dict):
+      decision["iteration"] = iteration
+      decision["repair_owner"] = "solver"
+      decision["issue_count"] = len(active_issues)
+    plan = _build_realism_resolution_plan(
+      review_decision_payload=copy.deepcopy(decision),
+      solved_model_input_json=copy.deepcopy(current_model_input),
+      solved_finmo_json=copy.deepcopy(current_finmo),
+    )
+    result = _run_followup_second_pass_solver(
+      second_pass_plan=copy.deepcopy(plan),
+      solved_model_input_json=copy.deepcopy(current_model_input),
+      contract_version="realism_resolution_result_v2",
+    )
+    if str(result.get("status") or "").strip() not in {"completed", "skipped_maintain_first_pass"}:
+      iteration_record["decision"] = copy.deepcopy(decision)
+      iteration_record["plan"] = copy.deepcopy(plan)
+      iteration_record["result"] = copy.deepcopy(result)
+      trace.append(iteration_record)
+      last_decision = copy.deepcopy(decision)
+      last_plan = copy.deepcopy(plan)
+      last_result = copy.deepcopy(result)
+      stop_reason = str(result.get("status") or "").strip() or "solver_failed"
+      break
+
+    next_model_input = (
+      _model_input_with_controller_catalog(
+        model_input_json=copy.deepcopy(result.get("solved_model_input_json") or {}),
+        catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
+      )
+      if isinstance(result.get("solved_model_input_json"), dict)
+      else copy.deepcopy(current_model_input)
+    )
+    next_finmo = (
+      copy.deepcopy(result.get("solved_finmo_json") or {})
+      if isinstance(result.get("solved_finmo_json"), dict) and result.get("solved_finmo_json")
+      else copy.deepcopy(current_finmo)
+    )
+
+    memo_after = generate_realism_memo_payload_safe(
+      ops_json=ops_json,
+      financials_json=financials_json,
+      solved_model_input_json=copy.deepcopy(next_model_input),
+      solved_finmo_json=copy.deepcopy(next_finmo),
+    )
+    persisted_memo_after = _build_persisted_realism_memo_payload(
+      previous_memo=copy.deepcopy(active_memo),
+      current_memo=copy.deepcopy(memo_after),
+      resolution_summary={},
+      iteration=iteration,
+    )
+    resolution_summary_after = _build_resolution_summary_from_realism_memos(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      after_memo=copy.deepcopy(persisted_memo_after),
+    )
+    resolved_memo_after = _build_persisted_realism_memo_payload(
+      previous_memo=copy.deepcopy(active_memo),
+      current_memo=copy.deepcopy(memo_after),
+      resolution_summary=copy.deepcopy(resolution_summary_after),
+      iteration=iteration,
+    )
+    next_remaining_issues = _memo_issue_records(resolved_memo_after, "remaining_issues", "issues")
+    next_issue_signature = tuple(sorted(_issue_text_key(item) for item in next_remaining_issues))
+    iteration_record["decision"] = copy.deepcopy(decision)
+    iteration_record["plan"] = copy.deepcopy(plan)
+    iteration_record["result"] = copy.deepcopy(result)
+    iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
+    iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
+    trace.append(iteration_record)
+
+    last_decision = copy.deepcopy(decision)
+    last_plan = copy.deepcopy(plan)
+    last_result = copy.deepcopy(result)
+    current_model_input = copy.deepcopy(next_model_input)
+    current_finmo = copy.deepcopy(next_finmo)
+    final_memo = copy.deepcopy(resolved_memo_after)
+    _persist_realism_loop_state(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      stage="realism_resolution_running",
+      status="running",
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+      solver_summary=copy.deepcopy(solver_summary or {}),
+      realism_memo_before_resolution=copy.deepcopy(initial_memo),
+      realism_resolution_decision=copy.deepcopy(decision),
+      realism_resolution_plan=copy.deepcopy(plan),
+      realism_resolution_result=copy.deepcopy(result),
+      realism_resolution_iterations=copy.deepcopy(trace),
+      resolution_summary=copy.deepcopy(resolution_summary_after),
+      realism_memo_json=copy.deepcopy(resolved_memo_after),
+      model_input_json=copy.deepcopy(current_model_input),
+      finmo_json=copy.deepcopy(current_finmo),
+    )
+
+    if not next_remaining_issues:
+      stop_reason = "no_remaining_issues_after_resolution"
+      break
+    if next_issue_signature == active_issue_signature:
+      stop_reason = "no_issue_progress_after_resolution"
+      break
+    if next_issue_signature and next_issue_signature in seen_issue_signatures:
+      stop_reason = "issue_cycle_detected"
+      break
+    seen_issue_signatures.add(active_issue_signature)
+  else:
+    stop_reason = "max_iterations_reached"
+
+  resolution_summary = _build_resolution_summary_from_realism_memos(
+    before_memo=copy.deepcopy(persisted_initial_memo),
+    after_memo=copy.deepcopy(final_memo),
+  )
+  realism_memo_json = _build_persisted_realism_memo_payload(
+    previous_memo=copy.deepcopy(final_memo),
+    current_memo=copy.deepcopy(final_memo),
+    resolution_summary=copy.deepcopy(resolution_summary),
+    iteration=len(trace),
+  )
+  return {
+    "initial_memo": copy.deepcopy(persisted_initial_memo),
+    "final_memo": copy.deepcopy(final_memo),
+    "resolution_summary": copy.deepcopy(resolution_summary),
+    "realism_memo_json": copy.deepcopy(realism_memo_json),
+    "final_model_input_json": copy.deepcopy(current_model_input),
+    "final_finmo_json": copy.deepcopy(current_finmo),
+    "iterations": trace,
+    "iteration_count": len(trace),
+    "stop_reason": stop_reason,
+    "last_decision": copy.deepcopy(last_decision),
+    "last_plan": copy.deepcopy(last_plan),
+    "last_result": copy.deepcopy(last_result),
+  }
+
+
+def _sum_series(values: Any) -> float:
+  if not isinstance(values, list):
+    return 0.0
+  return float(sum(float(_safe_float(item) or 0.0) for item in values))
+
+
+def _series_changed_count(before: Any, after: Any, *, tolerance: float = 1.0) -> int:
+  before_list = before if isinstance(before, list) else []
+  after_list = after if isinstance(after, list) else []
+  changed = 0
+  for before_value, after_value in zip(before_list, after_list):
+    if abs(float(_safe_float(before_value) or 0.0) - float(_safe_float(after_value) or 0.0)) > float(tolerance):
+      changed += 1
+  return changed
+
+
+def _build_cash_strategy_effect_summary(
+  *,
+  financials_json: Optional[Dict[str, Any]],
+  review_decision_payload: Optional[Dict[str, Any]],
+  second_pass_result: Optional[Dict[str, Any]],
+  first_pass_finmo_json: Optional[Dict[str, Any]],
+  final_finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  decision = review_decision_payload if isinstance(review_decision_payload, dict) else {}
+  result = second_pass_result if isinstance(second_pass_result, dict) else {}
+  first_finmo = first_pass_finmo_json if isinstance(first_pass_finmo_json, dict) else {}
+  final_finmo = final_finmo_json if isinstance(final_finmo_json, dict) else {}
+
+  first_metrics = _cash_review_quarter_metrics(first_finmo)
+  final_metrics = _cash_review_quarter_metrics(final_finmo)
+
+  first_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in first_metrics]
+  final_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in final_metrics]
+
+  first_marketing = _finmo_labeled_series(first_finmo, section_key="pl", label="Marketing")
+  final_marketing = _finmo_labeled_series(final_finmo, section_key="pl", label="Marketing")
+  first_payroll = _finmo_labeled_series(first_finmo, section_key="pl", label="Payroll")
+  final_payroll = _finmo_labeled_series(final_finmo, section_key="pl", label="Payroll")
+  first_capex = _finmo_labeled_series(first_finmo, section_key="cash_flow", label="Capital Expenditures")
+  final_capex = _finmo_labeled_series(final_finmo, section_key="cash_flow", label="Capital Expenditures")
+  first_principal = _finmo_labeled_series(first_finmo, section_key="cash_flow", label="Dept Receive(Repay)")
+  final_principal = _finmo_labeled_series(final_finmo, section_key="cash_flow", label="Dept Receive(Repay)")
+
+  first_final_cash = first_cash_series[-1] if first_cash_series else 0.0
+  final_final_cash = final_cash_series[-1] if final_cash_series else 0.0
+  first_peak_cash = max(first_cash_series) if first_cash_series else 0.0
+  final_peak_cash = max(final_cash_series) if final_cash_series else 0.0
+
+  changed_quarters = _series_changed_count(first_cash_series, final_cash_series, tolerance=1.0)
+  material_change_detected = any([
+    abs(final_final_cash - first_final_cash) > 1.0,
+    abs(final_peak_cash - first_peak_cash) > 1.0,
+    _series_changed_count(first_marketing, final_marketing, tolerance=1.0) > 0,
+    _series_changed_count(first_payroll, final_payroll, tolerance=1.0) > 0,
+    _series_changed_count(first_capex, final_capex, tolerance=1.0) > 0,
+    _series_changed_count(first_principal, final_principal, tolerance=1.0) > 0,
+  ])
+
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip()
+  final_model_source = str(result.get("final_model_source") or "").strip() or "first_pass"
+  result_status = str(result.get("status") or "").strip()
+
+  summary_line = (
+    f"Cash review selected `{final_model_source}` with status `{result_status}`. "
+    f"Final ending cash changed by {_format_currency(final_final_cash - first_final_cash)} "
+    f"and peak cash changed by {_format_currency(final_peak_cash - first_peak_cash)}."
+  )
+  if recommendation_mode == "adjust" and not material_change_detected:
+    summary_line += " Review requested adjustment, but no material post-solve change was achieved."
+  elif recommendation_mode == "maintain":
+    summary_line += " Review determined the first-pass model already expressed the chosen cash strategy adequately."
+
+  return {
+    "contract_version": "cash_strategy_effect_summary_v1",
+    "selected_cash_strategy": str(financials.get("cash_strategy") or "").strip(),
+    "review_status": str(decision.get("status") or "").strip(),
+    "recommendation_mode": recommendation_mode,
+    "recommended_action_count": len([item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]),
+    "second_pass_status": result_status,
+    "final_model_source": final_model_source,
+    "applied_control_count": int(_safe_float(result.get("applied_control_count")) or 0),
+    "material_change_detected": bool(material_change_detected),
+    "changed_cash_quarter_count": changed_quarters,
+    "cash_metrics": {
+      "first_pass_final_cash": first_final_cash,
+      "final_pass_final_cash": final_final_cash,
+      "delta_final_cash": float(final_final_cash - first_final_cash),
+      "first_pass_peak_cash": first_peak_cash,
+      "final_pass_peak_cash": final_peak_cash,
+      "delta_peak_cash": float(final_peak_cash - first_peak_cash),
+    },
+    "deployment_deltas": {
+      "marketing_total_delta": float(_sum_series(final_marketing) - _sum_series(first_marketing)),
+      "payroll_total_delta": float(_sum_series(final_payroll) - _sum_series(first_payroll)),
+      "capital_expenditures_total_delta": float(_sum_series(final_capex) - _sum_series(first_capex)),
+      "principal_repayment_total_delta": float(_sum_series(final_principal) - _sum_series(first_principal)),
+    },
+    "summary_line": summary_line,
+  }
 
 
 def _build_intake_complete_planning_run_payload() -> Dict[str, Any]:
@@ -5447,6 +7630,71 @@ def _run_planning_system_for_draft(
     if isinstance(solver_result.get("solved_finmo_json"), dict)
     else {}
   )
+  realism_resolution_loop = _run_realism_resolution_loop(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    target_market_json=copy.deepcopy(market_json or {}),
+    people_json=copy.deepcopy(people_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+    fulfillment_json=copy.deepcopy(fulfillment_json or {}),
+    marketing_model_json=copy.deepcopy(marketing_model_json or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    solver_summary=copy.deepcopy(solver_summary or {}),
+    catalog_source_model_input_json=copy.deepcopy(model_input_json),
+    solved_model_input_json=copy.deepcopy(solved_model_input_json),
+    solved_finmo_json=copy.deepcopy(solved_finmo_json),
+    max_iterations=3,
+  )
+  realism_memo_before_resolution = (
+    realism_resolution_loop.get("initial_memo")
+    if isinstance(realism_resolution_loop.get("initial_memo"), dict)
+    else {}
+  )
+  realism_resolution_iterations = [
+    item for item in (realism_resolution_loop.get("iterations") or []) if isinstance(item, dict)
+  ]
+  realism_resolution_decision = (
+    realism_resolution_loop.get("last_decision")
+    if isinstance(realism_resolution_loop.get("last_decision"), dict)
+    else {}
+  )
+  realism_resolution_plan = (
+    realism_resolution_loop.get("last_plan")
+    if isinstance(realism_resolution_loop.get("last_plan"), dict)
+    else {}
+  )
+  realism_resolution_result = (
+    realism_resolution_loop.get("last_result")
+    if isinstance(realism_resolution_loop.get("last_result"), dict)
+    else {}
+  )
+  realism_resolved_model_input_json = (
+    realism_resolution_loop.get("final_model_input_json")
+    if isinstance(realism_resolution_loop.get("final_model_input_json"), dict)
+    else solved_model_input_json
+  )
+  realism_resolved_finmo_json = (
+    realism_resolution_loop.get("final_finmo_json")
+    if isinstance(realism_resolution_loop.get("final_finmo_json"), dict)
+    else solved_finmo_json
+  )
+  resolution_summary = (
+    realism_resolution_loop.get("resolution_summary")
+    if isinstance(realism_resolution_loop.get("resolution_summary"), dict)
+    else {}
+  )
+  realism_memo_json = (
+    realism_resolution_loop.get("realism_memo_json")
+    if isinstance(realism_resolution_loop.get("realism_memo_json"), dict)
+    else {}
+  )
+  final_model_input_json = copy.deepcopy(realism_resolved_model_input_json)
+  final_finmo_json = copy.deepcopy(realism_resolved_finmo_json)
   next_planning_run_json = _build_planning_run_payload(
     stage="solver_completed",
     status="solved",
@@ -5457,6 +7705,11 @@ def _run_planning_system_for_draft(
     gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
     gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
     solver_summary=copy.deepcopy(solver_summary or {}),
+    realism_memo_before_resolution=realism_memo_before_resolution,
+    realism_resolution_decision=realism_resolution_decision,
+    realism_resolution_plan=realism_resolution_plan,
+    realism_resolution_result=realism_resolution_result,
+    realism_resolution_iterations=realism_resolution_iterations,
   )
 
   append_messages(
@@ -5469,9 +7722,10 @@ def _run_planning_system_for_draft(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
+    realism_memo_json=realism_memo_json,
     fulfillment_json=fulfillment_json,
-    model_input_json=solved_model_input_json,
-    finmo_json=solved_finmo_json,
+    model_input_json=final_model_input_json,
+    finmo_json=final_finmo_json,
     planning_run_json=next_planning_run_json,
     active_focus="done",
     business_facts=business_facts,
@@ -5482,8 +7736,9 @@ def _run_planning_system_for_draft(
   return {
     "draft_id": str(draft_id).strip(),
     "planning_run_json": next_planning_run_json,
-    "model_input_json": solved_model_input_json,
-    "finmo_json": solved_finmo_json,
+    "realism_memo_json": realism_memo_json,
+    "model_input_json": final_model_input_json,
+    "finmo_json": final_finmo_json,
   }
 
 

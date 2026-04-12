@@ -13,12 +13,28 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts" / "realism_memo"
 REALISM_MEMO_REVIEWER_PROMPT_PATH = PROMPTS_DIR / "reviewer.md"
 REALISM_MEMO_GRID_ADVISORY_PROMPT_PATH = PROMPTS_DIR / "grid_advisory.md"
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+_REALISM_ISSUE_CODES = [
+  "operating_model_contradiction",
+  "capacity_revenue_mismatch",
+  "pricing_positioning_mismatch",
+  "staffing_payroll_mismatch",
+  "cost_structure_mismatch",
+  "growth_model_mismatch",
+  "working_capital_payment_model_mismatch",
+  "capex_footprint_mismatch",
+  "financing_solvency_mismatch",
+  "profitability_cash_shape_unrealistic",
+]
 
 
 def empty_realism_memo_payload() -> Dict[str, Any]:
   return {
     "status": "not_generated",
     "issues": [],
+    "detected_issues": [],
+    "resolved_issues": [],
+    "remaining_issues": [],
+    "resolution_summary": {},
   }
 
 
@@ -26,11 +42,20 @@ def failed_realism_memo_payload() -> Dict[str, Any]:
   return {
     "status": "failed",
     "issues": [],
+    "detected_issues": [],
+    "resolved_issues": [],
+    "remaining_issues": [],
+    "resolution_summary": {},
   }
 
 
 def _normalize_issue_text(value: Any) -> str:
   return str(value or "").strip()
+
+
+def _normalize_issue_code(value: Any) -> str:
+  code = str(value or "").strip().lower()
+  return code if code in _REALISM_ISSUE_CODES else ""
 
 
 def is_valid_realism_memo_payload(payload: Any) -> bool:
@@ -44,9 +69,10 @@ def is_valid_realism_memo_payload(payload: Any) -> bool:
   for item in issues:
     if not isinstance(item, dict):
       return False
+    issue_code = _normalize_issue_code(item.get("issue_code"))
     issue = _normalize_issue_text(item.get("issue"))
     detail = _normalize_issue_text(item.get("detail"))
-    if not issue or not detail:
+    if not issue_code or not issue or not detail:
       return False
   return True
 
@@ -61,16 +87,33 @@ def normalize_realism_memo_payload(payload: Any) -> Dict[str, Any]:
     for item in raw_issues:
       if not isinstance(item, dict):
         continue
+      issue_code = _normalize_issue_code(item.get("issue_code"))
       issue = _normalize_issue_text(item.get("issue"))
       detail = _normalize_issue_text(item.get("detail"))
-      if not issue or not detail:
+      if not issue_code or not issue or not detail:
         continue
-      issues_out.append({"issue": issue, "detail": detail})
+      issues_out.append({"issue_code": issue_code, "issue": issue, "detail": detail})
       if len(issues_out) >= 4:
         break
+  detected_issues = payload.get("detected_issues")
+  if not isinstance(detected_issues, list):
+    detected_issues = issues_out
+  resolved_issues = payload.get("resolved_issues")
+  if not isinstance(resolved_issues, list):
+    resolved_issues = []
+  remaining_issues = payload.get("remaining_issues")
+  if not isinstance(remaining_issues, list):
+    remaining_issues = issues_out
+  resolution_summary = payload.get("resolution_summary")
+  if not isinstance(resolution_summary, dict):
+    resolution_summary = {}
   return {
     "status": status,
     "issues": issues_out,
+    "detected_issues": detected_issues,
+    "resolved_issues": resolved_issues,
+    "remaining_issues": remaining_issues,
+    "resolution_summary": resolution_summary,
   }
 
 
@@ -169,9 +212,10 @@ def realism_memo_schema() -> Dict[str, Any]:
             "additionalProperties": False,
             "properties": {
               "issue": {"type": "string"},
+              "issue_code": {"type": "string", "enum": _REALISM_ISSUE_CODES},
               "detail": {"type": "string"},
             },
-            "required": ["issue", "detail"],
+            "required": ["issue_code", "issue", "detail"],
           },
         },
       },
@@ -181,12 +225,22 @@ def realism_memo_schema() -> Dict[str, Any]:
   }
 
 
-def build_realism_memo_input(*, ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> str:
+def build_realism_memo_input(
+  *,
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any] | None = None,
+  solved_finmo_json: Dict[str, Any] | None = None,
+) -> str:
   return (
     "Business operating context (ops_json):\n"
     + json.dumps(ops_json if isinstance(ops_json, dict) else {}, ensure_ascii=False)
     + "\n\nBusiness financial context (financials_json):\n"
     + json.dumps(financials_json if isinstance(financials_json, dict) else {}, ensure_ascii=False)
+    + "\n\nSolved model input context (solved_model_input_json):\n"
+    + json.dumps(solved_model_input_json if isinstance(solved_model_input_json, dict) else {}, ensure_ascii=False)
+    + "\n\nSolved finmo context (solved_finmo_json):\n"
+    + json.dumps(solved_finmo_json if isinstance(solved_finmo_json, dict) else {}, ensure_ascii=False)
   )
 
 
@@ -194,6 +248,8 @@ def generate_realism_memo_payload(
   *,
   ops_json: Dict[str, Any],
   financials_json: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any] | None = None,
+  solved_finmo_json: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
   api_key = _require_openai_key()
   headers = {
@@ -215,6 +271,8 @@ def generate_realism_memo_payload(
             "text": build_realism_memo_input(
               ops_json=ops_json,
               financials_json=financials_json,
+              solved_model_input_json=solved_model_input_json,
+              solved_finmo_json=solved_finmo_json,
             ),
           }
         ],
@@ -241,11 +299,15 @@ def generate_realism_memo_payload_safe(
   *,
   ops_json: Dict[str, Any],
   financials_json: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any] | None = None,
+  solved_finmo_json: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
   try:
     payload = generate_realism_memo_payload(
       ops_json=ops_json,
       financials_json=financials_json,
+      solved_model_input_json=solved_model_input_json,
+      solved_finmo_json=solved_finmo_json,
     )
   except Exception:
     return failed_realism_memo_payload()

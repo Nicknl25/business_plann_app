@@ -481,10 +481,14 @@ def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
   for item in issues_raw:
     if not isinstance(item, dict):
       continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
     issue = str(item.get("issue") or "").strip()
     detail = str(item.get("detail") or "").strip()
-    if issue or detail:
-      issues.append({"issue": issue, "detail": detail})
+    if issue or detail or issue_code:
+      payload = {"issue": issue, "detail": detail}
+      if issue_code:
+        payload["issue_code"] = issue_code
+      issues.append(payload)
   return {
     "status": str(memo.get("status") or "").strip() or "missing",
     "issues": issues,
@@ -502,11 +506,14 @@ def _append_realism_memo_lines(lines: List[str], memo: Dict[str, Any]) -> None:
   for item in issues:
     if not isinstance(item, dict):
       continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
     issue = str(item.get("issue") or "").strip()
     detail = str(item.get("detail") or "").strip()
     text = issue
     if detail:
       text = f"{text} {detail}".strip()
+    if issue_code:
+      text = f"[{issue_code}] {text}".strip()
     if text:
       lines.append(f"- {text}")
 

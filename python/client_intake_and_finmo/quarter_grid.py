@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -944,10 +945,29 @@ def solve_live_quarter_grid_plan(
     "movement_penalty_weight": float(movement_penalty_weight),
     "max_iterations": int(max_iterations),
   }
+
+  def _json_safe_solver_item(value: Any) -> Any:
+    if is_dataclass(value):
+      return {str(k): _json_safe_solver_item(v) for k, v in asdict(value).items()}
+    if isinstance(value, dict):
+      return {str(k): _json_safe_solver_item(v) for k, v in value.items()}
+    if isinstance(value, list):
+      return [_json_safe_solver_item(item) for item in value]
+    if isinstance(value, tuple):
+      return [_json_safe_solver_item(item) for item in value]
+    return value
+
   return {
-    "solver_result": result,
-    "controls": controls,
-    "targets": targets,
+    "solver_result": {
+      "success": bool(result.success),
+      "objective_before": float(result.objective_before or 0.0),
+      "objective_after": float(result.objective_after or 0.0),
+      "iterations": [_json_safe_solver_item(item) for item in (result.iterations or [])],
+      "baseline_output_count": len(result.baseline_outputs or []),
+      "solved_output_count": len(result.solved_outputs or []),
+    },
+    "controls": [_json_safe_solver_item(item) for item in controls],
+    "targets": [_json_safe_solver_item(item) for item in targets],
     "solved_model_input_json": solved_model_input_json,
     "solved_finmo_json": solved_finmo_json,
     "solver_summary": solver_summary,
@@ -1029,11 +1049,11 @@ def _realism_memo_prompt_block(source_row: Dict[str, Any]) -> str:
   if not issue_lines:
     return ""
   return (
-    "Advisory realism memo:\n"
-    + load_realism_memo_grid_advisory_prompt().strip()
-    + "\n"
-    + "\n".join(issue_lines)
-    + "\n\n"
+    "Active realism correction memo:\n"
+      + load_realism_memo_grid_advisory_prompt().strip()
+      + "\n"
+      + "\n".join(issue_lines)
+      + "\n\n"
   )
 
 
