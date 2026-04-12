@@ -321,17 +321,8 @@ def _persist_reports(
   )
   if new_runner_grid_path:
     print(f"Saved New Runner grid report: {new_runner_grid_path}")
-  new_runner_solver_path = _DUAL._save_new_runner_solver_report(
-    base_url=base_url,
-    output_dir=_DUAL.DEFAULT_NEW_RUNNER_DIR,
-    seed=artifact_seed,
-    draft_id=draft_id,
-    written_at=written_at,
-  )
-  if new_runner_solver_path:
-    print(f"Saved New Runner solver report: {new_runner_solver_path}")
-  if trace_file_name:
-    print(f"Expected terminal log file: {os.path.join(_DUAL.DEFAULT_TERMINAL_LOGS_DIR, trace_file_name)}")
+    if trace_file_name:
+      print(f"Expected terminal log file: {os.path.join(_DUAL.DEFAULT_TERMINAL_LOGS_DIR, trace_file_name)}")
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -402,10 +393,10 @@ def main(argv: Optional[list[str]] = None) -> int:
       written_at=run_started_at,
     )
     trace_headers = {
-      "X-Solver-Trace-Run-Name": trace_file_name,
+      "X-Planning-Trace-Run-Name": trace_file_name,
     }
     if not bool(args.no_trace_reset):
-      trace_headers["X-Solver-Trace-Reset"] = "1"
+      trace_headers["X-Planning-Trace-Reset"] = "1"
 
     transcript.append(
       {
@@ -444,7 +435,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"System run duration: {system_run_ms} ms")
 
     draft = _DUAL._get_json(f"{_string(args.base_url)}/api/intake-consult/draft", {"draft_id": draft_id})
-    memo = _DUAL._parse_realism_memo(draft.get("realism_memo_json"))
+    realism_flags = _DUAL._realism_final_flags_from_draft(draft)
     print(
       "Final flags:",
       {
@@ -452,8 +443,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "market_confirmed": draft.get("market_confirmed"),
         "people_confirmed": draft.get("people_confirmed"),
         "financials_confirmed": draft.get("financials_confirmed"),
-        "realism_memo_status": memo.get("status"),
-        "realism_memo_issue_count": len(memo.get("issues") or []),
+        **realism_flags,
       },
     )
     print(f"Draft ID: {draft_id}")

@@ -5,13 +5,13 @@
 - Intake can reach a backend planning-ready state and persist the necessary draft artifacts.
 - Baby AI realism review is implemented and stored as `realism_memo_json`.
 - Quarter-grid planning runs off the live Python model path.
-- Solver runs after grid generation and produces solved outputs plus diagnostics.
-- Replay/debug tooling exists for grid and solver runs.
+- Direct model application runs after grid generation and produces recalculated outputs plus diagnostics.
+- Replay/debug tooling exists for grid and direct-application runs.
 
 ## Recent Breakthroughs
 - Baby AI is now separated from the main planner and has a narrow advisory contract.
 - Legacy workbook-heavy / old forecast-planning path has been purged from the main system path.
-- The old closeout governor path has been removed; the real planning path is now critic -> grid -> solver.
+- The old closeout governor path has been removed; the real planning path is now critic -> grid -> direct application.
 - Financials flow has been tightened to align more directly with ops context.
 - Live planning outputs are persisted in `planning_run_json` rather than hidden behind chat-only state.
 

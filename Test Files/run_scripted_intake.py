@@ -476,15 +476,6 @@ def _run_spec(
     )
     if new_runner_grid_path:
       print(f"Saved New Runner grid report: {new_runner_grid_path}")
-    new_runner_solver_path = _SHARED._save_new_runner_solver_report(
-      base_url=base_url,
-      output_dir=_SHARED.DEFAULT_NEW_RUNNER_DIR,
-      seed=artifact_seed,
-      draft_id=draft_id,
-      written_at=written_at,
-    )
-    if new_runner_solver_path:
-      print(f"Saved New Runner solver report: {new_runner_solver_path}")
     if trace_file_name:
       print(f"Expected terminal log file: {os.path.join(_SHARED.DEFAULT_TERMINAL_LOGS_DIR, trace_file_name)}")
 
@@ -538,8 +529,8 @@ def _run_spec(
       "message": "",
     }
     trace_headers = {
-      "X-Solver-Trace-Run-Name": trace_file_name,
-      "X-Solver-Trace-Reset": "1",
+      "X-Planning-Trace-Run-Name": trace_file_name,
+      "X-Planning-Trace-Reset": "1",
     }
     started = time.perf_counter()
     response = _SHARED._post_json(f"{base_url}/api/intake-consult", seed_payload, headers=trace_headers)
@@ -579,7 +570,7 @@ def _run_spec(
         transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
         print(system_message)
         draft = _SHARED._get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
-        memo = _SHARED._parse_realism_memo(draft.get("realism_memo_json"))
+        realism_flags = _SHARED._realism_final_flags_from_draft(draft)
         print(
           "Final flags:",
           json.dumps(
@@ -588,8 +579,7 @@ def _run_spec(
               "market_confirmed": draft.get("market_confirmed"),
               "people_confirmed": draft.get("people_confirmed"),
               "financials_confirmed": draft.get("financials_confirmed"),
-              "realism_memo_status": memo.get("status"),
-              "realism_memo_issue_count": len(memo.get("issues") or []),
+              **realism_flags,
             },
             ensure_ascii=False,
           ),

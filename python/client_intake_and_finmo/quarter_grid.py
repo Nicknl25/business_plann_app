@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
-from financial_model_engine.solver import LeverControl, OutputTarget, SolverOptions, solve_financial_model
 
 try:
   from realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
@@ -465,85 +463,6 @@ def _shared_capacity_lobs(
   return groups
 
 
-def _quarter_band_by_index(row: Dict[str, Any], quarter_index: int) -> Optional[Dict[str, Any]]:
-  for item in (row.get("quarter_bands") or []):
-    if not isinstance(item, dict):
-      continue
-    try:
-      if int(item.get("quarter_index") or 0) == int(quarter_index):
-        return item
-    except Exception:
-      continue
-  return None
-
-
-def _clip_shared_capacity_max_bands(
-  *,
-  response_json: Dict[str, Any],
-  ops_json: Dict[str, Any],
-  financials_year1_json: Dict[str, Any],
-) -> Dict[str, Any]:
-  rows = response_json.get("rows") if isinstance(response_json.get("rows"), list) else []
-  row_map = {
-    str(item.get("row_id") or "").strip(): item
-    for item in rows
-    if isinstance(item, dict) and str(item.get("row_id") or "").strip()
-  }
-  clips: List[Dict[str, Any]] = []
-  for group in _shared_capacity_lobs(ops_json=ops_json, financials_year1_json=financials_year1_json):
-    lob_name = str(group.get("lob_name") or "").strip()
-    product_names = [str(item or "").strip() for item in (group.get("product_names") or []) if str(item or "").strip()]
-    capacity_ceiling = float(group.get("capacity_ceiling") or 0.0)
-    if len(product_names) < 2 or capacity_ceiling <= 0:
-      continue
-    for quarter_index in range(1, QUARTER_COUNT + 1):
-      product_caps: Dict[str, Dict[str, Any]] = {}
-      total_max = 0.0
-      for product_name in product_names:
-        row_id = f"revenue::{lob_name}::{product_name}::Capacity"
-        row = row_map.get(row_id)
-        if not isinstance(row, dict):
-          continue
-        band = _quarter_band_by_index(row, quarter_index)
-        if not isinstance(band, dict):
-          continue
-        max_value = float_or_none(band.get("max_value"))
-        min_value = float_or_none(band.get("min_value"))
-        if max_value is None:
-          continue
-        total_max += float(max_value)
-        product_caps[product_name] = {
-          "band": band,
-          "max_value": float(max_value),
-          "min_value": float(min_value or 0.0),
-        }
-      if total_max <= capacity_ceiling + 1e-9 or len(product_caps) < 2:
-        continue
-      scale_factor = capacity_ceiling / total_max if total_max > 0 else 1.0
-      for product_name, info in product_caps.items():
-        current_max = float(info["max_value"])
-        current_min = float(info["min_value"])
-        clipped_max = max(current_min, current_max * scale_factor)
-        if clipped_max >= current_max - 1e-9:
-          continue
-        info["band"]["max_value"] = round(float(clipped_max), 6)
-        clips.append(
-          {
-            "lob_name": lob_name,
-            "product_name": product_name,
-            "quarter_index": quarter_index,
-            "capacity_ceiling": round(capacity_ceiling, 6),
-            "scale_factor": round(scale_factor, 6),
-            "from_max": round(current_max, 6),
-            "to_max": round(float(clipped_max), 6),
-          }
-        )
-  return {
-    "response_json": response_json,
-    "clips": clips,
-  }
-
-
 def quarter_label(quarter_index: int) -> str:
   return f"Q{int(quarter_index)}"
 
@@ -860,13 +779,6 @@ def generate_live_quarter_grid_plan(
     "summary": f"Completed {len(batches)} quarter-grid probe batches.",
     "rows": response_rows,
   }
-  clip_result = _clip_shared_capacity_max_bands(
-    response_json=response_json,
-    ops_json=ops_json if isinstance(ops_json, dict) else {},
-    financials_year1_json=financials_year1_json if isinstance(financials_year1_json, dict) else {},
-  )
-  response_json = clip_result.get("response_json") if isinstance(clip_result.get("response_json"), dict) else response_json
-  shared_capacity_clips = clip_result.get("clips") if isinstance(clip_result.get("clips"), list) else []
   validation = validate_quarter_grid_response(
     requested_rows=grid_rows,
     response_json=response_json,
@@ -887,7 +799,6 @@ def generate_live_quarter_grid_plan(
       "malformed_rows": list(validation.get("malformed_rows") or []),
       "flat_rows": list(validation.get("flat_rows") or []),
     },
-    "shared_capacity_clips": list(shared_capacity_clips),
     "response_summary": str(response_json.get("summary") or "").strip(),
     "response_json": response_json,
   }
@@ -902,75 +813,107 @@ def generate_live_quarter_grid_plan(
   }
 
 
-def solve_live_quarter_grid_plan(
+def _iter_controller_write_rows(model_input_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  sections = model_input_json.get("sections") if isinstance(model_input_json.get("sections"), dict) else {}
+  rows: List[Dict[str, Any]] = []
+  for section_name in ("revenue", "expenses", "balance_sheet"):
+    for row in sections.get(section_name) or []:
+      if isinstance(row, dict):
+        rows.append(row)
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  for row in schedules.get("rows") or []:
+    if isinstance(row, dict):
+      rows.append(row)
+  return rows
+
+
+def _lever_row_map(model_input_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+  return {
+    str(row.get("lever_id") or "").strip(): row
+    for row in _iter_controller_write_rows(model_input_json)
+    if str(row.get("lever_id") or "").strip()
+  }
+
+
+def _quarter_values_by_row(row: Dict[str, Any]) -> Dict[int, float]:
+  values: Dict[int, float] = {}
+  for item in (row.get("quarter_values") or []):
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(item.get("quarter_index") or 0)
+    if quarter_index < 1 or quarter_index > QUARTER_COUNT:
+      continue
+    value = float_or_none(item.get("value"))
+    if value is None:
+      continue
+    values[quarter_index] = float(value)
+  return values
+
+
+def apply_exact_lever_updates_to_model_input(
+  *,
+  model_input_json: Dict[str, Any],
+  exact_updates: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+  next_model_input = json.loads(json.dumps(model_input_json if isinstance(model_input_json, dict) else {}))
+  lever_rows = _lever_row_map(next_model_input)
+  for update in exact_updates:
+    if not isinstance(update, dict):
+      continue
+    lever_id = str(update.get("lever_id") or "").strip()
+    quarter_index = int(update.get("quarter_index") or 0)
+    value = float_or_none(update.get("exact_value"))
+    row = lever_rows.get(lever_id)
+    if not lever_id or row is None or value is None or quarter_index < 1 or quarter_index > QUARTER_COUNT:
+      continue
+    values = list(row.get("values") or [])
+    if len(values) < QUARTER_COUNT:
+      values.extend([0.0 for _ in range(QUARTER_COUNT - len(values))])
+    row["values"] = values[:QUARTER_COUNT]
+    row["values"][quarter_index - 1] = round(float(value), 6)
+  return next_model_input
+
+
+def apply_live_quarter_grid_plan(
   *,
   baseline_model_input_json: Dict[str, Any],
   grid_json: Dict[str, Any],
-  max_iterations: int = 300,
-  movement_penalty_weight: float = 0.000001,
 ) -> Dict[str, Any]:
   try:
     from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
   except Exception:
     from finmo_bridge import build_python_finmo_json  # type: ignore
-
-  baseline_inputs = FinancialModelInputs.from_model_input_json(
-    baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {}
+  exact_updates: List[Dict[str, Any]] = []
+  for row in (grid_json.get("rows") or []):
+    if not isinstance(row, dict):
+      continue
+    if str(row.get("row_type") or "").strip().lower() != "lever":
+      continue
+    lever_id = str(row.get("row_id") or "").strip()
+    if not lever_id:
+      continue
+    for quarter_index, value in _quarter_values_by_row(row).items():
+      exact_updates.append(
+        {
+          "lever_id": lever_id,
+          "quarter_index": quarter_index,
+          "exact_value": float(value),
+        }
+      )
+  applied_model_input_json = apply_exact_lever_updates_to_model_input(
+    model_input_json=baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {},
+    exact_updates=exact_updates,
   )
-  controls = controls_from_quarter_grid(grid_json if isinstance(grid_json, dict) else {})
-  targets = targets_from_quarter_grid(grid_json if isinstance(grid_json, dict) else {})
-  result = solve_financial_model(
-    baseline_inputs,
-    controls=controls,
-    targets=targets,
-    options=SolverOptions(
-      max_iterations=max(1, int(max_iterations)),
-      movement_penalty_weight=float(movement_penalty_weight),
-    ),
-  )
-  solved_model_input_json = result.solved_model_input_json if isinstance(result.solved_model_input_json, dict) else {}
-  solved_finmo_json = build_python_finmo_json(model_input_json=solved_model_input_json)
-  max_accounting_check = max(
-    abs(float(row.get("accounting_equation_check") or 0.0))
-    for row in (result.solved_outputs or [])
-  ) if result.solved_outputs else 0.0
-  solver_summary = {
-    "success": bool(result.success),
-    "objective_before": float(result.objective_before or 0.0),
-    "objective_after": float(result.objective_after or 0.0),
-    "iterations": len(result.iterations or []),
-    "control_count": len(controls),
-    "target_count": len(targets),
-    "accounting_equation_check_max_abs": float(max_accounting_check),
-    "movement_penalty_weight": float(movement_penalty_weight),
-    "max_iterations": int(max_iterations),
-  }
-
-  def _json_safe_solver_item(value: Any) -> Any:
-    if is_dataclass(value):
-      return {str(k): _json_safe_solver_item(v) for k, v in asdict(value).items()}
-    if isinstance(value, dict):
-      return {str(k): _json_safe_solver_item(v) for k, v in value.items()}
-    if isinstance(value, list):
-      return [_json_safe_solver_item(item) for item in value]
-    if isinstance(value, tuple):
-      return [_json_safe_solver_item(item) for item in value]
-    return value
-
+  applied_finmo_json = build_python_finmo_json(model_input_json=applied_model_input_json)
   return {
-    "solver_result": {
-      "success": bool(result.success),
-      "objective_before": float(result.objective_before or 0.0),
-      "objective_after": float(result.objective_after or 0.0),
-      "iterations": [_json_safe_solver_item(item) for item in (result.iterations or [])],
-      "baseline_output_count": len(result.baseline_outputs or []),
-      "solved_output_count": len(result.solved_outputs or []),
+    "application_summary": {
+      "success": True,
+      "applied_lever_update_count": len(exact_updates),
+      "applied_lever_count": len({str(item.get('lever_id') or '').strip() for item in exact_updates if str(item.get('lever_id') or '').strip()}),
     },
-    "controls": [_json_safe_solver_item(item) for item in controls],
-    "targets": [_json_safe_solver_item(item) for item in targets],
-    "solved_model_input_json": solved_model_input_json,
-    "solved_finmo_json": solved_finmo_json,
-    "solver_summary": solver_summary,
+    "applied_updates": exact_updates,
+    "applied_model_input_json": applied_model_input_json,
+    "applied_finmo_json": applied_finmo_json,
   }
 
 
@@ -1006,21 +949,20 @@ def quarter_grid_schema(allowed_row_ids: Sequence[str]) -> Dict[str, Any]:
             "properties": {
               "row_id": {"type": "string", "enum": [str(item) for item in allowed_row_ids]},
               "row_type": {"type": "string", "enum": ["lever", "output"]},
-              "quarter_bands": {
+              "quarter_values": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "additionalProperties": False,
                   "properties": {
                     "quarter_index": {"type": "integer", "minimum": 1, "maximum": QUARTER_COUNT},
-                    "min_value": {"type": "number"},
-                    "max_value": {"type": "number"},
+                    "value": {"type": "number"},
                   },
-                  "required": ["quarter_index", "min_value", "max_value"],
+                  "required": ["quarter_index", "value"],
                 },
               },
             },
-            "required": ["row_id", "row_type", "quarter_bands"],
+            "required": ["row_id", "row_type", "quarter_values"],
           },
         },
       },
@@ -1074,12 +1016,11 @@ def build_quarter_grid_prompt(
       f"You are building a quarter-by-quarter financial planning grid for {business_name}.\n",
       planning_mode_text(planning_mode),
       "\n",
-      "Return a min/max band for every listed row and every quarter Q1 through Q20.\n",
-      "Fill every box. Every listed row must have a min/max band in every quarter.\n",
+      "Return one exact value for every listed row and every quarter Q1 through Q20.\n",
+      "Fill every box. Every listed row must have one exact value in every quarter.\n",
       "Do not group periods. Do not omit rows. Do not invent rows.\n",
       "You must preserve every row_id exactly as given. Do not add suffixes, prefixes, labels, or parentheses.\n",
-      "Every returned row must contain exactly 20 quarter_bands, one for each quarter_index from 1 to 20.\n",
-      "For each quarter, min_value must be less than or equal to max_value.\n",
+      "Every returned row must contain exactly 20 quarter_values, one for each quarter_index from 1 to 20.\n",
       "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n",
       "For output rows, use dollar values from Financial Model QTR semantics.\n",
       "For lever rows, use realistic model-input driver values.\n\n",
@@ -1144,7 +1085,7 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
     + realism_boundary
     + planning_mode_text(planning_mode)
     + "\n"
-    "Express the result as min/max bands in the quarter grid."
+    "Express the result as exact quarter values in the quarter grid."
   )
 
 
@@ -1234,31 +1175,30 @@ def validate_quarter_grid_response(
   malformed_rows: List[str] = []
   flat_rows: List[str] = []
   for row_id, item in returned_by_id.items():
-    quarter_bands = item.get("quarter_bands") if isinstance(item.get("quarter_bands"), list) else []
-    if len(quarter_bands) != QUARTER_COUNT:
-      malformed_rows.append(f"{row_id}::quarter_count={len(quarter_bands)}")
+    quarter_values = item.get("quarter_values") if isinstance(item.get("quarter_values"), list) else []
+    if len(quarter_values) != QUARTER_COUNT:
+      malformed_rows.append(f"{row_id}::quarter_count={len(quarter_values)}")
       continue
     seen_quarters = []
-    identical_pairs = []
-    for band in quarter_bands:
-      if not isinstance(band, dict):
-        malformed_rows.append(f"{row_id}::non_object_band")
+    exact_values = []
+    for quarter_value in quarter_values:
+      if not isinstance(quarter_value, dict):
+        malformed_rows.append(f"{row_id}::non_object_value")
         break
-      quarter_index = int(band.get("quarter_index") or 0)
-      minimum = float_or_none(band.get("min_value"))
-      maximum = float_or_none(band.get("max_value"))
+      quarter_index = int(quarter_value.get("quarter_index") or 0)
+      value = float_or_none(quarter_value.get("value"))
       if quarter_index < 1 or quarter_index > QUARTER_COUNT:
         malformed_rows.append(f"{row_id}::quarter={quarter_index}")
         break
-      if minimum is None or maximum is None or minimum > maximum:
-        malformed_rows.append(f"{row_id}::invalid_band::Q{quarter_index}")
+      if value is None:
+        malformed_rows.append(f"{row_id}::invalid_value::Q{quarter_index}")
         break
       seen_quarters.append(quarter_index)
-      identical_pairs.append((round(minimum, 6), round(maximum, 6)))
+      exact_values.append(round(float(value), 6))
     if sorted(seen_quarters) != list(range(1, QUARTER_COUNT + 1)):
       malformed_rows.append(f"{row_id}::quarter_indexes_invalid")
       continue
-    if len(set(identical_pairs)) == 1:
+    if len(set(exact_values)) == 1:
       flat_rows.append(row_id)
 
   return {
@@ -1269,60 +1209,4 @@ def validate_quarter_grid_response(
     "duplicate_rows": duplicates,
     "malformed_rows": malformed_rows,
     "flat_rows": flat_rows,
-  }
-
-
-def controls_from_quarter_grid(grid_json: Dict[str, Any]) -> List[LeverControl]:
-  controls: List[LeverControl] = []
-  for row in grid_json.get("rows") or []:
-    if not isinstance(row, dict):
-      continue
-    if str(row.get("row_type") or "").strip().lower() != "lever":
-      continue
-    lever_id = str(row.get("row_id") or "").strip()
-    if not lever_id:
-      continue
-    for band in row.get("quarter_bands") or []:
-      if not isinstance(band, dict):
-        continue
-      quarter_index = int(band.get("quarter_index") or 0)
-      if quarter_index < 1:
-        continue
-      controls.append(
-        LeverControl(
-          lever_id=lever_id,
-          quarter_start=quarter_index,
-          quarter_end=quarter_index,
-          min_value=float_or_none(band.get("min_value")),
-          max_value=float_or_none(band.get("max_value")),
-        )
-      )
-  return controls
-
-
-def targets_from_quarter_grid(grid_json: Dict[str, Any]) -> List[OutputTarget]:
-  targets: List[OutputTarget] = []
-  for row in grid_json.get("rows") or []:
-    if not isinstance(row, dict):
-      continue
-    if str(row.get("row_type") or "").strip().lower() != "output":
-      continue
-    metric = str(row.get("row_id") or "").strip()
-    if not metric:
-      continue
-    for band in row.get("quarter_bands") or []:
-      if not isinstance(band, dict):
-        continue
-      quarter_index = int(band.get("quarter_index") or 0)
-      if quarter_index < 1:
-        continue
-      targets.append(
-        OutputTarget(
-          metric=metric,
-          quarter_start=quarter_index,
-          quarter_end=quarter_index,
-          min_value=float_or_none(band.get("min_value")),
-          max_value=float_or_none(band.get("max_value")),
-        )
-      )
-  return targets
+}

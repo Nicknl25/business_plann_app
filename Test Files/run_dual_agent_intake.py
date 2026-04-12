@@ -476,31 +476,85 @@ def _parse_json_dict(raw: Any) -> Dict[str, Any]:
 
 def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
   memo = _parse_json_dict(raw)
-  issues_raw = memo.get("issues") if isinstance(memo.get("issues"), list) else []
-  issues: List[Dict[str, str]] = []
-  for item in issues_raw:
-    if not isinstance(item, dict):
-      continue
-    issue_code = str(item.get("issue_code") or "").strip().lower()
-    issue = str(item.get("issue") or "").strip()
-    detail = str(item.get("detail") or "").strip()
-    if issue or detail or issue_code:
-      payload = {"issue": issue, "detail": detail}
-      if issue_code:
-        payload["issue_code"] = issue_code
-      issues.append(payload)
+  def _normalize_issue_list(value: Any) -> List[Dict[str, str]]:
+    source = value if isinstance(value, list) else []
+    issues: List[Dict[str, str]] = []
+    for item in source:
+      if not isinstance(item, dict):
+        continue
+      issue_code = str(item.get("issue_code") or "").strip().lower()
+      issue = str(item.get("issue") or "").strip()
+      detail = str(item.get("detail") or "").strip()
+      status = str(item.get("status") or "").strip().lower()
+      if issue or detail or issue_code:
+        payload = {"issue": issue, "detail": detail}
+        if issue_code:
+          payload["issue_code"] = issue_code
+        if status:
+          payload["status"] = status
+        issues.append(payload)
+    return issues
+
+  detected = _normalize_issue_list(memo.get("detected_issues"))
+  remaining = _normalize_issue_list(memo.get("remaining_issues"))
+  resolved = _normalize_issue_list(memo.get("resolved_issues"))
+  fallback = _normalize_issue_list(memo.get("issues"))
+  issues = remaining or fallback
   return {
     "status": str(memo.get("status") or "").strip() or "missing",
     "issues": issues,
+    "detected_issues": detected,
+    "remaining_issues": remaining,
+    "resolved_issues": resolved,
+  }
+
+
+def _realism_final_flags_from_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
+  memo = _parse_realism_memo(draft.get("realism_memo_json"))
+  planning_run = draft.get("planning_run_json") if isinstance(draft.get("planning_run_json"), dict) else {}
+  resolution_summary = (
+    planning_run.get("resolution_summary")
+    if isinstance(planning_run.get("resolution_summary"), dict)
+    else {}
+  )
+  remaining = memo.get("remaining_issues") if isinstance(memo.get("remaining_issues"), list) else []
+  issues = memo.get("issues") if isinstance(memo.get("issues"), list) else []
+  status = str(memo.get("status") or "").strip() or "missing"
+
+  if not remaining:
+    summary_remaining = resolution_summary.get("remaining_violations")
+    if isinstance(summary_remaining, list):
+      remaining = [item for item in summary_remaining if isinstance(item, dict)]
+  if not remaining:
+    summary_blocking = resolution_summary.get("remaining_blocking_violations")
+    if isinstance(summary_blocking, list):
+      remaining = [item for item in summary_blocking if isinstance(item, dict)]
+
+  if status == "missing" and isinstance(resolution_summary, dict) and resolution_summary:
+    summary_status = str(resolution_summary.get("status") or "").strip()
+    if summary_status:
+      status = summary_status
+    else:
+      status = "resolved" if bool(resolution_summary.get("all_cleared")) else "issues_remaining"
+
+  issue_count = len(remaining) if remaining else len(issues)
+  return {
+    "realism_memo_status": status or "missing",
+    "realism_memo_issue_count": issue_count,
   }
 
 
 def _append_realism_memo_lines(lines: List[str], memo: Dict[str, Any]) -> None:
   lines.append("Realism Memo:")
   lines.append(f"Status: {str(memo.get('status') or '').strip() or 'missing'}")
-  issues = memo.get("issues") if isinstance(memo.get("issues"), list) else []
-  lines.append(f"Issue Count: {len(issues)}")
-  if not issues:
+  detected = memo.get("detected_issues") if isinstance(memo.get("detected_issues"), list) else []
+  remaining = memo.get("remaining_issues") if isinstance(memo.get("remaining_issues"), list) else []
+  resolved = memo.get("resolved_issues") if isinstance(memo.get("resolved_issues"), list) else []
+  issues = remaining or (memo.get("issues") if isinstance(memo.get("issues"), list) else [])
+  lines.append(f"Detected Issue Count: {len(detected) if detected else len(issues)}")
+  lines.append(f"Remaining Issue Count: {len(remaining) if remaining else len(issues)}")
+  lines.append(f"Resolved Issue Count: {len(resolved)}")
+  if not issues and not resolved:
     lines.append("No memo issues recorded.")
     return
   for item in issues:
@@ -516,6 +570,110 @@ def _append_realism_memo_lines(lines: List[str], memo: Dict[str, Any]) -> None:
       text = f"[{issue_code}] {text}".strip()
     if text:
       lines.append(f"- {text}")
+  if resolved:
+    lines.append("Resolved Issues:")
+    for item in resolved:
+      if not isinstance(item, dict):
+        continue
+      issue_code = str(item.get("issue_code") or "").strip().lower()
+      issue = str(item.get("issue") or "").strip()
+      detail = str(item.get("detail") or "").strip()
+      text = issue
+      if detail:
+        text = f"{text} {detail}".strip()
+      if issue_code:
+        text = f"[{issue_code}] {text}".strip()
+      if text:
+        lines.append(f"- {text}")
+
+
+def _grid_exact_value_map(planning_run: Dict[str, Any]) -> Dict[str, Dict[int, float]]:
+  gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
+  response_payload = gpt_meta.get("response_json") if isinstance(gpt_meta.get("response_json"), dict) else {}
+  legacy_grid_payload = gpt_meta.get("grid_json") if isinstance(gpt_meta.get("grid_json"), dict) else {}
+  rows_payload = response_payload or legacy_grid_payload
+  row_map: Dict[str, Dict[int, float]] = {}
+  if not isinstance(rows_payload, dict):
+    return row_map
+  for row in [item for item in (rows_payload.get("rows") or []) if isinstance(item, dict)]:
+    if str(row.get("row_type") or "").strip().lower() != "lever":
+      continue
+    lever_id = str(row.get("row_id") or "").strip()
+    if not lever_id:
+      continue
+    quarter_map: Dict[int, float] = {}
+    for entry in [item for item in (row.get("quarter_values") or []) if isinstance(item, dict)]:
+      try:
+        quarter_index = int(entry.get("quarter_index") or 0)
+      except Exception:
+        quarter_index = 0
+      value = _safe_float(entry.get("value"))
+      if quarter_index >= 1 and value is not None:
+        quarter_map[quarter_index] = float(value)
+    if quarter_map:
+      row_map[lever_id] = quarter_map
+  return row_map
+
+
+def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, Any]) -> None:
+  result = planning_run.get("realism_resolution_result") if isinstance(planning_run.get("realism_resolution_result"), dict) else {}
+  decision = planning_run.get("realism_resolution_decision") if isinstance(planning_run.get("realism_resolution_decision"), dict) else {}
+  verification = planning_run.get("realism_resolution_verification") if isinstance(planning_run.get("realism_resolution_verification"), dict) else {}
+  resolution_summary = planning_run.get("resolution_summary") if isinstance(planning_run.get("resolution_summary"), dict) else {}
+  updates = [item for item in (result.get("applied_updates") or []) if isinstance(item, dict)]
+  lines.append("Realism Resolution:")
+  lines.append(f"Review Status: {str(decision.get('status') or '').strip() or 'missing'}")
+  lines.append(f"Result Status: {str(result.get('status') or '').strip() or 'missing'}")
+  lines.append(f"Verification Status: {str(verification.get('status') or '').strip() or 'missing'}")
+  lines.append(f"Stop Reason: {str((planning_run.get('realism_resolution_iterations') or [{}])[-1].get('status') or planning_run.get('status') or '').strip() if isinstance(planning_run.get('realism_resolution_iterations'), list) and planning_run.get('realism_resolution_iterations') else str(planning_run.get('status') or '').strip()}")
+  lines.append(f"Resolution Summary Status: {str(resolution_summary.get('status') or '').strip() or 'missing'}")
+  lines.append(f"All Cleared: {bool(resolution_summary.get('all_cleared'))}")
+  verification_payload = verification.get("verification") if isinstance(verification.get("verification"), dict) else {}
+  if verification_payload:
+    lines.append(f"Verification Assessment: {str(verification_payload.get('overall_assessment') or '').strip() or 'missing'}")
+  lines.append(f"Applied Realism Updates: {len(updates)}")
+  issue_results = [item for item in (verification_payload.get("issue_results") or []) if isinstance(item, dict)]
+  if issue_results:
+    lines.append("Verification Results:")
+    for item in issue_results:
+      code = str(item.get("issue_code") or "").strip()
+      status = str(item.get("status") or "").strip()
+      reason = str(item.get("verification_reason") or "").strip()
+      quarters = [int(_safe_float(q) or 0) for q in (item.get("remaining_problem_quarters") or []) if int(_safe_float(q) or 0) >= 1]
+      next_levers = [str(lever or "").strip() for lever in (item.get("next_required_lever_ids") or []) if str(lever or "").strip()]
+      lines.append(f"- {code}: {status}")
+      if reason:
+        lines.append(f"  reason: {reason}")
+      if quarters:
+        lines.append(f"  remaining quarters: {', '.join(f'Q{q}' for q in quarters)}")
+      if next_levers:
+        lines.append(f"  next levers: {', '.join(next_levers)}")
+  if not updates:
+    lines.append("No realism updates recorded.")
+    return
+  grid_map = _grid_exact_value_map(planning_run)
+  lines.append("Realism Applied Updates (grid -> realism):")
+  for update in updates:
+    lever_id = str(update.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
+    baseline_value = _safe_float(update.get("baseline_value"))
+    grid_value = None
+    if lever_id in grid_map:
+      grid_value = grid_map[lever_id].get(quarter_index)
+    before_value = baseline_value if baseline_value is not None else grid_value
+    after_value = _safe_float(update.get("exact_value"))
+    delta = None
+    if before_value is not None and after_value is not None:
+      delta = float(after_value - before_value)
+    before_text = _format_number(before_value, money=False) if before_value is not None else "n/a"
+    after_text = _format_number(after_value, money=False) if after_value is not None else "n/a"
+    delta_text = _format_number(delta, money=False) if delta is not None else "n/a"
+    reason = str(update.get("business_reason") or "").strip()
+    lines.append(
+      f"- Q{quarter_index} {lever_id}: {before_text} -> {after_text} (delta {delta_text})"
+    )
+    if reason:
+      lines.append(f"  reason: {reason}")
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -1020,6 +1178,9 @@ def _save_persisted_state_report(
     lines.append("")
     _append_realism_memo_lines(lines, memo)
     lines.append("")
+    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    _append_realism_resolution_lines(lines, planning_run)
+    lines.append("")
     lines.append("Persisted State")
     lines.append("---------------")
     lines.append("")
@@ -1105,7 +1266,7 @@ def _save_new_runner_report(
     quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
     accounting_check = finmo_json.get("accounting_check") if isinstance(finmo_json.get("accounting_check"), dict) else {}
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
-    solver_summary = planning_run.get("solver_summary") if isinstance(planning_run.get("solver_summary"), dict) else {}
+    application_summary = planning_run.get("grid_application_summary") if isinstance(planning_run.get("grid_application_summary"), dict) else {}
     validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}
     annual = _annual_summary_from_quarter_rows(quarter_rows)
 
@@ -1122,14 +1283,14 @@ def _save_new_runner_report(
     lines.append(f"Missing Rows: {len(validation.get('missing_rows') or [])}")
     lines.append(f"Extra Rows: {len(validation.get('extra_rows') or [])}")
     lines.append(f"Malformed Rows: {len(validation.get('malformed_rows') or [])}")
-    lines.append(f"Solver Success: {bool(solver_summary.get('success'))}")
-    lines.append(f"Solver Iterations: {solver_summary.get('iterations')}")
-    lines.append(f"Solver Objective Before: {solver_summary.get('objective_before')}")
-    lines.append(f"Solver Objective After: {solver_summary.get('objective_after')}")
-    lines.append(f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}")
+    lines.append(f"Grid Application Success: {bool(application_summary.get('success'))}")
+    lines.append(f"Applied Lever Updates: {application_summary.get('applied_lever_update_count')}")
+    lines.append(f"Applied Levers: {application_summary.get('applied_lever_count')}")
     lines.append(f"Accounting All OK: {accounting_check.get('all_ok')}")
     lines.append("")
     _append_realism_memo_lines(lines, memo)
+    lines.append("")
+    _append_realism_resolution_lines(lines, planning_run)
     lines.append("")
     lines.append("GPT Narrative:")
     lines.append(str(planning_run.get("gpt_narrative") or "").strip())
@@ -1222,85 +1383,12 @@ def _save_new_runner_grid_report(
       row_id = str(item.get("row_id") or "").strip()
       row_type = str(item.get("row_type") or "").strip()
       lines.append(f"{row_id} [{row_type}]")
-      quarter_bands = [band for band in (item.get("quarter_bands") or []) if isinstance(band, dict)]
-      for band in quarter_bands:
+      quarter_values = [entry for entry in (item.get("quarter_values") or []) if isinstance(entry, dict)]
+      for entry in quarter_values:
         lines.append(
-          f"  Q{int(band.get('quarter_index') or 0)}: {float(band.get('min_value') or 0.0):,.6f} to {float(band.get('max_value') or 0.0):,.6f}"
+          f"  Q{int(entry.get('quarter_index') or 0)}: {float(entry.get('value') or 0.0):,.6f}"
         )
       lines.append("")
-
-    with open(path, "w", encoding="utf-8") as handle:
-      handle.write("\n".join(lines).rstrip() + "\n")
-    return path
-  except Exception:
-    return None
-
-
-def _save_new_runner_solver_report(
-  *,
-  base_url: str,
-  output_dir: str,
-  seed: str,
-  draft_id: Optional[str],
-  written_at: Optional[datetime] = None,
-) -> Optional[str]:
-  try:
-    os.makedirs(output_dir, exist_ok=True)
-    now = written_at or _eastern_now()
-    path = _build_named_artifact_path(output_dir=output_dir, seed=seed, written_at=now, suffix="solver")
-    snapshot = _fetch_persisted_state_snapshot(base_url=base_url, draft_id=draft_id)
-    row = (
-      (((snapshot.get("payload") or {}) if isinstance(snapshot.get("payload"), dict) else {}).get("row") or {})
-      if isinstance(snapshot, dict)
-      else {}
-    )
-    if not isinstance(row, dict) or not row:
-      return None
-    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
-    finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
-    memo = _parse_realism_memo(row.get("realism_memo_json"))
-    quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
-    solver_summary = planning_run.get("solver_summary") if isinstance(planning_run.get("solver_summary"), dict) else {}
-    annual = _annual_summary_from_quarter_rows(quarter_rows)
-
-    lines: List[str] = []
-    lines.append(f"Business Name: {str(row.get('business_name') or '').strip()}")
-    lines.append(f"Draft ID: {str(draft_id or row.get('draft_id') or '').strip()}")
-    lines.append(f"Solver Success: {bool(solver_summary.get('success'))}")
-    lines.append(f"Iterations: {solver_summary.get('iterations')}")
-    lines.append(f"Control Count: {solver_summary.get('control_count')}")
-    lines.append(f"Target Count: {solver_summary.get('target_count')}")
-    lines.append(f"Objective Before: {solver_summary.get('objective_before')}")
-    lines.append(f"Objective After: {solver_summary.get('objective_after')}")
-    lines.append(f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}")
-    lines.append("")
-    _append_realism_memo_lines(lines, memo)
-    lines.append("")
-    lines.append("Quarterly Summary:")
-    for item in quarter_rows:
-      try:
-        quarter_index = int(item.get("quarter_index") or 0)
-      except Exception:
-        quarter_index = 0
-      if quarter_index <= 0:
-        continue
-      lines.append(
-        " | ".join(
-          [
-            f"Q{quarter_index}",
-            f"Revenue {float(item.get('revenue') or 0.0):,.2f}",
-            f"EBITDA {float(item.get('ebitda') or 0.0):,.2f}",
-            f"Cash {float(item.get('ending_cash') or 0.0):,.2f}",
-            f"Acct Check {float(item.get('accounting_equation_check') or 0.0):,.6f}",
-          ]
-        )
-      )
-    lines.append("")
-    lines.append("Annual Summary:")
-    for year_index in sorted(annual.keys()):
-      lines.append(f"Year {year_index}:")
-      for key in sorted(annual[year_index].keys()):
-        lines.append(f"  {key}: {annual[year_index][key]:,.2f}")
 
     with open(path, "w", encoding="utf-8") as handle:
       handle.write("\n".join(lines).rstrip() + "\n")
@@ -1432,15 +1520,6 @@ def _run_single_seed(
     )
     if new_runner_grid_path:
       print(f"Saved New Runner grid report: {new_runner_grid_path}")
-    new_runner_solver_path = _save_new_runner_solver_report(
-      base_url=base_url,
-      output_dir=DEFAULT_NEW_RUNNER_DIR,
-      seed=artifact_seed,
-      draft_id=draft_id,
-      written_at=written_at,
-    )
-    if new_runner_solver_path:
-      print(f"Saved New Runner solver report: {new_runner_solver_path}")
     if trace_file_name:
       print(f"Expected terminal log file: {os.path.join(DEFAULT_TERMINAL_LOGS_DIR, trace_file_name)}")
 
@@ -1491,8 +1570,8 @@ def _run_single_seed(
       "message": "",
     }
     trace_headers = {
-      "X-Solver-Trace-Run-Name": trace_file_name,
-      "X-Solver-Trace-Reset": "1",
+      "X-Planning-Trace-Run-Name": trace_file_name,
+      "X-Planning-Trace-Reset": "1",
     }
     started = time.perf_counter()
     response = _post_json(f"{base_url}/api/intake-consult", seed_payload, headers=trace_headers)
@@ -1535,7 +1614,7 @@ def _run_single_seed(
         transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
         print(system_message)
         draft = _get_json(f"{base_url}/api/intake-consult/draft", {"draft_id": draft_id})
-        memo = _parse_realism_memo(draft.get("realism_memo_json"))
+        realism_flags = _realism_final_flags_from_draft(draft)
         print(
           "Final flags:",
           json.dumps(
@@ -1544,8 +1623,7 @@ def _run_single_seed(
               "market_confirmed": draft.get("market_confirmed"),
               "people_confirmed": draft.get("people_confirmed"),
               "financials_confirmed": draft.get("financials_confirmed"),
-              "realism_memo_status": memo.get("status"),
-              "realism_memo_issue_count": len(memo.get("issues") or []),
+              **realism_flags,
             },
             ensure_ascii=False,
           ),
@@ -1614,7 +1692,7 @@ def _run_single_seed(
           "client_id": client_id,
           "message": reply,
         },
-        headers={"X-Solver-Trace-Run-Name": trace_file_name},
+        headers={"X-Planning-Trace-Run-Name": trace_file_name},
       )
       app_response_ms = int(round((time.perf_counter() - app_response_started) * 1000.0))
       metrics.insert_turn(

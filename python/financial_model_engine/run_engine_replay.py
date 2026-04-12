@@ -28,7 +28,11 @@ try:
 except Exception:
   load_dotenv = None  # type: ignore
 
-from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan
+from client_intake_and_finmo.quarter_grid import (  # type: ignore
+  apply_live_quarter_grid_plan,
+  determine_planning_mode,
+  generate_live_quarter_grid_plan,
+)
 from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs
 
@@ -143,7 +147,7 @@ def _annual_summary(quarter_rows: List[Dict[str, Any]]) -> Dict[int, Dict[str, f
     if quarter_index <= 0:
       continue
     year_index = ((quarter_index - 1) // 4) + 1
-    year_bucket = summary.setdefault(year_index, {})
+    bucket = summary.setdefault(year_index, {})
     for key, value in row.items():
       if key in {"quarter_index", "quarter"}:
         continue
@@ -172,9 +176,9 @@ def _annual_summary(quarter_rows: List[Dict[str, Any]]) -> Dict[int, Dict[str, f
         "total_liabilities_and_equity",
         "accounting_equation_check",
       }:
-        year_bucket[key] = number
+        bucket[key] = number
       else:
-        year_bucket[key] = year_bucket.get(key, 0.0) + number
+        bucket[key] = bucket.get(key, 0.0) + number
   return summary
 
 
@@ -183,11 +187,19 @@ def _report_lines(
   source_row: Dict[str, Any],
   planning_choice: Dict[str, Any],
   planning_result: Dict[str, Any],
-  solver_result: Dict[str, Any],
+  grid_application_result: Dict[str, Any],
 ) -> List[str]:
-  solved_finmo = solver_result.get("solved_finmo_json") if isinstance(solver_result.get("solved_finmo_json"), dict) else {}
-  quarter_rows = [row for row in (solved_finmo.get("quarter_rows") or []) if isinstance(row, dict)]
-  solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
+  applied_finmo = (
+    grid_application_result.get("applied_finmo_json")
+    if isinstance(grid_application_result.get("applied_finmo_json"), dict)
+    else {}
+  )
+  quarter_rows = [row for row in (applied_finmo.get("quarter_rows") or []) if isinstance(row, dict)]
+  application_summary = (
+    grid_application_result.get("application_summary")
+    if isinstance(grid_application_result.get("application_summary"), dict)
+    else {}
+  )
   validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
   metadata = planning_result.get("metadata") if isinstance(planning_result.get("metadata"), dict) else {}
   annual = _annual_summary(quarter_rows)
@@ -203,11 +215,9 @@ def _report_lines(
     f"Missing Rows: {len(validation.get('missing_rows') or [])}",
     f"Extra Rows: {len(validation.get('extra_rows') or [])}",
     f"Malformed Rows: {len(validation.get('malformed_rows') or [])}",
-    f"Solver Success: {bool(solver_summary.get('success'))}",
-    f"Solver Iterations: {solver_summary.get('iterations')}",
-    f"Solver Objective Before: {solver_summary.get('objective_before')}",
-    f"Solver Objective After: {solver_summary.get('objective_after')}",
-    f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}",
+    f"Application Success: {bool(application_summary.get('success'))}",
+    f"Applied Lever Updates: {application_summary.get('applied_lever_update_count')}",
+    f"Applied Levers: {application_summary.get('applied_lever_count')}",
     "",
     "GPT Narrative:",
     str(planning_result.get("gpt_narrative") or "").strip(),
@@ -271,33 +281,35 @@ def _grid_report_lines(
     row_id = str(item.get("row_id") or "").strip()
     row_type = str(item.get("row_type") or "").strip()
     lines.append(f"{row_id} [{row_type}]")
-    for band in [band for band in (item.get("quarter_bands") or []) if isinstance(band, dict)]:
-      lines.append(
-        f"  Q{int(band.get('quarter_index') or 0)}: {float(band.get('min_value') or 0.0):,.6f} to {float(band.get('max_value') or 0.0):,.6f}"
-      )
+    for value in [entry for entry in (item.get("quarter_values") or []) if isinstance(entry, dict)]:
+      lines.append(f"  Q{int(value.get('quarter_index') or 0)}: {float(value.get('value') or 0.0):,.6f}")
     lines.append("")
   return lines
 
 
-def _solver_report_lines(
+def _application_report_lines(
   *,
   source_row: Dict[str, Any],
-  solver_result: Dict[str, Any],
+  grid_application_result: Dict[str, Any],
 ) -> List[str]:
-  solved_finmo = solver_result.get("solved_finmo_json") if isinstance(solver_result.get("solved_finmo_json"), dict) else {}
-  quarter_rows = [row for row in (solved_finmo.get("quarter_rows") or []) if isinstance(row, dict)]
-  solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
+  applied_finmo = (
+    grid_application_result.get("applied_finmo_json")
+    if isinstance(grid_application_result.get("applied_finmo_json"), dict)
+    else {}
+  )
+  quarter_rows = [row for row in (applied_finmo.get("quarter_rows") or []) if isinstance(row, dict)]
+  application_summary = (
+    grid_application_result.get("application_summary")
+    if isinstance(grid_application_result.get("application_summary"), dict)
+    else {}
+  )
   annual = _annual_summary(quarter_rows)
   lines = [
     f"Business Name: {str(source_row.get('business_name') or '').strip()}",
     f"Draft ID: {str(source_row.get('draft_id') or '').strip()}",
-    f"Solver Success: {bool(solver_summary.get('success'))}",
-    f"Iterations: {solver_summary.get('iterations')}",
-    f"Control Count: {solver_summary.get('control_count')}",
-    f"Target Count: {solver_summary.get('target_count')}",
-    f"Objective Before: {solver_summary.get('objective_before')}",
-    f"Objective After: {solver_summary.get('objective_after')}",
-    f"Accounting Equation Check Max Abs: {solver_summary.get('accounting_equation_check_max_abs')}",
+    f"Application Success: {bool(application_summary.get('success'))}",
+    f"Applied Lever Updates: {application_summary.get('applied_lever_update_count')}",
+    f"Applied Levers: {application_summary.get('applied_lever_count')}",
     "",
     "Quarterly Summary:",
   ]
@@ -370,43 +382,59 @@ def main() -> int:
     realism_memo_json=_parse_json_object(source_row.get("realism_memo_json")),
     business_facts={},
   )
-  solver_result = solve_live_quarter_grid_plan(
+  grid_application_result = apply_live_quarter_grid_plan(
     baseline_model_input_json=model_input_json,
     grid_json=planning_result.get("grid_json") if isinstance(planning_result.get("grid_json"), dict) else {},
   )
+
   written_at = datetime.now()
-  report_path = _build_report_path(
-    output_dir=output_dir,
-    seed=str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay"),
-    written_at=written_at,
-  )
+  seed = str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay")
+  report_path = _build_report_path(output_dir=output_dir, seed=seed, written_at=written_at)
   report_path.write_text(
-    "\n".join(_report_lines(source_row=source_row, planning_choice=planning_choice, planning_result=planning_result, solver_result=solver_result)),
+    "\n".join(
+      _report_lines(
+        source_row=source_row,
+        planning_choice=planning_choice,
+        planning_result=planning_result,
+        grid_application_result=grid_application_result,
+      )
+    ),
     encoding="utf-8",
   )
   grid_report_path = _build_named_report_path(
     output_dir=output_dir,
-    seed=str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay"),
+    seed=seed,
     written_at=written_at,
     suffix="quarter-grid",
   )
   grid_report_path.write_text(
-    "\n".join(_grid_report_lines(source_row=source_row, planning_choice=planning_choice, planning_result=planning_result)),
+    "\n".join(
+      _grid_report_lines(
+        source_row=source_row,
+        planning_choice=planning_choice,
+        planning_result=planning_result,
+      )
+    ),
     encoding="utf-8",
   )
-  solver_report_path = _build_named_report_path(
+  application_report_path = _build_named_report_path(
     output_dir=output_dir,
-    seed=str(args.draft_id or args.client_id or source_row.get("draft_id") or "engine_replay"),
+    seed=seed,
     written_at=written_at,
-    suffix="solver",
+    suffix="grid-application",
   )
-  solver_report_path.write_text(
-    "\n".join(_solver_report_lines(source_row=source_row, solver_result=solver_result)),
+  application_report_path.write_text(
+    "\n".join(
+      _application_report_lines(
+        source_row=source_row,
+        grid_application_result=grid_application_result,
+      )
+    ),
     encoding="utf-8",
   )
   print(str(report_path))
   print(str(grid_report_path))
-  print(str(solver_report_path))
+  print(str(application_report_path))
   return 0
 
 

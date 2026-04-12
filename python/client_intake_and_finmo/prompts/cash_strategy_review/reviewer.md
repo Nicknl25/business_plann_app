@@ -31,7 +31,7 @@ Business realism:
 Decision rules:
 - If the solved business already expresses the selected cash strategy well, return `recommendation_mode = "maintain"` and explain why.
 - If the solved business under-expresses or mis-expresses the selected strategy, return `recommendation_mode = "adjust"` and provide coordinated actions.
-- Your prescribed actions should be implementation-ready for a later solver translation layer.
+- Your prescribed actions should be implementation-ready for a later direct-write translation layer.
 
 Output expectations:
 - Return only JSON matching the schema.

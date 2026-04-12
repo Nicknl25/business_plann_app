@@ -948,11 +948,12 @@ def _build_planning_run_payload(
   prompt_file: Optional[str] = None,
   gpt_narrative: Optional[str] = None,
   gpt_grid_metadata: Optional[Dict[str, Any]] = None,
-  solver_summary: Optional[Dict[str, Any]] = None,
+  grid_application_summary: Optional[Dict[str, Any]] = None,
   realism_memo_before_resolution: Optional[Dict[str, Any]] = None,
   realism_resolution_decision: Optional[Dict[str, Any]] = None,
   realism_resolution_plan: Optional[Dict[str, Any]] = None,
   realism_resolution_result: Optional[Dict[str, Any]] = None,
+  realism_resolution_verification: Optional[Dict[str, Any]] = None,
   realism_resolution_iterations: Optional[List[Dict[str, Any]]] = None,
   first_pass_handoff: Optional[Dict[str, Any]] = None,
   cash_strategy_review_context: Optional[Dict[str, Any]] = None,
@@ -971,11 +972,12 @@ def _build_planning_run_payload(
     "resolution_summary": copy.deepcopy(resolution_summary or {}),
     "gpt_narrative": str(gpt_narrative or "").strip() or None,
     "gpt_grid_metadata": copy.deepcopy(gpt_grid_metadata or {}),
-    "solver_summary": copy.deepcopy(solver_summary or {}),
+    "grid_application_summary": copy.deepcopy(grid_application_summary or {}),
     "realism_memo_before_resolution": copy.deepcopy(realism_memo_before_resolution or {}),
     "realism_resolution_decision": copy.deepcopy(realism_resolution_decision or {}),
     "realism_resolution_plan": copy.deepcopy(realism_resolution_plan or {}),
     "realism_resolution_result": copy.deepcopy(realism_resolution_result or {}),
+    "realism_resolution_verification": copy.deepcopy(realism_resolution_verification or {}),
     "realism_resolution_iterations": copy.deepcopy(realism_resolution_iterations or []),
     "first_pass_handoff": copy.deepcopy(first_pass_handoff or {}),
     "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context or {}),
@@ -1027,15 +1029,15 @@ def _build_first_pass_handoff_payload(
   planning_mode: str,
   planning_mode_reason: str,
   prompt_file: str,
-  solver_summary: Optional[Dict[str, Any]],
-  solved_model_input_json: Optional[Dict[str, Any]],
-  solved_finmo_json: Optional[Dict[str, Any]],
+  grid_application_summary: Optional[Dict[str, Any]],
+  applied_model_input_json: Optional[Dict[str, Any]],
+  applied_finmo_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
   business = business_facts if isinstance(business_facts, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
-  model_input = solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
-  finmo = solved_finmo_json if isinstance(solved_finmo_json, dict) else {}
+  model_input = applied_model_input_json if isinstance(applied_model_input_json, dict) else {}
+  finmo = applied_finmo_json if isinstance(applied_finmo_json, dict) else {}
   periods = [item for item in (model_input.get("periods") or []) if isinstance(item, dict)]
   return {
     "contract_version": "first_pass_handoff_v1",
@@ -1053,11 +1055,11 @@ def _build_first_pass_handoff_payload(
       "forecast_quarter_count": len(periods),
     },
     "artifacts": {
-      "solved_model_input_persisted": bool(model_input),
-      "solved_finmo_persisted": bool(finmo),
+      "applied_model_input_persisted": bool(model_input),
+      "applied_finmo_persisted": bool(finmo),
       "draft_fields": ["model_input_json", "finmo_json"],
     },
-    "solver_summary": copy.deepcopy(solver_summary or {}),
+    "grid_application_summary": copy.deepcopy(grid_application_summary or {}),
     "finmo_summary": _first_pass_finmo_summary(finmo),
     "ready_for_cash_strategy_review": True,
   }
@@ -1636,6 +1638,170 @@ def _build_resolution_summary_from_realism_memos(
   }
 
 
+def _build_resolution_summary_from_realism_verification(
+  *,
+  before_memo: Optional[Dict[str, Any]],
+  verification_payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  before_payload = before_memo if isinstance(before_memo, dict) else {}
+  verification = (
+    verification_payload.get("verification")
+    if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
+    else {}
+  )
+  if not verification:
+    return None
+
+  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
+  baseline_by_code = {
+    str(item.get("issue_code") or item.get("issue") or "").strip().lower(): copy.deepcopy(item)
+    for item in baseline_issues
+    if str(item.get("issue_code") or item.get("issue") or "").strip()
+  }
+  issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
+  resolved_issues: List[Dict[str, Any]] = []
+  remaining_issues: List[Dict[str, Any]] = []
+  seen_codes = set()
+
+  for item in issue_results:
+    code = str(item.get("issue_code") or "").strip().lower()
+    if not code:
+      continue
+    seen_codes.add(code)
+    base = copy.deepcopy(baseline_by_code.get(code) or {"issue_code": code, "issue": code})
+    reason = str(item.get("verification_reason") or "").strip()
+    if reason:
+      base["detail"] = reason
+    status = str(item.get("status") or "").strip().lower()
+    if status == "resolved":
+      resolved_issues.append(base)
+    else:
+      remaining_issues.append(base)
+
+  for code, base in baseline_by_code.items():
+    if code in seen_codes:
+      continue
+    remaining_issues.append(copy.deepcopy(base))
+
+  overall = str(verification.get("overall_assessment") or "").strip().lower()
+  if overall == "all_resolved" and not remaining_issues:
+    status = "all_cleared"
+    display_status = "all cleared"
+  else:
+    status = "issues_remaining"
+    display_status = "issues remaining"
+
+  return {
+    "status": status,
+    "display_status": display_status,
+    "baseline_violations": baseline_issues,
+    "resolved_violations": resolved_issues,
+    "remaining_violations": remaining_issues,
+    "remaining_blocking_violations": remaining_issues,
+    "all_cleared": not remaining_issues,
+    "hard_cleared": not remaining_issues,
+    "verification_executive_summary": str(verification.get("executive_summary") or "").strip(),
+  }
+
+
+def _build_verified_realism_memo_payload(
+  *,
+  before_memo: Optional[Dict[str, Any]],
+  current_memo: Optional[Dict[str, Any]],
+  verification_payload: Optional[Dict[str, Any]],
+  resolution_summary: Optional[Dict[str, Any]],
+  iteration: int,
+) -> Optional[Dict[str, Any]]:
+  verification = (
+    verification_payload.get("verification")
+    if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
+    else {}
+  )
+  if not verification:
+    return None
+
+  before_payload = before_memo if isinstance(before_memo, dict) else {}
+  current_payload = current_memo if isinstance(current_memo, dict) else {}
+  summary = resolution_summary if isinstance(resolution_summary, dict) else {}
+  baseline_issues = _memo_issue_records(before_payload, "detected_issues", "issues")
+  baseline_by_code = {
+    str(item.get("issue_code") or item.get("issue") or "").strip().lower(): copy.deepcopy(item)
+    for item in baseline_issues
+    if str(item.get("issue_code") or item.get("issue") or "").strip()
+  }
+  issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
+  issue_status_records: List[Dict[str, Any]] = []
+  seen_codes = set()
+
+  for item in issue_results:
+    code = str(item.get("issue_code") or "").strip().lower()
+    if not code:
+      continue
+    seen_codes.add(code)
+    base = copy.deepcopy(baseline_by_code.get(code) or {"issue_code": code, "issue": code})
+    verification_reason = str(item.get("verification_reason") or "").strip()
+    status = str(item.get("status") or "").strip().lower()
+    issue_status_records.append(
+      {
+        "issue": str(base.get("issue") or code).strip(),
+        "issue_code": str(base.get("issue_code") or code).strip().lower(),
+        "detail": verification_reason or str(base.get("detail") or "").strip(),
+        "status": "resolved" if status == "resolved" else "open",
+        "first_detected_iteration": 0,
+        "last_seen_iteration": int(iteration),
+        "resolved_iteration": int(iteration) if status == "resolved" else None,
+        "verification_reason": verification_reason,
+        "remaining_problem_quarters": [
+          int(_safe_float(q) or 0)
+          for q in (item.get("remaining_problem_quarters") or [])
+          if int(_safe_float(q) or 0) >= 1
+        ],
+        "next_required_lever_ids": [
+          str(lever_id or "").strip()
+          for lever_id in (item.get("next_required_lever_ids") or [])
+          if str(lever_id or "").strip()
+        ],
+      }
+    )
+
+  for code, base in baseline_by_code.items():
+    if code in seen_codes:
+      continue
+    issue_status_records.append(
+      {
+        "issue": str(base.get("issue") or code).strip(),
+        "issue_code": str(base.get("issue_code") or code).strip().lower(),
+        "detail": str(base.get("detail") or "").strip(),
+        "status": "open",
+        "first_detected_iteration": 0,
+        "last_seen_iteration": int(iteration),
+        "resolved_iteration": None,
+        "verification_reason": "Verification result omitted this issue, so it remains open.",
+        "remaining_problem_quarters": [],
+        "next_required_lever_ids": [],
+      }
+    )
+
+  detected_issues = [_core_issue_record(item) for item in issue_status_records]
+  resolved_issues = [_core_issue_record(item) for item in issue_status_records if str(item.get("status") or "").strip().lower() == "resolved"]
+  remaining_issues = [_core_issue_record(item) for item in issue_status_records if str(item.get("status") or "").strip().lower() == "open"]
+  status = "resolved" if not remaining_issues else str(current_payload.get("status") or "ready").strip() or "ready"
+  return {
+    "status": status,
+    "issues": remaining_issues,
+    "detected_issues": detected_issues,
+    "resolved_issues": resolved_issues,
+    "remaining_issues": remaining_issues,
+    "resolution_summary": copy.deepcopy(summary),
+    "issue_status_records": issue_status_records,
+    "last_review_iteration": int(iteration),
+    "verification_summary": {
+      "overall_assessment": str(verification.get("overall_assessment") or "").strip(),
+      "executive_summary": str(verification.get("executive_summary") or "").strip(),
+    },
+  }
+
+
 def _build_resolved_realism_memo_payload(
   *,
   before_memo: Optional[Dict[str, Any]],
@@ -1668,11 +1834,12 @@ def _persist_realism_loop_state(
   planning_mode: str,
   planning_mode_reason: str,
   prompt_file: str,
-  solver_summary: Optional[Dict[str, Any]],
+  grid_application_summary: Optional[Dict[str, Any]],
   realism_memo_before_resolution: Optional[Dict[str, Any]],
   realism_resolution_decision: Optional[Dict[str, Any]],
   realism_resolution_plan: Optional[Dict[str, Any]],
   realism_resolution_result: Optional[Dict[str, Any]],
+  realism_resolution_verification: Optional[Dict[str, Any]],
   realism_resolution_iterations: Optional[List[Dict[str, Any]]],
   resolution_summary: Optional[Dict[str, Any]],
   realism_memo_json: Optional[Dict[str, Any]],
@@ -1686,11 +1853,12 @@ def _persist_realism_loop_state(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     prompt_file=prompt_file,
-    solver_summary=copy.deepcopy(solver_summary or {}),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
     realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution or {}),
     realism_resolution_decision=copy.deepcopy(realism_resolution_decision or {}),
     realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
     realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
+    realism_resolution_verification=copy.deepcopy(realism_resolution_verification or {}),
     realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations or []),
   )
   append_messages(
@@ -1839,6 +2007,66 @@ def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
       "executive_summary": {"type": "string"},
       "issue_resolution_summary": {"type": "string"},
       "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+      "issue_packets": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "issue_code": {"type": "string"},
+            "issue_summary": {"type": "string"},
+            "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+            "root_cause": {"type": "string"},
+            "affected_quarters": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+            "evidence_points": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "quarter_index": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "metric_name": {"type": "string"},
+                  "observed_value": {"type": "number"},
+                  "problem_statement": {"type": "string"},
+                },
+                "required": ["quarter_index", "metric_name", "observed_value", "problem_statement"],
+              },
+            },
+            "candidate_lever_ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "enum": allowed_lever_ids or [""]},
+            },
+            "required_fix_shape": {"type": "string"},
+            "success_criteria": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string"},
+            },
+            "disallowed_fix_patterns": {
+              "type": "array",
+              "items": {"type": "string"},
+            },
+          },
+          "required": [
+            "issue_code",
+            "issue_summary",
+            "severity",
+            "root_cause",
+            "affected_quarters",
+            "evidence_points",
+            "candidate_lever_ids",
+            "required_fix_shape",
+            "success_criteria",
+            "disallowed_fix_patterns",
+          ],
+        },
+      },
       "recommended_actions": {
         "type": "array",
         "items": {
@@ -1846,10 +2074,20 @@ def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
           "additionalProperties": False,
           "properties": {
             "action_id": {"type": "string"},
+            "issue_codes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string"},
+            },
             "business_move": {"type": "string"},
             "why_now": {"type": "string"},
             "expected_visual_effect": {"type": "string"},
             "coordination_notes": {"type": "string"},
+            "target_quarters": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
             "priority": {"type": "integer", "minimum": 1, "maximum": 10},
             "boldness": {"type": "string", "enum": ["light", "moderate", "strong"]},
             "lever_adjustments": {
@@ -1861,8 +2099,7 @@ def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
                 "properties": {
                   "lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
                   "section": {"type": "string"},
-                  "direction": {"type": "string", "enum": ["increase", "decrease", "either", "hold"]},
-                  "max_relative_change": {"type": "number", "minimum": 0, "maximum": 1},
+                  "exact_value": {"type": "number"},
                   "quarter_index": {"type": "integer", "minimum": 1, "maximum": 20},
                   "business_reason": {"type": "string"},
                   "linked_action_effect": {"type": "string"},
@@ -1870,49 +2107,25 @@ def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
                 "required": [
                   "lever_id",
                   "section",
-                  "direction",
-                  "max_relative_change",
+                  "exact_value",
                   "quarter_index",
                   "business_reason",
                   "linked_action_effect",
                 ],
               },
             },
-            "output_targets": {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                  "metric": {"type": "string", "enum": ["Revenue", "EBITDA", "Cash", "Net Income"]},
-                  "direction": {"type": "string", "enum": ["increase", "decrease", "hold"]},
-                  "min_relative_change": {"type": "number", "minimum": 0, "maximum": 1},
-                  "max_relative_change": {"type": "number", "minimum": 0, "maximum": 1},
-                  "quarter_index": {"type": "integer", "minimum": 1, "maximum": 20},
-                  "business_reason": {"type": "string"},
-                },
-                "required": [
-                  "metric",
-                  "direction",
-                  "min_relative_change",
-                  "max_relative_change",
-                  "quarter_index",
-                  "business_reason",
-                ],
-              },
-            },
           },
           "required": [
             "action_id",
+            "issue_codes",
             "business_move",
             "why_now",
             "expected_visual_effect",
             "coordination_notes",
+            "target_quarters",
             "priority",
             "boldness",
             "lever_adjustments",
-            "output_targets",
           ],
         },
       },
@@ -1923,8 +2136,54 @@ def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
       "executive_summary",
       "issue_resolution_summary",
       "confidence",
+      "issue_packets",
       "recommended_actions",
     ],
+  }
+
+
+def _realism_verification_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "overall_assessment": {
+        "type": "string",
+        "enum": ["all_resolved", "partially_resolved", "not_resolved"],
+      },
+      "executive_summary": {"type": "string"},
+      "issue_results": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "issue_code": {"type": "string"},
+            "status": {"type": "string", "enum": ["resolved", "partially_resolved", "not_resolved"]},
+            "verification_reason": {"type": "string"},
+            "remaining_problem_quarters": {
+              "type": "array",
+              "items": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+            "next_required_lever_ids": {
+              "type": "array",
+              "items": {"type": "string", "enum": allowed_lever_ids or [""]},
+            },
+            "observed_improvement_summary": {"type": "string"},
+          },
+          "required": [
+            "issue_code",
+            "status",
+            "verification_reason",
+            "remaining_problem_quarters",
+            "next_required_lever_ids",
+            "observed_improvement_summary",
+          ],
+        },
+      },
+    },
+    "required": ["overall_assessment", "executive_summary", "issue_results"],
   }
 
 
@@ -1941,6 +2200,22 @@ def _realism_resolution_failure_payload(
     "review_status": "not_completed",
     "detail": str(detail or "").strip(),
     "decision": {},
+  }
+
+
+def _realism_verification_failure_payload(
+  *,
+  prompt_file: str,
+  status: str,
+  detail: str = "",
+) -> Dict[str, Any]:
+  return {
+    "contract_version": "realism_resolution_verification_v1",
+    "status": status,
+    "prompt_file": prompt_file,
+    "verification_status": "not_completed",
+    "detail": str(detail or "").strip(),
+    "verification": {},
   }
 
 
@@ -2040,6 +2315,122 @@ def _run_realism_resolution_openai(
     "review_status": "completed",
     "detail": "",
     "decision": parsed,
+  }
+
+
+def _run_realism_verification_openai(
+  *,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  realism_memo_before_resolution: Dict[str, Any],
+  realism_resolution_decision: Dict[str, Any],
+  realism_resolution_plan: Dict[str, Any],
+  realism_resolution_result: Dict[str, Any],
+  updated_model_input_json: Dict[str, Any],
+  updated_finmo_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  prompt_file = "client_intake_and_finmo/prompts/realism_resolution/verifier.md"
+  api_key = _openai_key()
+  if not api_key:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="skipped_missing_openai_key",
+      detail="OPENAI_API_KEY is not configured.",
+    )
+
+  decision_payload = (
+    realism_resolution_decision.get("decision")
+    if isinstance(realism_resolution_decision.get("decision"), dict)
+    else {}
+  )
+  issue_packets = [item for item in (decision_payload.get("issue_packets") or []) if isinstance(item, dict)]
+  if not issue_packets:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_missing_issue_packets",
+      detail="No issue packets were available for realism verification.",
+    )
+
+  lever_catalog = _build_writable_lever_review_catalog(updated_model_input_json)
+  allowed_lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
+  if not allowed_lever_ids:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_missing_levers",
+      detail="No writable lever ids were available for realism verification.",
+    )
+
+  try:
+    verify_prompt = (_REALISM_RESOLUTION_PROMPTS_DIR / "verifier.md").read_text(encoding="utf-8").strip()
+  except Exception as exc:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_load_prompt",
+      detail=str(exc),
+    )
+
+  user_context = {
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "realism_memo_before_resolution": realism_memo_before_resolution,
+    "issue_packets": issue_packets,
+    "realism_resolution_plan": realism_resolution_plan,
+    "applied_updates": [
+      item for item in ((realism_resolution_result or {}).get("applied_updates") or []) if isinstance(item, dict)
+    ],
+    "updated_model_input_json": updated_model_input_json,
+    "updated_finmo_quarter_rows": [
+      row for row in ((updated_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
+    ],
+    "writable_lever_catalog": lever_catalog,
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": verify_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "realism_resolution_verification",
+        "schema": _realism_verification_schema(allowed_lever_ids),
+        "strict": True,
+      }
+    },
+  }
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+  except Exception as exc:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_openai_request",
+      detail=str(exc),
+    )
+  if resp.status_code >= 400:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_openai_status",
+      detail=resp.text[:1200],
+    )
+  parsed = _parse_responses_json_dict(resp.json())
+  if not isinstance(parsed, dict):
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_parse",
+      detail="Unable to parse realism verification JSON.",
+    )
+  return {
+    "contract_version": "realism_resolution_verification_v1",
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "verification_status": "completed",
+    "detail": "",
+    "verification": parsed,
   }
 
 
@@ -2376,6 +2767,7 @@ def _build_realism_resolution_plan(
   solved_model_input_json: Optional[Dict[str, Any]],
   solved_finmo_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+  del solved_finmo_json
   review_payload = review_decision_payload if isinstance(review_decision_payload, dict) else {}
   review_status = str(review_payload.get("status") or "").strip()
   prompt_file = str(review_payload.get("prompt_file") or "").strip()
@@ -2394,77 +2786,86 @@ def _build_realism_resolution_plan(
   decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
   recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
   resolution_assessment = str(decision.get("resolution_assessment") or "").strip()
+  issue_packets = [item for item in (decision.get("issue_packets") or []) if isinstance(item, dict)]
+  issue_packet_map = {
+    str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
+    for item in issue_packets
+    if str(item.get("issue_code") or "").strip()
+  }
   quarter_count = _quarter_count_from_model_input(solved_model_input_json)
   baseline_map = _solved_lever_value_map(solved_model_input_json)
-  lever_meta_map = _lever_catalog_map(solved_model_input_json)
   warnings: List[str] = []
   translated_packages: List[Dict[str, Any]] = []
   touched_lever_ids: List[str] = []
-  translated_target_count = 0
 
   for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
-    translated_controls: List[Dict[str, Any]] = []
-    translated_targets: List[Dict[str, Any]] = []
+    translated_updates: List[Dict[str, Any]] = []
     action_quarters: List[int] = []
+    action_issue_codes = [
+      str(item or "").strip().lower()
+      for item in (action.get("issue_codes") or [])
+      if str(item or "").strip()
+    ]
     for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
-      translated, warning = _translate_realism_lever_adjustment(
-        adjustment=adjustment,
-        baseline_map=baseline_map,
-        lever_catalog_map=lever_meta_map,
-        quarter_count=quarter_count,
-      )
-      if warning:
-        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
+      lever_id = str(adjustment.get("lever_id") or "").strip()
+      if not lever_id:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: missing lever_id")
         continue
-      if translated:
-        translated_controls.append(translated)
-        lever_id = str(translated.get("lever_id") or "").strip()
-        if lever_id and lever_id not in touched_lever_ids:
-          touched_lever_ids.append(lever_id)
-        quarter_index = int(_safe_float(translated.get("quarter_index")) or 0)
-        if quarter_index > 0:
-          action_quarters.append(quarter_index)
-    for target in [item for item in (action.get("output_targets") or []) if isinstance(item, dict)]:
-      translated_target_rows, warning = _translate_realism_output_target(
-        target=target,
-        finmo_json=solved_finmo_json,
-        quarter_count=quarter_count,
-      )
-      if warning:
-        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
+      baseline_values = baseline_map.get(lever_id)
+      if not baseline_values:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: unknown lever_id {lever_id}")
         continue
-      translated_targets.extend(translated_target_rows)
-      for translated_target in translated_target_rows:
-        quarter_index = int(_safe_float(translated_target.get("quarter_index")) or 0)
-        if quarter_index > 0:
-          action_quarters.append(quarter_index)
-    translated_target_count += len(translated_targets)
+      quarter_index = int(_safe_float(adjustment.get("quarter_index")) or 0)
+      if quarter_index < 1 or quarter_index > quarter_count:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: invalid quarter_index for {lever_id}")
+        continue
+      exact_value = _safe_float(adjustment.get("exact_value"))
+      if exact_value is None:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: missing exact_value for {lever_id}")
+        continue
+      baseline_value = float(_safe_float(baseline_values[quarter_index - 1]) or 0.0)
+      translated_updates.append(
+        {
+          "lever_id": lever_id,
+          "quarter_index": quarter_index,
+          "exact_value": float(exact_value),
+          "baseline_value": baseline_value,
+          "issue_codes": action_issue_codes,
+          "business_reason": str(adjustment.get("business_reason") or "").strip(),
+          "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
+        }
+      )
+      if lever_id not in touched_lever_ids:
+        touched_lever_ids.append(lever_id)
+      action_quarters.append(quarter_index)
     action_quarters = sorted({quarter for quarter in action_quarters if quarter > 0})
     translated_packages.append(
       {
         "action_id": str(action.get("action_id") or "").strip(),
+        "issue_codes": action_issue_codes,
         "business_move": str(action.get("business_move") or "").strip(),
         "why_now": str(action.get("why_now") or "").strip(),
         "expected_visual_effect": str(action.get("expected_visual_effect") or "").strip(),
         "coordination_notes": str(action.get("coordination_notes") or "").strip(),
+        "target_quarters": sorted({int(_safe_float(q) or 0) for q in (action.get("target_quarters") or []) if int(_safe_float(q) or 0) >= 1}),
         "quarter_indices": action_quarters,
         "timing_start_q": action_quarters[0] if action_quarters else 1,
         "timing_end_q": action_quarters[-1] if action_quarters else 1,
         "priority": int(_safe_float(action.get("priority")) or 1),
         "boldness": str(action.get("boldness") or "").strip(),
-        "translated_controls": translated_controls,
-        "translated_targets": translated_targets,
+        "issue_packets": [copy.deepcopy(issue_packet_map.get(code) or {"issue_code": code}) for code in action_issue_codes],
+        "translated_updates": translated_updates,
       }
     )
 
   status = "ready"
-  next_step = "ready_for_realism_resolution_solver"
+  next_step = "ready_for_realism_resolution_application"
   if recommendation_mode == "maintain":
     status = "ready_maintain_first_pass"
     next_step = "no_realism_resolution_adjustment_required"
-  elif recommendation_mode == "adjust" and (not touched_lever_ids or translated_target_count <= 0):
-    status = "ready_no_valid_translated_controls"
-    next_step = "review_translation_warnings_before_realism_resolution_solver"
+  elif recommendation_mode == "adjust" and not touched_lever_ids:
+    status = "ready_no_valid_translated_updates"
+    next_step = "review_translation_warnings_before_realism_resolution_application"
 
   return {
     "contract_version": "realism_resolution_plan_v1",
@@ -2476,15 +2877,15 @@ def _build_realism_resolution_plan(
     "executive_summary": str(decision.get("executive_summary") or "").strip(),
     "issue_resolution_summary": str(decision.get("issue_resolution_summary") or "").strip(),
     "confidence": str(decision.get("confidence") or "").strip(),
+    "issue_packets": issue_packets,
     "baseline_source": "first_pass_solved_model",
     "default_unspecified_lever_policy": {
       "mode": "lock_to_first_pass_solved_values",
       "scope": "all_unspecified_writable_levers",
-      "rationale": "Realism resolution should only move levers explicitly prescribed by the realism resolution review.",
+      "rationale": "Realism resolution should only rewrite the quarter-specific levers explicitly prescribed by the realism resolution review.",
     },
     "translated_action_packages": translated_packages,
-    "translated_control_count": sum(len(item.get("translated_controls") or []) for item in translated_packages),
-    "translated_target_count": translated_target_count,
+    "translated_update_count": sum(len(item.get("translated_updates") or []) for item in translated_packages),
     "touched_lever_ids": touched_lever_ids,
     "translation_warnings": warnings,
     "next_step": next_step,
@@ -2550,243 +2951,101 @@ def _preferred_exact_from_band_control(control: Dict[str, Any], *, boldness: str
   return float(candidate)
 
 
-def _build_second_pass_solver_controls(
-  second_pass_plan: Optional[Dict[str, Any]],
-) -> Tuple[List[Any], List[Dict[str, Any]], List[str]]:
-  plan = second_pass_plan if isinstance(second_pass_plan, dict) else {}
-  warnings = [str(item).strip() for item in (plan.get("translation_warnings") or []) if str(item).strip()]
-  if str(plan.get("status") or "").strip() != "ready":
-    return [], [], warnings
-
-  try:
-    from financial_model_engine.solver import LeverControl  # type: ignore
-  except Exception:
-    from solver import LeverControl  # type: ignore
-
-  controls: List[Any] = []
-  applied_controls: List[Dict[str, Any]] = []
-  for action in sorted(
-    [item for item in (plan.get("translated_action_packages") or []) if isinstance(item, dict)],
-    key=lambda item: int(_safe_float(item.get("priority")) or 0),
-  ):
-    for control in [item for item in (action.get("translated_controls") or []) if isinstance(item, dict)]:
-      quarter_index = int(_safe_float(control.get("quarter_index")) or 1)
-      controls.append(
-        LeverControl(
-          lever_id=str(control.get("lever_id") or "").strip(),
-          quarter_start=quarter_index,
-          quarter_end=quarter_index,
-          exact_value=_safe_float(control.get("exact_value")),
-          min_value=_safe_float(control.get("min_value")),
-          max_value=_safe_float(control.get("max_value")),
-        )
-      )
-      applied_controls.append(
-        {
-          "action_id": str(action.get("action_id") or "").strip(),
-          "lever_id": str(control.get("lever_id") or "").strip(),
-          "quarter_index": quarter_index,
-          "exact_value": _safe_float(control.get("exact_value")),
-          "min_value": _safe_float(control.get("min_value")),
-          "max_value": _safe_float(control.get("max_value")),
-          "derived_from_mode": str(control.get("control_mode") or "").strip(),
-          "direction": str(control.get("direction") or "").strip(),
-          "boldness": str(action.get("boldness") or "").strip(),
-          "baseline_window": copy.deepcopy(control.get("baseline_window") or {}),
-        }
-      )
-  return controls, applied_controls, warnings
-
-
-def _build_second_pass_solver_targets(
-  second_pass_plan: Optional[Dict[str, Any]],
-) -> Tuple[List[Any], List[Dict[str, Any]], List[str]]:
-  plan = second_pass_plan if isinstance(second_pass_plan, dict) else {}
-  warnings: List[str] = []
-  if str(plan.get("status") or "").strip() != "ready":
-    return [], [], warnings
-
-  try:
-    from financial_model_engine.solver import OutputTarget  # type: ignore
-  except Exception:
-    from solver import OutputTarget  # type: ignore
-
-  targets: List[Any] = []
-  applied_targets: List[Dict[str, Any]] = []
-  for action in sorted(
-    [item for item in (plan.get("translated_action_packages") or []) if isinstance(item, dict)],
-    key=lambda item: int(_safe_float(item.get("priority")) or 0),
-  ):
-    for target in [item for item in (action.get("translated_targets") or []) if isinstance(item, dict)]:
-      metric = str(target.get("metric") or "").strip()
-      if not metric:
-        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: missing target metric")
-        continue
-      quarter_index = int(_safe_float(target.get("quarter_index")) or 1)
-      min_value = _safe_float(target.get("min_value"))
-      max_value = _safe_float(target.get("max_value"))
-      if min_value is None or max_value is None:
-        warnings.append(f"{metric}: missing min_value or max_value")
-        continue
-      targets.append(
-        OutputTarget(
-          metric=metric,
-          quarter_start=quarter_index,
-          quarter_end=quarter_index,
-          min_value=float(min(min_value, max_value)),
-          max_value=float(max(min_value, max_value)),
-        )
-      )
-      applied_targets.append(
-        {
-          "action_id": str(action.get("action_id") or "").strip(),
-          "metric": metric,
-          "quarter_index": quarter_index,
-          "min_value": float(min(min_value, max_value)),
-          "max_value": float(max(min_value, max_value)),
-          "direction": str(target.get("direction") or "").strip(),
-          "baseline_value": _safe_float(target.get("baseline_value")),
-        }
-      )
-  return targets, applied_targets, warnings
-
-
-def _run_followup_second_pass_solver(
+def _apply_followup_exact_updates(
   *,
-  second_pass_plan: Optional[Dict[str, Any]],
-  solved_model_input_json: Optional[Dict[str, Any]],
+  review_plan: Optional[Dict[str, Any]],
+  current_model_input_json: Optional[Dict[str, Any]],
   contract_version: str,
 ) -> Dict[str, Any]:
-  plan = second_pass_plan if isinstance(second_pass_plan, dict) else {}
+  plan = review_plan if isinstance(review_plan, dict) else {}
   plan_status = str(plan.get("status") or "").strip()
   if plan_status == "ready_maintain_first_pass":
     return {
       "contract_version": contract_version,
       "status": "skipped_maintain_first_pass",
-      "final_model_source": "first_pass",
-      "applied_control_count": 0,
-      "applied_controls": [],
-      "applied_target_count": 0,
-      "applied_targets": [],
+      "final_model_source": "current_model",
+      "applied_update_count": 0,
+      "applied_updates": [],
       "warnings": [],
-      "solver_summary": {},
-      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
-      "solved_finmo_json": {},
+      "updated_model_input_json": current_model_input_json if isinstance(current_model_input_json, dict) else {},
+      "updated_finmo_json": {},
     }
   if plan_status != "ready":
     return {
       "contract_version": contract_version,
       "status": "skipped_not_ready",
-      "final_model_source": "first_pass",
-      "applied_control_count": 0,
-      "applied_controls": [],
-      "applied_target_count": 0,
-      "applied_targets": [],
+      "final_model_source": "current_model",
+      "applied_update_count": 0,
+      "applied_updates": [],
       "warnings": [str(item).strip() for item in (plan.get("translation_warnings") or []) if str(item).strip()],
-      "solver_summary": {},
-      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
-      "solved_finmo_json": {},
-    }
-
-  controls, applied_controls, warnings = _build_second_pass_solver_controls(plan)
-  targets, applied_targets, target_warnings = _build_second_pass_solver_targets(plan)
-  warnings.extend(target_warnings)
-  if not controls or not targets:
-    return {
-      "contract_version": contract_version,
-      "status": "skipped_no_controls" if not controls else "skipped_no_targets",
-      "final_model_source": "first_pass",
-      "applied_control_count": 0,
-      "applied_controls": [],
-      "applied_target_count": 0,
-      "applied_targets": [],
-      "warnings": warnings,
-      "solver_summary": {},
-      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
-      "solved_finmo_json": {},
+      "updated_model_input_json": current_model_input_json if isinstance(current_model_input_json, dict) else {},
+      "updated_finmo_json": {},
     }
 
   try:
-    from financial_model_engine.model_inputs import FinancialModelInputs  # type: ignore
-    from financial_model_engine.solver import SolverOptions, solve_financial_model  # type: ignore
+    from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
   except Exception:
-    from model_inputs import FinancialModelInputs  # type: ignore
-    from solver import SolverOptions, solve_financial_model  # type: ignore
+    from quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
   try:
     from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
   except Exception:
     from finmo_bridge import build_python_finmo_json  # type: ignore
 
-  baseline_inputs = FinancialModelInputs.from_model_input_json(
-    solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
-  )
-  try:
-    result = solve_financial_model(
-      baseline_inputs,
-      controls=controls,
-      targets=targets,
-      options=SolverOptions(
-        max_iterations=300,
-        movement_penalty_weight=0.000001,
-      ),
-    )
-  except Exception as exc:
+  warnings = [str(item).strip() for item in (plan.get("translation_warnings") or []) if str(item).strip()]
+  applied_updates: List[Dict[str, Any]] = []
+  for action in [item for item in (plan.get("translated_action_packages") or []) if isinstance(item, dict)]:
+    for update in [item for item in (action.get("translated_updates") or []) if isinstance(item, dict)]:
+      lever_id = str(update.get("lever_id") or "").strip()
+      quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
+      exact_value = _safe_float(update.get("exact_value"))
+      if not lever_id or quarter_index < 1 or exact_value is None:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: invalid exact update")
+        continue
+      applied_updates.append(
+        {
+          "action_id": str(action.get("action_id") or "").strip(),
+          "issue_codes": [
+            str(item or "").strip().lower()
+            for item in (update.get("issue_codes") or action.get("issue_codes") or [])
+            if str(item or "").strip()
+          ],
+          "lever_id": lever_id,
+          "quarter_index": quarter_index,
+          "exact_value": float(exact_value),
+          "baseline_value": _safe_float(update.get("baseline_value")),
+          "business_reason": str(update.get("business_reason") or "").strip(),
+          "linked_action_effect": str(update.get("linked_action_effect") or "").strip(),
+          "boldness": str(action.get("boldness") or "").strip(),
+        }
+      )
+
+  if not applied_updates:
     return {
       "contract_version": contract_version,
-      "status": "failed_solver_exception",
-      "final_model_source": "first_pass",
-      "applied_control_count": len(applied_controls),
-      "applied_controls": applied_controls,
-      "applied_target_count": len(applied_targets),
-      "applied_targets": applied_targets,
-      "warnings": warnings + [str(exc)],
-      "solver_summary": {},
-      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
-      "solved_finmo_json": {},
+      "status": "skipped_no_updates",
+      "final_model_source": "current_model",
+      "applied_update_count": 0,
+      "applied_updates": [],
+      "warnings": warnings,
+      "updated_model_input_json": current_model_input_json if isinstance(current_model_input_json, dict) else {},
+      "updated_finmo_json": {},
     }
 
-  solved_model_input_json_second = result.solved_model_input_json if isinstance(result.solved_model_input_json, dict) else {}
-  solved_finmo_json_second = build_python_finmo_json(model_input_json=solved_model_input_json_second)
-  max_accounting_check = max(
-    abs(float(row.get("accounting_equation_check") or 0.0))
-    for row in (result.solved_outputs or [])
-  ) if result.solved_outputs else 0.0
-  solver_summary = {
-    "success": bool(result.success),
-    "objective_before": float(result.objective_before or 0.0),
-    "objective_after": float(result.objective_after or 0.0),
-    "iterations": len(result.iterations or []),
-    "control_count": len(controls),
-    "target_count": len(targets),
-    "accounting_equation_check_max_abs": float(max_accounting_check),
-    "movement_penalty_weight": 0.000001,
-    "max_iterations": 300,
-  }
+  updated_model_input_json = apply_exact_lever_updates_to_model_input(
+    model_input_json=current_model_input_json if isinstance(current_model_input_json, dict) else {},
+    exact_updates=applied_updates,
+  )
+  updated_finmo_json = build_python_finmo_json(model_input_json=updated_model_input_json)
   return {
     "contract_version": contract_version,
-    "status": "completed" if bool(result.success) else "failed_solver_result",
-    "final_model_source": "second_pass" if bool(result.success) else "first_pass",
-    "applied_control_count": len(applied_controls),
-    "applied_controls": applied_controls,
-    "applied_target_count": len(applied_targets),
-    "applied_targets": applied_targets,
+    "status": "completed",
+    "final_model_source": "review_applied",
+    "applied_update_count": len(applied_updates),
+    "applied_updates": applied_updates,
     "warnings": warnings,
-    "solver_summary": solver_summary,
-    "solved_model_input_json": solved_model_input_json_second if bool(result.success) else (solved_model_input_json if isinstance(solved_model_input_json, dict) else {}),
-    "solved_finmo_json": solved_finmo_json_second if bool(result.success) else {},
+    "updated_model_input_json": updated_model_input_json,
+    "updated_finmo_json": updated_finmo_json,
   }
-
-
-def _run_cash_strategy_second_pass_solver(
-  *,
-  second_pass_plan: Optional[Dict[str, Any]],
-  solved_model_input_json: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  return _run_followup_second_pass_solver(
-    second_pass_plan=second_pass_plan,
-    solved_model_input_json=solved_model_input_json,
-    contract_version="cash_strategy_second_pass_result_v1",
-  )
 
 
 def _run_realism_resolution_loop(
@@ -2804,18 +3063,17 @@ def _run_realism_resolution_loop(
   planning_mode: str,
   planning_mode_reason: str,
   prompt_file: str,
-  solver_summary: Optional[Dict[str, Any]],
+  grid_application_summary: Optional[Dict[str, Any]],
   catalog_source_model_input_json: Dict[str, Any],
-  solved_model_input_json: Dict[str, Any],
-  solved_finmo_json: Dict[str, Any],
-  max_iterations: int = 3,
+  applied_model_input_json: Dict[str, Any],
+  applied_finmo_json: Dict[str, Any],
 ) -> Dict[str, Any]:
   del target_market_json, people_json, financials_year1_json, fulfillment_json, marketing_model_json
   current_model_input = _model_input_with_controller_catalog(
-    model_input_json=copy.deepcopy(solved_model_input_json),
+    model_input_json=copy.deepcopy(applied_model_input_json),
     catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
   )
-  current_finmo = copy.deepcopy(solved_finmo_json if isinstance(solved_finmo_json, dict) else {})
+  current_finmo = copy.deepcopy(applied_finmo_json if isinstance(applied_finmo_json, dict) else {})
   initial_memo = generate_realism_memo_payload_safe(
     ops_json=ops_json,
     financials_json=financials_json,
@@ -2841,11 +3099,12 @@ def _run_realism_resolution_loop(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     prompt_file=prompt_file,
-    solver_summary=copy.deepcopy(solver_summary or {}),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
     realism_memo_before_resolution=copy.deepcopy(initial_memo),
     realism_resolution_decision={},
     realism_resolution_plan={},
     realism_resolution_result={},
+    realism_resolution_verification={},
     realism_resolution_iterations=[],
     resolution_summary=copy.deepcopy(initial_resolution_summary),
     realism_memo_json=copy.deepcopy(persisted_initial_memo),
@@ -2856,32 +3115,26 @@ def _run_realism_resolution_loop(
   last_decision: Dict[str, Any] = {}
   last_plan: Dict[str, Any] = {}
   last_result: Dict[str, Any] = {}
-  stop_reason = "max_iterations_reached"
-  seen_issue_signatures: set[tuple[str, ...]] = set()
+  last_verification: Dict[str, Any] = {}
+  stop_reason = "single_pass_not_run"
+  iteration = 1
+  active_memo = copy.deepcopy(persisted_initial_memo)
+  active_issues = _memo_issue_records(active_memo, "remaining_issues", "issues")
+  iteration_record: Dict[str, Any] = {
+    "iteration": iteration,
+    "memo_before": copy.deepcopy(active_memo),
+  }
 
-  for iteration in range(1, max(1, int(max_iterations)) + 1):
-    persisted_draft = get_draft(conn, draft_id=str(draft_id).strip())
-    active_memo = _parse_json_dict(persisted_draft.get("realism_memo_json"))
-    if not active_memo:
-      active_memo = copy.deepcopy(final_memo if iteration > 1 else persisted_initial_memo)
-    active_issues = _memo_issue_records(active_memo, "remaining_issues", "issues")
-    active_issue_signature = tuple(sorted(_issue_text_key(item) for item in active_issues))
-    iteration_record: Dict[str, Any] = {
-      "iteration": iteration,
-      "memo_before": copy.deepcopy(active_memo),
-    }
-    if str(active_memo.get("status") or "").strip().lower() not in {"ready", "resolved"}:
-      iteration_record["status"] = "stopped_memo_not_ready"
-      trace.append(iteration_record)
-      stop_reason = str(active_memo.get("status") or "").strip() or "memo_not_ready"
-      final_memo = copy.deepcopy(active_memo)
-      break
-    if not active_issues:
-      iteration_record["status"] = "stopped_no_remaining_issues"
-      trace.append(iteration_record)
-      stop_reason = "no_remaining_issues"
-      break
-
+  if str(active_memo.get("status") or "").strip().lower() not in {"ready", "resolved"}:
+    iteration_record["status"] = "stopped_memo_not_ready"
+    trace.append(iteration_record)
+    stop_reason = str(active_memo.get("status") or "").strip() or "memo_not_ready"
+    final_memo = copy.deepcopy(active_memo)
+  elif not active_issues:
+    iteration_record["status"] = "stopped_no_remaining_issues"
+    trace.append(iteration_record)
+    stop_reason = "no_remaining_issues"
+  else:
     decision = _run_realism_resolution_openai(
       draft_id=str(draft_id or "").strip(),
       business_facts=copy.deepcopy(business_facts or {}),
@@ -2893,112 +3146,113 @@ def _run_realism_resolution_loop(
     )
     if isinstance(decision, dict):
       decision["iteration"] = iteration
-      decision["repair_owner"] = "solver"
+      decision["repair_owner"] = "realism_ai_direct_write"
       decision["issue_count"] = len(active_issues)
     plan = _build_realism_resolution_plan(
       review_decision_payload=copy.deepcopy(decision),
       solved_model_input_json=copy.deepcopy(current_model_input),
       solved_finmo_json=copy.deepcopy(current_finmo),
     )
-    result = _run_followup_second_pass_solver(
-      second_pass_plan=copy.deepcopy(plan),
-      solved_model_input_json=copy.deepcopy(current_model_input),
-      contract_version="realism_resolution_result_v2",
+    result = _apply_followup_exact_updates(
+      review_plan=copy.deepcopy(plan),
+      current_model_input_json=copy.deepcopy(current_model_input),
+      contract_version="realism_resolution_result_v3",
     )
-    if str(result.get("status") or "").strip() not in {"completed", "skipped_maintain_first_pass"}:
-      iteration_record["decision"] = copy.deepcopy(decision)
-      iteration_record["plan"] = copy.deepcopy(plan)
-      iteration_record["result"] = copy.deepcopy(result)
-      trace.append(iteration_record)
-      last_decision = copy.deepcopy(decision)
-      last_plan = copy.deepcopy(plan)
-      last_result = copy.deepcopy(result)
-      stop_reason = str(result.get("status") or "").strip() or "solver_failed"
-      break
-
-    next_model_input = (
-      _model_input_with_controller_catalog(
-        model_input_json=copy.deepcopy(result.get("solved_model_input_json") or {}),
-        catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
-      )
-      if isinstance(result.get("solved_model_input_json"), dict)
-      else copy.deepcopy(current_model_input)
-    )
-    next_finmo = (
-      copy.deepcopy(result.get("solved_finmo_json") or {})
-      if isinstance(result.get("solved_finmo_json"), dict) and result.get("solved_finmo_json")
-      else copy.deepcopy(current_finmo)
-    )
-
-    memo_after = generate_realism_memo_payload_safe(
-      ops_json=ops_json,
-      financials_json=financials_json,
-      solved_model_input_json=copy.deepcopy(next_model_input),
-      solved_finmo_json=copy.deepcopy(next_finmo),
-    )
-    persisted_memo_after = _build_persisted_realism_memo_payload(
-      previous_memo=copy.deepcopy(active_memo),
-      current_memo=copy.deepcopy(memo_after),
-      resolution_summary={},
-      iteration=iteration,
-    )
-    resolution_summary_after = _build_resolution_summary_from_realism_memos(
-      before_memo=copy.deepcopy(persisted_initial_memo),
-      after_memo=copy.deepcopy(persisted_memo_after),
-    )
-    resolved_memo_after = _build_persisted_realism_memo_payload(
-      previous_memo=copy.deepcopy(active_memo),
-      current_memo=copy.deepcopy(memo_after),
-      resolution_summary=copy.deepcopy(resolution_summary_after),
-      iteration=iteration,
-    )
-    next_remaining_issues = _memo_issue_records(resolved_memo_after, "remaining_issues", "issues")
-    next_issue_signature = tuple(sorted(_issue_text_key(item) for item in next_remaining_issues))
     iteration_record["decision"] = copy.deepcopy(decision)
     iteration_record["plan"] = copy.deepcopy(plan)
     iteration_record["result"] = copy.deepcopy(result)
-    iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
-    iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
     trace.append(iteration_record)
-
     last_decision = copy.deepcopy(decision)
     last_plan = copy.deepcopy(plan)
     last_result = copy.deepcopy(result)
-    current_model_input = copy.deepcopy(next_model_input)
-    current_finmo = copy.deepcopy(next_finmo)
-    final_memo = copy.deepcopy(resolved_memo_after)
-    _persist_realism_loop_state(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      stage="realism_resolution_running",
-      status="running",
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=prompt_file,
-      solver_summary=copy.deepcopy(solver_summary or {}),
-      realism_memo_before_resolution=copy.deepcopy(initial_memo),
-      realism_resolution_decision=copy.deepcopy(decision),
-      realism_resolution_plan=copy.deepcopy(plan),
-      realism_resolution_result=copy.deepcopy(result),
-      realism_resolution_iterations=copy.deepcopy(trace),
-      resolution_summary=copy.deepcopy(resolution_summary_after),
-      realism_memo_json=copy.deepcopy(resolved_memo_after),
-      model_input_json=copy.deepcopy(current_model_input),
-      finmo_json=copy.deepcopy(current_finmo),
-    )
 
-    if not next_remaining_issues:
-      stop_reason = "no_remaining_issues_after_resolution"
-      break
-    if next_issue_signature == active_issue_signature:
-      stop_reason = "no_issue_progress_after_resolution"
-      break
-    if next_issue_signature and next_issue_signature in seen_issue_signatures:
-      stop_reason = "issue_cycle_detected"
-      break
-    seen_issue_signatures.add(active_issue_signature)
-  else:
-    stop_reason = "max_iterations_reached"
+    if str(result.get("status") or "").strip() not in {"completed", "skipped_maintain_first_pass"}:
+      stop_reason = str(result.get("status") or "").strip() or "realism_write_failed"
+    else:
+      next_model_input = (
+        _model_input_with_controller_catalog(
+          model_input_json=copy.deepcopy(result.get("updated_model_input_json") or {}),
+          catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
+        )
+        if isinstance(result.get("updated_model_input_json"), dict)
+        else copy.deepcopy(current_model_input)
+      )
+      next_finmo = (
+        copy.deepcopy(result.get("updated_finmo_json") or {})
+        if isinstance(result.get("updated_finmo_json"), dict) and result.get("updated_finmo_json")
+        else copy.deepcopy(current_finmo)
+      )
+
+      memo_after = generate_realism_memo_payload_safe(
+        ops_json=ops_json,
+        financials_json=financials_json,
+        solved_model_input_json=copy.deepcopy(next_model_input),
+        solved_finmo_json=copy.deepcopy(next_finmo),
+      )
+      verification_after = _run_realism_verification_openai(
+        draft_id=str(draft_id or "").strip(),
+        business_facts=copy.deepcopy(business_facts or {}),
+        realism_memo_before_resolution=copy.deepcopy(active_memo),
+        realism_resolution_decision=copy.deepcopy(decision),
+        realism_resolution_plan=copy.deepcopy(plan),
+        realism_resolution_result=copy.deepcopy(result),
+        updated_model_input_json=copy.deepcopy(next_model_input),
+        updated_finmo_json=copy.deepcopy(next_finmo),
+      )
+      last_verification = copy.deepcopy(verification_after)
+      persisted_memo_after = _build_persisted_realism_memo_payload(
+        previous_memo=copy.deepcopy(active_memo),
+        current_memo=copy.deepcopy(memo_after),
+        resolution_summary={},
+        iteration=iteration,
+      )
+      resolution_summary_after = _build_resolution_summary_from_realism_verification(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        verification_payload=copy.deepcopy(verification_after),
+      ) or _build_resolution_summary_from_realism_memos(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        after_memo=copy.deepcopy(persisted_memo_after),
+      )
+      resolved_memo_after = _build_verified_realism_memo_payload(
+        before_memo=copy.deepcopy(persisted_initial_memo),
+        current_memo=copy.deepcopy(memo_after),
+        verification_payload=copy.deepcopy(verification_after),
+        resolution_summary=copy.deepcopy(resolution_summary_after),
+        iteration=iteration,
+      ) or _build_persisted_realism_memo_payload(
+        previous_memo=copy.deepcopy(active_memo),
+        current_memo=copy.deepcopy(memo_after),
+        resolution_summary=copy.deepcopy(resolution_summary_after),
+        iteration=iteration,
+      )
+      next_remaining_issues = _memo_issue_records(resolved_memo_after, "remaining_issues", "issues")
+      iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
+      iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
+      iteration_record["verification_after"] = copy.deepcopy(verification_after)
+      current_model_input = copy.deepcopy(next_model_input)
+      current_finmo = copy.deepcopy(next_finmo)
+      final_memo = copy.deepcopy(resolved_memo_after)
+      _persist_realism_loop_state(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        stage="realism_resolution_running",
+        status="running",
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        prompt_file=prompt_file,
+        grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+        realism_memo_before_resolution=copy.deepcopy(initial_memo),
+        realism_resolution_decision=copy.deepcopy(decision),
+        realism_resolution_plan=copy.deepcopy(plan),
+        realism_resolution_result=copy.deepcopy(result),
+        realism_resolution_verification=copy.deepcopy(verification_after),
+        realism_resolution_iterations=copy.deepcopy(trace),
+        resolution_summary=copy.deepcopy(resolution_summary_after),
+        realism_memo_json=copy.deepcopy(resolved_memo_after),
+        model_input_json=copy.deepcopy(current_model_input),
+        finmo_json=copy.deepcopy(current_finmo),
+      )
+      stop_reason = "no_remaining_issues_after_resolution" if not next_remaining_issues else "issues_remaining_after_single_pass"
 
   resolution_summary = _build_resolution_summary_from_realism_memos(
     before_memo=copy.deepcopy(persisted_initial_memo),
@@ -3023,6 +3277,7 @@ def _run_realism_resolution_loop(
     "last_decision": copy.deepcopy(last_decision),
     "last_plan": copy.deepcopy(last_plan),
     "last_result": copy.deepcopy(last_result),
+    "last_verification": copy.deepcopy(last_verification),
   }
 
 
@@ -7457,7 +7712,7 @@ def _run_planning_system_for_draft(
     prompt_file: str = "",
     gpt_narrative: str = "",
     gpt_grid_metadata: Optional[Dict[str, Any]] = None,
-    solver_summary: Optional[Dict[str, Any]] = None,
+    grid_application_summary: Optional[Dict[str, Any]] = None,
     model_input_payload: Optional[Dict[str, Any]] = None,
     finmo_payload: Optional[Dict[str, Any]] = None,
   ) -> Dict[str, Any]:
@@ -7470,7 +7725,7 @@ def _run_planning_system_for_draft(
       prompt_file=prompt_file,
       gpt_narrative=gpt_narrative,
       gpt_grid_metadata=copy.deepcopy(gpt_grid_metadata or {}),
-      solver_summary=copy.deepcopy(solver_summary or {}),
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
     )
     append_messages(
       conn,
@@ -7520,9 +7775,9 @@ def _run_planning_system_for_draft(
   except Exception:
     from client_intake_and_finmo.finmo_bridge import sync_planning_state_to_finmo  # type: ignore
   try:
-    from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+    from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
   except Exception:
-    from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, solve_live_quarter_grid_plan  # type: ignore
+    from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
 
   sync_result = sync_planning_state_to_finmo(
     finmo_path="",
@@ -7602,7 +7857,7 @@ def _run_planning_system_for_draft(
     raise RuntimeError("planning_grid_validation_failed")
   planning_run_json = _persist_system_stage(
     stage="quarter_grid_ready",
-    status="ready_for_solver",
+    status="ready_for_grid_application",
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     prompt_file=str(planning_result.get("prompt_file") or "").strip(),
@@ -7612,22 +7867,23 @@ def _run_planning_system_for_draft(
     finmo_payload=finmo_json,
   )
 
-  solver_result = solve_live_quarter_grid_plan(
+  grid_application_result = apply_live_quarter_grid_plan(
     baseline_model_input_json=copy.deepcopy(model_input_json),
     grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
   )
-  solver_summary = solver_result.get("solver_summary") if isinstance(solver_result.get("solver_summary"), dict) else {}
-  if not bool(solver_summary.get("success")):
-    raise RuntimeError("planning_solver_failed")
-
-  solved_model_input_json = (
-    solver_result.get("solved_model_input_json")
-    if isinstance(solver_result.get("solved_model_input_json"), dict)
+  grid_application_summary = (
+    grid_application_result.get("application_summary")
+    if isinstance(grid_application_result.get("application_summary"), dict)
     else {}
   )
-  solved_finmo_json = (
-    solver_result.get("solved_finmo_json")
-    if isinstance(solver_result.get("solved_finmo_json"), dict)
+  applied_model_input_json = (
+    grid_application_result.get("applied_model_input_json")
+    if isinstance(grid_application_result.get("applied_model_input_json"), dict)
+    else {}
+  )
+  applied_finmo_json = (
+    grid_application_result.get("applied_finmo_json")
+    if isinstance(grid_application_result.get("applied_finmo_json"), dict)
     else {}
   )
   realism_resolution_loop = _run_realism_resolution_loop(
@@ -7644,11 +7900,10 @@ def _run_planning_system_for_draft(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    solver_summary=copy.deepcopy(solver_summary or {}),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
     catalog_source_model_input_json=copy.deepcopy(model_input_json),
-    solved_model_input_json=copy.deepcopy(solved_model_input_json),
-    solved_finmo_json=copy.deepcopy(solved_finmo_json),
-    max_iterations=3,
+    applied_model_input_json=copy.deepcopy(applied_model_input_json),
+    applied_finmo_json=copy.deepcopy(applied_finmo_json),
   )
   realism_memo_before_resolution = (
     realism_resolution_loop.get("initial_memo")
@@ -7673,15 +7928,20 @@ def _run_planning_system_for_draft(
     if isinstance(realism_resolution_loop.get("last_result"), dict)
     else {}
   )
+  realism_resolution_verification = (
+    realism_resolution_loop.get("last_verification")
+    if isinstance(realism_resolution_loop.get("last_verification"), dict)
+    else {}
+  )
   realism_resolved_model_input_json = (
     realism_resolution_loop.get("final_model_input_json")
     if isinstance(realism_resolution_loop.get("final_model_input_json"), dict)
-    else solved_model_input_json
+    else applied_model_input_json
   )
   realism_resolved_finmo_json = (
     realism_resolution_loop.get("final_finmo_json")
     if isinstance(realism_resolution_loop.get("final_finmo_json"), dict)
-    else solved_finmo_json
+    else applied_finmo_json
   )
   resolution_summary = (
     realism_resolution_loop.get("resolution_summary")
@@ -7696,19 +7956,20 @@ def _run_planning_system_for_draft(
   final_model_input_json = copy.deepcopy(realism_resolved_model_input_json)
   final_finmo_json = copy.deepcopy(realism_resolved_finmo_json)
   next_planning_run_json = _build_planning_run_payload(
-    stage="solver_completed",
-    status="solved",
+    stage="grid_application_completed",
+    status="completed",
     resolution_summary=copy.deepcopy(resolution_summary),
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     prompt_file=str(planning_result.get("prompt_file") or "").strip(),
     gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
     gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
-    solver_summary=copy.deepcopy(solver_summary or {}),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
     realism_memo_before_resolution=realism_memo_before_resolution,
     realism_resolution_decision=realism_resolution_decision,
     realism_resolution_plan=realism_resolution_plan,
     realism_resolution_result=realism_resolution_result,
+    realism_resolution_verification=realism_resolution_verification,
     realism_resolution_iterations=realism_resolution_iterations,
   )
 

@@ -15,7 +15,7 @@
 ### 3. Cash Preference Integration
 - Capture whether the client prefers cash preservation, balanced growth, or more aggressive deployment.
 - Feed that preference into planning behavior without allowing it to override feasibility.
-- Goal: the plan should reflect cash posture while staying solver-valid.
+- Goal: the plan should reflect cash posture while staying financially valid after direct recalculation.
 
 ### 4. R&D Gating
 - Only allow meaningful R&D where the business model and stage justify it.

@@ -9,19 +9,19 @@
 - Intake is allowed to be imperfect, as long as it captures the real shape of the business.
 - Baby AI adds realism context; it does not decide the plan.
 - Grid translates business context into bounded quarter-by-quarter planning space.
-- Solver turns that planning space into a feasible operating and financial outcome.
+- Direct model application turns that planning space into a concrete operating and financial outcome.
 - Writing explains the solved business clearly after the model is coherent.
 
 ## Responsibility Split
 - Intake owns fact capture.
 - Critic owns realism signals.
 - Grid owns planning structure.
-- Solver owns feasibility.
+- The recalculated financial model owns feasibility.
 - Writing owns explanation.
 
 ## Operating Principle
 - Use AI for judgment where ambiguity is real.
-- Use structure and solver pressure where reality must hold.
+- Use structure and recalculated financial outputs where reality must hold.
 - Never let advisory context become hidden control logic.
 
 ## Failure Mode To Avoid
