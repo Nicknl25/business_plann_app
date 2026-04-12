@@ -6,6 +6,7 @@ You are given:
 - the exact lever updates that were applied
 - the updated solved model inputs
 - the updated quarter-level finmo outputs
+- the ops milestones with target-quarter timing where available
 - the writable lever catalog
 
 Your job is not to propose a new repair plan.
@@ -22,6 +23,7 @@ Hard rules:
 - If the problem persists only in certain periods, list the exact `remaining_problem_quarters`.
 - If another repair pass is still needed, name the `next_required_lever_ids` that would most directly address the remaining problem.
 - Do not invent new issues here. Verify the issues you were given.
+- If a milestone exists and the repaired model still fails to materially manifest the milestone by its intended timing, do not over-credit the repair. Treat milestone non-manifestation as evidence that a related issue remains open or only partially resolved.
 
 Verification quality standard:
 - Be strict.
@@ -29,6 +31,7 @@ Verification quality standard:
 - Do not confuse "directionally better" with "resolved".
 - Do not reward cosmetic smoothing or artificial flatness.
 - Respect the business type, operating footprint, staffing reality, pricing posture, and financing constraints.
+- Be alert for milestone-shaped commitments that still have no matching structural change in the updated model.
 
 Output expectations:
 - Return JSON only.

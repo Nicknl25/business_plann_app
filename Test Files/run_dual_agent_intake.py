@@ -625,7 +625,8 @@ def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, A
   lines.append(f"Review Status: {str(decision.get('status') or '').strip() or 'missing'}")
   lines.append(f"Result Status: {str(result.get('status') or '').strip() or 'missing'}")
   lines.append(f"Verification Status: {str(verification.get('status') or '').strip() or 'missing'}")
-  lines.append(f"Stop Reason: {str((planning_run.get('realism_resolution_iterations') or [{}])[-1].get('status') or planning_run.get('status') or '').strip() if isinstance(planning_run.get('realism_resolution_iterations'), list) and planning_run.get('realism_resolution_iterations') else str(planning_run.get('status') or '').strip()}")
+  lines.append(f"Iteration Count: {int(_safe_float(planning_run.get('realism_resolution_iteration_count')) or 0)}")
+  lines.append(f"Stop Reason: {str(planning_run.get('realism_resolution_stop_reason') or '').strip() or 'missing'}")
   lines.append(f"Resolution Summary Status: {str(resolution_summary.get('status') or '').strip() or 'missing'}")
   lines.append(f"All Cleared: {bool(resolution_summary.get('all_cleared'))}")
   verification_payload = verification.get("verification") if isinstance(verification.get("verification"), dict) else {}

@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import os
 import re
 import time
@@ -66,6 +67,7 @@ _CASH_STRATEGY_REVIEW_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "clien
 _CASH_STRATEGY_REVIEW_PROMPT_PATH = _CASH_STRATEGY_REVIEW_PROMPTS_DIR / "reviewer.md"
 _REALISM_RESOLUTION_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "realism_resolution"
 _REALISM_RESOLUTION_PROMPT_PATH = _REALISM_RESOLUTION_PROMPTS_DIR / "reviewer.md"
+_REALISM_MAX_ITERATIONS = 3
 
 
 def _parse_json_dict(raw: Any) -> Dict[str, Any]:
@@ -955,6 +957,8 @@ def _build_planning_run_payload(
   realism_resolution_result: Optional[Dict[str, Any]] = None,
   realism_resolution_verification: Optional[Dict[str, Any]] = None,
   realism_resolution_iterations: Optional[List[Dict[str, Any]]] = None,
+  realism_resolution_stop_reason: Optional[str] = None,
+  realism_resolution_iteration_count: Optional[int] = None,
   first_pass_handoff: Optional[Dict[str, Any]] = None,
   cash_strategy_review_context: Optional[Dict[str, Any]] = None,
   cash_strategy_review_decision: Optional[Dict[str, Any]] = None,
@@ -979,6 +983,8 @@ def _build_planning_run_payload(
     "realism_resolution_result": copy.deepcopy(realism_resolution_result or {}),
     "realism_resolution_verification": copy.deepcopy(realism_resolution_verification or {}),
     "realism_resolution_iterations": copy.deepcopy(realism_resolution_iterations or []),
+    "realism_resolution_stop_reason": str(realism_resolution_stop_reason or "").strip() or None,
+    "realism_resolution_iteration_count": int(realism_resolution_iteration_count or 0) or None,
     "first_pass_handoff": copy.deepcopy(first_pass_handoff or {}),
     "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context or {}),
     "cash_strategy_review_decision": copy.deepcopy(cash_strategy_review_decision or {}),
@@ -1802,6 +1808,46 @@ def _build_verified_realism_memo_payload(
   }
 
 
+def _extract_open_verification_feedback(
+  verification_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  verification = (
+    verification_payload.get("verification")
+    if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
+    else {}
+  )
+  if not verification:
+    return {}
+  issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
+  open_issue_results = [
+    {
+      "issue_code": str(item.get("issue_code") or "").strip(),
+      "status": str(item.get("status") or "").strip(),
+      "verification_reason": str(item.get("verification_reason") or "").strip(),
+      "remaining_problem_quarters": [
+        int(_safe_float(q) or 0)
+        for q in (item.get("remaining_problem_quarters") or [])
+        if int(_safe_float(q) or 0) >= 1
+      ],
+      "next_required_lever_ids": [
+        str(lever_id or "").strip()
+        for lever_id in (item.get("next_required_lever_ids") or [])
+        if str(lever_id or "").strip()
+      ],
+      "observed_improvement_summary": str(item.get("observed_improvement_summary") or "").strip(),
+    }
+    for item in issue_results
+    if str(item.get("status") or "").strip().lower() in {"partially_resolved", "not_resolved"}
+  ]
+  if not open_issue_results:
+    return {}
+  return {
+    "overall_assessment": str(verification.get("overall_assessment") or "").strip(),
+    "executive_summary": str(verification.get("executive_summary") or "").strip(),
+    "open_issue_results": open_issue_results,
+  }
+
+
 def _build_resolved_realism_memo_payload(
   *,
   before_memo: Optional[Dict[str, Any]],
@@ -2228,6 +2274,8 @@ def _run_realism_resolution_openai(
   realism_memo_before_resolution: Dict[str, Any],
   solved_model_input_json: Dict[str, Any],
   solved_finmo_json: Dict[str, Any],
+  prior_verification_feedback: Optional[Dict[str, Any]] = None,
+  current_iteration: int = 1,
 ) -> Dict[str, Any]:
   prompt_file = "client_intake_and_finmo/prompts/realism_resolution/reviewer.md"
   active_issues = _memo_issue_records(realism_memo_before_resolution, "remaining_issues", "issues")
@@ -2257,10 +2305,20 @@ def _run_realism_resolution_openai(
   system_prompt = _load_realism_resolution_prompt()
   user_context = {
     "draft_id": str(draft_id or "").strip(),
+    "current_iteration": int(current_iteration or 1),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
     "ops_json": ops_json,
+    "ops_milestones": _build_realism_milestone_context(
+      ops_json=ops_json,
+      solved_model_input_json=solved_model_input_json,
+    ),
     "financials_json": financials_json,
     "realism_memo_before_resolution": realism_memo_before_resolution,
+    "prior_verification_feedback": (
+      copy.deepcopy(prior_verification_feedback)
+      if isinstance(prior_verification_feedback, dict)
+      else {}
+    ),
     "writable_lever_catalog": lever_catalog,
     "writable_lever_current_values": _solved_lever_value_map(solved_model_input_json),
     "solved_model_input_json": solved_model_input_json,
@@ -2322,6 +2380,7 @@ def _run_realism_verification_openai(
   *,
   draft_id: str,
   business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
   realism_memo_before_resolution: Dict[str, Any],
   realism_resolution_decision: Dict[str, Any],
   realism_resolution_plan: Dict[str, Any],
@@ -2372,6 +2431,10 @@ def _run_realism_verification_openai(
   user_context = {
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "ops_milestones": _build_realism_milestone_context(
+      ops_json=ops_json,
+      solved_model_input_json=updated_model_input_json,
+    ),
     "realism_memo_before_resolution": realism_memo_before_resolution,
     "issue_packets": issue_packets,
     "realism_resolution_plan": realism_resolution_plan,
@@ -3112,29 +3175,35 @@ def _run_realism_resolution_loop(
     finmo_json=copy.deepcopy(current_finmo),
   )
   final_memo = copy.deepcopy(persisted_initial_memo)
+  final_resolution_summary = copy.deepcopy(initial_resolution_summary)
   last_decision: Dict[str, Any] = {}
   last_plan: Dict[str, Any] = {}
   last_result: Dict[str, Any] = {}
   last_verification: Dict[str, Any] = {}
-  stop_reason = "single_pass_not_run"
-  iteration = 1
+  stop_reason = "not_started"
   active_memo = copy.deepcopy(persisted_initial_memo)
-  active_issues = _memo_issue_records(active_memo, "remaining_issues", "issues")
-  iteration_record: Dict[str, Any] = {
-    "iteration": iteration,
-    "memo_before": copy.deepcopy(active_memo),
-  }
+  for iteration in range(1, _REALISM_MAX_ITERATIONS + 1):
+    active_issues = _memo_issue_records(active_memo, "remaining_issues", "issues")
+    iteration_record: Dict[str, Any] = {
+      "iteration": iteration,
+      "memo_before": copy.deepcopy(active_memo),
+      "prior_verification_feedback": copy.deepcopy(_extract_open_verification_feedback(last_verification)),
+    }
 
-  if str(active_memo.get("status") or "").strip().lower() not in {"ready", "resolved"}:
-    iteration_record["status"] = "stopped_memo_not_ready"
-    trace.append(iteration_record)
-    stop_reason = str(active_memo.get("status") or "").strip() or "memo_not_ready"
-    final_memo = copy.deepcopy(active_memo)
-  elif not active_issues:
-    iteration_record["status"] = "stopped_no_remaining_issues"
-    trace.append(iteration_record)
-    stop_reason = "no_remaining_issues"
-  else:
+    if str(active_memo.get("status") or "").strip().lower() not in {"ready", "resolved"}:
+      iteration_record["status"] = "stopped_memo_not_ready"
+      trace.append(iteration_record)
+      stop_reason = str(active_memo.get("status") or "").strip() or "memo_not_ready"
+      final_memo = copy.deepcopy(active_memo)
+      break
+
+    if not active_issues:
+      iteration_record["status"] = "stopped_no_remaining_issues"
+      trace.append(iteration_record)
+      stop_reason = "no_remaining_issues"
+      final_memo = copy.deepcopy(active_memo)
+      break
+
     decision = _run_realism_resolution_openai(
       draft_id=str(draft_id or "").strip(),
       business_facts=copy.deepcopy(business_facts or {}),
@@ -3143,6 +3212,8 @@ def _run_realism_resolution_loop(
       realism_memo_before_resolution=copy.deepcopy(active_memo),
       solved_model_input_json=copy.deepcopy(current_model_input),
       solved_finmo_json=copy.deepcopy(current_finmo),
+      prior_verification_feedback=_extract_open_verification_feedback(last_verification),
+      current_iteration=iteration,
     )
     if isinstance(decision, dict):
       decision["iteration"] = iteration
@@ -3167,103 +3238,110 @@ def _run_realism_resolution_loop(
     last_result = copy.deepcopy(result)
 
     if str(result.get("status") or "").strip() not in {"completed", "skipped_maintain_first_pass"}:
+      iteration_record["status"] = "stopped_write_failed"
       stop_reason = str(result.get("status") or "").strip() or "realism_write_failed"
-    else:
-      next_model_input = (
-        _model_input_with_controller_catalog(
-          model_input_json=copy.deepcopy(result.get("updated_model_input_json") or {}),
-          catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
-        )
-        if isinstance(result.get("updated_model_input_json"), dict)
-        else copy.deepcopy(current_model_input)
-      )
-      next_finmo = (
-        copy.deepcopy(result.get("updated_finmo_json") or {})
-        if isinstance(result.get("updated_finmo_json"), dict) and result.get("updated_finmo_json")
-        else copy.deepcopy(current_finmo)
-      )
+      break
 
-      memo_after = generate_realism_memo_payload_safe(
-        ops_json=ops_json,
-        financials_json=financials_json,
-        solved_model_input_json=copy.deepcopy(next_model_input),
-        solved_finmo_json=copy.deepcopy(next_finmo),
+    next_model_input = (
+      _model_input_with_controller_catalog(
+        model_input_json=copy.deepcopy(result.get("updated_model_input_json") or {}),
+        catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
       )
-      verification_after = _run_realism_verification_openai(
-        draft_id=str(draft_id or "").strip(),
-        business_facts=copy.deepcopy(business_facts or {}),
-        realism_memo_before_resolution=copy.deepcopy(active_memo),
-        realism_resolution_decision=copy.deepcopy(decision),
-        realism_resolution_plan=copy.deepcopy(plan),
-        realism_resolution_result=copy.deepcopy(result),
-        updated_model_input_json=copy.deepcopy(next_model_input),
-        updated_finmo_json=copy.deepcopy(next_finmo),
-      )
-      last_verification = copy.deepcopy(verification_after)
-      persisted_memo_after = _build_persisted_realism_memo_payload(
-        previous_memo=copy.deepcopy(active_memo),
-        current_memo=copy.deepcopy(memo_after),
-        resolution_summary={},
-        iteration=iteration,
-      )
-      resolution_summary_after = _build_resolution_summary_from_realism_verification(
-        before_memo=copy.deepcopy(persisted_initial_memo),
-        verification_payload=copy.deepcopy(verification_after),
-      ) or _build_resolution_summary_from_realism_memos(
-        before_memo=copy.deepcopy(persisted_initial_memo),
-        after_memo=copy.deepcopy(persisted_memo_after),
-      )
-      resolved_memo_after = _build_verified_realism_memo_payload(
-        before_memo=copy.deepcopy(persisted_initial_memo),
-        current_memo=copy.deepcopy(memo_after),
-        verification_payload=copy.deepcopy(verification_after),
-        resolution_summary=copy.deepcopy(resolution_summary_after),
-        iteration=iteration,
-      ) or _build_persisted_realism_memo_payload(
-        previous_memo=copy.deepcopy(active_memo),
-        current_memo=copy.deepcopy(memo_after),
-        resolution_summary=copy.deepcopy(resolution_summary_after),
-        iteration=iteration,
-      )
-      next_remaining_issues = _memo_issue_records(resolved_memo_after, "remaining_issues", "issues")
-      iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
-      iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
-      iteration_record["verification_after"] = copy.deepcopy(verification_after)
-      current_model_input = copy.deepcopy(next_model_input)
-      current_finmo = copy.deepcopy(next_finmo)
-      final_memo = copy.deepcopy(resolved_memo_after)
-      _persist_realism_loop_state(
-        conn=conn,
-        draft_id=str(draft_id).strip(),
-        stage="realism_resolution_running",
-        status="running",
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        prompt_file=prompt_file,
-        grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-        realism_memo_before_resolution=copy.deepcopy(initial_memo),
-        realism_resolution_decision=copy.deepcopy(decision),
-        realism_resolution_plan=copy.deepcopy(plan),
-        realism_resolution_result=copy.deepcopy(result),
-        realism_resolution_verification=copy.deepcopy(verification_after),
-        realism_resolution_iterations=copy.deepcopy(trace),
-        resolution_summary=copy.deepcopy(resolution_summary_after),
-        realism_memo_json=copy.deepcopy(resolved_memo_after),
-        model_input_json=copy.deepcopy(current_model_input),
-        finmo_json=copy.deepcopy(current_finmo),
-      )
-      stop_reason = "no_remaining_issues_after_resolution" if not next_remaining_issues else "issues_remaining_after_single_pass"
+      if isinstance(result.get("updated_model_input_json"), dict)
+      else copy.deepcopy(current_model_input)
+    )
+    next_finmo = (
+      copy.deepcopy(result.get("updated_finmo_json") or {})
+      if isinstance(result.get("updated_finmo_json"), dict) and result.get("updated_finmo_json")
+      else copy.deepcopy(current_finmo)
+    )
 
-  resolution_summary = _build_resolution_summary_from_realism_memos(
-    before_memo=copy.deepcopy(persisted_initial_memo),
-    after_memo=copy.deepcopy(final_memo),
-  )
-  realism_memo_json = _build_persisted_realism_memo_payload(
-    previous_memo=copy.deepcopy(final_memo),
-    current_memo=copy.deepcopy(final_memo),
-    resolution_summary=copy.deepcopy(resolution_summary),
-    iteration=len(trace),
-  )
+    memo_after = generate_realism_memo_payload_safe(
+      ops_json=ops_json,
+      financials_json=financials_json,
+      solved_model_input_json=copy.deepcopy(next_model_input),
+      solved_finmo_json=copy.deepcopy(next_finmo),
+    )
+    verification_after = _run_realism_verification_openai(
+      draft_id=str(draft_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      realism_memo_before_resolution=copy.deepcopy(active_memo),
+      realism_resolution_decision=copy.deepcopy(decision),
+      realism_resolution_plan=copy.deepcopy(plan),
+      realism_resolution_result=copy.deepcopy(result),
+      updated_model_input_json=copy.deepcopy(next_model_input),
+      updated_finmo_json=copy.deepcopy(next_finmo),
+    )
+    last_verification = copy.deepcopy(verification_after)
+    persisted_memo_after = _build_persisted_realism_memo_payload(
+      previous_memo=copy.deepcopy(active_memo),
+      current_memo=copy.deepcopy(memo_after),
+      resolution_summary={},
+      iteration=iteration,
+    )
+    resolution_summary_after = _build_resolution_summary_from_realism_verification(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      verification_payload=copy.deepcopy(verification_after),
+    ) or _build_resolution_summary_from_realism_memos(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      after_memo=copy.deepcopy(persisted_memo_after),
+    )
+    resolved_memo_after = _build_verified_realism_memo_payload(
+      before_memo=copy.deepcopy(persisted_initial_memo),
+      current_memo=copy.deepcopy(memo_after),
+      verification_payload=copy.deepcopy(verification_after),
+      resolution_summary=copy.deepcopy(resolution_summary_after),
+      iteration=iteration,
+    ) or _build_persisted_realism_memo_payload(
+      previous_memo=copy.deepcopy(active_memo),
+      current_memo=copy.deepcopy(memo_after),
+      resolution_summary=copy.deepcopy(resolution_summary_after),
+      iteration=iteration,
+    )
+    next_remaining_issues = _memo_issue_records(resolved_memo_after, "remaining_issues", "issues")
+    iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
+    iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
+    iteration_record["verification_after"] = copy.deepcopy(verification_after)
+    iteration_record["status"] = "completed_iteration"
+    current_model_input = copy.deepcopy(next_model_input)
+    current_finmo = copy.deepcopy(next_finmo)
+    final_memo = copy.deepcopy(resolved_memo_after)
+    final_resolution_summary = copy.deepcopy(resolution_summary_after)
+    active_memo = copy.deepcopy(resolved_memo_after)
+    _persist_realism_loop_state(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      stage="realism_resolution_running",
+      status="running",
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution=copy.deepcopy(initial_memo),
+      realism_resolution_decision=copy.deepcopy(decision),
+      realism_resolution_plan=copy.deepcopy(plan),
+      realism_resolution_result=copy.deepcopy(result),
+      realism_resolution_verification=copy.deepcopy(verification_after),
+      realism_resolution_iterations=copy.deepcopy(trace),
+      resolution_summary=copy.deepcopy(resolution_summary_after),
+      realism_memo_json=copy.deepcopy(resolved_memo_after),
+      model_input_json=copy.deepcopy(current_model_input),
+      finmo_json=copy.deepcopy(current_finmo),
+    )
+
+    if not next_remaining_issues:
+      stop_reason = "no_remaining_issues_after_resolution"
+      break
+
+    if iteration >= _REALISM_MAX_ITERATIONS:
+      stop_reason = "max_iterations_reached_with_remaining_issues"
+      break
+
+    stop_reason = "issues_remaining_after_iteration"
+
+  resolution_summary = copy.deepcopy(final_resolution_summary)
+  realism_memo_json = copy.deepcopy(final_memo)
   return {
     "initial_memo": copy.deepcopy(persisted_initial_memo),
     "final_memo": copy.deepcopy(final_memo),
@@ -6729,6 +6807,55 @@ def _parse_milestones(raw: Any) -> List[Dict[str, Any]]:
   return [m for m in raw if isinstance(m, dict)]
 
 
+def _build_realism_milestone_context(
+  ops_json: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  milestones = _parse_milestones((ops_json or {}).get("milestones"))
+  if not milestones:
+    return []
+
+  periods = [
+    item
+    for item in ((solved_model_input_json or {}).get("periods") or [])
+    if isinstance(item, dict)
+  ]
+  max_quarter_index = max(
+    [int(_safe_float(item.get("quarter")) or 0) for item in periods if int(_safe_float(item.get("quarter")) or 0) > 0] or [20]
+  )
+  milestone_context: List[Dict[str, Any]] = []
+
+  for milestone in milestones:
+    if not isinstance(milestone, dict):
+      continue
+    description = str(milestone.get("description") or "").strip()
+    timing = str(milestone.get("timing") or "").strip()
+    months_max = _safe_int(milestone.get("timing_months_max"))
+    target_quarter_index: Optional[int] = None
+    if months_max is not None and months_max > 0:
+      target_quarter_index = max(1, min(max_quarter_index, int(math.ceil(float(months_max) / 3.0))))
+    target_period = next(
+      (
+        item for item in periods
+        if target_quarter_index is not None
+        and int(_safe_float(item.get("quarter")) or 0) == target_quarter_index
+      ),
+      {},
+    )
+    milestone_context.append(
+      {
+        "description": description,
+        "timing": timing,
+        "timing_months_max": months_max,
+        "target_quarter_index": target_quarter_index,
+        "target_period_date": str(target_period.get("date") or "").strip(),
+        "target_period_column": str(target_period.get("column_letter") or "").strip(),
+        "is_binding_future_intent": bool(description and (timing or months_max is not None)),
+      }
+    )
+  return milestone_context
+
+
 def _has_confirmed_milestone(ops_json: Dict[str, Any]) -> bool:
   for milestone in _parse_milestones((ops_json or {}).get("milestones")):
     desc = str(milestone.get("description") or "").strip()
@@ -7913,6 +8040,8 @@ def _run_planning_system_for_draft(
   realism_resolution_iterations = [
     item for item in (realism_resolution_loop.get("iterations") or []) if isinstance(item, dict)
   ]
+  realism_resolution_stop_reason = str(realism_resolution_loop.get("stop_reason") or "").strip()
+  realism_resolution_iteration_count = int(_safe_float(realism_resolution_loop.get("iteration_count")) or 0)
   realism_resolution_decision = (
     realism_resolution_loop.get("last_decision")
     if isinstance(realism_resolution_loop.get("last_decision"), dict)
@@ -7971,6 +8100,8 @@ def _run_planning_system_for_draft(
     realism_resolution_result=realism_resolution_result,
     realism_resolution_verification=realism_resolution_verification,
     realism_resolution_iterations=realism_resolution_iterations,
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
   )
 
   append_messages(
