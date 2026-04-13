@@ -818,11 +818,13 @@ def _iter_controller_write_rows(model_input_json: Dict[str, Any]) -> List[Dict[s
   rows: List[Dict[str, Any]] = []
   for section_name in ("revenue", "expenses", "balance_sheet"):
     for row in sections.get(section_name) or []:
-      if isinstance(row, dict):
+      lever_id = str((row or {}).get("lever_id") or "").strip()
+      if isinstance(row, dict) and bool(row.get("controller_write", True)) and lever_id not in _GRID_EXCLUDED_LEVER_IDS:
         rows.append(row)
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
   for row in schedules.get("rows") or []:
-    if isinstance(row, dict):
+    lever_id = str((row or {}).get("lever_id") or "").strip()
+    if isinstance(row, dict) and bool(row.get("controller_write", True)) and lever_id not in _GRID_EXCLUDED_LEVER_IDS:
       rows.append(row)
   return rows
 
@@ -1031,6 +1033,13 @@ def build_quarter_grid_prompt(
       "- split that shared LOB capacity realistically across the products in the grid\n",
       "- your product breakout inside a shared LOB must fit within that one whole capacity pool rather than multiple independent pools\n",
       "- only treat product capacities as fully independent when the business context clearly supports separate operating capacity\n\n",
+      "Important financing and equity row meanings:\n",
+      "- `schedules::Plus: Additions (repayments), net` = debt draws or debt repayments\n",
+      "- `schedules::Capital Expenditures` = cash capex / PPE spend\n",
+      "- `schedules::Less: Principal Repayments` = capital lease principal repayments\n",
+      "- `schedules::Plus: Net Additions` = capital lease additions only, not owner draws, not generic financing\n",
+      "- `balance_sheet::Owner's Capital` = owner or partner capital in/out\n",
+      "- `balance_sheet::Other Equity` = other equity in/out\n\n",
       "Profitability standard for this probe:\n",
       "- push toward profitability as early as realism allows\n",
       "- do not normalize persistent multi-year losses if a believable operating repair exists\n",
@@ -1054,7 +1063,12 @@ def build_quarter_grid_prompt(
       json.dumps(governor_payload, ensure_ascii=False),
       "\n\n",
       "Rows you must fill:\n",
-      "\n".join(row_descriptions),
+      "\n".join(
+        [
+          f"- {item['row_id']} ({item['row_type']}) :: {str(item.get('label') or item['row_id'])}"
+          for item in grid_rows
+        ]
+      ),
       "\n\nBaseline quarter grid:\n",
       grid_markdown(grid_rows),
     ]

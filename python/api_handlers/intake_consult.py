@@ -1277,11 +1277,117 @@ def _translate_realism_output_target(
 
 def _extract_controller_lever_catalog(model_input_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
   model_input = model_input_json if isinstance(model_input_json, dict) else {}
-  direct = [item for item in (model_input.get("controller_write_levers") or []) if isinstance(item, dict)]
+  direct = [
+    item
+    for item in (model_input.get("controller_write_levers") or [])
+    if isinstance(item, dict)
+    and bool(item.get("controller_write", True))
+    and str(item.get("lever_id") or "").strip()
+  ]
   if direct:
     return direct
   lever_catalog = model_input.get("lever_catalog") if isinstance(model_input.get("lever_catalog"), dict) else {}
-  return [item for item in lever_catalog.values() if isinstance(item, dict)]
+  return [
+    item
+    for item in lever_catalog.values()
+    if isinstance(item, dict)
+    and bool(item.get("controller_write", True))
+    and str(item.get("lever_id") or "").strip()
+  ]
+
+
+def _lever_usage_guidance(lever_id: str) -> Dict[str, Any]:
+  lever = str(lever_id or "").strip()
+  if lever == "schedules::Plus: Additions (repayments), net":
+    return {
+      "label_path_override": "Plus: Additions (repayments), net (Debt Draws / Debt Repayments)",
+      "accounting_role": "debt_financing",
+      "preferred_uses": [
+        "new borrowing",
+        "debt paydown",
+        "debt restructuring",
+      ],
+      "forbidden_uses": [
+        "owner distributions",
+        "partner draws",
+        "equity contributions",
+        "capital lease additions",
+      ],
+    }
+  if lever == "schedules::Capital Expenditures":
+    return {
+      "label_path_override": "Capital Expenditures (Cash PPE Spend)",
+      "accounting_role": "investing_cash_outflow",
+      "preferred_uses": [
+        "equipment purchases",
+        "buildout spend",
+        "fit-out or furniture spend",
+      ],
+      "forbidden_uses": [
+        "noncash lease additions",
+        "owner distributions",
+        "debt activity",
+      ],
+    }
+  if lever == "schedules::Less: Principal Repayments":
+    return {
+      "label_path_override": "Less: Principal Repayments (Capital Lease Principal)",
+      "accounting_role": "capital_lease_principal_repayment",
+      "preferred_uses": [
+        "capital lease principal repayment",
+      ],
+      "forbidden_uses": [
+        "term debt repayment",
+        "owner distributions",
+        "capex spend",
+      ],
+    }
+  if lever == "schedules::Plus: Net Additions":
+    return {
+      "label_path_override": "Plus: Net Additions (Capital Lease Additions Only)",
+      "accounting_role": "capital_lease_addition",
+      "preferred_uses": [
+        "new capital lease asset additions",
+        "equipment acquired through leasing",
+      ],
+      "forbidden_uses": [
+        "owner distributions",
+        "partner draws",
+        "equity contributions",
+        "generic financing",
+        "term debt activity",
+      ],
+    }
+  if lever == "balance_sheet::Owner's Capital":
+    return {
+      "label_path_override": "Owner's Capital (Owner / Partner Capital In or Out)",
+      "accounting_role": "owner_equity",
+      "preferred_uses": [
+        "owner contribution",
+        "owner distribution",
+        "partner capital movement",
+      ],
+      "forbidden_uses": [
+        "debt draw",
+        "lease activity",
+        "capex spend",
+      ],
+    }
+  if lever == "balance_sheet::Other Equity":
+    return {
+      "label_path_override": "Other Equity (Non-owner Equity In or Out)",
+      "accounting_role": "other_equity",
+      "preferred_uses": [
+        "other equity contribution",
+        "other equity distribution",
+      ],
+      "forbidden_uses": [
+        "debt activity",
+        "lease activity",
+        "capex spend",
+      ],
+    }
+  return {}
 
 
 def _build_writable_lever_review_catalog(model_input_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1290,16 +1396,20 @@ def _build_writable_lever_review_catalog(model_input_json: Optional[Dict[str, An
     lever_id = str(item.get("lever_id") or "").strip()
     if not lever_id:
       continue
+    guidance = _lever_usage_guidance(lever_id)
     review_catalog.append(
       {
         "lever_id": lever_id,
         "section": str(item.get("section") or "").strip(),
-        "label_path": str(item.get("label_path") or "").strip(),
+        "label_path": str(guidance.get("label_path_override") or item.get("label_path") or "").strip(),
         "driver": str(item.get("driver") or item.get("label") or "").strip(),
         "lob": str(item.get("lob") or "").strip(),
         "product": str(item.get("product") or "").strip(),
         "value_kind": str(item.get("value_kind") or "").strip(),
         "input_semantics": str(item.get("input_semantics") or "").strip(),
+        "accounting_role": str(guidance.get("accounting_role") or "").strip(),
+        "preferred_uses": [str(v).strip() for v in (guidance.get("preferred_uses") or []) if str(v).strip()],
+        "forbidden_uses": [str(v).strip() for v in (guidance.get("forbidden_uses") or []) if str(v).strip()],
       }
     )
   return review_catalog
@@ -2339,6 +2449,53 @@ def _realism_resolution_failure_payload(
   }
 
 
+def _active_issue_codes_from_memo(realism_memo_before_resolution: Optional[Dict[str, Any]]) -> List[str]:
+  active_issues = _memo_issue_records(realism_memo_before_resolution, "remaining_issues", "issues")
+  codes: List[str] = []
+  seen = set()
+  for item in active_issues:
+    if not isinstance(item, dict):
+      continue
+    code = str(item.get("issue_code") or item.get("issue") or "").strip().lower()
+    if not code or code in seen:
+      continue
+    seen.add(code)
+    codes.append(code)
+  return codes
+
+
+def _realism_resolution_decision_contract_error(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  active_issue_codes: Optional[List[str]],
+) -> Optional[str]:
+  decision = parsed if isinstance(parsed, dict) else {}
+  codes = [str(code or "").strip().lower() for code in (active_issue_codes or []) if str(code or "").strip()]
+  if not codes:
+    return None
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
+  issue_packets = [item for item in (decision.get("issue_packets") or []) if isinstance(item, dict)]
+  recommended_actions = [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]
+  packet_codes = {
+    str(item.get("issue_code") or "").strip().lower()
+    for item in issue_packets
+    if str(item.get("issue_code") or "").strip()
+  }
+  missing_codes = [code for code in codes if code not in packet_codes]
+  if recommendation_mode != "adjust":
+    return (
+      "Active realism issues were provided, so recommendation_mode must be 'adjust', "
+      f"not {recommendation_mode or 'missing'}."
+    )
+  if not issue_packets:
+    return "Active realism issues were provided, but issue_packets was empty."
+  if missing_codes:
+    return f"Issue packets were missing active issue codes: {', '.join(missing_codes)}."
+  if not recommended_actions:
+    return "Active realism issues were provided, but recommended_actions was empty."
+  return None
+
+
 def _realism_verification_failure_payload(
   *,
   prompt_file: str,
@@ -2369,6 +2526,7 @@ def _run_realism_resolution_openai(
 ) -> Dict[str, Any]:
   prompt_file = "client_intake_and_finmo/prompts/realism_resolution/reviewer.md"
   active_issues = _memo_issue_records(realism_memo_before_resolution, "remaining_issues", "issues")
+  active_issue_codes = _active_issue_codes_from_memo(realism_memo_before_resolution)
   if not active_issues:
     return _realism_resolution_failure_payload(
       prompt_file=prompt_file,
@@ -2456,6 +2614,69 @@ def _run_realism_resolution_openai(
       status="failed_parse",
       detail="Unable to parse realism resolution JSON.",
     )
+  contract_error = _realism_resolution_decision_contract_error(
+    parsed=parsed,
+    active_issue_codes=active_issue_codes,
+  )
+  if contract_error:
+    retry_payload = copy.deepcopy(payload)
+    retry_payload["input"] = list(retry_payload.get("input") or []) + [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": json.dumps(
+              {
+                "repair_contract_violation": contract_error,
+                "required_active_issue_codes": active_issue_codes,
+                "instruction": (
+                  "You must return recommendation_mode='adjust', one issue_packet for each active issue code, "
+                  "and at least one recommended_action because active realism issues are still open in this pass."
+                ),
+              },
+              ensure_ascii=False,
+            ),
+          }
+        ],
+      }
+    ]
+    try:
+      retry_resp = _post_openai(
+        url="https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        payload=retry_payload,
+      )
+    except Exception as exc:
+      return _realism_resolution_failure_payload(
+        prompt_file=prompt_file,
+        status="failed_contract_retry_request",
+        detail=f"{contract_error} Retry error: {exc}",
+      )
+    if retry_resp.status_code >= 400:
+      return _realism_resolution_failure_payload(
+        prompt_file=prompt_file,
+        status="failed_contract_retry_status",
+        detail=f"{contract_error} Retry status body: {retry_resp.text[:1200]}",
+      )
+    parsed_retry = _parse_responses_json_dict(retry_resp.json())
+    if not isinstance(parsed_retry, dict):
+      return _realism_resolution_failure_payload(
+        prompt_file=prompt_file,
+        status="failed_contract_retry_parse",
+        detail=f"{contract_error} Retry parse failed.",
+      )
+    retry_contract_error = _realism_resolution_decision_contract_error(
+      parsed=parsed_retry,
+      active_issue_codes=active_issue_codes,
+    )
+    if retry_contract_error:
+      return _realism_resolution_failure_payload(
+        prompt_file=prompt_file,
+        status="failed_invalid_repair_contract",
+        detail=retry_contract_error,
+      )
+    parsed = parsed_retry
   return {
     "contract_version": "realism_resolution_decision_v1",
     "status": "completed",
@@ -3561,7 +3782,129 @@ def _run_realism_resolution_loop(
       cleanup_record["resolution_summary_after"] = copy.deepcopy(final_resolution_summary)
       cleanup_record["memo_after"] = copy.deepcopy(final_memo)
       cleanup_record["status"] = "completed_iteration"
-      stop_reason = "cleanup_pass_completed"
+      remaining_issue_keys_after_cleanup = _issue_keys_from_status_records(
+        issue_ledger,
+        status_filter="open",
+      )
+      if remaining_issue_keys_after_cleanup:
+        final_followup_iteration = len(trace) + 1
+        final_followup_memo_before = _build_realism_memo_from_issue_ledger(
+          before_memo=copy.deepcopy(persisted_initial_memo),
+          issue_status_records=copy.deepcopy(issue_ledger),
+          resolution_summary=copy.deepcopy(final_resolution_summary),
+          iteration=final_followup_iteration,
+          issue_keys=copy.deepcopy(remaining_issue_keys_after_cleanup),
+        )
+        final_followup_record: Dict[str, Any] = {
+          "iteration": final_followup_iteration,
+          "phase": "final_followup",
+          "memo_before": copy.deepcopy(final_followup_memo_before),
+          "active_issue_codes": copy.deepcopy(remaining_issue_keys_after_cleanup),
+          "prior_verification_feedback": {},
+        }
+        decision = _run_realism_resolution_openai(
+          draft_id=str(draft_id or "").strip(),
+          business_facts=copy.deepcopy(business_facts or {}),
+          ops_json=copy.deepcopy(ops_json or {}),
+          financials_json=copy.deepcopy(financials_json or {}),
+          realism_memo_before_resolution=copy.deepcopy(final_followup_memo_before),
+          solved_model_input_json=copy.deepcopy(current_model_input),
+          solved_finmo_json=copy.deepcopy(current_finmo),
+          prior_verification_feedback={},
+          current_iteration=final_followup_iteration,
+        )
+        if isinstance(decision, dict):
+          decision["iteration"] = final_followup_iteration
+          decision["repair_owner"] = "realism_ai_direct_write"
+          decision["issue_count"] = len(remaining_issue_keys_after_cleanup)
+          decision["resolution_phase"] = "final_followup"
+        plan = _build_realism_resolution_plan(
+          review_decision_payload=copy.deepcopy(decision),
+          solved_model_input_json=copy.deepcopy(current_model_input),
+          solved_finmo_json=copy.deepcopy(current_finmo),
+        )
+        result = _apply_followup_exact_updates(
+          review_plan=copy.deepcopy(plan),
+          current_model_input_json=copy.deepcopy(current_model_input),
+          contract_version="realism_resolution_result_v3",
+        )
+        final_followup_record["decision"] = copy.deepcopy(decision)
+        final_followup_record["plan"] = copy.deepcopy(plan)
+        final_followup_record["result"] = copy.deepcopy(result)
+        trace.append(final_followup_record)
+        last_decision = copy.deepcopy(decision)
+        last_plan = copy.deepcopy(plan)
+        last_result = copy.deepcopy(result)
+
+        if str(result.get("status") or "").strip() in {"completed", "skipped_maintain_first_pass"}:
+          next_model_input = (
+            _model_input_with_controller_catalog(
+              model_input_json=copy.deepcopy(result.get("updated_model_input_json") or {}),
+              catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
+            )
+            if isinstance(result.get("updated_model_input_json"), dict)
+            else copy.deepcopy(current_model_input)
+          )
+          next_finmo = (
+            copy.deepcopy(result.get("updated_finmo_json") or {})
+            if isinstance(result.get("updated_finmo_json"), dict) and result.get("updated_finmo_json")
+            else copy.deepcopy(current_finmo)
+          )
+          verification_after = _run_realism_verification_openai(
+            draft_id=str(draft_id or "").strip(),
+            business_facts=copy.deepcopy(business_facts or {}),
+            ops_json=copy.deepcopy(ops_json or {}),
+            realism_memo_before_resolution=copy.deepcopy(final_followup_memo_before),
+            realism_resolution_decision=copy.deepcopy(decision),
+            realism_resolution_plan=copy.deepcopy(plan),
+            realism_resolution_result=copy.deepcopy(result),
+            updated_model_input_json=copy.deepcopy(next_model_input),
+            updated_finmo_json=copy.deepcopy(next_finmo),
+          )
+          last_verification = copy.deepcopy(verification_after)
+          issue_ledger = _apply_realism_verification_to_issue_status_records(
+            issue_status_records=copy.deepcopy(issue_ledger),
+            verification_payload=copy.deepcopy(verification_after),
+            iteration=final_followup_iteration,
+            allowed_issue_keys=copy.deepcopy(remaining_issue_keys_after_cleanup),
+            allow_new_records=False,
+          )
+          current_model_input = copy.deepcopy(next_model_input)
+          current_finmo = copy.deepcopy(next_finmo)
+          final_resolution_summary = _build_resolution_summary_from_issue_ledger(
+            before_memo=copy.deepcopy(persisted_initial_memo),
+            issue_status_records=copy.deepcopy(issue_ledger),
+            verification_payload=copy.deepcopy(verification_after),
+          )
+          final_memo = _build_realism_memo_from_issue_ledger(
+            before_memo=copy.deepcopy(persisted_initial_memo),
+            issue_status_records=copy.deepcopy(issue_ledger),
+            resolution_summary=copy.deepcopy(final_resolution_summary),
+            iteration=final_followup_iteration,
+            verification_payload=copy.deepcopy(verification_after),
+          )
+          final_followup_record["verification_after"] = copy.deepcopy(verification_after)
+          final_followup_record["resolution_summary_after"] = copy.deepcopy(final_resolution_summary)
+          final_followup_record["memo_after"] = copy.deepcopy(final_memo)
+          final_followup_record["status"] = "completed_iteration"
+          stop_reason = "final_followup_pass_completed"
+        else:
+          final_followup_record["status"] = "stopped_write_failed"
+          stop_reason = str(result.get("status") or "").strip() or "final_followup_write_failed"
+          final_resolution_summary = _build_resolution_summary_from_issue_ledger(
+            before_memo=copy.deepcopy(persisted_initial_memo),
+            issue_status_records=copy.deepcopy(issue_ledger),
+            verification_payload=copy.deepcopy(last_verification),
+          )
+          final_memo = _build_realism_memo_from_issue_ledger(
+            before_memo=copy.deepcopy(persisted_initial_memo),
+            issue_status_records=copy.deepcopy(issue_ledger),
+            resolution_summary=copy.deepcopy(final_resolution_summary),
+            iteration=final_followup_iteration,
+            verification_payload=copy.deepcopy(last_verification),
+          )
+      else:
+        stop_reason = "cleanup_pass_completed"
     else:
       cleanup_record["status"] = "stopped_write_failed"
       stop_reason = str(result.get("status") or "").strip() or "cleanup_write_failed"
@@ -5162,6 +5505,177 @@ def _build_marketing_estimate_context(
   }
 
 
+def _marketing_intensity_from_percent(percent: float) -> str:
+  value = float(max(0.0, percent))
+  if value >= 0.12:
+    return "very_high"
+  if value >= 0.08:
+    return "high"
+  if value >= 0.04:
+    return "medium"
+  return "low"
+
+
+def _fallback_marketing_estimate(
+  *,
+  base_model: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  market_json: Dict[str, Any],
+  business_facts: Dict[str, Any],
+  fallback_reason: str,
+) -> Optional[Dict[str, Any]]:
+  revenue_year1 = float(base_model.get("required_revenue_year1") or 0.0)
+  if revenue_year1 <= 0:
+    return None
+
+  market_basis_type = str(base_model.get("market_basis_type") or "").strip().lower() or "consumer"
+  stage = str((ops_json or {}).get("business_stage") or "").strip().lower()
+  scope = str(((base_model.get("geography_basis") or {}).get("scope") or (ops_json or {}).get("geographic_scope") or "")).strip().lower()
+  sales_modality = str((ops_json or {}).get("sales_modality") or "").strip().lower()
+  shipping_method = str((ops_json or {}).get("shipping_method") or "").strip().lower()
+  capacity_driver = str((ops_json or {}).get("capacity_driver") or "").strip().lower()
+  unit_cadence = str((ops_json or {}).get("unit_cadence") or "").strip().lower()
+  unit_price = _safe_float((ops_json or {}).get("unit_price")) or 0.0
+  required_units_year1 = float(base_model.get("required_units_year1") or 0.0)
+
+  baseline_percent = 0.0
+
+  if stage == "operating":
+    baseline_percent += 0.035
+  elif stage == "pre-revenue":
+    baseline_percent += 0.06
+  else:
+    baseline_percent += 0.045
+
+  if market_basis_type == "consumer":
+    baseline_percent += 0.025
+  elif market_basis_type == "mixed":
+    baseline_percent += 0.02
+  else:
+    baseline_percent += 0.012
+
+  if "online" in sales_modality or "ecommerce" in sales_modality:
+    baseline_percent += 0.018
+  elif "hybrid" in sales_modality:
+    baseline_percent += 0.01
+  elif "in-person" in shipping_method or "shop" in shipping_method or "facility" in shipping_method:
+    baseline_percent += 0.004
+
+  if scope == "regional":
+    baseline_percent += 0.008
+  elif scope == "national":
+    baseline_percent += 0.015
+  elif scope == "local":
+    baseline_percent += 0.002
+
+  if unit_price >= 1000:
+    baseline_percent -= 0.012
+  elif unit_price >= 500:
+    baseline_percent -= 0.006
+  elif unit_price <= 75:
+    baseline_percent += 0.015
+  elif unit_price <= 200:
+    baseline_percent += 0.008
+
+  if capacity_driver == "labor":
+    baseline_percent -= 0.004
+
+  marketing_plan_text = " ".join(
+    [
+      str((market_json or {}).get("marketing_plan_summary") or ""),
+      str((market_json or {}).get("target_market_summary") or ""),
+      str((ops_json or {}).get("primary_growth_lever") or ""),
+      str((ops_json or {}).get("competitive_advantage") or ""),
+    ]
+  ).lower()
+  channel_terms = (
+    "google",
+    "search",
+    "maps",
+    "instagram",
+    "facebook",
+    "linkedin",
+    "referral",
+    "partnership",
+    "delivery",
+    "ads",
+    "seo",
+  )
+  baseline_percent += min(0.015, 0.003 * sum(1 for term in channel_terms if term in marketing_plan_text))
+  baseline_percent = float(min(0.18, max(0.025, baseline_percent)))
+
+  if unit_cadence == "weekly":
+    repeat_units_per_entity = 10.0 if market_basis_type == "b2b" else 6.0
+  elif unit_cadence == "monthly":
+    repeat_units_per_entity = 6.0 if market_basis_type == "b2b" else 2.5
+  elif unit_cadence == "annual":
+    repeat_units_per_entity = 1.2
+  else:
+    repeat_units_per_entity = 3.0 if market_basis_type == "b2b" else 2.0
+
+  expected_entities_year1 = max(1.0, required_units_year1 / max(1.0, repeat_units_per_entity)) if required_units_year1 > 0 else 1.0
+
+  positive_b2c_counts = [
+    float(item.get("basis_count") or 0.0)
+    for item in (base_model.get("b2c_basis_counts") or [])
+    if isinstance(item, dict) and float(item.get("basis_count") or 0.0) > 0
+  ]
+  b2c_anchor = max(positive_b2c_counts) if positive_b2c_counts else 0.0
+  b2c_ratio = 0.001 if scope == "national" else 0.003 if scope == "regional" else 0.008
+  reachable_market_b2c = 0.0
+  if market_basis_type in {"consumer", "mixed"}:
+    if b2c_anchor > 0:
+      reachable_market_b2c = max(expected_entities_year1 * 4.0, b2c_anchor * b2c_ratio)
+    else:
+      reachable_market_b2c = expected_entities_year1 * 6.0
+
+  cbp_basis = dict((base_model.get("b2b_basis_counts") or {}).get("cbp_basis") or {})
+  observed_establishments = float(cbp_basis.get("establishments_total") or 0.0)
+  b2b_ratio = 0.02 if scope == "national" else 0.01 if scope == "regional" else 0.004
+  reachable_market_b2b = 0.0
+  if market_basis_type in {"b2b", "mixed"}:
+    if observed_establishments > 0:
+      reachable_market_b2b = max(expected_entities_year1 * 1.5, observed_establishments * b2b_ratio)
+      reachable_market_b2b = min(observed_establishments, reachable_market_b2b)
+    else:
+      reachable_market_b2b = expected_entities_year1 * 3.0
+
+  if market_basis_type == "consumer":
+    combined_reachable_market = max(reachable_market_b2c, expected_entities_year1 * 4.0)
+  elif market_basis_type == "b2b":
+    combined_reachable_market = max(reachable_market_b2b, expected_entities_year1 * 2.0)
+  else:
+    combined_reachable_market = max(reachable_market_b2c, reachable_market_b2b, expected_entities_year1 * 5.0)
+
+  capture_rate_year1 = 0.0
+  if combined_reachable_market > 0:
+    capture_rate_year1 = min(1.0, max(0.0, expected_entities_year1 / combined_reachable_market))
+
+  business_label = str((ops_json or {}).get("business_type") or business_facts.get("business_name") or "this business").strip() or "this business"
+  rationale = (
+    f"Deterministic fallback used because the GPT marketing estimator did not return an accepted result "
+    f"({fallback_reason}). The baseline was anchored to the saved operating context for {business_label}, "
+    f"including market type={market_basis_type}, scope={scope or 'unspecified'}, sales modality={sales_modality or shipping_method or 'unspecified'}, "
+    f"unit price={_format_currency(unit_price)}, and Year-1 revenue={_format_currency(revenue_year1)}. "
+    f"The result is a conservative planning baseline intended to keep intake moving without treating broad observed market ceilings as directly reachable demand."
+  )
+
+  return {
+    "reachable_market": float(max(1.0, combined_reachable_market)),
+    "reachable_market_b2c": float(max(0.0, reachable_market_b2c)),
+    "reachable_market_b2b": float(max(0.0, reachable_market_b2b)),
+    "capture_rate_year1": float(capture_rate_year1),
+    "expected_customers_or_clients_year1": float(max(1.0, expected_entities_year1)),
+    "expected_units_year1": float(max(0.0, required_units_year1)),
+    "marketing_intensity": _marketing_intensity_from_percent(baseline_percent),
+    "baseline_marketing_percent": float(baseline_percent),
+    "brief_rationale": rationale,
+    "estimation_method": "deterministic_fallback",
+    "estimation_status": "fallback_used",
+    "estimation_warning": f"GPT marketing baseline unavailable; fallback used ({fallback_reason}).",
+  }
+
+
 def _compute_marketing_model_json(
   *,
   conn,
@@ -5192,6 +5706,9 @@ def _compute_marketing_model_json(
     "reachable_market_b2b": None,
     "missing_dependencies": [],
     "ready": False,
+    "estimation_method": "",
+    "estimation_status": "",
+    "estimation_warning": "",
   }
   normalized_geography = _marketing_normalized_geography(
     conn=conn,
@@ -5245,12 +5762,66 @@ def _compute_marketing_model_json(
   has_b2b = bool((base_model.get("b2b_basis_counts") or {}).get("cbp_basis") or (base_model.get("b2b_basis_counts") or {}).get("size_signal") or (base_model.get("b2b_basis_counts") or {}).get("age_signal"))
   if market_basis_type == "consumer" and not has_b2c:
     base_model["missing_dependencies"] = ["b2c_market_basis"]
+    fallback = _fallback_marketing_estimate(
+      base_model=base_model,
+      ops_json=ops_json,
+      market_json=market_json,
+      business_facts=business_facts,
+      fallback_reason="missing_b2c_market_basis",
+    )
+    if isinstance(fallback, dict):
+      baseline_percent = float(fallback.get("baseline_marketing_percent") or 0.0)
+      base_model.update(
+        {
+          **fallback,
+          "baseline_marketing_percent": baseline_percent,
+          "baseline_marketing": float(base_model["required_revenue_year1"] * baseline_percent),
+          "marketing_basis_summary": str(fallback.get("brief_rationale") or "").strip(),
+          "ready": True,
+        }
+      )
     return base_model
   if market_basis_type == "b2b" and not has_b2b:
     base_model["missing_dependencies"] = ["b2b_market_basis"]
+    fallback = _fallback_marketing_estimate(
+      base_model=base_model,
+      ops_json=ops_json,
+      market_json=market_json,
+      business_facts=business_facts,
+      fallback_reason="missing_b2b_market_basis",
+    )
+    if isinstance(fallback, dict):
+      baseline_percent = float(fallback.get("baseline_marketing_percent") or 0.0)
+      base_model.update(
+        {
+          **fallback,
+          "baseline_marketing_percent": baseline_percent,
+          "baseline_marketing": float(base_model["required_revenue_year1"] * baseline_percent),
+          "marketing_basis_summary": str(fallback.get("brief_rationale") or "").strip(),
+          "ready": True,
+        }
+      )
     return base_model
   if market_basis_type == "mixed" and not (has_b2c or has_b2b):
     base_model["missing_dependencies"] = ["market_basis"]
+    fallback = _fallback_marketing_estimate(
+      base_model=base_model,
+      ops_json=ops_json,
+      market_json=market_json,
+      business_facts=business_facts,
+      fallback_reason="missing_market_basis",
+    )
+    if isinstance(fallback, dict):
+      baseline_percent = float(fallback.get("baseline_marketing_percent") or 0.0)
+      base_model.update(
+        {
+          **fallback,
+          "baseline_marketing_percent": baseline_percent,
+          "baseline_marketing": float(base_model["required_revenue_year1"] * baseline_percent),
+          "marketing_basis_summary": str(fallback.get("brief_rationale") or "").strip(),
+          "ready": True,
+        }
+      )
     return base_model
   if base_model["required_revenue_year1"] <= 0:
     base_model["missing_dependencies"] = ["required_revenue_year1"]
@@ -5275,6 +5846,9 @@ def _compute_marketing_model_json(
       "baseline_marketing",
       "marketing_basis_summary",
       "demand_supports_required_units",
+      "estimation_method",
+      "estimation_status",
+      "estimation_warning",
     ):
       if key in existing_model:
         base_model[key] = existing_model.get(key)
@@ -5291,6 +5865,14 @@ def _compute_marketing_model_json(
       marketing_model_json=base_model,
     )
   )
+  if not isinstance(estimated, dict):
+    estimated = _fallback_marketing_estimate(
+      base_model=base_model,
+      ops_json=ops_json,
+      market_json=market_json,
+      business_facts=business_facts,
+      fallback_reason="estimator_returned_no_accepted_result",
+    )
   if not isinstance(estimated, dict):
     return base_model
 
@@ -5324,6 +5906,9 @@ def _compute_marketing_model_json(
       "baseline_marketing": baseline_amount,
       "marketing_basis_summary": str(estimated.get("brief_rationale") or "").strip(),
       "demand_supports_required_units": expected_units_year1 >= float(base_model.get("required_units_year1") or 0.0),
+      "estimation_method": str(estimated.get("estimation_method") or "gpt_estimate").strip() or "gpt_estimate",
+      "estimation_status": str(estimated.get("estimation_status") or "gpt_estimate_ready").strip() or "gpt_estimate_ready",
+      "estimation_warning": str(estimated.get("estimation_warning") or "").strip(),
       "ready": True,
     }
   )

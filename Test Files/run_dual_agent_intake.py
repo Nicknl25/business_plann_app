@@ -509,9 +509,14 @@ def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
   }
 
 
+def _parse_planning_run(raw: Any) -> Dict[str, Any]:
+  planning_run = _parse_json_dict(raw)
+  return planning_run if isinstance(planning_run, dict) else {}
+
+
 def _realism_final_flags_from_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
   memo = _parse_realism_memo(draft.get("realism_memo_json"))
-  planning_run = _parse_json_dict(draft.get("planning_run_json"))
+  planning_run = _parse_planning_run(draft.get("planning_run_json"))
   resolution_summary = (
     planning_run.get("resolution_summary")
     if isinstance(planning_run.get("resolution_summary"), dict)
@@ -648,11 +653,53 @@ def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, A
         lines.append(f"  remaining quarters: {', '.join(f'Q{q}' for q in quarters)}")
       if next_levers:
         lines.append(f"  next levers: {', '.join(next_levers)}")
+  iterations = [item for item in (planning_run.get("realism_resolution_iterations") or []) if isinstance(item, dict)]
+  if iterations:
+    lines.append("Iteration Summary:")
+    for item in iterations:
+      iteration = int(_safe_float(item.get("iteration")) or 0)
+      phase = str(item.get("phase") or "").strip() or "unknown"
+      status = str(item.get("status") or "").strip() or "missing"
+      active_issue_codes = [
+        str(code or "").strip()
+        for code in (item.get("active_issue_codes") or [])
+        if str(code or "").strip()
+      ]
+      memo_after = item.get("memo_after") if isinstance(item.get("memo_after"), dict) else {}
+      verification_after = item.get("verification_after") if isinstance(item.get("verification_after"), dict) else {}
+      verification_payload = (
+        verification_after.get("verification")
+        if isinstance(verification_after.get("verification"), dict)
+        else {}
+      )
+      remaining_after = [
+        issue for issue in (memo_after.get("remaining_issues") or [])
+        if isinstance(issue, dict)
+      ]
+      overall = str(verification_payload.get("overall_assessment") or "").strip() or "missing"
+      active_text = ", ".join(active_issue_codes) if active_issue_codes else "none"
+      lines.append(
+        f"- Iteration {iteration} [{phase}] status={status}; active={active_text}; "
+        f"remaining_after={len(remaining_after)}; verifier={overall}"
+      )
+      fresh_issue_candidates = [
+        candidate for candidate in (item.get("fresh_issue_candidates") or [])
+        if isinstance(candidate, dict)
+      ]
+      if fresh_issue_candidates:
+        candidate_bits = []
+        for candidate in fresh_issue_candidates:
+          issue_code = str(candidate.get("issue_code") or candidate.get("issue") or "").strip()
+          candidate_kind = str(candidate.get("candidate_kind") or "").strip() or "candidate"
+          if issue_code:
+            candidate_bits.append(f"{issue_code} ({candidate_kind})")
+        if candidate_bits:
+          lines.append(f"  fresh candidates: {', '.join(candidate_bits)}")
   if not updates:
     lines.append("No realism updates recorded.")
     return
   grid_map = _grid_exact_value_map(planning_run)
-  lines.append("Realism Applied Updates (grid -> realism):")
+  lines.append("Realism Applied Updates (prior model -> realism):")
   for update in updates:
     lever_id = str(update.get("lever_id") or "").strip()
     quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
@@ -1178,7 +1225,7 @@ def _save_persisted_state_report(
     lines.append("")
     _append_realism_memo_lines(lines, memo)
     lines.append("")
-    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    planning_run = _parse_planning_run(row.get("planning_run_json"))
     _append_realism_resolution_lines(lines, planning_run)
     lines.append("")
     lines.append("Persisted State")
@@ -1260,7 +1307,7 @@ def _save_new_runner_report(
     if not isinstance(row, dict) or not row:
       return None
 
-    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    planning_run = _parse_planning_run(row.get("planning_run_json"))
     finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
     memo = _parse_realism_memo(row.get("realism_memo_json"))
     quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
@@ -1348,7 +1395,7 @@ def _save_new_runner_grid_report(
     )
     if not isinstance(row, dict) or not row:
       return None
-    planning_run = row.get("planning_run_json") if isinstance(row.get("planning_run_json"), dict) else {}
+    planning_run = _parse_planning_run(row.get("planning_run_json"))
     memo = _parse_realism_memo(row.get("realism_memo_json"))
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
     validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}

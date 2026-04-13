@@ -198,6 +198,14 @@ def _simple_input_semantics(section_key: str, label: str) -> Dict[str, str]:
     if normalized_label in {"owner's capital", "other equity"}:
       return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
   if normalized_section == "schedules":
+    if normalized_label == "plus: additions (repayments), net":
+      return {"value_kind": "direct_number", "input_semantics": "net_debt_additions_repayments"}
+    if normalized_label == "capital expenditures":
+      return {"value_kind": "direct_number", "input_semantics": "capital_expenditures_cash"}
+    if normalized_label == "less: principal repayments":
+      return {"value_kind": "direct_number", "input_semantics": "capital_lease_principal_repayments"}
+    if normalized_label == "plus: net additions":
+      return {"value_kind": "direct_number", "input_semantics": "capital_lease_additions_noncash"}
     return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
   return {"value_kind": "direct_number", "input_semantics": "direct_input"}
 
@@ -1012,13 +1020,14 @@ def _python_model_input_template(
     for label in schedule_labels
   ]
   for row in schedule_rows:
+    row_label = str(row.get("label") or "").strip()
     _register_lever(
       {
         "lever_id": str(row.get("lever_id") or "").strip(),
         "named_range": "model_input_schedules",
         "section": "schedules",
-        "label": str(row.get("label") or "").strip(),
-        "label_path": str(row.get("label") or "").strip(),
+        "label": row_label,
+        "label_path": row_label,
         "value_kind": str(row.get("value_kind") or "").strip(),
         "input_semantics": str(row.get("input_semantics") or "").strip(),
       }

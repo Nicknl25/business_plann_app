@@ -25,6 +25,13 @@ Hard rules:
 - Use only the provided writable lever ids.
 - Do not invent new lever ids.
 - Use the writable lever catalog to understand what each lever actually controls before choosing adjustments.
+- Respect the accounting semantics of the financing rows:
+  - `schedules::Plus: Additions (repayments), net` is net debt draws / debt paydowns.
+  - `schedules::Capital Expenditures` is real capex spend.
+  - `schedules::Less: Principal Repayments` is capital-lease principal repayment.
+  - `balance_sheet::Owner's Capital` and `balance_sheet::Other Equity` are equity contribution / distribution rows.
+  - `schedules::Plus: Net Additions` is capital-lease additions only.
+  - capital-lease activity must never be used as a substitute for owner distributions, dividends, partner draws, equity injections, or generic debt behavior.
 - You may use any writable lever that genuinely helps resolve the business problem.
 - Prefer coordinated packages over isolated nudges.
 - Fix the underlying tension, not just the visible symptom.
@@ -40,7 +47,9 @@ Hard rules:
 - When milestone timing and realism issues interact, produce a coordinated repair package that both resolves the issue and manifests the milestone.
 - If `prior_verification_feedback` is present, treat its unresolved issues, remaining quarters, and next-required levers as binding repair focus for this iteration.
 - On a later iteration, do not start over generically. Target the still-open issues first.
-- If the current business is already realistic enough, return `recommendation_mode = "maintain"`.
+- If active realism issues are present in the provided memo for this pass, you must return `recommendation_mode = "adjust"`.
+- Do not return `maintain` when `remaining_issues` is non-empty, including cleanup or reopened-issue passes.
+- `maintain` is only allowed when the controller called you with no active realism issues to repair.
 
 Issue packet requirements:
 - You must emit one `issue_packet` for every active realism issue you are trying to resolve.
@@ -89,6 +98,7 @@ Output expectations:
 - Return JSON only.
 - `recommended_actions` must be empty only when `recommendation_mode = "maintain"`.
 - `issue_packets` must be empty only when `recommendation_mode = "maintain"`.
+- If any active issue is present in `realism_memo_before_resolution.remaining_issues`, `issue_packets` must include every active `issue_code`, and `recommended_actions` must not be empty.
 - Every action must explain the business move, why it resolves the issue now, and the visible effect expected in the model.
 - Every action must include `lever_adjustments`.
 - Every `lever_adjustments` item must contain exactly one `quarter_index` and one `exact_value`.
