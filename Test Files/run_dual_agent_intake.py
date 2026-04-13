@@ -474,8 +474,10 @@ def _parse_json_dict(raw: Any) -> Dict[str, Any]:
   return parsed if isinstance(parsed, dict) else {}
 
 
-def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
-  memo = _parse_json_dict(raw)
+def _parse_controller_resolution_state(*, planning_run_raw: Any = None, memo_raw: Any = None) -> Dict[str, Any]:
+  planning_run = _parse_json_dict(planning_run_raw)
+  memo = _parse_json_dict(memo_raw)
+
   def _normalize_issue_list(value: Any) -> List[Dict[str, str]]:
     source = value if isinstance(value, list) else []
     issues: List[Dict[str, str]] = []
@@ -495,17 +497,27 @@ def _parse_realism_memo(raw: Any) -> Dict[str, Any]:
         issues.append(payload)
     return issues
 
-  detected = _normalize_issue_list(memo.get("detected_issues"))
-  remaining = _normalize_issue_list(memo.get("remaining_issues"))
-  resolved = _normalize_issue_list(memo.get("resolved_issues"))
-  fallback = _normalize_issue_list(memo.get("issues"))
-  issues = remaining or fallback
+  state = (
+    planning_run.get("controller_resolution_state")
+    if isinstance(planning_run.get("controller_resolution_state"), dict)
+    else {}
+  )
+  if not state and isinstance(memo.get("controller_resolution_state"), dict):
+    state = memo.get("controller_resolution_state")
+
+  detected = _normalize_issue_list(state.get("detected_issues"))
+  remaining = _normalize_issue_list(state.get("remaining_issues"))
+  resolved = _normalize_issue_list(state.get("resolved_issues"))
   return {
-    "status": str(memo.get("status") or "").strip() or "missing",
-    "issues": issues,
+    "owner": str(state.get("owner") or "").strip() or "unknown",
+    "status": str(state.get("status") or "").strip() or "missing",
+    "display_status": str(state.get("display_status") or "").strip(),
+    "all_cleared": bool(state.get("all_cleared")),
     "detected_issues": detected,
     "remaining_issues": remaining,
     "resolved_issues": resolved,
+    "issue_status_records": _normalize_issue_list(state.get("issue_status_records")),
+    "last_review_iteration": int(_safe_float(state.get("last_review_iteration")) or 0),
   }
 
 
@@ -515,53 +527,34 @@ def _parse_planning_run(raw: Any) -> Dict[str, Any]:
 
 
 def _realism_final_flags_from_draft(draft: Dict[str, Any]) -> Dict[str, Any]:
-  memo = _parse_realism_memo(draft.get("realism_memo_json"))
   planning_run = _parse_planning_run(draft.get("planning_run_json"))
-  resolution_summary = (
-    planning_run.get("resolution_summary")
-    if isinstance(planning_run.get("resolution_summary"), dict)
-    else {}
+  state = _parse_controller_resolution_state(
+    planning_run_raw=planning_run,
+    memo_raw=draft.get("realism_memo_json"),
   )
-  remaining = memo.get("remaining_issues") if isinstance(memo.get("remaining_issues"), list) else []
-  issues = memo.get("issues") if isinstance(memo.get("issues"), list) else []
-  status = str(memo.get("status") or "").strip() or "missing"
-
-  summary_remaining = resolution_summary.get("remaining_violations")
-  if isinstance(summary_remaining, list) and summary_remaining:
-    remaining = [item for item in summary_remaining if isinstance(item, dict)]
-  elif not remaining:
-    summary_blocking = resolution_summary.get("remaining_blocking_violations")
-    if isinstance(summary_blocking, list):
-      remaining = [item for item in summary_blocking if isinstance(item, dict)]
-
-  if isinstance(resolution_summary, dict) and resolution_summary:
-    summary_status = str(resolution_summary.get("status") or "").strip()
-    if summary_status:
-      status = summary_status
-    elif status == "missing":
-      status = "resolved" if bool(resolution_summary.get("all_cleared")) else "issues_remaining"
-
-  issue_count = len(remaining) if remaining else len(issues)
+  remaining = state.get("remaining_issues") if isinstance(state.get("remaining_issues"), list) else []
+  status = str(state.get("status") or "").strip() or "missing"
+  issue_count = len(remaining)
   return {
     "resolution_summary_status": status or "missing",
     "remaining_issue_count": issue_count,
   }
 
 
-def _append_realism_memo_lines(lines: List[str], memo: Dict[str, Any]) -> None:
+def _append_realism_memo_lines(lines: List[str], state: Dict[str, Any]) -> None:
   lines.append("Realism Memo:")
-  lines.append(f"Status: {str(memo.get('status') or '').strip() or 'missing'}")
-  detected = memo.get("detected_issues") if isinstance(memo.get("detected_issues"), list) else []
-  remaining = memo.get("remaining_issues") if isinstance(memo.get("remaining_issues"), list) else []
-  resolved = memo.get("resolved_issues") if isinstance(memo.get("resolved_issues"), list) else []
-  issues = remaining or (memo.get("issues") if isinstance(memo.get("issues"), list) else [])
-  lines.append(f"Detected Issue Count: {len(detected) if detected else len(issues)}")
-  lines.append(f"Remaining Issue Count: {len(remaining) if remaining else len(issues)}")
+  lines.append(f"Owner: {str(state.get('owner') or '').strip() or 'missing'}")
+  lines.append(f"Status: {str(state.get('status') or '').strip() or 'missing'}")
+  detected = state.get("detected_issues") if isinstance(state.get("detected_issues"), list) else []
+  remaining = state.get("remaining_issues") if isinstance(state.get("remaining_issues"), list) else []
+  resolved = state.get("resolved_issues") if isinstance(state.get("resolved_issues"), list) else []
+  lines.append(f"Detected Issue Count: {len(detected)}")
+  lines.append(f"Remaining Issue Count: {len(remaining)}")
   lines.append(f"Resolved Issue Count: {len(resolved)}")
-  if not issues and not resolved:
+  if not remaining and not resolved:
     lines.append("No memo issues recorded.")
     return
-  for item in issues:
+  for item in remaining:
     if not isinstance(item, dict):
       continue
     issue_code = str(item.get("issue_code") or "").strip().lower()
@@ -619,11 +612,10 @@ def _grid_exact_value_map(planning_run: Dict[str, Any]) -> Dict[str, Dict[int, f
   return row_map
 
 
-def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, Any]) -> None:
+def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, Any], state: Dict[str, Any]) -> None:
   result = planning_run.get("realism_resolution_result") if isinstance(planning_run.get("realism_resolution_result"), dict) else {}
   decision = planning_run.get("realism_resolution_decision") if isinstance(planning_run.get("realism_resolution_decision"), dict) else {}
   verification = planning_run.get("realism_resolution_verification") if isinstance(planning_run.get("realism_resolution_verification"), dict) else {}
-  resolution_summary = planning_run.get("resolution_summary") if isinstance(planning_run.get("resolution_summary"), dict) else {}
   updates = [item for item in (result.get("applied_updates") or []) if isinstance(item, dict)]
   lines.append("Realism Resolution:")
   lines.append(f"Review Status: {str(decision.get('status') or '').strip() or 'missing'}")
@@ -631,8 +623,8 @@ def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, A
   lines.append(f"Verification Status: {str(verification.get('status') or '').strip() or 'missing'}")
   lines.append(f"Iteration Count: {int(_safe_float(planning_run.get('realism_resolution_iteration_count')) or 0)}")
   lines.append(f"Stop Reason: {str(planning_run.get('realism_resolution_stop_reason') or '').strip() or 'missing'}")
-  lines.append(f"Resolution Summary Status: {str(resolution_summary.get('status') or '').strip() or 'missing'}")
-  lines.append(f"All Cleared: {bool(resolution_summary.get('all_cleared'))}")
+  lines.append(f"Resolution Summary Status: {str(state.get('status') or '').strip() or 'missing'}")
+  lines.append(f"All Cleared: {bool(state.get('all_cleared'))}")
   verification_payload = verification.get("verification") if isinstance(verification.get("verification"), dict) else {}
   if verification_payload:
     lines.append(f"Verification Assessment: {str(verification_payload.get('overall_assessment') or '').strip() or 'missing'}")
@@ -1207,7 +1199,11 @@ def _save_persisted_state_report(
       if isinstance(snapshot, dict)
       else {}
     )
-    memo = _parse_realism_memo((row or {}).get("realism_memo_json"))
+    planning_run = _parse_planning_run(row.get("planning_run_json"))
+    controller_state = _parse_controller_resolution_state(
+      planning_run_raw=planning_run,
+      memo_raw=(row or {}).get("realism_memo_json"),
+    )
 
     lines: List[str] = []
     lines.append(f"Test Run: {seed}")
@@ -1223,10 +1219,9 @@ def _save_persisted_state_report(
     lines.append(f"Status: {status}")
     lines.append(f"Stop Reason: {stop_reason}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_realism_memo_lines(lines, controller_state)
     lines.append("")
-    planning_run = _parse_planning_run(row.get("planning_run_json"))
-    _append_realism_resolution_lines(lines, planning_run)
+    _append_realism_resolution_lines(lines, planning_run, controller_state)
     lines.append("")
     lines.append("Persisted State")
     lines.append("---------------")
@@ -1309,7 +1304,10 @@ def _save_new_runner_report(
 
     planning_run = _parse_planning_run(row.get("planning_run_json"))
     finmo_json = row.get("finmo_json") if isinstance(row.get("finmo_json"), dict) else {}
-    memo = _parse_realism_memo(row.get("realism_memo_json"))
+    controller_state = _parse_controller_resolution_state(
+      planning_run_raw=planning_run,
+      memo_raw=row.get("realism_memo_json"),
+    )
     quarter_rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
     accounting_check = finmo_json.get("accounting_check") if isinstance(finmo_json.get("accounting_check"), dict) else {}
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
@@ -1335,9 +1333,9 @@ def _save_new_runner_report(
     lines.append(f"Applied Levers: {application_summary.get('applied_lever_count')}")
     lines.append(f"Accounting All OK: {accounting_check.get('all_ok')}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_realism_memo_lines(lines, controller_state)
     lines.append("")
-    _append_realism_resolution_lines(lines, planning_run)
+    _append_realism_resolution_lines(lines, planning_run, controller_state)
     lines.append("")
     lines.append("GPT Narrative:")
     lines.append(str(planning_run.get("gpt_narrative") or "").strip())
@@ -1396,7 +1394,10 @@ def _save_new_runner_grid_report(
     if not isinstance(row, dict) or not row:
       return None
     planning_run = _parse_planning_run(row.get("planning_run_json"))
-    memo = _parse_realism_memo(row.get("realism_memo_json"))
+    controller_state = _parse_controller_resolution_state(
+      planning_run_raw=planning_run,
+      memo_raw=row.get("realism_memo_json"),
+    )
     gpt_meta = planning_run.get("gpt_grid_metadata") if isinstance(planning_run.get("gpt_grid_metadata"), dict) else {}
     validation = gpt_meta.get("validation") if isinstance(gpt_meta.get("validation"), dict) else {}
     grid_rows = []
@@ -1420,7 +1421,7 @@ def _save_new_runner_grid_report(
     lines.append(f"Malformed Rows: {len(validation.get('malformed_rows') or [])}")
     lines.append(f"Duplicate Rows: {len(validation.get('duplicate_rows') or [])}")
     lines.append("")
-    _append_realism_memo_lines(lines, memo)
+    _append_realism_memo_lines(lines, controller_state)
     lines.append("")
     lines.append("GPT Narrative:")
     lines.append(str(planning_run.get("gpt_narrative") or "").strip())
