@@ -31,10 +31,6 @@ def empty_realism_memo_payload() -> Dict[str, Any]:
   return {
     "status": "not_generated",
     "issues": [],
-    "detected_issues": [],
-    "resolved_issues": [],
-    "remaining_issues": [],
-    "resolution_summary": {},
   }
 
 
@@ -42,10 +38,6 @@ def failed_realism_memo_payload() -> Dict[str, Any]:
   return {
     "status": "failed",
     "issues": [],
-    "detected_issues": [],
-    "resolved_issues": [],
-    "remaining_issues": [],
-    "resolution_summary": {},
   }
 
 
@@ -95,25 +87,9 @@ def normalize_realism_memo_payload(payload: Any) -> Dict[str, Any]:
       issues_out.append({"issue_code": issue_code, "issue": issue, "detail": detail})
       if len(issues_out) >= 4:
         break
-  detected_issues = payload.get("detected_issues")
-  if not isinstance(detected_issues, list):
-    detected_issues = issues_out
-  resolved_issues = payload.get("resolved_issues")
-  if not isinstance(resolved_issues, list):
-    resolved_issues = []
-  remaining_issues = payload.get("remaining_issues")
-  if not isinstance(remaining_issues, list):
-    remaining_issues = issues_out
-  resolution_summary = payload.get("resolution_summary")
-  if not isinstance(resolution_summary, dict):
-    resolution_summary = {}
   return {
     "status": status,
     "issues": issues_out,
-    "detected_issues": detected_issues,
-    "resolved_issues": resolved_issues,
-    "remaining_issues": remaining_issues,
-    "resolution_summary": resolution_summary,
   }
 
 

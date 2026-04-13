@@ -47,10 +47,6 @@ except Exception:
       return {
         "status": "failed",
         "issues": [],
-        "detected_issues": [],
-        "resolved_issues": [],
-        "remaining_issues": [],
-        "resolution_summary": {},
       }
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
@@ -976,7 +972,6 @@ def _build_planning_run_payload(
     "planning_mode": str(planning_mode or "").strip() or None,
     "planning_mode_reason": str(planning_mode_reason or "").strip() or None,
     "prompt_file": str(prompt_file or "").strip() or None,
-    "resolution_summary": copy.deepcopy(resolution_summary or {}),
     "gpt_narrative": str(gpt_narrative or "").strip() or None,
     "gpt_grid_metadata": copy.deepcopy(gpt_grid_metadata or {}),
     "grid_application_summary": copy.deepcopy(grid_application_summary or {}),
@@ -1364,14 +1359,31 @@ def _lever_usage_guidance(lever_id: str) -> Dict[str, Any]:
     }
   if lever == "balance_sheet::Owner's Capital":
     return {
-      "label_path_override": "Owner's Capital (Owner / Partner Capital In or Out)",
-      "accounting_role": "owner_equity",
+      "label_path_override": "Owner's Capital (Owner / Partner Capital Contributions In Only)",
+      "accounting_role": "owner_equity_contribution",
       "preferred_uses": [
         "owner contribution",
-        "owner distribution",
-        "partner capital movement",
+        "partner capital contribution",
       ],
       "forbidden_uses": [
+        "owner distribution",
+        "partner draw",
+        "debt draw",
+        "lease activity",
+        "capex spend",
+      ],
+    }
+  if lever == "balance_sheet::Distributions":
+    return {
+      "label_path_override": "Distributions (Owner / Partner Payouts Out)",
+      "accounting_role": "owner_distribution",
+      "preferred_uses": [
+        "owner distribution",
+        "partner draw",
+        "shareholder payout",
+      ],
+      "forbidden_uses": [
+        "owner contribution",
         "debt draw",
         "lease activity",
         "capex spend",
@@ -1450,8 +1462,7 @@ def _build_cash_strategy_review_context_payload(
   prompt_file: str,
   solved_model_input_json: Optional[Dict[str, Any]],
   solved_finmo_json: Optional[Dict[str, Any]],
-  resolution_summary: Optional[Dict[str, Any]] = None,
-  realism_memo_json: Optional[Dict[str, Any]] = None,
+  controller_resolution_state: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   business = business_facts if isinstance(business_facts, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
@@ -1477,12 +1488,13 @@ def _build_cash_strategy_review_context_payload(
     (float(net_income) / float(revenue)) if abs(float(revenue)) > 1e-9 else 0.0
     for revenue, net_income in zip(revenue_series, net_income_series)
   ]
+  controller_state = controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
   remaining_issues = [
-    item for item in _memo_issue_records(realism_memo_json, "remaining_issues", "issues")
+    item for item in (controller_state.get("remaining_issues") or [])
     if isinstance(item, dict)
   ]
   resolved_issues = [
-    item for item in _memo_issue_records(realism_memo_json, "resolved_issues")
+    item for item in (controller_state.get("resolved_issues") or [])
     if isinstance(item, dict)
   ]
   trailing_4_ebitda_margins = ebitda_margin_series[-4:] if len(ebitda_margin_series) >= 4 else list(ebitda_margin_series)
@@ -1589,13 +1601,6 @@ def _build_cash_strategy_review_context_payload(
       "cash_peak": max(ending_cash_series) if ending_cash_series else 0.0,
       "cash_trough": min(ending_cash_series) if ending_cash_series else 0.0,
       "ending_cash_final": ending_cash_series[-1] if ending_cash_series else 0.0,
-    },
-    "realism_resolution_summary": copy.deepcopy(resolution_summary or {}),
-    "realism_issue_snapshot": {
-      "remaining_issue_count": len(remaining_issues),
-      "resolved_issue_count": len(resolved_issues),
-      "remaining_issues": [_core_issue_record(item) for item in remaining_issues],
-      "resolved_issues": [_core_issue_record(item) for item in resolved_issues],
     },
     "decision_trigger_candidates": trigger_candidates,
     "late_horizon_summary": {
@@ -2178,6 +2183,30 @@ def _build_controller_resolution_state_from_issue_ledger(
   }
 
 
+def _build_persisted_realism_memo_payload(
+  *,
+  controller_resolution_state: Optional[Dict[str, Any]],
+  working_memo: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  controller_state = controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
+  memo = working_memo if isinstance(working_memo, dict) else {}
+  verification_summary = (
+    memo.get("verification_summary")
+    if isinstance(memo.get("verification_summary"), dict)
+    else controller_state.get("verification_summary")
+  )
+  return {
+    "contract_version": "realism_memo_storage_v3",
+    "owner": "controller",
+    "storage_mode": "non_canonical",
+    "state_source": "planning_run_json.controller_resolution_state",
+    "last_review_iteration": int(
+      _safe_float(controller_state.get("last_review_iteration") or memo.get("last_review_iteration")) or 0
+    ),
+    "verification_summary": copy.deepcopy(verification_summary or {}),
+  }
+
+
 def _compact_issue_codes(items: Any) -> List[str]:
   codes: List[str] = []
   for item in (items or []):
@@ -2191,9 +2220,15 @@ def _compact_issue_codes(items: Any) -> List[str]:
 
 def _compact_realism_memo_for_trace(memo: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   memo_obj = memo if isinstance(memo, dict) else {}
-  remaining_issues = [item for item in (memo_obj.get("remaining_issues") or []) if isinstance(item, dict)]
+  remaining_issues = [
+    item for item in ((memo_obj.get("remaining_issues") or memo_obj.get("issues") or []))
+    if isinstance(item, dict)
+  ]
   resolved_issues = [item for item in (memo_obj.get("resolved_issues") or []) if isinstance(item, dict)]
-  detected_issues = [item for item in (memo_obj.get("detected_issues") or []) if isinstance(item, dict)]
+  detected_issues = [
+    item for item in ((memo_obj.get("detected_issues") or memo_obj.get("issues") or []))
+    if isinstance(item, dict)
+  ]
   return {
     "status": str(memo_obj.get("status") or "").strip(),
     "remaining_issue_count": len(remaining_issues),
@@ -2239,8 +2274,6 @@ def _sanitize_realism_iteration_trace(
       entry["memo_before"] = _compact_realism_memo_for_trace(entry.get("memo_before"))
     if isinstance(entry.get("memo_after"), dict):
       entry["memo_after"] = _compact_realism_memo_for_trace(entry.get("memo_after"))
-    if isinstance(entry.get("resolution_summary_after"), dict):
-      entry["resolution_summary_after"] = _compact_resolution_summary_for_trace(entry.get("resolution_summary_after"))
     fresh_issue_candidates = []
     for candidate in (entry.get("fresh_issue_candidates") or []):
       if not isinstance(candidate, dict):
@@ -2310,7 +2343,6 @@ def _build_realism_memo_from_issue_ledger(
     "detected_issues": copy.deepcopy(controller_state.get("detected_issues") or []),
     "resolved_issues": copy.deepcopy(controller_state.get("resolved_issues") or []),
     "remaining_issues": copy.deepcopy(remaining_issues),
-    "resolution_summary": copy.deepcopy(resolution_summary or {}),
     "last_review_iteration": int(controller_state.get("last_review_iteration") or iteration),
     "verification_summary": copy.deepcopy(controller_state.get("verification_summary") or {}),
   }
@@ -2525,6 +2557,10 @@ def _persist_realism_loop_state(
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+  persisted_realism_memo = _build_persisted_realism_memo_payload(
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    working_memo=copy.deepcopy(realism_memo_json),
+  )
   payload = _build_planning_run_payload(
     stage=stage,
     status=status,
@@ -2545,7 +2581,7 @@ def _persist_realism_loop_state(
     conn,
     draft_id=str(draft_id).strip(),
     new_messages=[],
-    realism_memo_json=copy.deepcopy(realism_memo_json or {}),
+    realism_memo_json=copy.deepcopy(persisted_realism_memo),
     planning_run_json=copy.deepcopy(payload),
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
@@ -4120,7 +4156,6 @@ def _run_realism_resolution_loop(
       if key in set(_issue_keys_from_status_records(issue_ledger, status_filter="open"))
     ]
     iteration_record["memo_after"] = copy.deepcopy(resolved_memo_after)
-    iteration_record["resolution_summary_after"] = copy.deepcopy(resolution_summary_after)
     iteration_record["verification_after"] = copy.deepcopy(verification_after)
     iteration_record["status"] = "completed_iteration"
     current_model_input = copy.deepcopy(next_model_input)
@@ -4286,7 +4321,6 @@ def _run_realism_resolution_loop(
         verification_payload=copy.deepcopy(verification_after),
       )
       cleanup_record["verification_after"] = copy.deepcopy(verification_after)
-      cleanup_record["resolution_summary_after"] = copy.deepcopy(final_resolution_summary)
       cleanup_record["memo_after"] = copy.deepcopy(final_memo)
       cleanup_record["status"] = "completed_iteration"
       remaining_issue_keys_after_cleanup = _issue_keys_from_status_records(
@@ -4391,7 +4425,6 @@ def _run_realism_resolution_loop(
             verification_payload=copy.deepcopy(verification_after),
           )
           final_followup_record["verification_after"] = copy.deepcopy(verification_after)
-          final_followup_record["resolution_summary_after"] = copy.deepcopy(final_resolution_summary)
           final_followup_record["memo_after"] = copy.deepcopy(final_memo)
           final_followup_record["status"] = "completed_iteration"
           stop_reason = "final_followup_pass_completed"
@@ -4477,8 +4510,6 @@ def _run_realism_resolution_loop(
     "initial_memo": copy.deepcopy(persisted_initial_memo),
     "final_memo": copy.deepcopy(final_memo),
     "issue_ledger": copy.deepcopy(issue_ledger),
-    "controller_resolution_state": copy.deepcopy(controller_resolution_state),
-    "resolution_summary": copy.deepcopy(resolution_summary),
     "realism_memo_json": copy.deepcopy(realism_memo_json),
     "final_model_input_json": copy.deepcopy(current_model_input),
     "final_finmo_json": copy.deepcopy(current_finmo),
@@ -4610,16 +4641,6 @@ def _build_intake_complete_planning_run_payload() -> Dict[str, Any]:
   return _build_planning_run_payload(
     stage="intake_complete",
     status="pending",
-    resolution_summary={
-      "status": "intake_complete",
-      "display_status": "intake complete",
-      "baseline_violations": [],
-      "resolved_violations": [],
-      "remaining_violations": [],
-      "remaining_blocking_violations": [],
-      "all_cleared": True,
-      "hard_cleared": True,
-    },
     gpt_narrative="Intake complete. Ready for backend planning.",
   )
 
@@ -9331,11 +9352,6 @@ def _run_planning_system_for_draft(
   fulfillment_json = _parse_json_dict(draft.get("fulfillment_json"))
   marketing_model_json = _parse_json_dict(draft.get("marketing_model_json"))
   planning_run_json = _parse_json_dict(draft.get("planning_run_json"))
-  resolution_summary = (
-    planning_run_json.get("resolution_summary")
-    if isinstance(planning_run_json.get("resolution_summary"), dict)
-    else {}
-  )
 
   business_facts: Dict[str, Any] = {
     "name": draft.get("business_name"),
@@ -9365,7 +9381,6 @@ def _run_planning_system_for_draft(
     payload = _build_planning_run_payload(
       stage=stage,
       status=status,
-      resolution_summary=copy.deepcopy(resolution_summary),
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
       prompt_file=prompt_file,
@@ -9591,11 +9606,6 @@ def _run_planning_system_for_draft(
     if isinstance(realism_resolution_loop.get("final_finmo_json"), dict)
     else applied_finmo_json
   )
-  resolution_summary = (
-    realism_resolution_loop.get("resolution_summary")
-    if isinstance(realism_resolution_loop.get("resolution_summary"), dict)
-    else {}
-  )
   realism_memo_json = (
     realism_resolution_loop.get("realism_memo_json")
     if isinstance(realism_resolution_loop.get("realism_memo_json"), dict)
@@ -9606,15 +9616,12 @@ def _run_planning_system_for_draft(
     if isinstance(realism_resolution_loop.get("issue_ledger"), list)
     else []
   )
-  controller_resolution_state = (
-    realism_resolution_loop.get("controller_resolution_state")
-    if isinstance(realism_resolution_loop.get("controller_resolution_state"), dict)
-    else _build_controller_resolution_state_from_issue_ledger(
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-      iteration=realism_resolution_iteration_count,
-      verification_payload=copy.deepcopy(realism_resolution_verification),
-    )
+  controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
+    issue_status_records=copy.deepcopy(realism_issue_ledger),
+    iteration=realism_resolution_iteration_count,
+    verification_payload=copy.deepcopy(realism_resolution_verification),
   )
+  resolution_summary: Dict[str, Any] = {}
   final_model_input_json = copy.deepcopy(realism_resolved_model_input_json)
   final_finmo_json = copy.deepcopy(realism_resolved_finmo_json)
   first_pass_handoff = _build_first_pass_handoff_payload(
@@ -9639,8 +9646,7 @@ def _run_planning_system_for_draft(
     prompt_file=str(planning_result.get("prompt_file") or "").strip(),
     solved_model_input_json=copy.deepcopy(final_model_input_json),
     solved_finmo_json=copy.deepcopy(final_finmo_json),
-    resolution_summary=copy.deepcopy(resolution_summary),
-    realism_memo_json=copy.deepcopy(realism_memo_json),
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
   )
   cash_strategy_review_decision = _run_cash_strategy_review_openai(
     draft_id=str(draft_id).strip(),
@@ -9707,6 +9713,10 @@ def _run_planning_system_for_draft(
     first_pass_finmo_json=copy.deepcopy(realism_resolved_finmo_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
   )
+  persisted_realism_memo = _build_persisted_realism_memo_payload(
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    working_memo=copy.deepcopy(realism_memo_json),
+  )
   diagnostics_snapshot = {
     "contract_version": "planning_diagnostics_snapshot_v1",
     "baseline_model_input_json": copy.deepcopy(model_input_json),
@@ -9756,7 +9766,7 @@ def _run_planning_system_for_draft(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
-    realism_memo_json=realism_memo_json,
+    realism_memo_json=persisted_realism_memo,
     fulfillment_json=fulfillment_json,
     model_input_json=final_model_input_json,
     finmo_json=final_finmo_json,
@@ -9770,7 +9780,7 @@ def _run_planning_system_for_draft(
   return {
     "draft_id": str(draft_id).strip(),
     "planning_run_json": next_planning_run_json,
-    "realism_memo_json": realism_memo_json,
+    "realism_memo_json": persisted_realism_memo,
     "model_input_json": final_model_input_json,
     "finmo_json": final_finmo_json,
   }

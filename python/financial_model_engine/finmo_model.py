@@ -54,7 +54,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "EBITDA": "Gross Profit - SUM(Marketing, Research & Development, Lease/Rent, Payroll, General & Administrative)",
   "Interest": "Debt Schedule Interest Expense = AVERAGE(Debt Opening Balance, Debt Closing Balance) * expenses::Interest Rate",
   "Depreciation": "min(previous PPE * expenses::Depreciation, previous PPE)",
-  "Taxes": "Revenue * expenses::Taxes",
+  "Taxes": "max(0, Pre-Tax Income) * expenses::Taxes where Pre-Tax Income = EBITDA - Interest - Depreciation",
   "Net Income": "EBITDA - SUM(Interest, Depreciation, Taxes)",
   "Cash": "Ending Cash",
   "Accounts Receivable": "(balance_sheet::Accounts Receivable Days / days_in_quarter) * Revenue",
@@ -71,7 +71,8 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Long Term Debt": "Debt Schedule Closing Balance",
   "Total Liabilities": "Current Liabilities + Long Term Debt + Capital Lease Closing Balance (Total)",
   "Owner's Capital": "balance_sheet::Owner's Capital",
-  "Retained Earnings": "previous Retained Earnings + Net Income",
+  "Distributions": "balance_sheet::Distributions",
+  "Retained Earnings": "previous Retained Earnings + Net Income - Distributions",
   "Other Equity": "balance_sheet::Other Equity",
   "Total Equity": "SUM(Owner's Capital, Retained Earnings, Other Equity)",
   "Total Liabilities & Equity": "Total Liabilities + Total Equity",
@@ -83,7 +84,7 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Investing Cash Flow": "-Capital Expenditures",
   "Dept Receive(Repay)": "Long Term Debt_t - Long Term Debt_(t-1)",
   "Equity": "(Owner's Capital_t - Owner's Capital_(t-1)) + (Other Equity_t - Other Equity_(t-1))",
-  "Financing Cash Flow": "Dept Receive(Repay) + Equity - Capital Lease Principal Repayments",
+  "Financing Cash Flow": "Dept Receive(Repay) + Equity - Distributions - Capital Lease Principal Repayments",
   "Net Cash Flow": "Operating Cash Flow + Investing Cash Flow + Financing Cash Flow",
   "Ending Cash": "Beginning Cash + Net Cash Flow",
   "Debt Schedule / Opening Balance": "previous Debt Schedule Closing Balance, seeded from schedules.debt_opening_balance_seed",
@@ -134,6 +135,7 @@ class FinmoQuarterResult:
   long_term_debt: float
   total_liabilities: float
   owners_capital: float
+  distributions: float
   retained_earnings: float
   other_equity: float
   total_equity: float
@@ -146,6 +148,7 @@ class FinmoQuarterResult:
   investing_cash_flow: float
   debt_receive_repay: float
   equity: float
+  owner_distributions: float
   financing_cash_flow: float
   net_cash_flow: float
   ending_cash: float
@@ -263,6 +266,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       long_term_debt=opening_long_term_debt,
       total_liabilities=opening_total_liabilities,
       owners_capital=opening_owner_capital,
+      distributions=0.0,
       retained_earnings=opening_retained_earnings,
       other_equity=opening_other_equity,
       total_equity=opening_total_equity,
@@ -275,6 +279,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       investing_cash_flow=0.0,
       debt_receive_repay=0.0,
       equity=0.0,
+      owner_distributions=0.0,
       financing_cash_flow=0.0,
       net_cash_flow=0.0,
       ending_cash=model_inputs.cash_opening_balance_seed,
@@ -326,7 +331,8 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     interest = ((debt_opening + debt_closing) / 2.0) * interest_rate
 
     depreciation = quarter.expenses.depreciation_percent * max(0.0, previous_ppe)
-    taxes = revenue * quarter.expenses.tax_percent
+    pre_tax_income = ebitda - interest - depreciation
+    taxes = max(0.0, pre_tax_income) * quarter.expenses.tax_percent
     net_income = ebitda - (interest + depreciation + taxes)
 
     accounts_receivable = (_row_value(model_inputs, "balance_sheet", "Accounts Receivable Days", quarter.quarter_index) / max(1, days_in_quarter)) * revenue
@@ -350,9 +356,10 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     long_term_debt = debt_closing
     total_liabilities = current_liabilities + long_term_debt + lease_closing
 
-    owners_capital = _row_value(model_inputs, "balance_sheet", "Owner's Capital", quarter.quarter_index)
+    owners_capital = max(0.0, _row_value(model_inputs, "balance_sheet", "Owner's Capital", quarter.quarter_index))
+    distributions = max(0.0, _row_value(model_inputs, "balance_sheet", "Distributions", quarter.quarter_index))
     other_equity = _row_value(model_inputs, "balance_sheet", "Other Equity", quarter.quarter_index)
-    retained_earnings = previous_retained_earnings + net_income
+    retained_earnings = previous_retained_earnings + net_income - distributions
     total_equity = owners_capital + retained_earnings + other_equity
     total_liabilities_and_equity = total_liabilities + total_equity
 
@@ -367,7 +374,8 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     investing_cash_flow = -capex
     debt_receive_repay = long_term_debt - previous_long_term_debt
     equity = (owners_capital - previous_owners_capital) + (other_equity - previous_other_equity)
-    financing_cash_flow = debt_receive_repay + equity - lease_principal
+    owner_distributions = distributions
+    financing_cash_flow = debt_receive_repay + equity - owner_distributions - lease_principal
     net_cash_flow = operating_cash_flow + investing_cash_flow + financing_cash_flow
     ending_cash = beginning_cash + net_cash_flow
     cash = ending_cash
@@ -411,6 +419,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
         long_term_debt=long_term_debt,
         total_liabilities=total_liabilities,
         owners_capital=owners_capital,
+        distributions=distributions,
         retained_earnings=retained_earnings,
         other_equity=other_equity,
         total_equity=total_equity,
@@ -423,6 +432,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
         investing_cash_flow=investing_cash_flow,
         debt_receive_repay=debt_receive_repay,
         equity=equity,
+        owner_distributions=owner_distributions,
         financing_cash_flow=financing_cash_flow,
         net_cash_flow=net_cash_flow,
         ending_cash=ending_cash,

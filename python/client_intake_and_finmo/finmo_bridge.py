@@ -392,6 +392,7 @@ def build_python_finmo_json(
     {"label": "Investing Cash Flow", "values": _series("investing_cash_flow")},
     {"label": "Dept Receive(Repay)", "values": _series("debt_receive_repay")},
     {"label": "Equity", "values": _series("equity")},
+    {"label": "Distributions", "values": _series("owner_distributions")},
     {"label": "Financing Cash Flow", "values": _series("financing_cash_flow")},
     {"label": "Net Cash Flow", "values": _series("net_cash_flow")},
     {"label": "Ending Cash", "values": _series("ending_cash")},
@@ -980,6 +981,7 @@ def _python_model_input_template(
     "Deferred Revenue (% of Revenue)",
     "Short Term Debt (% of LTD)",
     "Owner's Capital",
+    "Distributions",
     "Other Equity",
   ]
   balance_rows = [
@@ -1296,6 +1298,8 @@ def _build_model_input_overlay(
         values.append(round(short_term_ratio, 6))
       elif label == "Owner's Capital":
         values.append(round(_safe_float((financials_json or {}).get("initial_equity")) or (_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0), 6) if base_values else round(_safe_float((financials_json or {}).get("initial_equity")) or 0.0, 6))
+      elif label == "Distributions":
+        values.append(0.0)
       elif label == "Other Equity":
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
       else:
@@ -1377,6 +1381,23 @@ def normalize_model_input_forecast_anchor(
       legacy_accum_dep_row = _clone(row)
       continue
     retained_balance_rows.append(_clone(row))
+  has_distributions_row = any(
+    str(row.get("label") or "").strip() == "Distributions"
+    for row in retained_balance_rows
+  )
+  if not has_distributions_row:
+    retained_balance_rows.insert(
+      7 if len(retained_balance_rows) >= 7 else len(retained_balance_rows),
+      {
+        "named_range": "model_input_balancehseet",
+        "controller_write": True,
+        "lever_id": "balance_sheet::Distributions",
+        "label": "Distributions",
+        "value_kind": "direct_number",
+        "input_semantics": "quarter_currency",
+        "values": [0.0 for _ in range(period_count)],
+      },
+    )
   sections["balance_sheet"] = retained_balance_rows
 
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}

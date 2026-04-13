@@ -63,10 +63,69 @@ def _is_valid_planning_run_payload(payload: Any) -> bool:
   data = _parse_json_payload(payload)
   if not isinstance(data, dict) or not data:
     return False
-  resolution_summary = data.get("resolution_summary")
-  if not isinstance(resolution_summary, dict) or not resolution_summary:
+  stage = str(data.get("stage") or "").strip()
+  status = str(data.get("status") or "").strip()
+  if not stage or not status:
+    return False
+  controller_state = data.get("controller_resolution_state")
+  if controller_state is not None and not isinstance(controller_state, dict):
     return False
   return True
+
+
+def _ensure_completion_consistency_triggers(conn) -> None:
+  cols = _table_columns(conn, "intake_consult_drafts")
+  trigger_specs = {
+    "trg_consistency_completion_guard_bi_v1": "INSERT",
+    "trg_consistency_completion_guard_bu_v1": "UPDATE",
+  }
+  completion_conditions = [
+    "LOWER(COALESCE(NEW.active_focus, '')) = 'done'",
+    "LOWER(COALESCE(NEW.status, '')) = 'completed'",
+    "NEW.completed_at IS NOT NULL",
+  ]
+  if "consistency_passed" in cols:
+    completion_conditions.insert(0, "COALESCE(NEW.consistency_passed, 0) = 1")
+  completion_predicate = "\n    OR ".join(completion_conditions)
+  trigger_body = """
+BEGIN
+  IF (
+    {completion_predicate}
+  ) AND (
+    NEW.planning_run_json IS NULL
+    OR JSON_VALID(NEW.planning_run_json) = 0
+    OR JSON_EXTRACT(CAST(NEW.planning_run_json AS JSON), '$.stage') IS NULL
+    OR JSON_EXTRACT(CAST(NEW.planning_run_json AS JSON), '$.status') IS NULL
+  ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'consistency_completion_requires_planning_run';
+  END IF;
+END
+""".strip().format(completion_predicate=completion_predicate)
+  cur = conn.cursor()
+  try:
+    for trigger_name, event_name in trigger_specs.items():
+      cur.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+      cur.execute(
+        f"""
+        CREATE TRIGGER {trigger_name}
+        BEFORE {event_name} ON intake_consult_drafts
+        FOR EACH ROW
+        {trigger_body}
+        """
+      )
+    conn.commit()
+  except Exception:
+    try:
+      conn.rollback()
+    except Exception:
+      pass
+    raise
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
 
 
 def ensure_table(conn) -> None:
@@ -210,6 +269,8 @@ def ensure_table(conn) -> None:
         cur2.close()
       except Exception:
         pass
+
+  _ensure_completion_consistency_triggers(conn)
 
 
 def create_draft(conn, *, client_id: str) -> Dict[str, Any]:

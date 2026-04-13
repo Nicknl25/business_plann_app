@@ -29,7 +29,9 @@ Hard rules:
   - `schedules::Plus: Additions (repayments), net` is net debt draws / debt paydowns.
   - `schedules::Capital Expenditures` is real capex spend.
   - `schedules::Less: Principal Repayments` is capital-lease principal repayment.
-  - `balance_sheet::Owner's Capital` and `balance_sheet::Other Equity` are equity contribution / distribution rows.
+  - `balance_sheet::Owner's Capital` is owner or partner capital contributed into the business, not owner payouts.
+  - `balance_sheet::Distributions` is owner or partner cash paid out of the business, not contributions.
+  - `balance_sheet::Other Equity` is non-owner equity in / out.
   - `schedules::Plus: Net Additions` is capital-lease additions only.
   - capital-lease activity must never be used as a substitute for owner distributions, dividends, partner draws, equity injections, or generic debt behavior.
 - You may use any writable lever that genuinely helps resolve the business problem.

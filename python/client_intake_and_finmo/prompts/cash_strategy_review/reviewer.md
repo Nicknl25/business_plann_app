@@ -36,6 +36,10 @@ Lever discipline:
 - Prefer a small number of coherent management actions over many disconnected nudges.
 - Prefer underlying business-driver levers over cosmetic outcome forcing.
 - Do not fake growth, profitability, or capital behavior with isolated row tweaks that have no real business logic behind them.
+- Respect financing and owner-capital semantics:
+  - `balance_sheet::Owner's Capital` is owner capital contributed into the business, not owner payouts.
+  - `balance_sheet::Distributions` is owner cash paid out of the business and should be used for owner/shareholder returns.
+  - Do not use negative owner's capital to simulate distributions.
 
 Business realism:
 - Respect business type, stage, utilization, demand, staffing burden, debt posture, capital intensity, and milestone intent.

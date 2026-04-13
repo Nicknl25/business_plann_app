@@ -476,7 +476,7 @@ def _parse_json_dict(raw: Any) -> Dict[str, Any]:
 
 def _parse_controller_resolution_state(*, planning_run_raw: Any = None, memo_raw: Any = None) -> Dict[str, Any]:
   planning_run = _parse_json_dict(planning_run_raw)
-  memo = _parse_json_dict(memo_raw)
+  del memo_raw
 
   def _normalize_issue_list(value: Any) -> List[Dict[str, str]]:
     source = value if isinstance(value, list) else []
@@ -502,8 +502,6 @@ def _parse_controller_resolution_state(*, planning_run_raw: Any = None, memo_raw
     if isinstance(planning_run.get("controller_resolution_state"), dict)
     else {}
   )
-  if not state and isinstance(memo.get("controller_resolution_state"), dict):
-    state = memo.get("controller_resolution_state")
 
   detected = _normalize_issue_list(state.get("detected_issues"))
   remaining = _normalize_issue_list(state.get("remaining_issues"))
@@ -1091,7 +1089,10 @@ def _append_realism_iteration_details(lines: List[str], planning_run: Dict[str, 
     verification_after = item.get("verification_after") if isinstance(item.get("verification_after"), dict) else {}
     verification_payload = verification_after.get("verification") if isinstance(verification_after.get("verification"), dict) else {}
     memo_after = item.get("memo_after") if isinstance(item.get("memo_after"), dict) else {}
-    controller_after = memo_after.get("controller_resolution_state") if isinstance(memo_after.get("controller_resolution_state"), dict) else {}
+    remaining_after = [
+      issue for issue in (memo_after.get("remaining_issues") or [])
+      if isinstance(issue, dict)
+    ]
     lines.append(f"Iteration {iteration} [{phase}]")
     lines.append(f"Status: {status}")
     lines.append(f"Active Issues In: {', '.join(active_issue_codes) if active_issue_codes else 'none'}")
@@ -1100,7 +1101,7 @@ def _append_realism_iteration_details(lines: List[str], planning_run: Dict[str, 
     lines.append(f"Result Status: {str(result.get('status') or '').strip() or 'missing'}")
     lines.append(f"Verifier Status: {str(verification_after.get('status') or '').strip() or 'missing'}")
     lines.append(f"Verifier Assessment: {str(verification_payload.get('overall_assessment') or '').strip() or 'missing'}")
-    lines.append(f"Open Issues After: {len(controller_after.get('remaining_issues') or [])}")
+    lines.append(f"Open Issues After: {len(remaining_after)}")
     issue_results = [entry for entry in (verification_payload.get("issue_results") or []) if isinstance(entry, dict)]
     if issue_results:
       lines.append("Issue Results:")
