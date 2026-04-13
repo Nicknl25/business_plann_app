@@ -772,6 +772,435 @@ def _format_lease(value: Any) -> str:
   return f"{money}/{period}"
 
 
+def _parse_messages(raw: Any) -> List[Dict[str, str]]:
+  source = raw
+  if isinstance(raw, str):
+    try:
+      source = json.loads(raw)
+    except Exception:
+      source = []
+  if not isinstance(source, list):
+    return []
+  messages: List[Dict[str, str]] = []
+  for item in source:
+    if not isinstance(item, dict):
+      continue
+    role = str(item.get("role") or "").strip() or "unknown"
+    content = str(item.get("content") or "").strip()
+    focus = str(item.get("focus") or "").strip()
+    payload = {"role": role, "content": content}
+    if focus:
+      payload["focus"] = focus
+    messages.append(payload)
+  return messages
+
+
+def _append_section(lines: List[str], title: str) -> None:
+  lines.append(title)
+  lines.append("-" * len(title))
+  lines.append("")
+
+
+def _diagnostics_snapshot(planning_run: Dict[str, Any]) -> Dict[str, Any]:
+  snapshot = planning_run.get("diagnostics_snapshot") if isinstance(planning_run.get("diagnostics_snapshot"), dict) else {}
+  return snapshot if isinstance(snapshot, dict) else {}
+
+
+def _live_quarter_rows(finmo_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  rows = [item for item in (finmo_json.get("quarter_rows") or []) if isinstance(item, dict)]
+  out: List[Dict[str, Any]] = []
+  for item in rows:
+    try:
+      quarter_index = int(item.get("quarter_index") or 0)
+    except Exception:
+      quarter_index = 0
+    if quarter_index >= 1:
+      out.append(item)
+  return out
+
+
+def _statement_rows(finmo_json: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
+  return [item for item in (finmo_json.get(key) or []) if isinstance(item, dict)]
+
+
+def _annualize_statement_rows(rows: List[Dict[str, Any]], *, mode: str) -> List[Dict[str, Any]]:
+  annual_rows: List[Dict[str, Any]] = []
+  for row in rows:
+    label = str(row.get("label") or "").strip()
+    values = [float(_safe_float(item) or 0.0) for item in (row.get("values") or [])]
+    annual_values: List[float] = []
+    for start in range(0, len(values), 4):
+      chunk = values[start:start + 4]
+      if not chunk:
+        continue
+      if mode == "ending":
+        annual_values.append(float(chunk[-1]))
+      else:
+        annual_values.append(float(sum(chunk)))
+    annual_rows.append({"label": label, "values": annual_values})
+  return annual_rows
+
+
+def _append_statement_matrix(
+  lines: List[str],
+  *,
+  title: str,
+  rows: List[Dict[str, Any]],
+  period_prefix: str,
+  money: bool,
+) -> None:
+  _append_section(lines, title)
+  if not rows:
+    lines.append("No data available.")
+    lines.append("")
+    return
+  max_periods = max((len(list(item.get("values") or [])) for item in rows), default=0)
+  header = ["Row"] + [f"{period_prefix}{index}" for index in range(1, max_periods + 1)]
+  lines.append(" | ".join(header))
+  for row in rows:
+    label = str(row.get("label") or "").strip() or "Unnamed Row"
+    values = list(row.get("values") or [])
+    formatted = [_format_number(value, money=money) for value in values]
+    padded = formatted + ["" for _ in range(max(0, max_periods - len(formatted)))]
+    lines.append(" | ".join([label, *padded[:max_periods]]))
+  lines.append("")
+
+
+def _append_accounting_equation_section(lines: List[str], finmo_json: Dict[str, Any]) -> None:
+  accounting = finmo_json.get("accounting_check") if isinstance(finmo_json.get("accounting_check"), dict) else {}
+  status_values = list(accounting.get("status_values") or [])
+  numeric_values = list(accounting.get("numeric_values") or [])
+  _append_section(lines, "Accounting Equation")
+  lines.append(f"All OK: {bool(accounting.get('all_ok'))}")
+  if not status_values and not numeric_values:
+    lines.append("No accounting equation diagnostics available.")
+    lines.append("")
+    return
+  lines.append("Quarter | Status | Difference")
+  quarter_count = max(len(status_values), len(numeric_values))
+  for idx in range(quarter_count):
+    status = str(status_values[idx] if idx < len(status_values) else "").strip() or "n/a"
+    numeric = numeric_values[idx] if idx < len(numeric_values) else None
+    lines.append(f"Q{idx + 1} | {status} | {_format_number(numeric, money=True)}")
+  if numeric_values:
+    lines.append("")
+    lines.append("Year-End Accounting Equation Check")
+    lines.append("Year | Status | Difference")
+    for year_index, quarter_index in enumerate(range(4, len(numeric_values) + 1, 4), start=1):
+      status = str(status_values[quarter_index - 1] if quarter_index - 1 < len(status_values) else "").strip() or "n/a"
+      numeric = numeric_values[quarter_index - 1] if quarter_index - 1 < len(numeric_values) else None
+      lines.append(f"Y{year_index} | {status} | {_format_number(numeric, money=True)}")
+  lines.append("")
+
+
+def _controller_catalog_map(model_input_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+  catalog: Dict[str, Dict[str, Any]] = {}
+  for item in (model_input_json.get("controller_write_levers") or []):
+    if not isinstance(item, dict):
+      continue
+    lever_id = str(item.get("lever_id") or "").strip()
+    if lever_id:
+      catalog[lever_id] = dict(item)
+  lever_catalog = model_input_json.get("lever_catalog") if isinstance(model_input_json.get("lever_catalog"), dict) else {}
+  for lever_id, item in lever_catalog.items():
+    if not isinstance(item, dict):
+      continue
+    lever_key = str(lever_id or "").strip()
+    if lever_key and lever_key not in catalog:
+      payload = dict(item)
+      payload["lever_id"] = lever_key
+      catalog[lever_key] = payload
+  return catalog
+
+
+def _iter_model_input_rows(model_input_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  sections = model_input_json.get("sections") if isinstance(model_input_json.get("sections"), dict) else {}
+  rows: List[Dict[str, Any]] = []
+  for section_name in ("revenue", "expenses", "balance_sheet"):
+    for row in (sections.get(section_name) or []):
+      if isinstance(row, dict):
+        payload = dict(row)
+        payload["_section_name"] = section_name
+        rows.append(payload)
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  for row in (schedules.get("rows") or []):
+    if isinstance(row, dict):
+      payload = dict(row)
+      payload["_section_name"] = "schedules"
+      rows.append(payload)
+  return rows
+
+
+def _model_input_report_rows(model_input_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+  catalog = _controller_catalog_map(model_input_json)
+  out: List[Dict[str, Any]] = []
+  for row in _iter_model_input_rows(model_input_json):
+    lever_id = str(row.get("controller_write_lever_id") or row.get("lever_id") or "").strip()
+    values = list(row.get("values") or [])
+    if len(values) == 21:
+      values = values[1:]
+    if not any(abs(float(_safe_float(item) or 0.0)) > 1e-9 for item in values):
+      continue
+    meta = catalog.get(lever_id) or {}
+    label = (
+      str(meta.get("label_path") or "").strip()
+      or str(row.get("label") or "").strip()
+      or str(row.get("driver") or "").strip()
+      or lever_id
+      or "Unnamed Row"
+    )
+    out.append(
+      {
+        "section": str(row.get("_section_name") or meta.get("section") or "").strip() or "unknown",
+        "lever_id": lever_id,
+        "label": label,
+        "values": [float(_safe_float(item) or 0.0) for item in values[:20]],
+      }
+    )
+  out.sort(key=lambda item: (str(item.get("section") or ""), str(item.get("label") or "")))
+  return out
+
+
+def _model_input_value_map(model_input_json: Dict[str, Any]) -> Dict[str, List[float]]:
+  value_map: Dict[str, List[float]] = {}
+  for item in _model_input_report_rows(model_input_json):
+    lever_id = str(item.get("lever_id") or "").strip()
+    if lever_id:
+      value_map[lever_id] = [float(_safe_float(v) or 0.0) for v in (item.get("values") or [])]
+  return value_map
+
+
+def _append_model_input_stage(lines: List[str], *, title: str, model_input_json: Dict[str, Any]) -> None:
+  _append_section(lines, title)
+  rows = _model_input_report_rows(model_input_json)
+  if not rows:
+    lines.append("No model-input stage snapshot available.")
+    lines.append("")
+    return
+  header = ["Section", "Lever", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Q11", "Q12", "Q13", "Q14", "Q15", "Q16", "Q17", "Q18", "Q19", "Q20"]
+  lines.append(" | ".join(header))
+  for item in rows:
+    values = [_format_number(value, money=False) for value in (item.get("values") or [])]
+    padded = values + ["" for _ in range(max(0, 20 - len(values)))]
+    lines.append(
+      " | ".join(
+        [
+          str(item.get("section") or ""),
+          str(item.get("label") or item.get("lever_id") or ""),
+          *padded[:20],
+        ]
+      )
+    )
+  lines.append("")
+
+
+def _append_model_input_diff(
+  lines: List[str],
+  *,
+  title: str,
+  before_model_input_json: Dict[str, Any],
+  after_model_input_json: Dict[str, Any],
+) -> None:
+  _append_section(lines, title)
+  before_map = _model_input_value_map(before_model_input_json)
+  after_map = _model_input_value_map(after_model_input_json)
+  catalog = _controller_catalog_map(after_model_input_json or before_model_input_json)
+  diff_lines: List[str] = []
+  for lever_id in sorted(set(before_map.keys()) | set(after_map.keys())):
+    before_values = before_map.get(lever_id) or []
+    after_values = after_map.get(lever_id) or []
+    max_len = max(len(before_values), len(after_values), 20)
+    for idx in range(max_len):
+      before_value = float(before_values[idx]) if idx < len(before_values) else 0.0
+      after_value = float(after_values[idx]) if idx < len(after_values) else 0.0
+      if abs(after_value - before_value) <= 1e-9:
+        continue
+      meta = catalog.get(lever_id) or {}
+      label = str(meta.get("label_path") or "").strip() or lever_id
+      diff_lines.append(
+        f"Q{idx + 1} | {label} | {_format_number(before_value, money=False)} -> {_format_number(after_value, money=False)} | delta {_format_number(after_value - before_value, money=False)}"
+      )
+  if not diff_lines:
+    lines.append("No model-input changes in this stage.")
+  else:
+    lines.extend(diff_lines)
+  lines.append("")
+
+
+def _append_conversation(lines: List[str], messages: List[Dict[str, str]]) -> None:
+  _append_section(lines, "Full Intake Conversation")
+  if not messages:
+    lines.append("No persisted conversation available.")
+    lines.append("")
+    return
+  for item in messages:
+    role = str(item.get("role") or "unknown").strip() or "unknown"
+    focus = str(item.get("focus") or "").strip()
+    content = str(item.get("content") or "").strip()
+    if focus:
+      lines.append(f"{role} [{focus}]: {content}")
+    else:
+      lines.append(f"{role}: {content}")
+    lines.append("")
+
+
+def _append_controller_state(lines: List[str], state: Dict[str, Any]) -> None:
+  _append_section(lines, "Resolution Status")
+  lines.append(f"Owner: {str(state.get('owner') or '').strip() or 'missing'}")
+  lines.append(f"Status: {str(state.get('status') or '').strip() or 'missing'}")
+  lines.append(f"All Cleared: {bool(state.get('all_cleared'))}")
+  lines.append(f"Detected: {len(state.get('detected_issues') or [])}")
+  lines.append(f"Resolved: {len(state.get('resolved_issues') or [])}")
+  lines.append(f"Open: {len(state.get('remaining_issues') or [])}")
+  lines.append("")
+  issue_records = [item for item in (state.get("issue_status_records") or []) if isinstance(item, dict)]
+  if issue_records:
+    lines.append("Issue Status Records:")
+    for item in issue_records:
+      issue_code = str(item.get("issue_code") or item.get("issue") or "").strip()
+      status = str(item.get("status") or "").strip() or "unknown"
+      detail = str(item.get("detail") or "").strip()
+      lines.append(f"- {issue_code}: {status}")
+      if detail:
+        lines.append(f"  detail: {detail}")
+  else:
+    lines.append("No issue status records available.")
+  lines.append("")
+
+
+def _append_realism_iteration_details(lines: List[str], planning_run: Dict[str, Any]) -> None:
+  iterations = [item for item in (planning_run.get("realism_resolution_iterations") or []) if isinstance(item, dict)]
+  _append_section(lines, "Realism Iteration Diagnostics")
+  if not iterations:
+    lines.append("No realism iterations recorded.")
+    lines.append("")
+    return
+  main_iterations = [item for item in iterations if str(item.get("phase") or "").strip().lower() != "cleanup"]
+  cleanup_iterations = [item for item in iterations if str(item.get("phase") or "").strip().lower() == "cleanup"]
+  lines.append(f"Standard Iteration Count: {len(main_iterations)}")
+  lines.append(f"New-Issue / Cleanup Pass Count: {len(cleanup_iterations)}")
+  lines.append("")
+  for item in iterations:
+    iteration = int(_safe_float(item.get("iteration")) or 0)
+    phase = str(item.get("phase") or "").strip() or "unknown"
+    status = str(item.get("status") or "").strip() or "missing"
+    active_issue_codes = [str(code or "").strip() for code in (item.get("active_issue_codes") or []) if str(code or "").strip()]
+    decision = item.get("decision") if isinstance(item.get("decision"), dict) else {}
+    plan = item.get("plan") if isinstance(item.get("plan"), dict) else {}
+    result = item.get("result") if isinstance(item.get("result"), dict) else {}
+    verification_after = item.get("verification_after") if isinstance(item.get("verification_after"), dict) else {}
+    verification_payload = verification_after.get("verification") if isinstance(verification_after.get("verification"), dict) else {}
+    memo_after = item.get("memo_after") if isinstance(item.get("memo_after"), dict) else {}
+    controller_after = memo_after.get("controller_resolution_state") if isinstance(memo_after.get("controller_resolution_state"), dict) else {}
+    lines.append(f"Iteration {iteration} [{phase}]")
+    lines.append(f"Status: {status}")
+    lines.append(f"Active Issues In: {', '.join(active_issue_codes) if active_issue_codes else 'none'}")
+    lines.append(f"Decision Status: {str(decision.get('status') or '').strip() or 'missing'}")
+    lines.append(f"Plan Status: {str(plan.get('status') or '').strip() or 'missing'}")
+    lines.append(f"Result Status: {str(result.get('status') or '').strip() or 'missing'}")
+    lines.append(f"Verifier Status: {str(verification_after.get('status') or '').strip() or 'missing'}")
+    lines.append(f"Verifier Assessment: {str(verification_payload.get('overall_assessment') or '').strip() or 'missing'}")
+    lines.append(f"Open Issues After: {len(controller_after.get('remaining_issues') or [])}")
+    issue_results = [entry for entry in (verification_payload.get("issue_results") or []) if isinstance(entry, dict)]
+    if issue_results:
+      lines.append("Issue Results:")
+      for entry in issue_results:
+        code = str(entry.get("issue_code") or "").strip()
+        verdict = str(entry.get("status") or "").strip()
+        reason = str(entry.get("verification_reason") or "").strip()
+        next_levers = [str(lever or "").strip() for lever in (entry.get("next_required_lever_ids") or []) if str(lever or "").strip()]
+        lines.append(f"- {code}: {verdict}")
+        if reason:
+          lines.append(f"  reason: {reason}")
+        if next_levers:
+          lines.append(f"  next levers: {', '.join(next_levers)}")
+    applied_updates = [entry for entry in (result.get("applied_updates") or []) if isinstance(entry, dict)]
+    if applied_updates:
+      lines.append("Applied Updates:")
+      for entry in applied_updates:
+        lever_id = str(entry.get("lever_id") or "").strip()
+        quarter_index = int(_safe_float(entry.get("quarter_index")) or 0)
+        baseline_value = _safe_float(entry.get("baseline_value"))
+        exact_value = _safe_float(entry.get("exact_value"))
+        lines.append(
+          f"- Q{quarter_index} {lever_id}: {_format_number(baseline_value, money=False)} -> {_format_number(exact_value, money=False)}"
+        )
+    fresh_issue_candidates = [entry for entry in (item.get("fresh_issue_candidates") or []) if isinstance(entry, dict)]
+    if fresh_issue_candidates:
+      lines.append("Fresh Issue Candidates:")
+      for entry in fresh_issue_candidates:
+        issue_code = str(entry.get("issue_code") or entry.get("issue") or "").strip()
+        candidate_kind = str(entry.get("candidate_kind") or "").strip() or "candidate"
+        detail = str(entry.get("detail") or "").strip()
+        lines.append(f"- {issue_code}: {candidate_kind}")
+        if detail:
+          lines.append(f"  detail: {detail}")
+    lines.append("")
+
+
+def _append_strategy_section(lines: List[str], planning_run: Dict[str, Any]) -> None:
+  review_context = planning_run.get("cash_strategy_review_context") if isinstance(planning_run.get("cash_strategy_review_context"), dict) else {}
+  review_decision = planning_run.get("cash_strategy_review_decision") if isinstance(planning_run.get("cash_strategy_review_decision"), dict) else {}
+  second_pass_plan = planning_run.get("cash_strategy_second_pass_plan") if isinstance(planning_run.get("cash_strategy_second_pass_plan"), dict) else {}
+  second_pass_result = planning_run.get("cash_strategy_second_pass_result") if isinstance(planning_run.get("cash_strategy_second_pass_result"), dict) else {}
+  effect_summary = planning_run.get("cash_strategy_effect_summary") if isinstance(planning_run.get("cash_strategy_effect_summary"), dict) else {}
+  _append_section(lines, "Final Strategy Pass")
+  lines.append(f"Selected Cash Strategy: {str(effect_summary.get('selected_cash_strategy') or review_decision.get('selected_cash_strategy') or '').strip() or 'missing'}")
+  lines.append(f"Review Status: {str(effect_summary.get('review_status') or review_decision.get('review_status') or '').strip() or 'missing'}")
+  lines.append(f"Decision Trigger Type: {str(effect_summary.get('decision_trigger_type') or review_decision.get('decision_trigger_type') or '').strip() or 'missing'}")
+  lines.append(f"Recommendation Mode: {str(effect_summary.get('recommendation_mode') or review_decision.get('recommendation_mode') or '').strip() or 'missing'}")
+  lines.append(f"Second Pass Status: {str(effect_summary.get('second_pass_status') or second_pass_result.get('status') or '').strip() or 'missing'}")
+  lines.append(f"Recommended Action Count: {int(_safe_float(effect_summary.get('recommended_action_count')) or 0)}")
+  lines.append(f"Applied Control Count: {int(_safe_float(effect_summary.get('applied_control_count')) or 0)}")
+  lines.append(f"Material Change Detected: {bool(effect_summary.get('material_change_detected'))}")
+  if str(effect_summary.get("summary_line") or "").strip():
+    lines.append(f"Summary: {str(effect_summary.get('summary_line') or '').strip()}")
+  if str(review_decision.get("decision_trigger_summary") or "").strip():
+    lines.append(f"Decision Trigger Summary: {str(review_decision.get('decision_trigger_summary') or '').strip()}")
+  if str(review_decision.get("executive_summary") or "").strip():
+    lines.append(f"Executive Summary: {str(review_decision.get('executive_summary') or '').strip()}")
+  trigger_candidates = [item for item in (review_context.get("decision_trigger_candidates") or []) if isinstance(item, dict)]
+  if trigger_candidates:
+    lines.append("Decision Trigger Candidates:")
+    for item in trigger_candidates:
+      lines.append(
+        f"- {str(item.get('trigger_type') or '').strip() or 'unknown'} :: {str(item.get('trigger_code') or '').strip() or 'unknown'}"
+      )
+  recommended_actions = [item for item in (review_decision.get("recommended_actions") or []) if isinstance(item, dict)]
+  if recommended_actions:
+    lines.append("Recommended Actions:")
+    for item in recommended_actions:
+      lines.append(json.dumps(item, ensure_ascii=False, default=str))
+  planned_controls = [item for item in (second_pass_plan.get("controls") or []) if isinstance(item, dict)]
+  if planned_controls:
+    lines.append("Second-Pass Planned Controls:")
+    for item in planned_controls:
+      lines.append(json.dumps(item, ensure_ascii=False, default=str))
+  applied_updates = [item for item in (second_pass_result.get("applied_updates") or []) if isinstance(item, dict)]
+  if applied_updates:
+    lines.append("Second-Pass Applied Updates:")
+    for item in applied_updates:
+      lines.append(
+        f"- Q{int(_safe_float(item.get('quarter_index')) or 0)} {str(item.get('lever_id') or '').strip()}: "
+        f"{_format_number(item.get('baseline_value'), money=False)} -> {_format_number(item.get('exact_value'), money=False)}"
+      )
+  else:
+    lines.append("Second-Pass Applied Updates: none")
+  lines.append("Effect Deltas:")
+  lines.append(f"- Final Cash Delta: {_format_number(effect_summary.get('delta_final_cash'), money=True)}")
+  lines.append(f"- Peak Cash Delta: {_format_number(effect_summary.get('delta_peak_cash'), money=True)}")
+  lines.append(f"- Changed Cash Quarter Count: {int(_safe_float(effect_summary.get('changed_cash_quarter_count')) or 0)}")
+  delta_summary = effect_summary.get("delta_summary") if isinstance(effect_summary.get("delta_summary"), dict) else {}
+  for key in (
+    "marketing_total_delta",
+    "payroll_total_delta",
+    "capital_expenditures_total_delta",
+    "principal_repayment_total_delta",
+  ):
+    lines.append(f"- {key}: {_format_number(delta_summary.get(key), money=True)}")
+  lines.append("")
+
+
 def _is_allowed_fact_key(key: str) -> bool:
   raw = str(key or "").strip()
   if not raw or raw.count(".") != 1:
@@ -1096,11 +1525,13 @@ def _artifact_seed(*, seed: str, draft_id: Optional[str]) -> str:
 
 def _save_run_report(
   *,
+  base_url: str,
   output_dir: str,
   seed: str,
   bootstrap: Optional[Bootstrap],
   transcript: List[Dict[str, str]],
   draft_id: Optional[str],
+  client_id: Optional[str],
   status: str,
   stop_reason: str,
   written_at: Optional[datetime] = None,
@@ -1109,31 +1540,156 @@ def _save_run_report(
     os.makedirs(output_dir, exist_ok=True)
     now = written_at or _eastern_now()
     path = _build_run_artifact_path(output_dir=output_dir, seed=seed, written_at=now)
+    snapshot = _fetch_persisted_state_snapshot(base_url=base_url, draft_id=draft_id)
+    row = (
+      (((snapshot.get("payload") or {}) if isinstance(snapshot.get("payload"), dict) else {}).get("row") or {})
+      if isinstance(snapshot, dict)
+      else {}
+    )
+    planning_run = _parse_planning_run(row.get("planning_run_json"))
+    controller_state = _parse_controller_resolution_state(
+      planning_run_raw=planning_run,
+      memo_raw=(row or {}).get("realism_memo_json"),
+    )
+    diagnostics = _diagnostics_snapshot(planning_run)
+    messages = _parse_messages((row or {}).get("messages_json"))
+    baseline_model_input_json = diagnostics.get("baseline_model_input_json") if isinstance(diagnostics.get("baseline_model_input_json"), dict) else {}
+    baseline_finmo_json = diagnostics.get("baseline_finmo_json") if isinstance(diagnostics.get("baseline_finmo_json"), dict) else {}
+    grid_applied_model_input_json = diagnostics.get("grid_applied_model_input_json") if isinstance(diagnostics.get("grid_applied_model_input_json"), dict) else {}
+    grid_applied_finmo_json = diagnostics.get("grid_applied_finmo_json") if isinstance(diagnostics.get("grid_applied_finmo_json"), dict) else {}
+    realism_resolved_model_input_json = diagnostics.get("realism_resolved_model_input_json") if isinstance(diagnostics.get("realism_resolved_model_input_json"), dict) else {}
+    realism_resolved_finmo_json = diagnostics.get("realism_resolved_finmo_json") if isinstance(diagnostics.get("realism_resolved_finmo_json"), dict) else {}
+    final_model_input_json = diagnostics.get("final_model_input_json") if isinstance(diagnostics.get("final_model_input_json"), dict) else {}
+    final_finmo_json = diagnostics.get("final_finmo_json") if isinstance(diagnostics.get("final_finmo_json"), dict) else {}
+    if not final_model_input_json and isinstance(row.get("model_input_json"), dict):
+      final_model_input_json = dict(row.get("model_input_json") or {})
+    if not final_finmo_json and isinstance(row.get("finmo_json"), dict):
+      final_finmo_json = dict(row.get("finmo_json") or {})
+    if not realism_resolved_model_input_json:
+      realism_resolved_model_input_json = dict(final_model_input_json or {})
+    if not realism_resolved_finmo_json:
+      realism_resolved_finmo_json = dict(final_finmo_json or {})
+    if not grid_applied_model_input_json:
+      grid_applied_model_input_json = dict(realism_resolved_model_input_json or {})
+    if not grid_applied_finmo_json:
+      grid_applied_finmo_json = dict(realism_resolved_finmo_json or {})
+    if not baseline_model_input_json:
+      baseline_model_input_json = dict(grid_applied_model_input_json or {})
+    if not baseline_finmo_json:
+      baseline_finmo_json = dict(grid_applied_finmo_json or {})
+    transcript_for_appendix = messages or transcript
 
     lines: List[str] = []
-    lines.append(f"Test Run: {seed}")
+    lines.append(f"Master Run Report: {seed}")
     lines.append(f"Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S')}")
     if bootstrap:
       lines.append(f"Bootstrapped Business: {bootstrap.business_name}")
       lines.append(f"Business Start Date: {bootstrap.business_start_date}")
       lines.append(f"Address: {bootstrap.address}")
+    if isinstance(row, dict) and row:
+      lines.append(f"Business Name: {str(row.get('business_name') or '').strip() or (bootstrap.business_name if bootstrap else '')}")
     if draft_id:
       lines.append(f"Draft ID: {draft_id}")
+    if client_id:
+      lines.append(f"Client ID: {client_id}")
     lines.append(f"Status: {status}")
     lines.append(f"Stop Reason: {stop_reason}")
     lines.append("")
-    lines.append("Transcript")
-    lines.append("----------")
+    _append_controller_state(lines, controller_state)
+    _append_accounting_equation_section(lines, final_finmo_json)
+    _append_realism_memo_lines(lines, controller_state)
     lines.append("")
-    for item in transcript:
-      role = str(item.get("role") or "?")
-      focus = str(item.get("focus") or "").strip()
-      content = str(item.get("content") or "").strip()
-      if focus:
-        lines.append(f"{role} [{focus}]: {content}")
-      else:
-        lines.append(f"{role}: {content}")
+    _append_realism_resolution_lines(lines, planning_run, controller_state)
+    lines.append("")
+    _append_realism_iteration_details(lines, planning_run)
+    _append_strategy_section(lines, planning_run)
+    _append_statement_matrix(
+      lines,
+      title="P&L By Quarter",
+      rows=_statement_rows(final_finmo_json, "pl"),
+      period_prefix="Q",
+      money=True,
+    )
+    _append_statement_matrix(
+      lines,
+      title="P&L By Year",
+      rows=_annualize_statement_rows(_statement_rows(final_finmo_json, "pl"), mode="sum"),
+      period_prefix="Y",
+      money=True,
+    )
+    _append_statement_matrix(
+      lines,
+      title="Balance Sheet By Quarter",
+      rows=_statement_rows(final_finmo_json, "balance_sheet"),
+      period_prefix="Q",
+      money=True,
+    )
+    _append_statement_matrix(
+      lines,
+      title="Balance Sheet By Year",
+      rows=_annualize_statement_rows(_statement_rows(final_finmo_json, "balance_sheet"), mode="ending"),
+      period_prefix="Y",
+      money=True,
+    )
+    _append_statement_matrix(
+      lines,
+      title="Cash Flow By Quarter",
+      rows=_statement_rows(final_finmo_json, "cash_flow"),
+      period_prefix="Q",
+      money=True,
+    )
+    _append_statement_matrix(
+      lines,
+      title="Cash Flow By Year",
+      rows=_annualize_statement_rows(_statement_rows(final_finmo_json, "cash_flow"), mode="sum"),
+      period_prefix="Y",
+      money=True,
+    )
+    _append_model_input_stage(lines, title="Initial Base Spread Model Input", model_input_json=baseline_model_input_json)
+    _append_model_input_stage(lines, title="Grid-Applied Model Input", model_input_json=grid_applied_model_input_json)
+    _append_model_input_diff(
+      lines,
+      title="Diff: Base Spread -> Grid Applied",
+      before_model_input_json=baseline_model_input_json,
+      after_model_input_json=grid_applied_model_input_json,
+    )
+    _append_model_input_stage(lines, title="Realism-Resolved Model Input", model_input_json=realism_resolved_model_input_json)
+    _append_model_input_diff(
+      lines,
+      title="Diff: Grid Applied -> Realism Resolved",
+      before_model_input_json=grid_applied_model_input_json,
+      after_model_input_json=realism_resolved_model_input_json,
+    )
+    _append_model_input_stage(lines, title="Final Strategy Model Input", model_input_json=final_model_input_json)
+    _append_model_input_diff(
+      lines,
+      title="Diff: Realism Resolved -> Final Strategy",
+      before_model_input_json=realism_resolved_model_input_json,
+      after_model_input_json=final_model_input_json,
+    )
+    _append_conversation(lines, messages)
+    _append_section(lines, "Run Transcript Appendix")
+    if transcript:
+      for item in transcript:
+        role = str(item.get("role") or "?")
+        focus = str(item.get("focus") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if focus:
+          lines.append(f"{role} [{focus}]: {content}")
+        else:
+          lines.append(f"{role}: {content}")
+        lines.append("")
+    else:
+      lines.append("No local simulator transcript available.")
       lines.append("")
+    _append_section(lines, "Raw Planning Payload Appendix")
+    lines.append(json.dumps(planning_run, indent=2, ensure_ascii=False, default=str))
+    lines.append("")
+    _append_section(lines, "Raw Controller State Appendix")
+    lines.append(json.dumps(controller_state, indent=2, ensure_ascii=False, default=str))
+    lines.append("")
+    _append_section(lines, "Raw Persisted Snapshot Appendix")
+    lines.append(json.dumps(snapshot, indent=2, ensure_ascii=False, default=str))
 
     with open(path, "w", encoding="utf-8") as handle:
       handle.write("\n".join(lines).rstrip() + "\n")
@@ -1525,11 +2081,13 @@ def _run_single_seed(
     written_at = _eastern_now()
     artifact_seed = _artifact_seed(seed=seed, draft_id=draft_id)
     path = _save_run_report(
+      base_url=base_url,
       output_dir=output_dir,
       seed=artifact_seed,
       bootstrap=bootstrap,
       transcript=transcript,
       draft_id=draft_id,
+      client_id=client_id,
       status=status,
       stop_reason=stop_reason,
       written_at=written_at,

@@ -19,9 +19,13 @@ Hard rules:
 - An issue is resolved only if the updated model no longer exhibits that specific contradiction.
 - If an issue is only partly improved, mark it `partially_resolved`.
 - If the issue is still present, mark it `not_resolved`.
+- Separate economic materiality from mathematical perfection.
+- If the core business contradiction is gone and only small localized numeric drift remains, keep the status honest, but mark `remaining_issue_materiality` as `immaterial` and give a low `remaining_issue_severity_score`.
+- If the remaining gap is still economically meaningful, persistent, or contradiction-driven, mark `remaining_issue_materiality` as `material` and give a higher `remaining_issue_severity_score`.
 - Use actual quarter-level reasoning.
 - If the problem persists only in certain periods, list the exact `remaining_problem_quarters`.
 - If another repair pass is still needed, name the `next_required_lever_ids` that would most directly address the remaining problem.
+- If another repair pass is not actually needed, leave `next_required_lever_ids` empty.
 - Do not invent new issues here. Verify the issues you were given.
 - If a milestone exists and the repaired model still fails to materially manifest the milestone by its intended timing, do not over-credit the repair. Treat milestone non-manifestation as evidence that a related issue remains open or only partially resolved.
 
@@ -40,5 +44,13 @@ Output expectations:
   - `all_resolved` only if every issue is truly resolved
   - `partially_resolved` if at least one issue improved but one or more still remain
   - `not_resolved` if the repair did not meaningfully solve the original set
+- `remaining_issue_materiality` must be:
+  - `immaterial` only when the remaining gap is small, localized, non-compounding, and does not justify another realism repair pass
+  - `material` when the issue still meaningfully affects realism, viability, contradiction removal, or milestone manifestation
+- `remaining_issue_severity_score` must be a 0-100 estimate of how much of the original contradiction still remains after the repair:
+  - 0 means no contradiction remains
+  - 1-15 means tiny residual imperfection only
+  - 16-40 means noticeable but limited remaining issue
+  - 41-100 means materially unresolved
 - `verification_reason` must explain why the issue is or is not resolved.
 - `observed_improvement_summary` should describe what got better, if anything.
