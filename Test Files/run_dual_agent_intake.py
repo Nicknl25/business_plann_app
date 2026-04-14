@@ -610,6 +610,49 @@ def _grid_exact_value_map(planning_run: Dict[str, Any]) -> Dict[str, Dict[int, f
   return row_map
 
 
+def _final_verification_assessment(planning_run: Dict[str, Any], state: Dict[str, Any]) -> str:
+  controller_status = str((state or {}).get("status") or "").strip()
+  strategy_recheck = (
+    ((planning_run.get("cash_strategy_second_pass_result") or {}).get("strategy_recheck_verification") or {})
+    if isinstance((planning_run.get("cash_strategy_second_pass_result") or {}).get("strategy_recheck_verification"), dict)
+    else {}
+  )
+  strategy_recheck_payload = (
+    strategy_recheck.get("verification")
+    if isinstance(strategy_recheck.get("verification"), dict)
+    else {}
+  )
+  if strategy_recheck_payload:
+    assessment = str(strategy_recheck_payload.get("overall_assessment") or "").strip()
+    source = "strategy_recheck_verification.overall_assessment"
+  else:
+    assessment = controller_status
+    source = "controller_resolution_state.status"
+
+  normalized_assessment = assessment.lower()
+  normalized_controller = controller_status.lower()
+  resolved_values = {"all_resolved", "all_cleared", "resolved"}
+
+  if normalized_controller == "all_cleared" and normalized_assessment not in resolved_values:
+    raise RuntimeError(
+      "final_reporting_truth_conflict: "
+      f"summary assessment {assessment or 'missing'} from {source} conflicts with "
+      f"controller_resolution_state.status={controller_status or 'missing'}"
+    )
+  if normalized_controller != "all_cleared" and normalized_assessment in resolved_values:
+    raise RuntimeError(
+      "final_reporting_truth_conflict: "
+      f"summary assessment {assessment or 'missing'} from {source} conflicts with "
+      f"controller_resolution_state.status={controller_status or 'missing'}"
+    )
+  if not assessment:
+    raise RuntimeError(
+      "final_reporting_truth_conflict: missing final verification assessment "
+      f"from {source} with controller_resolution_state.status={controller_status or 'missing'}"
+    )
+  return assessment
+
+
 def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, Any], state: Dict[str, Any]) -> None:
   result = planning_run.get("realism_resolution_result") if isinstance(planning_run.get("realism_resolution_result"), dict) else {}
   decision = planning_run.get("realism_resolution_decision") if isinstance(planning_run.get("realism_resolution_decision"), dict) else {}
@@ -624,8 +667,7 @@ def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, A
   lines.append(f"Resolution Summary Status: {str(state.get('status') or '').strip() or 'missing'}")
   lines.append(f"All Cleared: {bool(state.get('all_cleared'))}")
   verification_payload = verification.get("verification") if isinstance(verification.get("verification"), dict) else {}
-  if verification_payload:
-    lines.append(f"Verification Assessment: {str(verification_payload.get('overall_assessment') or '').strip() or 'missing'}")
+  lines.append(f"Verification Assessment: {_final_verification_assessment(planning_run, state)}")
   lines.append(f"Applied Realism Updates: {len(updates)}")
   issue_results = [item for item in (verification_payload.get("issue_results") or []) if isinstance(item, dict)]
   if issue_results:
