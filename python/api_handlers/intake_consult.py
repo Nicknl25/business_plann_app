@@ -1634,6 +1634,46 @@ def _load_realism_resolution_prompt() -> str:
     ).strip()
 
 
+def _planning_mode_prompt_text(planning_mode: Any) -> str:
+  mode = str(planning_mode or "").strip().lower()
+  if not mode:
+    return ""
+  try:
+    from client_intake_and_finmo.quarter_grid import planning_mode_text  # type: ignore
+  except Exception:
+    try:
+      from quarter_grid import planning_mode_text  # type: ignore
+    except Exception:
+      planning_mode_text = None  # type: ignore
+  if planning_mode_text is None:
+    return ""
+  try:
+    return str(planning_mode_text(mode) or "").strip()
+  except Exception:
+    return ""
+
+
+def _build_planning_mode_context(
+  *,
+  planning_mode: Any,
+  planning_mode_reason: Any = "",
+  prompt_file: Any = "",
+) -> Dict[str, Any]:
+  mode = str(planning_mode or "").strip().lower()
+  return {
+    "planning_mode": mode,
+    "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    "prompt_file": str(prompt_file or "").strip(),
+    "mode_prompt_text": _planning_mode_prompt_text(mode),
+    "carryforward_instruction": (
+      "Continue this exact quarter-grid planning mode downstream. "
+      "Do not invent a new posture or reinterpret the mode."
+      if mode
+      else ""
+    ),
+  }
+
+
 _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
   "operating_model_contradiction": {
     "title": "operating_model_contradiction",
@@ -2983,6 +3023,9 @@ def _run_realism_resolution_openai(
   business_facts: Dict[str, Any],
   ops_json: Dict[str, Any],
   financials_json: Dict[str, Any],
+  planning_mode: str,
+  planning_mode_reason: str,
+  planning_mode_prompt_file: str,
   planner_issue_state: Dict[str, Any],
   solved_model_input_json: Dict[str, Any],
   solved_finmo_json: Dict[str, Any],
@@ -3023,6 +3066,11 @@ def _run_realism_resolution_openai(
     "draft_id": str(draft_id or "").strip(),
     "current_iteration": int(current_iteration or 1),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "planning_mode_context": _build_planning_mode_context(
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=planning_mode_prompt_file,
+    ),
     "ops_json": ops_json,
     "ops_milestones": _build_realism_milestone_context(
       ops_json=ops_json,
@@ -3155,6 +3203,9 @@ def _run_realism_verification_openai(
   draft_id: str,
   business_facts: Dict[str, Any],
   ops_json: Dict[str, Any],
+  planning_mode: str,
+  planning_mode_reason: str,
+  planning_mode_prompt_file: str,
   realism_memo_before_resolution: Dict[str, Any],
   realism_resolution_decision: Dict[str, Any],
   realism_resolution_plan: Dict[str, Any],
@@ -3205,6 +3256,11 @@ def _run_realism_verification_openai(
   user_context = {
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "planning_mode_context": _build_planning_mode_context(
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=planning_mode_prompt_file,
+    ),
     "ops_milestones": _build_realism_milestone_context(
       ops_json=ops_json,
       solved_model_input_json=updated_model_input_json,
@@ -3277,6 +3333,9 @@ def _run_cash_strategy_review_openai(
   business_facts: Dict[str, Any],
   ops_json: Dict[str, Any],
   financials_json: Dict[str, Any],
+  planning_mode: str,
+  planning_mode_reason: str,
+  planning_mode_prompt_file: str,
   first_pass_handoff: Dict[str, Any],
   cash_strategy_review_context: Dict[str, Any],
   solved_model_input_json: Dict[str, Any],
@@ -3317,6 +3376,11 @@ def _run_cash_strategy_review_openai(
   user_context = {
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "planning_mode_context": _build_planning_mode_context(
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=planning_mode_prompt_file,
+    ),
     "selected_cash_strategy": selected_cash_strategy,
     "first_pass_handoff": first_pass_handoff,
     "cash_strategy_review_context": cash_strategy_review_context,
@@ -4058,6 +4122,9 @@ def _run_realism_resolution_loop(
       business_facts=copy.deepcopy(business_facts or {}),
       ops_json=copy.deepcopy(ops_json or {}),
       financials_json=copy.deepcopy(financials_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      planning_mode_prompt_file=prompt_file,
       planner_issue_state=copy.deepcopy(planner_issue_state),
       solved_model_input_json=copy.deepcopy(current_model_input),
       solved_finmo_json=copy.deepcopy(current_finmo),
@@ -4108,6 +4175,9 @@ def _run_realism_resolution_loop(
       draft_id=str(draft_id or "").strip(),
       business_facts=copy.deepcopy(business_facts or {}),
       ops_json=copy.deepcopy(ops_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      planning_mode_prompt_file=prompt_file,
       realism_memo_before_resolution=copy.deepcopy(active_memo),
       realism_resolution_decision=copy.deepcopy(decision),
       realism_resolution_plan=copy.deepcopy(plan),
@@ -4221,6 +4291,9 @@ def _run_realism_resolution_loop(
       business_facts=copy.deepcopy(business_facts or {}),
       ops_json=copy.deepcopy(ops_json or {}),
       financials_json=copy.deepcopy(financials_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      planning_mode_prompt_file=prompt_file,
       planner_issue_state=copy.deepcopy(cleanup_planner_issue_state),
       solved_model_input_json=copy.deepcopy(current_model_input),
       solved_finmo_json=copy.deepcopy(current_finmo),
@@ -4267,6 +4340,9 @@ def _run_realism_resolution_loop(
         draft_id=str(draft_id or "").strip(),
         business_facts=copy.deepcopy(business_facts or {}),
         ops_json=copy.deepcopy(ops_json or {}),
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        planning_mode_prompt_file=prompt_file,
         realism_memo_before_resolution=copy.deepcopy(cleanup_memo_before),
         realism_resolution_decision=copy.deepcopy(decision),
         realism_resolution_plan=copy.deepcopy(plan),
@@ -4326,6 +4402,9 @@ def _run_realism_resolution_loop(
           business_facts=copy.deepcopy(business_facts or {}),
           ops_json=copy.deepcopy(ops_json or {}),
           financials_json=copy.deepcopy(financials_json or {}),
+          planning_mode=planning_mode,
+          planning_mode_reason=planning_mode_reason,
+          planning_mode_prompt_file=prompt_file,
           planner_issue_state=copy.deepcopy(final_followup_planner_issue_state),
           solved_model_input_json=copy.deepcopy(current_model_input),
           solved_finmo_json=copy.deepcopy(current_finmo),
@@ -4372,6 +4451,9 @@ def _run_realism_resolution_loop(
             draft_id=str(draft_id or "").strip(),
             business_facts=copy.deepcopy(business_facts or {}),
             ops_json=copy.deepcopy(ops_json or {}),
+            planning_mode=planning_mode,
+            planning_mode_reason=planning_mode_reason,
+            planning_mode_prompt_file=prompt_file,
             realism_memo_before_resolution=copy.deepcopy(final_followup_memo_before),
             realism_resolution_decision=copy.deepcopy(decision),
             realism_resolution_plan=copy.deepcopy(plan),
@@ -9630,6 +9712,9 @@ def _run_planning_system_for_draft(
     business_facts=copy.deepcopy(business_facts or {}),
     ops_json=copy.deepcopy(ops_json or {}),
     financials_json=copy.deepcopy(financials_json or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
     first_pass_handoff=copy.deepcopy(first_pass_handoff),
     cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
     solved_model_input_json=copy.deepcopy(final_model_input_json),
@@ -9673,6 +9758,9 @@ def _run_planning_system_for_draft(
         draft_id=str(draft_id).strip(),
         business_facts=copy.deepcopy(business_facts or {}),
         ops_json=copy.deepcopy(ops_json or {}),
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
         realism_memo_before_resolution=copy.deepcopy(strategy_recheck_memo),
         realism_resolution_decision={
           "decision": {
