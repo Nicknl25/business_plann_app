@@ -61,6 +61,8 @@ COMPETITIVE_ADVANTAGE_QUESTION = "Does this accurately reflect what truly sets t
 _RETRYABLE_STATUS = {429, 502, 503, 504}
 _CASH_STRATEGY_REVIEW_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "cash_strategy_review"
 _CASH_STRATEGY_REVIEW_PROMPT_PATH = _CASH_STRATEGY_REVIEW_PROMPTS_DIR / "reviewer.md"
+_FINAL_STABILIZER_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "final_stabilizer"
+_FINAL_STABILIZER_PROMPT_PATH = _FINAL_STABILIZER_PROMPTS_DIR / "reviewer.md"
 _REALISM_RESOLUTION_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "realism_resolution"
 _REALISM_RESOLUTION_PROMPT_PATH = _REALISM_RESOLUTION_PROMPTS_DIR / "reviewer.md"
 _REALISM_MAX_ITERATIONS = 3
@@ -962,6 +964,11 @@ def _build_planning_run_payload(
   cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
   cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
   cash_strategy_effect_summary: Optional[Dict[str, Any]] = None,
+  final_stabilizer_context: Optional[Dict[str, Any]] = None,
+  final_stabilizer_decision: Optional[Dict[str, Any]] = None,
+  final_stabilizer_pass_plan: Optional[Dict[str, Any]] = None,
+  final_stabilizer_pass_result: Optional[Dict[str, Any]] = None,
+  final_stabilizer_effect_summary: Optional[Dict[str, Any]] = None,
   diagnostics_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   payload: Dict[str, Any] = {
@@ -989,6 +996,11 @@ def _build_planning_run_payload(
     "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan or {}),
     "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result or {}),
     "cash_strategy_effect_summary": copy.deepcopy(cash_strategy_effect_summary or {}),
+    "final_stabilizer_context": copy.deepcopy(final_stabilizer_context or {}),
+    "final_stabilizer_decision": copy.deepcopy(final_stabilizer_decision or {}),
+    "final_stabilizer_pass_plan": copy.deepcopy(final_stabilizer_pass_plan or {}),
+    "final_stabilizer_pass_result": copy.deepcopy(final_stabilizer_pass_result or {}),
+    "final_stabilizer_effect_summary": copy.deepcopy(final_stabilizer_effect_summary or {}),
     "diagnostics_snapshot": copy.deepcopy(diagnostics_snapshot or {}),
   }
   return payload
@@ -1491,6 +1503,9 @@ def _build_cash_strategy_review_context_payload(
   controller_issue_summaries = _controller_state_issue_summaries(controller_resolution_state)
   remaining_issues = controller_issue_summaries.get("remaining_issues") or []
   resolved_issues = controller_issue_summaries.get("resolved_issues") or []
+  resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
+    _controller_state_issue_status_records(controller_resolution_state)
+  )
   trailing_4_ebitda_margins = ebitda_margin_series[-4:] if len(ebitda_margin_series) >= 4 else list(ebitda_margin_series)
   final_cash = ending_cash_series[-1] if ending_cash_series else 0.0
   peak_cash = max(ending_cash_series) if ending_cash_series else 0.0
@@ -1597,9 +1612,168 @@ def _build_cash_strategy_review_context_payload(
       "ending_cash_final": ending_cash_series[-1] if ending_cash_series else 0.0,
     },
     "decision_trigger_candidates": trigger_candidates,
+    "resolved_issue_constraints": resolved_issue_constraints,
+    "resolved_issue_preservation_policy": {
+      "default_behavior": "preserve_resolved_fixes",
+      "reopen_only_when": (
+        "the improvement elsewhere is clearly larger and the tradeoff is explicitly explained"
+      ),
+    },
     "late_horizon_summary": {
       "late_negative_net_income_quarters": late_negative_net_income_quarters,
       "trailing_4_ebitda_margins": trailing_4_ebitda_margins,
+    },
+  }
+
+
+def _build_final_stabilizer_context_payload(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  current_model_input_json: Optional[Dict[str, Any]],
+  current_finmo_json: Optional[Dict[str, Any]],
+  controller_resolution_state: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  metrics = _cash_review_quarter_metrics(current_finmo_json)
+  ending_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in metrics]
+  ebitda_series = [float(_safe_float(item.get("ebitda")) or 0.0) for item in metrics]
+  net_income_series = [float(_safe_float(item.get("net_income")) or 0.0) for item in metrics]
+  revenue_series = [float(_safe_float(item.get("revenue")) or 0.0) for item in metrics]
+  negative_cash_quarters = [idx + 1 for idx, value in enumerate(ending_cash_series) if value < 0]
+  negative_net_income_quarters = [idx + 1 for idx, value in enumerate(net_income_series) if value < 0]
+  negative_ebitda_quarters = [idx + 1 for idx, value in enumerate(ebitda_series) if value < 0]
+  controller_issue_summaries = _controller_state_issue_summaries(controller_resolution_state)
+  leverage_catalog = _build_writable_lever_review_catalog(current_model_input_json)
+  min_cash = min(ending_cash_series) if ending_cash_series else 0.0
+  max_cash = max(ending_cash_series) if ending_cash_series else 0.0
+  final_cash = ending_cash_series[-1] if ending_cash_series else 0.0
+  revenue_final = revenue_series[-1] if revenue_series else 0.0
+  ebitda_final = ebitda_series[-1] if ebitda_series else 0.0
+  net_income_final = net_income_series[-1] if net_income_series else 0.0
+  return {
+    "contract_version": "final_stabilizer_context_v1",
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "planning_mode_context": _build_planning_mode_context(
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+    ),
+    "selected_cash_strategy": str((financials_json or {}).get("cash_strategy") or "").strip(),
+    "review_role": "mandatory_final_stabilizer",
+    "current_issue_summaries": controller_issue_summaries,
+    "resolved_issue_constraints": _build_strategy_resolved_issue_constraints(
+      _controller_state_issue_status_records(controller_resolution_state)
+    ),
+    "ops_milestones": _build_realism_milestone_context(
+      ops_json=ops_json,
+      solved_model_input_json=current_model_input_json,
+    ),
+    "whole_horizon_snapshot": {
+      "quarter_count": len(metrics),
+      "negative_cash_quarters": negative_cash_quarters,
+      "negative_net_income_quarters": negative_net_income_quarters,
+      "negative_ebitda_quarters": negative_ebitda_quarters,
+      "minimum_ending_cash": min_cash,
+      "maximum_ending_cash": max_cash,
+      "final_ending_cash": final_cash,
+      "final_revenue": revenue_final,
+      "final_ebitda": ebitda_final,
+      "final_net_income": net_income_final,
+      "business_appears_ongoing_concern": not negative_cash_quarters or final_cash > 0,
+    },
+    "horizon_quarter_metrics": metrics,
+    "current_model_input_json": copy.deepcopy(current_model_input_json or {}),
+    "current_finmo_quarter_rows": [row for row in ((current_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)],
+    "writable_lever_catalog": {
+      "lever_ids": [str(item.get("lever_id") or "").strip() for item in leverage_catalog if str(item.get("lever_id") or "").strip()],
+      "entries": leverage_catalog,
+    },
+  }
+
+
+def _final_stabilizer_trigger_assessment(
+  final_stabilizer_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  context = final_stabilizer_context if isinstance(final_stabilizer_context, dict) else {}
+  issue_summaries = context.get("current_issue_summaries") if isinstance(context.get("current_issue_summaries"), dict) else {}
+  horizon = context.get("whole_horizon_snapshot") if isinstance(context.get("whole_horizon_snapshot"), dict) else {}
+  remaining_issue_count = int(_safe_float(issue_summaries.get("remaining_issue_count")) or 0)
+  negative_cash_quarters = [
+    int(_safe_float(item) or 0)
+    for item in (horizon.get("negative_cash_quarters") or [])
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  negative_net_income_quarters = [
+    int(_safe_float(item) or 0)
+    for item in (horizon.get("negative_net_income_quarters") or [])
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  final_cash = float(_safe_float(horizon.get("final_ending_cash")) or 0.0)
+  final_ebitda = float(_safe_float(horizon.get("final_ebitda")) or 0.0)
+  business_appears_ongoing_concern = bool(horizon.get("business_appears_ongoing_concern"))
+  last_quarter = int(_safe_float(horizon.get("quarter_count")) or 0)
+  late_negative_net_income = [
+    quarter for quarter in negative_net_income_quarters
+    if last_quarter > 0 and quarter >= max(1, last_quarter - 3)
+  ]
+  trigger_reasons: List[str] = []
+  if remaining_issue_count > 0:
+    trigger_reasons.append("remaining_realism_issues_present")
+  if negative_cash_quarters:
+    trigger_reasons.append("negative_cash_present")
+  if final_cash <= 0:
+    trigger_reasons.append("final_cash_not_positive")
+  if late_negative_net_income:
+    trigger_reasons.append("late_negative_net_income_present")
+  if final_ebitda < 0:
+    trigger_reasons.append("final_ebitda_negative")
+  if not business_appears_ongoing_concern:
+    trigger_reasons.append("ongoing_concern_not_credible")
+  return {
+    "needs_stabilization": bool(trigger_reasons),
+    "trigger_reasons": trigger_reasons,
+    "remaining_issue_count": remaining_issue_count,
+    "negative_cash_quarter_count": len(negative_cash_quarters),
+    "late_negative_net_income_quarter_count": len(late_negative_net_income),
+    "final_cash": final_cash,
+    "final_ebitda": final_ebitda,
+  }
+
+
+def _final_stabilizer_skipped_payload(
+  *,
+  selected_cash_strategy: str,
+  trigger_assessment: Dict[str, Any],
+) -> Dict[str, Any]:
+  return {
+    "contract_version": "final_stabilizer_decision_v1",
+    "status": "skipped_not_needed",
+    "prompt_file": "client_intake_and_finmo/prompts/final_stabilizer/reviewer.md",
+    "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
+    "review_status": "skipped_not_needed",
+    "detail": "Post-strategy model did not trigger final stabilization.",
+    "decision": {
+      "recommendation_mode": "maintain",
+      "stabilization_assessment": "already_stable",
+      "ongoing_concern_assessment": "credible",
+      "decision_trigger_type": "none",
+      "decision_trigger_summary": "No stabilization trigger was detected after the strategy pass.",
+      "executive_summary": "The post-strategy model already appears to land in a credible ongoing-concern state, so the final stabilizer was skipped.",
+      "horizon_assessment_summary": (
+        "Skip gate found no remaining realism issues, no negative cash, no late negative net income, "
+        "and no clear ongoing-concern deterioration requiring a final stabilization move."
+      ),
+      "issue_resolution_summary": (
+        f"Trigger assessment: {', '.join(trigger_assessment.get('trigger_reasons') or []) or 'no trigger reasons'}."
+      ),
+      "confidence": "high",
+      "recommended_actions": [],
     },
   }
 
@@ -1622,6 +1796,21 @@ def _load_cash_strategy_review_prompt() -> str:
       "Levers do not operate in silos. When a real-world action requires coordinated changes across multiple rows, return a linked lever package rather than isolated row tweaks.\n"
       "Do not invent lever ids. Do not rebuild the whole business from scratch."
     )
+
+
+def _load_final_stabilizer_prompt() -> str:
+  try:
+    return _FINAL_STABILIZER_PROMPT_PATH.read_text(encoding="utf-8").strip()
+  except Exception:
+    return (
+      "You are the mandatory final stabilizer for a real business plan.\n"
+      "Review the whole horizon holistically after realism and strategy are complete.\n"
+      "Respect the selected planning mode and cash strategy.\n"
+      "Use one coherent coordinated management response only when needed to land the business in a credible ongoing-concern state.\n"
+      "Do not chase cosmetic perfection or rewrite the business from scratch.\n"
+      "Avoid multiple dramatic swings, but allow one meaningful structural move if realism truly requires it.\n"
+      "Use only provided writable lever ids and return structured JSON only."
+    ).strip()
 
 
 def _load_realism_resolution_prompt() -> str:
@@ -1781,6 +1970,19 @@ def _touched_lever_ids_from_result(result_payload: Optional[Dict[str, Any]]) -> 
     if lever_id and lever_id not in ids:
       ids.append(lever_id)
   return ids
+
+
+def _touched_issue_codes_from_result(result_payload: Optional[Dict[str, Any]]) -> List[str]:
+  result = result_payload if isinstance(result_payload, dict) else {}
+  codes: List[str] = []
+  for item in (result.get("applied_updates") or []):
+    if not isinstance(item, dict):
+      continue
+    for raw_code in (item.get("issue_codes") or []):
+      issue_code = str(raw_code or "").strip().lower()
+      if issue_code and issue_code not in codes:
+        codes.append(issue_code)
+  return codes
 
 
 def _normalized_issue_records(items: Any) -> List[Dict[str, str]]:
@@ -2225,6 +2427,157 @@ def _controller_state_issue_summaries(
     "detected_issues": [_core_issue_record(item) for item in records],
     "remaining_issues": [_core_issue_record(item) for item in records if _controller_issue_is_blocking(item)],
     "resolved_issues": [_core_issue_record(item) for item in records if not _controller_issue_is_blocking(item)],
+  }
+
+
+def _build_strategy_resolved_issue_constraints(
+  issue_status_records: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+  constraints: List[Dict[str, Any]] = []
+  seen: set[str] = set()
+  for item in _clone_issue_status_records(issue_status_records):
+    if _controller_issue_is_blocking(item):
+      continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    if not issue_code or issue_code in seen:
+      continue
+    seen.add(issue_code)
+    constraints.append(
+      {
+        "issue_code": issue_code,
+        "issue": str(item.get("issue") or _canonical_issue_title(issue_code, "") or issue_code).strip(),
+        "detail": str(item.get("detail") or "").strip(),
+        "verifier_status": str(item.get("verifier_status") or "").strip().lower() or "resolved",
+        "preservation_priority": "strong_constraint",
+        "preservation_rule": (
+          "Preserve this resolved fix by default during strategy. "
+          "Do not materially worsen it unless the improvement elsewhere is clearly larger "
+          "and the tradeoff is explicitly explained."
+        ),
+      }
+    )
+  return constraints
+
+
+def _build_strategy_recheck_context_payload(
+  *,
+  baseline_issue_status_records: Optional[List[Dict[str, Any]]],
+  baseline_model_input_json: Optional[Dict[str, Any]],
+  baseline_finmo_json: Optional[Dict[str, Any]],
+  second_pass_result: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  baseline_records: List[Dict[str, Any]] = []
+  baseline_resolved_issue_codes: List[str] = []
+  baseline_open_issue_codes: List[str] = []
+  for item in _clone_issue_status_records(baseline_issue_status_records):
+    normalized = _normalize_issue_record_to_controller_truth(item)
+    issue_code = str(normalized.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    baseline_records.append(
+      {
+        "issue_code": issue_code,
+        "issue": str(
+          normalized.get("issue") or _canonical_issue_title(issue_code, "") or issue_code
+        ).strip(),
+        "detail": str(normalized.get("detail") or "").strip(),
+        "verifier_status": str(normalized.get("verifier_status") or "").strip().lower(),
+        "remaining_issue_materiality": str(
+          normalized.get("remaining_issue_materiality") or ""
+        ).strip().lower(),
+        "remaining_issue_severity_score": int(
+          _safe_float(normalized.get("remaining_issue_severity_score")) or 0
+        ),
+        "remaining_problem_quarters": _normalize_realism_remaining_quarters(
+          normalized.get("remaining_problem_quarters")
+        ),
+        "next_required_lever_ids": _normalize_realism_lever_ids(
+          normalized.get("next_required_lever_ids")
+        ),
+        "iteration_needed": bool(normalized.get("iteration_needed")),
+      }
+    )
+    if _controller_issue_is_blocking(normalized):
+      baseline_open_issue_codes.append(issue_code)
+    else:
+      baseline_resolved_issue_codes.append(issue_code)
+
+  return {
+    "recheck_mode": "post_strategy_baseline_preserving",
+    "baseline_issue_status_records": baseline_records,
+    "baseline_resolved_issue_codes": baseline_resolved_issue_codes,
+    "baseline_open_issue_codes": baseline_open_issue_codes,
+    "strategy_changed_lever_ids": _touched_lever_ids_from_result(second_pass_result),
+    "strategy_changed_issue_codes": _touched_issue_codes_from_result(second_pass_result),
+    "baseline_resolved_model_input_json": copy.deepcopy(
+      baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {}
+    ),
+    "baseline_resolved_finmo_quarter_rows": [
+      row
+      for row in (((baseline_finmo_json or {}) if isinstance(baseline_finmo_json, dict) else {}).get("quarter_rows") or [])
+      if isinstance(row, dict)
+    ],
+  }
+
+
+def _build_realism_pass_consistency_context_payload(
+  *,
+  phase: str,
+  prior_issue_status_records: Optional[List[Dict[str, Any]]],
+  baseline_model_input_json: Optional[Dict[str, Any]],
+  baseline_finmo_json: Optional[Dict[str, Any]],
+  result_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  prior_records: List[Dict[str, Any]] = []
+  prior_resolved_issue_codes: List[str] = []
+  prior_open_issue_codes: List[str] = []
+  for item in _clone_issue_status_records(prior_issue_status_records):
+    normalized = _normalize_issue_record_to_controller_truth(item)
+    issue_code = str(normalized.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    prior_records.append(
+      {
+        "issue_code": issue_code,
+        "issue": str(
+          normalized.get("issue") or _canonical_issue_title(issue_code, "") or issue_code
+        ).strip(),
+        "detail": str(normalized.get("detail") or "").strip(),
+        "verifier_status": str(normalized.get("verifier_status") or "").strip().lower(),
+        "remaining_issue_materiality": str(
+          normalized.get("remaining_issue_materiality") or ""
+        ).strip().lower(),
+        "remaining_issue_severity_score": int(
+          _safe_float(normalized.get("remaining_issue_severity_score")) or 0
+        ),
+        "remaining_problem_quarters": _normalize_realism_remaining_quarters(
+          normalized.get("remaining_problem_quarters")
+        ),
+        "next_required_lever_ids": _normalize_realism_lever_ids(
+          normalized.get("next_required_lever_ids")
+        ),
+      }
+    )
+    if _controller_issue_is_blocking(normalized):
+      prior_open_issue_codes.append(issue_code)
+    else:
+      prior_resolved_issue_codes.append(issue_code)
+
+  return {
+    "phase": str(phase or "").strip().lower(),
+    "prior_issue_status_records": prior_records,
+    "prior_resolved_issue_codes": prior_resolved_issue_codes,
+    "prior_open_issue_codes": prior_open_issue_codes,
+    "changed_lever_ids": _touched_lever_ids_from_result(result_payload),
+    "changed_issue_codes": _touched_issue_codes_from_result(result_payload),
+    "baseline_model_input_json": copy.deepcopy(
+      baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {}
+    ),
+    "baseline_finmo_quarter_rows": [
+      row
+      for row in (((baseline_finmo_json or {}) if isinstance(baseline_finmo_json, dict) else {}).get("quarter_rows") or [])
+      if isinstance(row, dict)
+    ],
   }
 
 
@@ -2680,6 +3033,108 @@ def _cash_strategy_review_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]
   }
 
 
+def _final_stabilizer_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "recommendation_mode": {"type": "string", "enum": ["maintain", "adjust"]},
+      "stabilization_assessment": {
+        "type": "string",
+        "enum": ["already_stable", "stabilization_needed", "partially_stable"],
+      },
+      "ongoing_concern_assessment": {
+        "type": "string",
+        "enum": ["credible", "fragile", "not_credible"],
+      },
+      "decision_trigger_type": {
+        "type": "string",
+        "enum": ["none", "stress", "surplus", "milestone", "mixed"],
+      },
+      "decision_trigger_summary": {"type": "string"},
+      "executive_summary": {"type": "string"},
+      "horizon_assessment_summary": {"type": "string"},
+      "issue_resolution_summary": {"type": "string"},
+      "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+      "recommended_actions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": False,
+          "properties": {
+            "action_id": {"type": "string"},
+            "business_move": {"type": "string"},
+            "why_now": {"type": "string"},
+            "expected_visual_effect": {"type": "string"},
+            "coordination_notes": {"type": "string"},
+            "timing_start_q": {"type": "integer", "minimum": 1, "maximum": 20},
+            "timing_end_q": {"type": "integer", "minimum": 1, "maximum": 20},
+            "priority": {"type": "integer", "minimum": 1, "maximum": 10},
+            "boldness": {"type": "string", "enum": ["light", "moderate", "strong"]},
+            "lever_adjustments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
+                  "section": {"type": "string"},
+                  "direction": {"type": "string", "enum": ["increase", "decrease", "hold", "retime"]},
+                  "value_mode": {"type": "string", "enum": ["exact", "band"]},
+                  "exact_value": {"type": ["number", "null"]},
+                  "min_value": {"type": ["number", "null"]},
+                  "max_value": {"type": ["number", "null"]},
+                  "timing_start_q": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "timing_end_q": {"type": "integer", "minimum": 1, "maximum": 20},
+                  "business_reason": {"type": "string"},
+                  "linked_action_effect": {"type": "string"},
+                },
+                "required": [
+                  "lever_id",
+                  "section",
+                  "direction",
+                  "value_mode",
+                  "exact_value",
+                  "min_value",
+                  "max_value",
+                  "timing_start_q",
+                  "timing_end_q",
+                  "business_reason",
+                  "linked_action_effect",
+                ],
+              },
+            },
+          },
+          "required": [
+            "action_id",
+            "business_move",
+            "why_now",
+            "expected_visual_effect",
+            "coordination_notes",
+            "timing_start_q",
+            "timing_end_q",
+            "priority",
+            "boldness",
+            "lever_adjustments",
+          ],
+        },
+      },
+    },
+    "required": [
+      "recommendation_mode",
+      "stabilization_assessment",
+      "ongoing_concern_assessment",
+      "decision_trigger_type",
+      "decision_trigger_summary",
+      "executive_summary",
+      "horizon_assessment_summary",
+      "issue_resolution_summary",
+      "confidence",
+      "recommended_actions",
+    ],
+  }
+
+
 def _cash_strategy_review_failure_payload(
   *,
   selected_cash_strategy: str,
@@ -2689,6 +3144,24 @@ def _cash_strategy_review_failure_payload(
 ) -> Dict[str, Any]:
   return {
     "contract_version": "cash_strategy_review_decision_v1",
+    "status": status,
+    "prompt_file": prompt_file,
+    "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
+    "review_status": "not_completed",
+    "detail": str(detail or "").strip(),
+    "decision": {},
+  }
+
+
+def _final_stabilizer_failure_payload(
+  *,
+  selected_cash_strategy: str,
+  prompt_file: str,
+  status: str,
+  detail: str = "",
+) -> Dict[str, Any]:
+  return {
+    "contract_version": "final_stabilizer_decision_v1",
     "status": status,
     "prompt_file": prompt_file,
     "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
@@ -3206,6 +3679,9 @@ def _run_realism_verification_openai(
   planning_mode: str,
   planning_mode_reason: str,
   planning_mode_prompt_file: str,
+  protected_resolved_issue_constraints: Optional[List[Dict[str, Any]]] = None,
+  strategy_recheck_context: Optional[Dict[str, Any]] = None,
+  realism_pass_consistency_context: Optional[Dict[str, Any]] = None,
   realism_memo_before_resolution: Dict[str, Any],
   realism_resolution_decision: Dict[str, Any],
   realism_resolution_plan: Dict[str, Any],
@@ -3275,6 +3751,11 @@ def _run_realism_verification_openai(
     "updated_finmo_quarter_rows": [
       row for row in ((updated_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
     ],
+    "protected_resolved_issue_constraints": [
+      item for item in (protected_resolved_issue_constraints or []) if isinstance(item, dict)
+    ],
+    "strategy_recheck_context": copy.deepcopy(strategy_recheck_context or {}),
+    "realism_pass_consistency_context": copy.deepcopy(realism_pass_consistency_context or {}),
     "writable_lever_catalog": lever_catalog,
   }
   payload = {
@@ -3443,6 +3924,111 @@ def _run_cash_strategy_review_openai(
   }
 
 
+def _run_final_stabilizer_openai(
+  *,
+  draft_id: str,
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  planning_mode: str,
+  planning_mode_reason: str,
+  planning_mode_prompt_file: str,
+  final_stabilizer_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  prompt_file = "client_intake_and_finmo/prompts/final_stabilizer/reviewer.md"
+  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or "").strip()
+  api_key = _openai_key()
+  if not api_key:
+    return _final_stabilizer_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="skipped_missing_openai_key",
+      detail="OPENAI_API_KEY is not configured.",
+    )
+
+  allowed_lever_ids = [
+    str(item or "").strip()
+    for item in ((final_stabilizer_context or {}).get("writable_lever_catalog", {}) or {}).get("lever_ids", [])
+    if str(item or "").strip()
+  ]
+  if not allowed_lever_ids:
+    return _final_stabilizer_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_missing_levers",
+      detail="No writable lever ids were available for final stabilization.",
+    )
+
+  system_prompt = _load_final_stabilizer_prompt()
+  user_context = {
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "planning_mode_context": _build_planning_mode_context(
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=planning_mode_prompt_file,
+    ),
+    "selected_cash_strategy": selected_cash_strategy,
+    "final_stabilizer_context": final_stabilizer_context,
+    "ops_milestones": _build_realism_milestone_context(
+      ops_json=ops_json,
+      solved_model_input_json=(final_stabilizer_context or {}).get("current_model_input_json"),
+    ),
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "final_stabilizer_decision",
+        "schema": _final_stabilizer_schema(allowed_lever_ids),
+        "strict": True,
+      }
+    },
+  }
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+  except Exception as exc:
+    return _final_stabilizer_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_openai_request",
+      detail=str(exc),
+    )
+  if resp.status_code >= 400:
+    return _final_stabilizer_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_openai_status",
+      detail=resp.text[:1200],
+    )
+  parsed = _parse_responses_json_dict(resp.json())
+  if not isinstance(parsed, dict):
+    return _final_stabilizer_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_parse",
+      detail="Unable to parse final stabilizer JSON.",
+    )
+  return {
+    "contract_version": "final_stabilizer_decision_v1",
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "selected_cash_strategy": selected_cash_strategy,
+    "review_status": "completed",
+    "detail": "",
+    "decision": parsed,
+  }
+
+
 def _quarter_count_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> int:
   model_input = model_input_json if isinstance(model_input_json, dict) else {}
   periods = [item for item in (model_input.get("periods") or []) if isinstance(item, dict)]
@@ -3562,6 +4148,106 @@ def _translate_cash_strategy_adjustment(
     return translated, None
 
   return None, f"{lever_id} has unsupported value_mode {value_mode}"
+
+
+def _build_final_stabilizer_pass_plan(
+  *,
+  review_decision_payload: Optional[Dict[str, Any]],
+  solved_model_input_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  review_payload = review_decision_payload if isinstance(review_decision_payload, dict) else {}
+  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or review_payload.get("selected_cash_strategy") or "").strip()
+  review_status = str(review_payload.get("status") or "").strip()
+  prompt_file = str(review_payload.get("prompt_file") or "").strip()
+  if review_status != "completed":
+    return {
+      "contract_version": "final_stabilizer_pass_plan_v1",
+      "status": "skipped_review_not_completed",
+      "selected_cash_strategy": selected_cash_strategy,
+      "prompt_file": prompt_file,
+      "review_status": review_status,
+      "default_unspecified_lever_policy": {},
+      "translated_action_packages": [],
+      "translation_warnings": [],
+      "next_step": "wait_for_completed_final_stabilizer_review",
+    }
+
+  decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
+  quarter_count = _quarter_count_from_model_input(solved_model_input_json)
+  baseline_map = _solved_lever_value_map(solved_model_input_json)
+  warnings: List[str] = []
+  translated_packages: List[Dict[str, Any]] = []
+  touched_lever_ids: List[str] = []
+
+  for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
+    translated_controls: List[Dict[str, Any]] = []
+    for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
+      translated, warning = _translate_cash_strategy_adjustment(
+        adjustment=adjustment,
+        baseline_map=baseline_map,
+        quarter_count=quarter_count,
+      )
+      if warning:
+        warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
+        continue
+      if translated:
+        translated_controls.append(translated)
+        lever_id = str(translated.get("lever_id") or "").strip()
+        if lever_id and lever_id not in touched_lever_ids:
+          touched_lever_ids.append(lever_id)
+    translated_packages.append(
+      {
+        "action_id": str(action.get("action_id") or "").strip(),
+        "business_move": str(action.get("business_move") or "").strip(),
+        "why_now": str(action.get("why_now") or "").strip(),
+        "expected_visual_effect": str(action.get("expected_visual_effect") or "").strip(),
+        "coordination_notes": str(action.get("coordination_notes") or "").strip(),
+        "timing_start_q": int(_safe_float(action.get("timing_start_q")) or 1),
+        "timing_end_q": int(_safe_float(action.get("timing_end_q")) or max(1, int(_safe_float(action.get("timing_start_q")) or 1))),
+        "priority": int(_safe_float(action.get("priority")) or 1),
+        "boldness": str(action.get("boldness") or "").strip(),
+        "translated_controls": translated_controls,
+      }
+    )
+
+  status = "ready"
+  next_step = "ready_for_final_stabilizer_application"
+  if recommendation_mode == "maintain":
+    status = "ready_maintain_first_pass"
+    next_step = "no_final_stabilizer_adjustment_required"
+  elif recommendation_mode == "adjust" and not touched_lever_ids:
+    status = "ready_no_valid_translated_controls"
+    next_step = "review_translation_warnings_before_final_stabilizer_application"
+
+  return {
+    "contract_version": "final_stabilizer_pass_plan_v1",
+    "status": status,
+    "selected_cash_strategy": selected_cash_strategy,
+    "prompt_file": prompt_file,
+    "review_status": review_status,
+    "recommendation_mode": recommendation_mode,
+    "stabilization_assessment": str(decision.get("stabilization_assessment") or "").strip(),
+    "ongoing_concern_assessment": str(decision.get("ongoing_concern_assessment") or "").strip(),
+    "decision_trigger_type": str(decision.get("decision_trigger_type") or "").strip(),
+    "decision_trigger_summary": str(decision.get("decision_trigger_summary") or "").strip(),
+    "executive_summary": str(decision.get("executive_summary") or "").strip(),
+    "horizon_assessment_summary": str(decision.get("horizon_assessment_summary") or "").strip(),
+    "issue_resolution_summary": str(decision.get("issue_resolution_summary") or "").strip(),
+    "confidence": str(decision.get("confidence") or "").strip(),
+    "baseline_source": "post_strategy_model",
+    "default_unspecified_lever_policy": {
+      "mode": "lock_to_post_strategy_values",
+      "scope": "all_unspecified_writable_levers",
+      "rationale": "Final stabilizer should only move levers explicitly prescribed by the final stabilization review.",
+    },
+    "translated_action_packages": translated_packages,
+    "translated_control_count": sum(len(item.get("translated_controls") or []) for item in translated_packages),
+    "touched_lever_ids": touched_lever_ids,
+    "translation_warnings": warnings,
+    "next_step": next_step,
+  }
 
 
 def _build_cash_strategy_second_pass_plan(
@@ -4178,6 +4864,13 @@ def _run_realism_resolution_loop(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
       planning_mode_prompt_file=prompt_file,
+      realism_pass_consistency_context=_build_realism_pass_consistency_context_payload(
+        phase="main",
+        prior_issue_status_records=copy.deepcopy(issue_ledger),
+        baseline_model_input_json=copy.deepcopy(current_model_input),
+        baseline_finmo_json=copy.deepcopy(current_finmo),
+        result_payload=copy.deepcopy(result),
+      ),
       realism_memo_before_resolution=copy.deepcopy(active_memo),
       realism_resolution_decision=copy.deepcopy(decision),
       realism_resolution_plan=copy.deepcopy(plan),
@@ -4250,6 +4943,9 @@ def _run_realism_resolution_loop(
     stop_reason = "main_loop_iteration_pending_after_iteration"
 
   fresh_scan_iteration = len(trace) + 1
+  pre_cleanup_issue_ledger = copy.deepcopy(issue_ledger)
+  pre_cleanup_model_input = copy.deepcopy(current_model_input)
+  pre_cleanup_finmo = copy.deepcopy(current_finmo)
   fresh_scan_memo = generate_realism_memo_payload_safe(
     ops_json=ops_json,
     financials_json=financials_json,
@@ -4343,6 +5039,13 @@ def _run_realism_resolution_loop(
         planning_mode=planning_mode,
         planning_mode_reason=planning_mode_reason,
         planning_mode_prompt_file=prompt_file,
+        realism_pass_consistency_context=_build_realism_pass_consistency_context_payload(
+          phase="cleanup",
+          prior_issue_status_records=copy.deepcopy(pre_cleanup_issue_ledger),
+          baseline_model_input_json=copy.deepcopy(pre_cleanup_model_input),
+          baseline_finmo_json=copy.deepcopy(pre_cleanup_finmo),
+          result_payload=copy.deepcopy(result),
+        ),
         realism_memo_before_resolution=copy.deepcopy(cleanup_memo_before),
         realism_resolution_decision=copy.deepcopy(decision),
         realism_resolution_plan=copy.deepcopy(plan),
@@ -4454,6 +5157,13 @@ def _run_realism_resolution_loop(
             planning_mode=planning_mode,
             planning_mode_reason=planning_mode_reason,
             planning_mode_prompt_file=prompt_file,
+            realism_pass_consistency_context=_build_realism_pass_consistency_context_payload(
+              phase="final_followup",
+              prior_issue_status_records=copy.deepcopy(issue_ledger),
+              baseline_model_input_json=copy.deepcopy(current_model_input),
+              baseline_finmo_json=copy.deepcopy(current_finmo),
+              result_payload=copy.deepcopy(result),
+            ),
             realism_memo_before_resolution=copy.deepcopy(final_followup_memo_before),
             realism_resolution_decision=copy.deepcopy(decision),
             realism_resolution_plan=copy.deepcopy(plan),
@@ -4691,6 +5401,88 @@ def _build_cash_strategy_effect_summary(
       "payroll_total_delta": float(_sum_series(final_payroll) - _sum_series(first_payroll)),
       "capital_expenditures_total_delta": float(_sum_series(final_capex) - _sum_series(first_capex)),
       "principal_repayment_total_delta": float(_sum_series(final_principal) - _sum_series(first_principal)),
+    },
+    "summary_line": summary_line,
+  }
+
+
+def _build_final_stabilizer_effect_summary(
+  *,
+  financials_json: Optional[Dict[str, Any]],
+  review_decision_payload: Optional[Dict[str, Any]],
+  pass_result: Optional[Dict[str, Any]],
+  pre_stabilizer_finmo_json: Optional[Dict[str, Any]],
+  final_finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  review_payload = review_decision_payload if isinstance(review_decision_payload, dict) else {}
+  decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
+  result = pass_result if isinstance(pass_result, dict) else {}
+  before_finmo = pre_stabilizer_finmo_json if isinstance(pre_stabilizer_finmo_json, dict) else {}
+  after_finmo = final_finmo_json if isinstance(final_finmo_json, dict) else {}
+
+  before_metrics = _cash_review_quarter_metrics(before_finmo)
+  after_metrics = _cash_review_quarter_metrics(after_finmo)
+
+  before_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in before_metrics]
+  after_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in after_metrics]
+  before_net_income_series = [float(_safe_float(item.get("net_income")) or 0.0) for item in before_metrics]
+  after_net_income_series = [float(_safe_float(item.get("net_income")) or 0.0) for item in after_metrics]
+
+  before_final_cash = before_cash_series[-1] if before_cash_series else 0.0
+  after_final_cash = after_cash_series[-1] if after_cash_series else 0.0
+  before_min_cash = min(before_cash_series) if before_cash_series else 0.0
+  after_min_cash = min(after_cash_series) if after_cash_series else 0.0
+  before_negative_cash_quarters = len([value for value in before_cash_series if value < 0])
+  after_negative_cash_quarters = len([value for value in after_cash_series if value < 0])
+  before_negative_net_income_quarters = len([value for value in before_net_income_series if value < 0])
+  after_negative_net_income_quarters = len([value for value in after_net_income_series if value < 0])
+
+  material_change_detected = any([
+    abs(after_final_cash - before_final_cash) > 1.0,
+    abs(after_min_cash - before_min_cash) > 1.0,
+    before_negative_cash_quarters != after_negative_cash_quarters,
+    before_negative_net_income_quarters != after_negative_net_income_quarters,
+  ])
+
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip()
+  result_status = str(result.get("status") or "").strip()
+  final_model_source = str(result.get("final_model_source") or "").strip() or "post_strategy_model"
+  summary_line = (
+    f"Final stabilizer selected `{final_model_source}` with status `{result_status}`. "
+    f"Final ending cash changed by {_format_currency(after_final_cash - before_final_cash)} "
+    f"and minimum ending cash changed by {_format_currency(after_min_cash - before_min_cash)}."
+  )
+  if recommendation_mode == "maintain":
+    summary_line += " Stabilizer determined the post-strategy model was already a credible ongoing concern."
+  elif recommendation_mode == "adjust" and not material_change_detected:
+    summary_line += " Stabilizer requested adjustment, but no material whole-horizon change was achieved."
+
+  return {
+    "contract_version": "final_stabilizer_effect_summary_v1",
+    "selected_cash_strategy": str(financials.get("cash_strategy") or "").strip(),
+    "review_status": str(review_payload.get("status") or "").strip(),
+    "recommendation_mode": recommendation_mode,
+    "stabilization_assessment": str(decision.get("stabilization_assessment") or "").strip(),
+    "ongoing_concern_assessment": str(decision.get("ongoing_concern_assessment") or "").strip(),
+    "decision_trigger_type": str(decision.get("decision_trigger_type") or "").strip(),
+    "decision_trigger_summary": str(decision.get("decision_trigger_summary") or "").strip(),
+    "recommended_action_count": len([item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]),
+    "pass_status": result_status,
+    "final_model_source": final_model_source,
+    "applied_control_count": int(_safe_float(result.get("applied_control_count")) or 0),
+    "material_change_detected": bool(material_change_detected),
+    "horizon_metrics": {
+      "pre_stabilizer_final_cash": before_final_cash,
+      "final_stabilized_cash": after_final_cash,
+      "delta_final_cash": float(after_final_cash - before_final_cash),
+      "pre_stabilizer_min_cash": before_min_cash,
+      "final_min_cash": after_min_cash,
+      "delta_min_cash": float(after_min_cash - before_min_cash),
+      "pre_negative_cash_quarters": before_negative_cash_quarters,
+      "final_negative_cash_quarters": after_negative_cash_quarters,
+      "pre_negative_net_income_quarters": before_negative_net_income_quarters,
+      "final_negative_net_income_quarters": after_negative_net_income_quarters,
     },
     "summary_line": summary_line,
   }
@@ -8171,14 +8963,8 @@ def _openai_model() -> str:
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
 
 
-def _openai_timeout_seconds() -> int:
-  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
-  if raw:
-    try:
-      return max(30, int(raw))
-    except Exception:
-      return 180
-  return 180
+def _openai_timeout_seconds() -> Optional[int]:
+  return None
 
 
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
@@ -9680,9 +10466,20 @@ def _run_planning_system_for_draft(
     iteration=realism_resolution_iteration_count,
     verification_payload=copy.deepcopy(realism_resolution_verification),
   )
+  strategy_protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
+    copy.deepcopy(realism_issue_ledger)
+  )
   resolution_summary: Dict[str, Any] = {}
   final_model_input_json = copy.deepcopy(realism_resolved_model_input_json)
   final_finmo_json = copy.deepcopy(realism_resolved_finmo_json)
+  final_stabilizer_context: Dict[str, Any] = {}
+  final_stabilizer_decision: Dict[str, Any] = {}
+  final_stabilizer_pass_plan: Dict[str, Any] = {}
+  final_stabilizer_pass_result: Dict[str, Any] = {}
+  final_stabilizer_effect_summary: Dict[str, Any] = {}
+  strategy_recheck_baseline_issue_ledger = copy.deepcopy(realism_issue_ledger)
+  strategy_recheck_baseline_model_input_json = copy.deepcopy(final_model_input_json)
+  strategy_recheck_baseline_finmo_json = copy.deepcopy(final_finmo_json)
   first_pass_handoff = _build_first_pass_handoff_payload(
     draft_id=str(draft_id).strip(),
     business_facts=copy.deepcopy(business_facts or {}),
@@ -9738,22 +10535,25 @@ def _run_planning_system_for_draft(
     final_model_input_json = copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {})
     final_finmo_json = copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {})
     strategy_recheck_iteration = max(1, realism_resolution_iteration_count + 1)
+    strategy_recheck_context = _build_strategy_recheck_context_payload(
+      baseline_issue_status_records=copy.deepcopy(strategy_recheck_baseline_issue_ledger),
+      baseline_model_input_json=copy.deepcopy(strategy_recheck_baseline_model_input_json),
+      baseline_finmo_json=copy.deepcopy(strategy_recheck_baseline_finmo_json),
+      second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+    )
     strategy_recheck_memo = _build_realism_memo_from_issue_ledger(
       before_memo=copy.deepcopy(realism_memo_json),
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
+      issue_status_records=copy.deepcopy(strategy_recheck_baseline_issue_ledger),
       resolution_summary=copy.deepcopy(resolution_summary),
       iteration=strategy_recheck_iteration,
-      issue_keys=_issue_keys_from_status_records(copy.deepcopy(realism_issue_ledger), status_filter="open"),
+      issue_keys=_issue_keys_from_status_records(copy.deepcopy(strategy_recheck_baseline_issue_ledger)),
     )
-    strategy_recheck_ledger = _filter_issue_status_records(
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-      issue_keys=_issue_keys_from_status_records(copy.deepcopy(realism_issue_ledger), status_filter="open"),
-    )
+    strategy_recheck_ledger = copy.deepcopy(strategy_recheck_baseline_issue_ledger)
     strategy_recheck_issue_packets = _build_issue_packets_from_issue_ledger(
       issue_status_records=copy.deepcopy(strategy_recheck_ledger),
       prior_decision_payload=copy.deepcopy(realism_resolution_decision),
     )
-    if strategy_recheck_issue_packets:
+    if strategy_recheck_issue_packets and (strategy_recheck_context.get("strategy_changed_lever_ids") or []):
       cash_strategy_recheck_verification = _run_realism_verification_openai(
         draft_id=str(draft_id).strip(),
         business_facts=copy.deepcopy(business_facts or {}),
@@ -9761,6 +10561,8 @@ def _run_planning_system_for_draft(
         planning_mode=planning_mode,
         planning_mode_reason=planning_mode_reason,
         planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+        protected_resolved_issue_constraints=copy.deepcopy(strategy_protected_resolved_issue_constraints),
+        strategy_recheck_context=copy.deepcopy(strategy_recheck_context),
         realism_memo_before_resolution=copy.deepcopy(strategy_recheck_memo),
         realism_resolution_decision={
           "decision": {
@@ -9787,7 +10589,7 @@ def _run_planning_system_for_draft(
         allow_new_records=False,
       )
     else:
-      strategy_recheck_ledger = []
+      strategy_recheck_ledger = copy.deepcopy(strategy_recheck_baseline_issue_ledger)
     if isinstance(cash_strategy_second_pass_result, dict):
       cash_strategy_second_pass_result["strategy_recheck_verification"] = copy.deepcopy(
         cash_strategy_recheck_verification
@@ -9817,6 +10619,161 @@ def _run_planning_system_for_draft(
     first_pass_finmo_json=copy.deepcopy(realism_resolved_finmo_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
   )
+  stabilizer_baseline_model_input_json = copy.deepcopy(final_model_input_json)
+  stabilizer_baseline_finmo_json = copy.deepcopy(final_finmo_json)
+  stabilizer_baseline_issue_ledger = copy.deepcopy(realism_issue_ledger)
+  stabilizer_protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
+    copy.deepcopy(stabilizer_baseline_issue_ledger)
+  )
+  final_stabilizer_context = _build_final_stabilizer_context_payload(
+    draft_id=str(draft_id).strip(),
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    current_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
+    current_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+  )
+  final_stabilizer_trigger_assessment = _final_stabilizer_trigger_assessment(
+    copy.deepcopy(final_stabilizer_context)
+  )
+  if final_stabilizer_trigger_assessment.get("needs_stabilization"):
+    final_stabilizer_decision = _run_final_stabilizer_openai(
+      draft_id=str(draft_id).strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+      final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+    )
+  else:
+    final_stabilizer_decision = _final_stabilizer_skipped_payload(
+      selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+      trigger_assessment=copy.deepcopy(final_stabilizer_trigger_assessment),
+    )
+  final_stabilizer_pass_plan = _build_final_stabilizer_pass_plan(
+    review_decision_payload=copy.deepcopy(final_stabilizer_decision),
+    solved_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
+    financials_json=copy.deepcopy(financials_json or {}),
+  )
+  if final_stabilizer_trigger_assessment.get("needs_stabilization"):
+    final_stabilizer_pass_result = _apply_followup_exact_updates(
+      review_plan=copy.deepcopy(final_stabilizer_pass_plan),
+      current_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
+      contract_version="final_stabilizer_pass_result_v1",
+    )
+  else:
+    final_stabilizer_pass_result = {
+      "contract_version": "final_stabilizer_pass_result_v1",
+      "status": "skipped_not_needed",
+      "final_model_source": "post_strategy_model",
+      "applied_update_count": 0,
+      "applied_control_count": 0,
+      "applied_updates": [],
+      "warnings": [],
+      "updated_model_input_json": copy.deepcopy(stabilizer_baseline_model_input_json),
+      "updated_finmo_json": copy.deepcopy(stabilizer_baseline_finmo_json),
+      "trigger_assessment": copy.deepcopy(final_stabilizer_trigger_assessment),
+    }
+  final_stabilizer_verification: Dict[str, Any] = {}
+  if (
+    final_stabilizer_trigger_assessment.get("needs_stabilization")
+    and
+    isinstance(final_stabilizer_pass_result.get("updated_model_input_json"), dict)
+    and final_stabilizer_pass_result.get("status") == "completed"
+  ):
+    final_model_input_json = copy.deepcopy(final_stabilizer_pass_result.get("updated_model_input_json") or {})
+    final_finmo_json = copy.deepcopy(final_stabilizer_pass_result.get("updated_finmo_json") or {})
+    final_stabilizer_iteration = max(1, int(_safe_float(controller_resolution_state.get("last_review_iteration")) or 0) + 1)
+    final_stabilizer_memo = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(realism_memo_json),
+      issue_status_records=copy.deepcopy(stabilizer_baseline_issue_ledger),
+      resolution_summary=copy.deepcopy(resolution_summary),
+      iteration=final_stabilizer_iteration,
+      issue_keys=_issue_keys_from_status_records(copy.deepcopy(stabilizer_baseline_issue_ledger)),
+    )
+    final_stabilizer_ledger = copy.deepcopy(stabilizer_baseline_issue_ledger)
+    final_stabilizer_issue_packets = _build_issue_packets_from_issue_ledger(
+      issue_status_records=copy.deepcopy(final_stabilizer_ledger),
+      prior_decision_payload=copy.deepcopy(realism_resolution_decision),
+    )
+    if final_stabilizer_issue_packets and ((final_stabilizer_pass_plan.get("touched_lever_ids") or []) or []):
+      final_stabilizer_verification = _run_realism_verification_openai(
+        draft_id=str(draft_id).strip(),
+        business_facts=copy.deepcopy(business_facts or {}),
+        ops_json=copy.deepcopy(ops_json or {}),
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+        protected_resolved_issue_constraints=copy.deepcopy(stabilizer_protected_resolved_issue_constraints),
+        realism_pass_consistency_context=_build_realism_pass_consistency_context_payload(
+          phase="final_stabilizer",
+          prior_issue_status_records=copy.deepcopy(stabilizer_baseline_issue_ledger),
+          baseline_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
+          baseline_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
+          result_payload=copy.deepcopy(final_stabilizer_pass_result),
+        ),
+        realism_memo_before_resolution=copy.deepcopy(final_stabilizer_memo),
+        realism_resolution_decision={
+          "decision": {
+            "issue_packets": copy.deepcopy(final_stabilizer_issue_packets),
+          }
+        },
+        realism_resolution_plan={
+          "status": "final_stabilizer_verification",
+          "translated_action_packages": [],
+        },
+        realism_resolution_result={
+          "applied_updates": copy.deepcopy(
+            final_stabilizer_pass_result.get("applied_updates") or []
+          ),
+        },
+        updated_model_input_json=copy.deepcopy(final_model_input_json),
+        updated_finmo_json=copy.deepcopy(final_finmo_json),
+      )
+      final_stabilizer_ledger = _apply_realism_verification_to_issue_status_records(
+        issue_status_records=copy.deepcopy(final_stabilizer_ledger),
+        verification_payload=copy.deepcopy(final_stabilizer_verification),
+        iteration=final_stabilizer_iteration,
+        allowed_issue_keys=_issue_keys_from_status_records(copy.deepcopy(final_stabilizer_ledger)),
+        allow_new_records=False,
+      )
+    else:
+      final_stabilizer_ledger = copy.deepcopy(stabilizer_baseline_issue_ledger)
+    if isinstance(final_stabilizer_pass_result, dict):
+      final_stabilizer_pass_result["final_stabilizer_verification"] = copy.deepcopy(
+        final_stabilizer_verification
+      )
+    resolution_summary = _build_resolution_summary_from_issue_ledger(
+      before_memo=copy.deepcopy(realism_memo_json),
+      issue_status_records=copy.deepcopy(final_stabilizer_ledger),
+      verification_payload=copy.deepcopy(final_stabilizer_verification),
+    )
+    realism_memo_json = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(realism_memo_json),
+      issue_status_records=copy.deepcopy(final_stabilizer_ledger),
+      resolution_summary=copy.deepcopy(resolution_summary),
+      iteration=final_stabilizer_iteration,
+      verification_payload=copy.deepcopy(final_stabilizer_verification),
+    )
+    realism_issue_ledger = copy.deepcopy(final_stabilizer_ledger)
+    controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+      iteration=final_stabilizer_iteration,
+      verification_payload=copy.deepcopy(final_stabilizer_verification),
+    )
+  final_stabilizer_effect_summary = _build_final_stabilizer_effect_summary(
+    financials_json=copy.deepcopy(financials_json or {}),
+    review_decision_payload=copy.deepcopy(final_stabilizer_decision),
+    pass_result=copy.deepcopy(final_stabilizer_pass_result),
+    pre_stabilizer_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
+    final_finmo_json=copy.deepcopy(final_finmo_json),
+  )
   persisted_realism_memo = _build_persisted_realism_memo_payload(
     controller_resolution_state=copy.deepcopy(controller_resolution_state),
     working_memo=copy.deepcopy(realism_memo_json),
@@ -9829,11 +10786,13 @@ def _run_planning_system_for_draft(
     "grid_applied_finmo_json": copy.deepcopy(applied_finmo_json),
     "realism_resolved_model_input_json": copy.deepcopy(realism_resolved_model_input_json),
     "realism_resolved_finmo_json": copy.deepcopy(realism_resolved_finmo_json),
+    "post_strategy_model_input_json": copy.deepcopy(stabilizer_baseline_model_input_json),
+    "post_strategy_finmo_json": copy.deepcopy(stabilizer_baseline_finmo_json),
     "final_model_input_json": copy.deepcopy(final_model_input_json),
     "final_finmo_json": copy.deepcopy(final_finmo_json),
   }
   next_planning_run_json = _build_planning_run_payload(
-    stage="cash_strategy_completed",
+    stage="final_stabilizer_completed",
     status="completed",
     controller_resolution_state=copy.deepcopy(controller_resolution_state),
     resolution_summary=copy.deepcopy(resolution_summary),
@@ -9857,6 +10816,11 @@ def _run_planning_system_for_draft(
     cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
     cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
     cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+    final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
+    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
+    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
+    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
     diagnostics_snapshot=copy.deepcopy(diagnostics_snapshot),
   )
 

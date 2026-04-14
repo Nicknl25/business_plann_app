@@ -138,10 +138,9 @@ def _timeout_env_int(name: str, default: int) -> int:
     return default
 
 
-def _openai_timeout_seconds(kind: str = "default") -> int:
-  if kind == "strategy":
-    return _timeout_env_int("GRID_STRATEGY_TIMEOUT_SECONDS", 75)
-  return _timeout_env_int("OPENAI_HTTP_TIMEOUT_SECONDS", 180)
+def _openai_timeout_seconds(kind: str = "default") -> Optional[int]:
+  del kind
+  return None
 
 
 def _post_openai(
@@ -152,7 +151,7 @@ def _post_openai(
   timeout_seconds: Optional[int] = None,
   max_attempts: int = 3,
 ) -> requests.Response:
-  timeout = max(15, int(timeout_seconds or _openai_timeout_seconds()))
+  timeout = timeout_seconds if timeout_seconds is not None else _openai_timeout_seconds()
   attempts = max(1, int(max_attempts or 1))
   last_exc: Optional[Exception] = None
   for attempt in range(attempts):

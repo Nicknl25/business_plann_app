@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
+
+
+_ENSURE_TABLE_READY = False
+_ENSURE_TABLE_LOCK = threading.Lock()
 
 
 def _utc_now_str() -> str:
@@ -73,6 +78,56 @@ def _is_valid_planning_run_payload(payload: Any) -> bool:
   return True
 
 
+def _acquire_named_lock(conn, *, lock_name: str, timeout_seconds: int = 30) -> bool:
+  cur = conn.cursor()
+  try:
+    cur.execute("SELECT GET_LOCK(%s, %s)", (str(lock_name), int(timeout_seconds)))
+    row = cur.fetchone()
+    try:
+      value = row[0] if isinstance(row, (list, tuple)) else row
+    except Exception:
+      value = row
+    return value == 1
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
+def _release_named_lock(conn, *, lock_name: str) -> None:
+  cur = conn.cursor()
+  try:
+    cur.execute("SELECT RELEASE_LOCK(%s)", (str(lock_name),))
+    cur.fetchone()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
+def _trigger_exists(conn, *, trigger_name: str) -> bool:
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      SELECT 1
+      FROM INFORMATION_SCHEMA.TRIGGERS
+      WHERE TRIGGER_SCHEMA = DATABASE()
+        AND TRIGGER_NAME = %s
+      LIMIT 1
+      """,
+      (str(trigger_name),),
+    )
+    return bool(cur.fetchone())
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
 def _ensure_completion_consistency_triggers(conn) -> None:
   cols = _table_columns(conn, "intake_consult_drafts")
   trigger_specs = {
@@ -105,7 +160,8 @@ END
   cur = conn.cursor()
   try:
     for trigger_name, event_name in trigger_specs.items():
-      cur.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+      if _trigger_exists(conn, trigger_name=trigger_name):
+        continue
       cur.execute(
         f"""
         CREATE TRIGGER {trigger_name}
@@ -129,6 +185,27 @@ END
 
 
 def ensure_table(conn) -> None:
+  global _ENSURE_TABLE_READY
+  if _ENSURE_TABLE_READY:
+    return
+  with _ENSURE_TABLE_LOCK:
+    if _ENSURE_TABLE_READY:
+      return
+    lock_name = "intake_consult_drafts_schema_bootstrap_v1"
+    lock_acquired = _acquire_named_lock(conn, lock_name=lock_name, timeout_seconds=30)
+    if not lock_acquired:
+      raise RuntimeError("intake_consult_drafts_schema_bootstrap_lock_timeout")
+    try:
+      _ensure_table_inner(conn)
+      _ENSURE_TABLE_READY = True
+    finally:
+      try:
+        _release_named_lock(conn, lock_name=lock_name)
+      except Exception:
+        pass
+
+
+def _ensure_table_inner(conn) -> None:
   cur = conn.cursor()
   try:
     cur.execute(

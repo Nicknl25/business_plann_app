@@ -412,11 +412,13 @@ def _run_live_spec(
     written_at = _DUAL._eastern_now()
     artifact_seed = _DUAL._artifact_seed(seed=seed, draft_id=draft_id)
     path = _DUAL._save_run_report(
+      base_url=base_url,
       output_dir=output_dir,
       seed=artifact_seed,
       bootstrap=bootstrap,
       transcript=transcript,
       draft_id=draft_id,
+      client_id=client_id,
       status=status,
       stop_reason=stop_reason,
       written_at=written_at,

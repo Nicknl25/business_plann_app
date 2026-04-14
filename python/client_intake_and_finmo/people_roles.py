@@ -91,15 +91,9 @@ def _openai_model() -> str:
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
 
 
-def _openai_timeout_seconds() -> int:
+def _openai_timeout_seconds() -> Optional[int]:
   _load_root_env()
-  raw = (os.getenv("OPENAI_HTTP_TIMEOUT_SECONDS") or "").strip()
-  if raw:
-    try:
-      return max(30, int(raw))
-    except Exception:
-      return 180
-  return 180
+  return None
 
 
 def _format_openai_error(resp: requests.Response) -> str:

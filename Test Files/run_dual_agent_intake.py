@@ -1358,7 +1358,7 @@ def _openai_call(
     },
   }
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  resp = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=240)
+  resp = requests.post(OPENAI_URL, headers=headers, json=payload)
   try:
     data = resp.json()
   except Exception:

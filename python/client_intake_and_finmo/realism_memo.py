@@ -116,14 +116,8 @@ def _realism_memo_model() -> str:
   ).strip() or "gpt-5.1"
 
 
-def _timeout_seconds() -> int:
-  raw = (os.getenv("REALISM_MEMO_TIMEOUT_SECONDS") or "").strip()
-  if not raw:
-    return 75
-  try:
-    return max(15, int(raw))
-  except Exception:
-    return 75
+def _timeout_seconds() -> None:
+  return None
 
 
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:

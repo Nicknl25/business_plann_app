@@ -8,6 +8,9 @@ You are given:
 - the updated solved model inputs
 - the updated quarter-level finmo outputs
 - the ops milestones with target-quarter timing where available
+- any `protected_resolved_issue_constraints` that identify realism fixes which had already been resolved before a downstream strategy action
+- any `strategy_recheck_context` that identifies the solved baseline state before a downstream strategy action
+- any `realism_pass_consistency_context` that identifies the immediately prior realism-pass baseline for this same issue family
 - the writable lever catalog
 
 Your job is not to propose a new repair plan.
@@ -32,6 +35,19 @@ Hard rules:
 - If another repair pass is not actually needed, leave `next_required_lever_ids` empty.
 - Do not invent new issues here. Verify the issues you were given.
 - If a milestone exists and the repaired model still fails to materially manifest the milestone by its intended timing, do not over-credit the repair. Treat milestone non-manifestation as evidence that a related issue remains open or only partially resolved.
+- Use the same resolution standard across `main`, `cleanup`, and `final_followup`.
+- Later realism passes are refinement passes, not stricter re-audits.
+- Do not silently raise the bar in cleanup or final follow-up relative to the immediately prior realism pass.
+- If `realism_pass_consistency_context.prior_issue_status_records` are present, treat them as the immediate consistency anchor for this verifier call.
+- If an issue was `resolved` in `realism_pass_consistency_context.prior_issue_status_records`, keep it resolved by default unless the newly applied changes materially worsened the model relative to `realism_pass_consistency_context.baseline_model_input_json` and `realism_pass_consistency_context.baseline_finmo_quarter_rows`.
+- Do not reopen a previously resolved issue merely because you would now describe the same facts more strictly.
+- Only reopen a previously resolved issue when the current pass introduced a concrete, quarter-level degradation from the prior-pass baseline.
+- If an issue was already `partially_resolved` or `not_resolved`, keep the same judgment standard in the current pass instead of re-framing the success criteria.
+- If `strategy_recheck_context.recheck_mode = post_strategy_baseline_preserving`, this is not a fresh full-model realism audit. It is a comparison of the post-strategy model against the already solved baseline in `strategy_recheck_context.baseline_issue_status_records`, `strategy_recheck_context.baseline_resolved_model_input_json`, and `strategy_recheck_context.baseline_resolved_finmo_quarter_rows`.
+- In that baseline-preserving mode, any issue that was already `resolved` in `strategy_recheck_context.baseline_issue_status_records` must remain resolved by default.
+- Only reopen a previously resolved issue if the post-strategy model shows concrete, quarter-level, materially worse behavior relative to the solved baseline.
+- Do not reopen a previously resolved issue merely because it could be questioned again in the abstract.
+- Give special weight to `strategy_recheck_context.strategy_changed_lever_ids` and `strategy_recheck_context.strategy_changed_issue_codes`. If an issue has no plausible connection to those changes, it should stay resolved unless the updated quarter outputs clearly show material degradation versus the solved baseline.
 
 Verification quality standard:
 - Be strict.
@@ -40,6 +56,13 @@ Verification quality standard:
 - Do not reward cosmetic smoothing or artificial flatness.
 - Respect the business type, operating footprint, staffing reality, pricing posture, and financing constraints.
 - Respect the selected planning mode exactly as carried in `planning_mode_context`.
+- When `realism_pass_consistency_context` is present, compare your current judgment to the immediately prior realism-pass baseline before changing a previously resolved status.
+- If `protected_resolved_issue_constraints` are present, treat them as strong preservation constraints that the downstream strategy should normally have kept intact.
+- If one of those previously resolved issues has been materially worsened, do not overlook it just because another area improved.
+- Only view reopening a previously resolved issue as acceptable when the new model shows a clearly larger improvement elsewhere and the tradeoff is explicit in the applied action logic.
+- When `strategy_recheck_context` is present, reopening a previously resolved issue requires both:
+  - explicit material degradation versus the solved baseline
+  - and a clear link between that degradation and the downstream strategy changes or resulting quarter-level outputs
 - If `planning_mode = turnaround`, do not over-credit a repair that leaves a visibly failing or delayed-working business when a believable earlier repair should have shown up.
 - If `planning_mode = normalize`, do not demand rescue behavior when the business mainly needed exaggerated assumptions corrected.
 - If `planning_mode = rebalance`, judge whether the business is now proportionate and coherent without requiring unnecessary heroics.
