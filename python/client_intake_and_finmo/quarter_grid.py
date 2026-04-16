@@ -753,6 +753,7 @@ def generate_live_quarter_grid_plan(
   }
   response_rows: List[Dict[str, Any]] = []
   batch_summaries: List[str] = []
+  batch_validation_summaries: List[Dict[str, Any]] = []
   batches = chunk_quarter_grid_rows(grid_rows, batch_size)
   started = time.perf_counter()
   for batch_offset, batch_rows in enumerate(batches, start=1):
@@ -771,13 +772,41 @@ def generate_live_quarter_grid_plan(
       planning_mode=normalized_mode,
       realism_memo_present=bool((source_row.get("realism_memo_json") or {}).get("issues")),
     )
-    response_rows.extend(batch_response.get("rows") if isinstance(batch_response.get("rows"), list) else [])
+    raw_batch_validation = validate_quarter_grid_response(
+      requested_rows=batch_rows,
+      response_json=batch_response if isinstance(batch_response, dict) else {},
+    )
+    repaired_batch_response = repair_quarter_grid_response(
+      requested_rows=batch_rows,
+      response_json=batch_response if isinstance(batch_response, dict) else {},
+    )
+    repaired_batch_validation = validate_quarter_grid_response(
+      requested_rows=batch_rows,
+      response_json=repaired_batch_response,
+    )
+    response_rows.extend(repaired_batch_response.get("rows") if isinstance(repaired_batch_response.get("rows"), list) else [])
     batch_summaries.append(str(batch_response.get("summary") or f"Batch {batch_offset} completed."))
+    batch_validation_summaries.append(
+      {
+        "batch_index": batch_offset,
+        "raw_validation": raw_batch_validation,
+        "repaired_validation": repaired_batch_validation,
+        "repair_metadata": repaired_batch_response.get("repair_metadata") if isinstance(repaired_batch_response.get("repair_metadata"), dict) else {},
+      }
+    )
   runtime_seconds = round(time.perf_counter() - started, 3)
-  response_json = {
+  raw_response_json = {
     "summary": f"Completed {len(batches)} quarter-grid probe batches.",
     "rows": response_rows,
   }
+  raw_validation = validate_quarter_grid_response(
+    requested_rows=grid_rows,
+    response_json=raw_response_json,
+  )
+  response_json = repair_quarter_grid_response(
+    requested_rows=grid_rows,
+    response_json=raw_response_json,
+  )
   validation = validate_quarter_grid_response(
     requested_rows=grid_rows,
     response_json=response_json,
@@ -791,6 +820,8 @@ def generate_live_quarter_grid_plan(
     "batch_count": len(batches),
     "batch_size": int(batch_size or 0),
     "batch_summaries": batch_summaries,
+    "batch_validation_summaries": batch_validation_summaries,
+    "raw_validation": raw_validation,
     "validation": {
       "missing_rows": list(validation.get("missing_rows") or []),
       "extra_rows": list(validation.get("extra_rows") or []),
@@ -798,6 +829,7 @@ def generate_live_quarter_grid_plan(
       "malformed_rows": list(validation.get("malformed_rows") or []),
       "flat_rows": list(validation.get("flat_rows") or []),
     },
+    "repair_metadata": response_json.get("repair_metadata") if isinstance(response_json.get("repair_metadata"), dict) else {},
     "response_summary": str(response_json.get("summary") or "").strip(),
     "response_json": response_json,
   }
@@ -868,10 +900,12 @@ def apply_exact_lever_updates_to_model_input(
     if not lever_id or row is None or value is None or quarter_index < 1 or quarter_index > QUARTER_COUNT:
       continue
     values = list(row.get("values") or [])
-    if len(values) < QUARTER_COUNT:
-      values.extend([0.0 for _ in range(QUARTER_COUNT - len(values))])
-    row["values"] = values[:QUARTER_COUNT]
-    row["values"][quarter_index - 1] = round(float(value), 6)
+    has_stub = len(values) >= QUARTER_COUNT + 1
+    target_length = QUARTER_COUNT + 1 if has_stub else QUARTER_COUNT
+    if len(values) < target_length:
+      values.extend([0.0 for _ in range(target_length - len(values))])
+    row["values"] = values[:target_length]
+    row["values"][quarter_index if has_stub else quarter_index - 1] = round(float(value), 6)
   return next_model_input
 
 
@@ -881,9 +915,9 @@ def apply_live_quarter_grid_plan(
   grid_json: Dict[str, Any],
 ) -> Dict[str, Any]:
   try:
-    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
+    from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
   except Exception:
-    from finmo_bridge import build_python_finmo_json  # type: ignore
+    from numeric_execution import execute_numeric_plan  # type: ignore
   exact_updates: List[Dict[str, Any]] = []
   for row in (grid_json.get("rows") or []):
     if not isinstance(row, dict):
@@ -901,11 +935,13 @@ def apply_live_quarter_grid_plan(
           "exact_value": float(value),
         }
       )
-  applied_model_input_json = apply_exact_lever_updates_to_model_input(
+  execution_result = execute_numeric_plan(
     model_input_json=baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {},
     exact_updates=exact_updates,
+    executor_context={"source": "apply_live_quarter_grid_plan"},
   )
-  applied_finmo_json = build_python_finmo_json(model_input_json=applied_model_input_json)
+  applied_model_input_json = execution_result.get("updated_model_input_json") or {}
+  applied_finmo_json = execution_result.get("updated_finmo_json") or {}
   return {
     "application_summary": {
       "success": True,
@@ -913,6 +949,11 @@ def apply_live_quarter_grid_plan(
       "applied_lever_count": len({str(item.get('lever_id') or '').strip() for item in exact_updates if str(item.get('lever_id') or '').strip()}),
     },
     "applied_updates": exact_updates,
+    "numeric_execution_boundary": execution_result.get("numeric_execution_boundary") or {},
+    "numeric_executor": execution_result.get("numeric_executor"),
+    "numeric_execution_plan": execution_result.get("numeric_execution_plan") or {},
+    "numeric_execution_attempts": execution_result.get("numeric_execution_attempts") or [],
+    "numeric_execution_outcome": execution_result.get("numeric_execution_outcome") or {},
     "applied_model_input_json": applied_model_input_json,
     "applied_finmo_json": applied_finmo_json,
   }
@@ -1161,6 +1202,135 @@ def call_quarter_grid_openai(
 def chunk_quarter_grid_rows(rows: List[Dict[str, Any]], batch_size: int) -> List[List[Dict[str, Any]]]:
   normalized_size = max(1, int(batch_size or 1))
   return [rows[index:index + normalized_size] for index in range(0, len(rows), normalized_size)]
+
+
+def _fallback_grid_row_from_requested(requested_row: Dict[str, Any]) -> Dict[str, Any]:
+  baseline_values = list(requested_row.get("baseline_values") or [])
+  quarter_values: List[Dict[str, Any]] = []
+  for quarter_index in range(1, QUARTER_COUNT + 1):
+    raw_value = baseline_values[quarter_index - 1] if quarter_index - 1 < len(baseline_values) else 0.0
+    value = float_or_none(raw_value)
+    quarter_values.append(
+      {
+        "quarter_index": quarter_index,
+        "value": float(value if value is not None else 0.0),
+      }
+    )
+  return {
+    "row_id": str(requested_row.get("row_id") or "").strip(),
+    "row_type": str(requested_row.get("row_type") or "lever").strip() or "lever",
+    "quarter_values": quarter_values,
+  }
+
+
+def _normalize_grid_row(
+  *,
+  requested_row: Dict[str, Any],
+  returned_row: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  fallback_row = _fallback_grid_row_from_requested(requested_row)
+  if not isinstance(returned_row, dict):
+    return fallback_row
+  quarter_values = returned_row.get("quarter_values") if isinstance(returned_row.get("quarter_values"), list) else []
+  normalized_values: Dict[int, float] = {}
+  for item in quarter_values:
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(item.get("quarter_index") or 0)
+    value = float_or_none(item.get("value"))
+    if quarter_index < 1 or quarter_index > QUARTER_COUNT or value is None:
+      continue
+    normalized_values[quarter_index] = float(value)
+  fallback_values = {
+    int(item.get("quarter_index") or 0): float_or_none(item.get("value")) or 0.0
+    for item in (fallback_row.get("quarter_values") or [])
+    if isinstance(item, dict)
+  }
+  repaired_quarter_values: List[Dict[str, Any]] = []
+  for quarter_index in range(1, QUARTER_COUNT + 1):
+    repaired_quarter_values.append(
+      {
+        "quarter_index": quarter_index,
+        "value": float(normalized_values.get(quarter_index, fallback_values.get(quarter_index, 0.0))),
+      }
+    )
+  return {
+    "row_id": str(requested_row.get("row_id") or "").strip(),
+    "row_type": str(requested_row.get("row_type") or "lever").strip() or "lever",
+    "quarter_values": repaired_quarter_values,
+  }
+
+
+def repair_quarter_grid_response(
+  *,
+  requested_rows: List[Dict[str, Any]],
+  response_json: Dict[str, Any],
+) -> Dict[str, Any]:
+  requested_map = {
+    str(item.get("row_id") or "").strip(): item
+    for item in requested_rows
+    if isinstance(item, dict) and str(item.get("row_id") or "").strip()
+  }
+  returned_rows = response_json.get("rows") if isinstance(response_json.get("rows"), list) else []
+  repaired_rows: List[Dict[str, Any]] = []
+  seen_ids: set[str] = set()
+  extras_dropped = 0
+  duplicates_dropped = 0
+  repaired_row_ids: List[str] = []
+
+  for item in returned_rows:
+    if not isinstance(item, dict):
+      continue
+    row_id = str(item.get("row_id") or "").strip()
+    if not row_id:
+      continue
+    requested_row = requested_map.get(row_id)
+    if requested_row is None:
+      extras_dropped += 1
+      continue
+    if row_id in seen_ids:
+      duplicates_dropped += 1
+      continue
+    normalized_row = _normalize_grid_row(requested_row=requested_row, returned_row=item)
+    original_quarters = item.get("quarter_values") if isinstance(item.get("quarter_values"), list) else []
+    original_map: Dict[int, float] = {}
+    for quarter_value in original_quarters:
+      if not isinstance(quarter_value, dict):
+        continue
+      quarter_index = int(quarter_value.get("quarter_index") or 0)
+      value = float_or_none(quarter_value.get("value"))
+      if 1 <= quarter_index <= QUARTER_COUNT and value is not None:
+        original_map[quarter_index] = float(value)
+    repaired_map = {
+      int(qv.get("quarter_index") or 0): float_or_none(qv.get("value")) or 0.0
+      for qv in (normalized_row.get("quarter_values") or [])
+      if isinstance(qv, dict)
+    }
+    if len(original_quarters) != QUARTER_COUNT or any(
+      abs(repaired_map.get(q, 0.0) - original_map.get(q, repaired_map.get(q, 0.0))) > 1e-9
+      for q in range(1, QUARTER_COUNT + 1)
+    ):
+      repaired_row_ids.append(row_id)
+    repaired_rows.append(normalized_row)
+    seen_ids.add(row_id)
+
+  for requested_row in requested_rows:
+    row_id = str(requested_row.get("row_id") or "").strip()
+    if not row_id or row_id in seen_ids:
+      continue
+    repaired_rows.append(_fallback_grid_row_from_requested(requested_row))
+    repaired_row_ids.append(row_id)
+
+  return {
+    "summary": str(response_json.get("summary") or "").strip(),
+    "rows": repaired_rows,
+    "repair_metadata": {
+      "extras_dropped": extras_dropped,
+      "duplicates_dropped": duplicates_dropped,
+      "repaired_or_fallback_row_ids": repaired_row_ids,
+      "repair_applied": bool(extras_dropped or duplicates_dropped or repaired_row_ids),
+    },
+  }
 
 
 def validate_quarter_grid_response(

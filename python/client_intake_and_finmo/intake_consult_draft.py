@@ -50,6 +50,7 @@ _ENGINE_JSON_COLUMNS = (
   "model_input_json",
   "finmo_json",
   "planning_run_json",
+  "numeric_solver_feedback_json",
 )
 
 
@@ -238,6 +239,7 @@ def _ensure_table_inner(conn) -> None:
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
+        numeric_solver_feedback_json LONGTEXT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
         ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
@@ -309,6 +311,8 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
   if "planning_run_json" not in cols:
     alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
+  if "numeric_solver_feedback_json" not in cols:
+    alterations.append("ADD COLUMN numeric_solver_feedback_json LONGTEXT NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -435,6 +439,7 @@ def _render_messages_for_storage(
   financials_year1_json: Optional[Dict[str, Any]] = None,
   realism_memo_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
+  numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
@@ -521,6 +526,7 @@ def append_messages(
   financials_year1_json: Optional[Dict[str, Any]] = None,
   realism_memo_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
+  numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
   pending_ops_milestone_json: Optional[Any] = None,
@@ -553,6 +559,7 @@ def append_messages(
     financials_year1_json=financials_year1_json,
     realism_memo_json=realism_memo_json,
     planning_run_json=planning_run_json,
+    numeric_solver_feedback_json=numeric_solver_feedback_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
     business_facts=business_facts,
@@ -610,6 +617,10 @@ def append_messages(
   if planning_run_json is not None:
     set_parts.append("planning_run_json = %s")
     values.append(json.dumps(planning_run_json, ensure_ascii=False))
+
+  if numeric_solver_feedback_json is not None:
+    set_parts.append("numeric_solver_feedback_json = %s")
+    values.append(json.dumps(numeric_solver_feedback_json, ensure_ascii=False))
 
   if pending_ops_milestone_json is not None:
     set_parts.append("pending_ops_milestone_json = %s")
@@ -689,6 +700,7 @@ def append_messages(
       "model_input_json",
       "finmo_json",
       "planning_run_json",
+      "numeric_solver_feedback_json",
       "pending_ops_milestone_json",
       "fulfillment_json",
       "created_at",

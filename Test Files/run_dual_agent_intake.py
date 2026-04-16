@@ -30,6 +30,20 @@ _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 US_EASTERN = ZoneInfo("America/New_York")
 
 
+def _configure_console_output() -> None:
+  for stream_name in ("stdout", "stderr"):
+    stream = getattr(sys, stream_name, None)
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+      try:
+        reconfigure(encoding="utf-8", errors="replace")
+      except Exception:
+        pass
+
+
+_configure_console_output()
+
+
 def _default_apps_root() -> str:
   env_root = str(os.getenv("INTAKE_APPS_ROOT") or "").strip()
   if env_root:

@@ -157,6 +157,7 @@ def _full_quarter_scope(slots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
   return {
     "valid_quarter_indices": valid_quarter_indices,
     "valid_period_columns": valid_period_columns,
+    "total_period_count": len([slot for slot in (slots or []) if isinstance(slot, dict)]) or len(full_slots),
     "writable_full_quarters_only": True,
   }
 
@@ -270,6 +271,7 @@ def build_python_finmo_json(
   book = FinancialModelInputs.from_model_input_json(model_input_json if isinstance(model_input_json, dict) else {})
   result = calculate_finmo_model(book)
   quarter_rows_raw = result.quarter_rows()
+  quarter_rows_with_stub = result.quarter_rows(include_stub=True)
   raw_periods = [
     _clone(item)
     for item in (((model_input_json.get("periods") or []) if isinstance(model_input_json, dict) else []) or [])
@@ -278,33 +280,50 @@ def build_python_finmo_json(
   periods: List[Dict[str, Any]] = []
   start_date_iso = _as_iso_date((model_input_json or {}).get("start_date")) if isinstance(model_input_json, dict) else None
   if raw_periods:
-    opening_year = _safe_float(raw_periods[0].get("year"))
-    if opening_year is None and start_date_iso:
-      try:
-        opening_year = float(datetime.fromisoformat(start_date_iso).year)
-      except Exception:
-        opening_year = None
-    periods.append(
-      {
-        "slot_index": 0,
-        "column_index": 4,
-        "column_letter": "D",
-        "year": opening_year,
-        "quarter": 0.0,
-        "date": start_date_iso or raw_periods[0].get("date"),
-      }
-    )
-    for idx, item in enumerate(raw_periods, start=1):
-      periods.append(
+    has_stub_period = any(_safe_float(item.get("quarter")) == 0.0 for item in raw_periods)
+    if has_stub_period:
+      periods = [
         {
-          "slot_index": idx,
-          "column_index": 4 + idx,
-          "column_letter": _column_letter(4 + idx),
+          "slot_index": int(_safe_float(item.get("slot_index")) or idx),
+          "column_index": int(_safe_float(item.get("column_index")) or (7 + idx)),
+          "column_letter": str(item.get("column_letter") or _column_letter(int(_safe_float(item.get("column_index")) or (7 + idx)))).strip(),
           "year": item.get("year"),
           "quarter": item.get("quarter"),
           "date": item.get("date"),
+          "is_stub": bool(item.get("is_stub")) or _safe_float(item.get("quarter")) == 0.0,
+        }
+        for idx, item in enumerate(raw_periods)
+      ]
+    else:
+      opening_year = _safe_float(raw_periods[0].get("year"))
+      if opening_year is None and start_date_iso:
+        try:
+          opening_year = float(datetime.fromisoformat(start_date_iso).year)
+        except Exception:
+          opening_year = None
+      periods.append(
+        {
+          "slot_index": 0,
+          "column_index": 7,
+          "column_letter": "G",
+          "year": opening_year,
+          "quarter": 0.0,
+          "date": start_date_iso or raw_periods[0].get("date"),
+          "is_stub": True,
         }
       )
+      for idx, item in enumerate(raw_periods, start=1):
+        periods.append(
+          {
+            "slot_index": idx,
+            "column_index": 7 + idx,
+            "column_letter": _column_letter(7 + idx),
+            "year": item.get("year"),
+            "quarter": item.get("quarter"),
+            "date": item.get("date"),
+            "is_stub": False,
+          }
+        )
   else:
     opening_date = start_date_iso
     opening_year = None
@@ -316,11 +335,12 @@ def build_python_finmo_json(
     periods = [
       {
         "slot_index": 0,
-        "column_index": 4,
-        "column_letter": "D",
+        "column_index": 7,
+        "column_letter": "G",
         "year": opening_year,
         "quarter": 0.0,
         "date": opening_date,
+        "is_stub": True,
       }
     ]
     for idx, row in enumerate(quarter_rows_raw, start=1):
@@ -329,11 +349,12 @@ def build_python_finmo_json(
       periods.append(
         {
           "slot_index": idx,
-          "column_index": 4 + idx,
-          "column_letter": _column_letter(4 + idx),
+          "column_index": 7 + idx,
+          "column_letter": _column_letter(7 + idx),
           "year": row.get("year"),
           "quarter": row.get("quarter"),
           "date": row.get("date"),
+          "is_stub": False,
         }
       )
 
@@ -400,38 +421,14 @@ def build_python_finmo_json(
   numeric_values = _series("accounting_equation_check")
   tolerance = 1.0
   status_values = ["OK" if abs(value) <= tolerance else "FAIL" for value in numeric_values]
-  quarter_rows: List[Dict[str, Any]] = [
-    {
-      "slot_index": 0,
-      "year": periods[0].get("year") if periods else None,
-      "quarter": 0.0,
-      "date": periods[0].get("date") if periods else None,
-      "revenue": 0,
-      "cogs": 0,
-      "gross_profit": 0,
-      "marketing": 0,
-      "research_and_development": 0,
-      "lease_rent": 0,
-      "payroll": 0,
-      "g_and_a": 0,
-      "ebitda": 0,
-      "interest": 0,
-      "depreciation": 0,
-      "taxes": 0,
-      "net_income": 0,
-      "cash": 0,
-      "total_assets": 0,
-      "total_liabilities_and_equity": 0,
-      "ending_cash": 0,
-    }
-  ]
-  for idx, row in enumerate(quarter_rows_raw):
+  quarter_rows: List[Dict[str, Any]] = []
+  for idx, row in enumerate(quarter_rows_with_stub):
     if not isinstance(row, dict):
       continue
     quarter_rows.append(
       {
-        "slot_index": idx + 1,
-        "quarter_index": int(row.get("quarter_index") or idx + 1),
+        "slot_index": idx,
+        "quarter_index": int(row.get("quarter_index") or idx),
         "year": row.get("year"),
         "quarter": row.get("quarter"),
         "date": row.get("date"),
@@ -572,6 +569,23 @@ def _full_quarter_slots(slots: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
     if isinstance(slot, dict) and _safe_float(slot.get("quarter")) not in (None, 0.0)
   ]
   return full_slots if full_slots else [_clone(slot) for slot in (slots or []) if isinstance(slot, dict)]
+
+
+def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int) -> Tuple[float, List[float]]:
+  normalized = [round(_safe_float(item) or 0.0, 6) for item in (values or [])]
+  if len(normalized) >= live_count + 1:
+    stub_value = float(normalized[0])
+    live_values = list(normalized[1:live_count + 1])
+  else:
+    stub_value = 0.0
+    live_values = list(normalized[:live_count])
+  if len(live_values) < live_count:
+    live_values.extend([0.0 for _ in range(live_count - len(live_values))])
+  return stub_value, live_values[:live_count]
+
+
+def _compose_period_values(*, stub_value: float, live_values: Sequence[Any]) -> List[float]:
+  return [round(_safe_float(stub_value) or 0.0, 6), *[round(_safe_float(item) or 0.0, 6) for item in (live_values or [])]]
 
 
 def _planned_quarter_slots(period_count: int, forecast_quarters: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -823,13 +837,25 @@ def _python_model_input_periods(*, start_date_iso: Optional[str], period_count: 
   except Exception:
     start_dt = datetime.utcnow()
     normalized_start = start_dt.date().isoformat()
-  slots: List[Dict[str, Any]] = []
-  for slot_index in range(max(0, int(period_count or 0))):
+  live_period_count = max(0, int(period_count or 0))
+  slots: List[Dict[str, Any]] = [
+    {
+      "slot_index": 0,
+      "column_index": 7,
+      "column_letter": _column_letter(7),
+      "year": float(start_dt.year),
+      "quarter": 0.0,
+      "date": normalized_start,
+      "year_fraction": 0.0,
+      "is_stub": True,
+    }
+  ]
+  for slot_index in range(live_period_count):
     period_date = _add_months(start_dt, slot_index * 3)
     column_index = 8 + slot_index
     slots.append(
       {
-        "slot_index": slot_index,
+        "slot_index": slot_index + 1,
         "column_index": column_index,
         "column_letter": _column_letter(column_index),
         "year": float(period_date.year),
@@ -857,7 +883,7 @@ def _empty_controller_write_row(
     "label": label,
     **semantics,
     **quarter_scope,
-    "values": [0.0 for _ in range(len(quarter_scope.get("valid_quarter_indices") or []))],
+    "values": [0.0 for _ in range(max(0, int(quarter_scope.get("total_period_count") or len(quarter_scope.get("valid_quarter_indices") or []))))],
   }
 
 
@@ -909,7 +935,7 @@ def _python_model_input_template(
       "lob": lob_name,
       "product": product_name,
       **quarter_scope,
-      "values": [0.0 for _ in range(len(quarter_scope.get("valid_quarter_indices") or []))],
+      "values": [0.0 for _ in range(max(0, int(quarter_scope.get("total_period_count") or len(quarter_scope.get("valid_quarter_indices") or []))))],
     }
     for driver_name in ("Capacity", "Unit Price", "Utilization"):
       semantics = _revenue_input_semantics(driver_name)
@@ -1142,6 +1168,7 @@ def _build_model_input_overlay(
     revenue_slot_key = str(row.get("revenue_slot_key") or "").strip()
     placeholder_lob = str(row.get("placeholder_lob") or row.get("lob") or "").strip()
     placeholder_product = str(row.get("placeholder_product") or row.get("product") or "").strip()
+    base_stub_value, _base_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
     resolved_identity = _resolve_row_identity_from_catalog(
       row_lob=placeholder_lob,
       row_product=placeholder_product,
@@ -1190,7 +1217,10 @@ def _build_model_input_overlay(
       elif driver == "Utilization":
         baseline_value = round(_safe_ratio(baseline_driver_map.get("utilization")) or 0.0, 6)
       values = [baseline_value for _ in slots]
-    row["values"] = values
+    row["values"] = _compose_period_values(
+      stub_value=base_stub_value,
+      live_values=values,
+    )
 
   lease_amount = _quarter_lease_amount(financials_json or {})
   revenue_total_year1 = max(
@@ -1233,6 +1263,7 @@ def _build_model_input_overlay(
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
+    base_stub_value, base_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
     values: List[float] = []
     for slot in slots:
       revenue = _safe_float(slot.get("revenue")) or 0.0
@@ -1273,14 +1304,17 @@ def _build_model_input_overlay(
       elif label == "Taxes":
         values.append(round(_safe_ratio((financials_json or {}).get("taxes_percent")) or (_ratio(slot.get("taxes"), revenue) if projection_mode else 0.0), 6))
       else:
-        values.append(round(_safe_float((row.get("values") or [0.0])[0]) or 0.0, 6))
-    row["values"] = values
+        values.append(base_live_values[0] if base_live_values else 0.0)
+    row["values"] = _compose_period_values(
+      stub_value=base_stub_value,
+      live_values=values,
+    )
 
   balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
     values: List[float] = []
-    base_values = list(row.get("values") or [])
+    base_stub_value, base_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
     for slot_idx, slot in enumerate(slots):
       working_capital = slot.get("working_capital") if isinstance(slot.get("working_capital"), dict) else {}
       if label == "Accounts Receivable Days":
@@ -1297,14 +1331,26 @@ def _build_model_input_overlay(
         short_term_ratio = _ratio((financials_json or {}).get("short_term_debt"), (financials_json or {}).get("total_debt_outstanding"))
         values.append(round(short_term_ratio, 6))
       elif label == "Owner's Capital":
-        values.append(round(_safe_float((financials_json or {}).get("initial_equity")) or (_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0), 6) if base_values else round(_safe_float((financials_json or {}).get("initial_equity")) or 0.0, 6))
+        opening_equity = round(_safe_float((financials_json or {}).get("initial_equity")) or base_stub_value or 0.0, 6)
+        values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or opening_equity, 6) if base_values else opening_equity)
       elif label == "Distributions":
         values.append(0.0)
       elif label == "Other Equity":
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
       else:
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
-    row["values"] = values
+    if label == "Owner's Capital":
+      stub_value = round(_safe_float((financials_json or {}).get("initial_equity")) or base_stub_value or 0.0, 6)
+    elif label == "Other Equity":
+      stub_value = round(base_stub_value, 6)
+    elif label == "Distributions":
+      stub_value = 0.0
+    else:
+      stub_value = round(base_stub_value, 6)
+    row["values"] = _compose_period_values(
+      stub_value=stub_value,
+      live_values=values,
+    )
 
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
   debt_seed = _safe_float((financials_json or {}).get("total_debt_outstanding"))
@@ -1328,22 +1374,34 @@ def _build_model_input_overlay(
   quarterly_capex = round(max(0.0, annual_capex) / 4.0, 6) if annual_capex else 0.0
   for row in [item for item in (schedules.get("rows") or []) if isinstance(item, dict)]:
     label = str(row.get("label") or "").strip()
-    base_values = list(row.get("values") or [])
+    base_stub_value, base_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
     if label == "Plus: Additions (repayments), net":
-      row["values"] = [0.0 for _ in slots]
+      row["values"] = _compose_period_values(stub_value=base_stub_value, live_values=[0.0 for _ in slots])
     elif label == "Capital Expenditures":
       if projection_mode:
-        row["values"] = [round(max(0.0, _safe_float(slot.get("capex")) or 0.0), 6) for slot in slots]
+        row["values"] = _compose_period_values(
+          stub_value=base_stub_value,
+          live_values=[round(max(0.0, _safe_float(slot.get("capex")) or 0.0), 6) for slot in slots],
+        )
       else:
-        row["values"] = [quarterly_capex for _ in slots]
+        row["values"] = _compose_period_values(
+          stub_value=base_stub_value,
+          live_values=[quarterly_capex for _ in slots],
+        )
     elif label == "Less: Principal Repayments":
       annual_principal = _safe_float((financials_json or {}).get("annual_principal_payment")) or 0.0
       quarterly = round(max(0.0, annual_principal) / 4.0, 6) if annual_principal else 0.0
-      row["values"] = [quarterly for _ in slots]
+      row["values"] = _compose_period_values(
+        stub_value=base_stub_value,
+        live_values=[quarterly for _ in slots],
+      )
     elif label == "Plus: Net Additions":
-      row["values"] = [0.0 for _ in slots]
+      row["values"] = _compose_period_values(stub_value=base_stub_value, live_values=[0.0 for _ in slots])
     else:
-      row["values"] = [round(_safe_float(base_values[min(idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0 for idx, _slot in enumerate(slots)]
+      row["values"] = _compose_period_values(
+        stub_value=base_stub_value,
+        live_values=[round(_safe_float(base_values[min(idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0 for idx, _slot in enumerate(slots)],
+      )
   sections["schedules"] = schedules
   return next_payload
 
@@ -1395,7 +1453,7 @@ def normalize_model_input_forecast_anchor(
         "label": "Distributions",
         "value_kind": "direct_number",
         "input_semantics": "quarter_currency",
-        "values": [0.0 for _ in range(period_count)],
+        "values": [0.0 for _ in range(period_count + 1)],
       },
     )
   sections["balance_sheet"] = retained_balance_rows
@@ -1415,7 +1473,7 @@ def normalize_model_input_forecast_anchor(
         "label": "Capital Expenditures",
         "value_kind": "direct_number",
         "input_semantics": "quarter_currency",
-        "values": [0.0 for _ in range(period_count)],
+        "values": [0.0 for _ in range(period_count + 1)],
       },
     )
   if schedules.get("ppe_opening_balance_seed") in {None, ""}:

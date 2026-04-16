@@ -202,8 +202,8 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   opening_short_term_debt = max(0.0, model_inputs.short_term_debt_opening_balance_seed)
   opening_total_debt = max(0.0, model_inputs.debt_opening_balance_seed)
   opening_long_term_debt = opening_total_debt
-  opening_owner_capital = _row_value(model_inputs, "balance_sheet", "Owner's Capital", 1)
-  opening_other_equity = _row_value(model_inputs, "balance_sheet", "Other Equity", 1)
+  opening_owner_capital = _row_value(model_inputs, "balance_sheet", "Owner's Capital", 0)
+  opening_other_equity = _row_value(model_inputs, "balance_sheet", "Other Equity", 0)
   opening_total_assets = (
     model_inputs.cash_opening_balance_seed
     + model_inputs.accounts_receivable_opening_balance_seed

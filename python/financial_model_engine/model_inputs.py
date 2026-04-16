@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 
 QUARTER_COUNT = 20
+INPUT_PERIOD_COUNT = QUARTER_COUNT + 1
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -34,10 +35,17 @@ def _quarter_index(value: Any) -> int:
   return min(max(1, quarter_index), QUARTER_COUNT)
 
 
-def _governed_values(values: List[Any]) -> List[float]:
+def _governed_live_values(values: List[Any]) -> List[float]:
   normalized = [_safe_float(item) for item in (values or [])]
   if len(normalized) == QUARTER_COUNT + 1:
     return normalized[1:]
+  return normalized[:QUARTER_COUNT]
+
+
+def _governed_row_values(values: List[Any]) -> List[float]:
+  normalized = [_safe_float(item) for item in (values or [])]
+  if len(normalized) >= INPUT_PERIOD_COUNT:
+    return normalized[:INPUT_PERIOD_COUNT]
   return normalized[:QUARTER_COUNT]
 
 
@@ -80,14 +88,33 @@ class ControllerWriteRow:
       self.values = [0.0 for _ in range(QUARTER_COUNT)]
     elif len(self.values) < QUARTER_COUNT:
       self.values.extend([0.0 for _ in range(QUARTER_COUNT - len(self.values))])
-    elif len(self.values) > QUARTER_COUNT:
-      self.values = list(self.values[:QUARTER_COUNT])
+    elif len(self.values) > INPUT_PERIOD_COUNT:
+      self.values = list(self.values[:INPUT_PERIOD_COUNT])
+
+  def has_input_stub(self) -> bool:
+    return len(self.values) >= INPUT_PERIOD_COUNT
+
+  def _storage_index(self, quarter_index: int) -> int:
+    raw_index = _safe_int(quarter_index, default=0)
+    if raw_index <= 0:
+      return 0
+    live_index = min(max(1, raw_index), QUARTER_COUNT)
+    return live_index if self.has_input_stub() else live_index - 1
 
   def set_value(self, quarter_index: int, value: Any) -> None:
-    self.values[_quarter_index(quarter_index) - 1] = _safe_float(value)
+    index = self._storage_index(quarter_index)
+    target_length = INPUT_PERIOD_COUNT if (index == 0 or self.has_input_stub()) else QUARTER_COUNT
+    if len(self.values) < target_length:
+      self.values.extend([0.0 for _ in range(target_length - len(self.values))])
+    self.values[index] = _safe_float(value)
 
   def get_value(self, quarter_index: int) -> float:
-    return _safe_float(self.values[_quarter_index(quarter_index) - 1])
+    if not self.values:
+      return 0.0
+    index = self._storage_index(quarter_index)
+    if index >= len(self.values):
+      return 0.0
+    return _safe_float(self.values[index])
 
   def to_model_input_row(self) -> Dict[str, Any]:
     return {
@@ -280,7 +307,7 @@ class FinancialModelInputs:
       if not isinstance(row, dict):
         continue
       values = list(row.get("values") or [])
-      for index, raw_value in enumerate(_governed_values(values), start=1):
+      for index, raw_value in enumerate(_governed_live_values(values), start=1):
         product = next_book.quarter(index).find_or_create_product(
           lob_name=_text(row.get("lob")) or "LOB 1",
           product_name=_text(row.get("product")) or "Product 1",
@@ -624,7 +651,7 @@ class FinancialModelInputs:
       target[label] = ControllerWriteRow(
         section=section_name,
         label=label,
-        values=_governed_values(list(row.get("values") or [])),
+        values=_governed_row_values(list(row.get("values") or [])),
         named_range=_text(row.get("named_range")) or named_range,
         lever_id=_text(row.get("lever_id")),
         value_kind=_text(row.get("value_kind")),
