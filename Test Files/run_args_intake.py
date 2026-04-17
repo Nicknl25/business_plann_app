@@ -328,7 +328,39 @@ def _bootstrap_defaults(*, seed: str, model: str, business_start_date_override: 
     "address_state": str(bootstrap.address_state or "").strip(),
     "address_zip": str(bootstrap.address_zip or "").strip(),
     "address_country": str(bootstrap.address_country or "").strip(),
+    "_seed_primary_product_name": str(getattr(bootstrap, "primary_product_name", "") or "").strip(),
+    "_seed_primary_unit_definition": str(getattr(bootstrap, "primary_unit_definition", "") or "").strip(),
+    "_seed_primary_cadence": str(getattr(bootstrap, "primary_cadence", "") or "").strip(),
   }
+
+
+def _ensure_forced_single_product_seeded(spec: Dict[str, Any], *, bootstrap_defaults: Optional[Dict[str, str]]) -> None:
+  ops = spec.get("ops") if isinstance(spec.get("ops"), dict) else {}
+  products = ops.get("products") if isinstance(ops.get("products"), list) else []
+  actual = sum(1 for item in products if isinstance(item, dict) and _text(item.get("product_name")))
+  if actual >= 1:
+    return
+  seeded = bootstrap_defaults if isinstance(bootstrap_defaults, dict) else {}
+  product_name = _text(seeded.get("_seed_primary_product_name")) or "Primary service line"
+  unit_definition = _text(seeded.get("_seed_primary_unit_definition")) or "Units delivered"
+  cadence = _text(seeded.get("_seed_primary_cadence")) or "weekly"
+  spec.setdefault("ops", {})
+  spec["ops"].setdefault("products", [])
+  spec["ops"]["products"] = [
+    {
+      "product_name": product_name,
+      "aliases": [],
+      "unit_definition": unit_definition,
+      "cadence": cadence,
+      "capacity": "",
+      "capacity_value": "",
+      "capacity_period": "",
+      "utilization": "",
+      "utilization_value": "",
+      "price": "",
+      "price_value": "",
+    }
+  ]
 
 
 def _text(value: Any) -> str:
@@ -893,6 +925,7 @@ def main(argv: Optional[List[str]] = None, *, forced_product_count: Optional[int
     "address_country",
   )
   missing_bootstrap = [key for key in required_bootstrap if not _text(spec["bootstrap"].get(key))]
+  bootstrap_defaults: Dict[str, str] = {}
   if missing_bootstrap:
     bootstrap_defaults = _bootstrap_defaults(
       seed=str(args.seed),
@@ -900,8 +933,13 @@ def main(argv: Optional[List[str]] = None, *, forced_product_count: Optional[int
       business_start_date_override=str(args.business_start_date or "").strip(),
     )
     for key, value in bootstrap_defaults.items():
+      if key.startswith("_seed_"):
+        continue
       if not _text(spec["bootstrap"].get(key)):
         spec["bootstrap"][key] = value
+
+  if forced_product_count == 1:
+    _ensure_forced_single_product_seeded(spec, bootstrap_defaults=bootstrap_defaults)
 
   spec = _prune_spec(spec)
   _validate_product_count(spec, forced_product_count=forced_product_count)

@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 import requests
 from intake_consult_draft import append_messages, get_draft
 try:
+  from openai_http import post_openai_with_retries  # type: ignore
+except Exception:
+  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
+try:
   from shared_context import build_shared_context  # type: ignore
 except Exception:
   try:
@@ -70,7 +74,7 @@ _REALISM_RESOLUTION_PROMPT_PATH = _REALISM_RESOLUTION_PROMPTS_DIR / "reviewer.md
 _REALISM_MAX_ITERATIONS = 3
 _PASS_INTERNAL_RETRY_MAX_ATTEMPTS = 4
 _PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO = 0.05
-_FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES = 6
+_FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES = 8
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
   "by_model": {},
@@ -1006,7 +1010,12 @@ def _build_planning_run_payload(
   final_stabilizer_pass_plan: Optional[Dict[str, Any]] = None,
   final_stabilizer_pass_result: Optional[Dict[str, Any]] = None,
   final_stabilizer_effect_summary: Optional[Dict[str, Any]] = None,
+  final_guarantee_context: Optional[Dict[str, Any]] = None,
+  final_guarantee_iterations: Optional[List[Dict[str, Any]]] = None,
+  final_guarantee_trigger_assessment: Optional[Dict[str, Any]] = None,
+  final_guarantee_cycle_count: Optional[int] = None,
   diagnostics_snapshot: Optional[Dict[str, Any]] = None,
+  controller_retry_heartbeat: Optional[Dict[str, Any]] = None,
   numeric_execution_boundary: Optional[Dict[str, Any]] = None,
   numeric_solver_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -1019,6 +1028,7 @@ def _build_planning_run_payload(
     "stage": str(stage or "").strip() or "pending",
     "status": str(status or "").strip() or "pending",
     "controller_resolution_state": copy.deepcopy(controller_resolution_state or {}),
+    "resolution_summary": copy.deepcopy(resolution_summary or {}),
     "planning_mode": str(planning_mode or "").strip() or None,
     "planning_mode_reason": str(planning_mode_reason or "").strip() or None,
     "prompt_file": str(prompt_file or "").strip() or None,
@@ -1049,7 +1059,22 @@ def _build_planning_run_payload(
     "final_stabilizer_pass_plan": copy.deepcopy(final_stabilizer_pass_plan or {}),
     "final_stabilizer_pass_result": copy.deepcopy(final_stabilizer_pass_result or {}),
     "final_stabilizer_effect_summary": copy.deepcopy(final_stabilizer_effect_summary or {}),
+    "final_guarantee_context": copy.deepcopy(final_guarantee_context or {}),
+    "final_guarantee_iterations": copy.deepcopy(final_guarantee_iterations or []),
+    "final_guarantee_trigger_assessment": copy.deepcopy(final_guarantee_trigger_assessment or {}),
+    "final_guarantee_cycle_count": int(final_guarantee_cycle_count or 0) if final_guarantee_cycle_count is not None else None,
     "diagnostics_snapshot": copy.deepcopy(diagnostics_snapshot or {}),
+    "controller_retry_heartbeat": copy.deepcopy(controller_retry_heartbeat or {}),
+    "initial_restructure_heartbeat": (
+      copy.deepcopy(controller_retry_heartbeat or {})
+      if str(((controller_retry_heartbeat or {}).get("pass_name") or "")).strip().lower() == "initial_restructure"
+      else {}
+    ),
+    "realism_resolution_heartbeat": (
+      copy.deepcopy(controller_retry_heartbeat or {})
+      if str(((controller_retry_heartbeat or {}).get("pass_name") or "")).strip().lower() == "realism_resolution"
+      else {}
+    ),
     "numeric_execution_boundary": copy.deepcopy(
       numeric_execution_boundary
       if isinstance(numeric_execution_boundary, dict)
@@ -1852,6 +1877,7 @@ def _build_final_stabilizer_context_payload(
   current_model_input_json: Optional[Dict[str, Any]],
   current_finmo_json: Optional[Dict[str, Any]],
   controller_resolution_state: Optional[Dict[str, Any]],
+  protected_resolved_issue_constraints: Optional[List[Dict[str, Any]]] = None,
   prior_numeric_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   try:
@@ -1869,13 +1895,29 @@ def _build_final_stabilizer_context_payload(
   controller_issue_summaries = _controller_state_issue_summaries(controller_resolution_state)
   leverage_catalog = _build_writable_lever_review_catalog(current_model_input_json)
   issue_status_records = _controller_state_issue_status_records(controller_resolution_state)
+  resolved_issue_constraints = [
+    item for item in (protected_resolved_issue_constraints or []) if isinstance(item, dict)
+  ] or _build_strategy_resolved_issue_constraints(copy.deepcopy(issue_status_records))
   min_cash = min(ending_cash_series) if ending_cash_series else 0.0
   max_cash = max(ending_cash_series) if ending_cash_series else 0.0
   final_cash = ending_cash_series[-1] if ending_cash_series else 0.0
   revenue_final = revenue_series[-1] if revenue_series else 0.0
   ebitda_final = ebitda_series[-1] if ebitda_series else 0.0
   net_income_final = net_income_series[-1] if net_income_series else 0.0
-  return {
+  whole_horizon_snapshot = {
+    "quarter_count": len(metrics),
+    "negative_cash_quarters": negative_cash_quarters,
+    "negative_net_income_quarters": negative_net_income_quarters,
+    "negative_ebitda_quarters": negative_ebitda_quarters,
+    "minimum_ending_cash": min_cash,
+    "maximum_ending_cash": max_cash,
+    "final_ending_cash": final_cash,
+    "final_revenue": revenue_final,
+    "final_ebitda": ebitda_final,
+    "final_net_income": net_income_final,
+    "business_appears_ongoing_concern": not negative_cash_quarters or final_cash > 0,
+  }
+  context = {
     "contract_version": "final_stabilizer_context_v1",
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
@@ -1889,26 +1931,17 @@ def _build_final_stabilizer_context_payload(
     "current_issue_summaries": controller_issue_summaries,
     "issue_status_records": copy.deepcopy(issue_status_records),
     "prior_numeric_solver_feedback": copy.deepcopy(prior_numeric_feedback or {}),
-    "resolved_issue_constraints": _build_strategy_resolved_issue_constraints(
-      issue_status_records
-    ),
+    "resolved_issue_constraints": copy.deepcopy(resolved_issue_constraints),
+    "resolved_issue_protection_policy": {
+      "default_behavior": "preserve_previously_resolved_issues",
+      "material_reopening_allowed_only_for_clear_viability_gain": True,
+      "do_not_exit_with_reopened_issues": True,
+    },
     "ops_milestones": _build_realism_milestone_context(
       ops_json=ops_json,
       solved_model_input_json=current_model_input_json,
     ),
-    "whole_horizon_snapshot": {
-      "quarter_count": len(metrics),
-      "negative_cash_quarters": negative_cash_quarters,
-      "negative_net_income_quarters": negative_net_income_quarters,
-      "negative_ebitda_quarters": negative_ebitda_quarters,
-      "minimum_ending_cash": min_cash,
-      "maximum_ending_cash": max_cash,
-      "final_ending_cash": final_cash,
-      "final_revenue": revenue_final,
-      "final_ebitda": ebitda_final,
-      "final_net_income": net_income_final,
-      "business_appears_ongoing_concern": not negative_cash_quarters or final_cash > 0,
-    },
+    "whole_horizon_snapshot": whole_horizon_snapshot,
     "horizon_quarter_metrics": metrics,
     "current_model_input_json": copy.deepcopy(current_model_input_json or {}),
     "current_finmo_quarter_rows": [row for row in ((current_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)],
@@ -1928,6 +1961,10 @@ def _build_final_stabilizer_context_payload(
       contract_scope="final_stabilizer",
     ),
   }
+  context["stabilization_trigger_assessment"] = _final_stabilizer_trigger_assessment(
+    copy.deepcopy(context)
+  )
+  return context
 
 
 def _build_initial_restructure_context_payload(
@@ -2081,6 +2118,10 @@ def _final_stabilizer_trigger_assessment(
   issue_summaries = context.get("current_issue_summaries") if isinstance(context.get("current_issue_summaries"), dict) else {}
   horizon = context.get("whole_horizon_snapshot") if isinstance(context.get("whole_horizon_snapshot"), dict) else {}
   remaining_issue_count = int(_safe_float(issue_summaries.get("remaining_issue_count")) or 0)
+  if remaining_issue_count <= 0:
+    remaining_issue_count = len(
+      [item for item in (issue_summaries.get("remaining_issues") or []) if isinstance(item, dict)]
+    )
   negative_cash_quarters = [
     int(_safe_float(item) or 0)
     for item in (horizon.get("negative_cash_quarters") or [])
@@ -2123,6 +2164,218 @@ def _final_stabilizer_trigger_assessment(
   }
 
 
+def _final_guarantee_quality_assessment(
+  *,
+  before_controller_resolution_state: Optional[Dict[str, Any]],
+  before_trigger_assessment: Optional[Dict[str, Any]],
+  after_controller_resolution_state: Optional[Dict[str, Any]],
+  after_trigger_assessment: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  def _open_issue_severity_summary(controller_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    state = controller_state if isinstance(controller_state, dict) else {}
+    open_records = [
+      item
+      for item in _controller_state_issue_status_records(state)
+      if isinstance(item, dict) and _controller_issue_is_blocking(item)
+    ]
+    open_issue_codes = sorted(
+      {
+        str(item.get("issue_code") or "").strip().lower()
+        for item in open_records
+        if str(item.get("issue_code") or "").strip()
+      }
+    )
+    severity_total = sum(
+      int(_safe_float(item.get("remaining_issue_severity_score")) or 0)
+      for item in open_records
+    )
+    remaining_problem_quarter_total = sum(
+      len(_normalize_realism_remaining_quarters(item.get("remaining_problem_quarters")))
+      for item in open_records
+    )
+    return {
+      "open_issue_codes": open_issue_codes,
+      "open_issue_signature": "|".join(open_issue_codes),
+      "open_issue_severity_total": int(severity_total),
+      "open_issue_problem_quarter_total": int(remaining_problem_quarter_total),
+    }
+
+  before_state = before_controller_resolution_state if isinstance(before_controller_resolution_state, dict) else {}
+  after_state = after_controller_resolution_state if isinstance(after_controller_resolution_state, dict) else {}
+  before_trigger = before_trigger_assessment if isinstance(before_trigger_assessment, dict) else {}
+  after_trigger = after_trigger_assessment if isinstance(after_trigger_assessment, dict) else {}
+  before_open_issue_summary = _open_issue_severity_summary(before_state)
+  after_open_issue_summary = _open_issue_severity_summary(after_state)
+  before_remaining = int(_safe_float(before_state.get("remaining_issue_count")) or 0)
+  after_remaining = int(_safe_float(after_state.get("remaining_issue_count")) or 0)
+  before_resolved = int(_safe_float(before_state.get("resolved_issue_count")) or 0)
+  after_resolved = int(_safe_float(after_state.get("resolved_issue_count")) or 0)
+  before_neg_cash = int(_safe_float(before_trigger.get("negative_cash_quarter_count")) or 0)
+  after_neg_cash = int(_safe_float(after_trigger.get("negative_cash_quarter_count")) or 0)
+  before_late_neg_income = int(_safe_float(before_trigger.get("late_negative_net_income_quarter_count")) or 0)
+  after_late_neg_income = int(_safe_float(after_trigger.get("late_negative_net_income_quarter_count")) or 0)
+  before_final_cash = float(_safe_float(before_trigger.get("final_cash")) or 0.0)
+  after_final_cash = float(_safe_float(after_trigger.get("final_cash")) or 0.0)
+  before_final_ebitda = float(_safe_float(before_trigger.get("final_ebitda")) or 0.0)
+  after_final_ebitda = float(_safe_float(after_trigger.get("final_ebitda")) or 0.0)
+  before_open_issue_severity_total = int(before_open_issue_summary.get("open_issue_severity_total") or 0)
+  after_open_issue_severity_total = int(after_open_issue_summary.get("open_issue_severity_total") or 0)
+  before_open_issue_problem_quarter_total = int(before_open_issue_summary.get("open_issue_problem_quarter_total") or 0)
+  after_open_issue_problem_quarter_total = int(after_open_issue_summary.get("open_issue_problem_quarter_total") or 0)
+  before_status = str(before_state.get("status") or "").strip().lower()
+  after_status = str(after_state.get("status") or "").strip().lower()
+  cash_materiality = max(10000.0, abs(before_final_cash) * 0.05)
+  ebitda_materiality = max(10000.0, abs(before_final_ebitda) * 0.05)
+  severity_materiality = max(5, int(round(max(before_open_issue_severity_total, 1) * 0.10)))
+  problem_quarter_materiality = max(1, int(round(max(before_open_issue_problem_quarter_total, 1) * 0.10)))
+  issue_improved = after_remaining < before_remaining or after_resolved > before_resolved
+  severity_improved = bool(
+    after_open_issue_severity_total <= before_open_issue_severity_total - severity_materiality
+    or after_open_issue_problem_quarter_total <= before_open_issue_problem_quarter_total - problem_quarter_materiality
+  )
+  viability_improved = bool(
+    after_neg_cash < before_neg_cash
+    or after_late_neg_income < before_late_neg_income
+    or after_final_cash > before_final_cash + cash_materiality
+    or (before_status != "all_cleared" and after_status == "all_cleared")
+  )
+  same_issue_signature = bool(
+    str(before_open_issue_summary.get("open_issue_signature") or "").strip()
+    and before_open_issue_summary.get("open_issue_signature") == after_open_issue_summary.get("open_issue_signature")
+  )
+  worsened = bool(
+    after_remaining > before_remaining
+    or after_neg_cash > before_neg_cash
+    or after_late_neg_income > before_late_neg_income
+    or after_final_cash < before_final_cash - cash_materiality
+    or after_final_ebitda < before_final_ebitda - ebitda_materiality
+  )
+  no_progress = bool(
+    after_remaining == before_remaining
+    and after_resolved == before_resolved
+    and not severity_improved
+    and after_neg_cash >= before_neg_cash
+    and after_late_neg_income >= before_late_neg_income
+    and after_final_cash <= before_final_cash + cash_materiality
+  )
+  issue_resolution_progress = bool(issue_improved or severity_improved)
+  unresolved_issue_plateau = bool(
+    after_remaining == before_remaining
+    and after_resolved == before_resolved
+    and not severity_improved
+  )
+  cash_only_viability_progress = bool(
+    viability_improved
+    and not issue_resolution_progress
+    and unresolved_issue_plateau
+  )
+  reject_attempt = bool(
+    (worsened and not (issue_improved or severity_improved or viability_improved))
+    or no_progress
+    or (same_issue_signature and not (severity_improved or viability_improved or issue_improved))
+  )
+  return {
+    "accepted": not reject_attempt,
+    "reject_attempt": reject_attempt,
+    "no_progress": no_progress,
+    "same_issue_signature": same_issue_signature,
+    "worsened_without_compensating_improvement": bool(
+      worsened and not (issue_improved or severity_improved or viability_improved)
+    ),
+    "issue_improved": issue_improved,
+    "severity_improved": severity_improved,
+    "issue_resolution_progress": issue_resolution_progress,
+    "unresolved_issue_plateau": unresolved_issue_plateau,
+    "cash_only_viability_progress": cash_only_viability_progress,
+    "viability_improved": viability_improved,
+    "remaining_issue_count_before": before_remaining,
+    "remaining_issue_count_after": after_remaining,
+    "resolved_issue_count_before": before_resolved,
+    "resolved_issue_count_after": after_resolved,
+    "open_issue_codes_before": copy.deepcopy(before_open_issue_summary.get("open_issue_codes") or []),
+    "open_issue_codes_after": copy.deepcopy(after_open_issue_summary.get("open_issue_codes") or []),
+    "open_issue_severity_total_before": before_open_issue_severity_total,
+    "open_issue_severity_total_after": after_open_issue_severity_total,
+    "open_issue_problem_quarter_total_before": before_open_issue_problem_quarter_total,
+    "open_issue_problem_quarter_total_after": after_open_issue_problem_quarter_total,
+    "negative_cash_quarter_count_before": before_neg_cash,
+    "negative_cash_quarter_count_after": after_neg_cash,
+    "late_negative_net_income_quarter_count_before": before_late_neg_income,
+    "late_negative_net_income_quarter_count_after": after_late_neg_income,
+    "final_cash_before": before_final_cash,
+    "final_cash_after": after_final_cash,
+    "final_ebitda_before": before_final_ebitda,
+    "final_ebitda_after": after_final_ebitda,
+    "status_before": before_status,
+    "status_after": after_status,
+  }
+
+
+def _final_guarantee_stall_assessment(
+  *,
+  consecutive_no_progress_cycles: int,
+  latest_quality_assessment: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  def _is_structural_issue_code(issue_code: Any) -> bool:
+    code = str(issue_code or "").strip().lower()
+    return any(
+      marker in code
+      for marker in (
+        "staff",
+        "payroll",
+        "capacity",
+        "capex",
+        "footprint",
+        "financing",
+        "solvency",
+        "cash_shape",
+        "profitability",
+      )
+    )
+
+  quality = latest_quality_assessment if isinstance(latest_quality_assessment, dict) else {}
+  consecutive = max(0, int(consecutive_no_progress_cycles or 0))
+  open_issue_codes = [
+    str(item).strip().lower()
+    for item in (quality.get("open_issue_codes_after") or quality.get("open_issue_codes_before") or [])
+    if str(item).strip()
+  ]
+  structural_issue_codes = [code for code in open_issue_codes if _is_structural_issue_code(code)]
+  unresolved_issue_plateau = bool(quality.get("unresolved_issue_plateau"))
+  stalled = bool(
+    consecutive >= 1
+    or quality.get("same_issue_signature")
+    or quality.get("no_progress")
+    or unresolved_issue_plateau
+    or quality.get("cash_only_viability_progress")
+  )
+  structurally_stalled = bool(
+    consecutive >= 2
+    or (structural_issue_codes and (unresolved_issue_plateau or consecutive >= 1))
+  )
+  return {
+    "stalled": stalled,
+    "consecutive_no_progress_cycles": consecutive,
+    "force_material_tactic_change": stalled,
+    "force_full_horizon_scope": stalled,
+    "force_all_writable_levers": stalled,
+    "force_structural_driver_changes": structurally_stalled,
+    "minimum_new_lever_count": 4 if structurally_stalled else (3 if stalled else 0),
+    "require_target_reframe_on_same_issue_state": bool(quality.get("same_issue_signature")),
+    "open_issue_codes": copy.deepcopy(open_issue_codes),
+    "structural_issue_codes": copy.deepcopy(structural_issue_codes),
+    "required_change_type": "structural" if structurally_stalled else ("expanded" if stalled else "none"),
+    "latest_quality_assessment": copy.deepcopy(quality),
+    "instruction": (
+      "The final guarantee loop has stalled. The next attempt must materially change tactic, widen the lever mix, "
+      "and use structural drivers where structural issues remain. Cash-only improvement is not sufficient when the "
+      "same unresolved issue set is still open."
+      if stalled
+      else "No final-guarantee stall is currently detected."
+    ),
+  }
+
+
 def _full_run_viability_context_payload(
   *,
   draft_id: str,
@@ -2135,6 +2388,7 @@ def _full_run_viability_context_payload(
   current_model_input_json: Optional[Dict[str, Any]],
   current_finmo_json: Optional[Dict[str, Any]],
   controller_resolution_state: Optional[Dict[str, Any]],
+  protected_resolved_issue_constraints: Optional[List[Dict[str, Any]]] = None,
   prior_numeric_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   context = _build_final_stabilizer_context_payload(
@@ -2148,6 +2402,7 @@ def _full_run_viability_context_payload(
     current_model_input_json=copy.deepcopy(current_model_input_json or {}),
     current_finmo_json=copy.deepcopy(current_finmo_json or {}),
     controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
+    protected_resolved_issue_constraints=copy.deepcopy(protected_resolved_issue_constraints or []),
     prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback or {}),
   )
   updated = copy.deepcopy(context)
@@ -2155,6 +2410,11 @@ def _full_run_viability_context_payload(
   updated["full_run_guarantee_policy"] = {
     "client_visible_failure_allowed": False,
     "final_exit_rule": "persist_only_when_viable",
+    "terminal_convergence_loop": True,
+    "must_end_with_remaining_issue_count_zero": True,
+    "must_end_with_all_cleared": True,
+    "must_preserve_previously_resolved_issues_where_possible": True,
+    "reopening_only_allowed_for_material_viability_improvement": True,
     "required_behavior": (
       "If the model is still not viable, restructure assumptions, solve again, and verify again before final persistence."
     ),
@@ -2778,6 +3038,13 @@ def _build_realism_planner_issue_state(
     planner_issue_records.append(
       {
         "issue_code": issue_code,
+        "issue": str(
+          item.get("issue") or _canonical_issue_title(issue_code, "") or issue_code
+        ).strip(),
+        "detail": str(item.get("detail") or "").strip(),
+        "remaining_issue_materiality": str(
+          item.get("remaining_issue_materiality") or ""
+        ).strip().lower(),
         "remaining_problem_quarters": _normalize_realism_remaining_quarters(
           item.get("remaining_problem_quarters")
         ),
@@ -2793,7 +3060,7 @@ def _build_realism_planner_issue_state(
       }
     )
   return {
-    "contract_version": "realism_planner_issue_state_v1",
+    "contract_version": "realism_planner_issue_state_v2",
     "issue_count": len(planner_issue_records),
     "issue_status_records": planner_issue_records,
   }
@@ -2884,12 +3151,18 @@ def _controller_state_issue_status_records(
 
 def _controller_state_issue_summaries(
   controller_resolution_state: Optional[Dict[str, Any]],
-) -> Dict[str, List[Dict[str, Any]]]:
+) -> Dict[str, Any]:
   records = _controller_state_issue_status_records(controller_resolution_state)
+  detected_issues = [_core_issue_record(item) for item in records]
+  remaining_issues = [_core_issue_record(item) for item in records if _controller_issue_is_blocking(item)]
+  resolved_issues = [_core_issue_record(item) for item in records if not _controller_issue_is_blocking(item)]
   return {
-    "detected_issues": [_core_issue_record(item) for item in records],
-    "remaining_issues": [_core_issue_record(item) for item in records if _controller_issue_is_blocking(item)],
-    "resolved_issues": [_core_issue_record(item) for item in records if not _controller_issue_is_blocking(item)],
+    "detected_issue_count": len(detected_issues),
+    "remaining_issue_count": len(remaining_issues),
+    "resolved_issue_count": len(resolved_issues),
+    "detected_issues": detected_issues,
+    "remaining_issues": remaining_issues,
+    "resolved_issues": resolved_issues,
   }
 
 
@@ -3228,7 +3501,11 @@ def _apply_realism_verification_to_issue_status_records(
     else {}
   )
   if not verification:
-    return []
+    return [
+      _normalize_issue_record_to_controller_truth(item)
+      for item in (issue_status_records or [])
+      if isinstance(item, dict)
+    ]
 
   allowed = {str(item).strip() for item in (allowed_issue_keys or []) if str(item).strip()}
   issue_results = [item for item in (verification.get("issue_results") or []) if isinstance(item, dict)]
@@ -3332,6 +3609,124 @@ def _extract_open_verification_feedback(
   }
 
 
+def _persist_post_intake_stage_state(
+  *,
+  conn,
+  draft_id: str,
+  stage: str,
+  status: str,
+  controller_resolution_state: Optional[Dict[str, Any]] = None,
+  resolution_summary: Optional[Dict[str, Any]] = None,
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  grid_application_summary: Optional[Dict[str, Any]] = None,
+  realism_memo_before_resolution: Optional[Dict[str, Any]] = None,
+  realism_resolution_decision: Optional[Dict[str, Any]] = None,
+  realism_resolution_plan: Optional[Dict[str, Any]] = None,
+  realism_resolution_result: Optional[Dict[str, Any]] = None,
+  realism_resolution_verification: Optional[Dict[str, Any]] = None,
+  realism_resolution_iterations: Optional[List[Dict[str, Any]]] = None,
+  realism_resolution_stop_reason: Optional[str] = None,
+  realism_resolution_iteration_count: Optional[int] = None,
+  first_pass_handoff: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_context: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_decision: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
+  cash_strategy_effect_summary: Optional[Dict[str, Any]] = None,
+  initial_restructure_context: Optional[Dict[str, Any]] = None,
+  initial_restructure_decision: Optional[Dict[str, Any]] = None,
+  initial_restructure_pass_plan: Optional[Dict[str, Any]] = None,
+  initial_restructure_pass_result: Optional[Dict[str, Any]] = None,
+  initial_restructure_effect_summary: Optional[Dict[str, Any]] = None,
+  final_stabilizer_context: Optional[Dict[str, Any]] = None,
+  final_stabilizer_decision: Optional[Dict[str, Any]] = None,
+  final_stabilizer_pass_plan: Optional[Dict[str, Any]] = None,
+  final_stabilizer_pass_result: Optional[Dict[str, Any]] = None,
+  final_stabilizer_effect_summary: Optional[Dict[str, Any]] = None,
+  final_guarantee_context: Optional[Dict[str, Any]] = None,
+  final_guarantee_iterations: Optional[List[Dict[str, Any]]] = None,
+  final_guarantee_trigger_assessment: Optional[Dict[str, Any]] = None,
+  final_guarantee_cycle_count: Optional[int] = None,
+  diagnostics_snapshot: Optional[Dict[str, Any]] = None,
+  realism_memo_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  numeric_execution_boundary: Optional[Dict[str, Any]] = None,
+  numeric_solver_contract: Optional[Dict[str, Any]] = None,
+  controller_retry_heartbeat: Optional[Dict[str, Any]] = None,
+  explicit_numeric_feedback_candidates: Optional[List[tuple[str, Optional[Dict[str, Any]]]]] = None,
+) -> Dict[str, Any]:
+  persisted_realism_memo = _build_persisted_realism_memo_payload(
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    working_memo=copy.deepcopy(realism_memo_json),
+  )
+  payload = _build_planning_run_payload(
+    stage=stage,
+    status=status,
+    controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
+    resolution_summary=copy.deepcopy(resolution_summary or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution or {}),
+    realism_resolution_decision=copy.deepcopy(realism_resolution_decision or {}),
+    realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
+    realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
+    realism_resolution_verification=copy.deepcopy(realism_resolution_verification or {}),
+    realism_resolution_iterations=_sanitize_realism_iteration_trace(copy.deepcopy(realism_resolution_iterations or [])),
+    realism_resolution_stop_reason=str(realism_resolution_stop_reason or "").strip() or None,
+    realism_resolution_iteration_count=int(realism_resolution_iteration_count or 0) or None,
+    first_pass_handoff=copy.deepcopy(first_pass_handoff or {}),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context or {}),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision or {}),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan or {}),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result or {}),
+    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary or {}),
+    initial_restructure_context=copy.deepcopy(initial_restructure_context or {}),
+    initial_restructure_decision=copy.deepcopy(initial_restructure_decision or {}),
+    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan or {}),
+    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result or {}),
+    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary or {}),
+    final_stabilizer_context=copy.deepcopy(final_stabilizer_context or {}),
+    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision or {}),
+    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan or {}),
+    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result or {}),
+    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary or {}),
+    final_guarantee_context=copy.deepcopy(final_guarantee_context or {}),
+    final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations or []),
+    final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment or {}),
+    final_guarantee_cycle_count=final_guarantee_cycle_count,
+    diagnostics_snapshot=copy.deepcopy(diagnostics_snapshot or {}),
+    controller_retry_heartbeat=copy.deepcopy(controller_retry_heartbeat or {}),
+    numeric_execution_boundary=copy.deepcopy(numeric_execution_boundary)
+    if isinstance(numeric_execution_boundary, dict)
+    else None,
+    numeric_solver_contract=copy.deepcopy(numeric_solver_contract)
+    if isinstance(numeric_solver_contract, dict)
+    else None,
+  )
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[],
+    realism_memo_json=copy.deepcopy(persisted_realism_memo),
+    planning_run_json=copy.deepcopy(payload),
+    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
+      planning_run_payload=payload,
+      explicit_candidates=copy.deepcopy(explicit_numeric_feedback_candidates or []),
+    ),
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    finmo_json=copy.deepcopy(finmo_json or {}),
+    active_focus="done",
+    status="in_progress",
+    completed=False,
+  )
+  return payload
+
+
 def _persist_realism_loop_state(
   *,
   conn,
@@ -3353,12 +3748,11 @@ def _persist_realism_loop_state(
   realism_memo_json: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
+  controller_retry_heartbeat: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  persisted_realism_memo = _build_persisted_realism_memo_payload(
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    working_memo=copy.deepcopy(realism_memo_json),
-  )
-  payload = _build_planning_run_payload(
+  return _persist_post_intake_stage_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
     stage=stage,
     status=status,
     controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
@@ -3372,24 +3766,15 @@ def _persist_realism_loop_state(
     realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
     realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
     realism_resolution_verification=copy.deepcopy(realism_resolution_verification or {}),
-    realism_resolution_iterations=_sanitize_realism_iteration_trace(copy.deepcopy(realism_resolution_iterations or [])),
-  )
-  append_messages(
-    conn,
-    draft_id=str(draft_id).strip(),
-    new_messages=[],
-    realism_memo_json=copy.deepcopy(persisted_realism_memo),
-    planning_run_json=copy.deepcopy(payload),
-    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=payload,
-      explicit_candidates=[
-        ("realism_resolution_result", realism_resolution_result),
-      ],
-    ),
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations or []),
+    realism_memo_json=copy.deepcopy(realism_memo_json or {}),
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
+    controller_retry_heartbeat=copy.deepcopy(controller_retry_heartbeat or {}),
+    explicit_numeric_feedback_candidates=[
+      ("realism_resolution_result", realism_resolution_result),
+    ],
   )
-  return payload
 
 
 def _persist_realism_retry_attempt_state(
@@ -3456,6 +3841,7 @@ def _persist_realism_retry_attempt_state(
       if isinstance(snapshot.get("working_finmo_json"), dict)
       else fallback_finmo_json
     ),
+    controller_retry_heartbeat=_controller_retry_heartbeat_from_snapshot(snapshot),
   )
 
 
@@ -3479,8 +3865,11 @@ def _persist_initial_restructure_state(
   initial_restructure_effect_summary: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
+  controller_retry_heartbeat: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  payload = _build_planning_run_payload(
+  return _persist_post_intake_stage_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
     stage=stage,
     status=status,
     controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
@@ -3494,23 +3883,14 @@ def _persist_initial_restructure_state(
     initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan or {}),
     initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result or {}),
     initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary or {}),
-  )
-  append_messages(
-    conn,
-    draft_id=str(draft_id).strip(),
-    new_messages=[],
     realism_memo_json=copy.deepcopy(realism_memo_json or {}),
-    planning_run_json=copy.deepcopy(payload),
-    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=payload,
-      explicit_candidates=[
-        ("initial_restructure_pass_result", initial_restructure_pass_result),
-      ],
-    ),
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
+    controller_retry_heartbeat=copy.deepcopy(controller_retry_heartbeat or {}),
+    explicit_numeric_feedback_candidates=[
+      ("initial_restructure_pass_result", initial_restructure_pass_result),
+    ],
   )
-  return payload
 
 
 def _persist_initial_restructure_retry_attempt_state(
@@ -3560,6 +3940,7 @@ def _persist_initial_restructure_retry_attempt_state(
       if isinstance(snapshot.get("working_finmo_json"), dict)
       else fallback_finmo_json
     ),
+    controller_retry_heartbeat=_controller_retry_heartbeat_from_snapshot(snapshot),
   )
 
 
@@ -3597,7 +3978,9 @@ def _persist_cash_strategy_state(
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  payload = _build_planning_run_payload(
+  return _persist_post_intake_stage_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
     stage=stage,
     status=status,
     controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
@@ -3610,9 +3993,9 @@ def _persist_cash_strategy_state(
     realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
     realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
     realism_resolution_verification=copy.deepcopy(realism_resolution_verification or {}),
-    realism_resolution_iterations=_sanitize_realism_iteration_trace(copy.deepcopy(realism_resolution_iterations or [])),
-    realism_resolution_stop_reason=str(realism_resolution_stop_reason or "").strip() or None,
-    realism_resolution_iteration_count=int(realism_resolution_iteration_count or 0) or None,
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations or []),
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
     first_pass_handoff=copy.deepcopy(first_pass_handoff or {}),
     cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context or {}),
     cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision or {}),
@@ -3624,23 +4007,13 @@ def _persist_cash_strategy_state(
     initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan or {}),
     initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result or {}),
     initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary or {}),
-  )
-  append_messages(
-    conn,
-    draft_id=str(draft_id).strip(),
-    new_messages=[],
     realism_memo_json=copy.deepcopy(realism_memo_json or {}),
-    planning_run_json=copy.deepcopy(payload),
-    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=payload,
-      explicit_candidates=[
-        ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
-      ],
-    ),
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
+    explicit_numeric_feedback_candidates=[
+      ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
+    ],
   )
-  return payload
 
 
 def _persist_final_stabilizer_state(
@@ -3682,7 +4055,9 @@ def _persist_final_stabilizer_state(
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  payload = _build_planning_run_payload(
+  return _persist_post_intake_stage_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
     stage=stage,
     status=status,
     controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
@@ -3695,9 +4070,9 @@ def _persist_final_stabilizer_state(
     realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
     realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
     realism_resolution_verification=copy.deepcopy(realism_resolution_verification or {}),
-    realism_resolution_iterations=_sanitize_realism_iteration_trace(copy.deepcopy(realism_resolution_iterations or [])),
-    realism_resolution_stop_reason=str(realism_resolution_stop_reason or "").strip() or None,
-    realism_resolution_iteration_count=int(realism_resolution_iteration_count or 0) or None,
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations or []),
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
     first_pass_handoff=copy.deepcopy(first_pass_handoff or {}),
     cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context or {}),
     cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision or {}),
@@ -3714,23 +4089,108 @@ def _persist_final_stabilizer_state(
     final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan or {}),
     final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result or {}),
     final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary or {}),
-  )
-  append_messages(
-    conn,
-    draft_id=str(draft_id).strip(),
-    new_messages=[],
     realism_memo_json=copy.deepcopy(realism_memo_json or {}),
-    planning_run_json=copy.deepcopy(payload),
-    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=payload,
-      explicit_candidates=[
-        ("final_stabilizer_pass_result", final_stabilizer_pass_result),
-      ],
-    ),
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
+    explicit_numeric_feedback_candidates=[
+      ("final_stabilizer_pass_result", final_stabilizer_pass_result),
+    ],
   )
-  return payload
+
+
+def _persist_final_guarantee_state(
+  *,
+  conn,
+  draft_id: str,
+  stage: str,
+  status: str,
+  controller_resolution_state: Optional[Dict[str, Any]],
+  resolution_summary: Optional[Dict[str, Any]],
+  planning_mode: str,
+  planning_mode_reason: str,
+  prompt_file: str,
+  grid_application_summary: Optional[Dict[str, Any]],
+  realism_memo_before_resolution: Optional[Dict[str, Any]],
+  realism_resolution_decision: Optional[Dict[str, Any]],
+  realism_resolution_plan: Optional[Dict[str, Any]],
+  realism_resolution_result: Optional[Dict[str, Any]],
+  realism_resolution_verification: Optional[Dict[str, Any]],
+  realism_resolution_iterations: Optional[List[Dict[str, Any]]],
+  realism_resolution_stop_reason: Optional[str],
+  realism_resolution_iteration_count: Optional[int],
+  initial_restructure_context: Optional[Dict[str, Any]],
+  initial_restructure_decision: Optional[Dict[str, Any]],
+  initial_restructure_pass_plan: Optional[Dict[str, Any]],
+  initial_restructure_pass_result: Optional[Dict[str, Any]],
+  initial_restructure_effect_summary: Optional[Dict[str, Any]],
+  first_pass_handoff: Optional[Dict[str, Any]],
+  cash_strategy_review_context: Optional[Dict[str, Any]],
+  cash_strategy_review_decision: Optional[Dict[str, Any]],
+  cash_strategy_second_pass_plan: Optional[Dict[str, Any]],
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]],
+  cash_strategy_effect_summary: Optional[Dict[str, Any]],
+  final_stabilizer_context: Optional[Dict[str, Any]],
+  final_stabilizer_decision: Optional[Dict[str, Any]],
+  final_stabilizer_pass_plan: Optional[Dict[str, Any]],
+  final_stabilizer_pass_result: Optional[Dict[str, Any]],
+  final_stabilizer_effect_summary: Optional[Dict[str, Any]],
+  final_guarantee_context: Optional[Dict[str, Any]],
+  final_guarantee_iterations: Optional[List[Dict[str, Any]]],
+  final_guarantee_trigger_assessment: Optional[Dict[str, Any]],
+  final_guarantee_cycle_count: Optional[int],
+  realism_memo_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  guarantee_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  return _persist_post_intake_stage_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage=stage,
+    status=status,
+    controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
+    resolution_summary=copy.deepcopy(resolution_summary or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution or {}),
+    realism_resolution_decision=copy.deepcopy(realism_resolution_decision or {}),
+    realism_resolution_plan=copy.deepcopy(realism_resolution_plan or {}),
+    realism_resolution_result=copy.deepcopy(realism_resolution_result or {}),
+    realism_resolution_verification=copy.deepcopy(realism_resolution_verification or {}),
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations or []),
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
+    first_pass_handoff=copy.deepcopy(first_pass_handoff or {}),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context or {}),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision or {}),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan or {}),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result or {}),
+    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary or {}),
+    initial_restructure_context=copy.deepcopy(initial_restructure_context or {}),
+    initial_restructure_decision=copy.deepcopy(initial_restructure_decision or {}),
+    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan or {}),
+    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result or {}),
+    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary or {}),
+    final_stabilizer_context=copy.deepcopy(final_stabilizer_context or {}),
+    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision or {}),
+    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan or {}),
+    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result or {}),
+    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary or {}),
+    final_guarantee_context=copy.deepcopy(final_guarantee_context or {}),
+    final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations or []),
+    final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment or {}),
+    final_guarantee_cycle_count=final_guarantee_cycle_count,
+    realism_memo_json=copy.deepcopy(realism_memo_json or {}),
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    finmo_json=copy.deepcopy(finmo_json or {}),
+    explicit_numeric_feedback_candidates=[
+      ("final_viability_guarantee_result", guarantee_result),
+      ("final_stabilizer_pass_result", final_stabilizer_pass_result),
+      ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
+    ],
+  )
 
 
 def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -4214,7 +4674,6 @@ def _realism_resolution_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
       "executive_summary",
       "issue_resolution_summary",
       "confidence",
-      "issue_packets",
       "recommended_actions",
     ],
   }
@@ -4300,9 +4759,49 @@ def _active_issue_codes_from_memo(realism_memo_before_resolution: Optional[Dict[
   return codes
 
 
-def _build_issue_packets_from_issue_ledger(
+def _issue_severity_label_from_score(score: Any) -> str:
+  severity_score = int(_safe_float(score) or 0)
+  if severity_score >= 85:
+    return "high"
+  if severity_score >= 60:
+    return "medium"
+  return "low"
+
+
+def _numeric_solver_contract_issue_packet_map(
+  numeric_solver_contract: Optional[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+  contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
+  issue_packet_map: Dict[str, Dict[str, Any]] = {}
+  for item in (contract.get("issue_target_packets") or []):
+    if not isinstance(item, dict):
+      continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    issue_packet_map[issue_code] = copy.deepcopy(item)
+  return issue_packet_map
+
+
+def _numeric_solver_contract_baseline_quarter_map(
+  numeric_solver_contract: Optional[Dict[str, Any]],
+) -> Dict[int, Dict[str, Any]]:
+  contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
+  baseline_map: Dict[int, Dict[str, Any]] = {}
+  for item in (contract.get("baseline_quarter_metrics") or []):
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    baseline_map[quarter_index] = copy.deepcopy(item)
+  return baseline_map
+
+
+def _build_deterministic_issue_packets(
   *,
   issue_status_records: Optional[List[Dict[str, Any]]],
+  numeric_solver_contract: Optional[Dict[str, Any]] = None,
   prior_decision_payload: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
   prior_decision = prior_decision_payload if isinstance(prior_decision_payload, dict) else {}
@@ -4312,70 +4811,213 @@ def _build_issue_packets_from_issue_ledger(
     else []
   )
   prior_packet_map: Dict[str, Dict[str, Any]] = {}
-  for item in prior_packets or []:
+  for item in (prior_packets or []):
     if not isinstance(item, dict):
       continue
     issue_code = str(item.get("issue_code") or "").strip().lower()
     if issue_code:
       prior_packet_map[issue_code] = copy.deepcopy(item)
 
-  packets: List[Dict[str, Any]] = []
-  seen: set[str] = set()
-  for record in _clone_issue_status_records(issue_status_records):
-    issue_code = str(record.get("issue_code") or "").strip().lower()
-    if not issue_code or issue_code in seen:
+  issue_record_map: Dict[str, Dict[str, Any]] = {}
+  issue_order: List[str] = []
+  for item in _clone_issue_status_records(issue_status_records):
+    normalized = _normalize_issue_record_to_controller_truth(item)
+    issue_code = str(normalized.get("issue_code") or "").strip().lower()
+    if not issue_code:
       continue
-    seen.add(issue_code)
-    packet = copy.deepcopy(prior_packet_map.get(issue_code) or {})
-    if not packet:
-      packet = {
-        "issue_code": issue_code,
-        "issue": str(record.get("issue") or _canonical_issue_title(issue_code, "") or issue_code).strip(),
-        "detail": str(record.get("detail") or "").strip(),
-        "success_criteria": "",
-        "why_it_matters": "",
+    if issue_code not in issue_order:
+      issue_order.append(issue_code)
+    issue_record_map[issue_code] = copy.deepcopy(normalized)
+
+  contract_issue_packet_map = _numeric_solver_contract_issue_packet_map(numeric_solver_contract)
+  baseline_quarter_map = _numeric_solver_contract_baseline_quarter_map(numeric_solver_contract)
+
+  for issue_code in contract_issue_packet_map.keys():
+    if issue_code not in issue_order:
+      issue_order.append(issue_code)
+  for issue_code in prior_packet_map.keys():
+    if issue_code not in issue_order:
+      issue_order.append(issue_code)
+
+  packets: List[Dict[str, Any]] = []
+  for issue_code in issue_order:
+    record = issue_record_map.get(issue_code) or {}
+    contract_packet = contract_issue_packet_map.get(issue_code) or {}
+    prior_packet = prior_packet_map.get(issue_code) or {}
+    issue_title = str(
+      record.get("issue")
+      or prior_packet.get("issue")
+      or prior_packet.get("issue_summary")
+      or _canonical_issue_title(issue_code, "")
+      or issue_code
+    ).strip()
+    detail = str(record.get("detail") or prior_packet.get("detail") or "").strip()
+    severity_score = int(
+      _safe_float(record.get("remaining_issue_severity_score"))
+      or _safe_float(contract_packet.get("remaining_issue_severity_score"))
+      or 0
+    )
+    if severity_score <= 0:
+      severity_score = 75
+    affected_quarters = sorted(
+      {
+        int(_safe_float(item) or 0)
+        for item in (
+          _normalize_realism_remaining_quarters(record.get("remaining_problem_quarters"))
+          or contract_packet.get("remaining_problem_quarters")
+          or prior_packet.get("affected_quarters")
+          or []
+        )
+        if int(_safe_float(item) or 0) >= 1
       }
-    if not str(packet.get("issue") or "").strip():
-      packet["issue"] = str(record.get("issue") or _canonical_issue_title(issue_code, "") or issue_code).strip()
-    if not str(packet.get("detail") or "").strip():
-      packet["detail"] = str(record.get("detail") or "").strip()
-    packets.append(packet)
+    )
+    candidate_lever_ids: List[str] = []
+    for lever_id in (
+      _normalize_realism_lever_ids(record.get("next_required_lever_ids"))
+      + [
+        str(item).strip()
+        for item in (contract_packet.get("next_required_lever_ids") or [])
+        if str(item).strip()
+      ]
+      + [
+        str(item).strip()
+        for item in (prior_packet.get("candidate_lever_ids") or [])
+        if str(item).strip()
+      ]
+    ):
+      if lever_id and lever_id not in candidate_lever_ids:
+        candidate_lever_ids.append(lever_id)
+    metric_targets = [
+      str(item).strip()
+      for item in (contract_packet.get("metric_targets") or [])
+      if str(item).strip()
+    ]
+    evidence_points: List[Dict[str, Any]] = []
+    for quarter_index in affected_quarters:
+      baseline_metrics = baseline_quarter_map.get(quarter_index) or {}
+      metric_name = next(
+        (
+          metric
+          for metric in metric_targets
+          if _safe_float((baseline_metrics or {}).get(metric)) is not None
+        ),
+        metric_targets[0] if metric_targets else "ending_cash",
+      )
+      observed_value = float(_safe_float((baseline_metrics or {}).get(metric_name)) or 0.0)
+      evidence_points.append(
+        {
+          "quarter_index": quarter_index,
+          "metric_name": metric_name,
+          "observed_value": observed_value,
+          "problem_statement": (
+            f"{issue_title} remains materially open in quarter {quarter_index} and still requires an operationally credible fix."
+          ),
+        }
+      )
+    if not evidence_points:
+      evidence_points.append(
+        {
+          "quarter_index": 1,
+          "metric_name": metric_targets[0] if metric_targets else "ending_cash",
+          "observed_value": 0.0,
+          "problem_statement": (
+            f"{issue_title} remains materially open and still requires a quantified, model-backed fix."
+          ),
+        }
+      )
+    success_criteria = [
+      f"{metric_name} is materially improved or within tolerance across the affected quarters."
+      for metric_name in (metric_targets[:4] if metric_targets else [])
+    ]
+    if not success_criteria:
+      success_criteria = [
+        "The issue is no longer materially open in the affected quarters.",
+      ]
+    disallowed_fix_patterns = [
+      "Do not rely on explanation-only justification without actual model changes.",
+      "Do not leave the issue open in later quarters after improving only the early horizon.",
+    ]
+    for item in (prior_packet.get("disallowed_fix_patterns") or []):
+      text = str(item or "").strip()
+      if text and text not in disallowed_fix_patterns:
+        disallowed_fix_patterns.append(text)
+    packets.append(
+      {
+        "issue_code": issue_code,
+        "issue": issue_title,
+        "detail": detail,
+        "issue_summary": issue_title,
+        "severity": _issue_severity_label_from_score(severity_score),
+        "root_cause": detail or issue_title,
+        "affected_quarters": affected_quarters or [1],
+        "evidence_points": evidence_points,
+        "candidate_lever_ids": candidate_lever_ids,
+        "required_fix_shape": str(
+          contract_packet.get("solver_objective")
+          or prior_packet.get("required_fix_shape")
+          or "align_issue_to_viable_quarter_shape"
+        ).strip(),
+        "success_criteria": success_criteria,
+        "disallowed_fix_patterns": disallowed_fix_patterns,
+        "remaining_issue_materiality": str(
+          record.get("remaining_issue_materiality")
+          or contract_packet.get("remaining_issue_materiality")
+          or "material"
+        ).strip().lower(),
+        "remaining_issue_severity_score": severity_score,
+        "remaining_problem_quarters": affected_quarters,
+        "next_required_lever_ids": candidate_lever_ids,
+        "metric_targets": metric_targets,
+        "solver_objective": str(contract_packet.get("solver_objective") or "").strip(),
+      }
+    )
   return packets
+
+
+def _build_issue_packets_from_issue_ledger(
+  *,
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  numeric_solver_contract: Optional[Dict[str, Any]] = None,
+  prior_decision_payload: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+  return _build_deterministic_issue_packets(
+    issue_status_records=issue_status_records,
+    numeric_solver_contract=numeric_solver_contract,
+    prior_decision_payload=prior_decision_payload,
+  )
 
 
 def _realism_resolution_decision_contract_error(
   *,
   parsed: Optional[Dict[str, Any]],
   active_issue_codes: Optional[List[str]],
+  required_target_quarters: Optional[List[int]] = None,
 ) -> Optional[str]:
   decision = parsed if isinstance(parsed, dict) else {}
   codes = [str(code or "").strip().lower() for code in (active_issue_codes or []) if str(code or "").strip()]
+  required_quarters = sorted(
+    {
+      int(_safe_float(item) or 0)
+      for item in (required_target_quarters or [])
+      if int(_safe_float(item) or 0) >= 1
+    }
+  )
   if not codes:
     return None
   recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
-  issue_packets = [item for item in (decision.get("issue_packets") or []) if isinstance(item, dict)]
   recommended_actions = [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]
-  packet_codes = {
-    str(item.get("issue_code") or "").strip().lower()
-    for item in issue_packets
-    if str(item.get("issue_code") or "").strip()
-  }
-  missing_codes = [code for code in codes if code not in packet_codes]
   if recommendation_mode != "adjust":
     return (
       "Active realism issues were provided, so recommendation_mode must be 'adjust', "
       f"not {recommendation_mode or 'missing'}."
     )
-  if not issue_packets:
-    return "Active realism issues were provided, but issue_packets was empty."
-  if missing_codes:
-    return f"Issue packets were missing active issue codes: {', '.join(missing_codes)}."
   if not recommended_actions:
     return "Active realism issues were provided, but recommended_actions was empty."
   contract_error = _numeric_adjust_actions_contract_error(
     recommended_actions=recommended_actions,
     action_quarter_mode="target_quarters",
     require_issue_codes=True,
+    required_target_quarters=required_quarters,
   )
   if contract_error:
     return contract_error
@@ -4387,10 +5029,19 @@ def _numeric_adjust_actions_contract_error(
   recommended_actions: Optional[List[Dict[str, Any]]],
   action_quarter_mode: str,
   require_issue_codes: bool = False,
+  required_target_quarters: Optional[List[int]] = None,
 ) -> Optional[str]:
   normalized_actions = [item for item in (recommended_actions or []) if isinstance(item, dict)]
+  required_quarters = sorted(
+    {
+      int(_safe_float(item) or 0)
+      for item in (required_target_quarters or [])
+      if int(_safe_float(item) or 0) >= 1
+    }
+  )
   if not normalized_actions:
     return "At least one recommended_action is required for an adjust decision."
+  all_metric_quarters: set[int] = set()
   for action in normalized_actions:
     action_id = str(action.get("action_id") or "").strip() or "action"
     if require_issue_codes:
@@ -4440,6 +5091,7 @@ def _numeric_adjust_actions_contract_error(
           f"{action_id} timing window and quarter_target_metrics quarter_index set must match exactly. "
           f"timing_window={sorted(expected_quarter_set)}, quarter_target_metrics={sorted(metric_quarter_set)}."
         )
+    all_metric_quarters.update(metric_quarter_set)
     for item in quarter_target_metrics:
       quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
       if quarter_index < 1:
@@ -4451,6 +5103,13 @@ def _numeric_adjust_actions_contract_error(
             f"{action_id} quarter_target_metrics for Q{quarter_index} is missing a numeric value for {metric_name}. "
             "All required target lines must be preset numerically for every targeted quarter."
           )
+  if required_quarters:
+    missing_required_quarters = [quarter for quarter in required_quarters if quarter not in all_metric_quarters]
+    if missing_required_quarters:
+      return (
+        "Recommended actions did not provide full required quarter coverage. "
+        f"Missing quarter_target_metrics for quarters {missing_required_quarters}."
+      )
   return None
 
 
@@ -4458,6 +5117,7 @@ def _numeric_decision_contract_error(
   *,
   parsed: Optional[Dict[str, Any]],
   action_quarter_mode: str,
+  required_target_quarters: Optional[List[int]] = None,
 ) -> Optional[str]:
   decision = parsed if isinstance(parsed, dict) else {}
   recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
@@ -4472,7 +5132,101 @@ def _numeric_decision_contract_error(
     recommended_actions=recommended_actions,
     action_quarter_mode=action_quarter_mode,
     require_issue_codes=False,
+    required_target_quarters=required_target_quarters,
   )
+
+
+def _final_stabilizer_decision_contract_error(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  final_stabilizer_context: Optional[Dict[str, Any]],
+  controller_retry_context: Optional[Dict[str, Any]],
+) -> Optional[str]:
+  decision = parsed if isinstance(parsed, dict) else {}
+  context = final_stabilizer_context if isinstance(final_stabilizer_context, dict) else {}
+  retry_context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
+  trigger_assessment = (
+    context.get("stabilization_trigger_assessment")
+    if isinstance(context.get("stabilization_trigger_assessment"), dict)
+    else {}
+  )
+  guarantee_policy = (
+    context.get("full_run_guarantee_policy")
+    if isinstance(context.get("full_run_guarantee_policy"), dict)
+    else {}
+  )
+  guarantee_stall = (
+    context.get("guarantee_stall_assessment")
+    if isinstance(context.get("guarantee_stall_assessment"), dict)
+    else {}
+  )
+  review_role = str(context.get("review_role") or "").strip().lower()
+  required_adjust = bool(trigger_assessment.get("needs_stabilization"))
+  if recommendation_mode == "maintain" and required_adjust:
+    if review_role == "mandatory_full_run_viability_guarantee" or bool(guarantee_policy.get("terminal_convergence_loop")):
+      return (
+        "Terminal final guarantee still requires stabilization, so recommendation_mode must be 'adjust', "
+        "not 'maintain'."
+      )
+    return "Stabilization is still required, so recommendation_mode must be 'adjust'."
+  recommended_actions = [
+    item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)
+  ]
+  if bool(guarantee_stall.get("stalled")) and recommendation_mode != "adjust":
+    return "Final guarantee stall detected; the next attempt must materially change tactic with recommendation_mode='adjust'."
+  if recommendation_mode == "adjust" and bool(guarantee_stall.get("stalled")):
+    previous_allowed = {
+      str(item).strip()
+      for item in (retry_context.get("previous_allowed_lever_ids") or [])
+      if str(item).strip()
+    }
+    all_writable_allowed = {
+      str(item).strip()
+      for item in (retry_context.get("all_writable_lever_ids") or [])
+      if str(item).strip()
+    }
+    current_allowed = {
+      str(item).strip()
+      for action in recommended_actions
+      for item in (action.get("solver_allowed_lever_ids") or [])
+      if str(item).strip()
+    }
+    minimum_new_lever_count = max(1, int(_safe_float(guarantee_stall.get("minimum_new_lever_count")) or 0))
+    current_targets: Dict[str, float] = {}
+    for action in recommended_actions:
+      for item in (action.get("quarter_target_metrics") or []):
+        if not isinstance(item, dict):
+          continue
+        quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+        if quarter_index < 1:
+          continue
+        for metric_name, raw_value in item.items():
+          if str(metric_name or "").strip().lower() == "quarter_index":
+            continue
+          numeric_value = _safe_float(raw_value)
+          if numeric_value is None:
+            continue
+          current_targets[f"q{quarter_index}:{str(metric_name or '').strip().lower()}"] = float(numeric_value)
+    previous_target_key = str((retry_context.get("prior_target_keys") or [""])[-1] or "").strip()
+    current_target_key = json.dumps(current_targets, sort_keys=True)
+    materially_same_targets = bool(previous_target_key and current_target_key == previous_target_key)
+    previous_already_full_scope = bool(all_writable_allowed) and previous_allowed == all_writable_allowed
+    current_is_full_scope = bool(all_writable_allowed) and current_allowed == all_writable_allowed
+    if current_allowed == previous_allowed and materially_same_targets:
+      if previous_already_full_scope and current_is_full_scope:
+        return (
+          "Final guarantee stall detected; all writable levers were already in play, so the retry must materially "
+          "reframe quarter targets or tactic rather than reusing the same full-scope target package."
+        )
+      return "Final guarantee stall detected; the retry reused the same lever set and target shape."
+    if (
+      materially_same_targets
+      and not (previous_already_full_scope and current_is_full_scope)
+      and len(current_allowed - previous_allowed) < minimum_new_lever_count
+    ):
+      return "Final guarantee stall detected; the retry must widen the lever mix materially before continuing."
+  return None
 
 
 def _realism_verification_failure_payload(
@@ -4600,6 +5354,15 @@ def _run_realism_resolution_openai(
     retry_scope_payload.get("finmo_quarter_rows")
     or [row for row in ((solved_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)]
   )
+  required_target_quarters = _relevant_solver_target_quarters(scoped_numeric_solver_contract)
+  required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
+    copy.deepcopy(scoped_numeric_solver_contract),
+    required_target_quarters=copy.deepcopy(required_target_quarters),
+  )
+  deterministic_issue_packets = _build_deterministic_issue_packets(
+    issue_status_records=copy.deepcopy((planner_issue_state or {}).get("issue_status_records") or []),
+    numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+  )
   prompt_safe_planner_issue_state = {
     "issue_status_records": copy.deepcopy((planner_issue_state or {}).get("issue_status_records") or []),
     "detected_issue_count": int(_safe_float((planner_issue_state or {}).get("detected_issue_count")) or 0),
@@ -4627,6 +5390,9 @@ def _run_realism_resolution_openai(
     "prior_numeric_solver_feedback": copy.deepcopy(prior_numeric_feedback or {}),
     "controller_retry_context": copy.deepcopy(controller_retry_context or {}),
     "retry_scope_payload": copy.deepcopy(retry_scope_payload),
+    "required_target_quarters": copy.deepcopy(required_target_quarters),
+    "required_quarter_target_scaffold": copy.deepcopy(required_quarter_target_scaffold),
+    "deterministic_issue_packets": copy.deepcopy(deterministic_issue_packets),
     "numeric_solver_contract": copy.deepcopy(scoped_numeric_solver_contract),
     "writable_lever_catalog": copy.deepcopy(scoped_lever_catalog),
     "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
@@ -4676,6 +5442,7 @@ def _run_realism_resolution_openai(
   contract_error = _realism_resolution_decision_contract_error(
     parsed=parsed,
     active_issue_codes=active_issue_codes,
+    required_target_quarters=copy.deepcopy(required_target_quarters),
   )
   if contract_error:
     retry_payload = copy.deepcopy(payload)
@@ -4689,9 +5456,14 @@ def _run_realism_resolution_openai(
               {
                 "repair_contract_violation": contract_error,
                 "required_active_issue_codes": active_issue_codes,
+                "required_target_quarters": copy.deepcopy(required_target_quarters),
+                "required_quarter_target_scaffold": copy.deepcopy(required_quarter_target_scaffold),
                 "instruction": (
-                  "You must return recommendation_mode='adjust', one issue_packet for each active issue code, "
-                  "and at least one recommended_action because active realism issues are still open in this pass."
+                  "You must return recommendation_mode='adjust' and at least one recommended_action because "
+                  "active realism issues are still open in this pass. Python already owns deterministic issue packets, "
+                  "severity, quarter scope, and eligible lever space for this pass. "
+                  "quarter_target_metrics must cover every required_target_quarter. "
+                  "Use required_quarter_target_scaffold as the exact quarter-by-quarter target structure to fill and adjust."
                 ),
               },
               ensure_ascii=False,
@@ -4728,6 +5500,7 @@ def _run_realism_resolution_openai(
     retry_contract_error = _realism_resolution_decision_contract_error(
       parsed=parsed_retry,
       active_issue_codes=active_issue_codes,
+      required_target_quarters=copy.deepcopy(required_target_quarters),
     )
     if retry_contract_error:
       return _realism_resolution_failure_payload(
@@ -4745,6 +5518,7 @@ def _run_realism_resolution_openai(
     "prompt_file": prompt_file,
     "review_status": "completed",
     "detail": "",
+    "deterministic_issue_packets": copy.deepcopy(deterministic_issue_packets),
     "decision": parsed,
   }
 
@@ -4801,7 +5575,25 @@ def _run_realism_verification_openai(
     if isinstance(realism_resolution_decision.get("decision"), dict)
     else {}
   )
-  issue_packets = [item for item in (decision_payload.get("issue_packets") or []) if isinstance(item, dict)]
+  plan_issue_packets = (
+    realism_resolution_plan.get("issue_packets")
+    if isinstance(realism_resolution_plan.get("issue_packets"), list)
+    else []
+  )
+  deterministic_issue_packets = (
+    realism_resolution_decision.get("deterministic_issue_packets")
+    if isinstance(realism_resolution_decision.get("deterministic_issue_packets"), list)
+    else []
+  )
+  issue_packets = [
+    item
+    for item in (
+      plan_issue_packets
+      or deterministic_issue_packets
+      or (decision_payload.get("issue_packets") or [])
+    )
+    if isinstance(item, dict)
+  ]
   if not issue_packets:
     return _realism_verification_failure_payload(
       prompt_file=prompt_file,
@@ -4986,6 +5778,7 @@ def _run_cash_strategy_review_openai(
     retry_scope_payload.get("finmo_quarter_rows")
     or [row for row in ((solved_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)]
   )
+  required_target_quarters = _relevant_solver_target_quarters(scoped_numeric_solver_contract)
   prompt_safe_cash_strategy_review_context = {
     "contract_version": str((cash_strategy_review_context or {}).get("contract_version") or "cash_strategy_review_context_v1"),
     "status": str((cash_strategy_review_context or {}).get("status") or "").strip(),
@@ -5018,6 +5811,7 @@ def _run_cash_strategy_review_openai(
     "cash_strategy_review_context": prompt_safe_cash_strategy_review_context,
     "controller_retry_context": copy.deepcopy(controller_retry_context or {}),
     "retry_scope_payload": copy.deepcopy(retry_scope_payload),
+    "required_target_quarters": copy.deepcopy(required_target_quarters),
     "prior_numeric_solver_feedback": copy.deepcopy(effective_prior_numeric_feedback),
     "numeric_solver_contract": copy.deepcopy(scoped_numeric_solver_contract),
     "writable_lever_catalog": copy.deepcopy(scoped_lever_catalog),
@@ -5071,6 +5865,7 @@ def _run_cash_strategy_review_openai(
   contract_error = _numeric_decision_contract_error(
     parsed=parsed,
     action_quarter_mode="timing_window",
+    required_target_quarters=copy.deepcopy(required_target_quarters),
   )
   if contract_error:
     retry_payload = copy.deepcopy(payload)
@@ -5084,10 +5879,12 @@ def _run_cash_strategy_review_openai(
               {
                 "repair_contract_violation": contract_error,
                 "required_numeric_resolution_contract": _solver_target_contract_spec_payload(),
+                "required_target_quarters": copy.deepcopy(required_target_quarters),
                 "instruction": (
                   "If recommendation_mode is 'adjust', you must return at least one recommended_action with "
                   "solver_allowed_lever_ids and full quarter_target_metrics for every targeted quarter. "
-                  "lever_adjustments are optional compatibility guidance only."
+                  "lever_adjustments are optional compatibility guidance only. "
+                  "quarter_target_metrics must cover every required_target_quarter."
                 ),
               },
               ensure_ascii=False,
@@ -5127,6 +5924,7 @@ def _run_cash_strategy_review_openai(
     retry_contract_error = _numeric_decision_contract_error(
       parsed=parsed_retry,
       action_quarter_mode="timing_window",
+      required_target_quarters=copy.deepcopy(required_target_quarters),
     )
     if retry_contract_error:
       return _cash_strategy_review_failure_payload(
@@ -5218,6 +6016,7 @@ def _run_final_stabilizer_openai(
     retry_scope_payload.get("finmo_quarter_rows")
     or [row for row in ((((final_stabilizer_context or {}).get("current_finmo_json") or {}) if isinstance((final_stabilizer_context or {}).get("current_finmo_json"), dict) else {}).get("quarter_rows") or []) if isinstance(row, dict)]
   )
+  required_target_quarters = _relevant_solver_target_quarters(scoped_numeric_solver_contract)
   prompt_safe_final_stabilizer_context = {
     "contract_version": str((final_stabilizer_context or {}).get("contract_version") or "final_stabilizer_context_v1"),
     "draft_id": str((final_stabilizer_context or {}).get("draft_id") or "").strip(),
@@ -5227,9 +6026,12 @@ def _run_final_stabilizer_openai(
     "current_issue_summaries": copy.deepcopy((final_stabilizer_context or {}).get("current_issue_summaries") or {}),
     "issue_status_records": copy.deepcopy((final_stabilizer_context or {}).get("issue_status_records") or []),
     "resolved_issue_constraints": copy.deepcopy((final_stabilizer_context or {}).get("resolved_issue_constraints") or []),
+    "resolved_issue_protection_policy": copy.deepcopy((final_stabilizer_context or {}).get("resolved_issue_protection_policy") or {}),
     "whole_horizon_snapshot": copy.deepcopy((final_stabilizer_context or {}).get("whole_horizon_snapshot") or {}),
     "late_horizon_summary": copy.deepcopy((final_stabilizer_context or {}).get("late_horizon_summary") or {}),
     "stabilization_trigger_assessment": copy.deepcopy((final_stabilizer_context or {}).get("stabilization_trigger_assessment") or {}),
+    "full_run_guarantee_policy": copy.deepcopy((final_stabilizer_context or {}).get("full_run_guarantee_policy") or {}),
+    "guarantee_stall_assessment": copy.deepcopy((final_stabilizer_context or {}).get("guarantee_stall_assessment") or {}),
   }
 
   system_prompt = _load_final_stabilizer_prompt()
@@ -5246,6 +6048,7 @@ def _run_final_stabilizer_openai(
     "final_stabilizer_context": prompt_safe_final_stabilizer_context,
     "controller_retry_context": copy.deepcopy(controller_retry_context or {}),
     "retry_scope_payload": copy.deepcopy(retry_scope_payload),
+    "required_target_quarters": copy.deepcopy(required_target_quarters),
     "prior_numeric_solver_feedback": copy.deepcopy(effective_prior_numeric_feedback),
     "numeric_solver_contract": copy.deepcopy(scoped_numeric_solver_contract),
     "writable_lever_catalog": copy.deepcopy(scoped_lever_catalog),
@@ -5303,6 +6106,7 @@ def _run_final_stabilizer_openai(
   contract_error = _numeric_decision_contract_error(
     parsed=parsed,
     action_quarter_mode="timing_window",
+    required_target_quarters=copy.deepcopy(required_target_quarters),
   )
   if contract_error:
     retry_payload = copy.deepcopy(payload)
@@ -5316,10 +6120,12 @@ def _run_final_stabilizer_openai(
               {
                 "repair_contract_violation": contract_error,
                 "required_numeric_resolution_contract": _solver_target_contract_spec_payload(),
+                "required_target_quarters": copy.deepcopy(required_target_quarters),
                 "instruction": (
                   "If recommendation_mode is 'adjust', you must return at least one recommended_action with "
                   "solver_allowed_lever_ids and full quarter_target_metrics for every targeted quarter. "
-                  "lever_adjustments are optional compatibility guidance only."
+                  "lever_adjustments are optional compatibility guidance only. "
+                  "quarter_target_metrics must cover every required_target_quarter."
                 ),
               },
               ensure_ascii=False,
@@ -5359,13 +6165,19 @@ def _run_final_stabilizer_openai(
     retry_contract_error = _numeric_decision_contract_error(
       parsed=parsed_retry,
       action_quarter_mode="timing_window",
+      required_target_quarters=copy.deepcopy(required_target_quarters),
     )
-    if retry_contract_error:
+    retry_decision_error = _final_stabilizer_decision_contract_error(
+      parsed=parsed_retry,
+      final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+      controller_retry_context=copy.deepcopy(controller_retry_context),
+    )
+    if retry_contract_error or retry_decision_error:
       return _final_stabilizer_failure_payload(
         selected_cash_strategy=selected_cash_strategy,
         prompt_file=prompt_file,
         status="failed_invalid_repair_contract",
-        detail=retry_contract_error,
+        detail=str(retry_contract_error or retry_decision_error or "").strip(),
       )
     parsed = parsed_retry
   return {
@@ -5450,6 +6262,7 @@ def _run_initial_restructure_openai(
     retry_scope_payload.get("finmo_quarter_rows")
     or [row for row in ((((initial_restructure_context or {}).get("current_finmo_json") or {}) if isinstance((initial_restructure_context or {}).get("current_finmo_json"), dict) else {}).get("quarter_rows") or []) if isinstance(row, dict)]
   )
+  required_target_quarters = _relevant_solver_target_quarters(scoped_numeric_solver_contract)
   prompt_safe_initial_restructure_context = {
     "contract_version": str((initial_restructure_context or {}).get("contract_version") or "initial_restructure_context_v1"),
     "draft_id": str((initial_restructure_context or {}).get("draft_id") or "").strip(),
@@ -5477,6 +6290,7 @@ def _run_initial_restructure_openai(
     "initial_restructure_context": prompt_safe_initial_restructure_context,
     "controller_retry_context": copy.deepcopy(controller_retry_context or {}),
     "retry_scope_payload": copy.deepcopy(retry_scope_payload),
+    "required_target_quarters": copy.deepcopy(required_target_quarters),
     "prior_numeric_solver_feedback": copy.deepcopy(effective_prior_numeric_feedback),
     "numeric_solver_contract": copy.deepcopy(scoped_numeric_solver_contract),
     "writable_lever_catalog": copy.deepcopy(scoped_lever_catalog),
@@ -5534,6 +6348,7 @@ def _run_initial_restructure_openai(
   contract_error = _numeric_decision_contract_error(
     parsed=parsed,
     action_quarter_mode="timing_window",
+    required_target_quarters=copy.deepcopy(required_target_quarters),
   )
   if contract_error:
     retry_payload = copy.deepcopy(payload)
@@ -5547,10 +6362,12 @@ def _run_initial_restructure_openai(
               {
                 "repair_contract_violation": contract_error,
                 "required_numeric_resolution_contract": _solver_target_contract_spec_payload(),
+                "required_target_quarters": copy.deepcopy(required_target_quarters),
                 "instruction": (
                   "If recommendation_mode is 'adjust', you must return at least one recommended_action with "
                   "solver_allowed_lever_ids and full quarter_target_metrics for every targeted quarter. "
-                  "lever_adjustments are optional compatibility guidance only."
+                  "lever_adjustments are optional compatibility guidance only. "
+                  "quarter_target_metrics must cover every required_target_quarter."
                 ),
               },
               ensure_ascii=False,
@@ -5590,6 +6407,7 @@ def _run_initial_restructure_openai(
     retry_contract_error = _numeric_decision_contract_error(
       parsed=parsed_retry,
       action_quarter_mode="timing_window",
+      required_target_quarters=copy.deepcopy(required_target_quarters),
     )
     if retry_contract_error:
       return _initial_restructure_failure_payload(
@@ -5839,6 +6657,21 @@ def _build_final_stabilizer_pass_plan(
   touched_lever_ids: List[str] = []
 
   for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
+    normalized_quarter_targets = _normalize_solver_quarter_target_metrics(
+      action.get("quarter_target_metrics")
+    )
+    target_quarters = sorted(
+      {
+        int(_safe_float(item.get("quarter_index")) or 0)
+        for item in normalized_quarter_targets
+        if int(_safe_float(item.get("quarter_index")) or 0) >= 1
+      }
+    )
+    eligible_lever_ids = _solver_contract_eligible_lever_ids(
+      numeric_solver_contract=solver_contract,
+      target_quarters=target_quarters,
+    )
+    eligible_lookup = set(eligible_lever_ids)
     translated_controls: List[Dict[str, Any]] = []
     for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
       translated, warning = _translate_cash_strategy_adjustment(
@@ -5850,6 +6683,12 @@ def _build_final_stabilizer_pass_plan(
         warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
         continue
       if translated:
+        lever_id = str((translated or {}).get("lever_id") or "").strip()
+        if eligible_lookup and lever_id not in eligible_lookup:
+          warnings.append(
+            f"{str(action.get('action_id') or '').strip() or 'action'}: lever_id {lever_id} is outside the deterministic eligible lever scope"
+          )
+          continue
         translated_controls.append(translated)
     translated_packages.append(
       {
@@ -5865,8 +6704,9 @@ def _build_final_stabilizer_pass_plan(
         "solver_allowed_lever_ids": _derive_solver_allowed_lever_ids(
           action=action,
           translated_controls=translated_controls,
+          eligible_lever_ids=eligible_lever_ids,
         ),
-        "quarter_target_metrics": _normalize_solver_quarter_target_metrics(action.get("quarter_target_metrics")),
+        "quarter_target_metrics": normalized_quarter_targets,
         "translated_controls": translated_controls,
       }
     )
@@ -5953,11 +6793,79 @@ def _normalize_solver_quarter_target_metrics(raw_targets: Any) -> List[Dict[str,
   return [deduped[key] for key in sorted(deduped.keys())]
 
 
+def _solver_contract_all_writable_lever_ids(
+  numeric_solver_contract: Optional[Dict[str, Any]],
+) -> List[str]:
+  contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
+  catalog = (
+    contract.get("writable_lever_catalog")
+    if isinstance(contract.get("writable_lever_catalog"), dict)
+    else {}
+  )
+  lever_ids: List[str] = []
+  for item in (catalog.get("lever_ids") or []):
+    lever_id = str(item or "").strip()
+    if lever_id and lever_id not in lever_ids:
+      lever_ids.append(lever_id)
+  return lever_ids
+
+
+def _solver_contract_eligible_lever_ids(
+  *,
+  numeric_solver_contract: Optional[Dict[str, Any]],
+  issue_codes: Optional[List[str]] = None,
+  target_quarters: Optional[List[int]] = None,
+) -> List[str]:
+  contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
+  all_writable = _solver_contract_all_writable_lever_ids(contract)
+  if all_writable:
+    return all_writable
+  eligible: List[str] = []
+  issue_code_set = {
+    str(item or "").strip().lower()
+    for item in (issue_codes or [])
+    if str(item or "").strip()
+  }
+  target_quarter_set = {
+    int(_safe_float(item) or 0)
+    for item in (target_quarters or [])
+    if int(_safe_float(item) or 0) >= 1
+  }
+  issue_packet_map = _numeric_solver_contract_issue_packet_map(contract)
+  for issue_code in issue_code_set:
+    for lever_id in (issue_packet_map.get(issue_code) or {}).get("next_required_lever_ids") or []:
+      lever = str(lever_id or "").strip()
+      if lever and lever not in eligible:
+        eligible.append(lever)
+  for item in (contract.get("quarter_target_grid") or []):
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    if target_quarter_set and quarter_index not in target_quarter_set:
+      continue
+    if issue_code_set:
+      driving_issue_codes = {
+        str(code or "").strip().lower()
+        for code in (item.get("driving_issue_codes") or [])
+        if str(code or "").strip()
+      }
+      if driving_issue_codes and driving_issue_codes.isdisjoint(issue_code_set):
+        continue
+    for lever_id in (item.get("required_lever_ids") or []):
+      lever = str(lever_id or "").strip()
+      if lever and lever not in eligible:
+        eligible.append(lever)
+  if eligible:
+    return eligible
+  return []
+
+
 def _derive_solver_allowed_lever_ids(
   *,
   action: Dict[str, Any],
   translated_controls: Optional[List[Dict[str, Any]]] = None,
   translated_updates: Optional[List[Dict[str, Any]]] = None,
+  eligible_lever_ids: Optional[List[str]] = None,
 ) -> List[str]:
   out: List[str] = []
   for item in (action.get("solver_allowed_lever_ids") or []):
@@ -5972,7 +6880,15 @@ def _derive_solver_allowed_lever_ids(
     lever = str((item or {}).get("lever_id") or "").strip()
     if lever and lever not in out:
       out.append(lever)
-  return out
+  eligible = [
+    str(item or "").strip()
+    for item in (eligible_lever_ids or [])
+    if str(item or "").strip()
+  ]
+  if not eligible:
+    return out
+  filtered = [lever for lever in out if lever in eligible]
+  return filtered or eligible
 
 
 def _action_package_solver_ready(action_package: Optional[Dict[str, Any]]) -> bool:
@@ -6031,6 +6947,69 @@ def _relevant_solver_target_quarters(
     }
   )
   return quarters
+
+
+def _solver_required_quarter_target_scaffold(
+  numeric_solver_contract: Optional[Dict[str, Any]],
+  *,
+  required_target_quarters: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+  contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
+  required_quarters = [
+    int(_safe_float(item) or 0)
+    for item in (required_target_quarters or _relevant_solver_target_quarters(contract))
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  if not required_quarters:
+    return []
+  baseline_quarter_map: Dict[int, Dict[str, Any]] = {}
+  for item in (contract.get("baseline_quarter_metrics") or []):
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    baseline_quarter_map[quarter_index] = copy.deepcopy(item)
+  quarter_grid_map: Dict[int, Dict[str, Any]] = {}
+  for item in (contract.get("quarter_target_grid") or []):
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    quarter_grid_map[quarter_index] = copy.deepcopy(item)
+  scaffold: List[Dict[str, Any]] = []
+  for quarter_index in sorted({quarter for quarter in required_quarters if quarter >= 1}):
+    quarter_grid_entry = quarter_grid_map.get(quarter_index) or {}
+    baseline_metrics = (
+      quarter_grid_entry.get("baseline_metrics")
+      if isinstance(quarter_grid_entry.get("baseline_metrics"), dict)
+      else baseline_quarter_map.get(quarter_index) or {}
+    )
+    target_payload: Dict[str, Any] = {"quarter_index": quarter_index}
+    for metric_name in _REQUIRED_SOLVER_TARGET_METRIC_KEYS:
+      target_payload[metric_name] = float(_safe_float((baseline_metrics or {}).get(metric_name)) or 0.0)
+    scaffold.append(
+      {
+        "quarter_index": quarter_index,
+        "driving_issue_codes": [
+          str(item).strip().lower()
+          for item in (quarter_grid_entry.get("driving_issue_codes") or [])
+          if str(item).strip()
+        ],
+        "required_lever_ids": [
+          str(item).strip()
+          for item in (quarter_grid_entry.get("required_lever_ids") or [])
+          if str(item).strip()
+        ],
+        "baseline_metrics": {
+          metric_name: float(_safe_float((baseline_metrics or {}).get(metric_name)) or 0.0)
+          for metric_name in _REQUIRED_SOLVER_TARGET_METRIC_KEYS
+        },
+        "response_target_template": copy.deepcopy(target_payload),
+      }
+    )
+  return scaffold
 
 
 def _target_verification_requires_retry(
@@ -6123,6 +7102,7 @@ def _extract_pass_retry_candidate_signature(
   ]
   lever_sets: List[List[str]] = []
   all_levers: List[str] = []
+  control_sections: List[str] = []
   for action in translated_actions:
     current_levers = sorted(
       {
@@ -6133,13 +7113,22 @@ def _extract_pass_retry_candidate_signature(
     )
     lever_sets.append(current_levers)
     all_levers.extend(current_levers)
+    control_sections.extend(
+      [
+        str(item.get("section") or "").strip().lower()
+        for item in (action.get("translated_controls") or [])
+        if isinstance(item, dict) and str(item.get("section") or "").strip()
+      ]
+    )
   unique_levers = sorted({item for item in all_levers if item})
+  unique_sections = sorted({item for item in control_sections if item})
   flattened_targets = _flatten_quarter_targets(review_plan)
   return {
     "action_count": len(translated_actions),
     "lever_sets": copy.deepcopy(lever_sets),
     "lever_set_union": copy.deepcopy(unique_levers),
     "lever_set_union_key": "|".join(unique_levers),
+    "control_sections": copy.deepcopy(unique_sections),
     "quarter_targets": copy.deepcopy(flattened_targets),
     "quarter_target_key": json.dumps(flattened_targets, sort_keys=True),
   }
@@ -6298,12 +7287,56 @@ def _build_pass_retry_context(
   }
 
 
+def _controller_retry_heartbeat_from_snapshot(snapshot: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = snapshot if isinstance(snapshot, dict) else {}
+  context = payload.get("controller_retry_context") if isinstance(payload.get("controller_retry_context"), dict) else {}
+  candidate_signature = payload.get("candidate_signature") if isinstance(payload.get("candidate_signature"), dict) else {}
+  validation_error = payload.get("validation_error") if isinstance(payload.get("validation_error"), dict) else {}
+  decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+  plan = payload.get("plan") if isinstance(payload.get("plan"), dict) else {}
+  result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+  retry_memory = payload.get("retry_memory") if isinstance(payload.get("retry_memory"), dict) else {}
+  numeric_feedback = _build_numeric_solver_feedback_payload(copy.deepcopy(result))
+  return {
+    "heartbeat_at_utc": datetime.utcnow().isoformat() + "Z",
+    "pass_name": str(context.get("pass_name") or "").strip(),
+    "pass_label": str(context.get("pass_label") or "").strip(),
+    "attempt_number": int(_safe_float(payload.get("attempt_number")) or 0),
+    "attempt_stage": str(payload.get("attempt_stage") or context.get("attempt_stage") or "").strip(),
+    "lifecycle_status": str(payload.get("status") or "").strip(),
+    "max_attempts": int(_safe_float(context.get("max_attempts")) or 0),
+    "previous_attempt_count": int(_safe_float(context.get("previous_attempt_count")) or 0),
+    "decision_status": str(decision.get("status") or "").strip(),
+    "plan_status": str(plan.get("status") or "").strip(),
+    "result_status": str(result.get("status") or "").strip(),
+    "candidate_lever_count": len(candidate_signature.get("lever_set_union") or []),
+    "candidate_target_quarter_count": len(candidate_signature.get("targeted_quarters") or []),
+    "candidate_target_metric_count": len(candidate_signature.get("target_metric_names") or []),
+    "failed_quarters": copy.deepcopy(
+      (
+        numeric_feedback.get("target_verification")
+        if isinstance(numeric_feedback.get("target_verification"), dict)
+        else {}
+      ).get("quarters_failed")
+      or []
+    ),
+    "solver_invoked": bool(numeric_feedback.get("solver_invoked")),
+    "solver_execution_state": str(numeric_feedback.get("solver_execution_state") or "").strip(),
+    "quarters_with_target_misses": int(_safe_float(numeric_feedback.get("quarters_with_target_misses")) or 0),
+    "attempt_count": int(_safe_float(numeric_feedback.get("attempt_count")) or 0),
+    "validation_error": copy.deepcopy(validation_error or {}),
+    "latest_improvement_summary": copy.deepcopy(retry_memory.get("latest_improvement_summary") or {}),
+  }
+
+
 def _retry_scope_quarters(
   *,
   controller_retry_context: Optional[Dict[str, Any]],
   quarter_count: int,
 ) -> List[int]:
   context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  if bool(context.get("force_full_horizon_scope")):
+    return list(range(1, max(1, int(quarter_count or 1)) + 1))
   attempt_stage = str(context.get("attempt_stage") or "").strip().lower()
   if attempt_stage in {"structural", "infeasible"}:
     return list(range(1, max(1, int(quarter_count or 1)) + 1))
@@ -6342,6 +7375,8 @@ def _retry_scope_lever_ids(
     for item in catalog_entries
     if str(item.get("lever_id") or "").strip()
   ]
+  if bool(context.get("force_all_writable_levers")):
+    return all_catalog_lever_ids
   if attempt_stage in {"structural", "infeasible"}:
     return all_catalog_lever_ids
   if attempt_stage == "expanded":
@@ -6811,6 +7846,86 @@ def _validate_pass_retry_candidate(
   return None
 
 
+def _forced_retry_change_error(
+  *,
+  controller_retry_context: Optional[Dict[str, Any]],
+  candidate_signature: Optional[Dict[str, Any]],
+  retry_memory: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  if not bool(context.get("force_material_tactic_change")):
+    return None
+  memory = retry_memory if isinstance(retry_memory, dict) else {}
+  previous_candidate = (
+    memory.get("latest_candidate_signature")
+    if isinstance(memory.get("latest_candidate_signature"), dict)
+    else {}
+  )
+  current = candidate_signature if isinstance(candidate_signature, dict) else {}
+  current_levers = {
+    str(item).strip()
+    for item in (current.get("lever_set_union") or [])
+    if str(item).strip()
+  }
+  previous_levers = {
+    str(item).strip()
+    for item in (previous_candidate.get("lever_set_union") or [])
+    if str(item).strip()
+  }
+  current_sections = {
+    str(item).strip().lower()
+    for item in (current.get("control_sections") or [])
+    if str(item).strip()
+  }
+  previous_sections = {
+    str(item).strip().lower()
+    for item in (previous_candidate.get("control_sections") or [])
+    if str(item).strip()
+  }
+  current_targets = (
+    current.get("quarter_targets")
+    if isinstance(current.get("quarter_targets"), dict)
+    else {}
+  )
+  previous_targets = (
+    previous_candidate.get("quarter_targets")
+    if isinstance(previous_candidate.get("quarter_targets"), dict)
+    else {}
+  )
+  materially_same_targets = _materially_same_target_maps(current_targets, previous_targets)
+  added_levers = current_levers - previous_levers
+  added_sections = current_sections - previous_sections
+  minimum_new_lever_count = max(1, int(_safe_float(context.get("minimum_new_lever_count")) or 0))
+  if current_levers == previous_levers and materially_same_targets:
+    return {
+      "rejected": True,
+      "reason_code": "forced_material_change_missing",
+      "reason": "Stalled convergence requires a materially different tactic, but the retry reused the same levers and targets.",
+    }
+  if minimum_new_lever_count and len(added_levers) < minimum_new_lever_count:
+    return {
+      "rejected": True,
+      "reason_code": "forced_scope_expansion_missing",
+      "reason": (
+        "Stalled convergence requires a broader lever mix before retrying again."
+      ),
+      "minimum_new_lever_count": minimum_new_lever_count,
+    }
+  if bool(context.get("force_structural_driver_changes")) and not added_sections:
+    return {
+      "rejected": True,
+      "reason_code": "forced_structural_change_missing",
+      "reason": "Structural issues remain open, so the next retry must widen into different control sections or materially reframe targets.",
+    }
+  if bool(context.get("require_target_reframe_on_same_issue_state")) and materially_same_targets and not added_sections:
+    return {
+      "rejected": True,
+      "reason_code": "same_issue_state_requires_target_reframe",
+      "reason": "The issue state has not changed, so the next retry must materially change targets or widen the control mix.",
+    }
+  return None
+
+
 def _evaluate_retry_improvement(
   *,
   previous_result_signature: Optional[Dict[str, Any]],
@@ -6860,23 +7975,48 @@ def _run_controller_retry_loop(
   catalog_source_model_input_json: Optional[Dict[str, Any]],
   numeric_solver_contract: Optional[Dict[str, Any]],
   contract_version: str,
+  initial_retry_memory: Optional[Dict[str, Any]] = None,
+  controller_retry_context_overrides: Optional[Dict[str, Any]] = None,
   attempt_persistor=None,
 ) -> Dict[str, Any]:
   working_model_input = copy.deepcopy(current_model_input_json or {})
   working_finmo = copy.deepcopy(current_finmo_json or {})
+  seeded_retry_memory = (
+    copy.deepcopy(initial_retry_memory)
+    if isinstance(initial_retry_memory, dict)
+    else {}
+  )
   retry_memory: Dict[str, Any] = {
-    "completed_attempt_count": 0,
-    "prior_lever_unions": [],
-    "prior_target_keys": [],
-    "latest_candidate_signature": {},
-    "latest_result_signature": {},
-    "attempt_records": [],
+    "completed_attempt_count": int(_safe_float(seeded_retry_memory.get("completed_attempt_count")) or 0),
+    "prior_lever_unions": list(seeded_retry_memory.get("prior_lever_unions") or []),
+    "prior_target_keys": list(seeded_retry_memory.get("prior_target_keys") or []),
+    "latest_candidate_signature": copy.deepcopy(
+      seeded_retry_memory.get("latest_candidate_signature")
+      if isinstance(seeded_retry_memory.get("latest_candidate_signature"), dict)
+      else {}
+    ),
+    "latest_result_signature": copy.deepcopy(
+      seeded_retry_memory.get("latest_result_signature")
+      if isinstance(seeded_retry_memory.get("latest_result_signature"), dict)
+      else {}
+    ),
+    "latest_improvement_summary": copy.deepcopy(
+      seeded_retry_memory.get("latest_improvement_summary")
+      if isinstance(seeded_retry_memory.get("latest_improvement_summary"), dict)
+      else {}
+    ),
+    "attempt_records": list(seeded_retry_memory.get("attempt_records") or []),
   }
   latest_decision: Dict[str, Any] = {}
   latest_plan: Dict[str, Any] = {}
   latest_result: Dict[str, Any] = {}
   latest_status = "failed_retry_loop_not_started"
   latest_prior_numeric_feedback: Dict[str, Any] = {}
+  context_overrides = (
+    copy.deepcopy(controller_retry_context_overrides)
+    if isinstance(controller_retry_context_overrides, dict)
+    else {}
+  )
 
   def _normalized_result_payload(result_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     normalized = copy.deepcopy(result_payload if isinstance(result_payload, dict) else {})
@@ -6894,6 +8034,28 @@ def _run_controller_retry_loop(
       retry_memory=copy.deepcopy(retry_memory),
       numeric_solver_contract=copy.deepcopy(numeric_solver_contract),
     )
+    if context_overrides:
+      controller_retry_context = {
+        **controller_retry_context,
+        **copy.deepcopy(context_overrides),
+      }
+    if callable(attempt_persistor):
+      attempt_persistor(
+        {
+          "attempt_number": attempt_number,
+          "attempt_stage": _controller_retry_stage_for_attempt(attempt_number),
+          "status": "planner_running",
+          "decision": copy.deepcopy(latest_decision),
+          "plan": copy.deepcopy(latest_plan),
+          "result": copy.deepcopy(latest_result),
+          "retry_memory": copy.deepcopy(retry_memory),
+          "working_model_input_json": copy.deepcopy(working_model_input),
+          "working_finmo_json": copy.deepcopy(working_finmo),
+          "controller_retry_context": copy.deepcopy(controller_retry_context),
+          "candidate_signature": {},
+          "validation_error": None,
+        }
+      )
     decision = planner_runner(
       copy.deepcopy(controller_retry_context),
       copy.deepcopy(latest_prior_numeric_feedback),
@@ -6913,14 +8075,57 @@ def _run_controller_retry_loop(
       else {}
     )
     plan_active_issue_count = int(_safe_float(plan_solver_contract.get("active_issue_count")) or 0)
+    decision_status = str(latest_decision.get("status") or "").strip()
     plan_status = str(latest_plan.get("status") or "").strip()
     candidate_signature = _extract_pass_retry_candidate_signature(latest_plan)
+    if callable(attempt_persistor):
+      attempt_persistor(
+        {
+          "attempt_number": attempt_number,
+          "attempt_stage": _controller_retry_stage_for_attempt(attempt_number),
+          "status": "plan_ready_for_validation",
+          "decision": copy.deepcopy(latest_decision),
+          "plan": copy.deepcopy(latest_plan),
+          "result": copy.deepcopy(latest_result),
+          "retry_memory": copy.deepcopy(retry_memory),
+          "working_model_input_json": copy.deepcopy(working_model_input),
+          "working_finmo_json": copy.deepcopy(working_finmo),
+          "controller_retry_context": copy.deepcopy(controller_retry_context),
+          "candidate_signature": copy.deepcopy(candidate_signature),
+          "validation_error": None,
+        }
+      )
+    forced_change_error = _forced_retry_change_error(
+      controller_retry_context=copy.deepcopy(controller_retry_context),
+      candidate_signature=copy.deepcopy(candidate_signature),
+      retry_memory=copy.deepcopy(retry_memory),
+    )
     if plan_status == "ready_maintain_first_pass" and plan_active_issue_count > 0:
       validation_error = {
         "rejected": True,
         "reason_code": "maintain_not_allowed_with_active_issues",
         "reason": "This pass still has active issues, so the planner must return adjust rather than maintain.",
       }
+    elif decision_status and decision_status != "completed":
+      validation_error = {
+        "rejected": True,
+        "reason_code": "planner_not_completed",
+        "reason": f"Planner did not complete successfully for this pass: {decision_status}.",
+      }
+    elif plan_status == "skipped_review_not_completed" and plan_active_issue_count > 0:
+      validation_error = {
+        "rejected": True,
+        "reason_code": "plan_not_ready_after_planner_failure",
+        "reason": "Planner review did not complete, so target-driven execution cannot start for an active-issue pass.",
+      }
+    elif plan_status == "ready_no_valid_solver_contract" and plan_active_issue_count > 0:
+      validation_error = {
+        "rejected": True,
+        "reason_code": "missing_valid_solver_contract",
+        "reason": "Planner did not provide a valid target/levers contract for an active-issue pass.",
+      }
+    elif forced_change_error:
+      validation_error = copy.deepcopy(forced_change_error)
     else:
       validation_error = _validate_pass_retry_candidate(
         attempt_number=attempt_number,
@@ -6990,6 +8195,23 @@ def _run_controller_retry_loop(
           )
         break
       continue
+    if callable(attempt_persistor):
+      attempt_persistor(
+        {
+          "attempt_number": attempt_number,
+          "attempt_stage": _controller_retry_stage_for_attempt(attempt_number),
+          "status": "solver_running",
+          "decision": copy.deepcopy(latest_decision),
+          "plan": copy.deepcopy(latest_plan),
+          "result": copy.deepcopy(latest_result),
+          "retry_memory": copy.deepcopy(retry_memory),
+          "working_model_input_json": copy.deepcopy(working_model_input),
+          "working_finmo_json": copy.deepcopy(working_finmo),
+          "controller_retry_context": copy.deepcopy(controller_retry_context),
+          "candidate_signature": copy.deepcopy(candidate_signature),
+          "validation_error": None,
+        }
+      )
     result = _apply_followup_exact_updates(
       review_plan=copy.deepcopy(latest_plan),
       current_model_input_json=copy.deepcopy(working_model_input),
@@ -7231,6 +8453,21 @@ def _build_cash_strategy_second_pass_plan(
   touched_lever_ids: List[str] = []
 
   for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
+    normalized_quarter_targets = _normalize_solver_quarter_target_metrics(
+      action.get("quarter_target_metrics")
+    )
+    target_quarters = sorted(
+      {
+        int(_safe_float(item.get("quarter_index")) or 0)
+        for item in normalized_quarter_targets
+        if int(_safe_float(item.get("quarter_index")) or 0) >= 1
+      }
+    )
+    eligible_lever_ids = _solver_contract_eligible_lever_ids(
+      numeric_solver_contract=solver_contract,
+      target_quarters=target_quarters,
+    )
+    eligible_lookup = set(eligible_lever_ids)
     translated_controls: List[Dict[str, Any]] = []
     for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
       translated, warning = _translate_cash_strategy_adjustment(
@@ -7242,6 +8479,12 @@ def _build_cash_strategy_second_pass_plan(
         warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: {warning}")
         continue
       if translated:
+        lever_id = str((translated or {}).get("lever_id") or "").strip()
+        if eligible_lookup and lever_id not in eligible_lookup:
+          warnings.append(
+            f"{str(action.get('action_id') or '').strip() or 'action'}: lever_id {lever_id} is outside the deterministic eligible lever scope"
+          )
+          continue
         translated_controls.append(translated)
     translated_packages.append(
       {
@@ -7257,8 +8500,9 @@ def _build_cash_strategy_second_pass_plan(
         "solver_allowed_lever_ids": _derive_solver_allowed_lever_ids(
           action=action,
           translated_controls=translated_controls,
+          eligible_lever_ids=eligible_lever_ids,
         ),
-        "quarter_target_metrics": _normalize_solver_quarter_target_metrics(action.get("quarter_target_metrics")),
+        "quarter_target_metrics": normalized_quarter_targets,
         "translated_controls": translated_controls,
       }
     )
@@ -7343,7 +8587,21 @@ def _build_realism_resolution_plan(
   decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
   recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
   resolution_assessment = str(decision.get("resolution_assessment") or "").strip()
-  issue_packets = [item for item in (decision.get("issue_packets") or []) if isinstance(item, dict)]
+  issue_packets = [
+    item
+    for item in (
+      review_payload.get("deterministic_issue_packets")
+      if isinstance(review_payload.get("deterministic_issue_packets"), list)
+      else []
+    )
+    if isinstance(item, dict)
+  ]
+  if not issue_packets:
+    issue_packets = _build_deterministic_issue_packets(
+      issue_status_records=copy.deepcopy(solver_contract.get("issue_target_packets") or []),
+      numeric_solver_contract=copy.deepcopy(solver_contract),
+      prior_decision_payload=copy.deepcopy(review_payload),
+    )
   issue_packet_map = {
     str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
     for item in issue_packets
@@ -7357,16 +8615,43 @@ def _build_realism_resolution_plan(
 
   for action in [item for item in (decision.get("recommended_actions") or []) if isinstance(item, dict)]:
     translated_updates: List[Dict[str, Any]] = []
-    action_quarters: List[int] = []
     action_issue_codes = [
       str(item or "").strip().lower()
       for item in (action.get("issue_codes") or [])
       if str(item or "").strip()
     ]
+    normalized_quarter_targets = _normalize_solver_quarter_target_metrics(
+      action.get("quarter_target_metrics")
+    )
+    target_quarters = sorted(
+      {
+        int(_safe_float(q) or 0)
+        for q in (action.get("target_quarters") or [])
+        if int(_safe_float(q) or 0) >= 1
+      }
+      |
+      {
+        int(_safe_float(item.get("quarter_index")) or 0)
+        for item in normalized_quarter_targets
+        if int(_safe_float(item.get("quarter_index")) or 0) >= 1
+      }
+    )
+    eligible_lever_ids = _solver_contract_eligible_lever_ids(
+      numeric_solver_contract=solver_contract,
+      issue_codes=action_issue_codes,
+      target_quarters=target_quarters,
+    )
+    eligible_lookup = set(eligible_lever_ids)
+    action_quarters: List[int] = []
     for adjustment in [item for item in (action.get("lever_adjustments") or []) if isinstance(item, dict)]:
       lever_id = str(adjustment.get("lever_id") or "").strip()
       if not lever_id:
         warnings.append(f"{str(action.get('action_id') or '').strip() or 'action'}: missing lever_id")
+        continue
+      if eligible_lookup and lever_id not in eligible_lookup:
+        warnings.append(
+          f"{str(action.get('action_id') or '').strip() or 'action'}: lever_id {lever_id} is outside the deterministic eligible lever scope"
+        )
         continue
       baseline_values = baseline_map.get(lever_id)
       if not baseline_values:
@@ -7411,8 +8696,9 @@ def _build_realism_resolution_plan(
         "solver_allowed_lever_ids": _derive_solver_allowed_lever_ids(
           action=action,
           translated_updates=translated_updates,
+          eligible_lever_ids=eligible_lever_ids,
         ),
-        "quarter_target_metrics": _normalize_solver_quarter_target_metrics(action.get("quarter_target_metrics")),
+        "quarter_target_metrics": normalized_quarter_targets,
         "issue_packets": [copy.deepcopy(issue_packet_map.get(code) or {"issue_code": code}) for code in action_issue_codes],
         "translated_updates": translated_updates,
       }
@@ -7809,6 +9095,29 @@ def _run_realism_resolution_loop(
     initial_restructure_effect_summary={},
     model_input_json=copy.deepcopy(current_model_input),
     finmo_json=copy.deepcopy(current_finmo),
+    controller_retry_heartbeat={
+      "heartbeat_at_utc": datetime.utcnow().isoformat() + "Z",
+      "pass_name": "initial_restructure",
+      "pass_label": "Initial Restructure",
+      "attempt_number": 0,
+      "attempt_stage": "loop_initialized",
+      "lifecycle_status": "controller_retry_loop_initializing",
+      "max_attempts": _PASS_INTERNAL_RETRY_MAX_ATTEMPTS,
+      "previous_attempt_count": 0,
+      "decision_status": "",
+      "plan_status": "",
+      "result_status": "",
+      "candidate_lever_count": 0,
+      "candidate_target_quarter_count": 0,
+      "candidate_target_metric_count": 0,
+      "failed_quarters": [],
+      "solver_invoked": False,
+      "solver_execution_state": "",
+      "quarters_with_target_misses": 0,
+      "attempt_count": 0,
+      "validation_error": {},
+      "latest_improvement_summary": {},
+    },
   )
   initial_restructure_attempt = _run_controller_retry_loop(
     pass_name="initial_restructure",
@@ -8130,6 +9439,36 @@ def _run_realism_resolution_loop(
       stop_reason = "main_loop_infeasible_inside_pass_retry_budget_exhausted"
       break
 
+    _persist_realism_loop_state(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      stage="realism_resolution_running",
+      status="running",
+      controller_resolution_state=_build_controller_resolution_state_from_issue_ledger(
+        issue_status_records=copy.deepcopy(issue_ledger),
+        iteration=max(iteration - 1, 0),
+        verification_payload=copy.deepcopy(last_verification),
+      ),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution=copy.deepcopy(persisted_initial_memo),
+      realism_resolution_decision=copy.deepcopy(decision),
+      realism_resolution_plan=copy.deepcopy(plan),
+      realism_resolution_result=copy.deepcopy(result),
+      realism_resolution_verification={
+        "status": "running_verifier",
+        "phase": "main",
+        "iteration": iteration,
+      },
+      realism_resolution_iterations=copy.deepcopy(trace),
+      resolution_summary=copy.deepcopy(final_resolution_summary),
+      realism_memo_json=copy.deepcopy(final_memo),
+      model_input_json=copy.deepcopy(next_model_input),
+      finmo_json=copy.deepcopy(next_finmo),
+    )
+
     verification_after = _run_realism_verification_openai(
       draft_id=str(draft_id or "").strip(),
       business_facts=copy.deepcopy(business_facts or {}),
@@ -8408,6 +9747,35 @@ def _run_realism_resolution_loop(
         cleanup_record["verification_after"] = copy.deepcopy(verification_after)
         cleanup_record["memo_after"] = copy.deepcopy(final_memo)
       else:
+        _persist_realism_loop_state(
+          conn=conn,
+          draft_id=str(draft_id).strip(),
+          stage="realism_resolution_running",
+          status="running",
+          controller_resolution_state=_build_controller_resolution_state_from_issue_ledger(
+            issue_status_records=copy.deepcopy(issue_ledger),
+            iteration=max(fresh_scan_iteration - 1, 0),
+            verification_payload=copy.deepcopy(last_verification),
+          ),
+          planning_mode=planning_mode,
+          planning_mode_reason=planning_mode_reason,
+          prompt_file=prompt_file,
+          grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+          realism_memo_before_resolution=copy.deepcopy(persisted_initial_memo),
+          realism_resolution_decision=copy.deepcopy(decision),
+          realism_resolution_plan=copy.deepcopy(plan),
+          realism_resolution_result=copy.deepcopy(result),
+          realism_resolution_verification={
+            "status": "running_verifier",
+            "phase": "cleanup",
+            "iteration": fresh_scan_iteration,
+          },
+          realism_resolution_iterations=copy.deepcopy(trace),
+          resolution_summary=copy.deepcopy(final_resolution_summary),
+          realism_memo_json=copy.deepcopy(final_memo),
+          model_input_json=copy.deepcopy(next_model_input),
+          finmo_json=copy.deepcopy(next_finmo),
+        )
         verification_after = _run_realism_verification_openai(
         draft_id=str(draft_id or "").strip(),
         business_facts=copy.deepcopy(business_facts or {}),
@@ -12493,7 +13861,13 @@ def _openai_model() -> str:
 
 
 def _openai_timeout_seconds() -> Optional[int]:
-  return None
+  raw = (os.getenv("OPENAI_TIMEOUT_SECONDS") or "").strip()
+  if raw:
+    try:
+      return max(30, int(raw))
+    except Exception:
+      pass
+  return 120
 
 
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
@@ -12512,27 +13886,14 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   )
   _OPENAI_CALL_TELEMETRY["events"] = events[-200:]
   timeout = _openai_timeout_seconds()
-  last_exc: Optional[Exception] = None
-  for attempt in range(3):
-    try:
-      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-      if resp.status_code in _RETRYABLE_STATUS and attempt < 2:
-        time.sleep(0.75 * (2**attempt))
-        continue
-      return resp
-    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
-      last_exc = exc
-      if attempt >= 2:
-        raise
-      time.sleep(0.75 * (2**attempt))
-    except requests.exceptions.ConnectionError as exc:
-      last_exc = exc
-      if attempt >= 2:
-        raise
-      time.sleep(0.75 * (2**attempt))
-  if last_exc:
-    raise last_exc
-  raise RuntimeError("OpenAI request failed unexpectedly.")
+  return post_openai_with_retries(
+    url=url,
+    headers=headers,
+    payload=payload,
+    timeout_seconds=timeout,
+    retryable_status=_RETRYABLE_STATUS,
+    max_attempts=3,
+  )
 
 
 def _parse_responses_text(data: Dict[str, Any]) -> str:
@@ -12848,6 +14209,65 @@ def _extract_ops_pending_milestone(
   if not isinstance(milestones_val, list):
     return None
   return [m for m in milestones_val if isinstance(m, dict)]
+
+
+def _fallback_ops_pending_milestone_from_text(text: str) -> Optional[Dict[str, str]]:
+  raw = str(text or "").strip()
+  if not raw:
+    return None
+
+  normalized = (
+    raw.replace("\u2018", "'")
+    .replace("\u2019", "'")
+    .replace("\u201c", '"')
+    .replace("\u201d", '"')
+  )
+  quoted_match = re.search(r"(?<!\w)['\"]([^'\"]{6,})['\"](?!\w)", normalized)
+  if quoted_match:
+    description = quoted_match.group(1).strip()
+  else:
+    description = re.sub(
+      r"^(let's record|lets record|we(?:'ve| have) already established(?: the milestone as)?|record)\s*",
+      "",
+      normalized,
+      flags=re.IGNORECASE,
+    ).strip()
+    description = re.sub(
+      r"^(that|this)\s+(?:milestone|goal)\s+(?:is|would be)\s*",
+      "",
+      description,
+      flags=re.IGNORECASE,
+    ).strip()
+  description = description.strip(" .")
+  if len(description) < 6:
+    return None
+
+  lower_description = description.lower()
+  timing = "Within the next 12 months"
+  timing_patterns = [
+    r"\b(?:within|over|in)\s+the\s+next\s+\d+\s+(?:months?|mos?|years?|yrs?)\b",
+    r"\bwithin\s+\d+\s+(?:months?|mos?|years?|yrs?)\b",
+    r"\bby\s+q[1-4]\s*[12]\d{3}\b",
+    r"\bq[1-4]\s*[12]\d{3}\b",
+    r"\b[12]\d{3}\s*q[1-4]\b",
+    r"\bby\s+end\s+of\s+[12]\d{3}\b",
+    r"\bend\s+of\s+[12]\d{3}\b",
+    r"\byear\s*1\b",
+    r"\bfirst\s+year\b",
+  ]
+  for pattern in timing_patterns:
+    timing_match = re.search(pattern, lower_description, re.IGNORECASE)
+    if timing_match:
+      timing = description[timing_match.start():timing_match.end()].strip().rstrip(".,")
+      break
+  else:
+    if re.search(r"\bq[1-4]\b", lower_description):
+      timing = "By the referenced quarter"
+
+  return {
+    "description": description,
+    "timing": timing,
+  }
 
 
 def _extract_ops_pending_milestone_via_openai(
@@ -13277,6 +14697,49 @@ def _build_business_type_candidates(
     if not restatement_text or not all_business_types:
       return []
 
+    def _fallback_ranked_business_types(restatement: str, options: List[str], limit: int = 3) -> List[str]:
+      raw = str(restatement or "").strip().lower()
+      if not raw:
+        return []
+      try:
+        import re
+        from difflib import SequenceMatcher
+
+        tokens = {
+          token
+          for token in re.findall(r"[a-z0-9]+", raw)
+          if token and token not in {
+            "the", "and", "for", "with", "that", "this", "from", "into", "your", "their",
+            "business", "company", "service", "services", "product", "products", "model",
+          }
+        }
+        scored: List[Tuple[float, str]] = []
+        for option in options:
+          candidate = str(option or "").strip()
+          if not candidate:
+            continue
+          candidate_lower = candidate.lower()
+          candidate_tokens = set(re.findall(r"[a-z0-9]+", candidate_lower))
+          overlap = len(tokens & candidate_tokens)
+          containment_bonus = 2 if candidate_lower in raw or raw in candidate_lower else 0
+          ratio = SequenceMatcher(None, raw, candidate_lower).ratio()
+          score = float(overlap * 5 + containment_bonus + ratio)
+          scored.append((score, candidate))
+        ranked = [candidate for _score, candidate in sorted(scored, key=lambda item: (-item[0], item[1].lower())) if candidate]
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for candidate in ranked:
+          lowered = candidate.lower()
+          if lowered in seen:
+            continue
+          seen.add(lowered)
+          deduped.append(candidate)
+          if len(deduped) >= max(1, int(limit or 1)):
+            break
+        return deduped
+      except Exception:
+        return []
+
     def _pick_index(restatement: str, options: List[str]) -> Optional[int]:
       key = _openai_key()
       if not key:
@@ -13373,11 +14836,19 @@ def _build_business_type_candidates(
           restatement_text,
           i // batch_size,
         )
+        fallback = _fallback_ranked_business_types(restatement_text, all_business_types, 3)
+        if fallback:
+          logger.warning("business_type_selection_fallback=%s", fallback)
+          return fallback
         raise RuntimeError("Failed to select ranked business_type indices.")
       for idx in picks:
         winners.append(batch[idx - 1])
 
     if not winners:
+      fallback = _fallback_ranked_business_types(restatement_text, all_business_types, 3)
+      if fallback:
+        logger.warning("business_type_selection_fallback=%s", fallback)
+        return fallback
       raise RuntimeError("No business_type candidates selected.")
 
     # Deduplicate while preserving order.
@@ -13402,6 +14873,10 @@ def _build_business_type_candidates(
         restatement_text,
         len(reduced),
       )
+      fallback = _fallback_ranked_business_types(restatement_text, reduced or all_business_types, 1)
+      if fallback:
+        logger.warning("business_type_selection_fallback=%s", fallback)
+        return fallback
       raise RuntimeError("Failed to select final business_type index.")
 
     logger.warning("business_type_reduced_candidates=%s", reduced)
@@ -13789,8 +15264,8 @@ def _run_planning_system_for_draft(
         planning_run_payload=payload
       ),
       active_focus="done",
-      status="completed",
-      completed=True,
+      status="in_progress",
+      completed=False,
     )
     return payload
 
@@ -14046,6 +15521,7 @@ def _run_planning_system_for_draft(
   resolution_summary: Dict[str, Any] = {}
   final_model_input_json = copy.deepcopy(realism_resolved_model_input_json)
   final_finmo_json = copy.deepcopy(realism_resolved_finmo_json)
+  cash_strategy_effect_summary: Dict[str, Any] = {}
   final_stabilizer_context: Dict[str, Any] = {}
   final_stabilizer_decision: Dict[str, Any] = {}
   final_stabilizer_pass_plan: Dict[str, Any] = {}
@@ -14287,6 +15763,39 @@ def _run_planning_system_for_draft(
     second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
     first_pass_finmo_json=copy.deepcopy(realism_resolved_finmo_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
+  )
+  _persist_cash_strategy_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage="cash_strategy_completed",
+    status="completed",
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
+    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
+    realism_resolution_result=copy.deepcopy(realism_resolution_result),
+    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
+    initial_restructure_context=copy.deepcopy(initial_restructure_context),
+    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
+    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
+    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
+    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
+    first_pass_handoff=copy.deepcopy(first_pass_handoff),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+    realism_memo_json=copy.deepcopy(realism_memo_json),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
   )
   stabilizer_baseline_model_input_json = copy.deepcopy(final_model_input_json)
   stabilizer_baseline_finmo_json = copy.deepcopy(final_finmo_json)
@@ -14569,7 +16078,48 @@ def _run_planning_system_for_draft(
     pre_stabilizer_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
   )
+  _persist_final_stabilizer_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage="final_stabilizer_completed",
+    status="completed",
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
+    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
+    realism_resolution_result=copy.deepcopy(realism_resolution_result),
+    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
+    initial_restructure_context=copy.deepcopy(initial_restructure_context),
+    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
+    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
+    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
+    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
+    first_pass_handoff=copy.deepcopy(first_pass_handoff),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+    final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
+    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
+    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
+    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
+    realism_memo_json=copy.deepcopy(realism_memo_json),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+  )
   final_guarantee_iterations: List[Dict[str, Any]] = []
+  final_guarantee_protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
+    copy.deepcopy(realism_issue_ledger)
+  )
   final_guarantee_prior_numeric_feedback = _build_numeric_solver_feedback_payload(
     copy.deepcopy(final_stabilizer_pass_result)
   )
@@ -14584,12 +16134,63 @@ def _run_planning_system_for_draft(
     current_model_input_json=copy.deepcopy(final_model_input_json),
     current_finmo_json=copy.deepcopy(final_finmo_json),
     controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
     prior_numeric_feedback=copy.deepcopy(final_guarantee_prior_numeric_feedback),
   )
   final_guarantee_trigger_assessment = _final_stabilizer_trigger_assessment(
     copy.deepcopy(final_guarantee_context)
   )
   final_guarantee_cycle = 0
+  final_guarantee_retry_memory_seed: Dict[str, Any] = {}
+  final_guarantee_latest_quality_assessment: Dict[str, Any] = {}
+  final_guarantee_consecutive_no_progress_cycles = 0
+  final_guarantee_context["guarantee_stall_assessment"] = _final_guarantee_stall_assessment(
+    consecutive_no_progress_cycles=final_guarantee_consecutive_no_progress_cycles,
+    latest_quality_assessment=final_guarantee_latest_quality_assessment,
+  )
+  _persist_final_guarantee_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage="final_guarantee_running",
+    status="running",
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    resolution_summary=copy.deepcopy(resolution_summary),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
+    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
+    realism_resolution_result=copy.deepcopy(realism_resolution_result),
+    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
+    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
+    realism_resolution_stop_reason=realism_resolution_stop_reason,
+    realism_resolution_iteration_count=realism_resolution_iteration_count,
+    initial_restructure_context=copy.deepcopy(initial_restructure_context),
+    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
+    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
+    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
+    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
+    first_pass_handoff=copy.deepcopy(first_pass_handoff),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+    final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
+    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
+    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
+    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
+    final_guarantee_context=copy.deepcopy(final_guarantee_context),
+    final_guarantee_iterations=[],
+    final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
+    final_guarantee_cycle_count=0,
+    realism_memo_json=copy.deepcopy(realism_memo_json),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+  )
   while final_guarantee_trigger_assessment.get("needs_stabilization"):
     final_guarantee_cycle += 1
     if final_guarantee_cycle > _FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES:
@@ -14597,7 +16198,14 @@ def _run_planning_system_for_draft(
     guarantee_baseline_model_input_json = copy.deepcopy(final_model_input_json)
     guarantee_baseline_finmo_json = copy.deepcopy(final_finmo_json)
     guarantee_baseline_controller_resolution_state = copy.deepcopy(controller_resolution_state)
+    guarantee_baseline_issue_ledger = copy.deepcopy(realism_issue_ledger)
+    guarantee_baseline_realism_memo_json = copy.deepcopy(realism_memo_json)
+    guarantee_baseline_resolution_summary = copy.deepcopy(resolution_summary)
     guarantee_trigger_assessment_before = copy.deepcopy(final_guarantee_trigger_assessment)
+    guarantee_stall_assessment = _final_guarantee_stall_assessment(
+      consecutive_no_progress_cycles=final_guarantee_consecutive_no_progress_cycles,
+      latest_quality_assessment=final_guarantee_latest_quality_assessment,
+    )
     guarantee_numeric_solver_contract = copy.deepcopy(
       (final_guarantee_context or {}).get("numeric_solver_contract") or {}
     )
@@ -14613,30 +16221,39 @@ def _run_planning_system_for_draft(
         planning_mode_reason=planning_mode_reason,
         planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
         final_stabilizer_context=copy.deepcopy(
-          _full_run_viability_context_payload(
-            draft_id=str(draft_id).strip(),
-            business_facts=copy.deepcopy(business_facts or {}),
-            ops_json=copy.deepcopy(ops_json or {}),
-            financials_json=copy.deepcopy(financials_json or {}),
-            planning_mode=planning_mode,
-            planning_mode_reason=planning_mode_reason,
-            prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-            current_model_input_json=copy.deepcopy(working_model_input),
-            current_finmo_json=copy.deepcopy(working_finmo),
-            controller_resolution_state=copy.deepcopy(controller_resolution_state),
-            prior_numeric_feedback=copy.deepcopy(
-              prior_numeric_feedback
-              if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
-              else final_guarantee_prior_numeric_feedback
+          {
+            **_full_run_viability_context_payload(
+              draft_id=str(draft_id).strip(),
+              business_facts=copy.deepcopy(business_facts or {}),
+              ops_json=copy.deepcopy(ops_json or {}),
+              financials_json=copy.deepcopy(financials_json or {}),
+              planning_mode=planning_mode,
+              planning_mode_reason=planning_mode_reason,
+              prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+              current_model_input_json=copy.deepcopy(working_model_input),
+              current_finmo_json=copy.deepcopy(working_finmo),
+              controller_resolution_state=copy.deepcopy(controller_resolution_state),
+              protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
+              prior_numeric_feedback=copy.deepcopy(
+                prior_numeric_feedback
+                if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
+                else final_guarantee_prior_numeric_feedback
+              ),
             ),
-          )
+            "guarantee_stall_assessment": copy.deepcopy(guarantee_stall_assessment),
+          }
         ),
         prior_numeric_feedback=copy.deepcopy(
           prior_numeric_feedback
           if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
           else final_guarantee_prior_numeric_feedback
         ),
-        controller_retry_context=copy.deepcopy(controller_retry_context),
+        controller_retry_context={
+          **copy.deepcopy(controller_retry_context or {}),
+          "guarantee_stall_assessment": copy.deepcopy(guarantee_stall_assessment),
+          "force_full_horizon_scope": bool(guarantee_stall_assessment.get("force_full_horizon_scope")),
+          "force_all_writable_levers": bool(guarantee_stall_assessment.get("force_all_writable_levers")),
+        },
       ),
       plan_builder=lambda decision, working_model_input, working_finmo: _build_final_stabilizer_pass_plan(
         review_decision_payload=copy.deepcopy(decision),
@@ -14649,10 +16266,75 @@ def _run_planning_system_for_draft(
       catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
       numeric_solver_contract=copy.deepcopy(guarantee_numeric_solver_contract),
       contract_version="final_viability_guarantee_result_v1",
+      initial_retry_memory=copy.deepcopy(final_guarantee_retry_memory_seed),
+      controller_retry_context_overrides={
+        "guarantee_stall_assessment": copy.deepcopy(guarantee_stall_assessment),
+        "force_material_tactic_change": bool(guarantee_stall_assessment.get("force_material_tactic_change")),
+        "force_full_horizon_scope": bool(guarantee_stall_assessment.get("force_full_horizon_scope")),
+        "force_all_writable_levers": bool(guarantee_stall_assessment.get("force_all_writable_levers")),
+        "force_structural_driver_changes": bool(guarantee_stall_assessment.get("force_structural_driver_changes")),
+        "minimum_new_lever_count": int(_safe_float(guarantee_stall_assessment.get("minimum_new_lever_count")) or 0),
+        "require_target_reframe_on_same_issue_state": bool(
+          guarantee_stall_assessment.get("require_target_reframe_on_same_issue_state")
+        ),
+      },
+      attempt_persistor=lambda attempt_snapshot: _persist_final_guarantee_state(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        stage="final_guarantee_running",
+        status="running",
+        controller_resolution_state=copy.deepcopy(controller_resolution_state),
+        resolution_summary=copy.deepcopy(resolution_summary),
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+        grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+        realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+        realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
+        realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
+        realism_resolution_result=copy.deepcopy(realism_resolution_result),
+        realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
+        realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
+        realism_resolution_stop_reason=realism_resolution_stop_reason,
+        realism_resolution_iteration_count=realism_resolution_iteration_count,
+        initial_restructure_context=copy.deepcopy(initial_restructure_context),
+        initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
+        initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
+        initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
+        initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
+        first_pass_handoff=copy.deepcopy(first_pass_handoff),
+        cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+        cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+        cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+        cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+        cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+        final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+        final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
+        final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
+        final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
+        final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
+        final_guarantee_context=copy.deepcopy(final_guarantee_context),
+        final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
+        final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
+        final_guarantee_cycle_count=final_guarantee_cycle,
+        realism_memo_json=copy.deepcopy(realism_memo_json),
+        model_input_json=copy.deepcopy(
+          attempt_snapshot.get("working_model_input_json")
+          if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
+          else guarantee_baseline_model_input_json
+        ),
+        finmo_json=copy.deepcopy(
+          attempt_snapshot.get("working_finmo_json")
+          if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
+          else guarantee_baseline_finmo_json
+        ),
+        guarantee_result=copy.deepcopy(attempt_snapshot.get("result") or {}),
+      ),
     )
     guarantee_decision = copy.deepcopy(guarantee_attempt.get("decision") or {})
     guarantee_plan = copy.deepcopy(guarantee_attempt.get("plan") or {})
     guarantee_result = copy.deepcopy(guarantee_attempt.get("result") or {})
+    final_guarantee_retry_memory_seed = copy.deepcopy(guarantee_attempt.get("retry_memory") or {})
     if not isinstance(guarantee_result.get("updated_model_input_json"), dict):
       raise RuntimeError("final_viability_guarantee_missing_updated_model")
     final_model_input_json = _model_input_with_controller_catalog(
@@ -14707,14 +16389,67 @@ def _run_planning_system_for_draft(
       current_model_input_json=copy.deepcopy(final_model_input_json),
       current_finmo_json=copy.deepcopy(final_finmo_json),
       controller_resolution_state=copy.deepcopy(controller_resolution_state),
+      protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
       prior_numeric_feedback=copy.deepcopy(final_guarantee_prior_numeric_feedback),
     )
+    guarantee_quality_assessment = _final_guarantee_quality_assessment(
+      before_controller_resolution_state=copy.deepcopy(guarantee_baseline_controller_resolution_state),
+      before_trigger_assessment=copy.deepcopy(guarantee_trigger_assessment_before),
+      after_controller_resolution_state=copy.deepcopy(controller_resolution_state),
+      after_trigger_assessment=copy.deepcopy(
+        _final_stabilizer_trigger_assessment(copy.deepcopy(final_guarantee_context))
+      ),
+    )
+    accepted_guarantee_attempt = bool(guarantee_quality_assessment.get("accepted"))
+    guarantee_issue_resolution_progress = bool(
+      guarantee_quality_assessment.get("issue_resolution_progress")
+    )
+    guarantee_all_cleared = bool(
+      str(guarantee_quality_assessment.get("status_after") or "").strip().lower() == "all_cleared"
+      or int(_safe_float(guarantee_quality_assessment.get("remaining_issue_count_after")) or 0) <= 0
+    )
+    if accepted_guarantee_attempt:
+      final_guarantee_latest_quality_assessment = copy.deepcopy(guarantee_quality_assessment)
+      if guarantee_issue_resolution_progress or guarantee_all_cleared:
+        final_guarantee_consecutive_no_progress_cycles = 0
+      else:
+        final_guarantee_consecutive_no_progress_cycles += 1
+    else:
+      final_guarantee_latest_quality_assessment = copy.deepcopy(guarantee_quality_assessment)
+      final_guarantee_consecutive_no_progress_cycles += 1
+      final_model_input_json = copy.deepcopy(guarantee_baseline_model_input_json)
+      final_finmo_json = copy.deepcopy(guarantee_baseline_finmo_json)
+      controller_resolution_state = copy.deepcopy(guarantee_baseline_controller_resolution_state)
+      realism_issue_ledger = copy.deepcopy(guarantee_baseline_issue_ledger)
+      realism_memo_json = copy.deepcopy(guarantee_baseline_realism_memo_json)
+      resolution_summary = copy.deepcopy(guarantee_baseline_resolution_summary)
+      final_guarantee_context = _full_run_viability_context_payload(
+        draft_id=str(draft_id).strip(),
+        business_facts=copy.deepcopy(business_facts or {}),
+        ops_json=copy.deepcopy(ops_json or {}),
+        financials_json=copy.deepcopy(financials_json or {}),
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+        current_model_input_json=copy.deepcopy(final_model_input_json),
+        current_finmo_json=copy.deepcopy(final_finmo_json),
+        controller_resolution_state=copy.deepcopy(controller_resolution_state),
+        protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
+        prior_numeric_feedback=copy.deepcopy(final_guarantee_prior_numeric_feedback),
+      )
     final_guarantee_trigger_assessment = _final_stabilizer_trigger_assessment(
       copy.deepcopy(final_guarantee_context)
+    )
+    final_guarantee_context["guarantee_stall_assessment"] = _final_guarantee_stall_assessment(
+      consecutive_no_progress_cycles=final_guarantee_consecutive_no_progress_cycles,
+      latest_quality_assessment=final_guarantee_latest_quality_assessment,
     )
     final_guarantee_iterations.append(
       {
         "cycle": final_guarantee_cycle,
+        "accepted": accepted_guarantee_attempt,
+        "stall_assessment_before": copy.deepcopy(guarantee_stall_assessment),
+        "quality_assessment": copy.deepcopy(guarantee_quality_assessment),
         "trigger_assessment_before": copy.deepcopy(guarantee_trigger_assessment_before),
         "decision": copy.deepcopy(guarantee_decision),
         "plan": copy.deepcopy(guarantee_plan),
@@ -14724,6 +16459,56 @@ def _run_planning_system_for_draft(
         "controller_resolution_state_before": copy.deepcopy(guarantee_baseline_controller_resolution_state),
         "controller_resolution_state_after": copy.deepcopy(controller_resolution_state),
       }
+    )
+    _persist_final_guarantee_state(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      stage="final_guarantee_running",
+      status="running",
+      controller_resolution_state=copy.deepcopy(controller_resolution_state),
+      resolution_summary=copy.deepcopy(resolution_summary),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+      realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
+      realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
+      realism_resolution_result=copy.deepcopy(realism_resolution_result),
+      realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
+      realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
+      realism_resolution_stop_reason=realism_resolution_stop_reason,
+      realism_resolution_iteration_count=realism_resolution_iteration_count,
+      initial_restructure_context=copy.deepcopy(initial_restructure_context),
+      initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
+      initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
+      initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
+      initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
+      first_pass_handoff=copy.deepcopy(first_pass_handoff),
+      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+      cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+      cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+      cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+      final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
+      final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
+      final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
+      final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
+      final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
+      final_guarantee_context=copy.deepcopy(final_guarantee_context),
+      final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
+      final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
+      final_guarantee_cycle_count=final_guarantee_cycle,
+      realism_memo_json=copy.deepcopy(realism_memo_json),
+      model_input_json=copy.deepcopy(final_model_input_json),
+      finmo_json=copy.deepcopy(final_finmo_json),
+      guarantee_result=copy.deepcopy(guarantee_result),
+    )
+  if final_guarantee_trigger_assessment.get("needs_stabilization") or not bool(controller_resolution_state.get("all_cleared")):
+    raise RuntimeError(
+      "final_viability_guarantee_incomplete:"
+      f" status={str(controller_resolution_state.get('status') or '').strip() or 'unknown'}"
+      f" remaining_issue_count={int(_safe_float(controller_resolution_state.get('remaining_issue_count')) or 0)}"
     )
   final_stabilizer_effect_summary["full_run_guarantee_cycles"] = len(final_guarantee_iterations)
   final_stabilizer_effect_summary["full_run_guarantee_final_trigger_assessment"] = copy.deepcopy(
@@ -14805,6 +16590,10 @@ def _run_planning_system_for_draft(
     final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
     final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
     final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
+    final_guarantee_context=copy.deepcopy(final_guarantee_context),
+    final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
+    final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
+    final_guarantee_cycle_count=len(final_guarantee_iterations),
     diagnostics_snapshot=copy.deepcopy(diagnostics_snapshot),
     numeric_solver_contract=build_numeric_solver_contract(
       planning_mode=planning_mode,
@@ -14817,6 +16606,11 @@ def _run_planning_system_for_draft(
       pass_name="final_system_state",
       contract_scope="planning_run_snapshot",
     ),
+  )
+  final_guarantee_latest_result = (
+    copy.deepcopy((final_guarantee_iterations[-1] or {}).get("result") or {})
+    if final_guarantee_iterations and isinstance(final_guarantee_iterations[-1], dict)
+    else {}
   )
 
   append_messages(
@@ -14837,6 +16631,7 @@ def _run_planning_system_for_draft(
     numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
       explicit_candidates=[
+        ("final_viability_guarantee_result", final_guarantee_latest_result),
         ("final_stabilizer_pass_result", final_stabilizer_pass_result),
         ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
         ("realism_resolution_result", realism_resolution_result),
@@ -14855,6 +16650,7 @@ def _run_planning_system_for_draft(
     "numeric_solver_feedback_json": _extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
       explicit_candidates=[
+        ("final_viability_guarantee_result", final_guarantee_latest_result),
         ("final_stabilizer_pass_result", final_stabilizer_pass_result),
         ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
         ("realism_resolution_result", realism_resolution_result),
@@ -15615,41 +17411,49 @@ def post_intake_consult_handler(*, app, request):
             "router_msg": "Got it.",
             "patch": {"milestones": [milestone_obj]},
           }
-        elif clarification_question:
-          milestone_intent_override = {
-            "action": "confirm_clarify",
-            "router_msg": clarification_question,
-            "patch": None,
-          }
         else:
-          milestone_intent = route_intent(
-            consult_type="ops",
-            user_message=message,
-            baseline_json=ops_json,
-            shared_context=shared_context_for_router,
-            recent_messages=recent_messages,
-            active_focus="ops",
-          )
-          m_action = str(milestone_intent.get("action") or "").strip()
-          m_router_msg = sanitize_fact_template(str(milestone_intent.get("assistant_message") or "").strip())
-          m_patch = (
-            milestone_intent.get("patch") if isinstance(milestone_intent.get("patch"), dict) else None
-          )
-          # Only override routing when the router actually produced a milestones patch.
-          if m_action == "edit_patch" and isinstance(m_patch, dict) and (
-            "milestones" in m_patch or "ops.milestones" in m_patch
-          ):
+          fallback_milestone = _fallback_ops_pending_milestone_from_text(message)
+          if isinstance(fallback_milestone, dict):
             milestone_intent_override = {
-              "action": m_action,
-              "router_msg": m_router_msg,
-              "patch": m_patch,
+              "action": "edit_patch",
+              "router_msg": "Got it.",
+              "patch": {"milestones": [fallback_milestone]},
             }
-          elif m_action == "confirm_clarify" and m_router_msg:
+          elif clarification_question:
             milestone_intent_override = {
-              "action": m_action,
-              "router_msg": m_router_msg,
+              "action": "confirm_clarify",
+              "router_msg": clarification_question,
               "patch": None,
             }
+          else:
+            milestone_intent = route_intent(
+              consult_type="ops",
+              user_message=message,
+              baseline_json=ops_json,
+              shared_context=shared_context_for_router,
+              recent_messages=recent_messages,
+              active_focus="ops",
+            )
+            m_action = str(milestone_intent.get("action") or "").strip()
+            m_router_msg = sanitize_fact_template(str(milestone_intent.get("assistant_message") or "").strip())
+            m_patch = (
+              milestone_intent.get("patch") if isinstance(milestone_intent.get("patch"), dict) else None
+            )
+            # Only override routing when the router actually produced a milestones patch.
+            if m_action == "edit_patch" and isinstance(m_patch, dict) and (
+              "milestones" in m_patch or "ops.milestones" in m_patch
+            ):
+              milestone_intent_override = {
+                "action": m_action,
+                "router_msg": m_router_msg,
+                "patch": m_patch,
+              }
+            elif m_action == "confirm_clarify" and m_router_msg:
+              milestone_intent_override = {
+                "action": m_action,
+                "router_msg": m_router_msg,
+                "patch": None,
+              }
       except Exception:
         milestone_intent_override = None
 

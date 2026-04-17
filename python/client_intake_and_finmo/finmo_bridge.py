@@ -425,31 +425,24 @@ def build_python_finmo_json(
   for idx, row in enumerate(quarter_rows_with_stub):
     if not isinstance(row, dict):
       continue
-    quarter_rows.append(
+    quarter_payload = deepcopy(row)
+    quarter_payload.update(
       {
         "slot_index": idx,
         "quarter_index": int(row.get("quarter_index") or idx),
         "year": row.get("year"),
         "quarter": row.get("quarter"),
         "date": row.get("date"),
-        "revenue": row.get("revenue"),
         "cogs": row.get("cost_of_goods_sold"),
-        "gross_profit": row.get("gross_profit"),
-        "marketing": row.get("marketing"),
-        "research_and_development": row.get("research_and_development"),
-        "lease_rent": row.get("lease_rent"),
-        "payroll": row.get("payroll"),
         "g_and_a": row.get("general_and_administrative"),
-        "ebitda": row.get("ebitda"),
-        "interest": row.get("interest"),
-        "depreciation": row.get("depreciation"),
-        "taxes": row.get("taxes"),
-        "net_income": row.get("net_income"),
-        "cash": row.get("cash"),
-        "ending_cash": row.get("ending_cash"),
-        "total_assets": row.get("total_assets"),
-        "total_liabilities_and_equity": row.get("total_liabilities_and_equity"),
       }
+    )
+    if "owner_distributions" in row and "distributions" not in quarter_payload:
+      quarter_payload["distributions"] = row.get("owner_distributions")
+    if "cash" in row and "ending_cash" not in quarter_payload:
+      quarter_payload["ending_cash"] = row.get("cash")
+    quarter_rows.append(
+      quarter_payload
     )
 
   return {

@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
+try:
+  from openai_http import post_openai_with_retries  # type: ignore
+except Exception:
+  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
 
 
 _STATE_ABBREV = {
@@ -104,27 +108,14 @@ def _format_openai_error(resp: requests.Response) -> str:
 
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
   timeout = _openai_timeout_seconds()
-  last_exc: Optional[Exception] = None
-  for attempt in range(3):
-    try:
-      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-      if resp.status_code in _RETRYABLE_STATUS and attempt < 2:
-        time.sleep(0.75 * (2**attempt))
-        continue
-      return resp
-    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
-      last_exc = exc
-      if attempt >= 2:
-        raise
-      time.sleep(0.75 * (2**attempt))
-    except requests.exceptions.ConnectionError as exc:
-      last_exc = exc
-      if attempt >= 2:
-        raise
-      time.sleep(0.75 * (2**attempt))
-  if last_exc:
-    raise last_exc
-  raise RuntimeError("OpenAI request failed unexpectedly.")
+  return post_openai_with_retries(
+    url=url,
+    headers=headers,
+    payload=payload,
+    timeout_seconds=timeout,
+    retryable_status=_RETRYABLE_STATUS,
+    max_attempts=3,
+  )
 
 
 def _parse_responses_text(data: Dict[str, Any]) -> str:

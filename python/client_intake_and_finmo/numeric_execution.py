@@ -187,6 +187,159 @@ def _normalized_issue_status_records(issue_status_records: Optional[List[Dict[st
   return out
 
 
+def _issue_default_severity(issue_code: str) -> int:
+  code = str(issue_code or "").strip().lower()
+  if code == "financing_solvency_mismatch":
+    return 95
+  if code in {"profitability_cash_shape_unrealistic", "capex_footprint_mismatch"}:
+    return 88
+  if code in {"staffing_payroll_mismatch", "capacity_revenue_mismatch", "cost_structure_mismatch"}:
+    return 82
+  return 75
+
+
+def _expand_quarter_window(quarters: List[int], *, all_quarters: List[int]) -> List[int]:
+  allowed = {int(q) for q in all_quarters if int(q) >= 1}
+  expanded: List[int] = []
+  for quarter in [int(q) for q in quarters if int(q) >= 1]:
+    for candidate in (quarter - 1, quarter, quarter + 1):
+      if candidate in allowed and candidate not in expanded:
+        expanded.append(candidate)
+  return sorted(expanded or [q for q in all_quarters if int(q) >= 1])
+
+
+def _infer_issue_quarters(
+  *,
+  issue_code: str,
+  current_finmo_json: Optional[Dict[str, Any]],
+) -> List[int]:
+  rows = _quarter_metric_snapshots(current_finmo_json)
+  all_quarters = [int(row.get("quarter_index") or 0) for row in rows if int(row.get("quarter_index") or 0) >= 1]
+  if not all_quarters:
+    return []
+  negative_cash_quarters = [q for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows) if float(_safe_float(row.get("ending_cash")) or 0.0) < 0.0]
+  loss_quarters = [q for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows) if float(_safe_float(row.get("net_income")) or 0.0) < 0.0]
+  negative_ebitda_quarters = [q for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows) if float(_safe_float(row.get("ebitda")) or 0.0) < 0.0]
+  capex_quarters = [
+    q
+    for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows)
+    if float(_safe_float(row.get("capital_expenditures")) or 0.0) > 0.0
+    or float(_safe_float(row.get("investing_cash_flow")) or 0.0) < 0.0
+  ]
+  revenue_quarters = [q for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows) if float(_safe_float(row.get("revenue")) or 0.0) > 0.0]
+  code = str(issue_code or "").strip().lower()
+  if code == "financing_solvency_mismatch":
+    return _expand_quarter_window(negative_cash_quarters or loss_quarters or all_quarters[:8], all_quarters=all_quarters)
+  if code == "profitability_cash_shape_unrealistic":
+    return _expand_quarter_window(loss_quarters or negative_cash_quarters or negative_ebitda_quarters or all_quarters[:8], all_quarters=all_quarters)
+  if code == "capex_footprint_mismatch":
+    return _expand_quarter_window(capex_quarters or revenue_quarters[:8] or all_quarters[:8], all_quarters=all_quarters)
+  if code in {"staffing_payroll_mismatch", "capacity_revenue_mismatch", "growth_model_mismatch"}:
+    return _expand_quarter_window(revenue_quarters or all_quarters[:8], all_quarters=all_quarters)
+  return _expand_quarter_window(negative_cash_quarters or loss_quarters or revenue_quarters[:6] or all_quarters[:6], all_quarters=all_quarters)
+
+
+def _catalog_entry_text(entry: Dict[str, Any]) -> str:
+  return " | ".join(
+    [
+      str(entry.get("lever_id") or "").strip().lower(),
+      str(entry.get("section") or "").strip().lower(),
+      str(entry.get("label_path") or "").strip().lower(),
+      str(entry.get("driver") or "").strip().lower(),
+      str(entry.get("accounting_role") or "").strip().lower(),
+      str(entry.get("input_semantics") or "").strip().lower(),
+    ]
+  )
+
+
+def _entry_matches_any(entry: Dict[str, Any], terms: List[str]) -> bool:
+  haystack = _catalog_entry_text(entry)
+  return any(str(term or "").strip().lower() in haystack for term in terms if str(term or "").strip())
+
+
+def _infer_issue_lever_ids(
+  *,
+  issue_code: str,
+  writable_lever_catalog: Optional[List[Dict[str, Any]]],
+) -> List[str]:
+  entries = [
+    item
+    for item in (writable_lever_catalog or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  ]
+  if not entries:
+    return []
+  code = str(issue_code or "").strip().lower()
+  selected: List[str] = []
+
+  def add_matching(terms: List[str], *, limit: Optional[int] = None) -> None:
+    for entry in entries:
+      lever_id = str(entry.get("lever_id") or "").strip()
+      if not lever_id or lever_id in selected:
+        continue
+      if not _entry_matches_any(entry, terms):
+        continue
+      selected.append(lever_id)
+      if limit is not None and len(selected) >= limit:
+        return
+
+  if code == "financing_solvency_mismatch":
+    add_matching(["owner's capital", "owner_equity_contribution", "other equity", "debt draw", "short term debt", "additions (repayments), net", "distributions"])
+    add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "capital expenditures"])
+  elif code == "profitability_cash_shape_unrealistic":
+    add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "lease"])
+    add_matching(["owner's capital", "distributions", "additions (repayments), net", "capital expenditures"])
+  elif code == "staffing_payroll_mismatch":
+    add_matching(["payroll", "capacity", "utilization", "unit price", "marketing", "general & administrative"])
+  elif code == "capacity_revenue_mismatch":
+    add_matching(["capacity", "utilization", "unit price", "payroll", "capital expenditures", "lease"])
+  elif code == "capex_footprint_mismatch":
+    add_matching(["capital expenditures", "lease", "capacity", "payroll", "owner's capital", "additions (repayments), net"])
+  elif code == "cost_structure_mismatch":
+    add_matching(["cost of goods sold", "payroll", "general & administrative", "marketing", "lease"])
+  else:
+    add_matching(["owner's capital", "capacity", "utilization", "unit price", "cost of goods sold", "payroll", "general & administrative", "marketing", "capital expenditures"])
+
+  if not selected:
+    selected = [
+      str(entry.get("lever_id") or "").strip()
+      for entry in entries[: min(len(entries), 10)]
+      if str(entry.get("lever_id") or "").strip()
+    ]
+  return selected[:12]
+
+
+def _enriched_issue_status_records(
+  *,
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  writable_lever_catalog: Optional[List[Dict[str, Any]]],
+  current_finmo_json: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  enriched: List[Dict[str, Any]] = []
+  for item in _normalized_issue_status_records(issue_status_records):
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    record = copy.deepcopy(item)
+    if str(record.get("verifier_status") or "").strip().lower() != "resolved":
+      if int(_safe_float(record.get("remaining_issue_severity_score")) or 0.0) <= 0:
+        record["remaining_issue_severity_score"] = _issue_default_severity(issue_code)
+      if not (record.get("remaining_problem_quarters") or []):
+        record["remaining_problem_quarters"] = _infer_issue_quarters(
+          issue_code=issue_code,
+          current_finmo_json=current_finmo_json,
+        )
+      if not (record.get("next_required_lever_ids") or []):
+        record["next_required_lever_ids"] = _infer_issue_lever_ids(
+          issue_code=issue_code,
+          writable_lever_catalog=writable_lever_catalog,
+        )
+      if not str(record.get("remaining_issue_materiality") or "").strip():
+        record["remaining_issue_materiality"] = "material"
+    enriched.append(record)
+  return enriched
+
+
 def _normalized_planning_mode_profile(
   planning_mode: Any,
   planning_mode_reason: Any,
@@ -427,7 +580,11 @@ def build_numeric_solver_contract(
 ) -> Dict[str, Any]:
   normalized_pass_name = str(pass_name or "").strip() or "generic"
   normalized_scope = str(contract_scope or "").strip() or "planning"
-  normalized_issues = _normalized_issue_status_records(issue_status_records)
+  normalized_issues = _enriched_issue_status_records(
+    issue_status_records=issue_status_records,
+    writable_lever_catalog=writable_lever_catalog,
+    current_finmo_json=current_finmo_json,
+  )
   active_issues = [
     item
     for item in normalized_issues

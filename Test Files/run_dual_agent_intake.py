@@ -28,6 +28,16 @@ except Exception:
 OPENAI_URL = "https://api.openai.com/v1/responses"
 _FACT_PATTERN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 US_EASTERN = ZoneInfo("America/New_York")
+OPENAI_CALL_TIMEOUT_SECONDS = 90
+OPENAI_CALL_MAX_ATTEMPTS = 3
+OPENAI_CALL_RETRY_SLEEP_SECONDS = 2
+
+
+def _openai_requests_session() -> requests.Session:
+  session = requests.Session()
+  session.trust_env = False
+  session.proxies = {"http": None, "https": None}
+  return session
 
 
 def _configure_console_output() -> None:
@@ -1372,7 +1382,47 @@ def _openai_call(
     },
   }
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-  resp = requests.post(OPENAI_URL, headers=headers, json=payload)
+  last_error: Optional[BaseException] = None
+  for attempt in range(1, OPENAI_CALL_MAX_ATTEMPTS + 1):
+    try:
+      with _openai_requests_session() as session:
+        resp = session.post(
+          OPENAI_URL,
+          headers=headers,
+          json=payload,
+          timeout=OPENAI_CALL_TIMEOUT_SECONDS,
+        )
+      break
+    except requests.Timeout as exc:
+      last_error = exc
+      if attempt >= OPENAI_CALL_MAX_ATTEMPTS:
+        raise RuntimeError(
+          f"OpenAI call timed out after {OPENAI_CALL_TIMEOUT_SECONDS}s "
+          f"({schema_name}, attempt {attempt}/{OPENAI_CALL_MAX_ATTEMPTS})"
+        ) from exc
+      print(
+        f"[runner][openai] timeout on {schema_name} attempt "
+        f"{attempt}/{OPENAI_CALL_MAX_ATTEMPTS}; retrying...",
+        file=sys.stderr,
+        flush=True,
+      )
+      time.sleep(OPENAI_CALL_RETRY_SLEEP_SECONDS)
+    except requests.RequestException as exc:
+      last_error = exc
+      if attempt >= OPENAI_CALL_MAX_ATTEMPTS:
+        raise RuntimeError(
+          f"OpenAI call failed for {schema_name} after "
+          f"{OPENAI_CALL_MAX_ATTEMPTS} attempts: {exc}"
+        ) from exc
+      print(
+        f"[runner][openai] request error on {schema_name} attempt "
+        f"{attempt}/{OPENAI_CALL_MAX_ATTEMPTS}: {exc}; retrying...",
+        file=sys.stderr,
+        flush=True,
+      )
+      time.sleep(OPENAI_CALL_RETRY_SLEEP_SECONDS)
+  else:
+    raise RuntimeError(f"OpenAI call failed for {schema_name}: {last_error}")
   try:
     data = resp.json()
   except Exception:
@@ -1395,6 +1445,9 @@ class Bootstrap:
   address_zip: str
   address_country: str
   private_state: str
+  primary_product_name: str = ""
+  primary_unit_definition: str = ""
+  primary_cadence: str = ""
 
 
 class ClientAgent:
@@ -1406,6 +1459,7 @@ class ClientAgent:
     self.private_state = ""
 
   def bootstrap(self) -> Bootstrap:
+    print("[runner] generating bootstrap business persona...", flush=True)
     schema = {
       "type": "object",
       "additionalProperties": False,
@@ -1419,6 +1473,9 @@ class ClientAgent:
         "address_zip": {"type": "string"},
         "address_country": {"type": "string"},
         "private_state": {"type": "string"},
+        "primary_product_name": {"type": "string"},
+        "primary_unit_definition": {"type": "string"},
+        "primary_cadence": {"type": "string"},
       },
       "required": [
         "business_name",
@@ -1430,6 +1487,9 @@ class ClientAgent:
         "address_zip",
         "address_country",
         "private_state",
+        "primary_product_name",
+        "primary_unit_definition",
+        "primary_cadence",
       ],
     }
     system = textwrap.dedent(
@@ -1482,6 +1542,9 @@ class ClientAgent:
       address_zip=str(obj["address_zip"]).strip(),
       address_country=str(obj["address_country"]).strip(),
       private_state=self.private_state,
+      primary_product_name=str(obj.get("primary_product_name") or "").strip(),
+      primary_unit_definition=str(obj.get("primary_unit_definition") or "").strip(),
+      primary_cadence=str(obj.get("primary_cadence") or "").strip(),
     )
 
   def answer(
@@ -1491,6 +1554,7 @@ class ClientAgent:
     assistant_message: str,
     transcript_tail: List[Dict[str, str]],
   ) -> str:
+    print(f"[runner] generating simulated user reply for focus={active_focus}...", flush=True)
     schema = {
       "type": "object",
       "additionalProperties": False,

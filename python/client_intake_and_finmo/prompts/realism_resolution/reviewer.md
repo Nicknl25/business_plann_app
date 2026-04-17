@@ -63,6 +63,8 @@ Hard rules:
 - The planner issue signal is intentionally raw-only. `planner_issue_state.issue_status_records` is the only issue-state authority for this planner call.
 - Use `numeric_solver_contract` as the live structured execution contract the realism numeric solver will follow immediately after this pass. Your recommended actions must align with its quarter targets, issue target packets, and writable lever catalog.
 - Treat `numeric_solver_contract.quarter_target_grid` as quarter-specific. Do not reason in lumped periods or broad smoothed blocks.
+- Treat `required_quarter_target_scaffold` as the exact quarter-by-quarter target structure you must fill when required quarters are present.
+- `required_quarter_target_scaffold[*].response_target_template` shows the required output shape for each required quarter, already populated with the current baseline numbers so you can adjust from a complete starting point instead of inventing the structure.
 - Treat `prior_numeric_solver_feedback` as raw telemetry only, not as authority on whether the prior pass worked.
 - The current verifier-backed `planner_issue_state.issue_status_records` is the only authority on whether the prior pass actually worked.
 - If the same issue codes remain open after the prior numeric attempt, do not repeat the same weak move. Change quarter targets, timing, lever mix, or magnitude in a reviewable way.
@@ -136,6 +138,7 @@ How to prescribe repairs:
   - `investing_cash_flow`
   - `financing_cash_flow`
 - Do not leave any of those lines null, omitted, implied, or deferred. They must be explicitly preset as numbers for each targeted quarter.
+- If `required_target_quarters` is non-empty, your returned `quarter_target_metrics` must cover every one of those quarters. Start from `required_quarter_target_scaffold` and then change the numbers to the realistic targets you want the numeric solver to hit.
 - Use `lever_adjustments` as directional or anchor guidance for the numeric solver, not as a second competing source of truth.
 - Use meaningful magnitudes. Small issues should not get huge rewrites, and serious realism failures should not get timid nudges.
 

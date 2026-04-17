@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 import requests
+try:
+  from openai_http import post_openai_with_retries  # type: ignore
+except Exception:
+  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
 from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
 
@@ -152,23 +156,14 @@ def _post_openai(
   max_attempts: int = 3,
 ) -> requests.Response:
   timeout = timeout_seconds if timeout_seconds is not None else _openai_timeout_seconds()
-  attempts = max(1, int(max_attempts or 1))
-  last_exc: Optional[Exception] = None
-  for attempt in range(attempts):
-    try:
-      resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-      if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
-        time.sleep(0.75 * (2**attempt))
-        continue
-      return resp
-    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
-      last_exc = exc
-      if attempt >= attempts - 1:
-        raise
-      time.sleep(0.75 * (2**attempt))
-  if last_exc:
-    raise last_exc
-  raise RuntimeError("OpenAI request failed unexpectedly.")
+  return post_openai_with_retries(
+    url=url,
+    headers=headers,
+    payload=payload,
+    timeout_seconds=timeout,
+    retryable_status=_RETRYABLE_STATUS,
+    max_attempts=max(1, int(max_attempts or 1)),
+  )
 
 
 def _parse_json_response(data: Dict[str, Any]) -> Dict[str, Any]:

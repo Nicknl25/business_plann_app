@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import requests
+try:
+  from openai_http import post_openai_with_retries  # type: ignore
+except Exception:
+  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
 
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts" / "realism_memo"
@@ -122,23 +126,14 @@ def _timeout_seconds() -> None:
 
 def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> requests.Response:
   timeout = _timeout_seconds()
-  last_exc: Exception | None = None
-  for attempt in range(2):
-    try:
-      response = requests.post(url, headers=headers, json=payload, timeout=timeout)
-      if response.status_code in _RETRYABLE_STATUS and attempt == 0:
-        time.sleep(0.75)
-        continue
-      return response
-    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
-      last_exc = exc
-      if attempt == 0:
-        time.sleep(0.75)
-        continue
-      raise
-  if last_exc:
-    raise last_exc
-  raise RuntimeError("Realism memo request failed unexpectedly.")
+  return post_openai_with_retries(
+    url=url,
+    headers=headers,
+    payload=payload,
+    timeout_seconds=timeout,
+    retryable_status=_RETRYABLE_STATUS,
+    max_attempts=2,
+  )
 
 
 def _parse_json_response(data: Dict[str, Any]) -> Dict[str, Any]:

@@ -693,6 +693,7 @@ def main(argv: Optional[List[str]] = None, *, forced_product_count: Optional[int
     "address_country",
   )
   missing_bootstrap = [key for key in required_bootstrap if not _string(spec["bootstrap"].get(key))]
+  bootstrap_defaults: Dict[str, str] = {}
   if missing_bootstrap:
     bootstrap_defaults = _ARGS._bootstrap_defaults(
       seed=_string(args.seed),
@@ -700,8 +701,13 @@ def main(argv: Optional[List[str]] = None, *, forced_product_count: Optional[int
       business_start_date_override=_string(args.business_start_date),
     )
     for key, value in bootstrap_defaults.items():
+      if _string(key).startswith("_seed_"):
+        continue
       if not _string(spec["bootstrap"].get(key)):
         spec["bootstrap"][key] = value
+
+  if forced_product_count == 1:
+    _ARGS._ensure_forced_single_product_seeded(spec, bootstrap_defaults=bootstrap_defaults)
 
   spec = _ARGS._prune_spec(spec)
   _ARGS._validate_product_count(spec, forced_product_count=forced_product_count)

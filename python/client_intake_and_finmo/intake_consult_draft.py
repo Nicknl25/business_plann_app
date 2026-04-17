@@ -53,6 +53,17 @@ _ENGINE_JSON_COLUMNS = (
   "numeric_solver_feedback_json",
 )
 
+_PLANNING_STATE_FLAT_COLUMNS = (
+  "planning_stage",
+  "planning_status",
+  "planning_last_review_iteration",
+  "planning_detected_issue_count",
+  "planning_remaining_issue_count",
+  "planning_resolved_issue_count",
+  "planning_tolerated_issue_count",
+  "planning_iteration_pending_issue_count",
+)
+
 
 def _parse_json_payload(raw: Any) -> Any:
   if raw is None:
@@ -77,6 +88,37 @@ def _is_valid_planning_run_payload(payload: Any) -> bool:
   if controller_state is not None and not isinstance(controller_state, dict):
     return False
   return True
+
+
+def _planning_run_flat_field_values(payload: Any) -> Dict[str, Any]:
+  data = _parse_json_payload(payload)
+  if not isinstance(data, dict) or not data:
+    return {}
+  controller_state = data.get("controller_resolution_state")
+  controller = controller_state if isinstance(controller_state, dict) else {}
+
+  def _int_or_none(value: Any) -> Optional[int]:
+    if value is None or value == "":
+      return None
+    try:
+      return int(float(value))
+    except Exception:
+      return None
+
+  last_review_iteration = controller.get("last_review_iteration")
+  if last_review_iteration is None:
+    last_review_iteration = data.get("realism_resolution_iteration_count")
+  out = {
+    "planning_stage": str(data.get("stage") or "").strip() or None,
+    "planning_status": str(data.get("status") or "").strip() or None,
+    "planning_last_review_iteration": _int_or_none(last_review_iteration),
+    "planning_detected_issue_count": _int_or_none(controller.get("detected_issue_count")) if controller else None,
+    "planning_remaining_issue_count": _int_or_none(controller.get("remaining_issue_count")) if controller else None,
+    "planning_resolved_issue_count": _int_or_none(controller.get("resolved_issue_count")) if controller else None,
+    "planning_tolerated_issue_count": _int_or_none(controller.get("tolerated_issue_count")) if controller else None,
+    "planning_iteration_pending_issue_count": _int_or_none(controller.get("iteration_pending_issue_count")) if controller else None,
+  }
+  return out
 
 
 def _acquire_named_lock(conn, *, lock_name: str, timeout_seconds: int = 30) -> bool:
@@ -240,6 +282,14 @@ def _ensure_table_inner(conn) -> None:
         finmo_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
         numeric_solver_feedback_json LONGTEXT NULL,
+        planning_stage VARCHAR(64) NULL,
+        planning_status VARCHAR(32) NULL,
+        planning_last_review_iteration INT NULL,
+        planning_detected_issue_count INT NULL,
+        planning_remaining_issue_count INT NULL,
+        planning_resolved_issue_count INT NULL,
+        planning_tolerated_issue_count INT NULL,
+        planning_iteration_pending_issue_count INT NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
         ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
@@ -313,6 +363,22 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
   if "numeric_solver_feedback_json" not in cols:
     alterations.append("ADD COLUMN numeric_solver_feedback_json LONGTEXT NULL")
+  if "planning_stage" not in cols:
+    alterations.append("ADD COLUMN planning_stage VARCHAR(64) NULL")
+  if "planning_status" not in cols:
+    alterations.append("ADD COLUMN planning_status VARCHAR(32) NULL")
+  if "planning_last_review_iteration" not in cols:
+    alterations.append("ADD COLUMN planning_last_review_iteration INT NULL")
+  if "planning_detected_issue_count" not in cols:
+    alterations.append("ADD COLUMN planning_detected_issue_count INT NULL")
+  if "planning_remaining_issue_count" not in cols:
+    alterations.append("ADD COLUMN planning_remaining_issue_count INT NULL")
+  if "planning_resolved_issue_count" not in cols:
+    alterations.append("ADD COLUMN planning_resolved_issue_count INT NULL")
+  if "planning_tolerated_issue_count" not in cols:
+    alterations.append("ADD COLUMN planning_tolerated_issue_count INT NULL")
+  if "planning_iteration_pending_issue_count" not in cols:
+    alterations.append("ADD COLUMN planning_iteration_pending_issue_count INT NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -617,6 +683,11 @@ def append_messages(
   if planning_run_json is not None:
     set_parts.append("planning_run_json = %s")
     values.append(json.dumps(planning_run_json, ensure_ascii=False))
+    for key, value in _planning_run_flat_field_values(planning_run_json).items():
+      if key not in _PLANNING_STATE_FLAT_COLUMNS:
+        continue
+      set_parts.append(f"{key} = %s")
+      values.append(value)
 
   if numeric_solver_feedback_json is not None:
     set_parts.append("numeric_solver_feedback_json = %s")
