@@ -1095,21 +1095,11 @@ def _build_planning_run_payload(
   )
   final_guarantee_iteration_list = copy.deepcopy(final_guarantee_iterations or [])
   final_guarantee_context_payload = copy.deepcopy(final_guarantee_context or {})
-  convergence_iteration_list = copy.deepcopy(
-    unified_iteration_list
-    or final_guarantee_iteration_list
-    or []
-  )
-  convergence_context_payload = copy.deepcopy(
-    unified_context_payload
-    or final_guarantee_context_payload
-    or {}
-  )
+  convergence_iteration_list = copy.deepcopy(unified_iteration_list or [])
+  convergence_context_payload = copy.deepcopy(unified_context_payload or {})
   effective_cycle_count = (
     int(unified_convergence_cycle_count)
     if unified_convergence_cycle_count is not None
-    else int(final_guarantee_cycle_count)
-    if final_guarantee_cycle_count is not None
     else None
   )
   latest_convergence_iteration = (
@@ -1155,6 +1145,7 @@ def _build_planning_run_payload(
   )
   deterministic_convergence_summary = {
     "contract_version": "deterministic_convergence_summary_v1",
+    "convergence_engine_contract": _unified_convergence_engine_contract_payload(),
     "stage": final_stage_name,
     "status": final_status_name,
     "controller_status": str(controller_state.get("status") or "").strip() or None,
@@ -1162,7 +1153,12 @@ def _build_planning_run_payload(
     "remaining_issue_count": remaining_issue_count,
     "resolved_issue_count": resolved_issue_count,
     "iteration_pending_issue_count": iteration_pending_issue_count,
+    "tolerated_issue_count": int(_safe_float(controller_state.get("tolerated_issue_count")) or 0),
     "all_cleared": all_cleared,
+    "overall_completion_score_pct": int(_safe_float(controller_state.get("overall_completion_score_pct")) or 0),
+    "overall_completion_grade": str(controller_state.get("overall_completion_grade") or "").strip() or "D",
+    "lowest_quarter_score_pct": int(_safe_float(controller_state.get("lowest_quarter_score_pct")) or 0),
+    "failing_quarters": copy.deepcopy(controller_state.get("failing_quarters") or []),
     "convergence_cycle_count": int(effective_cycle_count or 0) if effective_cycle_count is not None else len(convergence_iteration_list),
     "final_guarantee_cycle_count": int(final_guarantee_cycle_count or 0) if final_guarantee_cycle_count is not None else len(final_guarantee_iteration_list),
     "final_guarantee_last_cycle_accepted": (
@@ -1188,9 +1184,31 @@ def _build_planning_run_payload(
       ),
     },
   }
+  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
+    stage=final_stage_name,
+    status=final_status_name,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_context_summary=copy.deepcopy(
+      ((unified_convergence_context or {}) if isinstance(unified_convergence_context, dict) else {}).get("planning_context_summary") or {}
+    ),
+    unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
+    controller_resolution_state=copy.deepcopy(controller_state),
+    controller_retry_context=copy.deepcopy(
+      (controller_retry_heartbeat.get("controller_retry_context") if isinstance(controller_retry_heartbeat, dict) else {}) or {}
+    ),
+    prior_numeric_feedback=copy.deepcopy(
+      ((unified_convergence_context or {}) if isinstance(unified_convergence_context, dict) else {}).get("prior_numeric_solver_feedback") or {}
+    ),
+    unified_convergence_decision=copy.deepcopy(unified_convergence_decision or {}),
+    unified_convergence_plan=copy.deepcopy(unified_convergence_plan or {}),
+    unified_convergence_result=copy.deepcopy(unified_convergence_result or {}),
+    unified_convergence_cycle_count=effective_cycle_count,
+  )
 
   payload: Dict[str, Any] = {
     "contract_version": "planning_run_v1",
+    "convergence_engine_contract": _unified_convergence_engine_contract_payload(),
     "stage": final_stage_name,
     "status": final_status_name,
     "controller_resolution_state": controller_state,
@@ -1244,6 +1262,7 @@ def _build_planning_run_payload(
     "diagnostics_snapshot": copy.deepcopy(diagnostics_snapshot or {}),
     "controller_retry_heartbeat": copy.deepcopy(controller_retry_heartbeat or {}),
     "deterministic_convergence_summary": deterministic_convergence_summary,
+    "current_cycle_convergence_packet": current_cycle_convergence_packet,
     "unified_convergence_heartbeat": (
       copy.deepcopy(controller_retry_heartbeat or {})
       if str(((controller_retry_heartbeat or {}).get("pass_name") or "")).strip().lower() == "unified_convergence"
@@ -1369,7 +1388,7 @@ def _compact_numeric_solver_contract_for_storage(contract: Optional[Dict[str, An
 
 def _compact_numeric_feedback_for_storage(feedback: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   payload = feedback if isinstance(feedback, dict) else {}
-  return {
+  compact = {
     "execution_state": str(payload.get("execution_state") or "").strip(),
     "outcome_reason": str(payload.get("outcome_reason") or "").strip(),
     "solver_invoked": bool(payload.get("solver_invoked")),
@@ -1387,6 +1406,9 @@ def _compact_numeric_feedback_for_storage(feedback: Optional[Dict[str, Any]]) ->
     "target_verification": copy.deepcopy(payload.get("target_verification") or {}),
     "quarter_fit_summary": copy.deepcopy(payload.get("quarter_fit_summary") or []),
   }
+  if isinstance(payload.get("current_cycle_trace"), dict):
+    compact["current_cycle_trace"] = copy.deepcopy(payload.get("current_cycle_trace") or {})
+  return compact
 
 
 def _compact_unified_convergence_context_for_storage(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1394,6 +1416,9 @@ def _compact_unified_convergence_context_for_storage(context: Optional[Dict[str,
   payload.pop("current_model_input_json", None)
   payload.pop("current_finmo_json", None)
   payload.pop("current_finmo_quarter_rows", None)
+  payload["controller_resolution_state"] = _compact_controller_resolution_state_summary(
+    payload.get("controller_resolution_state")
+  )
   payload["horizon_quarter_metrics"] = _compact_quarter_metric_rows_for_storage(
     payload.get("horizon_quarter_metrics") or []
   )
@@ -1446,6 +1471,7 @@ def _compact_unified_convergence_plan_for_storage(payload: Optional[Dict[str, An
         "timing_end_q": copy.deepcopy(item.get("timing_end_q")),
         "solver_allowed_lever_ids": copy.deepcopy(item.get("solver_allowed_lever_ids") or []),
         "required_target_metric_keys": copy.deepcopy(item.get("required_target_metric_keys") or []),
+        "translated_control_count": len(item.get("translated_controls") or []),
       }
     )
   plan["translated_action_packages"] = translated_packages
@@ -1461,6 +1487,12 @@ def _compact_unified_convergence_plan_for_storage(payload: Optional[Dict[str, An
     for item in _normalize_solver_quarter_target_metrics(plan.get("targets_by_quarter") or [])
     if isinstance(item, dict)
   ]
+  plan["lever_adjustment_source"] = str(plan.get("lever_adjustment_source") or "").strip()
+  plan["explicit_lever_adjustment_count"] = int(_safe_float(plan.get("explicit_lever_adjustment_count")) or 0)
+  plan["auto_generated_lever_adjustment_count"] = int(_safe_float(plan.get("auto_generated_lever_adjustment_count")) or 0)
+  plan["translated_control_count"] = int(_safe_float(plan.get("translated_control_count")) or 0)
+  plan["deterministic_guidance_metric_count"] = int(_safe_float(plan.get("deterministic_guidance_metric_count")) or 0)
+  plan["deterministic_guidance_lever_count"] = int(_safe_float(plan.get("deterministic_guidance_lever_count")) or 0)
   return plan
 
 
@@ -1491,6 +1523,11 @@ def _compact_controller_resolution_state_summary(state: Optional[Dict[str, Any]]
     "status": str(payload.get("status") or "").strip(),
     "remaining_issue_count": int(_safe_float(payload.get("remaining_issue_count")) or 0),
     "resolved_issue_count": int(_safe_float(payload.get("resolved_issue_count")) or 0),
+    "tolerated_issue_count": int(_safe_float(payload.get("tolerated_issue_count")) or 0),
+    "overall_completion_score_pct": int(_safe_float(payload.get("overall_completion_score_pct")) or 0),
+    "overall_completion_grade": str(payload.get("overall_completion_grade") or "").strip() or "D",
+    "lowest_quarter_score_pct": int(_safe_float(payload.get("lowest_quarter_score_pct")) or 0),
+    "failing_quarters": copy.deepcopy(payload.get("failing_quarters") or []),
     "remaining_issue_codes": [
       str(item.get("issue_code") or "").strip()
       for item in (payload.get("remaining_issues") or [])
@@ -1499,6 +1536,11 @@ def _compact_controller_resolution_state_summary(state: Optional[Dict[str, Any]]
     "resolved_issue_codes": [
       str(item.get("issue_code") or "").strip()
       for item in (payload.get("resolved_issues") or [])
+      if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+    ],
+    "tolerated_issue_codes": [
+      str(item.get("issue_code") or "").strip()
+      for item in (payload.get("tolerated_issues") or [])
       if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
     ],
   }
@@ -2120,6 +2162,105 @@ def _build_numeric_solver_feedback_payload(
   return feedback
 
 
+def _current_cycle_numeric_trace_summary(
+  planning_run_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = planning_run_payload if isinstance(planning_run_payload, dict) else {}
+  current_cycle_packet = (
+    payload.get("current_cycle_convergence_packet")
+    if isinstance(payload.get("current_cycle_convergence_packet"), dict)
+    else {}
+  )
+  if not current_cycle_packet:
+    return {}
+  deterministic_numeric_guidance = (
+    current_cycle_packet.get("deterministic_numeric_guidance")
+    if isinstance(current_cycle_packet.get("deterministic_numeric_guidance"), dict)
+    else {}
+  )
+  plan_summary = (
+    current_cycle_packet.get("plan_summary")
+    if isinstance(current_cycle_packet.get("plan_summary"), dict)
+    else {}
+  )
+  decision_summary = (
+    current_cycle_packet.get("decision_summary")
+    if isinstance(current_cycle_packet.get("decision_summary"), dict)
+    else {}
+  )
+  guidance_metric_names: List[str] = []
+  guidance_issue_codes: List[str] = []
+  for item in (deterministic_numeric_guidance.get("metric_pressure_packets") or []):
+    if not isinstance(item, dict):
+      continue
+    metric_name = str(item.get("metric_name") or "").strip()
+    issue_code = str(item.get("issue_code") or "").strip()
+    if metric_name and metric_name not in guidance_metric_names:
+      guidance_metric_names.append(metric_name)
+    if issue_code and issue_code not in guidance_issue_codes:
+      guidance_issue_codes.append(issue_code)
+  guidance_lever_ids = [
+    str(item.get("lever_id") or "").strip()
+    for item in (deterministic_numeric_guidance.get("lever_band_scaffold") or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  ]
+  decision_payload = (
+    decision_summary.get("decision")
+    if isinstance(decision_summary.get("decision"), dict)
+    else {}
+  )
+  planned_target_metric_names = [
+    str(item).strip()
+    for item in (decision_payload.get("primary_target_metric_names") or [])
+    if str(item).strip()
+  ]
+  planned_lever_ids = [
+    str(item).strip()
+    for item in (decision_payload.get("lever_selection") or [])
+    if str(item).strip()
+  ]
+  planned_target_tolerance_metric_names = [
+    str(item).strip()
+    for item in (decision_payload.get("target_tolerance_metric_names") or [])
+    if str(item).strip()
+  ]
+  return {
+    "contract_version": "current_cycle_numeric_trace_v1",
+    "cycle": copy.deepcopy(current_cycle_packet.get("current_cycle")),
+    "stage": str(current_cycle_packet.get("stage") or "").strip() or None,
+    "status": str(current_cycle_packet.get("status") or "").strip() or None,
+    "guidance_scope_quarters": copy.deepcopy(
+      deterministic_numeric_guidance.get("scope_quarters") or []
+    ),
+    "guidance_metric_count": len(deterministic_numeric_guidance.get("metric_pressure_packets") or []),
+    "guidance_metric_names": guidance_metric_names,
+    "guidance_issue_codes": guidance_issue_codes,
+    "guidance_lever_count": len(guidance_lever_ids),
+    "guidance_lever_ids": guidance_lever_ids[:24],
+    "plan_status": str(plan_summary.get("status") or "").strip() or None,
+    "plan_next_step": str(plan_summary.get("next_step") or "").strip() or None,
+    "lever_adjustment_source": str(plan_summary.get("lever_adjustment_source") or "").strip() or None,
+    "explicit_lever_adjustment_count": int(
+      _safe_float(plan_summary.get("explicit_lever_adjustment_count")) or 0
+    ),
+    "auto_generated_lever_adjustment_count": int(
+      _safe_float(plan_summary.get("auto_generated_lever_adjustment_count")) or 0
+    ),
+    "translated_control_count": int(
+      _safe_float(plan_summary.get("translated_control_count")) or 0
+    ),
+    "planned_target_quarter_count": len(plan_summary.get("targets_by_quarter") or []),
+    "planned_target_metric_names": planned_target_metric_names,
+    "planned_target_tolerance_metric_names": planned_target_tolerance_metric_names,
+    "planned_lever_ids": planned_lever_ids,
+    "solver_ready": bool(
+      str(plan_summary.get("status") or "").strip() == "ready"
+      and int(_safe_float(plan_summary.get("translated_control_count")) or 0) > 0
+      and len(plan_summary.get("targets_by_quarter") or []) > 0
+    ),
+  }
+
+
 def _extract_numeric_solver_feedback_for_persistence(
   *,
   planning_run_payload: Optional[Dict[str, Any]] = None,
@@ -2127,6 +2268,7 @@ def _extract_numeric_solver_feedback_for_persistence(
 ) -> Dict[str, Any]:
   payload = planning_run_payload if isinstance(planning_run_payload, dict) else {}
   stage = str(payload.get("stage") or "").strip()
+  current_cycle_trace = _current_cycle_numeric_trace_summary(payload)
   deterministic_convergence_summary = (
     payload.get("deterministic_convergence_summary")
     if isinstance(payload.get("deterministic_convergence_summary"), dict)
@@ -2137,9 +2279,10 @@ def _extract_numeric_solver_feedback_for_persistence(
     candidates.extend(
       [
         ("unified_convergence_result", payload.get("unified_convergence_result")),
-        ("grid_application_summary", payload.get("grid_application_summary")),
       ]
     )
+    if not current_cycle_trace:
+      candidates.append(("grid_application_summary", payload.get("grid_application_summary")))
   for source_name, candidate in candidates:
     if not isinstance(candidate, dict):
       continue
@@ -2149,15 +2292,20 @@ def _extract_numeric_solver_feedback_for_persistence(
       feedback["has_feedback"] = True
       feedback["persistence_stage"] = stage or None
       feedback["feedback_source"] = str(source_name).strip() or None
+      if current_cycle_trace:
+        feedback["current_cycle_trace"] = copy.deepcopy(current_cycle_trace)
       if deterministic_convergence_summary:
         feedback["deterministic_convergence_summary"] = copy.deepcopy(deterministic_convergence_summary)
       return feedback
-  return {
+  response = {
     "persistence_stage": stage or None,
     "feedback_source": None,
     "has_feedback": False,
     "deterministic_convergence_summary": copy.deepcopy(deterministic_convergence_summary),
   }
+  if current_cycle_trace:
+    response["current_cycle_trace"] = copy.deepcopy(current_cycle_trace)
+  return response
 
 
 def _build_cash_strategy_review_context_payload(
@@ -2414,6 +2562,7 @@ def _build_final_stabilizer_context_payload(
     "contract_version": "final_stabilizer_context_v1",
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "convergence_engine_contract": _unified_convergence_engine_contract_payload(),
     "planning_mode_context": _build_planning_mode_context(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
@@ -3035,6 +3184,7 @@ def _build_unified_convergence_context_payload(
     "review_role": "single_unified_convergence_owner",
     "planning_context_summary": copy.deepcopy(planning_context_summary_json or {}),
     "grid_application_summary": copy.deepcopy(grid_application_summary or {}),
+    "controller_resolution_state": copy.deepcopy(controller_resolution_state or {}),
     "current_issue_summaries": copy.deepcopy(_controller_state_issue_summaries(controller_resolution_state)),
     "issue_status_records": copy.deepcopy(_controller_state_issue_status_records(controller_resolution_state)),
     "deterministic_issue_packets": _build_issue_packets_from_issue_ledger(
@@ -3673,8 +3823,10 @@ def _normalize_realism_lever_ids(value: Any) -> List[str]:
   ]
 
 
-_REALISM_ITERATION_LOW_SEVERITY_MAX = 15
-_REALISM_ITERATION_SMALL_QUARTER_COUNT_MAX = 2
+_CONVERGENCE_ISSUE_PASS_SCORE_PCT = 80
+_CONVERGENCE_ISSUE_WARN_SCORE_PCT = 70
+_CONVERGENCE_STRONG_SCORE_PCT = 90
+_CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
 
 
 def _safe_int_in_range(value: Any, *, default: int, minimum: int, maximum: int) -> int:
@@ -3683,6 +3835,490 @@ def _safe_int_in_range(value: Any, *, default: int, minimum: int, maximum: int) 
     return default
   bounded = int(round(parsed))
   return max(minimum, min(maximum, bounded))
+
+
+def _completion_grade_letter(score_pct: Any) -> str:
+  score = max(0, min(100, int(_safe_float(score_pct) or 0)))
+  if score >= _CONVERGENCE_STRONG_SCORE_PCT:
+    return "A"
+  if score >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT:
+    return "B"
+  if score >= _CONVERGENCE_ISSUE_WARN_SCORE_PCT:
+    return "C"
+  return "D"
+
+
+def _controller_issue_completion_snapshot(
+  item: Optional[Dict[str, Any]],
+  *,
+  quarter_count: int = _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+) -> Dict[str, Any]:
+  record = item if isinstance(item, dict) else {}
+  total_quarters = max(1, int(_safe_float(quarter_count) or _CONVERGENCE_DEFAULT_QUARTER_COUNT))
+  verifier_status = _normalize_realism_verifier_status(record.get("verifier_status"))
+  materiality = _normalize_realism_materiality(record.get("remaining_issue_materiality"))
+  severity = _safe_int_in_range(
+    record.get("remaining_issue_severity_score"),
+    default=100 if verifier_status == "not_resolved" else 50,
+    minimum=0,
+    maximum=100,
+  )
+  remaining_quarters = _normalize_realism_remaining_quarters(record.get("remaining_problem_quarters"))
+  next_levers = _normalize_realism_lever_ids(record.get("next_required_lever_ids"))
+  issue_code = str(record.get("issue_code") or "").strip().lower()
+  affected_quarters = (
+    remaining_quarters
+    if remaining_quarters
+    else list(range(1, total_quarters + 1))
+    if verifier_status != "resolved"
+    else []
+  )
+  affected_set = set(affected_quarters)
+
+  if verifier_status == "resolved":
+    completion_score_pct = 100
+  else:
+    completion_score_pct = max(0, 100 - severity)
+    if verifier_status == "partially_resolved":
+      completion_score_pct = min(100, completion_score_pct + 5)
+    if materiality == "immaterial":
+      completion_score_pct = min(100, completion_score_pct + 10)
+    if not next_levers:
+      completion_score_pct = min(100, completion_score_pct + 5)
+    if verifier_status == "not_resolved" and not remaining_quarters:
+      completion_score_pct = max(0, completion_score_pct - 10)
+
+  completion_score_pct = max(0, min(100, int(round(completion_score_pct))))
+  quarter_scores = [
+    {
+      "quarter_index": quarter_index,
+      "score_pct": completion_score_pct if quarter_index in affected_set else 100,
+      "counts_toward_issue": quarter_index in affected_set,
+    }
+    for quarter_index in range(1, total_quarters + 1)
+  ]
+  lowest_affected_score_pct = (
+    min(
+      int(_safe_float(entry.get("score_pct")) or 0)
+      for entry in quarter_scores
+      if entry.get("counts_toward_issue")
+    )
+    if affected_quarters
+    else 100
+  )
+  meets_pass_threshold = lowest_affected_score_pct >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT
+  effective_status = (
+    "resolved"
+    if verifier_status == "resolved"
+    else "tolerated"
+    if meets_pass_threshold
+    else "open"
+  )
+  return {
+    "issue_code": issue_code,
+    "verifier_status": verifier_status,
+    "effective_status": effective_status,
+    "blocking": effective_status == "open",
+    "remaining_issue_materiality": materiality,
+    "remaining_issue_severity_score": severity,
+    "completion_score_pct": completion_score_pct,
+    "completion_grade": _completion_grade_letter(completion_score_pct),
+    "pass_threshold_pct": _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
+    "warn_threshold_pct": _CONVERGENCE_ISSUE_WARN_SCORE_PCT,
+    "affected_quarters": affected_quarters,
+    "quarter_scores": quarter_scores,
+    "lowest_affected_score_pct": lowest_affected_score_pct,
+    "next_required_lever_ids": next_levers,
+  }
+
+
+def _controller_issue_public_record(
+  item: Optional[Dict[str, Any]],
+  *,
+  quarter_count: int = _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+) -> Dict[str, Any]:
+  record = item if isinstance(item, dict) else {}
+  public_record: Dict[str, Any] = _core_issue_record(record)
+  snapshot = _controller_issue_completion_snapshot(record, quarter_count=quarter_count)
+  public_record["verifier_status"] = snapshot.get("verifier_status")
+  public_record["effective_status"] = snapshot.get("effective_status")
+  public_record["completion_score_pct"] = snapshot.get("completion_score_pct")
+  public_record["completion_grade"] = snapshot.get("completion_grade")
+  public_record["pass_threshold_pct"] = snapshot.get("pass_threshold_pct")
+  public_record["remaining_issue_materiality"] = snapshot.get("remaining_issue_materiality")
+  public_record["remaining_issue_severity_score"] = snapshot.get("remaining_issue_severity_score")
+  public_record["remaining_problem_quarters"] = copy.deepcopy(snapshot.get("affected_quarters") or [])
+  public_record["next_required_lever_ids"] = copy.deepcopy(snapshot.get("next_required_lever_ids") or [])
+  return public_record
+
+
+def _build_controller_issue_grade_summary(
+  issue_status_records: Optional[List[Dict[str, Any]]],
+  *,
+  quarter_count: int = _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+) -> Dict[str, Any]:
+  total_quarters = max(1, int(_safe_float(quarter_count) or _CONVERGENCE_DEFAULT_QUARTER_COUNT))
+  quarter_scores: Dict[int, int] = {
+    quarter_index: 100
+    for quarter_index in range(1, total_quarters + 1)
+  }
+  quarter_issue_codes: Dict[int, List[str]] = {
+    quarter_index: []
+    for quarter_index in range(1, total_quarters + 1)
+  }
+  issue_scores: List[int] = []
+
+  for item in _clone_issue_status_records(issue_status_records):
+    snapshot = _controller_issue_completion_snapshot(item, quarter_count=total_quarters)
+    issue_scores.append(int(snapshot.get("completion_score_pct") or 0))
+    issue_code = str(snapshot.get("issue_code") or "").strip().lower()
+    for entry in (snapshot.get("quarter_scores") or []):
+      if not isinstance(entry, dict) or not entry.get("counts_toward_issue"):
+        continue
+      quarter_index = int(_safe_float(entry.get("quarter_index")) or 0)
+      if quarter_index < 1 or quarter_index > total_quarters:
+        continue
+      score_pct = max(0, min(100, int(_safe_float(entry.get("score_pct")) or 0)))
+      quarter_scores[quarter_index] = min(quarter_scores.get(quarter_index, 100), score_pct)
+      if issue_code and issue_code not in quarter_issue_codes[quarter_index]:
+        quarter_issue_codes[quarter_index].append(issue_code)
+
+  quarter_scorecard = [
+    {
+      "quarter_index": quarter_index,
+      "score_pct": quarter_scores[quarter_index],
+      "grade": _completion_grade_letter(quarter_scores[quarter_index]),
+      "issue_codes": copy.deepcopy(quarter_issue_codes[quarter_index]),
+      "passes_threshold": quarter_scores[quarter_index] >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
+    }
+    for quarter_index in range(1, total_quarters + 1)
+  ]
+  failing_quarters = [
+    int(entry.get("quarter_index") or 0)
+    for entry in quarter_scorecard
+    if int(_safe_float(entry.get("score_pct")) or 0) < _CONVERGENCE_ISSUE_PASS_SCORE_PCT
+  ]
+  lowest_quarter_score_pct = min(quarter_scores.values()) if quarter_scores else 100
+  average_issue_score_pct = (
+    int(round(sum(issue_scores) / len(issue_scores)))
+    if issue_scores
+    else 100
+  )
+  overall_completion_score_pct = min(lowest_quarter_score_pct, average_issue_score_pct)
+  return {
+    "contract_version": "controller_issue_grade_summary_v1",
+    "grade_pass_threshold_pct": _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
+    "grade_warn_threshold_pct": _CONVERGENCE_ISSUE_WARN_SCORE_PCT,
+    "overall_completion_score_pct": overall_completion_score_pct,
+    "overall_completion_grade": _completion_grade_letter(overall_completion_score_pct),
+    "average_issue_score_pct": average_issue_score_pct,
+    "lowest_quarter_score_pct": lowest_quarter_score_pct,
+    "lowest_quarter_grade": _completion_grade_letter(lowest_quarter_score_pct),
+    "passing_quarter_count": total_quarters - len(failing_quarters),
+    "failing_quarter_count": len(failing_quarters),
+    "failing_quarters": failing_quarters,
+    "quarter_scorecard": quarter_scorecard,
+  }
+
+
+def _convergence_completion_policy_payload() -> Dict[str, Any]:
+  return {
+    "contract_version": "convergence_completion_policy_v1",
+    "issue_pass_threshold_pct": _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
+    "warn_threshold_pct": _CONVERGENCE_ISSUE_WARN_SCORE_PCT,
+    "strong_threshold_pct": _CONVERGENCE_STRONG_SCORE_PCT,
+    "quarter_hard_floor_rule": (
+      "A quarter below the issue pass threshold on a still-relevant metric keeps that issue open for controller purposes."
+    ),
+    "practical_rule": (
+      "The system is aiming for viable forecasting realism, not fake precision, but quarter-level misses below the pass threshold still matter."
+    ),
+  }
+
+
+def _metric_direction_hint(metric_name: Any) -> str:
+  metric = str(metric_name or "").strip().lower()
+  if metric in {
+    "revenue",
+    "gross_profit",
+    "ebitda",
+    "net_income",
+    "ending_cash",
+    "operating_cash_flow",
+    "current_assets",
+    "ppe",
+    "owners_capital",
+    "other_equity",
+  }:
+    return "increase"
+  if metric in {
+    "current_liabilities",
+    "total_liabilities",
+    "g_and_a",
+    "lease_rent",
+    "capital_expenditures",
+    "distributions",
+  }:
+    return "decrease"
+  return "either"
+
+
+def _severity_minimum_change_pct(severity_score: Any) -> float:
+  severity = int(_safe_float(severity_score) or 0)
+  if severity >= 85:
+    return 0.35
+  if severity >= 60:
+    return 0.20
+  return 0.10
+
+
+def _metric_equilibrium_target(metric_name: Any, current_value: Any, direction_hint: str) -> Optional[float]:
+  metric = str(metric_name or "").strip().lower()
+  value = float(_safe_float(current_value) or 0.0)
+  if metric in {"ending_cash", "ebitda", "net_income", "operating_cash_flow"}:
+    if direction_hint == "increase" and value < 0:
+      return 0.0
+  if metric in {"current_liabilities", "total_liabilities"}:
+    if direction_hint == "decrease" and value > 0:
+      return 0.0
+  return None
+
+
+def _lever_priority_tier(priority_score: Any) -> str:
+  score = float(_safe_float(priority_score) or 0.0)
+  if score >= 140:
+    return "primary"
+  if score >= 100:
+    return "secondary"
+  return "supporting"
+
+
+def _build_unified_numeric_guidance_packet(
+  *,
+  controller_resolution_state: Optional[Dict[str, Any]],
+  controller_retry_context: Optional[Dict[str, Any]],
+  unified_convergence_context: Optional[Dict[str, Any]],
+  quarter_count: int = _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+) -> Dict[str, Any]:
+  controller_state = controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
+  retry_context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  convergence_context = unified_convergence_context if isinstance(unified_convergence_context, dict) else {}
+  issue_packets = [
+    item
+    for item in (convergence_context.get("deterministic_issue_packets") or [])
+    if isinstance(item, dict)
+  ]
+  open_issue_codes = {
+    str(item.get("issue_code") or "").strip().lower()
+    for item in (controller_state.get("remaining_issues") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
+  if open_issue_codes:
+    issue_packets = [
+      item for item in issue_packets
+      if str(item.get("issue_code") or "").strip().lower() in open_issue_codes
+    ]
+  finmo_json = (
+    convergence_context.get("current_finmo_json")
+    if isinstance(convergence_context.get("current_finmo_json"), dict)
+    else {}
+  )
+  finmo_rows = [
+    row for row in ((finmo_json or {}).get("quarter_rows") or [])
+    if isinstance(row, dict)
+  ]
+  finmo_row_map = {
+    int(_safe_float(row.get("quarter_index")) or 0): row
+    for row in finmo_rows
+    if int(_safe_float(row.get("quarter_index")) or 0) >= 1
+  }
+  model_input_json = (
+    convergence_context.get("current_model_input_json")
+    if isinstance(convergence_context.get("current_model_input_json"), dict)
+    else {}
+  )
+  lever_catalog_entries = _build_writable_lever_review_catalog(model_input_json)
+  lever_catalog_map = {
+    str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
+    for item in lever_catalog_entries
+    if str(item.get("lever_id") or "").strip()
+  }
+  lever_value_map = _solved_lever_value_map(model_input_json)
+  scoped_quarters = _retry_scope_quarters(
+    controller_retry_context=retry_context,
+    quarter_count=quarter_count,
+  )
+  if not scoped_quarters:
+    scoped_quarters = list(range(1, max(1, int(quarter_count or _CONVERGENCE_DEFAULT_QUARTER_COUNT)) + 1))
+
+  metric_pressure_packets: List[Dict[str, Any]] = []
+  candidate_lever_ids: List[str] = []
+  per_lever_severity: Dict[str, int] = {}
+  per_lever_issue_codes: Dict[str, List[str]] = {}
+  per_lever_metric_names: Dict[str, List[str]] = {}
+  retry_required_lever_ids = {
+    str(item).strip()
+    for item in (retry_context.get("required_issue_lever_ids") or [])
+    if str(item).strip()
+  }
+  retry_required_families = {
+    str(item).strip().lower()
+    for item in (retry_context.get("required_lever_families") or [])
+    if str(item).strip()
+  }
+
+  for issue_packet in issue_packets:
+    issue_code = str(issue_packet.get("issue_code") or "").strip().lower()
+    severity_score = int(_safe_float(issue_packet.get("remaining_issue_severity_score")) or 0)
+    severity_label = _issue_severity_label_from_score(severity_score)
+    affected_quarters = [
+      int(_safe_float(item) or 0)
+      for item in (issue_packet.get("affected_quarters") or issue_packet.get("remaining_problem_quarters") or [])
+      if int(_safe_float(item) or 0) >= 1
+    ]
+    effective_quarters = [quarter for quarter in affected_quarters if quarter in set(scoped_quarters)] or affected_quarters or scoped_quarters
+    metric_targets = [
+      str(item).strip().lower()
+      for item in (issue_packet.get("metric_targets") or [])
+      if str(item).strip()
+    ][:3]
+    for lever_id in [
+      str(item).strip()
+      for item in (issue_packet.get("candidate_lever_ids") or issue_packet.get("next_required_lever_ids") or [])
+      if str(item).strip()
+    ]:
+      if lever_id not in candidate_lever_ids:
+        candidate_lever_ids.append(lever_id)
+      per_lever_severity[lever_id] = max(per_lever_severity.get(lever_id, 0), severity_score)
+      if issue_code and issue_code not in (per_lever_issue_codes.get(lever_id) or []):
+        per_lever_issue_codes.setdefault(lever_id, []).append(issue_code)
+      for metric_name in metric_targets:
+        if metric_name and metric_name not in (per_lever_metric_names.get(lever_id) or []):
+          per_lever_metric_names.setdefault(lever_id, []).append(metric_name)
+    for quarter_index in effective_quarters:
+      finmo_row = finmo_row_map.get(quarter_index) or {}
+      for metric_name in metric_targets:
+        current_value = float(_safe_float(finmo_row.get(metric_name)) or 0.0)
+        direction_hint = _metric_direction_hint(metric_name)
+        minimum_change_pct = _severity_minimum_change_pct(severity_score)
+        minimum_absolute_change = float(max(abs(current_value) * minimum_change_pct, 1.0))
+        equilibrium_target = _metric_equilibrium_target(metric_name, current_value, direction_hint)
+        if direction_hint == "increase":
+          suggested_floor_target = (
+            max(float(equilibrium_target), current_value + minimum_absolute_change)
+            if equilibrium_target is not None
+            else current_value + minimum_absolute_change
+          )
+          suggested_ceiling_target = suggested_floor_target + minimum_absolute_change
+        elif direction_hint == "decrease":
+          candidate_floor = current_value - minimum_absolute_change
+          if equilibrium_target is not None:
+            candidate_floor = max(float(equilibrium_target), candidate_floor)
+          suggested_floor_target = candidate_floor
+          suggested_ceiling_target = current_value
+        else:
+          suggested_floor_target = None
+          suggested_ceiling_target = None
+        metric_pressure_packets.append(
+          {
+            "issue_code": issue_code,
+            "quarter_index": quarter_index,
+            "metric_name": metric_name,
+            "severity_score": severity_score,
+            "severity": severity_label,
+            "current_value": current_value,
+            "direction_hint": direction_hint,
+            "minimum_change_pct": float(minimum_change_pct),
+            "minimum_absolute_change": minimum_absolute_change,
+            "equilibrium_target": equilibrium_target,
+            "suggested_floor_target": suggested_floor_target,
+            "suggested_ceiling_target": suggested_ceiling_target,
+          }
+        )
+
+  if not candidate_lever_ids:
+    candidate_lever_ids = [
+      str(item.get("lever_id") or "").strip()
+      for item in lever_catalog_entries[:12]
+      if str(item.get("lever_id") or "").strip()
+    ]
+
+  ranked_lever_entries: List[Dict[str, Any]] = []
+  for lever_id in candidate_lever_ids[:24]:
+    values = lever_value_map.get(lever_id) or []
+    if not values:
+      continue
+    catalog_entry = lever_catalog_map.get(lever_id) or {}
+    family = _lever_family_from_lever_id(lever_id)
+    severity_score = max(per_lever_severity.get(lever_id, 0), 60 if lever_id in retry_required_lever_ids else 0)
+    max_relative_change = _severity_minimum_change_pct(severity_score)
+    start_q = min(scoped_quarters) if scoped_quarters else 1
+    end_q = max(scoped_quarters) if scoped_quarters else max(1, quarter_count)
+    baseline_window = _baseline_window_summary(values, start_q=start_q, end_q=end_q)
+    baseline_value = float(_safe_float(baseline_window.get("value_end")) or 0.0)
+    move_limit = _relative_move_limit(
+      baseline_value=baseline_value,
+      max_relative_change=max_relative_change,
+      value_kind=str(catalog_entry.get("value_kind") or "").strip(),
+      input_semantics=str(catalog_entry.get("input_semantics") or "").strip(),
+    )
+    guidance = _lever_usage_guidance(lever_id)
+    issue_codes = copy.deepcopy(per_lever_issue_codes.get(lever_id) or [])
+    metric_names = copy.deepcopy(per_lever_metric_names.get(lever_id) or [])
+    issue_coverage_count = len(issue_codes)
+    priority_score = float(severity_score)
+    if lever_id in retry_required_lever_ids:
+      priority_score += 30.0
+    if family and family in retry_required_families:
+      priority_score += 20.0
+    priority_score += float(issue_coverage_count * 10)
+    ranked_lever_entries.append(
+      {
+        "lever_id": lever_id,
+        "section": str(catalog_entry.get("section") or "").strip(),
+        "label_path": str(catalog_entry.get("label_path") or "").strip(),
+        "driver": str(catalog_entry.get("driver") or "").strip(),
+        "value_kind": str(catalog_entry.get("value_kind") or "").strip(),
+        "input_semantics": str(catalog_entry.get("input_semantics") or "").strip(),
+        "timing_start_q": start_q,
+        "timing_end_q": end_q,
+        "baseline_window": copy.deepcopy(baseline_window),
+        "value_mode_hint": "band",
+        "direction_hint": "either",
+        "max_relative_change": float(max_relative_change),
+        "suggested_min_value": float(baseline_value - move_limit),
+        "suggested_max_value": float(baseline_value + move_limit),
+        "preferred_uses": copy.deepcopy(guidance.get("preferred_uses") or []),
+        "forbidden_uses": copy.deepcopy(guidance.get("forbidden_uses") or []),
+        "covered_issue_codes": issue_codes,
+        "covered_metric_names": metric_names,
+        "issue_coverage_count": issue_coverage_count,
+        "priority_score": priority_score,
+        "priority_tier": _lever_priority_tier(priority_score),
+        "family_match_required": bool(family and family in retry_required_families),
+        "direct_retry_requirement": bool(lever_id in retry_required_lever_ids),
+      }
+    )
+
+  ranked_lever_entries.sort(
+    key=lambda item: (
+      -float(_safe_float(item.get("priority_score")) or 0.0),
+      str(item.get("lever_id") or "").strip(),
+    )
+  )
+  lever_band_scaffold: List[Dict[str, Any]] = []
+  for rank_index, item in enumerate(ranked_lever_entries, start=1):
+    ranked_item = copy.deepcopy(item)
+    ranked_item["priority_rank"] = rank_index
+    lever_band_scaffold.append(ranked_item)
+
+  return {
+    "contract_version": "unified_numeric_guidance_v1",
+    "completion_policy": _convergence_completion_policy_payload(),
+    "scope_quarters": copy.deepcopy(scoped_quarters),
+    "metric_pressure_packets": metric_pressure_packets,
+    "lever_band_scaffold": lever_band_scaffold,
+  }
 
 
 def _controller_resolution_from_verification_issue(
@@ -3723,35 +4359,23 @@ def _iteration_decision_from_issue_record(
   item: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
   record = item if isinstance(item, dict) else {}
-  verifier_status = _normalize_realism_verifier_status(record.get("verifier_status"))
-  severity = _safe_int_in_range(
-    record.get("remaining_issue_severity_score"),
-    default=100 if verifier_status == "not_resolved" else 50,
-    minimum=0,
-    maximum=100,
-  )
-  quarters = _normalize_realism_remaining_quarters(record.get("remaining_problem_quarters"))
-  next_levers = _normalize_realism_lever_ids(record.get("next_required_lever_ids"))
+  completion_snapshot = _controller_issue_completion_snapshot(record)
+  completion_score_pct = int(_safe_float(completion_snapshot.get("completion_score_pct")) or 0)
 
-  if verifier_status == "resolved":
+  if str(completion_snapshot.get("effective_status") or "").strip().lower() == "resolved":
     return {
       "iteration_decision": "no_further_iteration_needed",
       "iteration_needed": False,
       "iteration_reason": "Verifier marked the issue resolved.",
     }
 
-  if (
-    verifier_status == "partially_resolved"
-    and severity <= _REALISM_ITERATION_LOW_SEVERITY_MAX
-    and len(quarters) <= _REALISM_ITERATION_SMALL_QUARTER_COUNT_MAX
-    and not next_levers
-  ):
+  if str(completion_snapshot.get("effective_status") or "").strip().lower() == "tolerated":
     return {
       "iteration_decision": "no_further_iteration_needed",
       "iteration_needed": False,
       "iteration_reason": (
-        "Verifier marked the issue partially resolved, and the remaining gap is low-severity, "
-        "localized, and has no prescribed next levers."
+        "Deterministic quarter-aware scoring marked the issue resolved enough to close: "
+        f"{completion_score_pct}% completion meets the {_CONVERGENCE_ISSUE_PASS_SCORE_PCT}% pass threshold."
       ),
     }
 
@@ -3759,7 +4383,8 @@ def _iteration_decision_from_issue_record(
     "iteration_decision": "continue_iteration",
     "iteration_needed": True,
     "iteration_reason": (
-      "Verifier indicates the issue remains unresolved or still materially open enough to justify another pass."
+      "Verifier indicates the issue remains unresolved or below the deterministic completion threshold "
+      f"({completion_score_pct}% < {_CONVERGENCE_ISSUE_PASS_SCORE_PCT}%)."
     ),
   }
 
@@ -3773,16 +4398,12 @@ def _clone_issue_status_records(issue_status_records: Optional[List[Dict[str, An
 
 
 def _controller_issue_effective_status(item: Optional[Dict[str, Any]]) -> str:
-  record = item if isinstance(item, dict) else {}
-  verifier_status = _normalize_realism_verifier_status(record.get("verifier_status"))
-  if verifier_status == "resolved":
-    return "resolved"
-  return "open"
+  return str(_controller_issue_completion_snapshot(item).get("effective_status") or "open").strip().lower() or "open"
 
 
 def _controller_issue_is_blocking(item: Optional[Dict[str, Any]]) -> bool:
   record = item if isinstance(item, dict) else {}
-  return _controller_issue_effective_status(record) != "resolved"
+  return _controller_issue_effective_status(record) == "open"
 
 
 def _issue_needs_iteration(item: Optional[Dict[str, Any]]) -> bool:
@@ -4042,23 +4663,28 @@ def _build_controller_resolution_state_from_issue_ledger(
   filtered_records = _filter_issue_status_records(issue_status_records, issue_keys)
   full_records = _clone_issue_status_records(_filter_issue_status_records(issue_status_records, None))
   detected_records = filtered_records if issue_keys else full_records
-  detected_issues = [_core_issue_record(item) for item in detected_records]
+  detected_issues = [_controller_issue_public_record(item) for item in detected_records]
   resolved_issues = [
-    _core_issue_record(item)
+    _controller_issue_public_record(item)
     for item in filtered_records
-    if not _controller_issue_is_blocking(item)
+    if _controller_issue_effective_status(item) == "resolved"
+  ]
+  tolerated_issues = [
+    _controller_issue_public_record(item)
+    for item in filtered_records
+    if _controller_issue_effective_status(item) == "tolerated"
   ]
   remaining_issues = [
-    _core_issue_record(item)
+    _controller_issue_public_record(item)
     for item in filtered_records
     if _controller_issue_is_blocking(item)
   ]
-  tolerated_issues: List[Dict[str, Any]] = []
   iteration_pending_issues = [
-    _core_issue_record(item)
+    _controller_issue_public_record(item)
     for item in filtered_records
     if _issue_needs_iteration(item)
   ]
+  grade_summary = _build_controller_issue_grade_summary(filtered_records)
   verification = (
     verification_payload.get("verification")
     if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
@@ -4068,11 +4694,11 @@ def _build_controller_resolution_state_from_issue_ledger(
   return {
     "contract_version": "controller_resolution_state_v3",
     "owner": "controller",
-    "source_of_truth": "issue_status_records.verifier_status",
+    "source_of_truth": "issue_status_records.verifier_status+deterministic_completion_scoring",
     "status": status,
     "display_status": "all cleared" if not remaining_issues else "issues remaining",
     "all_cleared": not remaining_issues,
-    "hard_cleared": not remaining_issues,
+    "hard_cleared": not remaining_issues and int(grade_summary.get("lowest_quarter_score_pct") or 0) >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
     "detected_issue_count": len(detected_issues),
     "remaining_issue_count": len(remaining_issues),
     "resolved_issue_count": len(resolved_issues),
@@ -4085,6 +4711,15 @@ def _build_controller_resolution_state_from_issue_ledger(
     "iteration_pending_issues": iteration_pending_issues,
     "issue_status_records": _clone_issue_status_records(filtered_records),
     "last_review_iteration": int(iteration),
+    "grade_pass_threshold_pct": int(grade_summary.get("grade_pass_threshold_pct") or _CONVERGENCE_ISSUE_PASS_SCORE_PCT),
+    "overall_completion_score_pct": int(grade_summary.get("overall_completion_score_pct") or 0),
+    "overall_completion_grade": str(grade_summary.get("overall_completion_grade") or "").strip() or "D",
+    "average_issue_score_pct": int(grade_summary.get("average_issue_score_pct") or 0),
+    "lowest_quarter_score_pct": int(grade_summary.get("lowest_quarter_score_pct") or 0),
+    "lowest_quarter_grade": str(grade_summary.get("lowest_quarter_grade") or "").strip() or "D",
+    "failing_quarter_count": int(grade_summary.get("failing_quarter_count") or 0),
+    "failing_quarters": copy.deepcopy(grade_summary.get("failing_quarters") or []),
+    "quarter_scorecard": copy.deepcopy(grade_summary.get("quarter_scorecard") or []),
     "verification_summary": {
       "overall_assessment": str(verification.get("overall_assessment") or "").strip(),
       "executive_summary": str(verification.get("executive_summary") or "").strip(),
@@ -4103,16 +4738,24 @@ def _controller_state_issue_summaries(
   controller_resolution_state: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
   records = _controller_state_issue_status_records(controller_resolution_state)
-  detected_issues = [_core_issue_record(item) for item in records]
-  remaining_issues = [_core_issue_record(item) for item in records if _controller_issue_is_blocking(item)]
-  resolved_issues = [_core_issue_record(item) for item in records if not _controller_issue_is_blocking(item)]
+  detected_issues = [_controller_issue_public_record(item) for item in records]
+  remaining_issues = [_controller_issue_public_record(item) for item in records if _controller_issue_is_blocking(item)]
+  resolved_issues = [_controller_issue_public_record(item) for item in records if _controller_issue_effective_status(item) == "resolved"]
+  tolerated_issues = [_controller_issue_public_record(item) for item in records if _controller_issue_effective_status(item) == "tolerated"]
+  grade_summary = _build_controller_issue_grade_summary(records)
   return {
     "detected_issue_count": len(detected_issues),
     "remaining_issue_count": len(remaining_issues),
     "resolved_issue_count": len(resolved_issues),
+    "tolerated_issue_count": len(tolerated_issues),
+    "overall_completion_score_pct": int(grade_summary.get("overall_completion_score_pct") or 0),
+    "overall_completion_grade": str(grade_summary.get("overall_completion_grade") or "").strip() or "D",
+    "lowest_quarter_score_pct": int(grade_summary.get("lowest_quarter_score_pct") or 0),
+    "failing_quarters": copy.deepcopy(grade_summary.get("failing_quarters") or []),
     "detected_issues": detected_issues,
     "remaining_issues": remaining_issues,
     "resolved_issues": resolved_issues,
+    "tolerated_issues": tolerated_issues,
   }
 
 
@@ -4698,6 +5341,29 @@ def _persist_post_intake_stage_state(
     if isinstance(numeric_solver_contract, dict)
     else None,
   )
+  extracted_numeric_feedback = _extract_numeric_solver_feedback_for_persistence(
+    planning_run_payload=payload,
+    explicit_candidates=copy.deepcopy(explicit_numeric_feedback_candidates or []),
+  )
+  retry_context_for_guidance = (
+    (controller_retry_heartbeat.get("controller_retry_context") if isinstance(controller_retry_heartbeat, dict) else {})
+    if isinstance((controller_retry_heartbeat or {}).get("controller_retry_context"), dict)
+    else {}
+  )
+  repair_guidance_payload = _build_repair_guidance_payload(
+    draft_id=str(draft_id).strip(),
+    stage=stage,
+    status=str(payload.get("status") or status).strip() or status,
+    planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_mode_prompt_file=prompt_file,
+    unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
+    controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
+    controller_retry_context=copy.deepcopy(retry_context_for_guidance),
+    prior_numeric_feedback=copy.deepcopy(extracted_numeric_feedback),
+    unified_convergence_cycle_count=unified_convergence_cycle_count,
+  )
   persisted = persist_post_intake_execution_state(
     conn,
     draft_id=str(draft_id).strip(),
@@ -4705,10 +5371,8 @@ def _persist_post_intake_stage_state(
     planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
     realism_memo_json=copy.deepcopy(persisted_realism_memo),
     planning_run_json=copy.deepcopy(payload),
-    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=payload,
-      explicit_candidates=copy.deepcopy(explicit_numeric_feedback_candidates or []),
-    ),
+    repair_guidance_json=copy.deepcopy(repair_guidance_payload),
+    numeric_solver_feedback_json=copy.deepcopy(extracted_numeric_feedback),
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
     active_focus="done",
@@ -5406,6 +6070,35 @@ def _solver_target_contract_spec_payload() -> Dict[str, Any]:
   }
 
 
+def _unified_convergence_engine_contract_payload() -> Dict[str, Any]:
+  return {
+    "contract_version": "unified_convergence_engine_contract_v1",
+    "active_solver_owner": "unified_convergence",
+    "legacy_stage_execution_mode": "context_only_no_solver_ownership",
+    "context_modules": [
+      "initial_restructure",
+      "realism",
+      "cash_strategy",
+      "stabilizer",
+      "guarantee",
+    ],
+    "solver_execution_rule": "solver_must_run_for_every_valid_attempt",
+    "pre_execution_hard_blocks": [
+      "malformed_payload",
+      "missing_required_coverage",
+      "unauthorized_levers",
+      "broken_contract_shape",
+    ],
+    "post_execution_governance": [
+      "issue_count_delta",
+      "severity_delta",
+      "cash_violation_delta",
+      "constraint_pass_fail",
+      "regression_detection",
+    ],
+  }
+
+
 def _unified_solver_target_contract_spec_payload() -> Dict[str, Any]:
   return {
     "contract_version": "unified_convergence_target_contract_v1",
@@ -5433,12 +6126,509 @@ def _unified_solver_target_contract_spec_payload() -> Dict[str, Any]:
       "Provide quarter-specific numeric targets for all 20 forecast quarters and every chosen primary target metric.",
       "targets_by_quarter must use metric_targets entries shaped as {metric_name, target_value}.",
       "Provide target_tolerances for every chosen primary target metric so Python can enforce materiality-aware fit, not fake perfection.",
+      "Use deterministic_numeric_guidance as the default playing field for quarter pressure and lever-band ranges.",
       "Provide lever_adjustments for the chosen writable levers so solver receives GPT-authored bands or exact values, not just a loose lever list.",
+      "If you stay high-level on lever bands, Python may scaffold default bands from deterministic_numeric_guidance for the levers you selected.",
       "Prefer band mode unless the business is already close enough that exact placement is clearly warranted.",
       "Do not return maintain or explanation-only output while active issues remain.",
       "Retry discipline is enforced after execution; focus on producing the best valid cycle package.",
       "Intake values are not binding. Realism and viability win over intake except for legitimate beginning-balance stub values.",
     ],
+  }
+
+
+def _compact_convergence_quarter_rows_for_state(rows: Any) -> List[Dict[str, Any]]:
+  compact_rows: List[Dict[str, Any]] = []
+  for row in (rows or []):
+    if not isinstance(row, dict):
+      continue
+    try:
+      quarter_index = int(float(row.get("quarter_index") or 0))
+    except Exception:
+      quarter_index = 0
+    if quarter_index < 1:
+      continue
+    compact_rows.append(
+      {
+        "quarter_index": quarter_index,
+        "year": copy.deepcopy(row.get("year")),
+        "quarter": copy.deepcopy(row.get("quarter")),
+        "revenue": _safe_float(row.get("revenue")),
+        "gross_profit": _safe_float(row.get("gross_profit")),
+        "ebitda": _safe_float(row.get("ebitda")),
+        "net_income": _safe_float(row.get("net_income")),
+        "ending_cash": _safe_float(row.get("ending_cash")),
+        "operating_cash_flow": _safe_float(row.get("operating_cash_flow")),
+        "investing_cash_flow": _safe_float(row.get("investing_cash_flow")),
+        "financing_cash_flow": _safe_float(row.get("financing_cash_flow")),
+        "current_assets": _safe_float(row.get("current_assets")),
+        "ppe": _safe_float(row.get("ppe")),
+        "current_liabilities": _safe_float(row.get("current_liabilities")),
+        "total_liabilities": _safe_float(row.get("total_liabilities")),
+        "total_equity": _safe_float(row.get("total_equity")),
+        "accounting_equation_check": _safe_float(row.get("accounting_equation_check")),
+      }
+    )
+  return compact_rows
+
+
+def _build_current_cycle_convergence_packet(
+  *,
+  stage: str,
+  status: str,
+  planning_mode: Optional[str],
+  planning_mode_reason: Optional[str],
+  planning_context_summary: Optional[Dict[str, Any]],
+  unified_convergence_context: Optional[Dict[str, Any]],
+  controller_resolution_state: Optional[Dict[str, Any]],
+  controller_retry_context: Optional[Dict[str, Any]] = None,
+  prior_numeric_feedback: Optional[Dict[str, Any]] = None,
+  unified_convergence_decision: Optional[Dict[str, Any]] = None,
+  unified_convergence_plan: Optional[Dict[str, Any]] = None,
+  unified_convergence_result: Optional[Dict[str, Any]] = None,
+  unified_convergence_cycle_count: Optional[int] = None,
+) -> Dict[str, Any]:
+  planning_summary = planning_context_summary if isinstance(planning_context_summary, dict) else {}
+  convergence_context = (
+    unified_convergence_context if isinstance(unified_convergence_context, dict) else {}
+  )
+  controller_state = (
+    controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
+  )
+  retry_context = (
+    controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  )
+  numeric_feedback = (
+    prior_numeric_feedback if isinstance(prior_numeric_feedback, dict) else {}
+  )
+  lever_catalog = (
+    convergence_context.get("writable_lever_catalog")
+    if isinstance(convergence_context.get("writable_lever_catalog"), dict)
+    else {}
+  )
+  lever_ids = [
+    str(item or "").strip()
+    for item in (lever_catalog.get("lever_ids") or [])
+    if str(item or "").strip()
+  ]
+  current_finmo_json = (
+    convergence_context.get("current_finmo_json")
+    if isinstance(convergence_context.get("current_finmo_json"), dict)
+    else {}
+  )
+  current_finmo_rows = (
+    current_finmo_json.get("quarter_rows")
+    if isinstance(current_finmo_json.get("quarter_rows"), list)
+    else convergence_context.get("current_finmo_quarter_rows")
+    if isinstance(convergence_context.get("current_finmo_quarter_rows"), list)
+    else []
+  )
+  escalation_packet = (
+    retry_context.get("controller_escalation_packet")
+    if isinstance(retry_context.get("controller_escalation_packet"), dict)
+    else convergence_context.get("controller_escalation_packet")
+    if isinstance(convergence_context.get("controller_escalation_packet"), dict)
+    else {}
+  )
+  numeric_guidance_packet = _build_unified_numeric_guidance_packet(
+    controller_resolution_state=controller_state,
+    controller_retry_context=retry_context,
+    unified_convergence_context=convergence_context,
+    quarter_count=max(
+      _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+      len(current_finmo_rows or []),
+    ),
+  )
+  return {
+    "contract_version": "convergence_state_v1",
+    "owner": "unified_convergence",
+    "stage": str(stage or "").strip() or None,
+    "status": str(status or "").strip() or None,
+    "current_cycle": (
+      int(_safe_float(unified_convergence_cycle_count))
+      if unified_convergence_cycle_count is not None
+      else None
+    ),
+    "convergence_engine_contract": _unified_convergence_engine_contract_payload(),
+    "business_context": {
+      "business_name": str(
+        planning_summary.get("business_name")
+        or convergence_context.get("business_name")
+        or ""
+      ).strip() or None,
+      "business_type": str(
+        planning_summary.get("business_type")
+        or planning_summary.get("industry")
+        or ""
+      ).strip() or None,
+      "business_model": str(
+        planning_summary.get("business_model")
+        or planning_summary.get("business_model_summary")
+        or ""
+      ).strip() or None,
+      "planning_mode": str(planning_mode or "").strip() or None,
+      "planning_mode_reason": str(planning_mode_reason or "").strip() or None,
+      "selected_cash_strategy": str(
+        convergence_context.get("selected_cash_strategy") or ""
+      ).strip() or None,
+    },
+    "issue_state": {
+      "controller_status": str(controller_state.get("status") or "").strip() or None,
+      "detected_issue_count": int(_safe_float(controller_state.get("detected_issue_count")) or 0),
+      "remaining_issue_count": int(_safe_float(controller_state.get("remaining_issue_count")) or 0),
+      "resolved_issue_count": int(_safe_float(controller_state.get("resolved_issue_count")) or 0),
+      "tolerated_issue_count": int(_safe_float(controller_state.get("tolerated_issue_count")) or 0),
+      "iteration_pending_issue_count": int(
+        _safe_float(controller_state.get("iteration_pending_issue_count")) or 0
+      ),
+      "overall_completion_score_pct": int(
+        _safe_float(controller_state.get("overall_completion_score_pct")) or 0
+      ),
+      "overall_completion_grade": str(
+        controller_state.get("overall_completion_grade") or ""
+      ).strip() or "D",
+      "lowest_quarter_score_pct": int(
+        _safe_float(controller_state.get("lowest_quarter_score_pct")) or 0
+      ),
+      "failing_quarters": copy.deepcopy(controller_state.get("failing_quarters") or []),
+      "open_issue_codes": [
+        str(item.get("issue_code") or "").strip()
+        for item in (controller_state.get("remaining_issues") or [])
+        if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+      ],
+      "resolved_issue_codes": [
+        str(item.get("issue_code") or "").strip()
+        for item in (controller_state.get("resolved_issues") or [])
+        if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+      ],
+      "tolerated_issue_codes": [
+        str(item.get("issue_code") or "").strip()
+        for item in (controller_state.get("tolerated_issues") or [])
+        if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+      ],
+      "current_issue_summaries": copy.deepcopy(
+        convergence_context.get("current_issue_summaries") or {}
+      ),
+      "deterministic_issue_packets": copy.deepcopy(
+        convergence_context.get("deterministic_issue_packets") or []
+      ),
+    },
+    "retry_state": {
+      "progress_status": str(retry_context.get("progress_status") or "").strip() or None,
+      "failed_quarters": copy.deepcopy(retry_context.get("failed_quarters") or []),
+      "failed_metrics": copy.deepcopy(retry_context.get("failed_metrics") or []),
+      "required_open_issue_codes": copy.deepcopy(
+        retry_context.get("required_open_issue_codes") or []
+      ),
+      "required_primary_metric_candidates": copy.deepcopy(
+        retry_context.get("required_primary_metric_candidates") or []
+      ),
+      "required_issue_lever_ids": copy.deepcopy(
+        retry_context.get("required_issue_lever_ids") or []
+      ),
+      "required_lever_families": copy.deepcopy(
+        retry_context.get("required_lever_families") or []
+      ),
+      "minimum_new_lever_count": copy.deepcopy(
+        retry_context.get("minimum_new_lever_count")
+      ),
+      "must_change_strategy_class": bool(
+        retry_context.get("must_change_strategy_class")
+      ),
+      "last_failure_reason": str(
+        retry_context.get("last_failure_reason") or ""
+      ).strip() or None,
+      "escalation_active": bool(escalation_packet.get("escalation_active")),
+      "required_change_magnitude": str(
+        escalation_packet.get("required_change_magnitude") or ""
+      ).strip() or None,
+    },
+    "numeric_state": {
+      "solver_invoked": bool(numeric_feedback.get("solver_invoked")),
+      "solver_execution_state": str(
+        numeric_feedback.get("solver_execution_state") or ""
+      ).strip() or None,
+      "execution_state": str(
+        numeric_feedback.get("execution_state") or ""
+      ).strip() or None,
+      "target_metric_names": copy.deepcopy(numeric_feedback.get("target_metric_names") or []),
+      "targeted_quarters": copy.deepcopy(numeric_feedback.get("targeted_quarters") or []),
+      "quarters_with_all_targets_within_tolerance": int(
+        _safe_float(numeric_feedback.get("quarters_with_all_targets_within_tolerance")) or 0
+      ),
+      "quarters_with_target_misses": int(
+        _safe_float(numeric_feedback.get("quarters_with_target_misses")) or 0
+      ),
+      "quarter_fit_summary": copy.deepcopy(numeric_feedback.get("quarter_fit_summary") or []),
+    },
+    "deterministic_numeric_guidance": copy.deepcopy(numeric_guidance_packet),
+    "quarter_snapshot": _compact_convergence_quarter_rows_for_state(
+      copy.deepcopy(current_finmo_rows or [])
+    ),
+    "lever_scope": {
+      "lever_count": len(lever_ids),
+      "lever_ids": copy.deepcopy(lever_ids),
+    },
+    "context_modules": copy.deepcopy(convergence_context.get("context_modules") or {}),
+    "decision_summary": _compact_unified_convergence_decision_for_storage(
+      copy.deepcopy(unified_convergence_decision or {})
+    ),
+    "plan_summary": _compact_unified_convergence_plan_for_storage(
+      copy.deepcopy(unified_convergence_plan or {})
+    ),
+    "result_summary": _compact_unified_convergence_result_for_storage(
+      copy.deepcopy(unified_convergence_result or {})
+    ),
+  }
+
+
+def _build_repair_guidance_payload(
+  *,
+  draft_id: str,
+  stage: str,
+  status: str,
+  planning_context_summary_json: Optional[Dict[str, Any]],
+  planning_mode: Optional[str],
+  planning_mode_reason: Optional[str],
+  planning_mode_prompt_file: str,
+  unified_convergence_context: Optional[Dict[str, Any]],
+  controller_resolution_state: Optional[Dict[str, Any]],
+  controller_retry_context: Optional[Dict[str, Any]] = None,
+  prior_numeric_feedback: Optional[Dict[str, Any]] = None,
+  unified_convergence_cycle_count: Optional[int] = None,
+) -> Dict[str, Any]:
+  planning_context_summary = (
+    planning_context_summary_json if isinstance(planning_context_summary_json, dict) else {}
+  )
+  convergence_context = (
+    unified_convergence_context if isinstance(unified_convergence_context, dict) else {}
+  )
+  controller_state = (
+    controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
+  )
+  retry_context = (
+    controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  )
+  if not convergence_context and not controller_state and not retry_context:
+    return {}
+  selected_cash_strategy = str(
+    planning_context_summary.get("selected_cash_strategy")
+    or convergence_context.get("selected_cash_strategy")
+    or ""
+  ).strip()
+  full_numeric_solver_contract = copy.deepcopy(
+    convergence_context.get("numeric_solver_contract")
+    if isinstance(convergence_context.get("numeric_solver_contract"), dict)
+    else {}
+  )
+  effective_prior_numeric_feedback = copy.deepcopy(
+    prior_numeric_feedback if isinstance(prior_numeric_feedback, dict) else {}
+  )
+  current_finmo_json = (
+    convergence_context.get("current_finmo_json")
+    if isinstance(convergence_context.get("current_finmo_json"), dict)
+    else {}
+  )
+  current_finmo_rows = [
+    row
+    for row in ((current_finmo_json.get("quarter_rows") or []) if isinstance(current_finmo_json, dict) else [])
+    if isinstance(row, dict)
+  ]
+  raw_retry_scope_payload = _build_retry_scope_payload(
+    controller_retry_context=copy.deepcopy(retry_context),
+    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
+    numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
+    solved_model_input_json=copy.deepcopy(convergence_context.get("current_model_input_json") or {}),
+    solved_finmo_json=copy.deepcopy(current_finmo_json),
+  )
+  full_horizon_quarters = _relevant_solver_target_quarters(copy.deepcopy(full_numeric_solver_contract))
+  retry_scope_payload = copy.deepcopy(raw_retry_scope_payload)
+  retry_scope_payload["scope_mode"] = "full_horizon"
+  retry_scope_payload["scoped_quarters"] = copy.deepcopy(full_horizon_quarters)
+  retry_scope_payload["scoped_lever_ids"] = copy.deepcopy(
+    (((full_numeric_solver_contract or {}).get("writable_lever_catalog") or {}).get("lever_ids") or [])
+  )
+  scoped_numeric_solver_contract = copy.deepcopy(full_numeric_solver_contract)
+  fallback_writable_catalog = (
+    convergence_context.get("writable_lever_catalog")
+    if isinstance(convergence_context.get("writable_lever_catalog"), dict)
+    else {}
+  )
+  scoped_lever_catalog = copy.deepcopy(
+    retry_scope_payload.get("lever_catalog_entries")
+    or (fallback_writable_catalog.get("entries") or [])
+  )
+  scoped_lever_values = copy.deepcopy(
+    retry_scope_payload.get("lever_current_values")
+    or _solved_lever_value_map(convergence_context.get("current_model_input_json"))
+  )
+  scoped_model_payload = copy.deepcopy(
+    retry_scope_payload.get("model_input_payload")
+    or {
+      "retry_scope": "full_horizon",
+      "quarter_indexes": copy.deepcopy(full_horizon_quarters),
+      "lever_ids": copy.deepcopy(
+        (((scoped_numeric_solver_contract or {}).get("writable_lever_catalog") or {}).get("lever_ids") or [])
+      ),
+      "lever_current_values": copy.deepcopy(scoped_lever_values),
+    }
+  )
+  scoped_finmo_rows = copy.deepcopy(
+    retry_scope_payload.get("finmo_quarter_rows") or current_finmo_rows
+  )
+  required_target_quarters = copy.deepcopy(full_horizon_quarters)
+  required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
+    copy.deepcopy(scoped_numeric_solver_contract),
+    required_target_quarters=copy.deepcopy(required_target_quarters),
+  )
+  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
+    stage=stage,
+    status=status,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_context_summary=copy.deepcopy(planning_context_summary),
+    unified_convergence_context=copy.deepcopy(convergence_context),
+    controller_resolution_state=copy.deepcopy(controller_state),
+    controller_retry_context=copy.deepcopy(retry_context),
+    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
+    unified_convergence_decision=None,
+    unified_convergence_plan=None,
+    unified_convergence_result=None,
+    unified_convergence_cycle_count=unified_convergence_cycle_count,
+  )
+  prompt_safe_unified_convergence_context = {
+    "contract_version": str(convergence_context.get("contract_version") or "unified_convergence_context_v1"),
+    "draft_id": str(convergence_context.get("draft_id") or "").strip(),
+    "business_name": str(convergence_context.get("business_name") or "").strip(),
+    "review_role": str(convergence_context.get("review_role") or "").strip(),
+    "selected_cash_strategy": str(convergence_context.get("selected_cash_strategy") or "").strip(),
+    "convergence_engine_contract": copy.deepcopy(
+      convergence_context.get("convergence_engine_contract")
+      or _unified_convergence_engine_contract_payload()
+    ),
+    "resolved_issue_constraints": copy.deepcopy(convergence_context.get("resolved_issue_constraints") or []),
+    "context_modules": copy.deepcopy(convergence_context.get("context_modules") or {}),
+  }
+  prompt_safe_retry_scope_payload = {
+    "scope_mode": str(retry_scope_payload.get("scope_mode") or "").strip(),
+    "scoped_quarters": copy.deepcopy(retry_scope_payload.get("scoped_quarters") or []),
+    "scoped_lever_ids": copy.deepcopy(retry_scope_payload.get("scoped_lever_ids") or []),
+    "prior_attempt_summary": copy.deepcopy(retry_scope_payload.get("prior_attempt_summary") or {}),
+  }
+  prompt_safe_retry_packet = {
+    "issues_remaining": int(_safe_float(retry_context.get("issues_remaining")) or 0),
+    "failed_quarters": copy.deepcopy(retry_context.get("failed_quarters") or []),
+    "failed_metrics": copy.deepcopy(retry_context.get("failed_metrics") or []),
+    "previous_levers_used": copy.deepcopy(
+      retry_context.get("previous_levers_used")
+      or retry_context.get("previous_allowed_lever_ids")
+      or []
+    ),
+    "required_new_levers": int(_safe_float(retry_context.get("required_new_levers")) or 0),
+    "must_change_strategy_class": bool(retry_context.get("must_change_strategy_class")),
+    "progress_status": str(retry_context.get("progress_status") or "").strip(),
+    "last_failure_reason": str(retry_context.get("last_failure_reason") or "").strip(),
+    "required_open_issue_codes": copy.deepcopy(retry_context.get("required_open_issue_codes") or []),
+    "required_primary_metric_candidates": copy.deepcopy(
+      retry_context.get("required_primary_metric_candidates") or []
+    ),
+    "required_issue_lever_ids": copy.deepcopy(retry_context.get("required_issue_lever_ids") or []),
+    "required_lever_families": copy.deepcopy(retry_context.get("required_lever_families") or []),
+    "required_new_lever_families": copy.deepcopy(
+      retry_context.get("required_new_lever_families") or []
+    ),
+    "minimum_primary_metric_coverage_count": int(
+      _safe_float(retry_context.get("minimum_primary_metric_coverage_count")) or 0
+    ),
+    "issue_coverage_requirements": copy.deepcopy(
+      retry_context.get("issue_coverage_requirements") or []
+    ),
+    "controller_escalation_packet": copy.deepcopy(
+      retry_context.get("controller_escalation_packet") or {}
+    ),
+    "constraints": copy.deepcopy(retry_context.get("constraints") or []),
+  }
+  prompt_safe_numeric_feedback = {
+    "execution_state": str(effective_prior_numeric_feedback.get("execution_state") or "").strip(),
+    "outcome_reason": str(effective_prior_numeric_feedback.get("outcome_reason") or "").strip(),
+    "solver_invoked": bool(effective_prior_numeric_feedback.get("solver_invoked")),
+    "solver_execution_state": str(effective_prior_numeric_feedback.get("solver_execution_state") or "").strip(),
+    "quarters_with_all_targets_within_tolerance": int(
+      _safe_float(effective_prior_numeric_feedback.get("quarters_with_all_targets_within_tolerance")) or 0
+    ),
+    "quarters_with_target_misses": int(
+      _safe_float(effective_prior_numeric_feedback.get("quarters_with_target_misses")) or 0
+    ),
+    "target_metric_names": copy.deepcopy(effective_prior_numeric_feedback.get("target_metric_names") or []),
+    "targeted_quarters": copy.deepcopy(effective_prior_numeric_feedback.get("targeted_quarters") or []),
+    "allowed_lever_ids": copy.deepcopy(effective_prior_numeric_feedback.get("allowed_lever_ids") or []),
+    "attempted_lever_families": copy.deepcopy(
+      effective_prior_numeric_feedback.get("attempted_lever_families") or []
+    ),
+    "target_verification": copy.deepcopy(effective_prior_numeric_feedback.get("target_verification") or {}),
+    "quarter_fit_summary": copy.deepcopy(effective_prior_numeric_feedback.get("quarter_fit_summary") or []),
+    "quarter_target_payloads": copy.deepcopy(effective_prior_numeric_feedback.get("quarter_target_payloads") or []),
+  }
+  prompt_safe_numeric_solver_contract = {
+    "contract_version": str(scoped_numeric_solver_contract.get("contract_version") or "").strip(),
+    "pass_name": str(scoped_numeric_solver_contract.get("pass_name") or "").strip(),
+    "contract_scope": str(scoped_numeric_solver_contract.get("contract_scope") or "").strip(),
+    "planning_mode_profile": copy.deepcopy(scoped_numeric_solver_contract.get("planning_mode_profile") or {}),
+    "selected_cash_strategy": str(scoped_numeric_solver_contract.get("selected_cash_strategy") or "").strip(),
+    "active_issue_count": int(_safe_float(scoped_numeric_solver_contract.get("active_issue_count")) or 0),
+    "issue_target_packets": copy.deepcopy(scoped_numeric_solver_contract.get("issue_target_packets") or []),
+    "solver_settings": copy.deepcopy(scoped_numeric_solver_contract.get("solver_settings") or {}),
+  }
+  prompt_safe_numeric_guidance = copy.deepcopy(
+    (current_cycle_convergence_packet.get("deterministic_numeric_guidance") if isinstance(current_cycle_convergence_packet, dict) else {})
+    or {}
+  )
+  return {
+    "contract_version": "repair_guidance_v1",
+    "packet_role": "unified_convergence_repair_guidance",
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str(
+      planning_context_summary.get("business_name")
+      or convergence_context.get("business_name")
+      or ""
+    ).strip(),
+    "convergence_engine_contract": _unified_convergence_engine_contract_payload(),
+    "planning_context_summary": copy.deepcopy(planning_context_summary or {}),
+    "required_numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
+    "planning_mode_context": _build_planning_mode_context(
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=planning_mode_prompt_file,
+    ),
+    "selected_cash_strategy": selected_cash_strategy,
+    "unified_convergence_context": prompt_safe_unified_convergence_context,
+    "current_cycle_convergence_packet": copy.deepcopy(current_cycle_convergence_packet),
+    "deterministic_issue_packets": copy.deepcopy(
+      convergence_context.get("deterministic_issue_packets") or []
+    ),
+    "deterministic_numeric_guidance": prompt_safe_numeric_guidance,
+    "retry_packet": copy.deepcopy(prompt_safe_retry_packet),
+    "controller_escalation_packet": copy.deepcopy(
+      retry_context.get("controller_escalation_packet") or {}
+    ),
+    "retry_scope_payload": prompt_safe_retry_scope_payload,
+    "required_target_quarters": copy.deepcopy(required_target_quarters),
+    "required_quarter_target_scaffold": copy.deepcopy(required_quarter_target_scaffold),
+    "required_target_tolerance_scaffold": _default_unified_target_tolerances(
+      (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
+    ),
+    "prior_numeric_solver_feedback": prompt_safe_numeric_feedback,
+    "numeric_solver_contract": prompt_safe_numeric_solver_contract,
+    "recommended_primary_target_metric_keys": copy.deepcopy(
+      (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
+    ),
+    "guardrail_metric_names": copy.deepcopy(
+      (scoped_numeric_solver_contract or {}).get("guardrail_metric_names") or []
+    ),
+    "writable_lever_catalog": _compact_writable_lever_catalog_entries(copy.deepcopy(scoped_lever_catalog)),
+    "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
+    "planner_model_input_packet": copy.deepcopy(scoped_model_payload),
+    "planner_finmo_quarter_view": _compact_quarter_metric_rows_for_storage(copy.deepcopy(scoped_finmo_rows)),
   }
 
 
@@ -7803,21 +8993,47 @@ def _run_unified_convergence_openai(
     copy.deepcopy(scoped_numeric_solver_contract),
     required_target_quarters=copy.deepcopy(required_target_quarters),
   )
+  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
+    stage="convergence_running",
+    status=(
+      "escalation"
+      if bool(
+        (
+          (controller_retry_context or {}).get("controller_escalation_packet")
+          if isinstance((controller_retry_context or {}).get("controller_escalation_packet"), dict)
+          else {}
+        ).get("escalation_active")
+      )
+      else "running"
+    ),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_context_summary=copy.deepcopy(planning_context_summary or {}),
+    unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
+    controller_resolution_state=copy.deepcopy(
+      (unified_convergence_context or {}).get("controller_resolution_state")
+      if isinstance((unified_convergence_context or {}).get("controller_resolution_state"), dict)
+      else {}
+    ),
+    controller_retry_context=copy.deepcopy(controller_retry_context or {}),
+    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
+    unified_convergence_cycle_count=copy.deepcopy(
+      (controller_retry_context or {}).get("attempt_number")
+      or (controller_retry_context or {}).get("cycle")
+      or None
+    ),
+  )
   prompt_safe_unified_convergence_context = {
     "contract_version": str((unified_convergence_context or {}).get("contract_version") or "unified_convergence_context_v1"),
     "draft_id": str((unified_convergence_context or {}).get("draft_id") or "").strip(),
     "business_name": str((unified_convergence_context or {}).get("business_name") or "").strip(),
     "review_role": str((unified_convergence_context or {}).get("review_role") or "").strip(),
     "selected_cash_strategy": str((unified_convergence_context or {}).get("selected_cash_strategy") or "").strip(),
-    "planning_context_summary": copy.deepcopy((unified_convergence_context or {}).get("planning_context_summary") or {}),
-    "current_issue_summaries": copy.deepcopy((unified_convergence_context or {}).get("current_issue_summaries") or {}),
-    "issue_status_records": copy.deepcopy((unified_convergence_context or {}).get("issue_status_records") or []),
-    "deterministic_issue_packets": copy.deepcopy((unified_convergence_context or {}).get("deterministic_issue_packets") or []),
-    "resolved_issue_constraints": copy.deepcopy((unified_convergence_context or {}).get("resolved_issue_constraints") or []),
-    "whole_horizon_snapshot": copy.deepcopy((unified_convergence_context or {}).get("whole_horizon_snapshot") or {}),
-    "horizon_quarter_metrics": _compact_quarter_metric_rows_for_storage(
-      copy.deepcopy((unified_convergence_context or {}).get("horizon_quarter_metrics") or [])
+    "convergence_engine_contract": copy.deepcopy(
+      (unified_convergence_context or {}).get("convergence_engine_contract")
+      or _unified_convergence_engine_contract_payload()
     ),
+    "resolved_issue_constraints": copy.deepcopy((unified_convergence_context or {}).get("resolved_issue_constraints") or []),
     "context_modules": copy.deepcopy((unified_convergence_context or {}).get("context_modules") or {}),
   }
   prompt_safe_retry_scope_payload = {
@@ -7884,45 +9100,42 @@ def _run_unified_convergence_openai(
     "issue_target_packets": copy.deepcopy(scoped_numeric_solver_contract.get("issue_target_packets") or []),
     "solver_settings": copy.deepcopy(scoped_numeric_solver_contract.get("solver_settings") or {}),
   }
-  planner_input_packet = {
-    "draft_id": str(draft_id or "").strip(),
-    "business_name": str(
-      planning_context_summary.get("business_name")
-      or (unified_convergence_context or {}).get("business_name")
-      or ""
-    ).strip(),
-    "planning_context_summary": copy.deepcopy(planning_context_summary or {}),
-    "required_numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
-    "planning_mode_context": _build_planning_mode_context(
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=planning_mode_prompt_file,
+  prompt_safe_numeric_guidance = copy.deepcopy(
+    (current_cycle_convergence_packet.get("deterministic_numeric_guidance") if isinstance(current_cycle_convergence_packet, dict) else {})
+    or {}
+  )
+  planner_input_packet = _build_repair_guidance_payload(
+    draft_id=str(draft_id).strip(),
+    stage="convergence_running",
+    status=(
+      "escalation"
+      if bool(
+        (
+          (controller_retry_context or {}).get("controller_escalation_packet")
+          if isinstance((controller_retry_context or {}).get("controller_escalation_packet"), dict)
+          else {}
+        ).get("escalation_active")
+      )
+      else "running"
     ),
-    "selected_cash_strategy": selected_cash_strategy,
-    "unified_convergence_context": prompt_safe_unified_convergence_context,
-    "retry_packet": copy.deepcopy(prompt_safe_retry_packet),
-    "controller_escalation_packet": copy.deepcopy(
-      (controller_retry_context or {}).get("controller_escalation_packet") or {}
+    planning_context_summary_json=copy.deepcopy(planning_context_summary or {}),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_mode_prompt_file=planning_mode_prompt_file,
+    unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
+    controller_resolution_state=copy.deepcopy(
+      (unified_convergence_context or {}).get("controller_resolution_state")
+      if isinstance((unified_convergence_context or {}).get("controller_resolution_state"), dict)
+      else {}
     ),
-    "retry_scope_payload": prompt_safe_retry_scope_payload,
-    "required_target_quarters": copy.deepcopy(required_target_quarters),
-    "required_quarter_target_scaffold": copy.deepcopy(required_quarter_target_scaffold),
-    "required_target_tolerance_scaffold": _default_unified_target_tolerances(
-      (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
+    controller_retry_context=copy.deepcopy(controller_retry_context or {}),
+    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
+    unified_convergence_cycle_count=copy.deepcopy(
+      (controller_retry_context or {}).get("attempt_number")
+      or (controller_retry_context or {}).get("cycle")
+      or None
     ),
-    "prior_numeric_solver_feedback": prompt_safe_numeric_feedback,
-    "numeric_solver_contract": prompt_safe_numeric_solver_contract,
-    "recommended_primary_target_metric_keys": copy.deepcopy(
-      (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
-    ),
-    "guardrail_metric_names": copy.deepcopy(
-      (scoped_numeric_solver_contract or {}).get("guardrail_metric_names") or []
-    ),
-    "writable_lever_catalog": _compact_writable_lever_catalog_entries(copy.deepcopy(scoped_lever_catalog)),
-    "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
-    "planner_model_input_packet": copy.deepcopy(scoped_model_payload),
-    "planner_finmo_quarter_view": _compact_quarter_metric_rows_for_storage(copy.deepcopy(scoped_finmo_rows)),
-  }
+  )
   payload = {
     "model": _openai_model(),
     "input": [
@@ -8504,6 +9717,70 @@ def _translate_cash_strategy_adjustment(
   return None, f"{lever_id} has unsupported value_mode {value_mode}"
 
 
+def _autofill_unified_lever_adjustments_from_guidance(
+  *,
+  lever_selection: Optional[List[str]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  targeted_quarters: Optional[List[int]],
+) -> List[Dict[str, Any]]:
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  scaffold_entries = [
+    item
+    for item in (guidance.get("lever_band_scaffold") or [])
+    if isinstance(item, dict)
+  ]
+  scaffold_map = {
+    str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
+    for item in scaffold_entries
+    if str(item.get("lever_id") or "").strip()
+  }
+  lever_ids = [
+    str(item).strip()
+    for item in (lever_selection or [])
+    if str(item).strip()
+  ]
+  normalized_targeted_quarters = sorted(
+    {
+      int(_safe_float(item) or 0)
+      for item in (targeted_quarters or [])
+      if int(_safe_float(item) or 0) >= 1
+    }
+  )
+  autofilled: List[Dict[str, Any]] = []
+  for lever_id in lever_ids:
+    scaffold = scaffold_map.get(lever_id) or {}
+    if not scaffold:
+      continue
+    timing_start_q = int(
+      min(normalized_targeted_quarters)
+      if normalized_targeted_quarters
+      else _safe_float(scaffold.get("timing_start_q")) or 1
+    )
+    timing_end_q = int(
+      max(normalized_targeted_quarters)
+      if normalized_targeted_quarters
+      else _safe_float(scaffold.get("timing_end_q")) or timing_start_q
+    )
+    autofilled.append(
+      {
+        "lever_id": lever_id,
+        "section": str(scaffold.get("section") or "").strip(),
+        "direction": str(scaffold.get("direction_hint") or "either").strip().lower() or "either",
+        "value_mode": "band",
+        "exact_value": None,
+        "min_value": _safe_float(scaffold.get("suggested_min_value")),
+        "max_value": _safe_float(scaffold.get("suggested_max_value")),
+        "timing_start_q": timing_start_q,
+        "timing_end_q": max(timing_start_q, timing_end_q),
+        "business_reason": (
+          "Python-generated lever band scaffold based on live model state, severity, and viable move ranges."
+        ),
+        "linked_action_effect": "deterministic_numeric_guidance_band_scaffold",
+      }
+    )
+  return autofilled
+
+
 def _build_final_stabilizer_pass_plan(
   *,
   review_decision_payload: Optional[Dict[str, Any]],
@@ -8652,6 +9929,7 @@ def _build_unified_convergence_pass_plan(
   solved_model_input_json: Optional[Dict[str, Any]],
   financials_json: Optional[Dict[str, Any]],
   numeric_solver_contract: Optional[Dict[str, Any]] = None,
+  deterministic_numeric_guidance: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   review_payload = review_decision_payload if isinstance(review_decision_payload, dict) else {}
   scoped_contract = (
@@ -8716,6 +9994,7 @@ def _build_unified_convergence_pass_plan(
   )
   quarter_count = _quarter_count_from_model_input(solved_model_input_json)
   baseline_map = _solved_lever_value_map(solved_model_input_json)
+  guidance_packet = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
   eligible_lever_ids = _solver_contract_eligible_lever_ids(
     numeric_solver_contract=solver_contract,
     target_quarters=targeted_quarters,
@@ -8723,7 +10002,25 @@ def _build_unified_convergence_pass_plan(
   eligible_lookup = set(eligible_lever_ids)
   translated_controls: List[Dict[str, Any]] = []
   warnings: List[str] = []
-  for adjustment in [item for item in (decision.get("lever_adjustments") or []) if isinstance(item, dict)]:
+  explicit_lever_adjustments = [
+    item for item in (decision.get("lever_adjustments") or []) if isinstance(item, dict)
+  ]
+  explicit_lever_ids = {
+    str(item.get("lever_id") or "").strip()
+    for item in explicit_lever_adjustments
+    if str(item.get("lever_id") or "").strip()
+  }
+  auto_lever_adjustments = _autofill_unified_lever_adjustments_from_guidance(
+    lever_selection=lever_selection,
+    deterministic_numeric_guidance=guidance_packet,
+    targeted_quarters=targeted_quarters,
+  )
+  auto_lever_adjustments = [
+    item for item in auto_lever_adjustments
+    if str(item.get("lever_id") or "").strip() and str(item.get("lever_id") or "").strip() not in explicit_lever_ids
+  ]
+  effective_lever_adjustments = explicit_lever_adjustments + auto_lever_adjustments
+  for adjustment in effective_lever_adjustments:
     translated, warning = _translate_cash_strategy_adjustment(
       adjustment=adjustment,
       baseline_map=baseline_map,
@@ -8761,7 +10058,7 @@ def _build_unified_convergence_pass_plan(
     )
     if not translated_controls:
       warnings.append(
-        "unified_cycle: GPT did not provide explicit lever bands; solver will use default move bands for the selected levers."
+        "unified_cycle: no lever band controls were available after merging explicit and Python-generated scaffold guidance."
       )
     translated_action_packages.append(
       {
@@ -8785,7 +10082,16 @@ def _build_unified_convergence_pass_plan(
   touched_lever_ids = _solver_ready_touched_lever_ids(translated_action_packages)
   status = "ready"
   next_step = "ready_for_unified_convergence_solver"
-  if not touched_lever_ids or not targets_by_quarter:
+  if not targets_by_quarter:
+    status = "ready_no_valid_solver_contract"
+    next_step = "review_unified_targets_levers_and_bands_before_solver"
+  elif lever_selection and not translated_controls:
+    status = "ready_no_valid_solver_contract"
+    next_step = "review_unified_targets_levers_and_bands_before_solver"
+    warnings.append(
+      "unified_cycle: no solver-ready lever controls were available after GPT response plus Python scaffold merge."
+    )
+  elif not touched_lever_ids:
     status = "ready_no_valid_solver_contract"
     next_step = "review_unified_targets_levers_and_bands_before_solver"
 
@@ -8814,6 +10120,19 @@ def _build_unified_convergence_pass_plan(
     "translated_control_count": sum(len(item.get("translated_controls") or []) for item in translated_action_packages),
     "touched_lever_ids": touched_lever_ids,
     "translation_warnings": warnings,
+    "lever_adjustment_source": (
+      "explicit_plus_python_scaffold"
+      if explicit_lever_adjustments and auto_lever_adjustments
+      else "python_scaffold"
+      if auto_lever_adjustments
+      else "explicit_gpt"
+      if explicit_lever_adjustments
+      else "none"
+    ),
+    "explicit_lever_adjustment_count": len(explicit_lever_adjustments),
+    "auto_generated_lever_adjustment_count": len(auto_lever_adjustments),
+    "deterministic_guidance_metric_count": len(guidance_packet.get("metric_pressure_packets") or []),
+    "deterministic_guidance_lever_count": len(guidance_packet.get("lever_band_scaffold") or []),
     "lever_selection": copy.deepcopy(lever_selection),
     "target_tolerances": copy.deepcopy(target_tolerances),
     "targets_by_quarter": copy.deepcopy(targets_by_quarter),
@@ -17797,6 +19116,17 @@ def _run_unified_post_grid_system_run(
       solved_model_input_json=copy.deepcopy(final_model_input_json),
       financials_json=copy.deepcopy(financials_json or {}),
       numeric_solver_contract=copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
+      deterministic_numeric_guidance=copy.deepcopy(
+        _build_unified_numeric_guidance_packet(
+          controller_resolution_state=copy.deepcopy(controller_resolution_state),
+          controller_retry_context=copy.deepcopy(controller_retry_context),
+          unified_convergence_context=copy.deepcopy(unified_convergence_context),
+          quarter_count=max(
+            _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+            len((((unified_convergence_context or {}).get("current_finmo_json") or {}) if isinstance((unified_convergence_context or {}).get("current_finmo_json"), dict) else {}).get("quarter_rows") or []),
+          ),
+        )
+      ),
     )
     decision_status = str((unified_convergence_decision or {}).get("status") or "").strip()
     plan_status = str((unified_convergence_plan or {}).get("status") or "").strip()
@@ -17824,7 +19154,10 @@ def _run_unified_post_grid_system_run(
       validation_error = {
         "rejected": True,
         "reason_code": "broken_contract_shape",
-        "reason": "Planner did not provide a valid authorized target-and-lever contract for the active-issue cycle.",
+        "reason": (
+          "Planner did not provide a valid authorized target-and-lever contract for the active-issue cycle. "
+          "Unified convergence now requires real solver-ready lever controls after merging GPT adjustments with the Python scaffold."
+        ),
       }
 
     if validation_error:

@@ -58,12 +58,24 @@ def _normalize_flat_value(value: Any) -> Any:
   return value
 
 
+def _safe_float(value: Any) -> Optional[float]:
+  try:
+    if value is None or value == "":
+      return None
+    return float(value)
+  except Exception:
+    return None
+
+
 _ENGINE_JSON_COLUMNS = (
   "model_input_json",
   "finmo_json",
   "planning_context_summary_json",
   "planning_run_json",
   "planning_runtime_json",
+  "planning_convergence_json",
+  "repair_guidance_json",
+  "convergence_state_json",
   "numeric_solver_feedback_json",
 )
 
@@ -155,7 +167,7 @@ def _planning_run_flat_field_values(payload: Any) -> Dict[str, Any]:
     "planning_current_cycle": (
       _int_or_none(data.get("unified_convergence_cycle_count"))
       if _int_or_none(data.get("unified_convergence_cycle_count")) is not None
-      else _int_or_none(data.get("final_guarantee_cycle_count"))
+      else None
     ),
     "planning_detected_issue_count": _int_or_none(controller.get("detected_issue_count")) if controller else None,
     "planning_remaining_issue_count": _int_or_none(controller.get("remaining_issue_count")) if controller else None,
@@ -223,6 +235,7 @@ def _compact_numeric_feedback_runtime_payload(feedback: Optional[Dict[str, Any]]
       "quarters_with_target_misses": 0,
     }
   target_verification = payload.get("target_verification") if isinstance(payload.get("target_verification"), dict) else {}
+  current_cycle_trace = payload.get("current_cycle_trace") if isinstance(payload.get("current_cycle_trace"), dict) else {}
   return {
     "has_feedback": bool(payload.get("has_feedback")),
     "feedback_source": str(payload.get("feedback_source") or "").strip() or None,
@@ -241,7 +254,194 @@ def _compact_numeric_feedback_runtime_payload(feedback: Optional[Dict[str, Any]]
     "quarters_failed": copy.deepcopy(target_verification.get("quarters_failed") or []),
     "best_objective": copy.deepcopy(payload.get("best_objective")),
     "objective_delta": copy.deepcopy(payload.get("objective_delta")),
+    "current_cycle": current_cycle_trace.get("cycle"),
+    "current_cycle_stage": str(current_cycle_trace.get("stage") or "").strip() or None,
+    "current_cycle_status": str(current_cycle_trace.get("status") or "").strip() or None,
+    "guidance_scope_quarters": copy.deepcopy(current_cycle_trace.get("guidance_scope_quarters") or []),
+    "guidance_metric_count": current_cycle_trace.get("guidance_metric_count"),
+    "guidance_metric_names": copy.deepcopy(current_cycle_trace.get("guidance_metric_names") or []),
+    "guidance_issue_codes": copy.deepcopy(current_cycle_trace.get("guidance_issue_codes") or []),
+    "guidance_lever_count": current_cycle_trace.get("guidance_lever_count"),
+    "guidance_lever_ids": copy.deepcopy(current_cycle_trace.get("guidance_lever_ids") or []),
+    "plan_status": str(current_cycle_trace.get("plan_status") or "").strip() or None,
+    "plan_next_step": str(current_cycle_trace.get("plan_next_step") or "").strip() or None,
+    "solver_ready": bool(current_cycle_trace.get("solver_ready")),
+    "lever_adjustment_source": str(current_cycle_trace.get("lever_adjustment_source") or "").strip() or None,
+    "explicit_lever_adjustment_count": current_cycle_trace.get("explicit_lever_adjustment_count"),
+    "auto_generated_lever_adjustment_count": current_cycle_trace.get("auto_generated_lever_adjustment_count"),
+    "translated_control_count": current_cycle_trace.get("translated_control_count"),
+    "planned_target_quarter_count": current_cycle_trace.get("planned_target_quarter_count"),
+    "planned_target_metric_names": copy.deepcopy(current_cycle_trace.get("planned_target_metric_names") or []),
+    "planned_target_tolerance_metric_names": copy.deepcopy(current_cycle_trace.get("planned_target_tolerance_metric_names") or []),
+    "planned_lever_ids": copy.deepcopy(current_cycle_trace.get("planned_lever_ids") or []),
   }
+
+
+def _compact_convergence_state_runtime_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  data = _parse_json_payload(payload)
+  if not isinstance(data, dict) or not data:
+    return {
+      "has_convergence_state": False,
+      "owner": "unified_convergence",
+      "current_cycle": None,
+      "stage": None,
+      "status": None,
+    }
+  issue_state = data.get("issue_state") if isinstance(data.get("issue_state"), dict) else {}
+  retry_state = data.get("retry_state") if isinstance(data.get("retry_state"), dict) else {}
+  numeric_state = data.get("numeric_state") if isinstance(data.get("numeric_state"), dict) else {}
+  business_context = data.get("business_context") if isinstance(data.get("business_context"), dict) else {}
+  deterministic_numeric_guidance = (
+    data.get("deterministic_numeric_guidance")
+    if isinstance(data.get("deterministic_numeric_guidance"), dict)
+    else {}
+  )
+  plan_summary = data.get("plan_summary") if isinstance(data.get("plan_summary"), dict) else {}
+  return {
+    "has_convergence_state": True,
+    "owner": str(data.get("owner") or "").strip() or "unified_convergence",
+    "current_cycle": data.get("current_cycle"),
+    "stage": str(data.get("stage") or "").strip() or None,
+    "status": str(data.get("status") or "").strip() or None,
+    "business_name": str(business_context.get("business_name") or "").strip() or None,
+    "business_type": str(business_context.get("business_type") or "").strip() or None,
+    "planning_mode": str(business_context.get("planning_mode") or "").strip() or None,
+    "selected_cash_strategy": str(business_context.get("selected_cash_strategy") or "").strip() or None,
+    "detected_issue_count": issue_state.get("detected_issue_count"),
+    "remaining_issue_count": issue_state.get("remaining_issue_count"),
+    "resolved_issue_count": issue_state.get("resolved_issue_count"),
+    "tolerated_issue_count": issue_state.get("tolerated_issue_count"),
+    "overall_completion_score_pct": issue_state.get("overall_completion_score_pct"),
+    "overall_completion_grade": str(issue_state.get("overall_completion_grade") or "").strip() or None,
+    "lowest_quarter_score_pct": issue_state.get("lowest_quarter_score_pct"),
+    "failing_quarters": copy.deepcopy(issue_state.get("failing_quarters") or []),
+    "open_issue_codes": copy.deepcopy(issue_state.get("open_issue_codes") or []),
+    "tolerated_issue_codes": copy.deepcopy(issue_state.get("tolerated_issue_codes") or []),
+    "failed_quarters": copy.deepcopy(retry_state.get("failed_quarters") or []),
+    "failed_metrics": copy.deepcopy(retry_state.get("failed_metrics") or []),
+    "progress_status": str(retry_state.get("progress_status") or "").strip() or None,
+    "escalation_active": bool(retry_state.get("escalation_active")),
+    "required_change_magnitude": str(retry_state.get("required_change_magnitude") or "").strip() or None,
+    "solver_invoked": bool(numeric_state.get("solver_invoked")),
+    "solver_execution_state": str(numeric_state.get("solver_execution_state") or "").strip() or None,
+    "quarters_with_target_misses": numeric_state.get("quarters_with_target_misses"),
+    "target_metric_names": copy.deepcopy(numeric_state.get("target_metric_names") or []),
+    "targeted_quarters": copy.deepcopy(numeric_state.get("targeted_quarters") or []),
+    "numeric_guidance_metric_count": len(deterministic_numeric_guidance.get("metric_pressure_packets") or []),
+    "numeric_guidance_lever_count": len(deterministic_numeric_guidance.get("lever_band_scaffold") or []),
+    "numeric_guidance_scope_quarters": copy.deepcopy(deterministic_numeric_guidance.get("scope_quarters") or []),
+    "plan_status": str(plan_summary.get("status") or "").strip() or None,
+    "plan_next_step": str(plan_summary.get("next_step") or "").strip() or None,
+    "lever_adjustment_source": str(plan_summary.get("lever_adjustment_source") or "").strip() or None,
+    "explicit_lever_adjustment_count": plan_summary.get("explicit_lever_adjustment_count"),
+    "auto_generated_lever_adjustment_count": plan_summary.get("auto_generated_lever_adjustment_count"),
+    "translated_control_count": plan_summary.get("translated_control_count"),
+    "planned_target_quarter_count": len(plan_summary.get("targets_by_quarter") or []),
+    "planned_lever_selection_count": len(plan_summary.get("lever_selection") or []),
+    "planned_target_metric_names": copy.deepcopy(plan_summary.get("required_target_metric_keys") or []),
+  }
+
+
+def _build_convergence_state_payload(
+  *,
+  planning_run_json: Optional[Dict[str, Any]],
+  numeric_solver_feedback_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = _parse_json_payload(planning_run_json)
+  feedback = _parse_json_payload(numeric_solver_feedback_json)
+  planning_payload = payload if isinstance(payload, dict) else {}
+  feedback_payload = feedback if isinstance(feedback, dict) else {}
+  convergence_state = (
+    planning_payload.get("current_cycle_convergence_packet")
+    if isinstance(planning_payload.get("current_cycle_convergence_packet"), dict)
+    else {}
+  )
+  if not convergence_state:
+    controller = (
+      planning_payload.get("controller_resolution_state")
+      if isinstance(planning_payload.get("controller_resolution_state"), dict)
+      else {}
+    )
+    convergence_context = (
+      planning_payload.get("unified_convergence_context")
+      if isinstance(planning_payload.get("unified_convergence_context"), dict)
+      else {}
+    )
+    convergence_state = {
+      "contract_version": "convergence_state_v1",
+      "owner": "unified_convergence",
+      "stage": str(planning_payload.get("stage") or "").strip() or None,
+      "status": str(planning_payload.get("status") or "").strip() or None,
+      "current_cycle": planning_payload.get("unified_convergence_cycle_count"),
+      "convergence_engine_contract": copy.deepcopy(
+        planning_payload.get("convergence_engine_contract") or {}
+      ),
+      "business_context": {
+        "business_name": str(
+          (((convergence_context.get("planning_context_summary") or {}) if isinstance(convergence_context.get("planning_context_summary"), dict) else {}).get("business_name"))
+          or convergence_context.get("business_name")
+          or ""
+        ).strip() or None,
+        "business_type": str(
+          (((convergence_context.get("planning_context_summary") or {}) if isinstance(convergence_context.get("planning_context_summary"), dict) else {}).get("business_type"))
+          or ""
+        ).strip() or None,
+        "planning_mode": str(planning_payload.get("planning_mode") or "").strip() or None,
+        "planning_mode_reason": str(planning_payload.get("planning_mode_reason") or "").strip() or None,
+        "selected_cash_strategy": str(convergence_context.get("selected_cash_strategy") or "").strip() or None,
+      },
+      "issue_state": {
+        "controller_status": str(controller.get("status") or "").strip() or None,
+        "detected_issue_count": controller.get("detected_issue_count"),
+        "remaining_issue_count": controller.get("remaining_issue_count"),
+        "resolved_issue_count": controller.get("resolved_issue_count"),
+        "tolerated_issue_count": controller.get("tolerated_issue_count"),
+        "iteration_pending_issue_count": controller.get("iteration_pending_issue_count"),
+        "overall_completion_score_pct": controller.get("overall_completion_score_pct"),
+        "overall_completion_grade": controller.get("overall_completion_grade"),
+        "lowest_quarter_score_pct": controller.get("lowest_quarter_score_pct"),
+        "failing_quarters": copy.deepcopy(controller.get("failing_quarters") or []),
+        "open_issue_codes": [
+          str(item.get("issue_code") or "").strip()
+          for item in (controller.get("remaining_issues") or [])
+          if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+        ],
+        "tolerated_issue_codes": [
+          str(item.get("issue_code") or "").strip()
+          for item in (controller.get("tolerated_issues") or [])
+          if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+        ],
+      },
+      "retry_state": {},
+      "numeric_state": {},
+    }
+  if isinstance(convergence_state, dict):
+    numeric_state = (
+      convergence_state.get("numeric_state")
+      if isinstance(convergence_state.get("numeric_state"), dict)
+      else {}
+    )
+    if isinstance(feedback_payload, dict) and feedback_payload:
+      merged_numeric = dict(numeric_state)
+      merged_numeric.setdefault("solver_invoked", bool(feedback_payload.get("solver_invoked")))
+      merged_numeric.setdefault(
+        "solver_execution_state",
+        str(feedback_payload.get("solver_execution_state") or "").strip() or None,
+      )
+      merged_numeric.setdefault(
+        "quarters_with_target_misses",
+        feedback_payload.get("quarters_with_target_misses"),
+      )
+      merged_numeric.setdefault(
+        "target_metric_names",
+        copy.deepcopy(feedback_payload.get("target_metric_names") or []),
+      )
+      merged_numeric.setdefault(
+        "targeted_quarters",
+        copy.deepcopy(feedback_payload.get("targeted_quarters") or []),
+      )
+      convergence_state["numeric_state"] = merged_numeric
+  return convergence_state if isinstance(convergence_state, dict) else {}
 
 
 def _compact_iteration_runtime_payload(iteration_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -317,9 +517,11 @@ def _build_planning_runtime_payload(
     if isinstance(unified_context.get("controller_escalation_packet"), dict)
     else {}
   )
+  convergence_state = _build_convergence_state_payload(
+    planning_run_json=planning_payload,
+    numeric_solver_feedback_json=feedback_payload,
+  )
   iteration_list = planning_payload.get("unified_convergence_iterations")
-  if not isinstance(iteration_list, list) or not iteration_list:
-    iteration_list = planning_payload.get("final_guarantee_iterations")
   latest_iteration = {}
   if isinstance(iteration_list, list):
     for item in reversed(iteration_list):
@@ -344,6 +546,7 @@ def _build_planning_runtime_payload(
     },
     "unified_convergence_cycle_count": planning_payload.get("unified_convergence_cycle_count"),
     "final_guarantee_cycle_count": planning_payload.get("final_guarantee_cycle_count"),
+    "convergence_state": _compact_convergence_state_runtime_payload(convergence_state),
     "controller_retry_heartbeat": {
       "heartbeat_at_eastern": (
         str(heartbeat.get("heartbeat_at_eastern") or "").strip()
@@ -376,6 +579,160 @@ def _build_planning_runtime_payload(
     "latest_cycle": _compact_iteration_runtime_payload(latest_iteration),
     "numeric_feedback": _compact_numeric_feedback_runtime_payload(feedback_payload),
     "deterministic_convergence_summary": copy.deepcopy(deterministic_summary),
+  }
+
+
+def _build_planning_convergence_payload(
+  *,
+  planning_run_json: Optional[Dict[str, Any]],
+  planning_runtime_json: Optional[Dict[str, Any]],
+  repair_guidance_json: Optional[Dict[str, Any]],
+  convergence_state_json: Optional[Dict[str, Any]],
+  numeric_solver_feedback_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  planning_payload = _parse_json_payload(planning_run_json)
+  runtime_payload = _parse_json_payload(planning_runtime_json)
+  guidance_payload = _parse_json_payload(repair_guidance_json)
+  convergence_payload = _parse_json_payload(convergence_state_json)
+  feedback_payload = _parse_json_payload(numeric_solver_feedback_json)
+
+  planning_data = planning_payload if isinstance(planning_payload, dict) else {}
+  runtime_data = runtime_payload if isinstance(runtime_payload, dict) else {}
+  guidance_data = guidance_payload if isinstance(guidance_payload, dict) else {}
+  convergence_data = convergence_payload if isinstance(convergence_payload, dict) else {}
+  feedback_data = feedback_payload if isinstance(feedback_payload, dict) else {}
+
+  controller = (
+    planning_data.get("controller_resolution_state")
+    if isinstance(planning_data.get("controller_resolution_state"), dict)
+    else {}
+  )
+  convergence_state = (
+    convergence_data
+    if convergence_data
+    else runtime_data.get("convergence_state")
+    if isinstance(runtime_data.get("convergence_state"), dict)
+    else {}
+  )
+  issue_state = (
+    convergence_state.get("issue_state")
+    if isinstance(convergence_state.get("issue_state"), dict)
+    else {}
+  )
+  retry_state = (
+    convergence_state.get("retry_state")
+    if isinstance(convergence_state.get("retry_state"), dict)
+    else {}
+  )
+  numeric_state = (
+    convergence_state.get("numeric_state")
+    if isinstance(convergence_state.get("numeric_state"), dict)
+    else {}
+  )
+  current_cycle_packet = (
+    planning_data.get("current_cycle_convergence_packet")
+    if isinstance(planning_data.get("current_cycle_convergence_packet"), dict)
+    else {}
+  )
+  iterations = [
+    item for item in (planning_data.get("unified_convergence_iterations") or [])
+    if isinstance(item, dict)
+  ]
+  score_delta = None
+  if len(iterations) >= 2:
+    prev_quality = iterations[-2].get("quality_assessment") if isinstance(iterations[-2].get("quality_assessment"), dict) else {}
+    curr_quality = iterations[-1].get("quality_assessment") if isinstance(iterations[-1].get("quality_assessment"), dict) else {}
+    prev_score = _safe_float(prev_quality.get("overall_completion_score_pct"))
+    curr_score = _safe_float(curr_quality.get("overall_completion_score_pct"))
+    if prev_score is not None and curr_score is not None:
+      score_delta = int(round(curr_score - prev_score))
+
+  overall_score = (
+    issue_state.get("overall_completion_score_pct")
+    if issue_state
+    else controller.get("overall_completion_score_pct")
+  )
+  overall_grade = (
+    issue_state.get("overall_completion_grade")
+    if issue_state
+    else controller.get("overall_completion_grade")
+  )
+  lowest_quarter_score = (
+    issue_state.get("lowest_quarter_score_pct")
+    if issue_state
+    else controller.get("lowest_quarter_score_pct")
+  )
+  remaining_issue_count = (
+    issue_state.get("remaining_issue_count")
+    if issue_state
+    else controller.get("remaining_issue_count")
+  )
+  progress_status = (
+    str(retry_state.get("progress_status") or "").strip()
+    or str((((planning_data.get("controller_retry_heartbeat") or {}) if isinstance(planning_data.get("controller_retry_heartbeat"), dict) else {}).get("controller_retry_context") or {}).get("progress_status") or "").strip()
+    or None
+  )
+  guidance_block = (
+    guidance_data.get("deterministic_numeric_guidance")
+    if isinstance(guidance_data.get("deterministic_numeric_guidance"), dict)
+    else {}
+  )
+  return {
+    "contract_version": "planning_convergence_v1",
+    "planning_run_id": str(planning_data.get("planning_run_id") or "").strip() or None,
+    "stage": str(planning_data.get("stage") or "").strip() or None,
+    "status": str(planning_data.get("status") or "").strip() or None,
+    "run_status": str(planning_data.get("run_status") or "").strip() or None,
+    "current_cycle": planning_data.get("unified_convergence_cycle_count"),
+    "current_retry_count": (
+      ((planning_data.get("controller_retry_heartbeat") or {}) if isinstance(planning_data.get("controller_retry_heartbeat"), dict) else {}).get("attempt_number")
+    ),
+    "detected_issue_count": issue_state.get("detected_issue_count") if issue_state else controller.get("detected_issue_count"),
+    "remaining_issue_count": remaining_issue_count,
+    "resolved_issue_count": issue_state.get("resolved_issue_count") if issue_state else controller.get("resolved_issue_count"),
+    "tolerated_issue_count": issue_state.get("tolerated_issue_count") if issue_state else controller.get("tolerated_issue_count"),
+    "iteration_pending_issue_count": issue_state.get("iteration_pending_issue_count") if issue_state else controller.get("iteration_pending_issue_count"),
+    "planning_quality_score": overall_score,
+    "planning_quality_grade": str(overall_grade or "").strip() or None,
+    "planning_quality_pass": bool(_safe_float(lowest_quarter_score) is not None and float(_safe_float(lowest_quarter_score) or 0.0) >= 80.0),
+    "planning_remaining_hard_issue_count": remaining_issue_count,
+    "planning_cycle_progress_status": progress_status,
+    "planning_score_delta": score_delta,
+    "lowest_quarter_score_pct": lowest_quarter_score,
+    "failing_quarters": copy.deepcopy(issue_state.get("failing_quarters") or controller.get("failing_quarters") or []),
+    "escalation_active": bool(retry_state.get("escalation_active")),
+    "required_change_magnitude": str(retry_state.get("required_change_magnitude") or "").strip() or None,
+    "solver_invoked": bool(numeric_state.get("solver_invoked") or feedback_data.get("solver_invoked")),
+    "solver_execution_state": str(
+      numeric_state.get("solver_execution_state")
+      or feedback_data.get("solver_execution_state")
+      or ""
+    ).strip() or None,
+    "quarters_with_target_misses": (
+      numeric_state.get("quarters_with_target_misses")
+      if numeric_state
+      else feedback_data.get("quarters_with_target_misses")
+    ),
+    "target_metric_names": copy.deepcopy(
+      numeric_state.get("target_metric_names")
+      if numeric_state
+      else feedback_data.get("target_metric_names")
+      or []
+    ),
+    "targeted_quarters": copy.deepcopy(
+      numeric_state.get("targeted_quarters")
+      if numeric_state
+      else feedback_data.get("targeted_quarters")
+      or []
+    ),
+    "repair_guidance_summary": {
+      "scope_quarters": copy.deepcopy(guidance_block.get("scope_quarters") or guidance_data.get("required_target_quarters") or []),
+      "metric_pressure_count": len(guidance_block.get("metric_pressure_packets") or []),
+      "lever_band_count": len(guidance_block.get("lever_band_scaffold") or []),
+    },
+    "current_cycle_convergence_packet": copy.deepcopy(current_cycle_packet),
+    "convergence_state": _compact_convergence_state_runtime_payload(convergence_state),
+    "numeric_feedback": _compact_numeric_feedback_runtime_payload(feedback_data),
   }
 
 
@@ -597,6 +954,9 @@ def _ensure_table_inner(conn) -> None:
         planning_context_summary_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
         planning_runtime_json LONGTEXT NULL,
+        planning_convergence_json LONGTEXT NULL,
+        repair_guidance_json LONGTEXT NULL,
+        convergence_state_json LONGTEXT NULL,
         numeric_solver_feedback_json LONGTEXT NULL,
         planning_run_id CHAR(32) NULL,
         planning_run_status VARCHAR(32) NULL,
@@ -711,6 +1071,9 @@ def _ensure_table_inner(conn) -> None:
         checkpoint_kind VARCHAR(32) NOT NULL,
         controller_resolution_state_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
+        planning_convergence_json LONGTEXT NULL,
+        repair_guidance_json LONGTEXT NULL,
+        convergence_state_json LONGTEXT NULL,
         numeric_solver_feedback_json LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
@@ -805,6 +1168,12 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
   if "planning_runtime_json" not in cols:
     alterations.append("ADD COLUMN planning_runtime_json LONGTEXT NULL")
+  if "planning_convergence_json" not in cols:
+    alterations.append("ADD COLUMN planning_convergence_json LONGTEXT NULL")
+  if "repair_guidance_json" not in cols:
+    alterations.append("ADD COLUMN repair_guidance_json LONGTEXT NULL")
+  if "convergence_state_json" not in cols:
+    alterations.append("ADD COLUMN convergence_state_json LONGTEXT NULL")
   if "numeric_solver_feedback_json" not in cols:
     alterations.append("ADD COLUMN numeric_solver_feedback_json LONGTEXT NULL")
   if "planning_run_id" not in cols:
@@ -1008,8 +1377,14 @@ def _ensure_table_inner(conn) -> None:
     checkpoint_alters.append("ADD COLUMN controller_resolution_state_json LONGTEXT NULL")
   if "planning_run_json" not in checkpoint_cols:
     checkpoint_alters.append("ADD COLUMN planning_run_json LONGTEXT NULL")
+  if "planning_convergence_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN planning_convergence_json LONGTEXT NULL")
+  if "repair_guidance_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN repair_guidance_json LONGTEXT NULL")
   if "numeric_solver_feedback_json" not in checkpoint_cols:
     checkpoint_alters.append("ADD COLUMN numeric_solver_feedback_json LONGTEXT NULL")
+  if "convergence_state_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN convergence_state_json LONGTEXT NULL")
   if "model_input_json" not in checkpoint_cols:
     checkpoint_alters.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in checkpoint_cols:
@@ -1147,7 +1522,7 @@ def get_draft_runtime_row(conn, *, draft_id: str) -> Dict[str, Any]:
     cur.execute(
       """
       SELECT draft_id, client_id, status, active_focus,
-             planning_context_summary_json, planning_run_json, planning_runtime_json, numeric_solver_feedback_json,
+             planning_context_summary_json, planning_run_json, planning_runtime_json, planning_convergence_json, repair_guidance_json, convergence_state_json, numeric_solver_feedback_json,
              planning_run_id, planning_run_status, planning_stage, planning_status,
              planning_last_review_iteration, planning_current_retry_count, planning_current_cycle,
              planning_detected_issue_count, planning_remaining_issue_count, planning_resolved_issue_count,
@@ -1301,6 +1676,9 @@ def append_messages(
   planning_context_summary_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
   planning_runtime_json: Optional[Dict[str, Any]] = None,
+  planning_convergence_json: Optional[Dict[str, Any]] = None,
+  repair_guidance_json: Optional[Dict[str, Any]] = None,
+  convergence_state_json: Optional[Dict[str, Any]] = None,
   numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
@@ -1417,6 +1795,18 @@ def append_messages(
     set_parts.append("planning_runtime_json = %s")
     values.append(json.dumps(planning_runtime_json, ensure_ascii=False))
 
+  if planning_convergence_json is not None:
+    set_parts.append("planning_convergence_json = %s")
+    values.append(json.dumps(planning_convergence_json, ensure_ascii=False))
+
+  if repair_guidance_json is not None:
+    set_parts.append("repair_guidance_json = %s")
+    values.append(json.dumps(repair_guidance_json, ensure_ascii=False))
+
+  if convergence_state_json is not None:
+    set_parts.append("convergence_state_json = %s")
+    values.append(json.dumps(convergence_state_json, ensure_ascii=False))
+
   if numeric_solver_feedback_json is not None:
     set_parts.append("numeric_solver_feedback_json = %s")
     values.append(json.dumps(numeric_solver_feedback_json, ensure_ascii=False))
@@ -1501,6 +1891,9 @@ def append_messages(
       "planning_context_summary_json",
       "planning_run_json",
       "planning_runtime_json",
+      "planning_convergence_json",
+      "repair_guidance_json",
+      "convergence_state_json",
       "numeric_solver_feedback_json",
       "pending_ops_milestone_json",
       "fulfillment_json",
@@ -2111,6 +2504,9 @@ def persist_post_intake_execution_state(
   planning_context_summary_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
   planning_runtime_json: Optional[Dict[str, Any]] = None,
+  planning_convergence_json: Optional[Dict[str, Any]] = None,
+  repair_guidance_json: Optional[Dict[str, Any]] = None,
+  convergence_state_json: Optional[Dict[str, Any]] = None,
   numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
   realism_memo_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
@@ -2239,6 +2635,30 @@ def persist_post_intake_execution_state(
       numeric_solver_feedback_json=numeric_solver_feedback_json,
     )
   )
+  planning_convergence_payload = (
+    json.loads(json.dumps(planning_convergence_json, ensure_ascii=False))
+    if isinstance(planning_convergence_json, dict)
+    else _build_planning_convergence_payload(
+      planning_run_json=copy_payload if copy_payload else planning_run_json,
+      planning_runtime_json=runtime_payload,
+      repair_guidance_json=repair_guidance_json,
+      convergence_state_json=convergence_state_json,
+      numeric_solver_feedback_json=numeric_solver_feedback_json,
+    )
+  )
+  repair_guidance_payload = (
+    json.loads(json.dumps(repair_guidance_json, ensure_ascii=False))
+    if isinstance(repair_guidance_json, dict)
+    else {}
+  )
+  convergence_payload = (
+    json.loads(json.dumps(convergence_state_json, ensure_ascii=False))
+    if isinstance(convergence_state_json, dict)
+    else _build_convergence_state_payload(
+      planning_run_json=copy_payload if copy_payload else planning_run_json,
+      numeric_solver_feedback_json=numeric_solver_feedback_json,
+    )
+  )
   store_full_planning_payload = _should_store_full_planning_payload(
     checkpoint_kind=checkpoint_kind_value,
     run_status=run_status,
@@ -2265,6 +2685,9 @@ def persist_post_intake_execution_state(
     planning_context_summary_json=planning_context_summary_json,
     planning_run_json=planning_payload_for_draft,
     planning_runtime_json=copy.deepcopy(runtime_payload),
+    planning_convergence_json=copy.deepcopy(planning_convergence_payload),
+    repair_guidance_json=copy.deepcopy(repair_guidance_payload),
+    convergence_state_json=copy.deepcopy(convergence_payload),
     numeric_solver_feedback_json=copy.deepcopy(numeric_feedback_for_draft),
     fulfillment_json=fulfillment_json,
     model_input_json=model_input_json,
@@ -2374,12 +2797,12 @@ def persist_post_intake_execution_state(
       INSERT INTO planning_run_checkpoints (
         checkpoint_id, planning_run_id, draft_id, client_id, stage, stage_status,
         iteration, retry_count, cycle, checkpoint_kind, controller_resolution_state_json,
-        planning_run_json, numeric_solver_feedback_json, model_input_json, finmo_json,
+        planning_run_json, planning_convergence_json, repair_guidance_json, convergence_state_json, numeric_solver_feedback_json, model_input_json, finmo_json,
         realism_memo_json, diagnostics_json, created_at, updated_at
       ) VALUES (
         %s, %s, %s, %s, %s, %s,
         %s, %s, %s, %s, %s,
-        %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s,
         %s, %s, %s, %s
       )
       """,
@@ -2399,6 +2822,15 @@ def persist_post_intake_execution_state(
         else None,
         json.dumps(copy_payload, ensure_ascii=False)
         if store_heavy_checkpoint_payloads and isinstance(copy_payload, dict) and copy_payload
+        else None,
+        json.dumps(planning_convergence_payload, ensure_ascii=False)
+        if isinstance(planning_convergence_payload, dict) and planning_convergence_payload
+        else None,
+        json.dumps(repair_guidance_payload, ensure_ascii=False)
+        if isinstance(repair_guidance_payload, dict) and repair_guidance_payload
+        else None,
+        json.dumps(convergence_payload, ensure_ascii=False)
+        if isinstance(convergence_payload, dict) and convergence_payload
         else None,
         json.dumps(numeric_feedback_for_draft, ensure_ascii=False)
         if store_heavy_checkpoint_payloads and isinstance(numeric_feedback_for_draft, dict) and numeric_feedback_for_draft
@@ -2452,6 +2884,9 @@ def persist_post_intake_execution_state(
             "resolved_issue_count": counts.get("resolved"),
             "detected_issue_count": counts.get("detected"),
             "planning_runtime_json": runtime_payload,
+            "planning_convergence_json": planning_convergence_payload,
+            "repair_guidance_json": repair_guidance_payload,
+            "convergence_state_json": convergence_payload,
           },
           ensure_ascii=False,
         ),
@@ -2479,6 +2914,9 @@ def persist_post_intake_execution_state(
     "planning_context_summary_json": copy.deepcopy(planning_context_summary_json or {}),
     "planning_run_json": copy_payload if copy_payload else planning_run_json,
     "planning_runtime_json": runtime_payload,
+    "planning_convergence_json": planning_convergence_payload,
+    "repair_guidance_json": repair_guidance_payload,
+    "convergence_state_json": convergence_payload,
   }
 
 

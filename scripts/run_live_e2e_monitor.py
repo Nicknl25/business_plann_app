@@ -75,6 +75,7 @@ def _latest_draft_after(*, get_mysql_connection, after_ts: str) -> Optional[Dict
              planning_latest_checkpoint_id,
              planning_last_heartbeat_at,
              planning_run_json,
+             convergence_state_json,
              numeric_solver_feedback_json
       FROM intake_consult_drafts
       WHERE created_at >= %s
@@ -112,6 +113,7 @@ def _draft_by_id(*, get_mysql_connection, draft_id: str) -> Optional[Dict[str, A
              planning_latest_checkpoint_id,
              planning_last_heartbeat_at,
              planning_run_json,
+             convergence_state_json,
              numeric_solver_feedback_json
       FROM intake_consult_drafts
       WHERE draft_id = %s
@@ -515,6 +517,7 @@ def main(argv: list[str]) -> int:
     "final_recent_stage_events": final_recent_stage_events,
     "final_monitor_health_summary": final_monitor_health_summary,
     "final_planning_run": _parse_json(final_row.get("planning_run_json")) if isinstance(final_row, dict) else None,
+    "final_convergence_state": _parse_json(final_row.get("convergence_state_json")) if isinstance(final_row, dict) else None,
     "final_numeric_solver_feedback": _parse_json(final_row.get("numeric_solver_feedback_json")) if isinstance(final_row, dict) else None,
   }
   result_path = Path(args.result_path).resolve() if str(args.result_path or "").strip() else (REPO_ROOT / "tmp_live_e2e_monitor_result.json")

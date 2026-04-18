@@ -38,6 +38,7 @@ def _normalize_document(raw: Any) -> Dict[str, Any]:
   if isinstance(raw.get("final_planning_run"), dict):
     return {
       "planning_run_json": raw.get("final_planning_run"),
+      "convergence_state_json": raw.get("final_convergence_state"),
       "numeric_solver_feedback_json": raw.get("final_numeric_solver_feedback"),
       "row": raw.get("final_snapshot") if isinstance(raw.get("final_snapshot"), dict) else {},
       "_raw": raw,
@@ -82,6 +83,15 @@ def _separate_feedback_payload(doc: Dict[str, Any]) -> Dict[str, Any]:
   row = _row_payload(doc)
   if isinstance(row.get("numeric_solver_feedback_json"), dict):
     return row["numeric_solver_feedback_json"]
+  return {}
+
+
+def _convergence_state_payload(doc: Dict[str, Any]) -> Dict[str, Any]:
+  if isinstance(doc.get("convergence_state_json"), dict):
+    return doc["convergence_state_json"]
+  row = _row_payload(doc)
+  if isinstance(row.get("convergence_state_json"), dict):
+    return row["convergence_state_json"]
   return {}
 
 
@@ -206,7 +216,12 @@ def _check_realism_trace(planning: Dict[str, Any]) -> List[str]:
   return errors
 
 
-def _check_terminal_state(planning: Dict[str, Any], row: Dict[str, Any], separate_feedback: Dict[str, Any]) -> List[str]:
+def _check_terminal_state(
+  planning: Dict[str, Any],
+  row: Dict[str, Any],
+  convergence_state: Dict[str, Any],
+  separate_feedback: Dict[str, Any],
+) -> List[str]:
   errors: List[str] = []
 
   if str(planning.get("stage") or "").strip() != "final_viability_guaranteed":
@@ -233,6 +248,30 @@ def _check_terminal_state(planning: Dict[str, Any], row: Dict[str, Any], separat
     errors.append("controller_resolution_state.remaining_issue_count was not 0 at completion.")
   if str(controller.get("status") or "").strip() != "all_cleared":
     errors.append("controller_resolution_state.status was not all_cleared at completion.")
+
+  if not convergence_state:
+    errors.append("separate convergence_state_json payload was missing.")
+  else:
+    if str(convergence_state.get("owner") or "").strip() != "unified_convergence":
+      errors.append("convergence_state_json.owner was not unified_convergence.")
+    if str(convergence_state.get("stage") or "").strip() != "final_viability_guaranteed":
+      errors.append("convergence_state_json.stage did not reach final_viability_guaranteed.")
+    if str(convergence_state.get("status") or "").strip() != "completed":
+      errors.append("convergence_state_json.status was not completed.")
+    issue_state = (
+      convergence_state.get("issue_state")
+      if isinstance(convergence_state.get("issue_state"), dict)
+      else {}
+    )
+    if not issue_state:
+      errors.append("convergence_state_json.issue_state was missing.")
+    else:
+      if int(issue_state.get("remaining_issue_count") or 0) != 0:
+        errors.append("convergence_state_json.issue_state.remaining_issue_count was not 0.")
+      if str(issue_state.get("controller_status") or "").strip() not in {"all_cleared", ""}:
+        errors.append("convergence_state_json.issue_state.controller_status was not all_cleared.")
+      if int(issue_state.get("overall_completion_score_pct") or 0) < 80:
+        errors.append("convergence_state_json.issue_state.overall_completion_score_pct was below 80.")
 
   unified_iterations = [
     item for item in (planning.get("unified_convergence_iterations") or [])
@@ -316,6 +355,20 @@ def _check_terminal_state(planning: Dict[str, Any], row: Dict[str, Any], separat
     )
     if not feedback_convergence_summary:
       errors.append("numeric_solver_feedback_json.deterministic_convergence_summary was missing.")
+    current_cycle_trace = (
+      separate_feedback.get("current_cycle_trace")
+      if isinstance(separate_feedback.get("current_cycle_trace"), dict)
+      else {}
+    )
+    if not current_cycle_trace:
+      errors.append("numeric_solver_feedback_json.current_cycle_trace was missing.")
+    else:
+      if current_cycle_trace.get("guidance_metric_count") is None:
+        errors.append("numeric_solver_feedback_json.current_cycle_trace.guidance_metric_count was missing.")
+      if current_cycle_trace.get("guidance_lever_count") is None:
+        errors.append("numeric_solver_feedback_json.current_cycle_trace.guidance_lever_count was missing.")
+      if current_cycle_trace.get("planned_target_quarter_count") is None:
+        errors.append("numeric_solver_feedback_json.current_cycle_trace.planned_target_quarter_count was missing.")
 
   return errors
 
@@ -342,12 +395,15 @@ def _check_monitor_artifact_consistency(
   final_run_row = raw.get("final_planning_run_row") if isinstance(raw.get("final_planning_run_row"), dict) else {}
   final_checkpoint = raw.get("final_latest_checkpoint") if isinstance(raw.get("final_latest_checkpoint"), dict) else {}
   final_events = [item for item in (raw.get("final_recent_stage_events") or []) if isinstance(item, dict)]
+  final_convergence_state = raw.get("final_convergence_state") if isinstance(raw.get("final_convergence_state"), dict) else {}
   if not raw.get("event") == "final_row" and not final_run_row and not final_checkpoint and not final_events:
     return errors
 
   if not final_run_row:
     errors.append("monitor artifact was missing final_planning_run_row.")
     return errors
+  if not final_convergence_state:
+    errors.append("monitor artifact was missing final_convergence_state.")
 
   monitor_planning_run_id = str(raw.get("planning_run_id") or "").strip()
   run_row_planning_run_id = str(final_run_row.get("planning_run_id") or "").strip()
@@ -449,10 +505,11 @@ def validate_loaded_document(doc: Dict[str, Any]) -> List[str]:
 
   planning = _planning_payload(normalized)
   row = _row_payload(normalized)
+  convergence_state = _convergence_state_payload(normalized)
   separate_feedback = _separate_feedback_payload(normalized)
 
   errors: List[str] = []
-  errors.extend(_check_terminal_state(planning, row, separate_feedback))
+  errors.extend(_check_terminal_state(planning, row, convergence_state, separate_feedback))
   errors.extend(_check_monitor_artifact_consistency(raw, planning, row))
   errors.extend(_check_monitor_health_summary(raw))
   errors.extend(_check_realism_trace(planning))
