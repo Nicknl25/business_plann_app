@@ -144,6 +144,18 @@ def create_app() -> Flask:
 
     return post_intake_consult_system_run_handler(app=app, request=request)
 
+  @app.route("/api/intake-consult/system-run/control", methods=["POST", "OPTIONS"])
+  def post_intake_consult_system_run_control():
+    from api_handlers.intake_consult import post_intake_consult_system_run_control_handler
+
+    return post_intake_consult_system_run_control_handler(app=app, request=request)
+
+  @app.route("/api/intake-consult/system-run/status", methods=["GET", "OPTIONS"])
+  def get_intake_consult_system_run_status():
+    from api_handlers.intake_consult import get_intake_consult_system_run_status_handler
+
+    return get_intake_consult_system_run_status_handler(app=app, request=request)
+
   @app.route("/debug/state/<draft_id>", methods=["GET", "OPTIONS"])
   def get_intake_consult_debug_state(draft_id):
     from api_handlers.intake_consult import get_intake_consult_debug_state_handler

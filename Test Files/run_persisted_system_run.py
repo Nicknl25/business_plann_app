@@ -168,6 +168,15 @@ def _sql_json_value(value: Any) -> Any:
   return value
 
 
+def _intake_complete_planning_run_payload() -> Dict[str, Any]:
+  return {
+    "contract_version": "planning_run_v1",
+    "stage": "intake_complete",
+    "status": "pending",
+    "gpt_narrative": "Intake complete. Ready for backend planning.",
+  }
+
+
 def _clone_source_into_target_draft(
   conn,
   *,
@@ -241,7 +250,7 @@ def _clone_source_into_target_draft(
         _sql_json_value(source_row.get("marketing_model_json")),
         _sql_json_value(source_row.get("financials_year1_json")),
         _sql_json_value(source_row.get("realism_memo_json")),
-        _sql_json_value(source_row.get("planning_run_json")),
+        _sql_json_value(_intake_complete_planning_run_payload()),
         _sql_json_value(source_row.get("pending_ops_milestone_json")),
         _sql_json_value(source_row.get("fulfillment_json")),
         1 if bool(source_row.get("ops_finalize_proposed")) else 0,

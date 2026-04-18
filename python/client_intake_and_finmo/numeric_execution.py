@@ -44,9 +44,17 @@ _ISSUE_SOLVER_OBJECTIVES: Dict[str, Dict[str, Any]] = {
     "metric_targets": ["payroll", "staffing_load", "revenue"],
     "solver_objective": "align_headcount_cost_with_operating_scale",
   },
+  "capex_footprint_mismatch": {
+    "metric_targets": ["capital_expenditures", "ppe", "investing_cash_flow", "ending_cash", "financing_cash_flow"],
+    "solver_objective": "align_asset_intensity_with_operating_footprint",
+  },
   "cost_structure_mismatch": {
     "metric_targets": ["gross_margin", "operating_costs", "ebitda"],
     "solver_objective": "rebalance_cost_structure_without_fake_plugs",
+  },
+  "working_capital_payment_model_mismatch": {
+    "metric_targets": ["operating_cash_flow", "current_assets", "current_liabilities", "ending_cash"],
+    "solver_objective": "align_working_capital_with_real_collection_payment_timing",
   },
   "pricing_positioning_mismatch": {
     "metric_targets": ["price_realization", "gross_margin", "revenue"],
@@ -106,6 +114,112 @@ TARGETABLE_FINMO_METRIC_IDS = (
   "noncurrent_liabilities",
 )
 
+PRIMARY_TARGETABLE_FINMO_METRIC_IDS = (
+  "revenue",
+  "gross_profit",
+  "ebitda",
+  "net_income",
+  "ending_cash",
+  "operating_cash_flow",
+  "investing_cash_flow",
+  "financing_cash_flow",
+  "current_assets",
+  "ppe",
+  "current_liabilities",
+  "noncurrent_liabilities",
+  "payroll",
+  "marketing",
+  "g_and_a",
+  "lease_rent",
+  "capital_expenditures",
+  "long_term_debt",
+  "total_liabilities",
+  "owners_capital",
+  "other_equity",
+  "distributions",
+)
+
+PRIMARY_TARGET_METRIC_MIN_COUNT = 3
+PRIMARY_TARGET_METRIC_MAX_COUNT = 6
+
+_ISSUE_PRIMARY_TARGET_CANDIDATES: Dict[str, List[str]] = {
+  "financing_solvency_mismatch": [
+    "ending_cash",
+    "financing_cash_flow",
+    "operating_cash_flow",
+    "owners_capital",
+    "noncurrent_liabilities",
+  ],
+  "profitability_cash_shape_unrealistic": [
+    "ebitda",
+    "net_income",
+    "ending_cash",
+    "operating_cash_flow",
+    "gross_profit",
+  ],
+  "staffing_payroll_mismatch": [
+    "payroll",
+    "revenue",
+    "gross_profit",
+    "ebitda",
+  ],
+  "capacity_revenue_mismatch": [
+    "revenue",
+    "gross_profit",
+    "ebitda",
+    "payroll",
+    "capital_expenditures",
+  ],
+  "capex_footprint_mismatch": [
+    "capital_expenditures",
+    "investing_cash_flow",
+    "ppe",
+    "ending_cash",
+    "financing_cash_flow",
+  ],
+  "cost_structure_mismatch": [
+    "gross_profit",
+    "ebitda",
+    "net_income",
+    "operating_cash_flow",
+    "payroll",
+    "g_and_a",
+  ],
+  "pricing_positioning_mismatch": [
+    "revenue",
+    "gross_profit",
+    "ebitda",
+    "net_income",
+  ],
+  "growth_model_mismatch": [
+    "revenue",
+    "ending_cash",
+    "operating_cash_flow",
+    "payroll",
+    "capital_expenditures",
+  ],
+}
+
+_OBJECTIVE_METRIC_ALIAS_MAP: Dict[str, str] = {
+  "liquidity_support": "ending_cash",
+  "debt_burden": "noncurrent_liabilities",
+  "gross_margin": "gross_profit",
+  "operating_costs": "ebitda",
+  "price_realization": "revenue",
+  "staffing_load": "payroll",
+  "operating_scale": "revenue",
+  "capacity_utilization": "revenue",
+}
+
+_DEFAULT_PRIMARY_TARGET_METRICS = (
+  "ending_cash",
+  "ebitda",
+  "net_income",
+  "operating_cash_flow",
+  "gross_profit",
+)
+_PREFERRED_PRIMARY_TARGET_METRIC_COUNT = 6
+
 
 def _solver_phase_status_for_pass(pass_name: Any) -> str:
   normalized = str(pass_name or "").strip().lower()
@@ -140,6 +254,41 @@ def _safe_float(value: Any) -> Optional[float]:
     return float(value)
   except Exception:
     return None
+
+
+def _normalized_primary_target_metric_name(metric_name: Any) -> str:
+  raw = str(metric_name or "").strip().lower()
+  if not raw:
+    return ""
+  normalized = _OBJECTIVE_METRIC_ALIAS_MAP.get(raw) or raw
+  return normalized if normalized in set(PRIMARY_TARGETABLE_FINMO_METRIC_IDS) else ""
+
+
+def _recommended_primary_target_metric_keys(
+  issue_status_records: Optional[List[Dict[str, Any]]],
+) -> List[str]:
+  keys: List[str] = []
+  active_issue_codes: List[str] = []
+  for packet in _issue_target_packets(issue_status_records):
+    issue_code = str(packet.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    active_issue_codes.append(issue_code)
+    for metric_name in (packet.get("metric_targets") or []):
+      normalized = _normalized_primary_target_metric_name(metric_name)
+      if normalized and normalized not in keys:
+        keys.append(normalized)
+    for metric_name in (_ISSUE_PRIMARY_TARGET_CANDIDATES.get(issue_code) or []):
+      normalized = _normalized_primary_target_metric_name(metric_name)
+      if normalized and normalized not in keys:
+        keys.append(normalized)
+  for metric_name in _DEFAULT_PRIMARY_TARGET_METRICS:
+    normalized = _normalized_primary_target_metric_name(metric_name)
+    if normalized and normalized not in keys:
+      keys.append(normalized)
+  if "ending_cash" in keys:
+    keys = ["ending_cash"] + [metric for metric in keys if metric != "ending_cash"]
+  return keys[: min(PRIMARY_TARGET_METRIC_MAX_COUNT, _PREFERRED_PRIMARY_TARGET_METRIC_COUNT)]
 
 
 def _tactic_family(tactic: Any) -> str:
@@ -191,6 +340,8 @@ def _issue_default_severity(issue_code: str) -> int:
   code = str(issue_code or "").strip().lower()
   if code == "financing_solvency_mismatch":
     return 95
+  if code == "working_capital_payment_model_mismatch":
+    return 90
   if code in {"profitability_cash_shape_unrealistic", "capex_footprint_mismatch"}:
     return 88
   if code in {"staffing_payroll_mismatch", "capacity_revenue_mismatch", "cost_structure_mismatch"}:
@@ -232,6 +383,8 @@ def _infer_issue_quarters(
     return _expand_quarter_window(negative_cash_quarters or loss_quarters or all_quarters[:8], all_quarters=all_quarters)
   if code == "profitability_cash_shape_unrealistic":
     return _expand_quarter_window(loss_quarters or negative_cash_quarters or negative_ebitda_quarters or all_quarters[:8], all_quarters=all_quarters)
+  if code == "working_capital_payment_model_mismatch":
+    return _expand_quarter_window(negative_cash_quarters or revenue_quarters[:10] or all_quarters[:10], all_quarters=all_quarters)
   if code == "capex_footprint_mismatch":
     return _expand_quarter_window(capex_quarters or revenue_quarters[:8] or all_quarters[:8], all_quarters=all_quarters)
   if code in {"staffing_payroll_mismatch", "capacity_revenue_mismatch", "growth_model_mismatch"}:
@@ -295,6 +448,20 @@ def _infer_issue_lever_ids(
     add_matching(["capacity", "utilization", "unit price", "payroll", "capital expenditures", "lease"])
   elif code == "capex_footprint_mismatch":
     add_matching(["capital expenditures", "lease", "capacity", "payroll", "owner's capital", "additions (repayments), net"])
+  elif code == "working_capital_payment_model_mismatch":
+    add_matching([
+      "accounts receivable days",
+      "inventory days",
+      "accounts payable days",
+      "prepaid expenses",
+      "deferred revenue",
+      "owner's capital",
+      "distributions",
+      "additions (repayments), net",
+      "unit price",
+      "utilization",
+      "capacity",
+    ])
   elif code == "cost_structure_mismatch":
     add_matching(["cost of goods sold", "payroll", "general & administrative", "marketing", "lease"])
   else:
@@ -382,6 +549,8 @@ def _normalized_solver_settings(
   aggressiveness = "moderate"
   if pass_name == "initial_restructure":
     aggressiveness = "high"
+  elif pass_name == "unified_convergence":
+    aggressiveness = "structural"
   elif pass_name == "final_stabilizer":
     aggressiveness = "moderate"
   elif pass_name == "cash_strategy_review":
@@ -393,6 +562,7 @@ def _normalized_solver_settings(
     "current_execution_mode": _solver_phase_status_for_pass(pass_name),
     "quarter_level_targets_required": True,
     "enforce_quarter_specific_targets": True,
+    "full_horizon_primary_targeting_required": bool(pass_name == "unified_convergence"),
     "sequential_quarter_solve_required": True,
     "quarter_execution_order": "ascending",
     "lumped_horizon_objective_allowed": False,
@@ -403,6 +573,7 @@ def _normalized_solver_settings(
     "shape_guardrail_weight": 0.35,
     "max_solver_attempts_per_pass": 3,
     "aggressiveness": aggressiveness,
+    "tolerance_mode": "gpt_defined_primary_metric_tolerances",
     "preserve_non_targeted_levers": True,
     "allow_multi_lever_coordination": True,
     "no_progress_response": "switch_tactic_not_repeat_same_move",
@@ -595,6 +766,7 @@ def build_numeric_solver_contract(
     for item in (writable_lever_catalog or [])
     if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
   ]
+  recommended_primary_target_metric_keys = _recommended_primary_target_metric_keys(active_issues)
   return {
     "contract_version": NUMERIC_SOLVER_CONTRACT_VERSION,
     "solver_phase_status": _solver_phase_status_for_pass(normalized_pass_name),
@@ -614,6 +786,21 @@ def build_numeric_solver_contract(
       issue_status_records=active_issues,
       current_finmo_json=current_finmo_json,
     ),
+    "allowed_target_metric_ids": list(PRIMARY_TARGETABLE_FINMO_METRIC_IDS),
+    "recommended_primary_target_metric_keys": copy.deepcopy(recommended_primary_target_metric_keys),
+    "primary_target_metric_min_count": int(PRIMARY_TARGET_METRIC_MIN_COUNT),
+    "primary_target_metric_max_count": int(PRIMARY_TARGET_METRIC_MAX_COUNT),
+    "guardrail_metric_names": [
+      "ending_cash",
+      "ebitda",
+      "net_income",
+      "operating_cash_flow",
+      "financing_cash_flow",
+      "current_assets",
+      "ppe",
+      "current_liabilities",
+      "noncurrent_liabilities",
+    ],
     "writable_lever_catalog": {
       "lever_count": len(lever_entries),
       "lever_ids": [str(item.get("lever_id") or "").strip() for item in lever_entries],
@@ -629,6 +816,33 @@ def build_numeric_solver_contract(
     "current_finmo_present": bool(isinstance(current_finmo_json, dict) and current_finmo_json),
     "behavior_change": False,
   }
+
+
+def _review_plan_required_target_metric_keys(review_plan: Optional[Dict[str, Any]]) -> List[str]:
+  plan = review_plan if isinstance(review_plan, dict) else {}
+  plan_level = [
+    _normalized_primary_target_metric_name(item)
+    for item in (plan.get("required_target_metric_keys") or [])
+  ]
+  normalized_plan_level = [item for item in plan_level if item]
+  if normalized_plan_level:
+    return list(dict.fromkeys(normalized_plan_level))
+  collected: List[str] = []
+  for action in [item for item in ((plan.get("translated_action_packages") or [])) if isinstance(item, dict)]:
+    action_collected = False
+    for metric_name in (action.get("required_target_metric_keys") or []):
+      normalized = _normalized_primary_target_metric_name(metric_name)
+      if normalized and normalized not in collected:
+        collected.append(normalized)
+        action_collected = True
+    if action_collected:
+      continue
+    for target in [item for item in (action.get("quarter_target_metrics") or []) if isinstance(item, dict)]:
+      for metric_name in TARGETABLE_FINMO_METRIC_IDS:
+        normalized = _normalized_primary_target_metric_name(metric_name)
+        if normalized and _safe_float(target.get(metric_name)) is not None and normalized not in collected:
+          collected.append(normalized)
+  return collected
 
 
 def build_numeric_execution_boundary_payload(
@@ -675,11 +889,34 @@ def build_numeric_execution_plan(
   allowed_lever_ids: List[str] = []
   targeted_quarters: List[int] = []
   quarter_target_payloads: List[Dict[str, Any]] = []
+  target_tolerances: List[Dict[str, Any]] = []
+  required_target_metric_keys = _review_plan_required_target_metric_keys(review_plan)
   for action in [item for item in ((review_plan or {}).get("translated_action_packages") or []) if isinstance(item, dict)]:
+    action_required_target_metric_keys = [
+      _normalized_primary_target_metric_name(item)
+      for item in (action.get("required_target_metric_keys") or required_target_metric_keys)
+    ]
+    action_required_target_metric_keys = [item for item in action_required_target_metric_keys if item]
     for lever_id in (action.get("solver_allowed_lever_ids") or []):
       lever = str(lever_id).strip()
       if lever and lever not in allowed_lever_ids:
         allowed_lever_ids.append(lever)
+    for tolerance_item in (action.get("target_tolerances") or []):
+      if not isinstance(tolerance_item, dict):
+        continue
+      metric_name = _normalized_primary_target_metric_name(tolerance_item.get("metric_name"))
+      if not metric_name:
+        continue
+      if any(str(existing.get("metric_name") or "").strip().lower() == metric_name for existing in target_tolerances):
+        continue
+      target_tolerances.append(
+        {
+          "metric_name": metric_name,
+          "relative_tolerance_pct": _safe_float(tolerance_item.get("relative_tolerance_pct")),
+          "absolute_tolerance": _safe_float(tolerance_item.get("absolute_tolerance")),
+          "tolerance_reason": str(tolerance_item.get("tolerance_reason") or "").strip(),
+        }
+      )
     for item in (action.get("quarter_target_metrics") or []):
       if not isinstance(item, dict):
         continue
@@ -699,6 +936,7 @@ def build_numeric_execution_plan(
         {
           "quarter_index": quarter_index,
           "target_metric_names": quarter_metric_names,
+          "required_target_metric_keys": copy.deepcopy(action_required_target_metric_keys),
           "allowed_lever_ids": [
             str(lever_id).strip()
             for lever_id in (action.get("solver_allowed_lever_ids") or [])
@@ -722,20 +960,8 @@ def build_numeric_execution_plan(
     "touched_quarters": touched_quarters,
     "targeted_quarters": sorted(targeted_quarters),
     "target_metric_names": target_metric_names,
-    "required_target_metric_keys": [
-      "revenue",
-      "gross_profit",
-      "ebitda",
-      "net_income",
-      "ending_cash",
-      "current_assets",
-      "ppe",
-      "current_liabilities",
-      "noncurrent_liabilities",
-      "operating_cash_flow",
-      "investing_cash_flow",
-      "financing_cash_flow",
-    ],
+    "required_target_metric_keys": copy.deepcopy(required_target_metric_keys),
+    "target_tolerances": copy.deepcopy(target_tolerances),
     "quarter_target_payloads": quarter_target_payloads,
     "allowed_lever_ids": allowed_lever_ids,
     "proposed_update_count": len([item for item in exact_updates if isinstance(item, dict)]),

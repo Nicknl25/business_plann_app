@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 from scipy.optimize import minimize  # type: ignore
 
 try:
@@ -25,13 +26,23 @@ TARGET_METRIC_KEYS = (
   "ebitda",
   "net_income",
   "ending_cash",
+  "operating_cash_flow",
+  "investing_cash_flow",
+  "financing_cash_flow",
   "current_assets",
   "ppe",
   "current_liabilities",
   "noncurrent_liabilities",
-  "operating_cash_flow",
-  "investing_cash_flow",
-  "financing_cash_flow",
+  "payroll",
+  "marketing",
+  "g_and_a",
+  "lease_rent",
+  "capital_expenditures",
+  "long_term_debt",
+  "total_liabilities",
+  "owners_capital",
+  "other_equity",
+  "distributions",
 )
 
 
@@ -104,22 +115,76 @@ def _relative_move_limit(
   max_relative_change: float,
   value_kind: str,
   input_semantics: str,
+  anchor_floor: float = 1.0,
 ) -> float:
   baseline_abs = abs(float(baseline_value or 0.0))
-  max_rel = max(0.0, min(1.0, float(max_relative_change or 0.0)))
+  max_rel = max(0.0, float(max_relative_change or 0.0))
   value_kind_norm = str(value_kind or "").strip().lower()
   semantics_norm = str(input_semantics or "").strip().lower()
   if value_kind_norm == "ratio":
+    max_rel = min(1.0, max_rel)
     anchor = max(baseline_abs, 0.05)
     return min(0.5, anchor * max_rel)
   if value_kind_norm == "day_count":
+    max_rel = min(2.0, max_rel)
     anchor = max(baseline_abs, 5.0)
     return max(1.0, anchor * max_rel)
   if "percent_of_revenue" in semantics_norm or "percent_of_long_term_debt" in semantics_norm:
+    max_rel = min(1.0, max_rel)
     anchor = max(baseline_abs, 0.05)
     return min(0.5, anchor * max_rel)
-  anchor = max(baseline_abs, 1.0)
+  anchor = max(baseline_abs, float(anchor_floor or 1.0), 1.0)
   return anchor * max_rel
+
+
+def _structural_amount_anchor_floor(meta: Dict[str, Any], aggressiveness: str) -> float:
+  if str(aggressiveness or "").strip().lower() != "structural":
+    return 1.0
+  section = str(meta.get("section") or "").strip().lower()
+  descriptor = " ".join(
+    [
+      str(meta.get("section") or ""),
+      str(meta.get("driver") or ""),
+      str(meta.get("label_path") or ""),
+      str(meta.get("lever_id") or ""),
+      str(meta.get("accounting_role") or ""),
+      str(meta.get("input_semantics") or ""),
+    ]
+  ).strip().lower()
+  if section in {"balance_sheet", "schedules"}:
+    return 250000.0
+  if any(
+    token in descriptor
+    for token in (
+      "debt",
+      "equity",
+      "capital",
+      "distribution",
+      "cash",
+      "receivable",
+      "inventory",
+      "payable",
+      "ppe",
+      "capex",
+    )
+  ):
+    return 250000.0
+  if section == "expenses" or any(
+    token in descriptor
+    for token in (
+      "payroll",
+      "marketing",
+      "lease",
+      "rent",
+      "general",
+      "administrative",
+      "research",
+    )
+  ):
+    return 100000.0
+  if section == "revenue":
+    return 50000.0
+  return 25000.0
 
 
 def _default_move_band(
@@ -129,15 +194,19 @@ def _default_move_band(
   aggressiveness: str,
 ) -> Tuple[float, float]:
   max_rel = 0.15
-  if str(aggressiveness or "").strip().lower() == "moderate":
+  aggressiveness_norm = str(aggressiveness or "").strip().lower()
+  if aggressiveness_norm == "moderate":
     max_rel = 0.30
-  elif str(aggressiveness or "").strip().lower() == "high":
-    max_rel = 0.60
+  elif aggressiveness_norm == "high":
+    max_rel = 1.50
+  elif aggressiveness_norm == "structural":
+    max_rel = 8.0
   move = _relative_move_limit(
     baseline_value=baseline_value,
     max_relative_change=max_rel,
     value_kind=str(meta.get("value_kind") or "").strip(),
     input_semantics=str(meta.get("input_semantics") or "").strip(),
+    anchor_floor=_structural_amount_anchor_floor(meta, aggressiveness_norm),
   )
   low = baseline_value - move
   high = baseline_value + move
@@ -146,7 +215,29 @@ def _default_move_band(
   return float(min(low, high)), float(max(low, high))
 
 
-def _metric_tolerance(metric_name: str, target_value: float) -> float:
+def _tolerance_override_map(action: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+  current_action = action if isinstance(action, dict) else {}
+  out: Dict[str, Dict[str, Any]] = {}
+  for item in (current_action.get("target_tolerances") or []):
+    if not isinstance(item, dict):
+      continue
+    metric_name = str(item.get("metric_name") or "").strip().lower()
+    if not metric_name:
+      continue
+    out[metric_name] = {
+      "relative_tolerance_pct": _safe_float(item.get("relative_tolerance_pct")),
+      "absolute_tolerance": _safe_float(item.get("absolute_tolerance")),
+      "tolerance_reason": str(item.get("tolerance_reason") or "").strip(),
+    }
+  return out
+
+
+def _metric_tolerance(
+  metric_name: str,
+  target_value: float,
+  *,
+  tolerance_override: Optional[Dict[str, Any]] = None,
+) -> float:
   metric = str(metric_name or "").strip().lower()
   base = 250.0
   if metric in {
@@ -160,11 +251,32 @@ def _metric_tolerance(metric_name: str, target_value: float) -> float:
     "total_liabilities",
     "total_equity",
     "ppe",
+    "long_term_debt",
+    "owners_capital",
+    "other_equity",
   }:
     base = 1000.0
-  elif metric in {"operating_cash_flow", "investing_cash_flow", "financing_cash_flow"}:
+  elif metric in {
+    "operating_cash_flow",
+    "investing_cash_flow",
+    "financing_cash_flow",
+    "capital_expenditures",
+    "payroll",
+    "marketing",
+    "g_and_a",
+    "lease_rent",
+    "distributions",
+  }:
     base = 500.0
-  return float(max(base, abs(float(target_value or 0.0)) * 0.02))
+  override = tolerance_override if isinstance(tolerance_override, dict) else {}
+  relative_tolerance_pct = _safe_float(override.get("relative_tolerance_pct"))
+  absolute_tolerance = _safe_float(override.get("absolute_tolerance"))
+  candidates = [float(base), abs(float(target_value or 0.0)) * 0.02]
+  if absolute_tolerance is not None:
+    candidates.append(float(max(0.0, absolute_tolerance)))
+  if relative_tolerance_pct is not None:
+    candidates.append(float(abs(float(target_value or 0.0)) * max(0.0, relative_tolerance_pct) / 100.0))
+  return float(max(candidates))
 
 
 def _finmo_row_map(finmo_json: Optional[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
@@ -220,10 +332,41 @@ def _guidance_map(review_plan: Optional[Dict[str, Any]]) -> Dict[Tuple[str, int]
   return out
 
 
+def _normalized_target_metric_names(raw_metric_names: Any) -> List[str]:
+  allowed = set(TARGET_METRIC_KEYS)
+  out: List[str] = []
+  for item in (raw_metric_names or []):
+    metric_name = str(item or "").strip().lower()
+    if not metric_name or metric_name not in allowed or metric_name in out:
+      continue
+    out.append(metric_name)
+  return out
+
+
+def _required_target_metric_keys_for_action(
+  action: Optional[Dict[str, Any]],
+) -> List[str]:
+  current_action = action if isinstance(action, dict) else {}
+  normalized = _normalized_target_metric_names(
+    current_action.get("required_target_metric_keys") or []
+  )
+  if normalized:
+    return normalized
+  inferred: List[str] = []
+  for target in [item for item in (current_action.get("quarter_target_metrics") or []) if isinstance(item, dict)]:
+    for metric_name in TARGET_METRIC_KEYS:
+      if _safe_float(target.get(metric_name)) is None or metric_name in inferred:
+        continue
+      inferred.append(metric_name)
+  return inferred
+
+
 def _quarter_tasks(review_plan: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
   merged: Dict[int, Dict[str, Any]] = {}
   for action in [item for item in ((review_plan or {}).get("translated_action_packages") or []) if isinstance(item, dict)]:
     action_id = str(action.get("action_id") or "").strip() or "action"
+    required_target_metric_keys = _required_target_metric_keys_for_action(action)
+    target_tolerances = _tolerance_override_map(action)
     allowed_levers = [
       str(item).strip()
       for item in (action.get("solver_allowed_lever_ids") or [])
@@ -240,6 +383,8 @@ def _quarter_tasks(review_plan: Optional[Dict[str, Any]]) -> List[Dict[str, Any]
           "target_metrics": {},
           "allowed_lever_ids": [],
           "source_action_ids": [],
+          "required_target_metric_keys": [],
+          "target_tolerances": {},
         },
       )
       for lever_id in allowed_levers:
@@ -247,6 +392,11 @@ def _quarter_tasks(review_plan: Optional[Dict[str, Any]]) -> List[Dict[str, Any]
           entry["allowed_lever_ids"].append(lever_id)
       if action_id not in entry["source_action_ids"]:
         entry["source_action_ids"].append(action_id)
+      for metric_name in required_target_metric_keys:
+        if metric_name not in entry["required_target_metric_keys"]:
+          entry["required_target_metric_keys"].append(metric_name)
+      for metric_name, tolerance_payload in target_tolerances.items():
+        entry["target_tolerances"][metric_name] = copy.deepcopy(tolerance_payload)
       for metric_name in TARGET_METRIC_KEYS:
         metric_value = _safe_float(target.get(metric_name))
         if metric_value is not None:
@@ -254,13 +404,18 @@ def _quarter_tasks(review_plan: Optional[Dict[str, Any]]) -> List[Dict[str, Any]
   normalized: List[Dict[str, Any]] = []
   for quarter_index in sorted(merged.keys()):
     entry = copy.deepcopy(merged[quarter_index])
+    required_target_metric_keys = [
+      metric_name for metric_name in (entry.get("required_target_metric_keys") or [])
+      if metric_name in TARGET_METRIC_KEYS
+    ]
     missing_required_metrics = [
-      metric_name for metric_name in TARGET_METRIC_KEYS
+      metric_name for metric_name in required_target_metric_keys
       if metric_name not in (entry.get("target_metrics") or {})
     ]
     entry["missing_required_metrics"] = missing_required_metrics
     entry["solver_ready"] = bool(
       (entry.get("allowed_lever_ids") or [])
+      and required_target_metric_keys
       and not missing_required_metrics
     )
     normalized.append(entry)
@@ -302,8 +457,13 @@ def _build_variable_specs(
     elif _safe_float(guidance.get("exact_value")) is not None:
       anchor = float(_safe_float(guidance.get("exact_value")) or baseline_value)
       scale = max(abs(anchor - baseline_value), abs(anchor) * 0.10, 1.0)
-      low = min(baseline_value, anchor) - (0.25 * scale)
-      high = max(baseline_value, anchor) + (0.25 * scale)
+      expansion = 0.25
+      if aggressiveness == "high":
+        expansion = 0.50
+      elif aggressiveness == "structural":
+        expansion = 1.00
+      low = min(baseline_value, anchor) - (expansion * scale)
+      high = max(baseline_value, anchor) + (expansion * scale)
     if low is None or high is None:
       low, high = _default_move_band(
         baseline_value=baseline_value,
@@ -347,6 +507,32 @@ def _candidate_updates(
   return out
 
 
+def _vector_to_unit_interval(
+  *,
+  actual_vector: List[float],
+  variable_specs: List[Dict[str, Any]],
+) -> List[float]:
+  lows = np.array([float(spec.get("min_value") or 0.0) for spec in variable_specs], dtype=float)
+  highs = np.array([float(spec.get("max_value") or 0.0) for spec in variable_specs], dtype=float)
+  spans = np.maximum(highs - lows, 1e-9)
+  values = np.array([float(value) for value in actual_vector], dtype=float)
+  unit_vector = np.clip((values - lows) / spans, 0.0, 1.0)
+  return [float(value) for value in unit_vector.tolist()]
+
+
+def _vector_from_unit_interval(
+  *,
+  unit_vector: List[float],
+  variable_specs: List[Dict[str, Any]],
+) -> List[float]:
+  lows = np.array([float(spec.get("min_value") or 0.0) for spec in variable_specs], dtype=float)
+  highs = np.array([float(spec.get("max_value") or 0.0) for spec in variable_specs], dtype=float)
+  spans = np.maximum(highs - lows, 1e-9)
+  unit_values = np.clip(np.array([float(value) for value in unit_vector], dtype=float), 0.0, 1.0)
+  actual_vector = lows + (unit_values * spans)
+  return [float(value) for value in actual_vector.tolist()]
+
+
 def _evaluate_quarter_objective(
   *,
   base_model_input_json: Dict[str, Any],
@@ -354,6 +540,7 @@ def _evaluate_quarter_objective(
   variable_specs: List[Dict[str, Any]],
   vector: List[float],
   target_metrics: Dict[str, float],
+  tolerance_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Tuple[float, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   apply_exact_lever_updates_to_model_input, build_python_finmo_json = _load_numeric_apply_helpers()
   candidate_updates = _candidate_updates(
@@ -371,7 +558,11 @@ def _evaluate_quarter_objective(
   score = 0.0
   for metric_name, target_value in target_metrics.items():
     actual_value = _normalize_finmo_metric_value(metric_name, quarter_row)
-    tolerance = _metric_tolerance(metric_name, float(target_value))
+    tolerance = _metric_tolerance(
+      metric_name,
+      float(target_value),
+      tolerance_override=(tolerance_overrides or {}).get(str(metric_name or "").strip().lower()),
+    )
     residual = max(abs(actual_value - float(target_value)) - tolerance, 0.0)
     score += (residual / max(tolerance, 1.0)) ** 2
     telemetry_metrics[metric_name] = {
@@ -396,7 +587,13 @@ def solve_review_plan(
 ) -> Dict[str, Any]:
   contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
   pass_name = str(contract.get("pass_name") or "").strip()
-  if pass_name not in {"initial_restructure", "realism_resolution", "cash_strategy_review", "final_stabilizer"}:
+  if pass_name not in {
+    "initial_restructure",
+    "realism_resolution",
+    "cash_strategy_review",
+    "final_stabilizer",
+    "unified_convergence",
+  }:
     return {
       "execution_state": "numeric_solver_not_applicable",
       "solver_invoked": False,
@@ -497,42 +694,91 @@ def solve_review_plan(
     if not variable_specs:
       continue
 
-    seed = [float(spec.get("anchor_value") or 0.0) for spec in variable_specs]
-    bounds = [
-      (float(spec.get("min_value") or 0.0), float(spec.get("max_value") or 0.0))
-      for spec in variable_specs
-    ]
+    baseline_vector = [float(spec.get("baseline_value") or 0.0) for spec in variable_specs]
+    anchor_vector = [float(spec.get("anchor_value") or 0.0) for spec in variable_specs]
+    unit_bounds = [(0.0, 1.0) for _ in variable_specs]
 
     baseline_score, _, _, baseline_metrics = _evaluate_quarter_objective(
       base_model_input_json=working_model_input_json,
       quarter_index=quarter_index,
       variable_specs=variable_specs,
-      vector=[float(spec.get("baseline_value") or 0.0) for spec in variable_specs],
+      vector=baseline_vector,
       target_metrics=target_metrics,
+      tolerance_overrides=copy.deepcopy(task.get("target_tolerances") or {}),
     )
+    best_score = float(baseline_score)
+    best_vector = list(baseline_vector)
+    updated_model_input_json = copy.deepcopy(working_model_input_json)
+    updated_finmo_json = {}
+    metric_results = copy.deepcopy(baseline_metrics)
+    optimizer_message = "baseline_only"
+    optimizer_success = False
 
-    result = minimize(
-      lambda arr: _evaluate_quarter_objective(
+    seed_vectors = [
+      _vector_to_unit_interval(
+        actual_vector=baseline_vector,
+        variable_specs=variable_specs,
+      ),
+      _vector_to_unit_interval(
+        actual_vector=anchor_vector,
+        variable_specs=variable_specs,
+      ),
+    ]
+    normalized_seeds: List[List[float]] = []
+    for seed in seed_vectors:
+      rounded = [round(float(value), 6) for value in seed]
+      if rounded not in normalized_seeds:
+        normalized_seeds.append(rounded)
+
+    def _unit_objective(arr: List[float]) -> float:
+      actual_vector = _vector_from_unit_interval(
+        unit_vector=[float(v) for v in arr],
+        variable_specs=variable_specs,
+      )
+      return _evaluate_quarter_objective(
         base_model_input_json=working_model_input_json,
         quarter_index=quarter_index,
         variable_specs=variable_specs,
-        vector=[float(v) for v in arr],
+        vector=actual_vector,
         target_metrics=target_metrics,
-      )[0],
-      x0=seed,
-      method="L-BFGS-B",
-      bounds=bounds,
-      options={"maxiter": 60},
-    )
+        tolerance_overrides=copy.deepcopy(task.get("target_tolerances") or {}),
+      )[0]
 
-    best_vector = [float(v) for v in result.x]
-    best_score, updated_model_input_json, updated_finmo_json, metric_results = _evaluate_quarter_objective(
-      base_model_input_json=working_model_input_json,
-      quarter_index=quarter_index,
-      variable_specs=variable_specs,
-      vector=best_vector,
-      target_metrics=target_metrics,
-    )
+    for seed in normalized_seeds:
+      result = minimize(
+        _unit_objective,
+        x0=seed,
+        method="L-BFGS-B",
+        bounds=unit_bounds,
+        options={
+          "maxiter": 80,
+          # The objective surface comes from a full model recalculation, so
+          # normalized finite-difference steps are more reliable than raw-value
+          # steps on million-dollar levers.
+          "eps": 0.05,
+          "ftol": 1e-9,
+        },
+      )
+      candidate_vector = _vector_from_unit_interval(
+        unit_vector=[float(v) for v in result.x],
+        variable_specs=variable_specs,
+      )
+      candidate_score, candidate_model_input_json, candidate_finmo_json, candidate_metric_results = _evaluate_quarter_objective(
+        base_model_input_json=working_model_input_json,
+        quarter_index=quarter_index,
+        variable_specs=variable_specs,
+        vector=candidate_vector,
+        target_metrics=target_metrics,
+        tolerance_overrides=copy.deepcopy(task.get("target_tolerances") or {}),
+      )
+      if float(candidate_score) < float(best_score) - 1e-9:
+        best_score = float(candidate_score)
+        best_vector = list(candidate_vector)
+        updated_model_input_json = copy.deepcopy(candidate_model_input_json)
+        updated_finmo_json = copy.deepcopy(candidate_finmo_json)
+        metric_results = copy.deepcopy(candidate_metric_results)
+        optimizer_message = str(result.message)
+        optimizer_success = bool(result.success) or (float(baseline_score) - float(candidate_score) > 1e-6)
 
     quarter_updates = _candidate_updates(
       quarter_index=quarter_index,
@@ -547,7 +793,7 @@ def solve_review_plan(
       {
         "attempt_index": len(attempts) + 1,
         "quarter_index": quarter_index,
-        "optimizer_converged": bool(result.success),
+        "optimizer_converged": bool(optimizer_success),
         "objective_value": float(best_score),
         "objective_improvement": float(baseline_score - best_score),
         "lever_families": sorted(
@@ -557,14 +803,15 @@ def solve_review_plan(
             if str(item.get("lever_id") or "").strip()
           }
         ),
-        "message": str(result.message),
+        "message": str(optimizer_message),
       }
     )
     quarter_results.append(
       {
         "quarter_index": quarter_index,
         "source_action_ids": copy.deepcopy(task.get("source_action_ids") or []),
-        "required_target_metric_keys": list(TARGET_METRIC_KEYS),
+        "required_target_metric_keys": copy.deepcopy(task.get("required_target_metric_keys") or []),
+        "target_tolerances": copy.deepcopy(task.get("target_tolerances") or {}),
         "target_metrics": copy.deepcopy(metric_results),
         "allowed_lever_ids": copy.deepcopy(allowed_lever_ids),
         "variable_spec_count": len(variable_specs),

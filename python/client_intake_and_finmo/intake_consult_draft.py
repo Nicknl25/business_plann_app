@@ -1,18 +1,30 @@
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
+from zoneinfo import ZoneInfo
 
 
 _ENSURE_TABLE_READY = False
 _ENSURE_TABLE_LOCK = threading.Lock()
+_APP_TIMEZONE = ZoneInfo("America/New_York")
+_APP_TIMEZONE_NAME = "America/New_York"
 
 
-def _utc_now_str() -> str:
-  return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+def current_app_timestamp_str() -> str:
+  return datetime.now(_APP_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def current_app_timestamp_iso() -> str:
+  return datetime.now(_APP_TIMEZONE).isoformat()
+
+
+def current_app_timezone_name() -> str:
+  return _APP_TIMEZONE_NAME
 
 def _table_columns(conn, table_name: str) -> Set[str]:
   cur = conn.cursor()
@@ -49,19 +61,40 @@ def _normalize_flat_value(value: Any) -> Any:
 _ENGINE_JSON_COLUMNS = (
   "model_input_json",
   "finmo_json",
+  "planning_context_summary_json",
   "planning_run_json",
+  "planning_runtime_json",
   "numeric_solver_feedback_json",
 )
 
 _PLANNING_STATE_FLAT_COLUMNS = (
+  "planning_run_id",
+  "planning_run_status",
   "planning_stage",
   "planning_status",
   "planning_last_review_iteration",
+  "planning_current_retry_count",
+  "planning_current_cycle",
   "planning_detected_issue_count",
   "planning_remaining_issue_count",
   "planning_resolved_issue_count",
   "planning_tolerated_issue_count",
   "planning_iteration_pending_issue_count",
+  "planning_latest_checkpoint_id",
+  "planning_resume_from_checkpoint_id",
+  "planning_requested_action",
+  "planning_requested_action_at",
+  "planning_requested_action_reason",
+  "planning_latest_controller_status",
+  "planning_failure_reason",
+  "planning_resume_count",
+  "planning_source_run_id",
+  "planning_superseded_by_run_id",
+  "planning_run_started_at",
+  "planning_last_heartbeat_at",
+  "planning_paused_at",
+  "planning_stopped_at",
+  "planning_run_completed_at",
 )
 
 
@@ -109,15 +142,296 @@ def _planning_run_flat_field_values(payload: Any) -> Dict[str, Any]:
   if last_review_iteration is None:
     last_review_iteration = data.get("realism_resolution_iteration_count")
   out = {
+    "planning_run_id": str(data.get("planning_run_id") or "").strip() or None,
+    "planning_run_status": str(data.get("run_status") or data.get("status") or "").strip() or None,
     "planning_stage": str(data.get("stage") or "").strip() or None,
     "planning_status": str(data.get("status") or "").strip() or None,
     "planning_last_review_iteration": _int_or_none(last_review_iteration),
+    "planning_current_retry_count": _int_or_none(
+      ((data.get("controller_retry_heartbeat") or {}).get("attempt_number"))
+      if isinstance(data.get("controller_retry_heartbeat"), dict)
+      else None
+    ),
+    "planning_current_cycle": (
+      _int_or_none(data.get("unified_convergence_cycle_count"))
+      if _int_or_none(data.get("unified_convergence_cycle_count")) is not None
+      else _int_or_none(data.get("final_guarantee_cycle_count"))
+    ),
     "planning_detected_issue_count": _int_or_none(controller.get("detected_issue_count")) if controller else None,
     "planning_remaining_issue_count": _int_or_none(controller.get("remaining_issue_count")) if controller else None,
     "planning_resolved_issue_count": _int_or_none(controller.get("resolved_issue_count")) if controller else None,
     "planning_tolerated_issue_count": _int_or_none(controller.get("tolerated_issue_count")) if controller else None,
     "planning_iteration_pending_issue_count": _int_or_none(controller.get("iteration_pending_issue_count")) if controller else None,
+    "planning_latest_checkpoint_id": str(data.get("latest_checkpoint_id") or "").strip() or None,
+    "planning_resume_from_checkpoint_id": None,
+    "planning_requested_action": None,
+    "planning_requested_action_at": None,
+    "planning_requested_action_reason": None,
+    "planning_latest_controller_status": str(controller.get("status") or "").strip() or None if controller else None,
+    "planning_failure_reason": None,
+    "planning_resume_count": None,
+    "planning_source_run_id": None,
+    "planning_superseded_by_run_id": None,
+    "planning_run_started_at": None,
+    "planning_last_heartbeat_at": None,
+    "planning_paused_at": None,
+    "planning_stopped_at": None,
+    "planning_run_completed_at": None,
   }
+  return out
+
+
+def _planning_run_row_flat_field_values(run_row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  if not isinstance(run_row, dict) or not run_row:
+    return {}
+  return {
+    "planning_run_id": str(run_row.get("planning_run_id") or "").strip() or None,
+    "planning_run_status": str(run_row.get("run_status") or "").strip() or None,
+    "planning_stage": str(run_row.get("current_stage") or "").strip() or None,
+    "planning_status": str(run_row.get("current_stage_status") or "").strip() or None,
+    "planning_last_review_iteration": run_row.get("current_iteration"),
+    "planning_current_retry_count": run_row.get("current_retry_count"),
+    "planning_current_cycle": run_row.get("current_cycle"),
+    "planning_detected_issue_count": run_row.get("latest_detected_issue_count"),
+    "planning_remaining_issue_count": run_row.get("latest_remaining_issue_count"),
+    "planning_resolved_issue_count": run_row.get("latest_resolved_issue_count"),
+    "planning_latest_checkpoint_id": str(run_row.get("latest_checkpoint_id") or "").strip() or None,
+    "planning_resume_from_checkpoint_id": str(run_row.get("resume_from_checkpoint_id") or "").strip() or None,
+    "planning_requested_action": str(run_row.get("requested_action") or "").strip() or None,
+    "planning_requested_action_at": run_row.get("requested_action_at"),
+    "planning_requested_action_reason": str(run_row.get("requested_action_reason") or "").strip() or None,
+    "planning_latest_controller_status": str(run_row.get("latest_controller_status") or "").strip() or None,
+    "planning_failure_reason": str(run_row.get("failure_reason") or "").strip() or None,
+    "planning_resume_count": run_row.get("resume_count"),
+    "planning_source_run_id": str(run_row.get("source_planning_run_id") or "").strip() or None,
+    "planning_superseded_by_run_id": str(run_row.get("superseded_by_planning_run_id") or "").strip() or None,
+    "planning_run_started_at": run_row.get("started_at"),
+    "planning_last_heartbeat_at": run_row.get("last_heartbeat_at"),
+    "planning_paused_at": run_row.get("paused_at"),
+    "planning_stopped_at": run_row.get("stopped_at"),
+    "planning_run_completed_at": run_row.get("completed_at"),
+  }
+
+
+def _compact_numeric_feedback_runtime_payload(feedback: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = _parse_json_payload(feedback)
+  if not isinstance(payload, dict) or not payload:
+    return {
+      "has_feedback": False,
+      "solver_invoked": False,
+      "solver_execution_state": "",
+      "quarters_with_target_misses": 0,
+    }
+  target_verification = payload.get("target_verification") if isinstance(payload.get("target_verification"), dict) else {}
+  return {
+    "has_feedback": bool(payload.get("has_feedback")),
+    "feedback_source": str(payload.get("feedback_source") or "").strip() or None,
+    "persistence_stage": str(payload.get("persistence_stage") or "").strip() or None,
+    "execution_state": str(payload.get("execution_state") or "").strip() or None,
+    "outcome_reason": str(payload.get("outcome_reason") or "").strip() or None,
+    "solver_invoked": bool(payload.get("solver_invoked")),
+    "solver_execution_state": str(payload.get("solver_execution_state") or "").strip() or None,
+    "attempt_count": int(float(payload.get("attempt_count") or 0) if str(payload.get("attempt_count") or "").strip() else 0),
+    "target_metric_names": copy.deepcopy(payload.get("target_metric_names") or []),
+    "targeted_quarters": copy.deepcopy(payload.get("targeted_quarters") or []),
+    "allowed_lever_ids": copy.deepcopy(payload.get("allowed_lever_ids") or []),
+    "attempted_lever_families": copy.deepcopy(payload.get("attempted_lever_families") or []),
+    "quarters_with_all_targets_within_tolerance": int(float(payload.get("quarters_with_all_targets_within_tolerance") or 0) if str(payload.get("quarters_with_all_targets_within_tolerance") or "").strip() else 0),
+    "quarters_with_target_misses": int(float(payload.get("quarters_with_target_misses") or 0) if str(payload.get("quarters_with_target_misses") or "").strip() else 0),
+    "quarters_failed": copy.deepcopy(target_verification.get("quarters_failed") or []),
+    "best_objective": copy.deepcopy(payload.get("best_objective")),
+    "objective_delta": copy.deepcopy(payload.get("objective_delta")),
+  }
+
+
+def _compact_iteration_runtime_payload(iteration_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = iteration_payload if isinstance(iteration_payload, dict) else {}
+  quality = payload.get("quality_assessment") if isinstance(payload.get("quality_assessment"), dict) else {}
+  stall = payload.get("stall_assessment_before") if isinstance(payload.get("stall_assessment_before"), dict) else {}
+  trigger = payload.get("trigger_assessment_after") if isinstance(payload.get("trigger_assessment_after"), dict) else {}
+  retry_context = (
+    payload.get("controller_retry_context")
+    if isinstance(payload.get("controller_retry_context"), dict)
+    else {}
+  )
+  return {
+    "cycle_index": payload.get("cycle_index"),
+    "attempt_number": payload.get("attempt_number"),
+    "accepted": bool(payload.get("accepted")),
+    "meaningful_progress": bool(quality.get("meaningful_progress")),
+    "remaining_issue_count_before": quality.get("remaining_issue_count_before"),
+    "remaining_issue_count_after": quality.get("remaining_issue_count_after"),
+    "resolved_issue_count_before": quality.get("resolved_issue_count_before"),
+    "resolved_issue_count_after": quality.get("resolved_issue_count_after"),
+    "issue_count_delta": quality.get("issue_count_delta"),
+    "stall_detected": bool(stall.get("stalled")),
+    "force_structural_driver_changes": bool(stall.get("force_structural_driver_changes")),
+    "needs_stabilization": bool(trigger.get("needs_stabilization")),
+    "retry_context": {
+      "progress_status": str(retry_context.get("progress_status") or "").strip() or None,
+      "required_change_magnitude": str(retry_context.get("required_change_magnitude") or "").strip() or None,
+      "minimum_new_lever_count": retry_context.get("minimum_new_lever_count"),
+      "must_change_strategy_class": bool(retry_context.get("must_change_strategy_class")),
+      "failed_quarters": copy.deepcopy(retry_context.get("failed_quarters") or []),
+      "failed_metrics": copy.deepcopy(retry_context.get("failed_metrics") or []),
+      "required_lever_families": copy.deepcopy(retry_context.get("required_lever_families") or []),
+      "required_primary_metric_candidates": copy.deepcopy(
+        retry_context.get("required_primary_metric_candidates") or []
+      ),
+      "last_failure_reason": str(retry_context.get("last_failure_reason") or "").strip() or None,
+    },
+  }
+
+
+def _build_planning_runtime_payload(
+  *,
+  planning_run_json: Optional[Dict[str, Any]],
+  numeric_solver_feedback_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = _parse_json_payload(planning_run_json)
+  feedback = _parse_json_payload(numeric_solver_feedback_json)
+  planning_payload = payload if isinstance(payload, dict) else {}
+  feedback_payload = feedback if isinstance(feedback, dict) else {}
+  controller_state = (
+    planning_payload.get("controller_resolution_state")
+    if isinstance(planning_payload.get("controller_resolution_state"), dict)
+    else {}
+  )
+  heartbeat = (
+    planning_payload.get("controller_retry_heartbeat")
+    if isinstance(planning_payload.get("controller_retry_heartbeat"), dict)
+    else {}
+  )
+  deterministic_summary = (
+    planning_payload.get("deterministic_convergence_summary")
+    if isinstance(planning_payload.get("deterministic_convergence_summary"), dict)
+    else {}
+  )
+  unified_context = (
+    planning_payload.get("unified_convergence_context")
+    if isinstance(planning_payload.get("unified_convergence_context"), dict)
+    else {}
+  )
+  escalation_packet = (
+    unified_context.get("controller_escalation_packet")
+    if isinstance(unified_context.get("controller_escalation_packet"), dict)
+    else {}
+  )
+  iteration_list = planning_payload.get("unified_convergence_iterations")
+  if not isinstance(iteration_list, list) or not iteration_list:
+    iteration_list = planning_payload.get("final_guarantee_iterations")
+  latest_iteration = {}
+  if isinstance(iteration_list, list):
+    for item in reversed(iteration_list):
+      if isinstance(item, dict):
+        latest_iteration = item
+        break
+  return {
+    "contract_version": "planning_runtime_v1",
+    "planning_run_id": str(planning_payload.get("planning_run_id") or "").strip() or None,
+    "stage": str(planning_payload.get("stage") or "").strip() or None,
+    "status": str(planning_payload.get("status") or "").strip() or None,
+    "run_status": str(planning_payload.get("run_status") or "").strip() or None,
+    "planning_mode": str(planning_payload.get("planning_mode") or "").strip() or None,
+    "planning_mode_reason": str(planning_payload.get("planning_mode_reason") or "").strip() or None,
+    "controller_resolution_state": {
+      "status": str(controller_state.get("status") or "").strip() or None,
+      "detected_issue_count": controller_state.get("detected_issue_count"),
+      "remaining_issue_count": controller_state.get("remaining_issue_count"),
+      "resolved_issue_count": controller_state.get("resolved_issue_count"),
+      "tolerated_issue_count": controller_state.get("tolerated_issue_count"),
+      "iteration_pending_issue_count": controller_state.get("iteration_pending_issue_count"),
+    },
+    "unified_convergence_cycle_count": planning_payload.get("unified_convergence_cycle_count"),
+    "final_guarantee_cycle_count": planning_payload.get("final_guarantee_cycle_count"),
+    "controller_retry_heartbeat": {
+      "heartbeat_at_eastern": (
+        str(heartbeat.get("heartbeat_at_eastern") or "").strip()
+        or str(heartbeat.get("heartbeat_at_utc") or "").strip()
+        or None
+      ),
+      "heartbeat_timezone": str(heartbeat.get("heartbeat_timezone") or "").strip() or _APP_TIMEZONE_NAME,
+      "pass_name": str(heartbeat.get("pass_name") or "").strip() or None,
+      "attempt_number": heartbeat.get("attempt_number"),
+      "attempt_stage": str(heartbeat.get("attempt_stage") or "").strip() or None,
+      "lifecycle_status": str(heartbeat.get("lifecycle_status") or "").strip() or None,
+      "solver_invoked": bool(heartbeat.get("solver_invoked")),
+      "solver_execution_state": str(heartbeat.get("solver_execution_state") or "").strip() or None,
+      "quarters_with_target_misses": heartbeat.get("quarters_with_target_misses"),
+    },
+    "controller_escalation_packet": {
+      "escalation_active": bool(escalation_packet.get("escalation_active")),
+      "progress_status": str(escalation_packet.get("progress_status") or "").strip() or None,
+      "required_change_magnitude": str(escalation_packet.get("required_change_magnitude") or "").strip() or None,
+      "minimum_new_lever_count": escalation_packet.get("minimum_new_lever_count"),
+      "minimum_primary_metric_coverage_count": escalation_packet.get("minimum_primary_metric_coverage_count"),
+      "must_change_strategy_class": bool(escalation_packet.get("must_change_strategy_class")),
+      "required_lever_families": copy.deepcopy(escalation_packet.get("required_lever_families") or []),
+      "required_primary_metric_candidates": copy.deepcopy(
+        escalation_packet.get("required_primary_metric_candidates") or []
+      ),
+      "required_failed_quarters": copy.deepcopy(escalation_packet.get("required_failed_quarters") or []),
+      "last_failure_reason": str(escalation_packet.get("last_failure_reason") or "").strip() or None,
+    },
+    "latest_cycle": _compact_iteration_runtime_payload(latest_iteration),
+    "numeric_feedback": _compact_numeric_feedback_runtime_payload(feedback_payload),
+    "deterministic_convergence_summary": copy.deepcopy(deterministic_summary),
+  }
+
+
+def _should_store_full_planning_payload(
+  *,
+  checkpoint_kind: str,
+  run_status: str,
+  has_existing_run: bool,
+) -> bool:
+  kind = str(checkpoint_kind or "").strip().lower()
+  status = str(run_status or "").strip().lower()
+  if not has_existing_run:
+    return True
+  if status in {"completed", "failed", "paused", "stopped"}:
+    return True
+  if kind in {"failure_snapshot", "run_pause", "run_stop", "run_completed", "resume_snapshot"}:
+    return True
+  return False
+
+
+def _should_store_heavy_checkpoint_payloads(
+  *,
+  checkpoint_kind: str,
+  run_status: str,
+) -> bool:
+  kind = str(checkpoint_kind or "").strip().lower()
+  status = str(run_status or "").strip().lower()
+  if status in {"completed", "failed", "paused", "stopped"}:
+    return True
+  return kind in {"failure_snapshot", "run_pause", "run_stop", "run_completed", "resume_snapshot"}
+
+
+def _table_indexes(conn, table_name: str) -> Set[str]:
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      SELECT DISTINCT INDEX_NAME
+      FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = %s
+      """,
+      (table_name,),
+    )
+    rows = cur.fetchall() or []
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  out: Set[str] = set()
+  for r in rows:
+    try:
+      out.add(str(r[0]))
+    except Exception:
+      continue
   return out
 
 
@@ -280,16 +594,37 @@ def _ensure_table_inner(conn) -> None:
         realism_memo_json LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
+        planning_context_summary_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
+        planning_runtime_json LONGTEXT NULL,
         numeric_solver_feedback_json LONGTEXT NULL,
+        planning_run_id CHAR(32) NULL,
+        planning_run_status VARCHAR(32) NULL,
         planning_stage VARCHAR(64) NULL,
         planning_status VARCHAR(32) NULL,
         planning_last_review_iteration INT NULL,
+        planning_current_retry_count INT NULL,
+        planning_current_cycle INT NULL,
         planning_detected_issue_count INT NULL,
         planning_remaining_issue_count INT NULL,
         planning_resolved_issue_count INT NULL,
         planning_tolerated_issue_count INT NULL,
         planning_iteration_pending_issue_count INT NULL,
+        planning_latest_checkpoint_id CHAR(32) NULL,
+        planning_resume_from_checkpoint_id CHAR(32) NULL,
+        planning_requested_action VARCHAR(32) NULL,
+        planning_requested_action_at DATETIME(6) NULL,
+        planning_requested_action_reason LONGTEXT NULL,
+        planning_latest_controller_status VARCHAR(64) NULL,
+        planning_failure_reason LONGTEXT NULL,
+        planning_resume_count INT NULL,
+        planning_source_run_id CHAR(32) NULL,
+        planning_superseded_by_run_id CHAR(32) NULL,
+        planning_run_started_at DATETIME(6) NULL,
+        planning_last_heartbeat_at DATETIME(6) NULL,
+        planning_paused_at DATETIME(6) NULL,
+        planning_stopped_at DATETIME(6) NULL,
+        planning_run_completed_at DATETIME(6) NULL,
         pending_ops_milestone_json LONGTEXT NULL,
         fulfillment_json JSON NULL,
         ops_finalize_proposed TINYINT(1) NOT NULL DEFAULT 0,
@@ -305,6 +640,111 @@ def _ensure_table_inner(conn) -> None:
         KEY idx_status (status),
         KEY idx_active_focus (active_focus),
         KEY idx_updated_at (updated_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      """
+    )
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      CREATE TABLE IF NOT EXISTS planning_runs (
+        planning_run_id CHAR(32) NOT NULL PRIMARY KEY,
+        draft_id CHAR(32) NOT NULL,
+        client_id CHAR(20) NOT NULL,
+        run_status VARCHAR(32) NOT NULL,
+        current_stage VARCHAR(64) NULL,
+        current_stage_status VARCHAR(32) NULL,
+        current_iteration INT NULL,
+        current_retry_count INT NULL,
+        current_cycle INT NULL,
+        latest_detected_issue_count INT NULL,
+        latest_remaining_issue_count INT NULL,
+        latest_resolved_issue_count INT NULL,
+        latest_checkpoint_id CHAR(32) NULL,
+        resume_from_checkpoint_id CHAR(32) NULL,
+        source_planning_run_id CHAR(32) NULL,
+        superseded_by_planning_run_id CHAR(32) NULL,
+        requested_action VARCHAR(32) NULL,
+        requested_action_at DATETIME(6) NULL,
+        requested_action_reason LONGTEXT NULL,
+        latest_controller_status VARCHAR(64) NULL,
+        failure_reason LONGTEXT NULL,
+        trigger_type VARCHAR(32) NULL,
+        resume_count INT NOT NULL DEFAULT 0,
+        created_at DATETIME(6) NOT NULL,
+        updated_at DATETIME(6) NOT NULL,
+        started_at DATETIME(6) NOT NULL,
+        last_heartbeat_at DATETIME(6) NULL,
+        paused_at DATETIME(6) NULL,
+        stopped_at DATETIME(6) NULL,
+        completed_at DATETIME(6) NULL,
+        KEY idx_planning_runs_draft_id (draft_id),
+        KEY idx_planning_runs_client_id (client_id),
+        KEY idx_planning_runs_run_status (run_status),
+        KEY idx_planning_runs_current_stage (current_stage),
+        KEY idx_planning_runs_last_heartbeat_at (last_heartbeat_at),
+        KEY idx_planning_runs_draft_status (draft_id, run_status),
+        KEY idx_planning_runs_draft_started_at (draft_id, started_at),
+        KEY idx_planning_runs_requested_action (requested_action),
+        KEY idx_planning_runs_source_run (source_planning_run_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      """
+    )
+    cur.execute(
+      """
+      CREATE TABLE IF NOT EXISTS planning_run_checkpoints (
+        checkpoint_id CHAR(32) NOT NULL PRIMARY KEY,
+        planning_run_id CHAR(32) NOT NULL,
+        draft_id CHAR(32) NOT NULL,
+        client_id CHAR(20) NOT NULL,
+        stage VARCHAR(64) NULL,
+        stage_status VARCHAR(32) NULL,
+        iteration INT NULL,
+        retry_count INT NULL,
+        cycle INT NULL,
+        checkpoint_kind VARCHAR(32) NOT NULL,
+        controller_resolution_state_json LONGTEXT NULL,
+        planning_run_json LONGTEXT NULL,
+        numeric_solver_feedback_json LONGTEXT NULL,
+        model_input_json LONGTEXT NULL,
+        finmo_json LONGTEXT NULL,
+        realism_memo_json LONGTEXT NULL,
+        diagnostics_json LONGTEXT NULL,
+        created_at DATETIME(6) NOT NULL,
+        updated_at DATETIME(6) NOT NULL,
+        KEY idx_planning_run_checkpoints_run_created (planning_run_id, created_at),
+        KEY idx_planning_run_checkpoints_draft_created (draft_id, created_at),
+        KEY idx_planning_run_checkpoints_kind (checkpoint_kind),
+        KEY idx_planning_run_checkpoints_stage (stage)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      """
+    )
+    cur.execute(
+      """
+      CREATE TABLE IF NOT EXISTS planning_stage_events (
+        event_id CHAR(32) NOT NULL PRIMARY KEY,
+        planning_run_id CHAR(32) NOT NULL,
+        draft_id CHAR(32) NOT NULL,
+        client_id CHAR(20) NOT NULL,
+        stage VARCHAR(64) NULL,
+        stage_status VARCHAR(32) NULL,
+        iteration INT NULL,
+        retry_count INT NULL,
+        cycle INT NULL,
+        event_type VARCHAR(64) NOT NULL,
+        event_summary LONGTEXT NULL,
+        event_payload_json LONGTEXT NULL,
+        created_at DATETIME(6) NOT NULL,
+        KEY idx_planning_stage_events_run_created (planning_run_id, created_at),
+        KEY idx_planning_stage_events_draft_created (draft_id, created_at),
+        KEY idx_planning_stage_events_event_type (event_type),
+        KEY idx_planning_stage_events_stage (stage)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       """
     )
@@ -359,16 +799,28 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in cols:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
+  if "planning_context_summary_json" not in cols:
+    alterations.append("ADD COLUMN planning_context_summary_json LONGTEXT NULL")
   if "planning_run_json" not in cols:
     alterations.append("ADD COLUMN planning_run_json LONGTEXT NULL")
+  if "planning_runtime_json" not in cols:
+    alterations.append("ADD COLUMN planning_runtime_json LONGTEXT NULL")
   if "numeric_solver_feedback_json" not in cols:
     alterations.append("ADD COLUMN numeric_solver_feedback_json LONGTEXT NULL")
+  if "planning_run_id" not in cols:
+    alterations.append("ADD COLUMN planning_run_id CHAR(32) NULL")
+  if "planning_run_status" not in cols:
+    alterations.append("ADD COLUMN planning_run_status VARCHAR(32) NULL")
   if "planning_stage" not in cols:
     alterations.append("ADD COLUMN planning_stage VARCHAR(64) NULL")
   if "planning_status" not in cols:
     alterations.append("ADD COLUMN planning_status VARCHAR(32) NULL")
   if "planning_last_review_iteration" not in cols:
     alterations.append("ADD COLUMN planning_last_review_iteration INT NULL")
+  if "planning_current_retry_count" not in cols:
+    alterations.append("ADD COLUMN planning_current_retry_count INT NULL")
+  if "planning_current_cycle" not in cols:
+    alterations.append("ADD COLUMN planning_current_cycle INT NULL")
   if "planning_detected_issue_count" not in cols:
     alterations.append("ADD COLUMN planning_detected_issue_count INT NULL")
   if "planning_remaining_issue_count" not in cols:
@@ -379,6 +831,36 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN planning_tolerated_issue_count INT NULL")
   if "planning_iteration_pending_issue_count" not in cols:
     alterations.append("ADD COLUMN planning_iteration_pending_issue_count INT NULL")
+  if "planning_latest_checkpoint_id" not in cols:
+    alterations.append("ADD COLUMN planning_latest_checkpoint_id CHAR(32) NULL")
+  if "planning_resume_from_checkpoint_id" not in cols:
+    alterations.append("ADD COLUMN planning_resume_from_checkpoint_id CHAR(32) NULL")
+  if "planning_requested_action" not in cols:
+    alterations.append("ADD COLUMN planning_requested_action VARCHAR(32) NULL")
+  if "planning_requested_action_at" not in cols:
+    alterations.append("ADD COLUMN planning_requested_action_at DATETIME(6) NULL")
+  if "planning_requested_action_reason" not in cols:
+    alterations.append("ADD COLUMN planning_requested_action_reason LONGTEXT NULL")
+  if "planning_latest_controller_status" not in cols:
+    alterations.append("ADD COLUMN planning_latest_controller_status VARCHAR(64) NULL")
+  if "planning_failure_reason" not in cols:
+    alterations.append("ADD COLUMN planning_failure_reason LONGTEXT NULL")
+  if "planning_resume_count" not in cols:
+    alterations.append("ADD COLUMN planning_resume_count INT NULL")
+  if "planning_source_run_id" not in cols:
+    alterations.append("ADD COLUMN planning_source_run_id CHAR(32) NULL")
+  if "planning_superseded_by_run_id" not in cols:
+    alterations.append("ADD COLUMN planning_superseded_by_run_id CHAR(32) NULL")
+  if "planning_run_started_at" not in cols:
+    alterations.append("ADD COLUMN planning_run_started_at DATETIME(6) NULL")
+  if "planning_last_heartbeat_at" not in cols:
+    alterations.append("ADD COLUMN planning_last_heartbeat_at DATETIME(6) NULL")
+  if "planning_paused_at" not in cols:
+    alterations.append("ADD COLUMN planning_paused_at DATETIME(6) NULL")
+  if "planning_stopped_at" not in cols:
+    alterations.append("ADD COLUMN planning_stopped_at DATETIME(6) NULL")
+  if "planning_run_completed_at" not in cols:
+    alterations.append("ADD COLUMN planning_run_completed_at DATETIME(6) NULL")
   if "pending_ops_milestone_json" not in cols:
     alterations.append("ADD COLUMN pending_ops_milestone_json LONGTEXT NULL")
   if "fulfillment_json" not in cols:
@@ -417,13 +899,204 @@ def _ensure_table_inner(conn) -> None:
       except Exception:
         pass
 
+  planning_runs_cols = _table_columns(conn, "planning_runs")
+  planning_runs_indexes = _table_indexes(conn, "planning_runs")
+  planning_runs_alters: list[str] = []
+  if "planning_run_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN planning_run_id CHAR(32) NOT NULL PRIMARY KEY FIRST")
+  if "draft_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN draft_id CHAR(32) NOT NULL")
+  if "client_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN client_id CHAR(20) NOT NULL")
+  if "run_status" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN run_status VARCHAR(32) NOT NULL DEFAULT 'queued'")
+  if "current_stage" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN current_stage VARCHAR(64) NULL")
+  if "current_stage_status" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN current_stage_status VARCHAR(32) NULL")
+  if "current_iteration" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN current_iteration INT NULL")
+  if "current_retry_count" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN current_retry_count INT NULL")
+  if "current_cycle" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN current_cycle INT NULL")
+  if "latest_detected_issue_count" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN latest_detected_issue_count INT NULL")
+  if "latest_remaining_issue_count" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN latest_remaining_issue_count INT NULL")
+  if "latest_resolved_issue_count" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN latest_resolved_issue_count INT NULL")
+  if "latest_checkpoint_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN latest_checkpoint_id CHAR(32) NULL")
+  if "resume_from_checkpoint_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN resume_from_checkpoint_id CHAR(32) NULL")
+  if "source_planning_run_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN source_planning_run_id CHAR(32) NULL")
+  if "superseded_by_planning_run_id" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN superseded_by_planning_run_id CHAR(32) NULL")
+  if "requested_action" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN requested_action VARCHAR(32) NULL")
+  if "requested_action_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN requested_action_at DATETIME(6) NULL")
+  if "requested_action_reason" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN requested_action_reason LONGTEXT NULL")
+  if "latest_controller_status" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN latest_controller_status VARCHAR(64) NULL")
+  if "failure_reason" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN failure_reason LONGTEXT NULL")
+  if "trigger_type" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN trigger_type VARCHAR(32) NULL")
+  if "resume_count" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN resume_count INT NOT NULL DEFAULT 0")
+  if "created_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN created_at DATETIME(6) NOT NULL")
+  if "updated_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN updated_at DATETIME(6) NOT NULL")
+  if "started_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN started_at DATETIME(6) NOT NULL")
+  if "last_heartbeat_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN last_heartbeat_at DATETIME(6) NULL")
+  if "paused_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN paused_at DATETIME(6) NULL")
+  if "stopped_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN stopped_at DATETIME(6) NULL")
+  if "completed_at" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN completed_at DATETIME(6) NULL")
+  if "idx_planning_runs_draft_id" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_draft_id (draft_id)")
+  if "idx_planning_runs_client_id" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_client_id (client_id)")
+  if "idx_planning_runs_run_status" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_run_status (run_status)")
+  if "idx_planning_runs_current_stage" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_current_stage (current_stage)")
+  if "idx_planning_runs_last_heartbeat_at" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_last_heartbeat_at (last_heartbeat_at)")
+  if "idx_planning_runs_draft_status" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_draft_status (draft_id, run_status)")
+  if "idx_planning_runs_draft_started_at" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_draft_started_at (draft_id, started_at)")
+  if "idx_planning_runs_requested_action" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_requested_action (requested_action)")
+  if "idx_planning_runs_source_run" not in planning_runs_indexes:
+    planning_runs_alters.append("ADD KEY idx_planning_runs_source_run (source_planning_run_id)")
+
+  checkpoint_cols = _table_columns(conn, "planning_run_checkpoints")
+  checkpoint_indexes = _table_indexes(conn, "planning_run_checkpoints")
+  checkpoint_alters: list[str] = []
+  if "checkpoint_id" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN checkpoint_id CHAR(32) NOT NULL PRIMARY KEY FIRST")
+  if "planning_run_id" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN planning_run_id CHAR(32) NOT NULL")
+  if "draft_id" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN draft_id CHAR(32) NOT NULL")
+  if "client_id" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN client_id CHAR(20) NOT NULL")
+  if "stage" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN stage VARCHAR(64) NULL")
+  if "stage_status" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN stage_status VARCHAR(32) NULL")
+  if "iteration" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN iteration INT NULL")
+  if "retry_count" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN retry_count INT NULL")
+  if "cycle" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN cycle INT NULL")
+  if "checkpoint_kind" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN checkpoint_kind VARCHAR(32) NOT NULL DEFAULT 'stage_checkpoint'")
+  if "controller_resolution_state_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN controller_resolution_state_json LONGTEXT NULL")
+  if "planning_run_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN planning_run_json LONGTEXT NULL")
+  if "numeric_solver_feedback_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN numeric_solver_feedback_json LONGTEXT NULL")
+  if "model_input_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN model_input_json LONGTEXT NULL")
+  if "finmo_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN finmo_json LONGTEXT NULL")
+  if "realism_memo_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN realism_memo_json LONGTEXT NULL")
+  if "diagnostics_json" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN diagnostics_json LONGTEXT NULL")
+  if "created_at" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN created_at DATETIME(6) NOT NULL")
+  if "updated_at" not in checkpoint_cols:
+    checkpoint_alters.append("ADD COLUMN updated_at DATETIME(6) NOT NULL")
+  if "idx_planning_run_checkpoints_run_created" not in checkpoint_indexes:
+    checkpoint_alters.append("ADD KEY idx_planning_run_checkpoints_run_created (planning_run_id, created_at)")
+  if "idx_planning_run_checkpoints_draft_created" not in checkpoint_indexes:
+    checkpoint_alters.append("ADD KEY idx_planning_run_checkpoints_draft_created (draft_id, created_at)")
+  if "idx_planning_run_checkpoints_kind" not in checkpoint_indexes:
+    checkpoint_alters.append("ADD KEY idx_planning_run_checkpoints_kind (checkpoint_kind)")
+  if "idx_planning_run_checkpoints_stage" not in checkpoint_indexes:
+    checkpoint_alters.append("ADD KEY idx_planning_run_checkpoints_stage (stage)")
+
+  event_cols = _table_columns(conn, "planning_stage_events")
+  event_indexes = _table_indexes(conn, "planning_stage_events")
+  event_alters: list[str] = []
+  if "event_id" not in event_cols:
+    event_alters.append("ADD COLUMN event_id CHAR(32) NOT NULL PRIMARY KEY FIRST")
+  if "planning_run_id" not in event_cols:
+    event_alters.append("ADD COLUMN planning_run_id CHAR(32) NOT NULL")
+  if "draft_id" not in event_cols:
+    event_alters.append("ADD COLUMN draft_id CHAR(32) NOT NULL")
+  if "client_id" not in event_cols:
+    event_alters.append("ADD COLUMN client_id CHAR(20) NOT NULL")
+  if "stage" not in event_cols:
+    event_alters.append("ADD COLUMN stage VARCHAR(64) NULL")
+  if "stage_status" not in event_cols:
+    event_alters.append("ADD COLUMN stage_status VARCHAR(32) NULL")
+  if "iteration" not in event_cols:
+    event_alters.append("ADD COLUMN iteration INT NULL")
+  if "retry_count" not in event_cols:
+    event_alters.append("ADD COLUMN retry_count INT NULL")
+  if "cycle" not in event_cols:
+    event_alters.append("ADD COLUMN cycle INT NULL")
+  if "event_type" not in event_cols:
+    event_alters.append("ADD COLUMN event_type VARCHAR(64) NOT NULL DEFAULT 'run_event'")
+  if "event_summary" not in event_cols:
+    event_alters.append("ADD COLUMN event_summary LONGTEXT NULL")
+  if "event_payload_json" not in event_cols:
+    event_alters.append("ADD COLUMN event_payload_json LONGTEXT NULL")
+  if "created_at" not in event_cols:
+    event_alters.append("ADD COLUMN created_at DATETIME(6) NOT NULL")
+  if "idx_planning_stage_events_run_created" not in event_indexes:
+    event_alters.append("ADD KEY idx_planning_stage_events_run_created (planning_run_id, created_at)")
+  if "idx_planning_stage_events_draft_created" not in event_indexes:
+    event_alters.append("ADD KEY idx_planning_stage_events_draft_created (draft_id, created_at)")
+  if "idx_planning_stage_events_event_type" not in event_indexes:
+    event_alters.append("ADD KEY idx_planning_stage_events_event_type (event_type)")
+  if "idx_planning_stage_events_stage" not in event_indexes:
+    event_alters.append("ADD KEY idx_planning_stage_events_stage (stage)")
+
+  if planning_runs_alters or checkpoint_alters or event_alters:
+    cur3 = conn.cursor()
+    try:
+      for alter in planning_runs_alters:
+        cur3.execute(f"ALTER TABLE planning_runs {alter}")
+      for alter in checkpoint_alters:
+        cur3.execute(f"ALTER TABLE planning_run_checkpoints {alter}")
+      for alter in event_alters:
+        cur3.execute(f"ALTER TABLE planning_stage_events {alter}")
+      conn.commit()
+    except Exception:
+      try:
+        conn.rollback()
+      except Exception:
+        pass
+    finally:
+      try:
+        cur3.close()
+      except Exception:
+        pass
+
   _ensure_completion_consistency_triggers(conn)
 
 
 def create_draft(conn, *, client_id: str) -> Dict[str, Any]:
   ensure_table(conn)
   draft_id = uuid.uuid4().hex
-  now = _utc_now_str()
+  now = current_app_timestamp_str()
   cur = conn.cursor()
   try:
     cur.execute(
@@ -454,6 +1127,40 @@ def get_draft(conn, *, draft_id: str) -> Dict[str, Any]:
   try:
     cur.execute(
       "SELECT * FROM intake_consult_drafts WHERE draft_id = %s LIMIT 1",
+      (draft_id,),
+    )
+    row = cur.fetchone()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  if not row or not isinstance(row, dict):
+    raise RuntimeError(f"Consult draft not found for draft_id={draft_id!r}")
+  return row
+
+
+def get_draft_runtime_row(conn, *, draft_id: str) -> Dict[str, Any]:
+  ensure_table(conn)
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      """
+      SELECT draft_id, client_id, status, active_focus,
+             planning_context_summary_json, planning_run_json, planning_runtime_json, numeric_solver_feedback_json,
+             planning_run_id, planning_run_status, planning_stage, planning_status,
+             planning_last_review_iteration, planning_current_retry_count, planning_current_cycle,
+             planning_detected_issue_count, planning_remaining_issue_count, planning_resolved_issue_count,
+             planning_tolerated_issue_count, planning_iteration_pending_issue_count,
+             planning_latest_checkpoint_id, planning_resume_from_checkpoint_id,
+             planning_requested_action, planning_requested_action_at, planning_requested_action_reason,
+             planning_latest_controller_status, planning_failure_reason, planning_resume_count,
+             planning_source_run_id, planning_superseded_by_run_id, planning_run_started_at,
+             planning_last_heartbeat_at, planning_paused_at, planning_stopped_at, planning_run_completed_at
+      FROM intake_consult_drafts
+      WHERE draft_id = %s
+      LIMIT 1
+      """,
       (draft_id,),
     )
     row = cur.fetchone()
@@ -591,7 +1298,9 @@ def append_messages(
   marketing_model_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
   realism_memo_json: Optional[Dict[str, Any]] = None,
+  planning_context_summary_json: Optional[Dict[str, Any]] = None,
   planning_run_json: Optional[Dict[str, Any]] = None,
+  planning_runtime_json: Optional[Dict[str, Any]] = None,
   numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
@@ -602,8 +1311,14 @@ def append_messages(
   business_facts: Optional[Dict[str, Any]] = None,
   flat_fields: Optional[Dict[str, Any]] = None,
   completed: bool = False,
+  commit: bool = True,
 ) -> Dict[str, Any]:
-  row = get_draft(conn, draft_id=draft_id)
+  write_messages_json = bool(new_messages)
+  row = (
+    get_draft(conn, draft_id=draft_id)
+    if write_messages_json or (completed and planning_run_json is None)
+    else get_draft_runtime_row(conn, draft_id=draft_id)
+  )
   if completed or str(active_focus or "").strip().lower() == "done" or str(status or "").strip().lower() == "completed":
     payload = (
       planning_run_json
@@ -612,28 +1327,33 @@ def append_messages(
     )
     if not _is_valid_planning_run_payload(payload):
       raise RuntimeError("completion_requires_planning_run")
-  messages = _parse_messages(row.get("messages_json"))
-  messages.extend(new_messages)
-  messages = _render_messages_for_storage(
-    row=row,
-    messages=messages,
-    operating_model_json=operating_model_json,
-    target_market_json=target_market_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    marketing_model_json=marketing_model_json,
-    financials_year1_json=financials_year1_json,
-    realism_memo_json=realism_memo_json,
-    planning_run_json=planning_run_json,
-    numeric_solver_feedback_json=numeric_solver_feedback_json,
-    model_input_json=model_input_json,
-    finmo_json=finmo_json,
-    business_facts=business_facts,
-  )
+  existing_messages = _parse_messages(row.get("messages_json")) if write_messages_json else []
+  messages = list(existing_messages)
+  if new_messages:
+    messages.extend(new_messages)
+    messages = _render_messages_for_storage(
+      row=row,
+      messages=messages,
+      operating_model_json=operating_model_json,
+      target_market_json=target_market_json,
+      people_json=people_json,
+      financials_json=financials_json,
+      marketing_model_json=marketing_model_json,
+      financials_year1_json=financials_year1_json,
+      realism_memo_json=realism_memo_json,
+      planning_run_json=planning_run_json,
+      numeric_solver_feedback_json=numeric_solver_feedback_json,
+      model_input_json=model_input_json,
+      finmo_json=finmo_json,
+      business_facts=business_facts,
+    )
 
-  now = _utc_now_str()
-  set_parts = ["messages_json = %s", "updated_at = %s"]
-  values: List[Any] = [json.dumps(messages, ensure_ascii=False), now]
+  now = current_app_timestamp_str()
+  set_parts = ["updated_at = %s"]
+  values: List[Any] = [now]
+  if write_messages_json:
+    set_parts.insert(0, "messages_json = %s")
+    values.insert(0, json.dumps(messages, ensure_ascii=False))
 
   if status:
     set_parts.append("status = %s")
@@ -680,6 +1400,10 @@ def append_messages(
     set_parts.append("realism_memo_json = %s")
     values.append(json.dumps(realism_memo_json, ensure_ascii=False))
 
+  if planning_context_summary_json is not None:
+    set_parts.append("planning_context_summary_json = %s")
+    values.append(json.dumps(planning_context_summary_json, ensure_ascii=False))
+
   if planning_run_json is not None:
     set_parts.append("planning_run_json = %s")
     values.append(json.dumps(planning_run_json, ensure_ascii=False))
@@ -688,6 +1412,10 @@ def append_messages(
         continue
       set_parts.append(f"{key} = %s")
       values.append(value)
+
+  if planning_runtime_json is not None:
+    set_parts.append("planning_runtime_json = %s")
+    values.append(json.dumps(planning_runtime_json, ensure_ascii=False))
 
   if numeric_solver_feedback_json is not None:
     set_parts.append("numeric_solver_feedback_json = %s")
@@ -770,7 +1498,9 @@ def append_messages(
       "realism_memo_json",
       "model_input_json",
       "finmo_json",
+      "planning_context_summary_json",
       "planning_run_json",
+      "planning_runtime_json",
       "numeric_solver_feedback_json",
       "pending_ops_milestone_json",
       "fulfillment_json",
@@ -799,7 +1529,8 @@ def append_messages(
   cur = conn.cursor()
   try:
     cur.execute(sql, values)
-    conn.commit()
+    if commit:
+      conn.commit()
   finally:
     try:
       cur.close()
@@ -809,13 +1540,955 @@ def append_messages(
   return {"draft_id": draft_id, "client_id": row.get("client_id"), "messages": messages}
 
 
+def _latest_planning_run(conn, *, draft_id: str, active_only: bool = False) -> Optional[Dict[str, Any]]:
+  ensure_table(conn)
+  cur = conn.cursor(dictionary=True)
+  try:
+    if active_only:
+      cur.execute(
+        """
+        SELECT *
+        FROM planning_runs
+        WHERE draft_id = %s
+          AND run_status IN ('queued', 'running', 'paused')
+        ORDER BY updated_at DESC, started_at DESC
+        LIMIT 1
+        """,
+        (str(draft_id).strip(),),
+      )
+    else:
+      cur.execute(
+        """
+        SELECT *
+        FROM planning_runs
+        WHERE draft_id = %s
+        ORDER BY updated_at DESC, started_at DESC
+        LIMIT 1
+        """,
+        (str(draft_id).strip(),),
+      )
+    row = cur.fetchone()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  return row if isinstance(row, dict) else None
+
+
+def get_planning_run(
+  conn,
+  *,
+  planning_run_id: Optional[str] = None,
+  draft_id: Optional[str] = None,
+  active_only: bool = False,
+) -> Optional[Dict[str, Any]]:
+  ensure_table(conn)
+  run_id = str(planning_run_id or "").strip()
+  if run_id:
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        """
+        SELECT *
+        FROM planning_runs
+        WHERE planning_run_id = %s
+        LIMIT 1
+        """,
+        (run_id,),
+      )
+      row = cur.fetchone()
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+    return row if isinstance(row, dict) else None
+  draft_key = str(draft_id or "").strip()
+  if not draft_key:
+    return None
+  return _latest_planning_run(conn, draft_id=draft_key, active_only=active_only)
+
+
+def get_latest_planning_run_checkpoint(
+  conn,
+  *,
+  planning_run_id: Optional[str] = None,
+  draft_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+  ensure_table(conn)
+  run_id = str(planning_run_id or "").strip()
+  if not run_id:
+    run_row = get_planning_run(conn, draft_id=draft_id, active_only=False)
+    run_id = str((run_row or {}).get("planning_run_id") or "").strip()
+  if not run_id:
+    return None
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(
+      """
+      SELECT *
+      FROM planning_run_checkpoints
+      WHERE planning_run_id = %s
+      ORDER BY created_at DESC
+      LIMIT 1
+      """,
+      (run_id,),
+    )
+    row = cur.fetchone()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  return row if isinstance(row, dict) else None
+
+
+def begin_planning_run(
+  conn,
+  *,
+  draft_id: str,
+  trigger_type: str = "system_run",
+  lifecycle_mode: str = "start",
+  planning_run_id: Optional[str] = None,
+  source_planning_run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+  ensure_table(conn)
+  draft = get_draft(conn, draft_id=str(draft_id).strip())
+  client_id = str(draft.get("client_id") or "").strip()
+  if not client_id:
+    raise RuntimeError("begin_planning_run_requires_client_id")
+
+  mode = str(lifecycle_mode or "start").strip().lower() or "start"
+  requested_run_id = str(planning_run_id or "").strip()
+  source_run_id = str(source_planning_run_id or "").strip()
+  active_run = _latest_planning_run(conn, draft_id=str(draft_id).strip(), active_only=True)
+  latest_run = _latest_planning_run(conn, draft_id=str(draft_id).strip(), active_only=False)
+  now = current_app_timestamp_str()
+
+  if mode in {"start", "rerun"} and active_run:
+    raise RuntimeError(
+      f"planning_run_already_active:{str(active_run.get('planning_run_id') or '').strip()}"
+    )
+
+  if mode == "resume":
+    target_run = get_planning_run(conn, planning_run_id=requested_run_id) if requested_run_id else None
+    if target_run is None:
+      latest_candidate = latest_run if isinstance(latest_run, dict) else None
+      if latest_candidate and str(latest_candidate.get("run_status") or "").strip().lower() in {"paused", "stopped"}:
+        target_run = latest_candidate
+    if not isinstance(target_run, dict):
+      raise RuntimeError("planning_run_resume_target_not_found")
+    checkpoint = get_latest_planning_run_checkpoint(
+      conn,
+      planning_run_id=str(target_run.get("planning_run_id") or "").strip(),
+    )
+    checkpoint_id = str((checkpoint or {}).get("checkpoint_id") or "").strip() or None
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        """
+        UPDATE planning_runs
+        SET run_status = %s,
+            current_stage_status = %s,
+            resume_from_checkpoint_id = %s,
+            requested_action = NULL,
+            requested_action_at = NULL,
+            requested_action_reason = NULL,
+            resume_count = COALESCE(resume_count, 0) + 1,
+            updated_at = %s,
+            last_heartbeat_at = %s,
+            paused_at = NULL,
+            stopped_at = NULL,
+            completed_at = NULL
+        WHERE planning_run_id = %s
+        """,
+        (
+          "running",
+          "resuming",
+          checkpoint_id,
+          now,
+          now,
+          str(target_run.get("planning_run_id") or "").strip(),
+        ),
+      )
+      conn.commit()
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+    resumed = get_planning_run(
+      conn,
+      planning_run_id=str(target_run.get("planning_run_id") or "").strip(),
+    )
+    mirror_planning_run_state_to_draft(
+      conn,
+      draft_id=str(draft_id).strip(),
+      planning_run_row=copy.deepcopy(resumed if isinstance(resumed, dict) else target_run),
+      status="in_progress",
+      commit=True,
+    )
+    return {
+      "planning_run": resumed if isinstance(resumed, dict) else target_run,
+      "latest_checkpoint": checkpoint if isinstance(checkpoint, dict) else None,
+      "lifecycle_mode": mode,
+    }
+
+  new_run_id = requested_run_id or uuid.uuid4().hex
+  source_run = get_planning_run(conn, planning_run_id=source_run_id) if source_run_id else latest_run
+  source_run_key = str((source_run or {}).get("planning_run_id") or "").strip() or None
+  resume_from_checkpoint_id = None
+  if mode == "rerun" and source_run_key:
+    source_checkpoint = get_latest_planning_run_checkpoint(conn, planning_run_id=source_run_key)
+    resume_from_checkpoint_id = str((source_checkpoint or {}).get("checkpoint_id") or "").strip() or None
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      INSERT INTO planning_runs (
+        planning_run_id, draft_id, client_id, run_status, current_stage, current_stage_status,
+        current_iteration, current_retry_count, current_cycle, latest_detected_issue_count,
+        latest_remaining_issue_count, latest_resolved_issue_count, latest_checkpoint_id,
+        resume_from_checkpoint_id, source_planning_run_id, superseded_by_planning_run_id,
+        requested_action, requested_action_at, requested_action_reason, latest_controller_status,
+        failure_reason, trigger_type, resume_count, created_at, updated_at, started_at,
+        last_heartbeat_at, paused_at, stopped_at, completed_at
+      ) VALUES (
+        %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s,
+        %s, %s, %s,
+        %s, %s, %s,
+        %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s
+      )
+      """,
+      (
+        new_run_id,
+        str(draft_id).strip(),
+        client_id,
+        "running",
+        "system_run_starting",
+        "running",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        resume_from_checkpoint_id,
+        source_run_key,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        str(trigger_type or "system_run").strip() or "system_run",
+        0,
+        now,
+        now,
+        now,
+        now,
+        None,
+        None,
+        None,
+      ),
+    )
+    if mode == "rerun" and source_run_key:
+      cur.execute(
+        """
+        UPDATE planning_runs
+        SET superseded_by_planning_run_id = %s,
+            updated_at = %s
+        WHERE planning_run_id = %s
+        """,
+        (
+          new_run_id,
+          now,
+          source_run_key,
+        ),
+      )
+    cur.execute(
+      """
+      INSERT INTO planning_stage_events (
+        event_id, planning_run_id, draft_id, client_id, stage, stage_status,
+        iteration, retry_count, cycle, event_type, event_summary, event_payload_json, created_at
+      ) VALUES (
+        %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s
+      )
+      """,
+      (
+        uuid.uuid4().hex,
+        new_run_id,
+        str(draft_id).strip(),
+        client_id,
+        "system_run_starting",
+        "running",
+        None,
+        None,
+        None,
+        "run_started" if mode == "start" else "run_rerun_started",
+        f"{mode}:system_run_starting",
+        json.dumps(
+          {
+            "lifecycle_mode": mode,
+            "trigger_type": str(trigger_type or "system_run").strip() or "system_run",
+            "source_planning_run_id": source_run_key,
+            "resume_from_checkpoint_id": resume_from_checkpoint_id,
+          },
+          ensure_ascii=False,
+        ),
+        now,
+      ),
+    )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  started = get_planning_run(conn, planning_run_id=new_run_id)
+  mirror_planning_run_state_to_draft(
+    conn,
+    draft_id=str(draft_id).strip(),
+    planning_run_row=copy.deepcopy(started if isinstance(started, dict) else {"planning_run_id": new_run_id}),
+    status="in_progress",
+    commit=True,
+  )
+  return {
+    "planning_run": started if isinstance(started, dict) else {"planning_run_id": new_run_id},
+    "latest_checkpoint": None,
+    "lifecycle_mode": mode,
+  }
+
+
+def request_planning_run_action(
+  conn,
+  *,
+  draft_id: Optional[str] = None,
+  planning_run_id: Optional[str] = None,
+  action: str,
+  reason: str = "",
+) -> Dict[str, Any]:
+  ensure_table(conn)
+  normalized_action = str(action or "").strip().lower()
+  if normalized_action not in {"pause", "stop"}:
+    raise RuntimeError("unsupported_planning_run_action")
+  run_row = get_planning_run(
+    conn,
+    planning_run_id=planning_run_id,
+    draft_id=draft_id,
+    active_only=not str(planning_run_id or "").strip(),
+  )
+  if not isinstance(run_row, dict):
+    raise RuntimeError("planning_run_not_found_for_action")
+  run_id = str(run_row.get("planning_run_id") or "").strip()
+  now = current_app_timestamp_str()
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      UPDATE planning_runs
+      SET requested_action = %s,
+          requested_action_at = %s,
+          requested_action_reason = %s,
+          updated_at = %s
+      WHERE planning_run_id = %s
+      """,
+      (
+        normalized_action,
+        now,
+        str(reason or "").strip() or None,
+        now,
+        run_id,
+      ),
+    )
+    cur.execute(
+      """
+      INSERT INTO planning_stage_events (
+        event_id, planning_run_id, draft_id, client_id, stage, stage_status,
+        iteration, retry_count, cycle, event_type, event_summary, event_payload_json, created_at
+      ) VALUES (
+        %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s
+      )
+      """,
+      (
+        uuid.uuid4().hex,
+        run_id,
+        str(run_row.get("draft_id") or "").strip(),
+        str(run_row.get("client_id") or "").strip(),
+        str(run_row.get("current_stage") or "").strip() or None,
+        str(run_row.get("current_stage_status") or "").strip() or None,
+        run_row.get("current_iteration"),
+        run_row.get("current_retry_count"),
+        run_row.get("current_cycle"),
+        f"run_{normalized_action}_requested",
+        f"{normalized_action}_requested",
+        json.dumps(
+          {
+            "requested_action": normalized_action,
+            "requested_action_reason": str(reason or "").strip(),
+          },
+          ensure_ascii=False,
+        ),
+        now,
+      ),
+    )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  updated = get_planning_run(conn, planning_run_id=run_id)
+  mirror_planning_run_state_to_draft(
+    conn,
+    draft_id=str((updated or run_row).get("draft_id") or "").strip(),
+    planning_run_row=copy.deepcopy(updated if isinstance(updated, dict) else run_row),
+    commit=True,
+  )
+  return updated if isinstance(updated, dict) else run_row
+
+
+def clear_planning_run_action(
+  conn,
+  *,
+  planning_run_id: str,
+  run_status: Optional[str] = None,
+  failure_reason: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+  ensure_table(conn)
+  run_id = str(planning_run_id or "").strip()
+  if not run_id:
+    return None
+  target_status = str(run_status or "").strip().lower()
+  now = current_app_timestamp_str()
+  set_parts = [
+    "requested_action = NULL",
+    "requested_action_at = NULL",
+    "requested_action_reason = NULL",
+    "updated_at = %s",
+  ]
+  values: List[Any] = [now]
+  if target_status in {"paused", "stopped", "running", "failed", "completed"}:
+    set_parts.append("run_status = %s")
+    values.append(target_status)
+    set_parts.append("current_stage_status = %s")
+    values.append(target_status)
+  if str(failure_reason or "").strip():
+    set_parts.append("failure_reason = %s")
+    values.append(str(failure_reason or "").strip())
+  if target_status == "paused":
+    set_parts.append("paused_at = %s")
+    values.append(now)
+  elif target_status == "stopped":
+    set_parts.append("stopped_at = %s")
+    values.append(now)
+  elif target_status == "failed":
+    set_parts.append("completed_at = %s")
+    values.append(now)
+  values.append(run_id)
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      f"UPDATE planning_runs SET {', '.join(set_parts)} WHERE planning_run_id = %s",
+      tuple(values),
+    )
+    conn.commit()
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  updated = get_planning_run(conn, planning_run_id=run_id)
+  if isinstance(updated, dict):
+    mirror_planning_run_state_to_draft(
+      conn,
+      draft_id=str(updated.get("draft_id") or "").strip(),
+      planning_run_row=copy.deepcopy(updated),
+      status=(
+        "completed"
+        if target_status == "completed"
+        else "failed"
+        if target_status == "failed"
+        else "in_progress"
+        if target_status in {"running", "paused", "stopped"}
+        else None
+      ),
+      commit=True,
+    )
+  return updated
+
+
+def mirror_planning_run_state_to_draft(
+  conn,
+  *,
+  draft_id: str,
+  planning_run_row: Optional[Dict[str, Any]] = None,
+  planning_run_json: Optional[Dict[str, Any]] = None,
+  status: Optional[str] = None,
+  commit: bool = True,
+) -> Dict[str, Any]:
+  ensure_table(conn)
+  merged_flat_fields: Dict[str, Any] = {}
+  merged_flat_fields.update(_planning_run_flat_field_values(planning_run_json))
+  merged_flat_fields.update(_planning_run_row_flat_field_values(planning_run_row))
+  return append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=[],
+    planning_run_json=planning_run_json,
+    status=status,
+    flat_fields=merged_flat_fields,
+    commit=commit,
+  )
+
+
+def _planning_run_counts_from_payload(planning_run_json: Optional[Dict[str, Any]]) -> Dict[str, Optional[int]]:
+  flat = _planning_run_flat_field_values(planning_run_json or {})
+  return {
+    "detected": flat.get("planning_detected_issue_count"),
+    "remaining": flat.get("planning_remaining_issue_count"),
+    "resolved": flat.get("planning_resolved_issue_count"),
+    "iteration": flat.get("planning_last_review_iteration"),
+  }
+
+
+def _derive_execution_run_status(
+  *,
+  planning_run_json: Optional[Dict[str, Any]],
+  draft_status: Optional[str],
+  completed: bool,
+) -> str:
+  if completed:
+    return "completed"
+  payload = planning_run_json if isinstance(planning_run_json, dict) else {}
+  planning_status = str(payload.get("status") or "").strip().lower()
+  raw_status = str(draft_status or "").strip().lower()
+  if planning_status == "completed" or raw_status == "completed":
+    return "completed"
+  if raw_status in {"failed", "error"}:
+    return "failed"
+  if raw_status in {"paused", "stopped"}:
+    return raw_status
+  if raw_status == "submitted":
+    return "completed"
+  return "running"
+
+
+def _default_checkpoint_kind(*, completed: bool, status: Optional[str], stage: str) -> str:
+  if completed or str(status or "").strip().lower() == "completed":
+    return "run_complete"
+  if stage:
+    return "stage_snapshot"
+  return "state_snapshot"
+
+
+def _default_event_type(*, completed: bool, status: Optional[str], stage: str) -> str:
+  if completed or str(status or "").strip().lower() == "completed":
+    return "run_completed"
+  if stage:
+    return "stage_persisted"
+  return "state_persisted"
+
+
+def persist_post_intake_execution_state(
+  conn,
+  *,
+  draft_id: str,
+  operating_model_json: Optional[Dict[str, Any]] = None,
+  target_market_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
+  fulfillment_json: Optional[Dict[str, Any]] = None,
+  planning_context_summary_json: Optional[Dict[str, Any]] = None,
+  planning_run_json: Optional[Dict[str, Any]] = None,
+  planning_runtime_json: Optional[Dict[str, Any]] = None,
+  numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
+  realism_memo_json: Optional[Dict[str, Any]] = None,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  new_messages: Optional[List[Dict[str, str]]] = None,
+  active_focus: Optional[str] = "done",
+  status: Optional[str] = "in_progress",
+  business_facts: Optional[Dict[str, Any]] = None,
+  completed: bool = False,
+  checkpoint_kind: Optional[str] = None,
+  event_type: Optional[str] = None,
+  event_summary: Optional[str] = None,
+) -> Dict[str, Any]:
+  ensure_table(conn)
+  row = get_draft_runtime_row(conn, draft_id=str(draft_id).strip())
+  client_id = str(row.get("client_id") or "").strip()
+  if not client_id:
+    raise RuntimeError("persist_post_intake_execution_state_requires_client_id")
+
+  payload = copy_payload = (
+    json.loads(json.dumps(planning_run_json, ensure_ascii=False))
+    if isinstance(planning_run_json, dict)
+    else {}
+  )
+  stage = str(copy_payload.get("stage") or "").strip()
+  planning_status = str(copy_payload.get("status") or "").strip()
+  counts = _planning_run_counts_from_payload(copy_payload if copy_payload else None)
+  current_iteration = counts.get("iteration")
+  current_cycle = None
+  try:
+    current_cycle = int(float(copy_payload.get("unified_convergence_cycle_count")))
+  except Exception:
+    current_cycle = None
+  if current_cycle is None:
+    try:
+      current_cycle = int(float(copy_payload.get("final_guarantee_cycle_count")))
+    except Exception:
+      current_cycle = None
+  heartbeat = copy_payload.get("controller_retry_heartbeat")
+  current_retry_count = None
+  if isinstance(heartbeat, dict):
+    try:
+      current_retry_count = int(float(heartbeat.get("attempt_number")))
+    except Exception:
+      current_retry_count = None
+
+  run_status = _derive_execution_run_status(
+    planning_run_json=copy_payload if copy_payload else None,
+    draft_status=status,
+    completed=completed,
+  )
+
+  existing_run_id = str(copy_payload.get("planning_run_id") or "").strip()
+  latest_active_run = _latest_planning_run(conn, draft_id=str(draft_id).strip(), active_only=True)
+  latest_any_run = _latest_planning_run(conn, draft_id=str(draft_id).strip(), active_only=False)
+  run_row = None
+  if existing_run_id:
+    run_row = latest_active_run if latest_active_run and str(latest_active_run.get("planning_run_id") or "").strip() == existing_run_id else None
+    if run_row is None and latest_any_run and str(latest_any_run.get("planning_run_id") or "").strip() == existing_run_id:
+      run_row = latest_any_run
+  if run_row is None:
+    if run_status == "completed" and latest_active_run:
+      run_row = latest_active_run
+    elif latest_active_run:
+      run_row = latest_active_run
+
+  now = current_app_timestamp_str()
+  planning_run_id = str((run_row or {}).get("planning_run_id") or "").strip() or uuid.uuid4().hex
+  checkpoint_id = uuid.uuid4().hex
+  event_id = uuid.uuid4().hex
+
+  if isinstance(copy_payload, dict):
+    copy_payload["planning_run_id"] = planning_run_id
+    copy_payload["latest_checkpoint_id"] = checkpoint_id
+    copy_payload["run_status"] = run_status
+
+  checkpoint_kind_value = str(checkpoint_kind or "").strip() or _default_checkpoint_kind(
+    completed=completed,
+    status=planning_status or status,
+    stage=stage,
+  )
+  event_type_value = str(event_type or "").strip() or _default_event_type(
+    completed=completed,
+    status=planning_status or status,
+    stage=stage,
+  )
+  event_summary_value = str(event_summary or "").strip() or (
+    f"{stage or 'planning'}:{planning_status or status or run_status}"
+  )
+
+  projected_run_row: Dict[str, Any] = {}
+  if isinstance(run_row, dict):
+    projected_run_row.update(copy.deepcopy(run_row))
+  projected_run_row.update(
+    {
+      "planning_run_id": planning_run_id,
+      "draft_id": str(draft_id).strip(),
+      "client_id": client_id,
+      "run_status": run_status,
+      "current_stage": stage or None,
+      "current_stage_status": planning_status or status or None,
+      "current_iteration": current_iteration,
+      "current_retry_count": current_retry_count,
+      "current_cycle": current_cycle,
+      "latest_detected_issue_count": counts.get("detected"),
+      "latest_remaining_issue_count": counts.get("remaining"),
+      "latest_resolved_issue_count": counts.get("resolved"),
+      "latest_checkpoint_id": checkpoint_id,
+      "latest_controller_status": (
+        str((copy_payload.get("controller_resolution_state") or {}).get("status") or "").strip() or None
+        if isinstance(copy_payload.get("controller_resolution_state"), dict)
+        else None
+      ),
+      "failure_reason": str(copy_payload.get("failure_reason") or "").strip() or None,
+      "updated_at": now,
+      "last_heartbeat_at": now,
+      "completed_at": now if run_status == "completed" else None,
+    }
+  )
+
+  runtime_payload = (
+    json.loads(json.dumps(planning_runtime_json, ensure_ascii=False))
+    if isinstance(planning_runtime_json, dict)
+    else _build_planning_runtime_payload(
+      planning_run_json=copy_payload if copy_payload else planning_run_json,
+      numeric_solver_feedback_json=numeric_solver_feedback_json,
+    )
+  )
+  store_full_planning_payload = _should_store_full_planning_payload(
+    checkpoint_kind=checkpoint_kind_value,
+    run_status=run_status,
+    has_existing_run=bool(run_row),
+  )
+  planning_payload_for_draft = copy.deepcopy(copy_payload) if store_full_planning_payload and copy_payload else None
+  store_heavy_checkpoint_payloads = _should_store_heavy_checkpoint_payloads(
+    checkpoint_kind=checkpoint_kind_value,
+    run_status=run_status,
+  )
+  numeric_feedback_for_draft = _compact_numeric_feedback_runtime_payload(numeric_solver_feedback_json)
+
+  append_messages(
+    conn,
+    draft_id=str(draft_id).strip(),
+    new_messages=list(new_messages or []),
+    operating_model_json=operating_model_json,
+    target_market_json=target_market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    marketing_model_json=marketing_model_json,
+    financials_year1_json=financials_year1_json,
+    realism_memo_json=realism_memo_json,
+    planning_context_summary_json=planning_context_summary_json,
+    planning_run_json=planning_payload_for_draft,
+    planning_runtime_json=copy.deepcopy(runtime_payload),
+    numeric_solver_feedback_json=copy.deepcopy(numeric_feedback_for_draft),
+    fulfillment_json=fulfillment_json,
+    model_input_json=model_input_json,
+    finmo_json=finmo_json,
+    active_focus=active_focus,
+    status=status,
+    business_facts=business_facts,
+    flat_fields={
+      **_planning_run_flat_field_values(copy_payload if copy_payload else planning_run_json),
+      **_planning_run_row_flat_field_values(projected_run_row),
+    },
+    completed=completed,
+    commit=False,
+  )
+
+  cur = conn.cursor()
+  try:
+    if run_row:
+      cur.execute(
+        """
+        UPDATE planning_runs
+        SET run_status = %s,
+            current_stage = %s,
+            current_stage_status = %s,
+            current_iteration = %s,
+            current_retry_count = %s,
+            current_cycle = %s,
+            latest_detected_issue_count = %s,
+            latest_remaining_issue_count = %s,
+            latest_resolved_issue_count = %s,
+            latest_checkpoint_id = %s,
+            latest_controller_status = %s,
+            failure_reason = %s,
+            updated_at = %s,
+            last_heartbeat_at = %s,
+            completed_at = %s
+        WHERE planning_run_id = %s
+        """,
+        (
+          run_status,
+          stage or None,
+          planning_status or status or None,
+          current_iteration,
+          current_retry_count,
+          current_cycle,
+          counts.get("detected"),
+          counts.get("remaining"),
+          counts.get("resolved"),
+          checkpoint_id,
+          str((copy_payload.get("controller_resolution_state") or {}).get("status") or "").strip() or None
+          if isinstance(copy_payload.get("controller_resolution_state"), dict)
+          else None,
+          str(copy_payload.get("failure_reason") or "").strip() or None,
+          now,
+          now,
+          now if run_status == "completed" else None,
+          planning_run_id,
+        ),
+      )
+    else:
+      cur.execute(
+        """
+        INSERT INTO planning_runs (
+          planning_run_id, draft_id, client_id, run_status, current_stage, current_stage_status,
+          current_iteration, current_retry_count, current_cycle, latest_detected_issue_count,
+          latest_remaining_issue_count, latest_resolved_issue_count, latest_checkpoint_id,
+          resume_from_checkpoint_id, latest_controller_status, failure_reason, trigger_type,
+          created_at, updated_at, started_at, last_heartbeat_at, completed_at
+        ) VALUES (
+          %s, %s, %s, %s, %s, %s,
+          %s, %s, %s, %s,
+          %s, %s, %s,
+          %s, %s, %s, %s,
+          %s, %s, %s, %s, %s
+        )
+        """,
+        (
+          planning_run_id,
+          str(draft_id).strip(),
+          client_id,
+          run_status,
+          stage or None,
+          planning_status or status or None,
+          current_iteration,
+          current_retry_count,
+          current_cycle,
+          counts.get("detected"),
+          counts.get("remaining"),
+          counts.get("resolved"),
+          checkpoint_id,
+          None,
+          str((copy_payload.get("controller_resolution_state") or {}).get("status") or "").strip() or None
+          if isinstance(copy_payload.get("controller_resolution_state"), dict)
+          else None,
+          str(copy_payload.get("failure_reason") or "").strip() or None,
+          "system_run",
+          now,
+          now,
+          now,
+          now,
+          now if run_status == "completed" else None,
+        ),
+      )
+
+    cur.execute(
+      """
+      INSERT INTO planning_run_checkpoints (
+        checkpoint_id, planning_run_id, draft_id, client_id, stage, stage_status,
+        iteration, retry_count, cycle, checkpoint_kind, controller_resolution_state_json,
+        planning_run_json, numeric_solver_feedback_json, model_input_json, finmo_json,
+        realism_memo_json, diagnostics_json, created_at, updated_at
+      ) VALUES (
+        %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s,
+        %s, %s, %s, %s,
+        %s, %s, %s, %s
+      )
+      """,
+      (
+        checkpoint_id,
+        planning_run_id,
+        str(draft_id).strip(),
+        client_id,
+        stage or None,
+        planning_status or status or None,
+        current_iteration,
+        current_retry_count,
+        current_cycle,
+        checkpoint_kind_value,
+        json.dumps(copy_payload.get("controller_resolution_state"), ensure_ascii=False)
+        if isinstance(copy_payload.get("controller_resolution_state"), dict)
+        else None,
+        json.dumps(copy_payload, ensure_ascii=False)
+        if store_heavy_checkpoint_payloads and isinstance(copy_payload, dict) and copy_payload
+        else None,
+        json.dumps(numeric_feedback_for_draft, ensure_ascii=False)
+        if store_heavy_checkpoint_payloads and isinstance(numeric_feedback_for_draft, dict) and numeric_feedback_for_draft
+        else None,
+        json.dumps(model_input_json, ensure_ascii=False)
+        if store_heavy_checkpoint_payloads and isinstance(model_input_json, dict)
+        else None,
+        json.dumps(finmo_json, ensure_ascii=False)
+        if store_heavy_checkpoint_payloads and isinstance(finmo_json, dict)
+        else None,
+        json.dumps(realism_memo_json, ensure_ascii=False)
+        if store_heavy_checkpoint_payloads and isinstance(realism_memo_json, dict)
+        else None,
+        json.dumps((copy_payload.get("diagnostics_snapshot") if isinstance(copy_payload.get("diagnostics_snapshot"), dict) else {}), ensure_ascii=False)
+        if isinstance(copy_payload, dict) and copy_payload.get("diagnostics_snapshot") is not None
+        else None,
+        now,
+        now,
+      ),
+    )
+
+    cur.execute(
+      """
+      INSERT INTO planning_stage_events (
+        event_id, planning_run_id, draft_id, client_id, stage, stage_status,
+        iteration, retry_count, cycle, event_type, event_summary, event_payload_json, created_at
+      ) VALUES (
+        %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s
+      )
+      """,
+      (
+        event_id,
+        planning_run_id,
+        str(draft_id).strip(),
+        client_id,
+        stage or None,
+        planning_status or status or None,
+        current_iteration,
+        current_retry_count,
+        current_cycle,
+        event_type_value,
+        event_summary_value,
+        json.dumps(
+          {
+            "checkpoint_id": checkpoint_id,
+            "run_status": run_status,
+            "stage": stage,
+            "status": planning_status or status,
+            "remaining_issue_count": counts.get("remaining"),
+            "resolved_issue_count": counts.get("resolved"),
+            "detected_issue_count": counts.get("detected"),
+            "planning_runtime_json": runtime_payload,
+          },
+          ensure_ascii=False,
+        ),
+        now,
+      ),
+    )
+    conn.commit()
+  except Exception:
+    try:
+      conn.rollback()
+    except Exception:
+      pass
+    raise
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+  return {
+    "planning_run_id": planning_run_id,
+    "checkpoint_id": checkpoint_id,
+    "event_id": event_id,
+    "run_status": run_status,
+    "planning_context_summary_json": copy.deepcopy(planning_context_summary_json or {}),
+    "planning_run_json": copy_payload if copy_payload else planning_run_json,
+    "planning_runtime_json": runtime_payload,
+  }
+
+
 def mark_submitted(
   conn,
   *,
   draft_id: str,
   intake_submission_id: int,
 ) -> None:
-  now = _utc_now_str()
+  now = current_app_timestamp_str()
   cur = conn.cursor()
   try:
     cur.execute(
@@ -846,7 +2519,7 @@ def reopen_draft(conn, *, draft_id: str) -> None:
   Keeps messages_json intact but clears operating_model_json and completed_at.
   """
   ensure_table(conn)
-  now = _utc_now_str()
+  now = current_app_timestamp_str()
   cur = conn.cursor()
   try:
     cur.execute(
