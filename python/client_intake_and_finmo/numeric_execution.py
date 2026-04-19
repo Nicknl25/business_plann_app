@@ -562,7 +562,7 @@ def _normalized_solver_settings(
     "current_execution_mode": _solver_phase_status_for_pass(pass_name),
     "quarter_level_targets_required": True,
     "enforce_quarter_specific_targets": True,
-    "full_horizon_primary_targeting_required": bool(pass_name == "unified_convergence"),
+    "full_horizon_primary_targeting_required": False,
     "sequential_quarter_solve_required": True,
     "quarter_execution_order": "ascending",
     "lumped_horizon_objective_allowed": False,
@@ -577,6 +577,9 @@ def _normalized_solver_settings(
     "preserve_non_targeted_levers": True,
     "allow_multi_lever_coordination": True,
     "no_progress_response": "switch_tactic_not_repeat_same_move",
+    "focused_cycle_issue_limit": 2 if pass_name == "unified_convergence" else None,
+    "focused_cycle_quarter_limit": 4 if pass_name == "unified_convergence" else None,
+    "focused_cycle_lever_family_limit": 3 if pass_name == "unified_convergence" else None,
   }
 
 
