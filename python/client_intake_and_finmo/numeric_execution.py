@@ -459,8 +459,8 @@ def _infer_issue_lever_ids(
     add_matching(["owner's capital", "owner_equity_contribution", "other equity", "debt draw", "debt issuance", "new borrowing", "debt repayment", "short term debt", "distributions"])
     add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "capital expenditures"])
   elif code == "profitability_cash_shape_unrealistic":
-    add_matching(["owner's capital", "other equity", "distributions", "debt issuance", "new borrowing", "debt repayment", "capital expenditures"])
     add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "lease"])
+    add_matching(["owner's capital", "other equity", "distributions", "debt issuance", "new borrowing", "debt repayment", "capital expenditures"])
   elif code == "staffing_payroll_mismatch":
     add_matching(["payroll", "capacity", "utilization", "unit price", "marketing", "general & administrative"])
   elif code == "capacity_revenue_mismatch":

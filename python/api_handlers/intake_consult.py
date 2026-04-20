@@ -3817,6 +3817,13 @@ def _build_unified_convergence_fail_fast_terminal_message(
 def _first_unified_convergence_test_failure(
   issue_alignment_debug: Optional[List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
+  suppress_on_progress_flags = {
+    "all_selected_levers_indirect",
+    "weakest_metric_not_targeted",
+    "expected_impact_but_actual_change_negligible",
+    "gap_reduction_stalled_multiple_cycles",
+    "gap_shrinking_but_score_flat",
+  }
   for item in (issue_alignment_debug or []):
     if not isinstance(item, dict):
       continue
@@ -3825,6 +3832,15 @@ def _first_unified_convergence_test_failure(
       for flag in (item.get("flags") or [])
       if str(flag).strip() in _CONVERGENCE_TEST_MODE_FAIL_FLAGS
     ]
+    issue_has_meaningful_progress = bool(
+      float(_safe_float(item.get("gap_reduction")) or 0.0) > 1e-9
+      or float(_safe_float(item.get("score_delta")) or 0.0) > 1e-9
+    )
+    if issue_has_meaningful_progress:
+      trigger_flags = [
+        flag for flag in trigger_flags
+        if flag not in suppress_on_progress_flags
+      ]
     zero_progress_stall_detected = bool(
       int(_safe_float(item.get("consecutive_zero_progress_cycles")) or 0) >= 2
       and abs(float(_safe_float(item.get("gap_reduction")) or 0.0)) <= 1e-9
@@ -7575,6 +7591,21 @@ def _translate_metric_delta_to_lever_delta(
       translation_basis="cogs_ratio_from_gross_margin_pct",
       translation_confidence="high",
     )
+  if metric == "gross_margin_pct" and family == "revenue":
+    denominator = max(1e-9, 1.0 - float(target_metric))
+    desired_revenue = float(max(cogs, 0.0) / denominator)
+    revenue_delta = desired_revenue - revenue
+    lever_delta = (
+      float((baseline_value or 0.0) * (revenue_delta / revenue))
+      if baseline_value is not None and abs(revenue) > 1e-9
+      else float(revenue_delta)
+    )
+    return _result(
+      lever_delta,
+      delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+      translation_basis="proportional_revenue_translation_from_gross_margin_pct",
+      translation_confidence="medium",
+    )
 
   if metric == "opex_to_revenue_ratio":
     if role == "operating_cost_ratio":
@@ -8575,6 +8606,51 @@ def _build_unified_numeric_guidance_packet(
       )
     )[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
     effective_quarters = [quarter for quarter in affected_quarters if quarter in scoped_quarter_set] or affected_quarters or scoped_quarters
+    metric_summary_map: Dict[str, Dict[str, Any]] = {}
+    for spec in metric_specs:
+      metric_name = str(spec.get("metric_name") or "").strip().lower()
+      if not metric_name:
+        continue
+      summary = metric_summary_map.setdefault(
+        metric_name,
+        {
+          "metric_name": metric_name,
+          "gap_abs": 0.0,
+          "score_values": [],
+        },
+      )
+      summary["gap_abs"] = float(summary.get("gap_abs") or 0.0) + abs(float(_safe_float(spec.get("gap")) or 0.0))
+      summary.setdefault("score_values", []).append(float(_safe_float(spec.get("score_pct")) or 0.0))
+    ordered_metric_summaries = []
+    for summary in metric_summary_map.values():
+      score_values = [
+        float(_safe_float(item) or 0.0)
+        for item in (summary.get("score_values") or [])
+      ]
+      ordered_metric_summaries.append(
+        {
+          "metric_name": str(summary.get("metric_name") or "").strip().lower(),
+          "gap_abs": float(_safe_float(summary.get("gap_abs")) or 0.0),
+          "average_score_pct": (
+            float(sum(score_values) / max(len(score_values), 1))
+            if score_values
+            else 100.0
+          ),
+        }
+      )
+    selected_metric_summary = (
+      sorted(
+        ordered_metric_summaries,
+        key=lambda item: (
+          float(_safe_float(item.get("average_score_pct")) or 0.0),
+          -float(_safe_float(item.get("gap_abs")) or 0.0),
+          str(item.get("metric_name") or "").strip(),
+        ),
+      )[0]
+      if ordered_metric_summaries
+      else {}
+    )
+    selected_metric_name = str(selected_metric_summary.get("metric_name") or "").strip().lower()
     metric_targets = list(
       dict.fromkeys(
         [
@@ -8638,6 +8714,8 @@ def _build_unified_numeric_guidance_packet(
           ]
         )
       ),
+      "selected_metric_name": selected_metric_name or None,
+      "selected_metric_summary": copy.deepcopy(selected_metric_summary),
       "primary_target_proxy_metrics": [],
       "repair_targets": [],
     }
@@ -8862,6 +8940,10 @@ def _build_unified_numeric_guidance_packet(
     return True
 
   for issue_code in focus_issue_codes:
+    issue_packet = issue_repair_packet_map.get(issue_code) or {}
+    selected_metric_name = str(issue_packet.get("selected_metric_name") or "").strip().lower()
+    issue_direct_items: List[Dict[str, Any]] = []
+    issue_fallback_items: List[Dict[str, Any]] = []
     for item in ranked_lever_entries:
       covered_issue_codes = {
         str(code or "").strip().lower()
@@ -8870,6 +8952,17 @@ def _build_unified_numeric_guidance_packet(
       }
       if issue_code not in covered_issue_codes:
         continue
+      issue_fallback_items.append(item)
+      if selected_metric_name:
+        path_type, _efficiency = _repair_path_type_for_lever(
+          metric_name=selected_metric_name,
+          lever_id=item.get("lever_id"),
+          accounting_role=item.get("accounting_role"),
+          source_metric_names=item.get("covered_source_metric_names") or [],
+        )
+        if str(path_type or "").strip().lower() == "direct":
+          issue_direct_items.append(item)
+    for item in (issue_direct_items or issue_fallback_items):
       if _append_ranked_item(item, enforce_family_limit=False):
         break
       if len(lever_band_scaffold) >= _CONVERGENCE_MAX_FOCUS_LEVERS:
