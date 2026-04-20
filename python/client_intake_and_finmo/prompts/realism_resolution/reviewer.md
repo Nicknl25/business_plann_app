@@ -35,7 +35,8 @@ Hard rules:
 - Do not invent new lever ids.
 - Use the writable lever catalog to understand what each lever actually controls before choosing adjustments.
 - Respect the accounting semantics of the financing rows:
-  - `schedules::Plus: Additions (repayments), net` is net debt draws / debt paydowns.
+  - `schedules::Debt Issuance (New Borrowing)` is new debt borrowing in only.
+  - `schedules::Debt Repayment (Scheduled)` is term debt repayment / deleveraging out only.
   - `schedules::Capital Expenditures` is real capex spend.
   - `schedules::Less: Principal Repayments` is capital-lease principal repayment.
   - `balance_sheet::Owner's Capital` is owner or partner capital contributed into the business, not owner payouts.

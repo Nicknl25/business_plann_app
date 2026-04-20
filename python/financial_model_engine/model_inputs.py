@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Optional
 
 QUARTER_COUNT = 20
 INPUT_PERIOD_COUNT = QUARTER_COUNT + 1
+DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
+DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
+LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -348,6 +351,7 @@ class FinancialModelInputs:
       named_range="model_input_schedules",
       target=next_book.schedule_rows,
     )
+    next_book._normalize_debt_schedule_rows()
     next_book._sync_known_expense_drivers_from_rows()
     return next_book
 
@@ -667,6 +671,51 @@ class FinancialModelInputs:
     if normalized == "schedules":
       return self.schedule_rows
     raise ValueError(f"Unsupported controller-write section: {section}")
+
+  def _ensure_schedule_row(
+    self,
+    *,
+    label: str,
+    values: Optional[List[float]] = None,
+    input_semantics: str = "quarter_currency",
+  ) -> None:
+    if label in self.schedule_rows:
+      return
+    self.schedule_rows[label] = ControllerWriteRow(
+      section="schedules",
+      label=label,
+      values=list(values or []),
+      named_range="model_input_schedules",
+      lever_id=f"schedules::{label}",
+      value_kind="direct_number",
+      input_semantics=input_semantics,
+    )
+
+  def _normalize_debt_schedule_rows(self) -> None:
+    legacy_row = self.schedule_rows.get(LEGACY_NET_DEBT_LABEL)
+    if legacy_row is not None:
+      legacy_values = list(legacy_row.values or [])
+      if DEBT_ISSUANCE_LABEL not in self.schedule_rows:
+        self._ensure_schedule_row(
+          label=DEBT_ISSUANCE_LABEL,
+          values=[max(0.0, _safe_float(value)) for value in legacy_values],
+          input_semantics="debt_new_borrowing",
+        )
+      if DEBT_REPAYMENT_LABEL not in self.schedule_rows:
+        self._ensure_schedule_row(
+          label=DEBT_REPAYMENT_LABEL,
+          values=[max(0.0, -_safe_float(value)) for value in legacy_values],
+          input_semantics="debt_scheduled_repayment",
+        )
+      self.schedule_rows.pop(LEGACY_NET_DEBT_LABEL, None)
+    self._ensure_schedule_row(
+      label=DEBT_ISSUANCE_LABEL,
+      input_semantics="debt_new_borrowing",
+    )
+    self._ensure_schedule_row(
+      label=DEBT_REPAYMENT_LABEL,
+      input_semantics="debt_scheduled_repayment",
+    )
 
   def _sync_rows_from_known_expense_drivers(self) -> None:
     for quarter in self.quarters:

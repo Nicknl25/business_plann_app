@@ -591,7 +591,6 @@ def solve_review_plan(
     "initial_restructure",
     "realism_resolution",
     "cash_strategy_review",
-    "final_stabilizer",
     "unified_convergence",
   }:
     return {
@@ -602,7 +601,7 @@ def solve_review_plan(
       "quarter_results": [],
       "outcome": {
         "execution_state": "numeric_solver_not_applicable",
-        "reason": "Current numeric worker only activates for initial_restructure, realism_resolution, cash_strategy_review, and final_stabilizer.",
+        "reason": "Current numeric worker only activates for initial_restructure, realism_resolution, cash_strategy_review, and unified_convergence.",
       },
     }
 

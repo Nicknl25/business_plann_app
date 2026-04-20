@@ -6,6 +6,10 @@ from typing import Any, Dict, List
 
 from .model_inputs import FinancialModelInputs, QUARTER_COUNT, _safe_float
 
+DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
+DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
+LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
+
 
 def _parse_start_date(value: str) -> date:
   cleaned = str(value or "").strip()
@@ -82,14 +86,16 @@ FORMULA_REGISTRY: Dict[str, str] = {
   "Operating Cash Flow": "Net Income + Depreciation + Changes in Current Assets + Changes in Current Liabilites",
   "Capital Expenditures": "schedules::Capital Expenditures",
   "Investing Cash Flow": "-Capital Expenditures",
-  "Dept Receive(Repay)": "Long Term Debt_t - Long Term Debt_(t-1)",
+  "Debt Issuance (New Borrowing)": f"schedules::{DEBT_ISSUANCE_LABEL}",
+  "Debt Repayment": f"min(schedules::{DEBT_REPAYMENT_LABEL}, Debt Opening Balance + Debt Issuance (New Borrowing))",
   "Equity": "(Owner's Capital_t - Owner's Capital_(t-1)) + (Other Equity_t - Other Equity_(t-1))",
-  "Financing Cash Flow": "Dept Receive(Repay) + Equity - Distributions - Capital Lease Principal Repayments",
+  "Financing Cash Flow": "Debt Issuance (New Borrowing) - Debt Repayment + Equity - Distributions - Capital Lease Principal Repayments",
   "Net Cash Flow": "Operating Cash Flow + Investing Cash Flow + Financing Cash Flow",
   "Ending Cash": "Beginning Cash + Net Cash Flow",
   "Debt Schedule / Opening Balance": "previous Debt Schedule Closing Balance, seeded from schedules.debt_opening_balance_seed",
-  "Debt Schedule / Plus: Additions (repayments), net": "schedules::Plus: Additions (repayments), net",
-  "Debt Schedule / Closing Balance": "Debt Opening Balance + Plus: Additions (repayments), net",
+  "Debt Schedule / Debt Issuance (New Borrowing)": f"schedules::{DEBT_ISSUANCE_LABEL}",
+  "Debt Schedule / Debt Repayment (Scheduled)": f"min(schedules::{DEBT_REPAYMENT_LABEL}, Debt Opening Balance + Debt Issuance (New Borrowing))",
+  "Debt Schedule / Closing Balance": "max(0, Debt Opening Balance + Debt Issuance (New Borrowing) - Debt Repayment (Scheduled))",
   "Debt Schedule / Interest Expense": "AVERAGE(Debt Opening Balance, Debt Closing Balance) * expenses::Interest Rate",
   "Debt Schedule / Interest Rate": "expenses::Interest Rate",
   "Capital Leases Schedule / Opening Balance (Total)": "previous Capital Lease Closing Balance (Total), seeded from schedules.lease_opening_balance_seed",
@@ -146,6 +152,8 @@ class FinmoQuarterResult:
   operating_cash_flow: float
   capital_expenditures: float
   investing_cash_flow: float
+  debt_issuance: float
+  debt_repayment: float
   debt_receive_repay: float
   equity: float
   owner_distributions: float
@@ -153,6 +161,8 @@ class FinmoQuarterResult:
   net_cash_flow: float
   ending_cash: float
   debt_opening_balance: float
+  debt_requested_issuance: float
+  debt_requested_repayment: float
   debt_additions_repayments_net: float
   debt_closing_balance: float
   debt_interest_expense: float
@@ -277,6 +287,8 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       operating_cash_flow=0.0,
       capital_expenditures=0.0,
       investing_cash_flow=0.0,
+      debt_issuance=0.0,
+      debt_repayment=0.0,
       debt_receive_repay=0.0,
       equity=0.0,
       owner_distributions=0.0,
@@ -284,6 +296,8 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
       net_cash_flow=0.0,
       ending_cash=model_inputs.cash_opening_balance_seed,
       debt_opening_balance=opening_total_debt,
+      debt_requested_issuance=0.0,
+      debt_requested_repayment=0.0,
       debt_additions_repayments_net=0.0,
       debt_closing_balance=opening_total_debt,
       debt_interest_expense=0.0,
@@ -301,7 +315,6 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   previous_prepaid_expenses = 0.0
   previous_current_liabilities = opening_current_liabilities
   previous_ppe = model_inputs.ppe_opening_balance_seed
-  previous_long_term_debt = opening_long_term_debt
   previous_owners_capital = opening_owner_capital
   previous_other_equity = opening_other_equity
   previous_retained_earnings = opening_retained_earnings
@@ -325,8 +338,12 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     ebitda = gross_profit - (marketing + r_and_d + lease_rent + payroll + g_and_a)
 
     debt_opening = previous_debt_closing_balance
-    debt_additions = _row_value(model_inputs, "schedules", "Plus: Additions (repayments), net", quarter.quarter_index)
-    debt_closing = debt_opening + debt_additions
+    requested_debt_issuance = max(0.0, _row_value(model_inputs, "schedules", DEBT_ISSUANCE_LABEL, quarter.quarter_index))
+    requested_debt_repayment = max(0.0, _row_value(model_inputs, "schedules", DEBT_REPAYMENT_LABEL, quarter.quarter_index))
+    available_debt_balance = max(0.0, debt_opening + requested_debt_issuance)
+    debt_issuance = requested_debt_issuance
+    debt_repayment = min(requested_debt_repayment, available_debt_balance)
+    debt_closing = max(0.0, available_debt_balance - debt_repayment)
     interest_rate = quarter.expenses.interest_rate
     interest = ((debt_opening + debt_closing) / 2.0) * interest_rate
 
@@ -372,10 +389,10 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     operating_cash_flow = net_income + depreciation + changes_in_current_assets + changes_in_current_liabilities
     capital_expenditures = capex
     investing_cash_flow = -capex
-    debt_receive_repay = long_term_debt - previous_long_term_debt
+    debt_receive_repay = debt_issuance - debt_repayment
     equity = (owners_capital - previous_owners_capital) + (other_equity - previous_other_equity)
     owner_distributions = distributions
-    financing_cash_flow = debt_receive_repay + equity - owner_distributions - lease_principal
+    financing_cash_flow = debt_issuance - debt_repayment + equity - owner_distributions - lease_principal
     net_cash_flow = operating_cash_flow + investing_cash_flow + financing_cash_flow
     ending_cash = beginning_cash + net_cash_flow
     cash = ending_cash
@@ -430,6 +447,8 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
         operating_cash_flow=operating_cash_flow,
         capital_expenditures=capital_expenditures,
         investing_cash_flow=investing_cash_flow,
+        debt_issuance=debt_issuance,
+        debt_repayment=debt_repayment,
         debt_receive_repay=debt_receive_repay,
         equity=equity,
         owner_distributions=owner_distributions,
@@ -437,7 +456,9 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
         net_cash_flow=net_cash_flow,
         ending_cash=ending_cash,
         debt_opening_balance=debt_opening,
-        debt_additions_repayments_net=debt_additions,
+        debt_requested_issuance=requested_debt_issuance,
+        debt_requested_repayment=requested_debt_repayment,
+        debt_additions_repayments_net=debt_receive_repay,
         debt_closing_balance=debt_closing,
         debt_interest_expense=interest,
         debt_interest_rate=interest_rate,
@@ -454,7 +475,6 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     previous_prepaid_expenses = prepaid_expenses
     previous_current_liabilities = current_liabilities
     previous_ppe = ppe
-    previous_long_term_debt = long_term_debt
     previous_owners_capital = owners_capital
     previous_other_equity = other_equity
     previous_retained_earnings = retained_earnings

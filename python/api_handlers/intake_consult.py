@@ -95,11 +95,22 @@ _UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.
 _REALISM_MAX_ITERATIONS = 1
 _PASS_INTERNAL_RETRY_MAX_ATTEMPTS = 4
 _PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO = 0.05
-_FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES = 8
+_FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES = 15
+_UNIFIED_CONVERGENCE_MAX_CYCLES = 15
 _RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
 _RETRY_MEMORY_MAX_PRIOR_TARGET_KEYS = 4
 _RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
 _RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
+_CONVERGENCE_TEST_MODE_FAIL_FLAGS = {
+  "repair_target_count_zero",
+  "no_direct_drivers_for_closure_metric",
+  "no_selected_levers_for_issue",
+  "all_selected_levers_indirect",
+  "weakest_metric_not_targeted",
+  "expected_impact_but_actual_change_negligible",
+  "gap_reduction_stalled_multiple_cycles",
+  "gap_shrinking_but_score_flat",
+}
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
   "by_model": {},
@@ -1093,8 +1104,6 @@ def _build_planning_run_payload(
   unified_context_payload = _compact_unified_convergence_context_for_storage(
     copy.deepcopy(unified_convergence_context or {})
   )
-  final_guarantee_iteration_list = copy.deepcopy(final_guarantee_iterations or [])
-  final_guarantee_context_payload = copy.deepcopy(final_guarantee_context or {})
   convergence_iteration_list = copy.deepcopy(unified_iteration_list or [])
   convergence_context_payload = copy.deepcopy(unified_context_payload or {})
   effective_cycle_count = (
@@ -1117,12 +1126,12 @@ def _build_planning_run_payload(
     if isinstance(latest_convergence_iteration.get("stall_assessment_before"), dict)
     else {}
   )
-  latest_trigger_assessment = (
-    latest_convergence_iteration.get("trigger_assessment_after")
-    if isinstance(latest_convergence_iteration.get("trigger_assessment_after"), dict)
+  latest_hard_rule_assessment = (
+    latest_convergence_iteration.get("hard_rule_assessment_after")
+    if isinstance(latest_convergence_iteration.get("hard_rule_assessment_after"), dict)
     else (
-      copy.deepcopy(final_guarantee_trigger_assessment)
-      if isinstance(final_guarantee_trigger_assessment, dict)
+      convergence_context_payload.get("hard_rule_assessment")
+      if isinstance(convergence_context_payload.get("hard_rule_assessment"), dict)
       else {}
     )
   )
@@ -1131,6 +1140,10 @@ def _build_planning_run_payload(
   resolved_issue_count = int(_safe_float(controller_state.get("resolved_issue_count")) or 0)
   iteration_pending_issue_count = int(_safe_float(controller_state.get("iteration_pending_issue_count")) or 0)
   all_cleared = bool(controller_state.get("all_cleared"))
+  remaining_hard_issue_count = int(
+    _safe_float(latest_hard_rule_assessment.get("remaining_hard_issue_count")) or 0
+  )
+  all_hard_rules_cleared = bool(latest_hard_rule_assessment.get("all_hard_rules_cleared"))
   final_stage_name = str(stage or "").strip() or "pending"
   requested_status_name = str(status or "").strip() or "pending"
   final_status_name = (
@@ -1160,24 +1173,21 @@ def _build_planning_run_payload(
     "lowest_quarter_score_pct": int(_safe_float(controller_state.get("lowest_quarter_score_pct")) or 0),
     "failing_quarters": copy.deepcopy(controller_state.get("failing_quarters") or []),
     "convergence_cycle_count": int(effective_cycle_count or 0) if effective_cycle_count is not None else len(convergence_iteration_list),
-    "final_guarantee_cycle_count": int(final_guarantee_cycle_count or 0) if final_guarantee_cycle_count is not None else len(final_guarantee_iteration_list),
-    "final_guarantee_last_cycle_accepted": (
-      bool(latest_convergence_iteration.get("accepted"))
-      if latest_convergence_iteration
-      else None
-    ),
+    "remaining_hard_issue_count": remaining_hard_issue_count,
+    "hard_rule_assessment": copy.deepcopy(latest_hard_rule_assessment),
     "latest_quality_assessment": copy.deepcopy(latest_quality_assessment),
     "latest_stall_assessment": copy.deepcopy(latest_stall_assessment),
-    "latest_trigger_assessment": copy.deepcopy(latest_trigger_assessment),
+    "latest_hard_rule_assessment": copy.deepcopy(latest_hard_rule_assessment),
     "controller_retry_heartbeat": copy.deepcopy(controller_retry_heartbeat or {}),
     "terminal_acceptance_gate": {
-      "stage_is_terminal_converged": final_stage_name in {"final_viability_guaranteed", "convergence_completed"},
-      "stage_is_final_viability_guaranteed": final_stage_name == "final_viability_guaranteed",
+      "stage_is_terminal_converged": final_stage_name == "convergence_completed",
+      "stage_is_convergence_completed": final_stage_name == "convergence_completed",
       "status_is_completed": final_status_name == "completed",
       "all_cleared": all_cleared,
       "remaining_issue_count_zero": remaining_issue_count == 0,
-      "final_trigger_assessment_clear": not bool(latest_trigger_assessment.get("needs_stabilization")),
-      "last_final_guarantee_cycle_accepted": (
+      "remaining_hard_issue_count_zero": remaining_hard_issue_count == 0,
+      "hard_rules_cleared": all_hard_rules_cleared,
+      "last_cycle_accepted": (
         bool(latest_convergence_iteration.get("accepted"))
         if latest_convergence_iteration
         else None
@@ -1204,6 +1214,7 @@ def _build_planning_run_payload(
     unified_convergence_plan=copy.deepcopy(unified_convergence_plan or {}),
     unified_convergence_result=copy.deepcopy(unified_convergence_result or {}),
     unified_convergence_cycle_count=effective_cycle_count,
+    cycle_debug=copy.deepcopy(latest_quality_assessment or {}),
   )
 
   payload: Dict[str, Any] = {
@@ -1238,15 +1249,6 @@ def _build_planning_run_payload(
     "initial_restructure_pass_plan": copy.deepcopy(initial_restructure_pass_plan or {}),
     "initial_restructure_pass_result": copy.deepcopy(initial_restructure_pass_result or {}),
     "initial_restructure_effect_summary": copy.deepcopy(initial_restructure_effect_summary or {}),
-    "final_stabilizer_context": copy.deepcopy(final_stabilizer_context or {}),
-    "final_stabilizer_decision": copy.deepcopy(final_stabilizer_decision or {}),
-    "final_stabilizer_pass_plan": copy.deepcopy(final_stabilizer_pass_plan or {}),
-    "final_stabilizer_pass_result": copy.deepcopy(final_stabilizer_pass_result or {}),
-    "final_stabilizer_effect_summary": copy.deepcopy(final_stabilizer_effect_summary or {}),
-    "final_guarantee_context": final_guarantee_context_payload,
-    "final_guarantee_iterations": final_guarantee_iteration_list,
-    "final_guarantee_trigger_assessment": copy.deepcopy(final_guarantee_trigger_assessment or {}),
-    "final_guarantee_cycle_count": int(final_guarantee_cycle_count or 0) if final_guarantee_cycle_count is not None else None,
     "unified_convergence_context": convergence_context_payload,
     "unified_convergence_decision": _compact_unified_convergence_decision_for_storage(
       copy.deepcopy(unified_convergence_decision or {})
@@ -1674,8 +1676,8 @@ def _compact_unified_convergence_iterations_for_storage(
         "accepted": bool(item.get("accepted")),
         "stall_assessment_before": copy.deepcopy(item.get("stall_assessment_before") or {}),
         "quality_assessment": copy.deepcopy(item.get("quality_assessment") or {}),
-        "trigger_assessment_before": copy.deepcopy(item.get("trigger_assessment_before") or {}),
-        "trigger_assessment_after": copy.deepcopy(item.get("trigger_assessment_after") or {}),
+        "hard_rule_assessment_before": copy.deepcopy(item.get("hard_rule_assessment_before") or {}),
+        "hard_rule_assessment_after": copy.deepcopy(item.get("hard_rule_assessment_after") or {}),
         "decision": (
           _compact_unified_convergence_decision_for_storage(item.get("decision"))
           if isinstance(item.get("decision"), dict)
@@ -1816,6 +1818,702 @@ def _cash_review_quarter_metrics(finmo_payload: Optional[Dict[str, Any]]) -> Lis
       }
     )
   return metrics
+
+
+def _financial_story_live_quarter_rows(finmo_payload: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  finmo_obj = finmo_payload if isinstance(finmo_payload, dict) else {}
+  quarter_rows = [row for row in (finmo_obj.get("quarter_rows") or []) if isinstance(row, dict)]
+  return [row for row in quarter_rows if int(float(row.get("quarter_index") or 0)) >= 1]
+
+
+def _financial_story_series(rows: List[Dict[str, Any]], key: str) -> List[float]:
+  return [float(_safe_float(row.get(key)) or 0.0) for row in rows]
+
+
+def _financial_story_average(values: List[float]) -> float:
+  if not values:
+    return 0.0
+  return float(sum(values) / len(values))
+
+
+def _financial_story_window(values: List[float], *, count: int = 4, tail: bool = False) -> List[float]:
+  if count <= 0:
+    return []
+  return list(values[-count:] if tail else values[:count])
+
+
+def _financial_story_window_sum(values: List[float], *, count: int = 4, tail: bool = False) -> float:
+  return float(sum(_financial_story_window(values, count=count, tail=tail)))
+
+
+def _financial_story_ratio(numerator: float, denominator: float) -> float:
+  if abs(float(denominator)) <= 1e-9:
+    return 0.0
+  return float(numerator) / float(denominator)
+
+
+def _financial_story_window_ratio(
+  numerator_series: List[float],
+  denominator_series: List[float],
+  *,
+  count: int = 4,
+  tail: bool = False,
+) -> float:
+  numerator = _financial_story_window_sum(numerator_series, count=count, tail=tail)
+  denominator = _financial_story_window_sum(denominator_series, count=count, tail=tail)
+  return _financial_story_ratio(numerator, denominator)
+
+
+def _financial_story_compact_currency(value: Any) -> str:
+  amount = float(_safe_float(value) or 0.0)
+  sign = "-" if amount < 0 else ""
+  magnitude = abs(amount)
+  if magnitude >= 1_000_000_000:
+    return f"{sign}${magnitude / 1_000_000_000:.1f}B"
+  if magnitude >= 1_000_000:
+    return f"{sign}${magnitude / 1_000_000:.1f}M"
+  if magnitude >= 1_000:
+    return f"{sign}${magnitude / 1_000:.1f}K"
+  return f"{sign}${magnitude:,.0f}"
+
+
+def _financial_story_percent(value: Any, *, digits: int = 1) -> str:
+  ratio = float(_safe_float(value) or 0.0)
+  return f"{ratio * 100:.{digits}f}%"
+
+
+def _financial_story_multiple(value: Any, *, digits: int = 1) -> str:
+  multiple = _safe_float(value)
+  if multiple is None or not math.isfinite(float(multiple)):
+    return "n/a"
+  return f"{float(multiple):.{digits}f}x"
+
+
+def _financial_story_trim(text: Any, *, max_chars: int) -> str:
+  collapsed = re.sub(r"\s+", " ", str(text or "")).strip()
+  if len(collapsed) <= max_chars:
+    return collapsed
+  trimmed = collapsed[: max_chars - 1].rstrip(" ,;:-")
+  last_break = max(trimmed.rfind(". "), trimmed.rfind("; "), trimmed.rfind(", "))
+  if last_break >= max_chars // 2:
+    trimmed = trimmed[:last_break].rstrip(" ,;:-.")
+  return f"{trimmed}."
+
+
+def _financial_story_days(balance_value: Any, flow_value: Any, days_in_quarter: Any) -> Optional[float]:
+  balance = _safe_float(balance_value)
+  flow = _safe_float(flow_value)
+  days = _safe_float(days_in_quarter)
+  if balance is None or flow is None or days is None:
+    return None
+  if abs(float(flow)) <= 1e-9 or float(days) <= 0:
+    return None
+  return float(balance) / abs(float(flow)) * float(days)
+
+
+def _financial_story_average_days(
+  rows: List[Dict[str, Any]],
+  *,
+  balance_key: str,
+  flow_key: str,
+) -> float:
+  values: List[float] = []
+  for row in rows:
+    day_value = _financial_story_days(
+      row.get(balance_key),
+      row.get(flow_key),
+      row.get("days_in_quarter"),
+    )
+    if day_value is None or not math.isfinite(day_value):
+      continue
+    values.append(float(day_value))
+  return _financial_story_average(values)
+
+
+def _financial_story_issue_codes(controller_resolution_state: Optional[Dict[str, Any]]) -> List[str]:
+  controller = controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
+  codes: List[str] = []
+  for item in (controller.get("remaining_issues") or []):
+    if not isinstance(item, dict):
+      continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    if issue_code and issue_code not in codes:
+      codes.append(issue_code)
+  return codes
+
+
+def _build_financial_story_payload(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  target_market_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  planning_context_summary_json: Optional[Dict[str, Any]],
+  current_finmo_json: Optional[Dict[str, Any]],
+  controller_resolution_state: Optional[Dict[str, Any]],
+  hard_rule_assessment: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  business = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  market = target_market_json if isinstance(target_market_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  planning_context = planning_context_summary_json if isinstance(planning_context_summary_json, dict) else {}
+  hard_rules = hard_rule_assessment if isinstance(hard_rule_assessment, dict) else {}
+  rows = _financial_story_live_quarter_rows(current_finmo_json)
+
+  business_name = (
+    str(business.get("name") or business.get("business_name") or planning_context.get("business_name") or "").strip()
+    or "The business"
+  )
+  business_type = (
+    str(ops.get("business_type") or ((planning_context.get("operating_profile") or {}) if isinstance(planning_context.get("operating_profile"), dict) else {}).get("business_type") or "").strip()
+    or "operating business"
+  )
+  unit_name = (
+    str(ops.get("unit_name") or ((planning_context.get("operating_profile") or {}) if isinstance(planning_context.get("operating_profile"), dict) else {}).get("unit_name") or "unit").strip()
+    or "unit"
+  )
+  unit_price = _safe_float(
+    ops.get("unit_price")
+    if ops.get("unit_price") is not None
+    else ((planning_context.get("operating_profile") or {}) if isinstance(planning_context.get("operating_profile"), dict) else {}).get("unit_price")
+  )
+  weekly_capacity = _safe_float(
+    ops.get("units_per_week_capacity")
+    if ops.get("units_per_week_capacity") is not None
+    else ((planning_context.get("operating_profile") or {}) if isinstance(planning_context.get("operating_profile"), dict) else {}).get("units_per_week_capacity")
+  )
+  utilization = _safe_float(
+    ops.get("utilization_rate")
+    if ops.get("utilization_rate") is not None
+    else ((planning_context.get("operating_profile") or {}) if isinstance(planning_context.get("operating_profile"), dict) else {}).get("utilization_rate")
+  )
+  capacity_driver = str(ops.get("capacity_driver") or "").strip() or "operating throughput"
+  shipping_method = str(ops.get("shipping_method") or "").strip()
+  primary_growth_lever = str(ops.get("primary_growth_lever") or "").strip() or "repeat volume growth"
+  cash_strategy = (
+    str(financials.get("cash_strategy") or planning_context.get("selected_cash_strategy") or "").strip()
+    or "balanced"
+  )
+  marketing_summary = str(market.get("marketing_plan_summary") or "").strip()
+  market_focus = ", ".join(
+    [str(item or "").strip() for item in (market.get("b2b_industry_terms") or []) if str(item or "").strip()][:3]
+  )
+
+  revenue_series = _financial_story_series(rows, "revenue")
+  gross_profit_series = _financial_story_series(rows, "gross_profit")
+  cogs_series = _financial_story_series(rows, "cogs")
+  ebitda_series = _financial_story_series(rows, "ebitda")
+  net_income_series = _financial_story_series(rows, "net_income")
+  operating_cash_flow_series = _financial_story_series(rows, "operating_cash_flow")
+  ending_cash_series = _financial_story_series(rows, "ending_cash")
+  marketing_series = _financial_story_series(rows, "marketing")
+  payroll_series = _financial_story_series(rows, "payroll")
+  g_and_a_series = _financial_story_series(rows, "g_and_a")
+  lease_rent_series = _financial_story_series(rows, "lease_rent")
+  capital_expenditure_series = _financial_story_series(rows, "capital_expenditures")
+  ppe_series = _financial_story_series(rows, "ppe")
+  current_assets_series = _financial_story_series(rows, "current_assets")
+  current_liabilities_series = _financial_story_series(rows, "current_liabilities")
+  accounts_receivable_series = _financial_story_series(rows, "accounts_receivable")
+  inventory_series = _financial_story_series(rows, "inventory")
+  accounts_payable_series = _financial_story_series(rows, "accounts_payable")
+  long_term_debt_series = _financial_story_series(rows, "long_term_debt")
+  short_term_debt_series = _financial_story_series(rows, "short_term_debt")
+  owners_capital_series = _financial_story_series(rows, "owners_capital")
+  other_equity_series = _financial_story_series(rows, "other_equity")
+  total_equity_series = _financial_story_series(rows, "total_equity")
+  interest_series = _financial_story_series(rows, "interest")
+
+  quarter_count = len(rows)
+  first_year_revenue = _financial_story_window_sum(revenue_series, count=4, tail=False)
+  final_year_revenue = _financial_story_window_sum(revenue_series, count=4, tail=True)
+  first_year_ebitda = _financial_story_window_sum(ebitda_series, count=4, tail=False)
+  final_year_ebitda = _financial_story_window_sum(ebitda_series, count=4, tail=True)
+  first_year_operating_cash = _financial_story_window_sum(operating_cash_flow_series, count=4, tail=False)
+  final_year_operating_cash = _financial_story_window_sum(operating_cash_flow_series, count=4, tail=True)
+  final_cash = ending_cash_series[-1] if ending_cash_series else 0.0
+  minimum_cash = min(ending_cash_series) if ending_cash_series else 0.0
+  peak_cash = max(ending_cash_series) if ending_cash_series else 0.0
+  final_ppe = ppe_series[-1] if ppe_series else 0.0
+  total_capex = float(sum(capital_expenditure_series))
+  early_capex = _financial_story_window_sum(capital_expenditure_series, count=4, tail=False)
+  late_capex = _financial_story_window_sum(capital_expenditure_series, count=4, tail=True)
+  final_total_debt = (long_term_debt_series[-1] if long_term_debt_series else 0.0) + (short_term_debt_series[-1] if short_term_debt_series else 0.0)
+  peak_total_debt = max(
+    [
+      lt + st
+      for lt, st in zip(
+        long_term_debt_series or [0.0] * max(1, quarter_count),
+        short_term_debt_series or [0.0] * max(1, quarter_count),
+      )
+    ]
+  ) if quarter_count else 0.0
+  trailing_interest = _financial_story_window_sum(interest_series, count=4, tail=True)
+  trailing_ebitda = final_year_ebitda
+  interest_coverage = (
+    _financial_story_ratio(trailing_ebitda, trailing_interest)
+    if abs(trailing_interest) > 1e-9
+    else None
+  )
+  leverage_ratio = (
+    _financial_story_ratio(final_total_debt, trailing_ebitda)
+    if abs(trailing_ebitda) > 1e-9
+    else None
+  )
+  gross_margin_early = _financial_story_window_ratio(gross_profit_series, revenue_series, count=4, tail=False)
+  gross_margin_late = _financial_story_window_ratio(gross_profit_series, revenue_series, count=4, tail=True)
+  ebitda_margin_early = _financial_story_window_ratio(ebitda_series, revenue_series, count=4, tail=False)
+  ebitda_margin_late = _financial_story_window_ratio(ebitda_series, revenue_series, count=4, tail=True)
+  cogs_percent = _financial_story_ratio(sum(cogs_series), sum(revenue_series))
+  payroll_percent = _financial_story_ratio(sum(payroll_series), sum(revenue_series))
+  marketing_percent = _financial_story_ratio(sum(marketing_series), sum(revenue_series))
+  overhead_percent = _financial_story_ratio(sum(g_and_a_series) + sum(lease_rent_series), sum(revenue_series))
+  operating_cash_positive_quarters = len([value for value in operating_cash_flow_series if value > 0.0])
+  ebitda_positive_quarters = len([value for value in ebitda_series if value > 0.0])
+  negative_cash_quarters = len([value for value in ending_cash_series if value < 0.0])
+  current_ratio_series = [
+    _financial_story_ratio(current_assets, current_liabilities)
+    for current_assets, current_liabilities in zip(current_assets_series, current_liabilities_series)
+  ]
+  final_current_ratio = current_ratio_series[-1] if current_ratio_series else 0.0
+  average_ar_days = _financial_story_average_days(rows, balance_key="accounts_receivable", flow_key="revenue")
+  average_inventory_days = _financial_story_average_days(rows, balance_key="inventory", flow_key="cogs")
+  average_ap_days = _financial_story_average_days(rows, balance_key="accounts_payable", flow_key="cogs")
+  annualized_growth = 0.0
+  horizon_year_span = max(1.0, (quarter_count / 4.0) - 1.0)
+  if first_year_revenue > 0.0 and final_year_revenue > 0.0:
+    annualized_growth = float((final_year_revenue / first_year_revenue) ** (1.0 / horizon_year_span) - 1.0)
+  modeled_units_year_one = (
+    first_year_revenue / unit_price
+    if unit_price is not None and abs(float(unit_price)) > 1e-9
+    else None
+  )
+  final_equity = total_equity_series[-1] if total_equity_series else 0.0
+  final_owners_capital = owners_capital_series[-1] if owners_capital_series else 0.0
+  final_other_equity = other_equity_series[-1] if other_equity_series else 0.0
+  remaining_issue_codes = _financial_story_issue_codes(controller_resolution_state)
+  hard_rule_clear = bool(hard_rules.get("all_hard_rules_cleared")) if hard_rules else negative_cash_quarters == 0
+
+  logistics_like = any(
+    keyword in str(business_type or "").lower()
+    for keyword in ("shipping", "logistics", "transport", "freight", "delivery")
+  )
+  cogs_components = (
+    [
+      "Purchased transportation, linehaul, and last-mile delivery expense",
+      "Sorting, handling, and network operations tied to shipment volume",
+      "Fuel, carrier payments, and other throughput-linked fulfillment cost",
+    ]
+    if logistics_like
+    else [
+      "Direct fulfillment or service-delivery cost tied to customer volume",
+      "Variable labor or contractor expense needed to deliver the offering",
+      "Materials, pass-through items, and operating inputs that scale with demand",
+    ]
+  )
+
+  revenue_drivers = [
+    _financial_story_trim(
+      (
+        f"Volume is primarily governed by {capacity_driver}, with modeled weekly capacity of "
+        f"{int(weekly_capacity):,} {unit_name}s at approximately {_financial_story_percent(utilization)} utilization."
+      ) if weekly_capacity is not None and utilization is not None else (
+        f"Volume growth is driven mainly by {capacity_driver}, so throughput execution matters more than a headline pricing reset."
+      ),
+      max_chars=135,
+    ),
+    _financial_story_trim(
+      (
+        f"Pricing is anchored near {_financial_story_compact_currency(unit_price)} per {unit_name}, which keeps the revenue build dependent on repeatable activity rather than aggressive yield expansion."
+      ) if unit_price is not None else (
+        "Pricing appears steady and operationally grounded, so the forecast depends more on repeat volume and mix quality than on a heroic price assumption."
+      ),
+      max_chars=135,
+    ),
+    _financial_story_trim(
+      (
+        f"Demand concentration appears oriented toward {market_focus}, which should help diversify the customer base if execution stays aligned with the current operating profile."
+      ) if market_focus else (
+        f"The model assumes {primary_growth_lever} while keeping the commercial posture broadly consistent with the operating footprint."
+      ),
+      max_chars=90,
+    ),
+  ]
+  revenue_drivers = [item for item in revenue_drivers[:2] if str(item or "").strip()]
+
+  margin_drivers = [
+    _financial_story_trim(
+      f"Gross margin expands from about {_financial_story_percent(gross_margin_early)} in the opening year to {_financial_story_percent(gross_margin_late)} in the final year.",
+      max_chars=110,
+    ),
+    _financial_story_trim(
+      f"Payroll runs at roughly {_financial_story_percent(payroll_percent)} of revenue, so labor absorption remains a core determinant of EBITDA quality.",
+      max_chars=115,
+    ),
+    _financial_story_trim(
+      f"Marketing and overhead together average roughly {_financial_story_percent(marketing_percent + overhead_percent)}, leaving margin upside dependent on scale rather than expense suppression.",
+      max_chars=120,
+    ),
+  ]
+  margin_drivers = margin_drivers[:2]
+
+  key_risks = [
+    _financial_story_trim(
+      "A shortfall in volume or utilization would pressure margins quickly because the business carries a real labor and network cost base ahead of revenue.",
+      max_chars=120,
+    ),
+    _financial_story_trim(
+      "Gross-margin slippage would matter disproportionately because direct cost is the largest expense block in the modeled structure.",
+      max_chars=115,
+    ),
+    _financial_story_trim(
+      "Liquidity remains sensitive to collection timing and working-capital discipline, especially if receivables stretch while growth is still being funded.",
+      max_chars=120,
+    ),
+  ]
+  key_risks = key_risks[:2]
+  sensitivity_drivers = [
+    _financial_story_trim("Volume and realized utilization.", max_chars=80),
+    _financial_story_trim("Gross margin / COGS discipline.", max_chars=80),
+  ]
+  if final_total_debt > 0.0:
+    sensitivity_drivers.append(
+      _financial_story_trim("Debt burden and interest coverage.", max_chars=80)
+    )
+
+  revenue_summary = _financial_story_trim(
+    " ".join(
+      [
+        f"{business_name} shows a throughput-led revenue model rather than a speculative one.",
+        f"The plan moves from about {_financial_story_compact_currency(first_year_revenue)} in the first four quarters to {_financial_story_compact_currency(final_year_revenue)} in the final four quarters, or roughly {_financial_story_percent(annualized_growth)} annualized growth over the horizon.",
+        (
+          f"Pricing stays anchored near {_financial_story_compact_currency(unit_price)} per {unit_name}, so the top line depends more on volume absorption and customer retention than on repricing."
+          if unit_price is not None
+          else "Pricing does not appear to be doing the heavy lifting in the forecast."
+        ),
+        (
+          f"Capacity of roughly {int(weekly_capacity):,} {unit_name}s per week at {_financial_story_percent(utilization)} utilization gives the lender a visible operating constraint to underwrite."
+          if weekly_capacity is not None and utilization is not None
+          else f"The principal growth lever remains {primary_growth_lever}, which ties revenue to a real operating driver."
+        ),
+      ]
+    ),
+    max_chars=430,
+  )
+
+  cost_structure_summary = _financial_story_trim(
+    " ".join(
+      [
+        f"The cost structure is dominated by direct operating cost, with cost of goods sold averaging about {_financial_story_percent(cogs_percent)} of revenue across the modeled horizon.",
+        f"Payroll averages roughly {_financial_story_percent(payroll_percent)}, marketing about {_financial_story_percent(marketing_percent)}, and core overhead, defined here as G&A plus lease/rent, about {_financial_story_percent(overhead_percent)}.",
+        "For credit review, that mix is constructive because the plan does not create EBITDA by pretending the operating platform can run on an unrealistically thin support base.",
+        "Margins therefore depend on scale absorption and cost discipline, not on missing expense lines.",
+      ]
+    ),
+    max_chars=430,
+  )
+
+  profitability_summary = _financial_story_trim(
+    " ".join(
+      [
+        f"Profitability improves in a manner that looks operational rather than cosmetic, with gross margin moving from roughly {_financial_story_percent(gross_margin_early)} in the opening year to {_financial_story_percent(gross_margin_late)} in the final year.",
+        f"EBITDA margin follows the same pattern, moving from about {_financial_story_percent(ebitda_margin_early)} to {_financial_story_percent(ebitda_margin_late)}, while final-year EBITDA reaches approximately {_financial_story_compact_currency(final_year_ebitda)}.",
+        f"EBITDA stays positive in {ebitda_positive_quarters} of {quarter_count} modeled quarters, which is a better sign of durability than a single late-horizon spike.",
+      ]
+    ),
+    max_chars=260,
+  )
+
+  cash_flow_summary = _financial_story_trim(
+    " ".join(
+      [
+        f"Cash flow behavior is credible for lending purposes because operating cash flow is positive in {operating_cash_positive_quarters} of {quarter_count} quarters, minimum ending cash stays around {_financial_story_compact_currency(minimum_cash)}, and final ending cash reaches about {_financial_story_compact_currency(final_cash)}.",
+        f"Average working-capital intensity is manageable but real, with receivable days near {average_ar_days:.0f}, inventory days near {average_inventory_days:.0f}, and payable days near {average_ap_days:.0f}.",
+        f"The current ratio ends near {_financial_story_multiple(final_current_ratio)}, so the plan does not appear to rely on an artificial liquidity cliff to reach completion.",
+        f"Under the selected {cash_strategy} cash posture, collections and direct-cost discipline remain the key cash-conversion variables.",
+      ]
+    ),
+    max_chars=450,
+  )
+
+  capital_requirements_summary = _financial_story_trim(
+    " ".join(
+      [
+        f"Capital requirements are meaningful but not uncontrolled. Total modeled capital expenditure is about {_financial_story_compact_currency(total_capex)} over the forecast, with approximately {_financial_story_compact_currency(early_capex)} deployed in the first year and {_financial_story_compact_currency(late_capex)} in the final year.",
+        f"Ending PPE reaches roughly {_financial_story_compact_currency(final_ppe)}, which suggests the footprint is backed by real asset support.",
+      ]
+    ),
+    max_chars=260,
+  )
+
+  financing_summary = _financial_story_trim(
+    " ".join(
+      [
+        f"The modeled capital structure ends with total debt of about {_financial_story_compact_currency(final_total_debt)} against total equity of {_financial_story_compact_currency(final_equity)}.",
+        f"Owner's capital and other equity together account for roughly {_financial_story_compact_currency(final_owners_capital + final_other_equity)} of the permanent capital base, which provides real cushion ahead of creditors.",
+        (
+          f"Trailing four-quarter interest expense is approximately {_financial_story_compact_currency(trailing_interest)}, implying interest coverage of {_financial_story_multiple(interest_coverage)} and end-state leverage of {_financial_story_multiple(leverage_ratio)}."
+          if final_total_debt > 0.0 and trailing_interest > 0.0
+          else "Funded debt is present but not dominant in the capital stack, so repayment capacity depends more on operating cash generation and liquidity preservation than on refinancing."
+        ),
+        f"Peak modeled debt reaches about {_financial_story_compact_currency(peak_total_debt)}.",
+      ]
+    ),
+    max_chars=250,
+  )
+
+  downside_commentary = _financial_story_trim(
+    " ".join(
+      [
+        "The cleanest downside case to test is lower volume combined with slower collections.",
+        "That scenario would hit gross margin, current ratio, and ending cash at the same time.",
+        (
+          f"The model nevertheless concludes with no catastrophic liquidity break and a minimum ending cash balance near {_financial_story_compact_currency(minimum_cash)}."
+          if hard_rule_clear
+          else "The lender should therefore underwrite to conservative working-capital behavior rather than assume the base case will always self-correct."
+        ),
+      ]
+    ),
+    max_chars=220,
+  )
+
+  phase_1_text = _financial_story_trim(
+    " ".join(
+      [
+        f"Phase 1, covering the first four quarters, is the build-and-prove period. Revenue reaches about {_financial_story_compact_currency(first_year_revenue)} with EBITDA of roughly {_financial_story_compact_currency(first_year_ebitda)} and operating cash flow of {_financial_story_compact_currency(first_year_operating_cash)}.",
+        "This is the point where the model proves that the operating base can support real cost and working-capital needs.",
+      ]
+    ),
+    max_chars=180,
+  )
+  phase_2_text = _financial_story_trim(
+    " ".join(
+      [
+        "Phase 2, roughly the middle of the horizon, is where scale absorption should become visible if the business is truly working.",
+        "This is the period when revenue density and labor productivity should widen margins and stabilize liquidity.",
+      ]
+    ),
+    max_chars=165,
+  )
+  phase_3_text = _financial_story_trim(
+    " ".join(
+      [
+        f"Phase 3, the final four quarters, shows the mature run rate with revenue of about {_financial_story_compact_currency(final_year_revenue)}, EBITDA of {_financial_story_compact_currency(final_year_ebitda)}, and operating cash flow of {_financial_story_compact_currency(final_year_operating_cash)}.",
+        "That end-state matters because it shows whether the business exits the plan with durable earnings and liquidity.",
+      ]
+    ),
+    max_chars=185,
+  )
+
+  repayment_capacity_text = _financial_story_trim(
+    " ".join(
+      [
+        f"Repayment capacity appears supported by a final-year EBITDA run rate of {_financial_story_compact_currency(final_year_ebitda)} and ending cash of {_financial_story_compact_currency(final_cash)}.",
+        (
+          f"On the modeled debt load, interest coverage is about {_financial_story_multiple(interest_coverage)} and leverage ends near {_financial_story_multiple(leverage_ratio)}, which is workable if operating performance stays close to plan."
+          if final_total_debt > 0.0 and trailing_interest > 0.0
+          else "Because funded debt is not the dominant claim on the capital structure, repayment appears to rely more on recurring operating cash flow than on capital-markets access."
+        ),
+      ]
+    ),
+    max_chars=170,
+  )
+  cash_stability_text = _financial_story_trim(
+    " ".join(
+      [
+        f"Cash stability is acceptable because minimum ending cash stays around {_financial_story_compact_currency(minimum_cash)}, peak cash reaches {_financial_story_compact_currency(peak_cash)}, and the current ratio ends near {_financial_story_multiple(final_current_ratio)}.",
+        f"Receivable days of roughly {average_ar_days:.0f} mean collections discipline still matters, but the model does not end with a liquidity hole that would obviously threaten near-term obligations.",
+      ]
+    ),
+    max_chars=170,
+  )
+  overall_credit_story_text = _financial_story_trim(
+    " ".join(
+      [
+        f"Overall, this reads as a financeable {business_type.lower()} credit story if management can execute the modeled throughput, gross-margin, and working-capital disciplines.",
+        "The plan shows a real operating cost base, a credible capital structure, and a forecast that ends with liquidity rather than with an unresolved repair case.",
+        (
+          "The forecast closes with positive liquidity and no visible catastrophic cash break, which is the key final underwriting signal."
+          if hard_rule_clear and not remaining_issue_codes
+          else "Underwriting should remain focused on the small set of drivers that still carry execution sensitivity."
+        ),
+      ]
+    ),
+    max_chars=180,
+  )
+
+  return {
+    "contract_version": "financial_story_v1",
+    "perspective": "lender",
+    "financial_narrative": {
+      "revenue_model": {
+        "summary": revenue_summary,
+        "drivers": revenue_drivers,
+        "pricing_logic": _financial_story_trim(
+          (
+            f"Pricing appears anchored near {_financial_story_compact_currency(unit_price)} per {unit_name}, so lender confidence should come from repeatable volume and mix rather than from aggressive price inflation."
+          ) if unit_price is not None else (
+            "Pricing does not appear to be the primary bridge to viability; the stronger credit signal is whether the business can sustain volume and mix at the modeled service level."
+          ),
+          max_chars=95,
+        ),
+        "volume_assumptions": _financial_story_trim(
+          (
+            f"The first-year plan implies roughly {int(modeled_units_year_one):,} {unit_name}s if pricing holds near the stated level, and that unit volume must be supported by {capacity_driver} rather than by a one-time demand spike."
+          ) if modeled_units_year_one is not None else (
+            f"Volume assumptions are best viewed through the lens of {capacity_driver}, because that is the operating bottleneck that has to support the revenue path."
+          ),
+          max_chars=95,
+        ),
+        "scaling_behavior": _financial_story_trim(
+          f"Scaling is expected to come from throughput absorption and operating density, with annual revenue rising from {_financial_story_compact_currency(first_year_revenue)} to {_financial_story_compact_currency(final_year_revenue)} while keeping the commercial posture broadly intact.",
+          max_chars=95,
+        ),
+      },
+      "cost_structure": {
+        "summary": cost_structure_summary,
+        "cogs": {
+          "description": _financial_story_trim(
+            f"Direct cost remains the dominant expense block at approximately {_financial_story_percent(cogs_percent)} of revenue, which is consistent with a business whose service delivery consumes real throughput-linked operating cost.",
+            max_chars=90,
+          ),
+          "percent_of_revenue": _financial_story_percent(cogs_percent),
+          "key_components": cogs_components,
+        },
+        "operating_expenses": {
+          "labor": _financial_story_trim(
+            f"Labor expense averages about {_financial_story_percent(payroll_percent)} of revenue and behaves like a real capacity cost rather than a plug, which is positive for forecast credibility but raises sensitivity to volume absorption.",
+            max_chars=85,
+          ),
+          "marketing": _financial_story_trim(
+            f"Marketing runs near {_financial_story_percent(marketing_percent)} of revenue; that is supportable, but it still requires customer acquisition efficiency so that cash conversion does not deteriorate as the business scales.",
+            max_chars=80,
+          ),
+          "overhead": _financial_story_trim(
+            f"G&A plus lease/rent average about {_financial_story_percent(overhead_percent)} of revenue, creating a moderate fixed-cost layer that should improve with scale but will pressure margins if throughput underperforms.",
+            max_chars=80,
+          ),
+        },
+        "fixed_vs_variable_mix": _financial_story_trim(
+          "The mix is balanced toward variable direct cost with a meaningful but not overwhelming fixed overhead layer, which should allow earnings to improve with scale while still leaving a clear downside if utilization fades.",
+          max_chars=85,
+        ),
+        "operating_leverage_commentary": _financial_story_trim(
+          "Operating leverage is present because fixed labor and support infrastructure do not need to rise one-for-one with revenue, but it is not so extreme that the model looks engineered solely for margin expansion.",
+          max_chars=80,
+        ),
+      },
+      "profitability_profile": {
+        "summary": profitability_summary,
+        "gross_margin_trend": _financial_story_trim(
+          f"Gross margin improves from roughly {_financial_story_percent(gross_margin_early)} in the first year to {_financial_story_percent(gross_margin_late)} in the final year, suggesting better absorption of direct operating cost as the business scales.",
+          max_chars=90,
+        ),
+        "ebitda_trend": _financial_story_trim(
+          f"EBITDA margin rises from approximately {_financial_story_percent(ebitda_margin_early)} to {_financial_story_percent(ebitda_margin_late)}, with final-year EBITDA of about {_financial_story_compact_currency(final_year_ebitda)}.",
+          max_chars=90,
+        ),
+        "margin_drivers": margin_drivers,
+        "stability_commentary": _financial_story_trim(
+          f"The business records positive EBITDA in {ebitda_positive_quarters} of {quarter_count} quarters, which is a better sign of earnings durability than a single late-horizon spike.",
+          max_chars=75,
+        ),
+      },
+      "cash_flow_dynamics": {
+        "summary": cash_flow_summary,
+        "operating_cash_flow_behavior": _financial_story_trim(
+          f"Operating cash flow is positive in {operating_cash_positive_quarters} of {quarter_count} quarters and improves from {_financial_story_compact_currency(first_year_operating_cash)} in the first year to {_financial_story_compact_currency(final_year_operating_cash)} in the final year.",
+          max_chars=100,
+        ),
+        "working_capital_assumptions": {
+          "ar": _financial_story_trim(
+            f"Receivables average roughly {average_ar_days:.0f} days outstanding, so the credit story assumes management can keep collections reasonably close to invoicing growth.",
+            max_chars=70,
+          ),
+          "ap": _financial_story_trim(
+            f"Payables average around {average_ap_days:.0f} days, which provides some supplier float but not enough to fully offset slower customer receipts in a downside case.",
+            max_chars=70,
+          ),
+          "inventory": _financial_story_trim(
+            f"Inventory turns imply roughly {average_inventory_days:.0f} days on hand, keeping the model from relying on an unrealistically lean working-capital posture.",
+            max_chars=65,
+          ),
+        },
+        "cash_conversion_commentary": _financial_story_trim(
+          f"Cash conversion is adequate because liquidity builds to {_financial_story_compact_currency(final_cash)} without a catastrophic cash break, but the path still depends on protecting gross margin and collection timing quarter by quarter.",
+          max_chars=85,
+        ),
+      },
+      "capital_requirements": {
+        "capex_strategy": _financial_story_trim(
+          f"The business invests about {_financial_story_compact_currency(total_capex)} of capital over the full horizon, which supports a real operating footprint rather than an asset-light story that would be difficult to defend under diligence.",
+          max_chars=85,
+        ),
+        "timing_of_investment": _financial_story_trim(
+          f"Capex is not back-ended exclusively: roughly {_financial_story_compact_currency(early_capex)} lands in the first year and {_financial_story_compact_currency(late_capex)} in the final year, showing a staged build rather than a single catch-up event.",
+          max_chars=85,
+        ),
+        "asset_intensity_commentary": capital_requirements_summary,
+      },
+      "financing_and_debt": {
+        "current_structure": _financial_story_trim(
+          f"The ending capital structure shows total debt of {_financial_story_compact_currency(final_total_debt)} against total equity of {_financial_story_compact_currency(final_equity)}, with owner and retained capital still carrying a meaningful share of the funding burden.",
+          max_chars=90,
+        ),
+        "debt_levels": _financial_story_trim(
+          f"Debt peaks near {_financial_story_compact_currency(peak_total_debt)} and ends around {_financial_story_compact_currency(final_total_debt)}, so the balance sheet does not rely on ever-rising leverage to make the model work.",
+          max_chars=85,
+        ),
+        "interest_burden": _financial_story_trim(
+          (
+            f"Trailing four-quarter interest expense runs near {_financial_story_compact_currency(trailing_interest)}, which remains manageable relative to the final-year EBITDA run rate."
+          ) if trailing_interest > 0.0 else (
+            "Interest burden is modest in the modeled end state, so debt service pressure appears more tied to principal discipline and liquidity preservation than to coupon load."
+          ),
+          max_chars=85,
+        ),
+        "debt_service_ability": _financial_story_trim(
+          (
+            f"Modeled debt service ability looks acceptable with interest coverage of {_financial_story_multiple(interest_coverage)} and ending cash of {_financial_story_compact_currency(final_cash)}, assuming revenue and margin stay broadly on plan."
+          ) if final_total_debt > 0.0 and trailing_interest > 0.0 else (
+            f"Debt service ability appears supported mainly by operating cash flow and ending cash of {_financial_story_compact_currency(final_cash)}, rather than by dependence on refinancing."
+          ),
+          max_chars=90,
+        ),
+        "leverage_commentary": financing_summary,
+      },
+      "risk_and_sensitivity": {
+        "key_risks": key_risks,
+        "sensitivity_drivers": sensitivity_drivers,
+        "downside_commentary": downside_commentary,
+      },
+      "five_year_trajectory": {
+        "phase_1": phase_1_text,
+        "phase_2": phase_2_text,
+        "phase_3": phase_3_text,
+        "inflection_points": [
+          _financial_story_trim(
+            f"Revenue scales from {_financial_story_compact_currency(first_year_revenue)} in the first year to {_financial_story_compact_currency(final_year_revenue)} in the final year.",
+            max_chars=120,
+          ),
+          _financial_story_trim(
+            f"Liquidity stays above a minimum ending cash level of {_financial_story_compact_currency(minimum_cash)}.",
+            max_chars=110,
+          ),
+          _financial_story_trim(
+            f"Final-year EBITDA reaches approximately {_financial_story_compact_currency(final_year_ebitda)}.",
+            max_chars=90,
+          ),
+        ],
+      },
+      "lender_summary": {
+        "repayment_capacity": repayment_capacity_text,
+        "cash_stability": cash_stability_text,
+        "overall_credit_story": overall_credit_story_text,
+      },
+    },
+  }
 
 
 def _realism_metric_series(
@@ -2007,16 +2705,110 @@ def _extract_controller_lever_catalog(model_input_json: Optional[Dict[str, Any]]
 
 def _lever_usage_guidance(lever_id: str) -> Dict[str, Any]:
   lever = str(lever_id or "").strip()
-  if lever == "schedules::Plus: Additions (repayments), net":
+  if lever == "balance_sheet::Accounts Receivable Days":
     return {
-      "label_path_override": "Plus: Additions (repayments), net (Debt Draws / Debt Repayments)",
-      "accounting_role": "debt_financing",
+      "accounting_role": "working_capital_asset",
       "preferred_uses": [
-        "new borrowing",
-        "debt paydown",
-        "debt restructuring",
+        "tighten collection timing",
+        "loosen collection timing",
       ],
       "forbidden_uses": [
+        "debt financing",
+        "equity financing",
+        "direct revenue creation",
+      ],
+    }
+  if lever == "balance_sheet::Inventory Days":
+    return {
+      "accounting_role": "working_capital_asset",
+      "preferred_uses": [
+        "raise inventory coverage",
+        "reduce inventory holding period",
+      ],
+      "forbidden_uses": [
+        "debt financing",
+        "equity financing",
+        "direct revenue creation",
+      ],
+    }
+  if lever == "balance_sheet::Accounts Payable Days":
+    return {
+      "accounting_role": "working_capital_liability",
+      "preferred_uses": [
+        "extend vendor payment timing",
+        "shorten vendor payment timing",
+      ],
+      "forbidden_uses": [
+        "debt financing",
+        "equity financing",
+        "direct revenue creation",
+      ],
+    }
+  if lever == "balance_sheet::Prepaid Expenses (% of Revenue)":
+    return {
+      "accounting_role": "working_capital_asset",
+      "preferred_uses": [
+        "increase prepaid operating commitments",
+        "decrease prepaid operating commitments",
+      ],
+      "forbidden_uses": [
+        "debt financing",
+        "equity financing",
+        "direct revenue creation",
+      ],
+    }
+  if lever == "balance_sheet::Deferred Revenue (% of Revenue)":
+    return {
+      "accounting_role": "working_capital_liability",
+      "preferred_uses": [
+        "increase advance billing",
+        "decrease advance billing",
+      ],
+      "forbidden_uses": [
+        "debt financing",
+        "equity financing",
+        "direct revenue creation",
+      ],
+    }
+  if lever == "balance_sheet::Short Term Debt (% of LTD)":
+    return {
+      "accounting_role": "current_liability_financing",
+      "preferred_uses": [
+        "rebalance debt toward shorter maturities",
+        "rebalance debt away from shorter maturities",
+      ],
+      "forbidden_uses": [
+        "owner distributions",
+        "equity contributions",
+      ],
+    }
+  if lever == "schedules::Debt Issuance (New Borrowing)":
+    return {
+      "label_path_override": "Debt Issuance (New Borrowing)",
+      "accounting_role": "debt_financing_inflow",
+      "preferred_uses": [
+        "new borrowing",
+        "bridge financing",
+        "term debt draw",
+      ],
+      "forbidden_uses": [
+        "owner distributions",
+        "partner draws",
+        "equity contributions",
+        "capital lease additions",
+      ],
+    }
+  if lever == "schedules::Debt Repayment (Scheduled)":
+    return {
+      "label_path_override": "Debt Repayment (Scheduled)",
+      "accounting_role": "debt_financing_outflow",
+      "preferred_uses": [
+        "scheduled deleveraging",
+        "term debt amortization",
+        "cash-based debt paydown",
+      ],
+      "forbidden_uses": [
+        "new borrowing",
         "owner distributions",
         "partner draws",
         "equity contributions",
@@ -2111,6 +2903,58 @@ def _lever_usage_guidance(lever_id: str) -> Dict[str, Any]:
         "debt activity",
         "lease activity",
         "capex spend",
+      ],
+    }
+  if lever == "expenses::Cost of Goods Sold":
+    return {
+      "accounting_role": "cost_of_goods_ratio",
+      "preferred_uses": [
+        "change direct delivery cost intensity",
+        "change gross margin profile",
+      ],
+      "forbidden_uses": [
+        "direct financing",
+        "equity contributions",
+      ],
+    }
+  if lever == "expenses::Marketing":
+    return {
+      "accounting_role": "operating_cost_ratio",
+      "preferred_uses": [
+        "change go-to-market spend intensity",
+      ],
+      "forbidden_uses": [
+        "direct financing",
+      ],
+    }
+  if lever == "expenses::General & Administrative":
+    return {
+      "accounting_role": "operating_cost_ratio",
+      "preferred_uses": [
+        "change overhead burden",
+      ],
+      "forbidden_uses": [
+        "direct financing",
+      ],
+    }
+  if lever == "expenses::Payroll":
+    return {
+      "accounting_role": "operating_cost_fixed",
+      "preferred_uses": [
+        "change staffing support load",
+      ],
+      "forbidden_uses": [
+        "direct financing",
+      ],
+    }
+  if lever == "expenses::Lease":
+    return {
+      "accounting_role": "operating_cost_fixed",
+      "preferred_uses": [
+        "change facility and occupancy cost load",
+      ],
+      "forbidden_uses": [
+        "direct financing",
       ],
     }
   return {}
@@ -2328,6 +3172,11 @@ def _current_cycle_numeric_trace_summary(
     for item in (decision_payload.get("target_tolerance_metric_names") or [])
     if str(item).strip()
   ]
+  cycle_debug_summary = (
+    current_cycle_packet.get("cycle_debug_summary")
+    if isinstance(current_cycle_packet.get("cycle_debug_summary"), dict)
+    else {}
+  )
   return {
     "contract_version": "current_cycle_numeric_trace_v1",
     "cycle": copy.deepcopy(current_cycle_packet.get("current_cycle")),
@@ -2357,6 +3206,7 @@ def _current_cycle_numeric_trace_summary(
     "planned_target_metric_names": planned_target_metric_names,
     "planned_target_tolerance_metric_names": planned_target_tolerance_metric_names,
     "planned_lever_ids": planned_lever_ids,
+    "alignment_debug_summary": copy.deepcopy(cycle_debug_summary),
     "solver_ready": bool(
       str(plan_summary.get("status") or "").strip() == "ready"
       and int(_safe_float(plan_summary.get("translated_control_count")) or 0) > 0
@@ -2567,7 +3417,8 @@ def _build_cash_strategy_review_context_payload(
       "payroll": _finmo_labeled_series(finmo, section_key="pl", label="Payroll"),
       "lease_rent": _finmo_labeled_series(finmo, section_key="pl", label="Lease/Rent"),
       "capital_expenditures": _finmo_labeled_series(finmo, section_key="cash_flow", label="Capital Expenditures"),
-      "principal_repayments": _finmo_labeled_series(finmo, section_key="cash_flow", label="Dept Receive(Repay)"),
+      "debt_issuance": _finmo_labeled_series(finmo, section_key="cash_flow", label="Debt Issuance (New Borrowing)"),
+      "debt_repayment": _finmo_labeled_series(finmo, section_key="cash_flow", label="Debt Repayment"),
       "long_term_debt": _finmo_labeled_series(finmo, section_key="balance_sheet", label="Long Term Debt"),
       "total_liabilities": _finmo_labeled_series(finmo, section_key="balance_sheet", label="Total Liabilities"),
     },
@@ -2909,12 +3760,135 @@ def _final_stabilizer_trigger_assessment(
   }
 
 
-def _final_guarantee_quality_assessment(
+def _convergence_test_mode_enabled() -> bool:
+  raw = (os.getenv("CONVERGENCE_TEST_MODE") or "false").strip().lower()
+  return raw not in {"", "0", "false", "no", "off"}
+
+
+def _build_unified_convergence_fail_fast_terminal_message(
+  *,
+  issue_debug: Optional[Dict[str, Any]],
+  trigger_flags: Optional[List[str]] = None,
+  stall_detected: bool = False,
+) -> str:
+  payload = issue_debug if isinstance(issue_debug, dict) else {}
+  issue_code = str(payload.get("issue_code") or "").strip().lower() or "unknown_issue"
+  closure_metric_name = str(payload.get("closure_metric_name") or "").strip().lower() or "unknown_metric"
+  selected_levers = [
+    str(item).strip()
+    for item in (payload.get("selected_lever_ids") or [])
+    if str(item).strip()
+  ]
+  active_flags = [
+    str(item).strip()
+    for item in (trigger_flags or payload.get("flags") or [])
+    if str(item).strip()
+  ]
+  if stall_detected and "stall_detected" not in active_flags:
+    active_flags.append("stall_detected")
+  prefix = (
+    f"STALL DETECTED: {issue_code} is not improving"
+    if stall_detected
+    else "STRICT FAILURE: unified convergence test mode triggered"
+  )
+  return "\n".join(
+    [
+      prefix,
+      f"issue_code={issue_code}",
+      f"closure_metric_name={closure_metric_name}",
+      f"selected_levers={', '.join(selected_levers) if selected_levers else 'none'}",
+      f"flags={', '.join(active_flags) if active_flags else 'none'}",
+      (
+        "before_gap="
+        f"{float(_safe_float(payload.get('before_gap')) or 0.0):.6f} "
+        "after_gap="
+        f"{float(_safe_float(payload.get('after_gap')) or 0.0):.6f}"
+      ),
+      (
+        "before_score="
+        f"{float(_safe_float(payload.get('before_score')) or 0.0):.2f} "
+        "after_score="
+        f"{float(_safe_float(payload.get('after_score')) or 0.0):.2f}"
+      ),
+    ]
+  )
+
+
+def _first_unified_convergence_test_failure(
+  issue_alignment_debug: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+  for item in (issue_alignment_debug or []):
+    if not isinstance(item, dict):
+      continue
+    trigger_flags = [
+      str(flag).strip()
+      for flag in (item.get("flags") or [])
+      if str(flag).strip() in _CONVERGENCE_TEST_MODE_FAIL_FLAGS
+    ]
+    zero_progress_stall_detected = bool(
+      int(_safe_float(item.get("consecutive_zero_progress_cycles")) or 0) >= 2
+      and abs(float(_safe_float(item.get("gap_reduction")) or 0.0)) <= 1e-9
+      and abs(float(_safe_float(item.get("score_delta")) or 0.0)) <= 1e-9
+    )
+    if not trigger_flags and not zero_progress_stall_detected:
+      continue
+    terminal_message = _build_unified_convergence_fail_fast_terminal_message(
+      issue_debug=item,
+      trigger_flags=trigger_flags,
+      stall_detected=zero_progress_stall_detected,
+    )
+    return {
+      "issue_code": str(item.get("issue_code") or "").strip().lower() or None,
+      "closure_metric_name": str(item.get("closure_metric_name") or "").strip().lower() or None,
+      "selected_lever_ids": copy.deepcopy(item.get("selected_lever_ids") or []),
+      "flags": copy.deepcopy(trigger_flags),
+      "before_gap": float(_safe_float(item.get("before_gap")) or 0.0),
+      "after_gap": float(_safe_float(item.get("after_gap")) or 0.0),
+      "before_score": float(_safe_float(item.get("before_score")) or 0.0),
+      "after_score": float(_safe_float(item.get("after_score")) or 0.0),
+      "consecutive_zero_progress_cycles": int(
+        _safe_float(item.get("consecutive_zero_progress_cycles")) or 0
+      ),
+      "stall_detected": zero_progress_stall_detected,
+      "terminal_message": terminal_message,
+      "detail": terminal_message.replace("\n", " | "),
+    }
+  return {}
+
+
+def _handle_convergence_test_mode_failure(
+  quality_assessment: Optional[Dict[str, Any]],
+) -> None:
+  assessment = quality_assessment if isinstance(quality_assessment, dict) else {}
+  strict_failure = (
+    assessment.get("strict_failure")
+    if isinstance(assessment.get("strict_failure"), dict)
+    else {}
+  )
+  if not strict_failure:
+    return
+  terminal_message = str(strict_failure.get("terminal_message") or "").strip()
+  detail = str(strict_failure.get("detail") or terminal_message or "unified_convergence_test_mode_failure").strip()
+  if _convergence_test_mode_enabled():
+    if terminal_message:
+      print(terminal_message, flush=True)
+      logger.error(terminal_message)
+    raise RuntimeError(detail)
+  if terminal_message:
+    logger.warning(terminal_message)
+  else:
+    logger.warning(detail)
+
+
+def _build_unified_cycle_quality_assessment(
   *,
   before_controller_resolution_state: Optional[Dict[str, Any]],
-  before_trigger_assessment: Optional[Dict[str, Any]],
+  before_hard_rule_assessment: Optional[Dict[str, Any]],
   after_controller_resolution_state: Optional[Dict[str, Any]],
-  after_trigger_assessment: Optional[Dict[str, Any]],
+  after_hard_rule_assessment: Optional[Dict[str, Any]],
+  before_numeric_guidance_packet: Optional[Dict[str, Any]] = None,
+  candidate_signature: Optional[Dict[str, Any]] = None,
+  prior_quality_assessment: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   def _open_issue_severity_summary(controller_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     state = controller_state if isinstance(controller_state, dict) else {}
@@ -2982,24 +3956,317 @@ def _final_guarantee_quality_assessment(
       "open_issue_score_total": open_issue_score_total,
     }
 
+  def _issue_metric_gap_progress_basis(issue_record: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    record = issue_record if isinstance(issue_record, dict) else {}
+    metric_specs = [
+      copy.deepcopy(item)
+      for item in (record.get("metric_debug") or [])
+      if isinstance(item, dict) and str(item.get("metric_name") or "").strip()
+    ]
+    grouped_specs: Dict[str, List[Dict[str, Any]]] = {}
+    for spec in metric_specs:
+      metric_name = str(spec.get("metric_name") or "").strip().lower()
+      if not metric_name:
+        continue
+      grouped_specs.setdefault(metric_name, []).append(copy.deepcopy(spec))
+
+    metric_summaries: Dict[str, Dict[str, Any]] = {}
+    for metric_name, specs in grouped_specs.items():
+      actual_values = [
+        float(_safe_float(spec.get("actual_value")) or 0.0)
+        for spec in specs
+        if _safe_float(spec.get("actual_value")) is not None
+      ]
+      target_floors = [
+        float(_safe_float(spec.get("target_floor")) or 0.0)
+        for spec in specs
+        if _safe_float(spec.get("target_floor")) is not None
+      ]
+      target_ceilings = [
+        float(_safe_float(spec.get("target_ceiling")) or 0.0)
+        for spec in specs
+        if _safe_float(spec.get("target_ceiling")) is not None
+      ]
+      average_score_pct = (
+        float(
+          sum(float(_safe_float(spec.get("score_pct")) or 0.0) for spec in specs)
+          / max(len(specs), 1)
+        )
+        if specs
+        else 100.0
+      )
+      metric_summaries[metric_name] = {
+        "metric_name": metric_name,
+        "gap_abs": float(
+          sum(
+            abs(float(_safe_float(spec.get("gap")) or 0.0))
+            for spec in specs
+          )
+        ),
+        "average_score_pct": average_score_pct,
+        "metric_definition": next(
+          (
+            str(spec.get("metric_definition") or "").strip()
+            for spec in specs
+            if str(spec.get("metric_definition") or "").strip()
+          ),
+          "",
+        ),
+        "unit_kind": next(
+          (
+            str(spec.get("unit_kind") or "").strip().lower()
+            for spec in specs
+            if str(spec.get("unit_kind") or "").strip()
+          ),
+          "",
+        ),
+        "quarter_indexes": sorted(
+          {
+            int(_safe_float(spec.get("quarter_index")) or 0)
+            for spec in specs
+            if int(_safe_float(spec.get("quarter_index")) or 0) >= 1
+          }
+        ),
+        "average_actual_value": (
+          float(sum(actual_values) / max(len(actual_values), 1))
+          if actual_values
+          else None
+        ),
+        "average_target_floor": (
+          float(sum(target_floors) / max(len(target_floors), 1))
+          if target_floors
+          else None
+        ),
+        "average_target_ceiling": (
+          float(sum(target_ceilings) / max(len(target_ceilings), 1))
+          if target_ceilings
+          else None
+        ),
+        "boundary_value": next(
+          (
+            _safe_float(spec.get("boundary_value"))
+            for spec in specs
+            if _safe_float(spec.get("boundary_value")) is not None
+          ),
+          None,
+        ),
+      }
+
+    aggregate_gap_abs = float(_safe_float(record.get("aggregate_gap_abs")) or 0.0)
+    if not metric_summaries:
+      fallback_score_pct = float(
+        _safe_float(
+          record.get("average_relevant_score_pct")
+          if record.get("average_relevant_score_pct") is not None
+          else record.get("completion_score_pct")
+        ) or 0.0
+      )
+      return {
+        "metric_count": 0,
+        "selection_mode": "aggregate_fallback",
+        "selected_metric_name": None,
+        "selected_metric_summary": {},
+        "metric_summaries": {},
+        "aligned_gap_abs": aggregate_gap_abs,
+        "aggregate_gap_abs": aggregate_gap_abs,
+        "selected_metric_average_score_pct": fallback_score_pct,
+      }
+
+    ordered_metric_summaries = list(metric_summaries.values())
+    if len(ordered_metric_summaries) == 1:
+      selected_summary = ordered_metric_summaries[0]
+      selection_mode = "single_metric_issue"
+    else:
+      selected_summary = sorted(
+        ordered_metric_summaries,
+        key=lambda item: (
+          float(_safe_float(item.get("average_score_pct")) or 0.0),
+          -float(_safe_float(item.get("gap_abs")) or 0.0),
+          str(item.get("metric_name") or "").strip(),
+        ),
+      )[0]
+      selection_mode = "weakest_closure_metric"
+    return {
+      "metric_count": len(metric_summaries),
+      "selection_mode": selection_mode,
+      "selected_metric_name": str(selected_summary.get("metric_name") or "").strip().lower() or None,
+      "selected_metric_summary": copy.deepcopy(selected_summary),
+      "metric_summaries": copy.deepcopy(metric_summaries),
+      "aligned_gap_abs": float(_safe_float(selected_summary.get("gap_abs")) or 0.0),
+      "aggregate_gap_abs": aggregate_gap_abs,
+      "selected_metric_average_score_pct": float(
+        _safe_float(selected_summary.get("average_score_pct")) or 0.0
+      ),
+    }
+
+  def _driver_path_index_for_issue(issue_repair_packet: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    packet = issue_repair_packet if isinstance(issue_repair_packet, dict) else {}
+    index: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    for repair_target in (packet.get("repair_targets") or []):
+      if not isinstance(repair_target, dict):
+        continue
+      metric_name = str(repair_target.get("metric") or "").strip().lower()
+      if not metric_name:
+        continue
+      metric_bucket = index.setdefault(metric_name, {})
+      for driver_path in (repair_target.get("driver_paths") or []):
+        if not isinstance(driver_path, dict):
+          continue
+        lever_id = str(driver_path.get("lever") or "").strip()
+        if not lever_id:
+          continue
+        metric_bucket.setdefault(lever_id, []).append(copy.deepcopy(driver_path))
+    return index
+
+  def _aggregate_driver_paths(driver_paths: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    paths = [copy.deepcopy(item) for item in (driver_paths or []) if isinstance(item, dict)]
+    if not paths:
+      return {}
+    direct_paths = [
+      item for item in paths
+      if str(item.get("path_type") or "").strip().lower() == "direct"
+    ]
+    best_paths = direct_paths or paths
+    path_type = (
+      "direct"
+      if direct_paths
+      else str(best_paths[0].get("path_type") or "").strip().lower() or "indirect"
+    )
+    efficiency_order = {"high": 0, "medium": 1, "low": 2}
+    efficiency = str(
+      sorted(
+        [
+          str(item.get("efficiency") or "").strip().lower()
+          for item in best_paths
+          if str(item.get("efficiency") or "").strip()
+        ],
+        key=lambda value: efficiency_order.get(value, 3),
+      )[0]
+      if best_paths
+      else ""
+    ).strip().lower() or None
+    metric_recommended_values = [
+      float(_safe_float(item.get("metric_recommended_delta")) or 0.0)
+      for item in best_paths
+      if _safe_float(item.get("metric_recommended_delta")) is not None
+    ]
+    metric_min_values = [
+      float(_safe_float(item.get("metric_min_delta")) or 0.0)
+      for item in best_paths
+      if _safe_float(item.get("metric_min_delta")) is not None
+    ]
+    metric_max_values = [
+      float(_safe_float(item.get("metric_max_delta")) or 0.0)
+      for item in best_paths
+      if _safe_float(item.get("metric_max_delta")) is not None
+    ]
+    lever_min_values = [
+      float(_safe_float(item.get("min_delta")) or 0.0)
+      for item in best_paths
+      if _safe_float(item.get("min_delta")) is not None
+    ]
+    lever_max_values = [
+      float(_safe_float(item.get("max_delta")) or 0.0)
+      for item in best_paths
+      if _safe_float(item.get("max_delta")) is not None
+    ]
+    delta_units = {
+      str(item.get("delta_unit") or "").strip()
+      for item in best_paths
+      if str(item.get("delta_unit") or "").strip()
+    }
+    translation_bases = [
+      str(item.get("translation_basis") or "").strip()
+      for item in best_paths
+      if str(item.get("translation_basis") or "").strip()
+    ]
+    return {
+      "path_type": path_type,
+      "efficiency": efficiency,
+      "expected_metric_delta": (
+        float(sum(metric_recommended_values))
+        if metric_recommended_values
+        else None
+      ),
+      "expected_metric_delta_min": (
+        float(sum(metric_min_values))
+        if metric_min_values
+        else None
+      ),
+      "expected_metric_delta_max": (
+        float(sum(metric_max_values))
+        if metric_max_values
+        else None
+      ),
+      "expected_lever_delta_min": (
+        float(sum(lever_min_values))
+        if lever_min_values
+        else None
+      ),
+      "expected_lever_delta_max": (
+        float(sum(lever_max_values))
+        if lever_max_values
+        else None
+      ),
+      "delta_unit": (
+        next(iter(delta_units))
+        if len(delta_units) == 1
+        else "mixed"
+        if delta_units
+        else None
+      ),
+      "translation_basis": copy.deepcopy(translation_bases[:4]),
+    }
+
+  def _metric_delta_negligible_threshold(*, unit_kind: str, reference_value: float) -> float:
+    normalized_unit = str(unit_kind or "").strip().lower()
+    reference = abs(float(reference_value or 0.0))
+    if normalized_unit in {"ratio", "percent", "percent_of_revenue", "margin"}:
+      return max(reference * 0.10, 0.0025)
+    if normalized_unit in {"days"}:
+      return max(reference * 0.10, 0.25)
+    if normalized_unit in {"currency", "quarter_currency"}:
+      return max(reference * 0.10, 1000.0)
+    return max(reference * 0.10, 0.1)
+
   before_state = before_controller_resolution_state if isinstance(before_controller_resolution_state, dict) else {}
   after_state = after_controller_resolution_state if isinstance(after_controller_resolution_state, dict) else {}
-  before_trigger = before_trigger_assessment if isinstance(before_trigger_assessment, dict) else {}
-  after_trigger = after_trigger_assessment if isinstance(after_trigger_assessment, dict) else {}
+  before_hard_rules = before_hard_rule_assessment if isinstance(before_hard_rule_assessment, dict) else {}
+  after_hard_rules = after_hard_rule_assessment if isinstance(after_hard_rule_assessment, dict) else {}
+  before_guidance = before_numeric_guidance_packet if isinstance(before_numeric_guidance_packet, dict) else {}
+  candidate = candidate_signature if isinstance(candidate_signature, dict) else {}
+  prior_quality = prior_quality_assessment if isinstance(prior_quality_assessment, dict) else {}
+  issue_repair_packet_map = {
+    str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
+    for item in (before_guidance.get("issue_repair_packets") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
+  selected_lever_ids_all = [
+    str(item).strip()
+    for item in (candidate.get("lever_set_union") or [])
+    if str(item).strip()
+  ]
+  prior_issue_alignment_map = {
+    str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
+    for item in (prior_quality.get("issue_alignment_debug") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
   before_open_issue_summary = _open_issue_severity_summary(before_state)
   after_open_issue_summary = _open_issue_severity_summary(after_state)
   before_remaining = int(_safe_float(before_state.get("remaining_issue_count")) or 0)
   after_remaining = int(_safe_float(after_state.get("remaining_issue_count")) or 0)
   before_resolved = int(_safe_float(before_state.get("resolved_issue_count")) or 0)
   after_resolved = int(_safe_float(after_state.get("resolved_issue_count")) or 0)
-  before_neg_cash = int(_safe_float(before_trigger.get("negative_cash_quarter_count")) or 0)
-  after_neg_cash = int(_safe_float(after_trigger.get("negative_cash_quarter_count")) or 0)
-  before_late_neg_income = int(_safe_float(before_trigger.get("late_negative_net_income_quarter_count")) or 0)
-  after_late_neg_income = int(_safe_float(after_trigger.get("late_negative_net_income_quarter_count")) or 0)
-  before_final_cash = float(_safe_float(before_trigger.get("final_cash")) or 0.0)
-  after_final_cash = float(_safe_float(after_trigger.get("final_cash")) or 0.0)
-  before_final_ebitda = float(_safe_float(before_trigger.get("final_ebitda")) or 0.0)
-  after_final_ebitda = float(_safe_float(after_trigger.get("final_ebitda")) or 0.0)
+  before_catastrophic_liquidity = len(before_hard_rules.get("catastrophic_liquidity_quarters") or [])
+  after_catastrophic_liquidity = len(after_hard_rules.get("catastrophic_liquidity_quarters") or [])
+  before_accounting_failures = len(before_hard_rules.get("accounting_failure_quarters") or [])
+  after_accounting_failures = len(after_hard_rules.get("accounting_failure_quarters") or [])
+  before_remaining_hard_issues = int(_safe_float(before_hard_rules.get("remaining_hard_issue_count")) or 0)
+  after_remaining_hard_issues = int(_safe_float(after_hard_rules.get("remaining_hard_issue_count")) or 0)
+  before_final_cash = float(_safe_float(before_hard_rules.get("final_ending_cash")) or 0.0)
+  after_final_cash = float(_safe_float(after_hard_rules.get("final_ending_cash")) or 0.0)
+  before_final_ebitda = float(_safe_float(before_hard_rules.get("final_ebitda")) or 0.0)
+  after_final_ebitda = float(_safe_float(after_hard_rules.get("final_ebitda")) or 0.0)
   before_open_issue_severity_total = int(before_open_issue_summary.get("open_issue_severity_total") or 0)
   after_open_issue_severity_total = int(after_open_issue_summary.get("open_issue_severity_total") or 0)
   before_open_issue_problem_quarter_total = int(before_open_issue_summary.get("open_issue_problem_quarter_total") or 0)
@@ -3021,9 +4288,14 @@ def _final_guarantee_quality_assessment(
     or after_open_issue_problem_quarter_total <= before_open_issue_problem_quarter_total - problem_quarter_materiality
   )
   viability_improved = bool(
-    after_neg_cash < before_neg_cash
-    or after_late_neg_income < before_late_neg_income
+    after_catastrophic_liquidity < before_catastrophic_liquidity
+    or after_accounting_failures < before_accounting_failures
+    or after_remaining_hard_issues < before_remaining_hard_issues
     or after_final_cash > before_final_cash + cash_materiality
+    or (
+      not bool(before_hard_rules.get("all_hard_rules_cleared"))
+      and bool(after_hard_rules.get("all_hard_rules_cleared"))
+    )
     or (before_status != "all_cleared" and after_status == "all_cleared")
   )
   before_open_records = [
@@ -3043,7 +4315,9 @@ def _final_guarantee_quality_assessment(
     ),
   )[: _CONVERGENCE_MAX_FOCUS_ISSUES]
   issue_progress_details: List[Dict[str, Any]] = []
+  issue_alignment_debug: List[Dict[str, Any]] = []
   meaningful_gap_progress = False
+  material_gap_progress = False
   meaningful_score_progress = False
   max_score_delta = 0.0
   max_gap_reduction_ratio = 0.0
@@ -3053,8 +4327,30 @@ def _final_guarantee_quality_assessment(
     if not issue_code:
       continue
     after_issue = after_open_record_map.get(issue_code) or {}
-    before_gap = float(_safe_float(before_issue.get("aggregate_gap_abs")) or 0.0)
-    after_gap = float(_safe_float(after_issue.get("aggregate_gap_abs")) or 0.0)
+    before_gap_basis = _issue_metric_gap_progress_basis(before_issue)
+    after_gap_basis = _issue_metric_gap_progress_basis(after_issue)
+    progress_metric_name = str(before_gap_basis.get("selected_metric_name") or "").strip().lower()
+    before_metric_summary = copy.deepcopy(before_gap_basis.get("selected_metric_summary") or {})
+    after_metric_summaries = (
+      after_gap_basis.get("metric_summaries")
+      if isinstance(after_gap_basis.get("metric_summaries"), dict)
+      else {}
+    )
+    after_metric_summary = (
+      copy.deepcopy(after_metric_summaries.get(progress_metric_name) or {})
+      if progress_metric_name
+      else {}
+    )
+    before_gap = float(_safe_float(before_gap_basis.get("aligned_gap_abs")) or 0.0)
+    if after_metric_summary:
+      after_gap = float(_safe_float(after_metric_summary.get("gap_abs")) or 0.0)
+    elif progress_metric_name:
+      after_gap = float(
+        _safe_float(after_issue.get("aggregate_gap_abs"))
+        or 0.0
+      ) if not after_metric_summaries else 0.0
+    else:
+      after_gap = float(_safe_float(after_gap_basis.get("aligned_gap_abs")) or 0.0)
     gap_reduction = float(before_gap - after_gap)
     gap_reduction_ratio = (
       float(gap_reduction / before_gap)
@@ -3078,11 +4374,18 @@ def _final_guarantee_quality_assessment(
     score_delta = float(after_score - before_score)
     before_severity = int(_safe_float(before_issue.get("remaining_issue_severity_score")) or 0)
     after_severity = int(_safe_float(after_issue.get("remaining_issue_severity_score")) or 0)
+    issue_still_active_after_cycle = bool(
+      isinstance(after_issue, dict)
+      and after_issue
+      and _controller_issue_is_blocking(after_issue)
+    )
+    gap_progress_detected = bool(gap_reduction > 1e-9)
     gap_progress_is_material = bool(
       gap_reduction > max(before_gap * _PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO, 1.0)
     )
-    score_progress_is_material = bool(score_delta >= _CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT)
-    meaningful_gap_progress = bool(meaningful_gap_progress or gap_progress_is_material)
+    score_progress_is_material = bool(score_delta > _CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT)
+    meaningful_gap_progress = bool(meaningful_gap_progress or gap_progress_detected)
+    material_gap_progress = bool(material_gap_progress or gap_progress_is_material)
     meaningful_score_progress = bool(meaningful_score_progress or score_progress_is_material)
     max_score_delta = max(max_score_delta, score_delta)
     max_gap_reduction_ratio = max(max_gap_reduction_ratio, gap_reduction_ratio)
@@ -3090,15 +4393,30 @@ def _final_guarantee_quality_assessment(
     issue_progress_details.append(
       {
         "issue_code": issue_code,
+        "gap_progress_basis": str(before_gap_basis.get("selection_mode") or "").strip() or "aggregate_fallback",
+        "gap_progress_metric_count": int(_safe_float(before_gap_basis.get("metric_count")) or 0),
+        "gap_progress_metric_name": progress_metric_name or None,
+        "gap_progress_metric_definition": str(before_metric_summary.get("metric_definition") or "").strip() or None,
+        "gap_progress_metric_unit_kind": str(before_metric_summary.get("unit_kind") or "").strip().lower() or None,
+        "gap_progress_metric_quarters": copy.deepcopy(before_metric_summary.get("quarter_indexes") or []),
         "before_gap_abs": before_gap,
         "after_gap_abs": after_gap,
+        "before_aggregate_gap_abs": float(_safe_float(before_gap_basis.get("aggregate_gap_abs")) or 0.0),
+        "after_aggregate_gap_abs": float(_safe_float(after_gap_basis.get("aggregate_gap_abs")) or 0.0),
         "gap_reduction": gap_reduction,
         "gap_reduction_ratio": gap_reduction_ratio,
         "before_score": before_score,
         "after_score": after_score,
         "score_delta": score_delta,
+        "before_gap_metric_score_pct": float(_safe_float(before_metric_summary.get("average_score_pct")) or 0.0),
+        "after_gap_metric_score_pct": float(_safe_float(after_metric_summary.get("average_score_pct")) or 0.0),
+        "gap_metric_score_delta": float(
+          (float(_safe_float(after_metric_summary.get("average_score_pct")) or 0.0))
+          - (float(_safe_float(before_metric_summary.get("average_score_pct")) or 0.0))
+        ),
         "before_severity_score": before_severity,
         "after_severity_score": after_severity,
+        "gap_progress_detected": gap_progress_detected,
         "gap_progress_is_material": gap_progress_is_material,
         "score_progress_is_material": score_progress_is_material,
         "relevant_quarters": copy.deepcopy(
@@ -3110,6 +4428,234 @@ def _final_guarantee_quality_assessment(
         "metric_debug_after": copy.deepcopy(after_issue.get("metric_debug") or []),
       }
     )
+    issue_repair_packet = copy.deepcopy(issue_repair_packet_map.get(issue_code) or {})
+    repair_targets = [
+      copy.deepcopy(item)
+      for item in (issue_repair_packet.get("repair_targets") or [])
+      if isinstance(item, dict)
+    ]
+    repair_metric_names = list(
+      dict.fromkeys(
+        [
+          str(item.get("metric") or "").strip().lower()
+          for item in repair_targets
+          if str(item.get("metric") or "").strip()
+        ]
+      )
+    )
+    closure_metric_name = (
+      progress_metric_name
+      or (repair_metric_names[0] if repair_metric_names else "")
+    )
+    closure_metric_targets = [
+      item
+      for item in repair_targets
+      if str(item.get("metric") or "").strip().lower() == closure_metric_name
+    ] or copy.deepcopy(repair_targets)
+    closure_metric_target = closure_metric_targets[0] if closure_metric_targets else {}
+    closure_repair_envelopes = [
+      item.get("repair_envelope")
+      for item in closure_metric_targets
+      if isinstance(item.get("repair_envelope"), dict)
+    ]
+    issue_expected_metric_delta = None
+    if closure_repair_envelopes:
+      recommended_values = [
+        float(_safe_float(item.get("recommended_delta")) or 0.0)
+        for item in closure_repair_envelopes
+        if _safe_float(item.get("recommended_delta")) is not None
+      ]
+      if recommended_values:
+        issue_expected_metric_delta = float(sum(recommended_values))
+    driver_path_index = _driver_path_index_for_issue(issue_repair_packet)
+    closure_metric_driver_map = driver_path_index.get(closure_metric_name) or {}
+    candidate_issue_lever_ids = {
+      str(item).strip()
+      for item in (issue_repair_packet.get("candidate_lever_ids") or [])
+      if str(item).strip()
+    }
+    for repair_target in repair_targets:
+      for driver_path in (repair_target.get("driver_paths") or []):
+        if not isinstance(driver_path, dict):
+          continue
+        lever_id = str(driver_path.get("lever") or "").strip()
+        if lever_id:
+          candidate_issue_lever_ids.add(lever_id)
+    selected_issue_lever_ids = [
+      lever_id
+      for lever_id in selected_lever_ids_all
+      if lever_id in candidate_issue_lever_ids
+    ]
+    if not selected_issue_lever_ids and len(focus_issue_records) == 1:
+      selected_issue_lever_ids = copy.deepcopy(selected_lever_ids_all[:_CONVERGENCE_MAX_FOCUS_LEVERS])
+    direct_driver_exists_for_closure_metric = any(
+      str((_aggregate_driver_paths(paths) or {}).get("path_type") or "").strip().lower() == "direct"
+      for paths in closure_metric_driver_map.values()
+    )
+    before_actual_metric_value = _safe_float(before_metric_summary.get("average_actual_value"))
+    after_actual_metric_value = _safe_float(after_metric_summary.get("average_actual_value"))
+    actual_metric_delta = (
+      float(after_actual_metric_value - before_actual_metric_value)
+      if before_actual_metric_value is not None and after_actual_metric_value is not None
+      else None
+    )
+    metric_unit_kind = str(before_metric_summary.get("unit_kind") or "").strip().lower()
+    expected_delta_reference = issue_expected_metric_delta if issue_expected_metric_delta is not None else before_gap
+    metric_delta_negligible_threshold = _metric_delta_negligible_threshold(
+      unit_kind=metric_unit_kind,
+      reference_value=float(expected_delta_reference or 0.0),
+    )
+    actual_metric_change_negligible = bool(
+      actual_metric_delta is None
+      or abs(float(actual_metric_delta or 0.0)) <= metric_delta_negligible_threshold
+    )
+    selected_lever_debug: List[Dict[str, Any]] = []
+    selected_direct_closure_metric_count = 0
+    selected_weakest_metric_target_count = 0
+    for lever_id in selected_issue_lever_ids:
+      closure_metric_paths = copy.deepcopy(closure_metric_driver_map.get(lever_id) or [])
+      aggregated_closure_metric_paths = _aggregate_driver_paths(closure_metric_paths)
+      targets_closure_metric = bool(closure_metric_paths)
+      if str((aggregated_closure_metric_paths or {}).get("path_type") or "").strip().lower() == "direct":
+        selected_direct_closure_metric_count += 1
+      if targets_closure_metric:
+        selected_weakest_metric_target_count += 1
+      selected_lever_debug.append(
+        {
+          "lever_id": lever_id,
+          "targets_closure_metric": targets_closure_metric,
+          "path_type": str(
+            (aggregated_closure_metric_paths or {}).get("path_type") or "unmapped"
+          ).strip().lower() or "unmapped",
+          "efficiency": str(
+            (aggregated_closure_metric_paths or {}).get("efficiency") or ""
+          ).strip().lower() or None,
+          "expected_metric_delta": _safe_float(
+            (aggregated_closure_metric_paths or {}).get("expected_metric_delta")
+          ),
+          "expected_metric_delta_min": _safe_float(
+            (aggregated_closure_metric_paths or {}).get("expected_metric_delta_min")
+          ),
+          "expected_metric_delta_max": _safe_float(
+            (aggregated_closure_metric_paths or {}).get("expected_metric_delta_max")
+          ),
+          "expected_lever_delta_min": _safe_float(
+            (aggregated_closure_metric_paths or {}).get("expected_lever_delta_min")
+          ),
+          "expected_lever_delta_max": _safe_float(
+            (aggregated_closure_metric_paths or {}).get("expected_lever_delta_max")
+          ),
+          "delta_unit": str(
+            (aggregated_closure_metric_paths or {}).get("delta_unit") or ""
+          ).strip() or None,
+          "translation_basis": copy.deepcopy(
+            (aggregated_closure_metric_paths or {}).get("translation_basis") or []
+          ),
+        }
+      )
+    all_selected_levers_indirect = bool(selected_issue_lever_ids) and selected_direct_closure_metric_count <= 0
+    weakest_metric_targeted_by_selected_levers = bool(selected_direct_closure_metric_count > 0)
+    prior_issue_alignment = copy.deepcopy(prior_issue_alignment_map.get(issue_code) or {})
+    prior_gap_stalled_cycles = int(
+      _safe_float(prior_issue_alignment.get("consecutive_gap_stalled_cycles")) or 0
+    )
+    consecutive_gap_stalled_cycles = (
+      0
+      if gap_progress_detected
+      else prior_gap_stalled_cycles + 1
+    )
+    prior_zero_progress_cycles = int(
+      _safe_float(prior_issue_alignment.get("consecutive_zero_progress_cycles")) or 0
+    )
+    zero_progress_detected = bool(
+      abs(float(gap_reduction or 0.0)) <= 1e-9
+      and abs(float(score_delta or 0.0)) <= 1e-9
+    )
+    consecutive_zero_progress_cycles = (
+      prior_zero_progress_cycles + 1
+      if zero_progress_detected
+      else 0
+    )
+    score_flat_while_gap_shrinking = bool(
+      issue_still_active_after_cycle
+      and
+      gap_reduction > 1e-9
+      and abs(score_delta) <= _CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT
+    )
+    expected_impact_but_actual_change_negligible = bool(
+      issue_still_active_after_cycle
+      and
+      issue_expected_metric_delta is not None
+      and abs(float(issue_expected_metric_delta or 0.0)) > metric_delta_negligible_threshold
+      and actual_metric_change_negligible
+    )
+    issue_flags: List[str] = []
+    if issue_still_active_after_cycle and not repair_targets:
+      issue_flags.append("repair_target_count_zero")
+    if issue_still_active_after_cycle and not direct_driver_exists_for_closure_metric:
+      issue_flags.append("no_direct_drivers_for_closure_metric")
+    if issue_still_active_after_cycle and not selected_issue_lever_ids:
+      issue_flags.append("no_selected_levers_for_issue")
+    if issue_still_active_after_cycle and all_selected_levers_indirect:
+      issue_flags.append("all_selected_levers_indirect")
+    if issue_still_active_after_cycle and selected_issue_lever_ids and not weakest_metric_targeted_by_selected_levers:
+      issue_flags.append("weakest_metric_not_targeted")
+    if issue_still_active_after_cycle and expected_impact_but_actual_change_negligible:
+      issue_flags.append("expected_impact_but_actual_change_negligible")
+    if issue_still_active_after_cycle and consecutive_gap_stalled_cycles >= 2:
+      issue_flags.append("gap_reduction_stalled_multiple_cycles")
+    if issue_still_active_after_cycle and score_flat_while_gap_shrinking:
+      issue_flags.append("gap_shrinking_but_score_flat")
+    if after_issue and bool(after_issue.get("blocking")):
+      reason_issue_remains_open = (
+        "; ".join(str(item).strip() for item in (after_issue.get("closure_reasons") or []) if str(item).strip())
+        or "closure thresholds not yet met"
+      )
+    elif after_issue:
+      reason_issue_remains_open = "issue_resolved_or_sufficiently_resolved"
+    else:
+      reason_issue_remains_open = "issue_closed_or_not_present_after_cycle"
+    issue_alignment_debug.append(
+      {
+        "issue_code": issue_code,
+        "closure_metric_name": closure_metric_name or None,
+        "closure_metric_definition": str(before_metric_summary.get("metric_definition") or "").strip() or None,
+        "multi_metric_issue": int(_safe_float(before_gap_basis.get("metric_count")) or 0) > 1,
+        "repair_target_count": len(repair_targets),
+        "repair_targets_exist": bool(repair_targets),
+        "repair_metric_names": copy.deepcopy(repair_metric_names),
+        "selected_lever_ids": copy.deepcopy(selected_issue_lever_ids),
+        "selected_lever_count": len(selected_issue_lever_ids),
+        "selected_levers": copy.deepcopy(selected_lever_debug),
+        "issue_still_active_after_cycle": issue_still_active_after_cycle,
+        "direct_driver_exists_for_closure_metric": direct_driver_exists_for_closure_metric,
+        "all_selected_levers_indirect": all_selected_levers_indirect,
+        "weakest_metric_name": closure_metric_name or None,
+        "weakest_metric_targeted_by_selected_levers": weakest_metric_targeted_by_selected_levers,
+        "before_actual_metric_value": before_actual_metric_value,
+        "after_actual_metric_value": after_actual_metric_value,
+        "actual_metric_delta": actual_metric_delta,
+        "target_floor": _safe_float(closure_metric_target.get("target_floor")),
+        "target_ceiling": _safe_float(closure_metric_target.get("target_ceiling")),
+        "expected_metric_delta": issue_expected_metric_delta,
+        "metric_delta_difference": (
+          float(actual_metric_delta - issue_expected_metric_delta)
+          if actual_metric_delta is not None and issue_expected_metric_delta is not None
+          else None
+        ),
+        "before_gap": before_gap,
+        "after_gap": after_gap,
+        "gap_reduction": gap_reduction,
+        "consecutive_gap_stalled_cycles": consecutive_gap_stalled_cycles,
+        "consecutive_zero_progress_cycles": consecutive_zero_progress_cycles,
+        "before_score": before_score,
+        "after_score": after_score,
+        "score_delta": score_delta,
+        "gap_progress_metric_name": progress_metric_name or None,
+        "reason_issue_remains_open": reason_issue_remains_open,
+        "flags": copy.deepcopy(issue_flags),
+      }
+    )
   same_issue_signature = bool(
     str(before_open_issue_summary.get("open_issue_signature") or "").strip()
     and before_open_issue_summary.get("open_issue_signature") == after_open_issue_summary.get("open_issue_signature")
@@ -3119,10 +4665,15 @@ def _final_guarantee_quality_assessment(
     or meaningful_gap_progress
     or meaningful_score_progress
   )
+  same_issue_signature_without_progress = bool(
+    same_issue_signature
+    and not meaningful_progress
+  )
   worsened = bool(
     after_remaining > before_remaining
-    or after_neg_cash > before_neg_cash
-    or after_late_neg_income > before_late_neg_income
+    or after_catastrophic_liquidity > before_catastrophic_liquidity
+    or after_accounting_failures > before_accounting_failures
+    or after_remaining_hard_issues > before_remaining_hard_issues
     or after_final_cash < before_final_cash - cash_materiality
     or after_final_ebitda < before_final_ebitda - ebitda_materiality
   )
@@ -3144,26 +4695,70 @@ def _final_guarantee_quality_assessment(
     and unresolved_issue_plateau
   )
   insufficient_issue_progress = bool(issue_count_gate_active and no_progress and after_status != "all_cleared")
-  early_failure_detected = bool(
-    not issue_improved
-    and not meaningful_gap_progress
-    and not meaningful_score_progress
-  )
-  reject_attempt = bool(
-    insufficient_issue_progress
-    or early_failure_detected
-  )
+  early_failure_detected = bool(no_progress and after_status != "all_cleared")
+  reject_attempt = bool(no_progress and after_status != "all_cleared")
+  issue_alignment_debug_summary = {
+    "issue_count": len(issue_alignment_debug),
+    "flagged_issue_count": sum(
+      1 for item in issue_alignment_debug if isinstance(item, dict) and (item.get("flags") or [])
+    ),
+    "flagged_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and (item.get("flags") or [])
+    ],
+    "repair_target_zero_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "repair_target_count_zero" in set(item.get("flags") or [])
+    ],
+    "no_direct_driver_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "no_direct_drivers_for_closure_metric" in set(item.get("flags") or [])
+    ],
+    "all_selected_levers_indirect_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "all_selected_levers_indirect" in set(item.get("flags") or [])
+    ],
+    "weakest_metric_untargeted_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "weakest_metric_not_targeted" in set(item.get("flags") or [])
+    ],
+    "ineffective_execution_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "expected_impact_but_actual_change_negligible" in set(item.get("flags") or [])
+    ],
+    "gap_stalled_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "gap_reduction_stalled_multiple_cycles" in set(item.get("flags") or [])
+    ],
+    "score_gap_misalignment_issue_codes": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in issue_alignment_debug
+      if isinstance(item, dict) and "gap_shrinking_but_score_flat" in set(item.get("flags") or [])
+    ],
+  }
+  strict_failure = _first_unified_convergence_test_failure(issue_alignment_debug)
   return {
     "accepted": not reject_attempt,
     "reject_attempt": reject_attempt,
     "no_progress": no_progress,
     "early_failure_detected": early_failure_detected,
     "same_issue_signature": same_issue_signature,
+    "same_issue_signature_without_progress": same_issue_signature_without_progress,
     "worsened_without_compensating_improvement": bool(
       worsened and not meaningful_progress
     ),
     "meaningful_progress": meaningful_progress,
+    "gap_progress_detected": meaningful_gap_progress,
     "meaningful_gap_progress": meaningful_gap_progress,
+    "material_gap_progress": material_gap_progress,
+    "score_progress_detected": meaningful_score_progress,
     "meaningful_score_progress": meaningful_score_progress,
     "insufficient_issue_progress": insufficient_issue_progress,
     "net_issue_change": int(net_issue_change),
@@ -3180,6 +4775,11 @@ def _final_guarantee_quality_assessment(
     "top_issue_gap_reduction_ratio": max_gap_reduction_ratio,
     "total_gap_reduction": total_gap_reduction,
     "issue_progress_details": copy.deepcopy(issue_progress_details),
+    "issue_alignment_debug": copy.deepcopy(issue_alignment_debug),
+    "issue_alignment_debug_summary": copy.deepcopy(issue_alignment_debug_summary),
+    "strict_test_mode_active": bool(_convergence_test_mode_enabled()),
+    "strict_failure_detected": bool(strict_failure),
+    "strict_failure": copy.deepcopy(strict_failure),
     "remaining_issue_count_before": before_remaining,
     "remaining_issue_count_after": after_remaining,
     "resolved_issue_count_before": before_resolved,
@@ -3190,20 +4790,24 @@ def _final_guarantee_quality_assessment(
     "open_issue_severity_total_after": after_open_issue_severity_total,
     "open_issue_problem_quarter_total_before": before_open_issue_problem_quarter_total,
     "open_issue_problem_quarter_total_after": after_open_issue_problem_quarter_total,
-    "negative_cash_quarter_count_before": before_neg_cash,
-    "negative_cash_quarter_count_after": after_neg_cash,
-    "late_negative_net_income_quarter_count_before": before_late_neg_income,
-    "late_negative_net_income_quarter_count_after": after_late_neg_income,
+    "catastrophic_liquidity_quarter_count_before": before_catastrophic_liquidity,
+    "catastrophic_liquidity_quarter_count_after": after_catastrophic_liquidity,
+    "accounting_failure_quarter_count_before": before_accounting_failures,
+    "accounting_failure_quarter_count_after": after_accounting_failures,
+    "remaining_hard_issue_count_before": before_remaining_hard_issues,
+    "remaining_hard_issue_count_after": after_remaining_hard_issues,
     "final_cash_before": before_final_cash,
     "final_cash_after": after_final_cash,
     "final_ebitda_before": before_final_ebitda,
     "final_ebitda_after": after_final_ebitda,
+    "hard_rules_cleared_before": bool(before_hard_rules.get("all_hard_rules_cleared")),
+    "hard_rules_cleared_after": bool(after_hard_rules.get("all_hard_rules_cleared")),
     "status_before": before_status,
     "status_after": after_status,
   }
 
 
-def _final_guarantee_stall_assessment(
+def _build_unified_cycle_stall_assessment(
   *,
   consecutive_no_progress_cycles: int,
   latest_quality_assessment: Optional[Dict[str, Any]],
@@ -3233,14 +4837,20 @@ def _final_guarantee_stall_assessment(
     if str(item).strip()
   ]
   structural_issue_codes = [code for code in open_issue_codes if _is_structural_issue_code(code)]
+  progress_detected = bool(quality.get("meaningful_progress"))
+  same_issue_signature_without_progress = bool(quality.get("same_issue_signature_without_progress"))
+  issue_count_regressed_without_progress = bool(
+    quality.get("issue_count_regressed")
+    and not progress_detected
+  )
   unresolved_issue_plateau = bool(quality.get("unresolved_issue_plateau"))
   stalled = bool(
     consecutive >= 1
-    or quality.get("same_issue_signature")
+    or same_issue_signature_without_progress
     or quality.get("no_progress")
     or quality.get("insufficient_issue_progress")
     or quality.get("early_failure_detected")
-    or quality.get("issue_count_regressed")
+    or issue_count_regressed_without_progress
     or unresolved_issue_plateau
     or quality.get("cash_only_viability_progress")
   )
@@ -3256,7 +4866,7 @@ def _final_guarantee_stall_assessment(
     "force_all_writable_levers": False,
     "force_structural_driver_changes": structurally_stalled,
     "minimum_new_lever_count": 3 if structurally_stalled else (2 if stalled else 0),
-    "require_target_reframe_on_same_issue_state": bool(quality.get("same_issue_signature")),
+    "require_target_reframe_on_same_issue_state": same_issue_signature_without_progress,
     "open_issue_codes": copy.deepcopy(open_issue_codes),
     "structural_issue_codes": copy.deepcopy(structural_issue_codes),
     "required_change_type": "structural" if structurally_stalled else ("focused_reframe" if stalled else "none"),
@@ -3265,7 +4875,7 @@ def _final_guarantee_stall_assessment(
       "The convergence loop has stalled. The next attempt must materially change tactic inside a focused scope: "
       "top issues, earliest failing quarters, and the highest-impact lever families only."
       if stalled
-      else "No final-guarantee stall is currently detected."
+      else "No unified-cycle stall is currently detected."
     ),
   }
 
@@ -3316,6 +4926,102 @@ def _full_run_viability_context_payload(
   return updated
 
 
+def _build_unified_horizon_snapshot(
+  current_finmo_json: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+  metrics = _cash_review_quarter_metrics(current_finmo_json)
+  ending_cash_series = [float(_safe_float(item.get("ending_cash")) or 0.0) for item in metrics]
+  ebitda_series = [float(_safe_float(item.get("ebitda")) or 0.0) for item in metrics]
+  net_income_series = [float(_safe_float(item.get("net_income")) or 0.0) for item in metrics]
+  revenue_series = [float(_safe_float(item.get("revenue")) or 0.0) for item in metrics]
+  negative_cash_quarters = [idx + 1 for idx, value in enumerate(ending_cash_series) if value < 0.0]
+  catastrophic_liquidity_quarters = [
+    idx + 1
+    for idx, value in enumerate(ending_cash_series)
+    if value < _UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR
+  ]
+  negative_net_income_quarters = [idx + 1 for idx, value in enumerate(net_income_series) if value < 0.0]
+  negative_ebitda_quarters = [idx + 1 for idx, value in enumerate(ebitda_series) if value < 0.0]
+  final_cash = ending_cash_series[-1] if ending_cash_series else 0.0
+  horizon_snapshot = {
+    "quarter_count": len(metrics),
+    "negative_cash_quarters": negative_cash_quarters,
+    "catastrophic_liquidity_quarters": catastrophic_liquidity_quarters,
+    "negative_net_income_quarters": negative_net_income_quarters,
+    "negative_ebitda_quarters": negative_ebitda_quarters,
+    "minimum_ending_cash": min(ending_cash_series) if ending_cash_series else 0.0,
+    "maximum_ending_cash": max(ending_cash_series) if ending_cash_series else 0.0,
+    "final_ending_cash": final_cash,
+    "final_revenue": revenue_series[-1] if revenue_series else 0.0,
+    "final_ebitda": ebitda_series[-1] if ebitda_series else 0.0,
+    "final_net_income": net_income_series[-1] if net_income_series else 0.0,
+    "business_appears_ongoing_concern": not catastrophic_liquidity_quarters and final_cash > _UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR,
+  }
+  return horizon_snapshot, metrics
+
+
+def _build_unified_hard_rule_assessment(
+  *,
+  controller_resolution_state: Optional[Dict[str, Any]],
+  current_finmo_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  controller_state = controller_resolution_state if isinstance(controller_resolution_state, dict) else {}
+  horizon_snapshot, metrics = _build_unified_horizon_snapshot(current_finmo_json)
+  accounting_failure_quarters: List[int] = []
+  catastrophic_liquidity_quarters = [
+    int(_safe_float(item) or 0)
+    for item in (horizon_snapshot.get("catastrophic_liquidity_quarters") or [])
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  for row in (metrics or []):
+    if not isinstance(row, dict):
+      continue
+    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    accounting_gap = abs(float(_safe_float(row.get("accounting_equation_check")) or 0.0))
+    if accounting_gap > _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE:
+      accounting_failure_quarters.append(quarter_index)
+
+  remaining_hard_issue_codes: List[str] = []
+  for item in _controller_state_issue_status_records(controller_state):
+    if not isinstance(item, dict):
+      continue
+    snapshot = _controller_issue_completion_snapshot(
+      item,
+      current_finmo_json=current_finmo_json,
+    )
+    if not bool(snapshot.get("blocking")) or not bool(snapshot.get("hard_issue")):
+      continue
+    issue_code = str(snapshot.get("issue_code") or "").strip().lower()
+    if issue_code and issue_code not in remaining_hard_issue_codes:
+      remaining_hard_issue_codes.append(issue_code)
+
+  failed_rule_codes: List[str] = []
+  if accounting_failure_quarters:
+    failed_rule_codes.append("accounting_integrity_failure")
+  if catastrophic_liquidity_quarters:
+    failed_rule_codes.append("catastrophic_liquidity_failure")
+  for issue_code in remaining_hard_issue_codes:
+    if issue_code not in failed_rule_codes:
+      failed_rule_codes.append(issue_code)
+
+  return {
+    "contract_version": "unified_hard_rule_assessment_v1",
+    "all_hard_rules_cleared": not failed_rule_codes,
+    "remaining_hard_issue_count": len(remaining_hard_issue_codes),
+    "remaining_hard_issue_codes": copy.deepcopy(remaining_hard_issue_codes),
+    "accounting_integrity_passed": not accounting_failure_quarters,
+    "accounting_failure_quarters": copy.deepcopy(accounting_failure_quarters),
+    "catastrophic_liquidity_passed": not catastrophic_liquidity_quarters,
+    "catastrophic_liquidity_quarters": copy.deepcopy(catastrophic_liquidity_quarters),
+    "failed_rule_codes": copy.deepcopy(failed_rule_codes),
+    "minimum_ending_cash": float(_safe_float(horizon_snapshot.get("minimum_ending_cash")) or 0.0),
+    "final_ending_cash": float(_safe_float(horizon_snapshot.get("final_ending_cash")) or 0.0),
+    "final_ebitda": float(_safe_float(horizon_snapshot.get("final_ebitda")) or 0.0),
+  }
+
+
 def _build_unified_convergence_context_payload(
   *,
   draft_id: str,
@@ -3359,35 +5065,34 @@ def _build_unified_convergence_context_payload(
     controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
     prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback or {}),
   )
-  stabilizer_context = _build_final_stabilizer_context_payload(
-    draft_id=draft_id,
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
+  leverage_catalog = _build_writable_lever_review_catalog(current_model_input_json)
+  issue_status_records = _controller_state_issue_status_records(controller_resolution_state)
+  resolved_issue_constraints = [
+    item for item in (protected_resolved_issue_constraints or [])
+    if isinstance(item, dict)
+  ] or _build_strategy_resolved_issue_constraints(copy.deepcopy(issue_status_records))
+  whole_horizon_snapshot, horizon_quarter_metrics = _build_unified_horizon_snapshot(
+    current_finmo_json
+  )
+  hard_rule_assessment = _build_unified_hard_rule_assessment(
+    controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
+    current_finmo_json=copy.deepcopy(current_finmo_json or {}),
+  )
+  try:
+    from client_intake_and_finmo.numeric_execution import build_numeric_solver_contract  # type: ignore
+  except Exception:
+    from numeric_execution import build_numeric_solver_contract  # type: ignore
+  numeric_solver_contract = build_numeric_solver_contract(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
-    prompt_file=prompt_file,
+    selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+    issue_status_records=copy.deepcopy(issue_status_records),
+    writable_lever_catalog=copy.deepcopy(leverage_catalog),
     current_model_input_json=copy.deepcopy(current_model_input_json or {}),
     current_finmo_json=copy.deepcopy(current_finmo_json or {}),
-    controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
-    protected_resolved_issue_constraints=copy.deepcopy(protected_resolved_issue_constraints or []),
-    prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback or {}),
+    pass_name="unified_convergence",
+    contract_scope="unified_convergence",
   )
-  guarantee_context = _full_run_viability_context_payload(
-    draft_id=draft_id,
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=prompt_file,
-    current_model_input_json=copy.deepcopy(current_model_input_json or {}),
-    current_finmo_json=copy.deepcopy(current_finmo_json or {}),
-    controller_resolution_state=copy.deepcopy(controller_resolution_state or {}),
-    protected_resolved_issue_constraints=copy.deepcopy(protected_resolved_issue_constraints or []),
-    prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback or {}),
-  )
-  numeric_solver_contract = copy.deepcopy((guarantee_context or {}).get("numeric_solver_contract") or {})
   if isinstance(numeric_solver_contract, dict):
     numeric_solver_contract["pass_name"] = "unified_convergence"
     numeric_solver_contract["contract_scope"] = "unified_convergence"
@@ -3415,24 +5120,41 @@ def _build_unified_convergence_context_payload(
     "grid_application_summary": copy.deepcopy(grid_application_summary or {}),
     "controller_resolution_state": copy.deepcopy(controller_resolution_state or {}),
     "current_issue_summaries": copy.deepcopy(_controller_state_issue_summaries(controller_resolution_state)),
-    "issue_status_records": copy.deepcopy(_controller_state_issue_status_records(controller_resolution_state)),
+    "issue_status_records": copy.deepcopy(issue_status_records),
     "deterministic_issue_packets": _build_issue_packets_from_issue_ledger(
-      issue_status_records=copy.deepcopy(_controller_state_issue_status_records(controller_resolution_state)),
+      issue_status_records=copy.deepcopy(issue_status_records),
       numeric_solver_contract=copy.deepcopy(numeric_solver_contract),
       current_finmo_json=copy.deepcopy(current_finmo_json or {}),
     ),
-    "resolved_issue_constraints": copy.deepcopy(protected_resolved_issue_constraints or []),
-    "whole_horizon_snapshot": copy.deepcopy((guarantee_context or {}).get("whole_horizon_snapshot") or {}),
-    "horizon_quarter_metrics": copy.deepcopy((stabilizer_context or {}).get("horizon_quarter_metrics") or []),
+    "resolved_issue_constraints": copy.deepcopy(resolved_issue_constraints),
+    "resolved_issue_protection_policy": {
+      "default_behavior": "preserve_previously_resolved_issues",
+      "material_reopening_allowed_only_for_clear_viability_gain": True,
+      "do_not_exit_with_reopened_issues": True,
+    },
+    "whole_horizon_snapshot": copy.deepcopy(whole_horizon_snapshot),
+    "horizon_quarter_metrics": copy.deepcopy(horizon_quarter_metrics),
+    "hard_rule_assessment": copy.deepcopy(hard_rule_assessment),
     "current_model_input_json": copy.deepcopy(current_model_input_json or {}),
     "current_finmo_json": copy.deepcopy(current_finmo_json or {}),
     "current_finmo_quarter_rows": [
       row for row in ((current_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
     ],
-    "writable_lever_catalog": copy.deepcopy((stabilizer_context or {}).get("writable_lever_catalog") or {}),
+    "writable_lever_catalog": {
+      "lever_ids": [
+        str(item.get("lever_id") or "").strip()
+        for item in leverage_catalog
+        if str(item.get("lever_id") or "").strip()
+      ],
+      "entries": copy.deepcopy(leverage_catalog),
+    },
     "numeric_solver_contract": copy.deepcopy(numeric_solver_contract),
     "prior_numeric_solver_feedback": copy.deepcopy(prior_numeric_feedback or {}),
     "context_modules": {
+      "initial_restructure": {
+        "whole_horizon_snapshot": copy.deepcopy((initial_restructure_context or {}).get("whole_horizon_snapshot") or {}),
+        "first_year_shape_snapshot": copy.deepcopy((initial_restructure_context or {}).get("first_year_shape_snapshot") or {}),
+      },
       "realism": {
         "whole_horizon_snapshot": copy.deepcopy((initial_restructure_context or {}).get("whole_horizon_snapshot") or {}),
         "first_year_shape_snapshot": copy.deepcopy((initial_restructure_context or {}).get("first_year_shape_snapshot") or {}),
@@ -3443,13 +5165,13 @@ def _build_unified_convergence_context_payload(
         "decision_trigger_candidates": copy.deepcopy((cash_strategy_context or {}).get("decision_trigger_candidates") or []),
         "strategy_relevant_series": copy.deepcopy((cash_strategy_context or {}).get("strategy_relevant_series") or {}),
       },
-      "stabilizer": {
-        "stabilization_trigger_assessment": copy.deepcopy((stabilizer_context or {}).get("stabilization_trigger_assessment") or {}),
-        "resolved_issue_protection_policy": copy.deepcopy((stabilizer_context or {}).get("resolved_issue_protection_policy") or {}),
-      },
-      "guarantee": {
-        "full_run_guarantee_policy": copy.deepcopy((guarantee_context or {}).get("full_run_guarantee_policy") or {}),
-        "guarantee_stall_assessment": copy.deepcopy((guarantee_context or {}).get("guarantee_stall_assessment") or {}),
+      "hard_rules": {
+        "hard_rule_assessment": copy.deepcopy(hard_rule_assessment),
+        "resolved_issue_protection_policy": {
+          "default_behavior": "preserve_previously_resolved_issues",
+          "material_reopening_allowed_only_for_clear_viability_gain": True,
+          "do_not_exit_with_reopened_issues": True,
+        },
       },
     },
   }
@@ -3846,8 +5568,8 @@ def _build_planning_context_summary_payload(
 _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
   "operating_model_contradiction": {
     "title": "operating_model_contradiction",
-    "reopen_prefixes": ["revenue::"],
-    "reopen_contains": ["::capacity", "::utilization"],
+    "reopen_prefixes": ["revenue::", "expenses::", "schedules::capital expenditures"],
+    "reopen_contains": ["::capacity", "::utilization", "::unit price"],
   },
   "capacity_revenue_mismatch": {
     "title": "capacity_revenue_mismatch",
@@ -3858,6 +5580,18 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "title": "pricing_positioning_mismatch",
     "reopen_prefixes": ["revenue::"],
     "reopen_contains": ["::unit price"],
+  },
+  "growth_model_mismatch": {
+    "title": "growth_model_mismatch",
+    "reopen_prefixes": [
+      "revenue::",
+      "expenses::marketing",
+      "expenses::payroll",
+      "balance_sheet::accounts receivable days",
+      "balance_sheet::inventory days",
+      "balance_sheet::accounts payable days",
+    ],
+    "reopen_contains": ["::capacity", "::utilization", "::unit price"],
   },
   "staffing_payroll_mismatch": {
     "title": "staffing_payroll_mismatch",
@@ -3889,7 +5623,8 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "title": "financing_solvency_mismatch",
     "reopen_prefixes": [
       "schedules::capital expenditures",
-      "schedules::plus: additions (repayments), net",
+      "schedules::debt issuance (new borrowing)",
+      "schedules::debt repayment (scheduled)",
       "balance_sheet::owner's capital",
       "balance_sheet::other equity",
       "expenses::marketing",
@@ -3904,7 +5639,8 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "title": "profitability_cash_shape_unrealistic",
     "reopen_prefixes": [
       "schedules::capital expenditures",
-      "schedules::plus: additions (repayments), net",
+      "schedules::debt issuance (new borrowing)",
+      "schedules::debt repayment (scheduled)",
       "balance_sheet::owner's capital",
       "balance_sheet::other equity",
       "expenses::marketing",
@@ -3919,10 +5655,35 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "title": "The capital expenditure pattern is heavy and ongoing despite the business not achieving profitability or positive operating cash flow.",
     "reopen_prefixes": [
       "schedules::capital expenditures",
-      "schedules::plus: additions (repayments), net",
+      "schedules::debt issuance (new borrowing)",
+      "schedules::debt repayment (scheduled)",
       "balance_sheet::owner's capital",
       "balance_sheet::other equity",
     ],
+    "reopen_contains": [],
+  },
+  "catastrophic_liquidity_failure": {
+    "title": "catastrophic_liquidity_failure",
+    "reopen_prefixes": [
+      "balance_sheet::owner's capital",
+      "balance_sheet::other equity",
+      "balance_sheet::distributions",
+      "balance_sheet::accounts receivable days",
+      "balance_sheet::accounts payable days",
+      "schedules::capital expenditures",
+      "schedules::debt issuance (new borrowing)",
+      "schedules::debt repayment (scheduled)",
+      "expenses::cost of goods sold",
+      "expenses::marketing",
+      "expenses::payroll",
+      "expenses::general and administrative",
+      "revenue::",
+    ],
+    "reopen_contains": ["::capacity", "::utilization", "::unit price"],
+  },
+  "accounting_integrity_failure": {
+    "title": "accounting_integrity_failure",
+    "reopen_prefixes": [],
     "reopen_contains": [],
   },
 }
@@ -4055,6 +5816,8 @@ def _normalize_realism_lever_ids(value: Any) -> List[str]:
 
 _CONVERGENCE_ISSUE_PASS_SCORE_PCT = 80
 _CONVERGENCE_ISSUE_WARN_SCORE_PCT = 70
+_CONVERGENCE_OVERALL_SCORE_ISSUE_WEIGHT = 0.75
+_CONVERGENCE_OVERALL_SCORE_LOWEST_QUARTER_WEIGHT = 0.25
 _CONVERGENCE_STRONG_SCORE_PCT = 90
 _CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
 _CONVERGENCE_MAX_FOCUS_ISSUES = 2
@@ -4066,6 +5829,8 @@ _CONVERGENCE_MAX_FOCUS_METRICS_PER_ISSUE = 2
 _CONVERGENCE_PROMPT_METRIC_PACKET_LIMIT = 10
 _CONVERGENCE_PROMPT_LEVER_PACKET_LIMIT = 6
 _CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT = 5.0
+_UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0
+_UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR = -250000.0
 
 
 def _safe_int_in_range(value: Any, *, default: int, minimum: int, maximum: int) -> int:
@@ -4233,6 +5998,25 @@ def _build_issue_metric_spec(
   }
 
 
+def _support_intensity_ratio_targets(phase: str) -> Dict[str, float]:
+  normalized_phase = str(phase or "").strip().lower()
+  if normalized_phase not in {"early", "mid", "late"}:
+    normalized_phase = "early"
+  return {
+    "target_floor": {
+      "early": 0.08,
+      "mid": 0.10,
+      "late": 0.12,
+    }[normalized_phase],
+    "target_ceiling": {
+      "early": 0.45,
+      "mid": 0.40,
+      "late": 0.35,
+    }[normalized_phase],
+    "score_scale": 0.05,
+  }
+
+
 def _issue_metric_specs_for_quarter(
   *,
   issue_code: Any,
@@ -4309,6 +6093,55 @@ def _issue_metric_specs_for_quarter(
         ),
       ]
     )
+  elif code == "accounting_integrity_failure":
+    accounting_gap = abs(float(_safe_float(row.get("accounting_equation_check")) or 0.0))
+    specs.append(
+      _build_issue_metric_spec(
+        "accounting_equation_check_abs",
+        actual_value=accounting_gap,
+        target_ceiling=_UNIFIED_ACCOUNTING_EQUATION_TOLERANCE,
+        score_scale=max(_UNIFIED_ACCOUNTING_EQUATION_TOLERANCE, 1.0),
+        source_metric_names=["total_assets", "total_liabilities_and_equity"],
+        metric_definition="The accounting equation must stay tied inside the configured tolerance.",
+        unit_kind="currency",
+      )
+    )
+  elif code == "catastrophic_liquidity_failure":
+    specs.append(
+      _build_issue_metric_spec(
+        "ending_cash",
+        actual_value=ending_cash,
+        target_floor=_UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR,
+        score_scale=max(abs(revenue) * 0.25, abs(_UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR), 250000.0),
+        source_metric_names=["ending_cash", "operating_cash_flow", "financing_cash_flow"],
+        metric_definition="Cash must recover above the catastrophic liquidity floor to restore going-concern viability.",
+        unit_kind="currency",
+      )
+    )
+  elif code == "operating_model_contradiction":
+    support_targets = _support_intensity_ratio_targets(phase)
+    specs.extend(
+      [
+        _build_issue_metric_spec(
+          "operating_cash_flow_margin",
+          actual_value=operating_cash_flow_margin,
+          target_floor={"early": -0.05, "mid": 0.0, "late": 0.03}[phase],
+          target_ceiling={"early": 0.24, "mid": 0.22, "late": 0.20}[phase],
+          score_scale=0.08,
+          source_metric_names=["operating_cash_flow", "revenue"],
+          metric_definition="The operating model must generate cash in a way that is coherent with the scale being claimed.",
+        ),
+        _build_issue_metric_spec(
+          "payroll_to_revenue_ratio",
+          actual_value=payroll_to_revenue_ratio,
+          target_floor=support_targets["target_floor"],
+          target_ceiling=support_targets["target_ceiling"],
+          score_scale=support_targets["score_scale"],
+          source_metric_names=["payroll", "revenue"],
+          metric_definition="The operating model must carry believable support intensity for the scale and throughput being modeled.",
+        ),
+      ]
+    )
   elif code == "financing_solvency_mismatch":
     specs.extend(
       [
@@ -4355,13 +6188,14 @@ def _issue_metric_specs_for_quarter(
       ]
     )
   elif code == "staffing_payroll_mismatch":
+    support_targets = _support_intensity_ratio_targets(phase)
     specs.append(
       _build_issue_metric_spec(
         "payroll_to_revenue_ratio",
         actual_value=payroll_to_revenue_ratio,
-        target_floor={"early": 0.08, "mid": 0.10, "late": 0.12}[phase],
-        target_ceiling={"early": 0.45, "mid": 0.40, "late": 0.35}[phase],
-        score_scale=0.05,
+        target_floor=support_targets["target_floor"],
+        target_ceiling=support_targets["target_ceiling"],
+        score_scale=support_targets["score_scale"],
         source_metric_names=["payroll", "revenue"],
         metric_definition="Payroll must be proportionate to the scale being modeled.",
       )
@@ -4413,15 +6247,16 @@ def _issue_metric_specs_for_quarter(
       ]
     )
   elif code == "capacity_revenue_mismatch":
+    support_targets = _support_intensity_ratio_targets(phase)
     specs.append(
       _build_issue_metric_spec(
-        "revenue_to_payroll_ratio",
-        actual_value=revenue_to_payroll_ratio,
-        target_floor={"early": 2.0, "mid": 2.5, "late": 3.0}[phase],
-        target_ceiling={"early": 10.0, "mid": 9.0, "late": 8.0}[phase],
-        score_scale=1.0,
+        "payroll_to_revenue_ratio",
+        actual_value=payroll_to_revenue_ratio,
+        target_floor=support_targets["target_floor"],
+        target_ceiling=support_targets["target_ceiling"],
+        score_scale=support_targets["score_scale"],
         source_metric_names=["revenue", "payroll"],
-        metric_definition="Revenue scale should match the modeled operating support.",
+        metric_definition="Revenue scale should match the modeled operating support intensity.",
       )
     )
   elif code == "pricing_positioning_mismatch":
@@ -4437,6 +6272,7 @@ def _issue_metric_specs_for_quarter(
       )
     )
   elif code == "growth_model_mismatch":
+    support_targets = _support_intensity_ratio_targets(phase)
     specs.extend(
       [
         _build_issue_metric_spec(
@@ -4449,13 +6285,13 @@ def _issue_metric_specs_for_quarter(
           metric_definition="Growth should not outrun the business' ability to support it with operating cash generation.",
         ),
         _build_issue_metric_spec(
-          "revenue_to_payroll_ratio",
-          actual_value=revenue_to_payroll_ratio,
-          target_floor={"early": 2.0, "mid": 2.5, "late": 3.0}[phase],
-          target_ceiling={"early": 10.0, "mid": 9.0, "late": 8.0}[phase],
-          score_scale=1.0,
+          "payroll_to_revenue_ratio",
+          actual_value=payroll_to_revenue_ratio,
+          target_floor=support_targets["target_floor"],
+          target_ceiling=support_targets["target_ceiling"],
+          score_scale=support_targets["score_scale"],
           source_metric_names=["revenue", "payroll"],
-          metric_definition="Growth should remain proportionate to the operating support in the model.",
+          metric_definition="Growth should remain proportionate to the modeled operating support intensity.",
         ),
       ]
     )
@@ -4853,7 +6689,13 @@ def _build_controller_issue_grade_summary(
     if issue_scores
     else 100
   )
-  overall_completion_score_pct = min(lowest_quarter_score_pct, average_issue_score_pct)
+  overall_completion_score_pct = int(
+    round(
+      (average_issue_score_pct * _CONVERGENCE_OVERALL_SCORE_ISSUE_WEIGHT)
+      + (lowest_quarter_score_pct * _CONVERGENCE_OVERALL_SCORE_LOWEST_QUARTER_WEIGHT)
+    )
+  )
+  overall_completion_score_pct = max(0, min(100, overall_completion_score_pct))
   return {
     "contract_version": "controller_issue_grade_summary_v1",
     "grade_pass_threshold_pct": _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
@@ -5070,6 +6912,345 @@ def _issue_priority_map(issue_packets: Optional[List[Dict[str, Any]]]) -> Dict[s
   return priority_map
 
 
+def _lever_catalog_entry_text(entry: Optional[Dict[str, Any]]) -> str:
+  item = entry if isinstance(entry, dict) else {}
+  return " ".join(
+    str(part or "").strip().lower()
+    for part in (
+      item.get("lever_id"),
+      item.get("section"),
+      item.get("label"),
+      item.get("label_path"),
+      item.get("driver"),
+      item.get("input_semantics"),
+      item.get("accounting_role"),
+    )
+    if str(part or "").strip()
+  ).strip()
+
+
+def _lever_catalog_entry_matches(entry: Optional[Dict[str, Any]], terms: List[str]) -> bool:
+  haystack = _lever_catalog_entry_text(entry)
+  return any(str(term or "").strip().lower() in haystack for term in (terms or []) if str(term or "").strip())
+
+
+def _issue_family_priority(issue_code: Any) -> List[str]:
+  code = str(issue_code or "").strip().lower()
+  preferred = {
+    "financing_solvency_mismatch": ["balance_sheet", "schedules", "revenue", "expenses"],
+    "profitability_cash_shape_unrealistic": ["revenue", "expenses", "balance_sheet", "schedules"],
+    "staffing_payroll_mismatch": ["expenses", "revenue"],
+    "capacity_revenue_mismatch": ["revenue", "expenses", "schedules"],
+    "pricing_positioning_mismatch": ["revenue", "expenses"],
+    "cost_structure_mismatch": ["expenses", "revenue", "schedules"],
+    "working_capital_payment_model_mismatch": ["balance_sheet", "revenue", "schedules"],
+    "capex_footprint_mismatch": ["schedules", "revenue", "expenses", "balance_sheet"],
+    "growth_model_mismatch": ["revenue", "expenses", "balance_sheet"],
+    "operating_model_contradiction": ["revenue", "expenses", "schedules"],
+    "catastrophic_liquidity_failure": ["balance_sheet", "schedules", "revenue", "expenses"],
+    "accounting_integrity_failure": [],
+  }
+  return copy.deepcopy(preferred.get(code) or ["revenue", "expenses", "balance_sheet", "schedules"])
+
+
+def _issue_family_term_hints(issue_code: Any) -> Dict[str, List[str]]:
+  code = str(issue_code or "").strip().lower()
+  hints: Dict[str, Dict[str, List[str]]] = {
+    "financing_solvency_mismatch": {
+      "balance_sheet": ["owner's capital", "other equity", "distributions"],
+      "schedules": ["debt issuance", "new borrowing", "debt repayment", "capital expenditures", "principal repayments"],
+      "revenue": ["unit price", "utilization", "capacity"],
+      "expenses": ["cost of goods sold", "payroll", "general & administrative", "marketing", "lease"],
+    },
+    "profitability_cash_shape_unrealistic": {
+      "revenue": ["unit price", "utilization", "capacity"],
+      "expenses": ["cost of goods sold", "payroll", "general & administrative", "marketing", "lease"],
+      "balance_sheet": ["owner's capital", "other equity", "distributions"],
+      "schedules": ["debt issuance", "new borrowing", "debt repayment", "capital expenditures"],
+    },
+    "staffing_payroll_mismatch": {
+      "expenses": ["payroll"],
+      "revenue": ["capacity", "utilization", "unit price"],
+    },
+    "capacity_revenue_mismatch": {
+      "revenue": ["capacity", "utilization", "unit price"],
+      "expenses": ["payroll", "lease"],
+      "schedules": ["capital expenditures"],
+    },
+    "pricing_positioning_mismatch": {
+      "revenue": ["unit price", "utilization", "capacity"],
+      "expenses": ["cost of goods sold", "marketing"],
+    },
+    "cost_structure_mismatch": {
+      "expenses": ["cost of goods sold", "payroll", "general & administrative", "marketing", "lease"],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "working_capital_payment_model_mismatch": {
+      "balance_sheet": [
+        "accounts receivable days",
+        "inventory days",
+        "accounts payable days",
+        "prepaid expenses",
+        "deferred revenue",
+        "short term debt",
+      ],
+      "revenue": ["unit price", "utilization", "capacity"],
+      "schedules": ["debt issuance", "new borrowing", "debt repayment"],
+    },
+    "capex_footprint_mismatch": {
+      "schedules": ["capital expenditures", "net additions"],
+      "revenue": ["capacity", "utilization", "unit price"],
+      "expenses": ["payroll", "lease"],
+      "balance_sheet": ["owner's capital", "other equity"],
+    },
+    "growth_model_mismatch": {
+      "revenue": ["capacity", "utilization", "unit price"],
+      "expenses": ["payroll", "marketing", "general & administrative", "cost of goods sold"],
+      "balance_sheet": ["accounts receivable days", "inventory days", "accounts payable days", "owner's capital"],
+    },
+    "operating_model_contradiction": {
+      "revenue": ["capacity", "utilization", "unit price"],
+      "expenses": ["payroll", "marketing", "general & administrative", "cost of goods sold"],
+      "schedules": ["capital expenditures"],
+    },
+    "catastrophic_liquidity_failure": {
+      "balance_sheet": ["owner's capital", "other equity", "distributions"],
+      "schedules": ["debt issuance", "new borrowing", "debt repayment", "capital expenditures", "principal repayments"],
+      "revenue": ["unit price", "utilization", "capacity"],
+      "expenses": ["cost of goods sold", "payroll", "marketing", "general & administrative", "lease"],
+    },
+  }
+  return copy.deepcopy(hints.get(code) or {})
+
+
+def _metric_family_term_hints(metric_name: Any) -> Dict[str, List[str]]:
+  metric = str(metric_name or "").strip().lower()
+  hints: Dict[str, Dict[str, List[str]]] = {
+    "payroll_to_revenue_ratio": {
+      "expenses": ["payroll"],
+      "revenue": ["capacity", "utilization", "unit price"],
+    },
+    "gross_margin_pct": {
+      "expenses": ["cost of goods sold"],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "opex_to_revenue_ratio": {
+      "expenses": ["payroll", "marketing", "general & administrative", "lease"],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "working_capital_to_revenue_ratio": {
+      "balance_sheet": [
+        "accounts receivable days",
+        "inventory days",
+        "accounts payable days",
+        "prepaid expenses",
+        "deferred revenue",
+      ],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "current_ratio": {
+      "balance_sheet": [
+        "accounts receivable days",
+        "inventory days",
+        "accounts payable days",
+        "prepaid expenses",
+        "deferred revenue",
+        "short term debt",
+      ],
+    },
+    "ending_cash": {
+      "balance_sheet": ["owner's capital", "other equity", "distributions"],
+      "schedules": ["debt issuance", "new borrowing", "debt repayment", "capital expenditures", "principal repayments"],
+      "revenue": ["unit price", "utilization", "capacity"],
+      "expenses": ["cost of goods sold", "payroll", "marketing", "general & administrative", "lease"],
+    },
+    "debt_to_equity_ratio": {
+      "balance_sheet": ["owner's capital", "other equity", "short term debt"],
+      "schedules": ["debt issuance", "new borrowing", "debt repayment"],
+    },
+    "capex_to_revenue_ratio": {
+      "schedules": ["capital expenditures"],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "ppe_to_revenue_ratio": {
+      "schedules": ["capital expenditures", "net additions"],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "ebitda_margin_pct": {
+      "expenses": ["cost of goods sold", "payroll", "marketing", "general & administrative", "lease"],
+      "revenue": ["unit price", "utilization", "capacity"],
+    },
+    "operating_cash_flow_margin": {
+      "expenses": ["cost of goods sold", "payroll", "marketing", "general & administrative", "lease"],
+      "revenue": ["unit price", "utilization", "capacity"],
+      "balance_sheet": [
+        "accounts receivable days",
+        "inventory days",
+        "accounts payable days",
+        "prepaid expenses",
+        "deferred revenue",
+      ],
+    },
+  }
+  return copy.deepcopy(hints.get(metric) or {})
+
+
+def _registry_issue_candidate_lever_ids(
+  issue_code: Any,
+  lever_catalog_entries: Optional[List[Dict[str, Any]]],
+) -> List[str]:
+  registry_entry = _issue_registry_entry(issue_code)
+  prefixes = [
+    str(item or "").strip().lower()
+    for item in (registry_entry.get("reopen_prefixes") or [])
+    if str(item or "").strip()
+  ]
+  contains = [
+    str(item or "").strip().lower()
+    for item in (registry_entry.get("reopen_contains") or [])
+    if str(item or "").strip()
+  ]
+  selected: List[str] = []
+  for entry in (lever_catalog_entries or []):
+    if not isinstance(entry, dict):
+      continue
+    lever_id = str(entry.get("lever_id") or "").strip()
+    lever_id_lower = lever_id.lower()
+    if not lever_id:
+      continue
+    if prefixes and any(lever_id_lower.startswith(prefix) for prefix in prefixes):
+      if lever_id not in selected:
+        selected.append(lever_id)
+      continue
+    if contains and any(term in lever_id_lower for term in contains):
+      if lever_id not in selected:
+        selected.append(lever_id)
+  return selected
+
+
+def _balanced_issue_candidate_lever_ids(
+  *,
+  issue_code: Any,
+  metric_specs: Optional[List[Dict[str, Any]]],
+  lever_catalog_entries: Optional[List[Dict[str, Any]]],
+  seeded_lever_ids: Optional[List[str]] = None,
+  max_levers: int = 12,
+) -> List[str]:
+  entries = [
+    copy.deepcopy(item)
+    for item in (lever_catalog_entries or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  ]
+  entry_map = {
+    str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
+    for item in entries
+    if str(item.get("lever_id") or "").strip()
+  }
+  source_ids: List[str] = []
+  for lever_id in (seeded_lever_ids or []):
+    lever = str(lever_id or "").strip()
+    if lever and lever not in source_ids:
+      source_ids.append(lever)
+  try:
+    from client_intake_and_finmo.numeric_execution import _infer_issue_lever_ids as _numeric_issue_lever_ids  # type: ignore
+  except Exception:
+    try:
+      from numeric_execution import _infer_issue_lever_ids as _numeric_issue_lever_ids  # type: ignore
+    except Exception:
+      _numeric_issue_lever_ids = None  # type: ignore
+  if _numeric_issue_lever_ids is not None:
+    for lever_id in (
+      _numeric_issue_lever_ids(
+        issue_code=str(issue_code or "").strip().lower(),
+        writable_lever_catalog=copy.deepcopy(entries),
+      )
+      or []
+    ):
+      lever = str(lever_id or "").strip()
+      if lever and lever not in source_ids:
+        source_ids.append(lever)
+  for lever_id in _registry_issue_candidate_lever_ids(issue_code, entries):
+    if lever_id not in source_ids:
+      source_ids.append(lever_id)
+
+  family_priority = _issue_family_priority(issue_code)
+  family_term_hints = _issue_family_term_hints(issue_code)
+  for spec in (metric_specs or []):
+    if not isinstance(spec, dict):
+      continue
+    for family, terms in _metric_family_term_hints(spec.get("metric_name")).items():
+      if family not in family_priority:
+        family_priority.append(family)
+      existing = family_term_hints.setdefault(family, [])
+      for term in terms:
+        if term not in existing:
+          existing.append(term)
+
+  ordered_candidates: List[str] = []
+  for family in family_priority:
+    terms = family_term_hints.get(family) or []
+    for entry in entries:
+      lever_id = str(entry.get("lever_id") or "").strip()
+      if not lever_id or lever_id in ordered_candidates:
+        continue
+      if str(_lever_family_from_lever_id(lever_id) or "").strip().lower() != family:
+        continue
+      if terms and not _lever_catalog_entry_matches(entry, terms):
+        continue
+      ordered_candidates.append(lever_id)
+  for lever_id in source_ids:
+    if lever_id not in ordered_candidates:
+      ordered_candidates.append(lever_id)
+
+  family_buckets: Dict[str, List[str]] = {}
+  for lever_id in ordered_candidates:
+    family = str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
+    family_buckets.setdefault(family, [])
+    if lever_id not in family_buckets[family]:
+      family_buckets[family].append(lever_id)
+  selected: List[str] = []
+  family_pick_counts: Dict[str, int] = {}
+
+  def _take(lever_id: str) -> None:
+    family = str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
+    if lever_id and lever_id not in selected:
+      selected.append(lever_id)
+      family_pick_counts[family] = int(family_pick_counts.get(family) or 0) + 1
+
+  for family in family_priority:
+    bucket = family_buckets.get(family) or []
+    if bucket:
+      _take(bucket.pop(0))
+    if len(selected) >= max_levers:
+      return selected[:max_levers]
+  family_limit = 2
+  progress = True
+  while progress and len(selected) < max_levers:
+    progress = False
+    for family in family_priority:
+      bucket = family_buckets.get(family) or []
+      if not bucket:
+        continue
+      if int(family_pick_counts.get(family) or 0) >= family_limit:
+        continue
+      _take(bucket.pop(0))
+      progress = True
+      if len(selected) >= max_levers:
+        break
+  for lever_id in ordered_candidates:
+    if len(selected) >= max_levers:
+      break
+    _take(lever_id)
+  for lever_id, entry in entry_map.items():
+    if len(selected) >= max_levers:
+      break
+    family = str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
+    if family_priority and family and family not in family_priority:
+      continue
+    _take(lever_id)
+  return selected[:max_levers]
+
+
 def _repair_path_type_for_lever(
   *,
   metric_name: Any,
@@ -5080,11 +7261,80 @@ def _repair_path_type_for_lever(
   metric = str(metric_name or "").strip().lower()
   lever = str(lever_id or "").strip().lower()
   role = str(accounting_role or "").strip().lower()
+  family = str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
   source_metrics = {
     str(item).strip().lower()
     for item in (source_metric_names or [])
     if str(item).strip()
   }
+  if metric == "payroll_to_revenue_ratio":
+    if "expenses::payroll" in lever:
+      return "direct", "high"
+    if family == "revenue":
+      return "direct", "high"
+  if metric == "gross_margin_pct":
+    if role == "cost_of_goods_ratio":
+      return "direct", "high"
+    if family == "revenue":
+      return "direct", "medium"
+  if metric == "opex_to_revenue_ratio":
+    if role in {"operating_cost_ratio", "operating_cost_fixed"}:
+      return "direct", "high"
+    if family == "revenue":
+      return "direct", "medium"
+  if metric in {"ebitda_margin_pct", "operating_cash_flow_margin"}:
+    if role in {
+      "cost_of_goods_ratio",
+      "operating_cost_ratio",
+      "operating_cost_fixed",
+      "working_capital_asset",
+      "working_capital_liability",
+    }:
+      return "direct", "high" if role not in {"working_capital_asset", "working_capital_liability"} else "medium"
+    if family == "revenue":
+      return "direct", "high"
+  if metric == "working_capital_to_revenue_ratio":
+    if role in {"working_capital_asset", "working_capital_liability", "current_liability_financing"}:
+      return "direct", "high"
+    if family == "revenue":
+      return "direct", "medium"
+  if metric == "current_ratio":
+    if role in {"working_capital_asset", "working_capital_liability", "current_liability_financing"}:
+      return "direct", "high"
+  if metric == "debt_to_equity_ratio":
+    if role in {
+      "debt_financing",
+      "current_liability_financing",
+      "owner_equity_contribution",
+      "other_equity",
+      "owner_distribution",
+    }:
+      return "direct", "high"
+  if metric == "capex_to_revenue_ratio":
+    if role == "investing_cash_outflow":
+      return "direct", "high"
+    if family == "revenue":
+      return "direct", "medium"
+  if metric == "ppe_to_revenue_ratio":
+    if role in {"investing_cash_outflow", "capital_lease_addition"}:
+      return "direct", "high"
+    if family == "revenue":
+      return "direct", "medium"
+  if metric == "ending_cash":
+    if role in {
+      "debt_financing",
+      "current_liability_financing",
+      "owner_equity_contribution",
+      "other_equity",
+      "owner_distribution",
+      "investing_cash_outflow",
+      "capital_lease_principal_repayment",
+      "working_capital_asset",
+      "working_capital_liability",
+    }:
+      return "direct", "high"
+    if role in {"cost_of_goods_ratio", "operating_cost_ratio", "operating_cost_fixed"} or family == "revenue":
+      return "direct", "medium"
   if source_metrics:
     if "payroll" in source_metrics and "expenses::payroll" in lever:
       return "direct", "high"
@@ -5092,16 +7342,20 @@ def _repair_path_type_for_lever(
       return "direct", "high"
     if "revenue" in source_metrics and lever.startswith("revenue::"):
       return "direct", "high"
-    if "current_liabilities" in source_metrics and role in {"working_capital", "operating_liability"}:
+    if "gross_profit" in source_metrics and role == "cost_of_goods_ratio":
       return "direct", "high"
-    if "current_assets" in source_metrics and role in {"working_capital", "balance_sheet"}:
-      return "direct", "medium"
-    if "ending_cash" in source_metrics and role in {"debt_financing", "equity_financing"}:
+    if "ppe" in source_metrics and role in {"investing_cash_outflow", "capital_lease_addition"}:
+      return "direct", "high"
+    if "current_liabilities" in source_metrics and role in {"working_capital_liability", "current_liability_financing"}:
+      return "direct", "high"
+    if "current_assets" in source_metrics and role == "working_capital_asset":
+      return "direct", "high"
+    if "ending_cash" in source_metrics and role in {"debt_financing", "owner_equity_contribution", "other_equity"}:
       return "direct", "high"
   if (
     (metric == "payroll" and "expenses::payroll" in lever)
     or (metric == "capital_expenditures" and "capital expenditures" in lever)
-    or (metric == "ending_cash" and role in {"debt_financing", "equity_financing"})
+    or (metric == "ending_cash" and role in {"debt_financing", "owner_equity_contribution", "other_equity"})
     or (metric == "revenue" and lever.startswith("revenue::"))
   ):
     return "direct", "high"
@@ -5166,6 +7420,488 @@ def _repair_metric_delta_bounds(
   min_delta = float(anchor_min * scale_min) if anchor_min is not None else None
   max_delta = float(anchor_max * scale_max) if anchor_max is not None else None
   return min_delta, max_delta
+
+
+def _quarter_days_in_period(quarter_row: Optional[Dict[str, Any]]) -> float:
+  row = quarter_row if isinstance(quarter_row, dict) else {}
+  return max(1.0, float(_safe_float(row.get("days_in_quarter")) or 90.0))
+
+
+def _quarter_row_cost_of_goods_sold(quarter_row: Optional[Dict[str, Any]]) -> float:
+  row = quarter_row if isinstance(quarter_row, dict) else {}
+  explicit_cogs = _safe_float(row.get("cogs"))
+  if explicit_cogs is not None:
+    return float(explicit_cogs)
+  revenue = float(_safe_float(row.get("revenue")) or 0.0)
+  gross_profit = float(_safe_float(row.get("gross_profit")) or 0.0)
+  return max(0.0, revenue - gross_profit)
+
+
+def _quarter_row_operating_cost_base(quarter_row: Optional[Dict[str, Any]]) -> float:
+  row = quarter_row if isinstance(quarter_row, dict) else {}
+  return (
+    float(_safe_float(row.get("marketing")) or 0.0)
+    + float(_safe_float(row.get("research_and_development")) or 0.0)
+    + float(_safe_float(row.get("lease_rent")) or 0.0)
+    + float(_safe_float(row.get("payroll")) or 0.0)
+    + float(_safe_float(row.get("g_and_a")) or 0.0)
+  )
+
+
+def _component_delta_to_lever_delta(
+  *,
+  lever_id: Any,
+  lever_entry: Optional[Dict[str, Any]],
+  component_delta: Any,
+  quarter_row: Optional[Dict[str, Any]],
+) -> Tuple[Optional[float], Optional[str], Optional[str], Optional[str]]:
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  lever = str(lever_id or "").strip().lower()
+  semantics = str(entry.get("input_semantics") or "").strip().lower()
+  row = quarter_row if isinstance(quarter_row, dict) else {}
+  component_value = _safe_float(component_delta)
+  if component_value is None:
+    return None, None, None, None
+  days_in_period = _quarter_days_in_period(row)
+  revenue = max(abs(float(_safe_float(row.get("revenue")) or 0.0)), 1.0)
+  cogs = max(abs(_quarter_row_cost_of_goods_sold(row)), 1.0)
+  opex_base = max(abs(_quarter_row_operating_cost_base(row)), 1.0)
+  current_liabilities = float(_safe_float(row.get("current_liabilities")) or 0.0)
+  total_liabilities = float(_safe_float(row.get("total_liabilities")) or 0.0)
+  long_term_debt = max(
+    abs(float(_safe_float(row.get("long_term_debt")) or 0.0)),
+    abs(total_liabilities - current_liabilities),
+    1.0,
+  )
+  if semantics == "days":
+    if "accounts receivable" in lever:
+      return float(component_value * days_in_period / revenue), "days", "days_to_accounts_receivable", "high"
+    if "inventory" in lever:
+      return float(component_value * days_in_period / cogs), "days", "days_to_inventory", "high"
+    if "accounts payable" in lever:
+      return float(component_value * days_in_period / opex_base), "days", "days_to_accounts_payable", "high"
+  if semantics == "percent_of_revenue":
+    return float(component_value / revenue), "percent_of_revenue", "ratio_to_revenue_component", "high"
+  if semantics == "percent_of_long_term_debt":
+    return float(component_value / long_term_debt), "percent_of_long_term_debt", "ratio_to_long_term_debt_component", "high"
+  unit = str(entry.get("input_semantics") or entry.get("value_kind") or "input_units").strip().lower() or "input_units"
+  return float(component_value), unit, "currency_component", "high"
+
+
+def _translate_metric_delta_to_lever_delta(
+  *,
+  metric_name: Any,
+  current_metric_value: Any,
+  metric_delta: Any,
+  lever_id: Any,
+  lever_entry: Optional[Dict[str, Any]],
+  quarter_row: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  metric = str(metric_name or "").strip().lower()
+  delta_value = _safe_float(metric_delta)
+  current_metric = _safe_float(current_metric_value)
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  row = quarter_row if isinstance(quarter_row, dict) else {}
+  if delta_value is None or current_metric is None:
+    return {}
+  target_metric = float(current_metric + delta_value)
+  lever = str(lever_id or "").strip()
+  lever_lower = lever.lower()
+  role = str(entry.get("accounting_role") or "").strip().lower()
+  family = str(entry.get("lever_family") or _lever_family_from_lever_id(lever) or "").strip().lower()
+  baseline_value = _safe_float(entry.get("baseline_value"))
+  revenue = float(_safe_float(row.get("revenue")) or 0.0)
+  gross_profit = float(_safe_float(row.get("gross_profit")) or 0.0)
+  payroll = float(_safe_float(row.get("payroll")) or 0.0)
+  marketing = float(_safe_float(row.get("marketing")) or 0.0)
+  g_and_a = float(_safe_float(row.get("g_and_a")) or 0.0)
+  lease_rent = float(_safe_float(row.get("lease_rent")) or 0.0)
+  ebitda = float(_safe_float(row.get("ebitda")) or 0.0)
+  operating_cash_flow = float(_safe_float(row.get("operating_cash_flow")) or 0.0)
+  capital_expenditures = abs(float(_safe_float(row.get("capital_expenditures")) or 0.0))
+  current_assets = float(_safe_float(row.get("current_assets")) or 0.0)
+  current_liabilities = float(_safe_float(row.get("current_liabilities")) or 0.0)
+  total_liabilities = float(_safe_float(row.get("total_liabilities")) or 0.0)
+  total_equity = float(_safe_float(row.get("total_equity")) or 0.0)
+  ppe = float(_safe_float(row.get("ppe")) or 0.0)
+  working_capital = current_assets - current_liabilities
+  gross_margin_pct = _safe_divide(gross_profit, revenue)
+  opex_total = payroll + marketing + g_and_a + lease_rent + float(_safe_float(row.get("research_and_development")) or 0.0)
+
+  def _result(
+    lever_delta: Optional[float],
+    *,
+    delta_unit: str,
+    translation_basis: str,
+    translation_confidence: str,
+  ) -> Dict[str, Any]:
+    if lever_delta is None:
+      return {}
+    return {
+      "lever_delta": float(lever_delta),
+      "delta_unit": str(delta_unit or "").strip() or "input_units",
+      "translation_basis": str(translation_basis or "").strip() or "approximate",
+      "translation_confidence": str(translation_confidence or "").strip() or "medium",
+    }
+
+  if metric == "payroll_to_revenue_ratio":
+    if "expenses::payroll" in lever_lower:
+      return _result(
+        float((target_metric * max(revenue, 0.0)) - payroll),
+        delta_unit="quarter_currency",
+        translation_basis="target_payroll_from_payroll_to_revenue_ratio",
+        translation_confidence="high",
+      )
+    if family == "revenue" and abs(target_metric) > 1e-9:
+      desired_revenue = float(payroll / target_metric)
+      revenue_delta = desired_revenue - revenue
+      lever_delta = (
+        float((baseline_value or 0.0) * (revenue_delta / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(revenue_delta)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis="proportional_revenue_translation_from_payroll_to_revenue_ratio",
+        translation_confidence="medium",
+      )
+
+  if metric == "gross_margin_pct" and role == "cost_of_goods_ratio" and gross_margin_pct is not None:
+    current_cogs_ratio = 1.0 - float(gross_margin_pct)
+    return _result(
+      float((1.0 - target_metric) - current_cogs_ratio),
+      delta_unit="percent_of_revenue",
+      translation_basis="cogs_ratio_from_gross_margin_pct",
+      translation_confidence="high",
+    )
+
+  if metric == "opex_to_revenue_ratio":
+    if role == "operating_cost_ratio":
+      return _result(
+        float(delta_value),
+        delta_unit="percent_of_revenue",
+        translation_basis="ratio_direct_from_opex_to_revenue_ratio",
+        translation_confidence="high",
+      )
+    if role == "operating_cost_fixed":
+      desired_opex = float(target_metric * max(revenue, 0.0))
+      return _result(
+        float(desired_opex - opex_total),
+        delta_unit="quarter_currency",
+        translation_basis="opex_currency_from_opex_to_revenue_ratio",
+        translation_confidence="medium",
+      )
+    if family == "revenue" and abs(target_metric) > 1e-9:
+      desired_revenue = float(opex_total / target_metric)
+      revenue_delta = desired_revenue - revenue
+      lever_delta = (
+        float((baseline_value or 0.0) * (revenue_delta / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(revenue_delta)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis="proportional_revenue_translation_from_opex_to_revenue_ratio",
+        translation_confidence="medium",
+      )
+
+  if metric in {"ebitda_margin_pct", "operating_cash_flow_margin"}:
+    if role == "cost_of_goods_ratio":
+      return _result(
+        float(-delta_value),
+        delta_unit="percent_of_revenue",
+        translation_basis=f"margin_delta_to_cogs_ratio::{metric}",
+        translation_confidence="medium",
+      )
+    if role == "operating_cost_ratio":
+      return _result(
+        float(-delta_value),
+        delta_unit="percent_of_revenue",
+        translation_basis=f"margin_delta_to_cost_ratio::{metric}",
+        translation_confidence="medium",
+      )
+    if role == "operating_cost_fixed":
+      return _result(
+        float(-delta_value * max(revenue, 0.0)),
+        delta_unit="quarter_currency",
+        translation_basis=f"margin_delta_to_fixed_cost_currency::{metric}",
+        translation_confidence="medium",
+      )
+    if family == "revenue" and abs(target_metric) > 1e-9:
+      numerator_value = operating_cash_flow if metric == "operating_cash_flow_margin" else ebitda
+      desired_revenue = float(numerator_value / target_metric)
+      revenue_delta = desired_revenue - revenue
+      lever_delta = (
+        float((baseline_value or 0.0) * (revenue_delta / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(revenue_delta)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis=f"proportional_revenue_translation_from_{metric}",
+        translation_confidence="medium",
+      )
+    if role in {"working_capital_asset", "working_capital_liability"}:
+      component_delta = float(delta_value * max(revenue, 0.0))
+      if role == "working_capital_asset":
+        component_delta = -component_delta
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=component_delta,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_component'}::{metric}",
+        translation_confidence=str(translation_confidence or "medium"),
+      )
+
+  if metric == "working_capital_to_revenue_ratio":
+    desired_working_capital = float(target_metric * max(revenue, 0.0))
+    working_capital_delta = desired_working_capital - working_capital
+    if role == "working_capital_asset":
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=working_capital_delta,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_asset'}::working_capital_to_revenue_ratio",
+        translation_confidence=str(translation_confidence or "high"),
+      )
+    if role in {"working_capital_liability", "current_liability_financing"}:
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=-working_capital_delta,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_liability'}::working_capital_to_revenue_ratio",
+        translation_confidence=str(translation_confidence or "high"),
+      )
+    if family == "revenue" and abs(target_metric) > 1e-9:
+      desired_revenue = float(working_capital / target_metric)
+      revenue_delta = desired_revenue - revenue
+      lever_delta = (
+        float((baseline_value or 0.0) * (revenue_delta / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(revenue_delta)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis="proportional_revenue_translation_from_working_capital_to_revenue_ratio",
+        translation_confidence="medium",
+      )
+
+  if metric == "current_ratio" and target_metric > 0:
+    if role == "working_capital_asset":
+      component_delta = float((target_metric * current_liabilities) - current_assets)
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=component_delta,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_asset'}::current_ratio",
+        translation_confidence=str(translation_confidence or "high"),
+      )
+    if role in {"working_capital_liability", "current_liability_financing"}:
+      desired_liabilities = float(current_assets / target_metric)
+      component_delta = desired_liabilities - current_liabilities
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=component_delta,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_liability'}::current_ratio",
+        translation_confidence=str(translation_confidence or "high"),
+      )
+
+  if metric == "debt_to_equity_ratio" and target_metric > 0:
+    if role in {"debt_financing", "current_liability_financing"}:
+      desired_liabilities = float(target_metric * max(total_equity, 1.0))
+      liability_delta = desired_liabilities - total_liabilities
+      if role == "current_liability_financing":
+        converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+          lever_id=lever_id,
+          lever_entry=entry,
+          component_delta=liability_delta,
+          quarter_row=row,
+        )
+        return _result(
+          converted_delta,
+          delta_unit=str(delta_unit or "input_units"),
+          translation_basis=f"{translation_basis or 'current_liability_financing'}::debt_to_equity_ratio",
+          translation_confidence=str(translation_confidence or "high"),
+        )
+      return _result(
+        float(liability_delta),
+        delta_unit="quarter_currency",
+        translation_basis="liability_currency_from_debt_to_equity_ratio",
+        translation_confidence="high",
+      )
+    if role in {"owner_equity_contribution", "other_equity", "owner_distribution"}:
+      desired_equity = float(total_liabilities / target_metric)
+      equity_delta = desired_equity - total_equity
+      if role == "owner_distribution":
+        equity_delta = -equity_delta
+      return _result(
+        float(equity_delta),
+        delta_unit="quarter_currency",
+        translation_basis="equity_currency_from_debt_to_equity_ratio",
+        translation_confidence="high",
+      )
+
+  if metric == "capex_to_revenue_ratio":
+    if role == "investing_cash_outflow":
+      desired_capex = float(target_metric * max(revenue, 0.0))
+      return _result(
+        float(desired_capex - capital_expenditures),
+        delta_unit="quarter_currency",
+        translation_basis="capital_expenditures_from_capex_to_revenue_ratio",
+        translation_confidence="high",
+      )
+    if family == "revenue" and abs(target_metric) > 1e-9:
+      desired_revenue = float(capital_expenditures / target_metric)
+      revenue_delta = desired_revenue - revenue
+      lever_delta = (
+        float((baseline_value or 0.0) * (revenue_delta / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(revenue_delta)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis="proportional_revenue_translation_from_capex_to_revenue_ratio",
+        translation_confidence="medium",
+      )
+
+  if metric == "ppe_to_revenue_ratio":
+    desired_ppe = float(target_metric * max(revenue, 0.0))
+    if role in {"investing_cash_outflow", "capital_lease_addition"}:
+      return _result(
+        float(desired_ppe - ppe),
+        delta_unit="quarter_currency",
+        translation_basis="ppe_currency_from_ppe_to_revenue_ratio",
+        translation_confidence="high",
+      )
+    if family == "revenue" and abs(target_metric) > 1e-9:
+      desired_revenue = float(ppe / target_metric)
+      revenue_delta = desired_revenue - revenue
+      lever_delta = (
+        float((baseline_value or 0.0) * (revenue_delta / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(revenue_delta)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis="proportional_revenue_translation_from_ppe_to_revenue_ratio",
+        translation_confidence="medium",
+      )
+
+  if metric == "ending_cash":
+    if role in {"debt_financing", "owner_equity_contribution", "other_equity"}:
+      return _result(
+        float(delta_value),
+        delta_unit="quarter_currency",
+        translation_basis="direct_financing_cash_flow_to_ending_cash",
+        translation_confidence="high",
+      )
+    if role == "owner_distribution":
+      return _result(
+        float(-delta_value),
+        delta_unit="quarter_currency",
+        translation_basis="inverse_distribution_to_ending_cash",
+        translation_confidence="high",
+      )
+    if role in {"investing_cash_outflow", "capital_lease_principal_repayment"}:
+      return _result(
+        float(-delta_value),
+        delta_unit="quarter_currency",
+        translation_basis=f"inverse_cash_outflow_to_ending_cash::{role}",
+        translation_confidence="high",
+      )
+    if role == "working_capital_asset":
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=-delta_value,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_asset'}::ending_cash",
+        translation_confidence=str(translation_confidence or "high"),
+      )
+    if role in {"working_capital_liability", "current_liability_financing"}:
+      converted_delta, delta_unit, translation_basis, translation_confidence = _component_delta_to_lever_delta(
+        lever_id=lever_id,
+        lever_entry=entry,
+        component_delta=delta_value,
+        quarter_row=row,
+      )
+      return _result(
+        converted_delta,
+        delta_unit=str(delta_unit or "input_units"),
+        translation_basis=f"{translation_basis or 'working_capital_liability'}::ending_cash",
+        translation_confidence=str(translation_confidence or "high"),
+      )
+    if role == "cost_of_goods_ratio" and abs(revenue) > 1e-9:
+      return _result(
+        float(-delta_value / revenue),
+        delta_unit="percent_of_revenue",
+        translation_basis="cash_delta_to_cogs_ratio",
+        translation_confidence="medium",
+      )
+    if role == "operating_cost_ratio" and abs(revenue) > 1e-9:
+      return _result(
+        float(-delta_value / revenue),
+        delta_unit="percent_of_revenue",
+        translation_basis="cash_delta_to_cost_ratio",
+        translation_confidence="medium",
+      )
+    if role == "operating_cost_fixed":
+      return _result(
+        float(-delta_value),
+        delta_unit="quarter_currency",
+        translation_basis="cash_delta_to_fixed_cost_currency",
+        translation_confidence="medium",
+      )
+    if family == "revenue":
+      lever_delta = (
+        float((baseline_value or 0.0) * (delta_value / revenue))
+        if baseline_value is not None and abs(revenue) > 1e-9
+        else float(delta_value)
+      )
+      return _result(
+        lever_delta,
+        delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
+        translation_basis="proportional_revenue_translation_from_ending_cash",
+        translation_confidence="low",
+      )
+
+  return {}
 
 
 def _spillover_flags_for_metric(
@@ -5398,6 +8134,11 @@ def _compact_driver_paths_for_prompt(
         "priority_rank": int(_safe_float(item.get("priority_rank")) or 0) or None,
         "min_delta": _safe_float(item.get("min_delta")),
         "max_delta": _safe_float(item.get("max_delta")),
+        "delta_unit": str(item.get("delta_unit") or "").strip() or None,
+        "metric_min_delta": _safe_float(item.get("metric_min_delta")),
+        "metric_max_delta": _safe_float(item.get("metric_max_delta")),
+        "translation_basis": str(item.get("translation_basis") or "").strip() or None,
+        "translation_confidence": str(item.get("translation_confidence") or "").strip() or None,
       }
     )
   return compact_paths
@@ -5805,11 +8546,17 @@ def _build_unified_numeric_guidance_packet(
       for spec in metric_specs
       if isinstance(spec, dict)
       and str(spec.get("metric_name") or "").strip()
-      and (
+    ]
+    scoped_metric_specs = [
+      copy.deepcopy(spec)
+      for spec in metric_specs
+      if (
         not scoped_quarter_set
         or int(_safe_float(spec.get("quarter_index")) or 0) in scoped_quarter_set
       )
     ]
+    if scoped_metric_specs:
+      metric_specs = scoped_metric_specs
     metric_specs.sort(
       key=lambda spec: (
         int(_safe_float(spec.get("quarter_index")) or 0),
@@ -5848,7 +8595,13 @@ def _build_unified_numeric_guidance_packet(
     ):
       if lever_id and lever_id not in candidate_lever_pool:
         candidate_lever_pool.append(lever_id)
-    candidate_lever_pool = candidate_lever_pool[:_CONVERGENCE_MAX_FOCUS_LEVERS]
+    candidate_lever_pool = _balanced_issue_candidate_lever_ids(
+      issue_code=issue_code,
+      metric_specs=metric_specs,
+      lever_catalog_entries=lever_catalog_entries,
+      seeded_lever_ids=candidate_lever_pool,
+      max_levers=max(_CONVERGENCE_MAX_FOCUS_LEVERS * 2, 8),
+    )
     root_cause = str(
       issue_packet.get("root_cause")
       or issue_record.get("detail")
@@ -5876,6 +8629,15 @@ def _build_unified_numeric_guidance_packet(
       "closure_threshold_pct": _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
       "quarter_floor_pct": _CONVERGENCE_ISSUE_WARN_SCORE_PCT,
       "candidate_lever_ids": copy.deepcopy(candidate_lever_pool),
+      "candidate_lever_families": list(
+        dict.fromkeys(
+          [
+            str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
+            for lever_id in candidate_lever_pool
+            if str(_lever_family_from_lever_id(lever_id) or "").strip()
+          ]
+        )
+      ),
       "primary_target_proxy_metrics": [],
       "repair_targets": [],
     }
@@ -5957,7 +8719,7 @@ def _build_unified_numeric_guidance_packet(
     ]
 
   ranked_lever_entries: List[Dict[str, Any]] = []
-  for lever_id in candidate_lever_ids[:_CONVERGENCE_MAX_FOCUS_LEVERS]:
+  for lever_id in candidate_lever_ids:
     values = lever_value_map.get(lever_id) or []
     if not values:
       continue
@@ -6000,11 +8762,43 @@ def _build_unified_numeric_guidance_packet(
     else:
       preferred_direction_hint = "either"
     priority_score = float(severity_score)
+    lever_lower = str(lever_id or "").strip().lower()
+    role = str(
+      catalog_entry.get("accounting_role")
+      or guidance.get("accounting_role")
+      or ""
+    ).strip()
+    alignment_bonus = 0.0
+    for metric_name in metric_names:
+      path_type, efficiency = _repair_path_type_for_lever(
+        metric_name=metric_name,
+        lever_id=lever_id,
+        accounting_role=role,
+        source_metric_names=source_metric_names,
+      )
+      if path_type != "direct":
+        continue
+      if efficiency == "high":
+        alignment_bonus = max(alignment_bonus, 28.0)
+      elif efficiency == "medium":
+        alignment_bonus = max(alignment_bonus, 18.0)
+      else:
+        alignment_bonus = max(alignment_bonus, 10.0)
+    canonical_working_capital_bonus = 0.0
+    if any(metric_name in {"current_ratio", "working_capital_to_revenue_ratio"} for metric_name in metric_names):
+      if any(term in lever_lower for term in ("accounts receivable", "accounts payable", "inventory days")):
+        canonical_working_capital_bonus = 16.0
+      elif role in {"working_capital_asset", "working_capital_liability"}:
+        canonical_working_capital_bonus = 8.0
+      elif role == "current_liability_financing":
+        canonical_working_capital_bonus = 6.0
     if lever_id in retry_required_lever_ids:
       priority_score += 30.0
     if family and family in retry_required_families:
       priority_score += 20.0
     priority_score += float(issue_coverage_count * 10)
+    priority_score += alignment_bonus
+    priority_score += canonical_working_capital_bonus
     ranked_lever_entries.append(
       {
         "lever_id": lever_id,
@@ -6047,18 +8841,43 @@ def _build_unified_numeric_guidance_packet(
   selected_families: List[str] = []
   lever_band_scaffold: List[Dict[str, Any]] = []
   rank_index = 0
-  for item in ranked_lever_entries:
+  def _append_ranked_item(item: Dict[str, Any], *, enforce_family_limit: bool) -> bool:
+    nonlocal rank_index
+    lever_id = str(item.get("lever_id") or "").strip()
+    if not lever_id:
+      return False
+    if any(str(existing.get("lever_id") or "").strip() == lever_id for existing in lever_band_scaffold):
+      return False
     family = str(item.get("lever_family") or "").strip().lower() or (
       f"__ungrouped__::{str(item.get('lever_id') or '').strip().lower()}"
     )
-    if family not in selected_families and len(selected_families) >= _CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES:
-      continue
+    if enforce_family_limit and family not in selected_families and len(selected_families) >= _CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES:
+      return False
     if family not in selected_families:
       selected_families.append(family)
     rank_index += 1
     ranked_item = copy.deepcopy(item)
     ranked_item["priority_rank"] = rank_index
     lever_band_scaffold.append(ranked_item)
+    return True
+
+  for issue_code in focus_issue_codes:
+    for item in ranked_lever_entries:
+      covered_issue_codes = {
+        str(code or "").strip().lower()
+        for code in (item.get("covered_issue_codes") or [])
+        if str(code or "").strip()
+      }
+      if issue_code not in covered_issue_codes:
+        continue
+      if _append_ranked_item(item, enforce_family_limit=False):
+        break
+      if len(lever_band_scaffold) >= _CONVERGENCE_MAX_FOCUS_LEVERS:
+        break
+    if len(lever_band_scaffold) >= _CONVERGENCE_MAX_FOCUS_LEVERS:
+      break
+  for item in ranked_lever_entries:
+    _append_ranked_item(item, enforce_family_limit=True)
     if len(lever_band_scaffold) >= _CONVERGENCE_MAX_FOCUS_LEVERS:
       break
 
@@ -6072,6 +8891,8 @@ def _build_unified_numeric_guidance_packet(
     issue_code = str(item.get("issue_code") or "").strip().lower()
     metric_name = str(item.get("metric_name") or "").strip().lower()
     direction_hint = str(item.get("direction_hint") or "").strip().lower()
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    quarter_row = finmo_row_map.get(quarter_index) or {}
     candidate_ids = [
       str(lever_id).strip()
       for lever_id in (item.get("candidate_lever_ids") or [])
@@ -6093,6 +8914,63 @@ def _build_unified_numeric_guidance_packet(
         path_type=path_type,
         efficiency=efficiency,
       )
+      metric_recommended_delta = _safe_float(
+        (
+          ((item.get("repair_envelope") or {}) if isinstance(item.get("repair_envelope"), dict) else {})
+          .get("recommended_delta")
+        )
+      )
+      translated_metric_min = _translate_metric_delta_to_lever_delta(
+        metric_name=metric_name,
+        current_metric_value=item.get("current_value"),
+        metric_delta=min_delta,
+        lever_id=lever_id,
+        lever_entry=lever_entry,
+        quarter_row=quarter_row,
+      )
+      translated_metric_max = _translate_metric_delta_to_lever_delta(
+        metric_name=metric_name,
+        current_metric_value=item.get("current_value"),
+        metric_delta=max_delta,
+        lever_id=lever_id,
+        lever_entry=lever_entry,
+        quarter_row=quarter_row,
+      )
+      translated_metric_recommended = _translate_metric_delta_to_lever_delta(
+        metric_name=metric_name,
+        current_metric_value=item.get("current_value"),
+        metric_delta=metric_recommended_delta,
+        lever_id=lever_id,
+        lever_entry=lever_entry,
+        quarter_row=quarter_row,
+      )
+      translated_lever_deltas = [
+        float(result.get("lever_delta"))
+        for result in (translated_metric_min, translated_metric_max, translated_metric_recommended)
+        if isinstance(result, dict) and _safe_float(result.get("lever_delta")) is not None
+      ]
+      lever_min_delta: Optional[float] = None
+      lever_max_delta: Optional[float] = None
+      delta_unit = None
+      translation_basis = None
+      translation_confidence = None
+      if translated_lever_deltas:
+        lever_min_delta = float(min(translated_lever_deltas))
+        lever_max_delta = float(max(translated_lever_deltas))
+        translation_reference = translated_metric_recommended or translated_metric_min or translated_metric_max
+        delta_unit = str(translation_reference.get("delta_unit") or "").strip() or None
+        translation_basis = str(translation_reference.get("translation_basis") or "").strip() or None
+        translation_confidence = str(translation_reference.get("translation_confidence") or "").strip() or None
+      else:
+        lever_min_delta, lever_max_delta = _driver_path_delta_bounds(
+          direction_hint=direction_hint,
+          baseline_value=lever_entry.get("baseline_value"),
+          suggested_min_value=lever_entry.get("suggested_min_value"),
+          suggested_max_value=lever_entry.get("suggested_max_value"),
+        )
+        delta_unit = str(lever_entry.get("input_semantics") or lever_entry.get("value_kind") or "input_units").strip().lower() or None
+        translation_basis = "scaffold_value_band_fallback"
+        translation_confidence = "low"
       driver_paths.append(
         {
           "lever": lever_id,
@@ -6101,8 +8979,14 @@ def _build_unified_numeric_guidance_packet(
           "efficiency": efficiency,
           "priority_rank": int(_safe_float(lever_entry.get("priority_rank")) or 0) or None,
           "priority_tier": str(lever_entry.get("priority_tier") or "").strip() or None,
-          "min_delta": min_delta,
-          "max_delta": max_delta,
+          "min_delta": lever_min_delta,
+          "max_delta": lever_max_delta,
+          "delta_unit": delta_unit,
+          "metric_min_delta": min_delta,
+          "metric_max_delta": max_delta,
+          "metric_recommended_delta": metric_recommended_delta,
+          "translation_basis": translation_basis,
+          "translation_confidence": translation_confidence,
           "baseline_value": _safe_float(lever_entry.get("baseline_value")),
           "suggested_min_value": _safe_float(lever_entry.get("suggested_min_value")),
           "suggested_max_value": _safe_float(lever_entry.get("suggested_max_value")),
@@ -6169,9 +9053,16 @@ def _build_unified_numeric_guidance_packet(
     if _safe_float(item.get("minimum_target_value")) is not None
     and _safe_float(item.get("maximum_target_value")) is not None
   )
+  translated_driver_path_count = sum(
+    1
+    for item in enriched_metric_pressure_packets
+    for path in (item.get("driver_paths") or [])
+    if _safe_float((path or {}).get("min_delta")) is not None
+    or _safe_float((path or {}).get("max_delta")) is not None
+  )
 
   return {
-    "contract_version": "unified_numeric_guidance_v2",
+    "contract_version": "unified_numeric_guidance_v3",
     "completion_policy": _convergence_completion_policy_payload(),
     "scope_quarters": copy.deepcopy(scoped_quarters[:_CONVERGENCE_MAX_FOCUS_QUARTERS]),
     "guidance_coverage_summary": {
@@ -6180,6 +9071,7 @@ def _build_unified_numeric_guidance_packet(
       "metric_pressure_with_target_band_count": metric_pressure_with_target_band_count,
       "lever_band_count": len(lever_band_scaffold),
       "lever_band_with_value_range_count": len(lever_band_scaffold),
+      "translated_driver_path_count": translated_driver_path_count,
       "issue_repair_packet_count": len(issue_repair_packets),
       "focus_issue_codes": copy.deepcopy(focus_issue_codes),
     },
@@ -6270,7 +9162,11 @@ def _clone_issue_status_records(issue_status_records: Optional[List[Dict[str, An
 
 
 def _controller_issue_effective_status(item: Optional[Dict[str, Any]]) -> str:
-  return str(_controller_issue_completion_snapshot(item).get("effective_status") or "open").strip().lower() or "open"
+  record = item if isinstance(item, dict) else {}
+  cached_status = str(record.get("effective_status") or "").strip().lower()
+  if cached_status in {"open", "resolved", "tolerated"}:
+    return cached_status
+  return str(_controller_issue_completion_snapshot(record).get("effective_status") or "open").strip().lower() or "open"
 
 
 def _controller_issue_is_blocking(item: Optional[Dict[str, Any]]) -> bool:
@@ -8021,8 +10917,7 @@ def _unified_convergence_engine_contract_payload() -> Dict[str, Any]:
       "initial_restructure",
       "realism",
       "cash_strategy",
-      "stabilizer",
-      "guarantee",
+      "hard_rules",
     ],
     "solver_execution_rule": "solver_must_run_for_every_valid_attempt",
     "pre_execution_hard_blocks": [
@@ -8034,7 +10929,7 @@ def _unified_convergence_engine_contract_payload() -> Dict[str, Any]:
     "post_execution_governance": [
       "issue_count_delta",
       "severity_delta",
-      "cash_violation_delta",
+      "hard_rule_delta",
       "constraint_pass_fail",
       "regression_detection",
     ],
@@ -8130,6 +11025,7 @@ def _build_current_cycle_convergence_packet(
   unified_convergence_plan: Optional[Dict[str, Any]] = None,
   unified_convergence_result: Optional[Dict[str, Any]] = None,
   unified_convergence_cycle_count: Optional[int] = None,
+  cycle_debug: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   planning_summary = planning_context_summary if isinstance(planning_context_summary, dict) else {}
   convergence_context = (
@@ -8144,6 +11040,7 @@ def _build_current_cycle_convergence_packet(
   numeric_feedback = (
     prior_numeric_feedback if isinstance(prior_numeric_feedback, dict) else {}
   )
+  cycle_debug_payload = cycle_debug if isinstance(cycle_debug, dict) else {}
   lever_catalog = (
     convergence_context.get("writable_lever_catalog")
     if isinstance(convergence_context.get("writable_lever_catalog"), dict)
@@ -8189,6 +11086,11 @@ def _build_current_cycle_convergence_packet(
   convergence_scorecard = _build_convergence_scorecard(
     controller_resolution_state=controller_state,
     controller_retry_context=retry_context,
+  )
+  hard_rule_state = (
+    convergence_context.get("hard_rule_assessment")
+    if isinstance(convergence_context.get("hard_rule_assessment"), dict)
+    else {}
   )
   return {
     "contract_version": "convergence_state_v1",
@@ -8262,6 +11164,7 @@ def _build_current_cycle_convergence_packet(
       ),
       "deterministic_issue_packets": copy.deepcopy(repair_aware_issue_packets),
     },
+    "hard_rule_state": copy.deepcopy(hard_rule_state),
     "retry_state": {
       "progress_status": str(retry_context.get("progress_status") or "").strip() or None,
       "failed_quarters": copy.deepcopy(retry_context.get("failed_quarters") or []),
@@ -8328,6 +11231,12 @@ def _build_current_cycle_convergence_packet(
     ),
     "result_summary": _compact_unified_convergence_result_for_storage(
       copy.deepcopy(unified_convergence_result or {})
+    ),
+    "cycle_debug_summary": copy.deepcopy(
+      cycle_debug_payload.get("issue_alignment_debug_summary") or {}
+    ),
+    "cycle_issue_debug": copy.deepcopy(
+      cycle_debug_payload.get("issue_alignment_debug") or []
     ),
   }
 
@@ -8561,7 +11470,7 @@ def _build_repair_guidance_payload(
       ]
       or [
         str((item or {}).get("issue_code") or "").strip().lower()
-        for item in (prompt_repair_issue_packets or [])
+        for item in (prompt_repair_issue_packets_all or [])
         if isinstance(item, dict) and str((item or {}).get("issue_code") or "").strip()
       ]
       or [
@@ -13234,6 +16143,92 @@ def _lever_family_from_lever_id(lever_id: Any) -> str:
   return str(raw.split("::", 1)[0] or "").strip().lower()
 
 
+def _issue_quarter_gap_contributions(
+  issue_record: Optional[Dict[str, Any]],
+  *,
+  max_quarters: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+  record = issue_record if isinstance(issue_record, dict) else {}
+  relevant_quarters = _normalize_realism_remaining_quarters(
+    record.get("relevant_quarters")
+    if record.get("relevant_quarters") is not None
+    else record.get("remaining_problem_quarters")
+  )
+  relevant_quarter_set = {
+    int(_safe_float(item) or 0)
+    for item in relevant_quarters
+    if int(_safe_float(item) or 0) >= 1
+  }
+  metric_specs = [
+    item
+    for item in (record.get("metric_debug") or [])
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  ]
+  quarter_gap_abs_map: Dict[int, float] = {}
+  quarter_score_map: Dict[int, List[float]] = {}
+  for spec in metric_specs:
+    quarter_index = int(_safe_float(spec.get("quarter_index")) or 0)
+    if quarter_index < 1 or (relevant_quarter_set and quarter_index not in relevant_quarter_set):
+      continue
+    gap_abs = _safe_float(spec.get("gap_abs"))
+    if gap_abs is None:
+      gap_abs = abs(float(_safe_float(spec.get("gap")) or 0.0))
+    quarter_gap_abs_map[quarter_index] = float(quarter_gap_abs_map.get(quarter_index, 0.0) + abs(float(gap_abs or 0.0)))
+    score_pct = _safe_float(spec.get("score_pct"))
+    if score_pct is not None:
+      quarter_score_map.setdefault(quarter_index, []).append(float(score_pct))
+
+  if not quarter_gap_abs_map and relevant_quarter_set:
+    aggregate_gap_abs = float(_safe_float(record.get("aggregate_gap_abs")) or 0.0)
+    per_quarter_gap_abs = (
+      float(aggregate_gap_abs / max(len(relevant_quarter_set), 1))
+      if aggregate_gap_abs > 0.0
+      else 0.0
+    )
+    for quarter_index in sorted(relevant_quarter_set):
+      quarter_gap_abs_map[quarter_index] = per_quarter_gap_abs
+
+  ordered_quarters = sorted(set(relevant_quarter_set) | set(quarter_gap_abs_map.keys()))
+  total_gap_abs = float(sum(float(value or 0.0) for value in quarter_gap_abs_map.values()))
+  contributions: List[Dict[str, Any]] = []
+  for quarter_index in ordered_quarters:
+    gap_abs = float(quarter_gap_abs_map.get(quarter_index, 0.0))
+    quarter_scores = quarter_score_map.get(quarter_index) or []
+    contributions.append(
+      {
+        "quarter_index": int(quarter_index),
+        "gap_abs": gap_abs,
+        "gap_contribution_pct": (
+          float((gap_abs / total_gap_abs) * 100.0)
+          if total_gap_abs > 1e-9
+          else 0.0
+        ),
+        "average_score_pct": (
+          float(sum(quarter_scores) / len(quarter_scores))
+          if quarter_scores
+          else None
+        ),
+        "lowest_score_pct": (
+          float(min(quarter_scores))
+          if quarter_scores
+          else None
+        ),
+      }
+    )
+
+  contributions.sort(
+    key=lambda item: (
+      -float(_safe_float(item.get("gap_contribution_pct")) or 0.0),
+      -float(_safe_float(item.get("gap_abs")) or 0.0),
+      float(_safe_float(item.get("lowest_score_pct")) or 100.0),
+      int(_safe_float(item.get("quarter_index")) or 0),
+    )
+  )
+  if max_quarters is not None:
+    return copy.deepcopy(contributions[: max(0, int(max_quarters or 0))])
+  return copy.deepcopy(contributions)
+
+
 def _build_convergence_escalation_packet(
   *,
   attempt_number: int,
@@ -13323,6 +16318,7 @@ def _build_convergence_escalation_packet(
   required_lever_families: List[str] = []
   required_open_issue_codes: List[str] = []
   focus_quarters: List[int] = []
+  focus_quarter_details: List[Dict[str, Any]] = []
   allowed_target_metric_names = [
     str(item).strip().lower()
     for item in (contract.get("allowed_target_metric_ids") or [])
@@ -13379,7 +16375,7 @@ def _build_convergence_escalation_packet(
         if _lever_family_from_lever_id(item)
       }
     )[:_CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES]
-    affected_quarters = sorted(
+    relevant_quarters = sorted(
       {
         int(_safe_float(item) or 0)
         for item in (
@@ -13393,15 +16389,55 @@ def _build_convergence_escalation_packet(
         )
         if int(_safe_float(item) or 0) >= 1
       }
-    )[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
-    for quarter_index in affected_quarters:
-      if quarter_index not in focus_quarters:
-        focus_quarters.append(quarter_index)
+    )
+    quarter_gap_contributions = _issue_quarter_gap_contributions(
+      record,
+      max_quarters=max(
+        _CONVERGENCE_MAX_FOCUS_QUARTERS,
+        len(relevant_quarters),
+      ),
+    )
+    if not quarter_gap_contributions and relevant_quarters:
+      quarter_gap_contributions = [
+        {
+          "quarter_index": int(quarter_index),
+          "gap_abs": 0.0,
+          "gap_contribution_pct": 0.0,
+          "average_score_pct": None,
+          "lowest_score_pct": None,
+        }
+        for quarter_index in relevant_quarters
+      ]
+    affected_quarters = [
+      int(_safe_float(item.get("quarter_index")) or 0)
+      for item in quarter_gap_contributions[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
+      if int(_safe_float(item.get("quarter_index")) or 0) >= 1
+    ]
+    for quarter_entry in quarter_gap_contributions:
+      quarter_index = int(_safe_float(quarter_entry.get("quarter_index")) or 0)
+      if quarter_index < 1:
+        continue
+      focus_quarter_details.append(
+        {
+          "issue_code": issue_code,
+          "issue_priority_rank": len(required_open_issue_codes),
+          "issue_severity_score": int(_safe_float(record.get("remaining_issue_severity_score")) or 0),
+          "quarter_index": quarter_index,
+          "gap_abs": float(_safe_float(quarter_entry.get("gap_abs")) or 0.0),
+          "gap_contribution_pct": float(_safe_float(quarter_entry.get("gap_contribution_pct")) or 0.0),
+          "average_score_pct": _safe_float(quarter_entry.get("average_score_pct")),
+          "lowest_score_pct": _safe_float(quarter_entry.get("lowest_score_pct")),
+        }
+      )
     issue_coverage_requirements.append(
       {
         "issue_code": issue_code,
         "severity_score": int(_safe_float(record.get("remaining_issue_severity_score")) or 0),
+        "relevant_quarters": copy.deepcopy(relevant_quarters),
         "affected_quarters": affected_quarters,
+        "quarter_gap_contributions": copy.deepcopy(
+          quarter_gap_contributions[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
+        ),
         "metric_candidates": copy.deepcopy(metric_candidates),
         "required_lever_ids": copy.deepcopy(lever_ids),
         "required_lever_families": copy.deepcopy(lever_families),
@@ -13417,6 +16453,23 @@ def _build_convergence_escalation_packet(
     for family in lever_families:
       if family not in required_lever_families:
         required_lever_families.append(family)
+
+  focus_quarter_details.sort(
+    key=lambda item: (
+      int(_safe_float(item.get("issue_priority_rank")) or 9999),
+      -float(_safe_float(item.get("gap_contribution_pct")) or 0.0),
+      -float(_safe_float(item.get("gap_abs")) or 0.0),
+      float(_safe_float(item.get("lowest_score_pct")) or 100.0),
+      int(_safe_float(item.get("quarter_index")) or 0),
+    )
+  )
+  for quarter_entry in focus_quarter_details:
+    quarter_index = int(_safe_float(quarter_entry.get("quarter_index")) or 0)
+    if quarter_index < 1 or quarter_index in focus_quarters:
+      continue
+    focus_quarters.append(quarter_index)
+    if len(focus_quarters) >= _CONVERGENCE_MAX_FOCUS_QUARTERS:
+      break
 
   if "ending_cash" in required_primary_metric_candidates:
     required_primary_metric_candidates = ["ending_cash"] + [
@@ -13468,8 +16521,9 @@ def _build_convergence_escalation_packet(
     "substantial_correction_required": substantial_correction_required,
     "progress_status": progress_status,
     "meaningful_progress_rule": (
-      "Meaningful progress means one of the following must happen: remaining_issue_count decreases, "
-      "or the focused issue gap shrinks materially, or the focused issue score improves materially."
+      "Accepted progress means one of the following must happen: remaining_issue_count decreases, "
+      "or the focused closure-metric gap shrinks, or the focused issue score improves beyond the "
+      "configured threshold. Positive gap improvement must persist even before score thresholds are reached."
     ),
     "required_change_magnitude": (
       "substantial_reset"
@@ -13483,6 +16537,8 @@ def _build_convergence_escalation_packet(
     "required_failed_quarters": copy.deepcopy(failed_quarters),
     "focus_issue_codes": copy.deepcopy(required_open_issue_codes),
     "focus_quarters": copy.deepcopy(focus_quarters[:_CONVERGENCE_MAX_FOCUS_QUARTERS]),
+    "focus_quarter_selection_mode": "largest_gap_contributors",
+    "focus_quarter_details": copy.deepcopy(focus_quarter_details[:_CONVERGENCE_MAX_FOCUS_QUARTERS]),
     "required_primary_metric_candidates": copy.deepcopy(required_primary_metric_candidates),
     "required_issue_lever_ids": copy.deepcopy(required_issue_lever_ids),
     "required_lever_families": copy.deepcopy(required_lever_families),
@@ -13498,13 +16554,13 @@ def _build_convergence_escalation_packet(
     ),
     "constraints": [
       "meaningful progress can come from issue-count reduction, gap reduction, or score improvement",
-      "keep the cycle focused on top issues, earliest failing quarters, and top lever families",
+      "keep the cycle focused on top issues, the largest gap-contributing quarters, and top lever families",
       "cover each still-open issue with a direct primary-target proxy",
       "use a materially different focused lever package when the prior cycle was flat or worse",
     ],
     "instruction": (
       "The prior cycle did not produce acceptable focused progress. The next cycle must attack the top open issues, "
-      "work the earliest failing quarters, and use a tighter but materially different lever package."
+      "work the highest gap-contributing quarters, and use a tighter but materially different lever package."
       if escalation_active
       else "No post-cycle escalation is active for the next attempt."
     ),
@@ -13566,7 +16622,7 @@ def _retry_scope_quarters(
     if 1 <= int(_safe_float(item) or 0) <= max(1, int(quarter_count or 1))
   ]
   if focused_quarters:
-    return sorted(list(dict.fromkeys(focused_quarters)))[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
+    return list(dict.fromkeys(focused_quarters))[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
   failed_quarters = sorted(
     {
       int(_safe_float(item) or 0)
@@ -13812,11 +16868,13 @@ def _subset_numeric_solver_contract(
     return contract
   if scope_mode == "full_horizon":
     return contract
-  scoped_quarters = {
+  scoped_quarters = [
     int(_safe_float(item) or 0)
     for item in (scope_payload.get("scoped_quarters") or [])
     if int(_safe_float(item) or 0) >= 1
-  }
+  ]
+  scoped_quarters = list(dict.fromkeys(scoped_quarters))
+  scoped_quarter_set = set(scoped_quarters)
   scoped_lever_ids = {
     str(item).strip()
     for item in (scope_payload.get("scoped_lever_ids") or [])
@@ -13840,12 +16898,12 @@ def _subset_numeric_solver_contract(
   contract["baseline_quarter_metrics"] = [
     copy.deepcopy(item)
     for item in (contract.get("baseline_quarter_metrics") or [])
-    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) in scoped_quarters
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) in scoped_quarter_set
   ]
   contract["quarter_target_grid"] = [
     copy.deepcopy(item)
     for item in (contract.get("quarter_target_grid") or [])
-    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) in scoped_quarters
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) in scoped_quarter_set
   ]
   if focus_issue_codes:
     contract["issue_target_packets"] = [
@@ -13857,7 +16915,7 @@ def _subset_numeric_solver_contract(
     contract["active_issue_count"] = len(contract.get("issue_target_packets") or [])
   if scoped_lever_ids:
     contract["allowed_lever_ids"] = sorted(scoped_lever_ids)
-  contract["required_target_quarters"] = sorted(scoped_quarters)
+  contract["required_target_quarters"] = copy.deepcopy(scoped_quarters)
   return contract
 
 
@@ -16099,8 +19157,10 @@ def _build_cash_strategy_effect_summary(
   final_payroll = _finmo_labeled_series(final_finmo, section_key="pl", label="Payroll")
   first_capex = _finmo_labeled_series(first_finmo, section_key="cash_flow", label="Capital Expenditures")
   final_capex = _finmo_labeled_series(final_finmo, section_key="cash_flow", label="Capital Expenditures")
-  first_principal = _finmo_labeled_series(first_finmo, section_key="cash_flow", label="Dept Receive(Repay)")
-  final_principal = _finmo_labeled_series(final_finmo, section_key="cash_flow", label="Dept Receive(Repay)")
+  first_debt_issuance = _finmo_labeled_series(first_finmo, section_key="cash_flow", label="Debt Issuance (New Borrowing)")
+  final_debt_issuance = _finmo_labeled_series(final_finmo, section_key="cash_flow", label="Debt Issuance (New Borrowing)")
+  first_debt_repayment = _finmo_labeled_series(first_finmo, section_key="cash_flow", label="Debt Repayment")
+  final_debt_repayment = _finmo_labeled_series(final_finmo, section_key="cash_flow", label="Debt Repayment")
 
   first_final_cash = first_cash_series[-1] if first_cash_series else 0.0
   final_final_cash = final_cash_series[-1] if final_cash_series else 0.0
@@ -16114,7 +19174,8 @@ def _build_cash_strategy_effect_summary(
     _series_changed_count(first_marketing, final_marketing, tolerance=1.0) > 0,
     _series_changed_count(first_payroll, final_payroll, tolerance=1.0) > 0,
     _series_changed_count(first_capex, final_capex, tolerance=1.0) > 0,
-    _series_changed_count(first_principal, final_principal, tolerance=1.0) > 0,
+    _series_changed_count(first_debt_issuance, final_debt_issuance, tolerance=1.0) > 0,
+    _series_changed_count(first_debt_repayment, final_debt_repayment, tolerance=1.0) > 0,
   ])
 
   recommendation_mode = str(decision.get("recommendation_mode") or "").strip()
@@ -16156,7 +19217,8 @@ def _build_cash_strategy_effect_summary(
       "marketing_total_delta": float(_sum_series(final_marketing) - _sum_series(first_marketing)),
       "payroll_total_delta": float(_sum_series(final_payroll) - _sum_series(first_payroll)),
       "capital_expenditures_total_delta": float(_sum_series(final_capex) - _sum_series(first_capex)),
-      "principal_repayment_total_delta": float(_sum_series(final_principal) - _sum_series(first_principal)),
+      "debt_issuance_total_delta": float(_sum_series(final_debt_issuance) - _sum_series(first_debt_issuance)),
+      "debt_repayment_total_delta": float(_sum_series(final_debt_repayment) - _sum_series(first_debt_repayment)),
     },
     "summary_line": summary_line,
   }
@@ -16631,24 +19693,24 @@ def _build_financials_stage_acknowledgement(
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))
-    return f"Got it. I’ll use Year-1 direct costs of {total} ({percent} of revenue)."
+    return f"Got it. Iâ€™ll use Year-1 direct costs of {total} ({percent} of revenue)."
   if stage == "current_payroll":
-    return f"Got it. I’ll use Year-1 payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))}."
+    return f"Got it. Iâ€™ll use Year-1 payroll of {_format_currency((financials_json or {}).get('payroll_total_year1'))}."
   if stage == "marketing":
     total = _format_currency((financials_json or {}).get("marketing_total_year1"))
     percent = _format_percent((financials_json or {}).get("marketing_percent_of_revenue"))
-    return f"Got it. I’ll use a Year-1 marketing budget of {total} ({percent} of revenue)."
+    return f"Got it. Iâ€™ll use a Year-1 marketing budget of {total} ({percent} of revenue)."
   if stage == "revenue_intro":
-    return "Understood. We’ll use the current Year-1 revenue model as the baseline and move into the rest of financials."
+    return "Understood. Weâ€™ll use the current Year-1 revenue model as the baseline and move into the rest of financials."
   if stage == "cash_strategy":
     return _build_cash_strategy_acknowledgement((financials_json or {}).get("cash_strategy"))
   if stage == "current_num_employees":
-    return f"Got it. I’ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
+    return f"Got it. Iâ€™ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
   scalar_field = stage if stage in _GENERIC_FINANCIALS_FIELD_LABELS else ""
   if scalar_field:
     value = (financials_json or {}).get(stage)
     if stage == "future_rent_expected":
-      return "Got it. I’ll treat future dedicated space as part of the model." if bool(value) else "Got it. I’ll treat future dedicated space as not expected for now."
+      return "Got it. Iâ€™ll treat future dedicated space as part of the model." if bool(value) else "Got it. Iâ€™ll treat future dedicated space as not expected for now."
     return _build_financials_scalar_stage_acknowledgement(stage, float(value or 0.0))
   return "Got it."
 
@@ -18686,7 +21748,7 @@ def _build_cash_strategy_message_legacy_unused() -> str:
     "One last financial planning question before I wrap this section up: when this business starts building extra cash, "
     "what would you want to do with it?\n\n"
     + "\n".join(option_lines)
-    + "\n\nYou can answer in plain language and I’ll map it to the closest approach."
+    + "\n\nYou can answer in plain language and Iâ€™ll map it to the closest approach."
   )
 
 
@@ -18703,7 +21765,7 @@ def _build_cash_strategy_acknowledgement(value: Any) -> str:
   option = _cash_strategy_option(value)
   if not option:
     return "Got it."
-  return f"Got it. I’ll treat {option['label'].lower()} as the preferred cash posture."
+  return f"Got it. Iâ€™ll treat {option['label'].lower()} as the preferred cash posture."
 
 
 def _is_generic_financials_scalar_stage(stage_name: Optional[str]) -> bool:
@@ -20494,7 +23556,7 @@ def _propose_ops_competitive_advantage(
   if not key:
     raise RuntimeError("OPENAI_API_KEY is not configured.")
   system = (
-    "You are a senior business consultant defining a company’s competitive advantage.\n\n"
+    "You are a senior business consultant defining a companyâ€™s competitive advantage.\n\n"
     "This is NOT marketing language.\n"
     "This is an execution-based advantage grounded in how the business actually operates.\n\n"
     "Context:\n"
@@ -20512,13 +23574,13 @@ def _propose_ops_competitive_advantage(
     "3) Why it matters economically or experientially to the customer\n"
     "4) Why it is not trivial for competitors to replicate\n\n"
     "Hard rules:\n"
-    "- Do NOT use generic phrases (e.g., “high quality,” “great service,” “customer-focused,” “fast,” “personalized”) unless you explain *how* they are structurally enabled.\n"
-    "- Do NOT describe multiple advantages — pick the single most defensible one.\n"
+    "- Do NOT use generic phrases (e.g., â€œhigh quality,â€ â€œgreat service,â€ â€œcustomer-focused,â€ â€œfast,â€ â€œpersonalizedâ€) unless you explain *how* they are structurally enabled.\n"
+    "- Do NOT describe multiple advantages â€” pick the single most defensible one.\n"
     "- Do NOT restate the business description.\n"
     "- Tie the advantage to at least ONE concrete operational choice (e.g., menu design, staffing model, throughput discipline, geographic focus, fulfillment cadence).\n"
-    "- Keep it to 2–3 sentences total.\n\n"
+    "- Keep it to 2â€“3 sentences total.\n\n"
     "After proposing the advantage, ask ONE confirmation question:\n"
-    "“Does this accurately reflect what truly sets the business apart?”\n\n"
+    "â€œDoes this accurately reflect what truly sets the business apart?â€\n\n"
     "If the client disagrees:\n"
     "- Ask ONE targeted clarification question.\n"
     "- Revise the advantage once and ask for confirmation again."
@@ -21225,14 +24287,18 @@ def _run_unified_post_grid_system_run(
       protected_resolved_issue_constraints=copy.deepcopy(protected_resolved_issue_constraints),
       prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
     )
-    next_trigger = _final_stabilizer_trigger_assessment(copy.deepcopy(next_context))
-    next_context["guarantee_stall_assessment"] = _final_guarantee_stall_assessment(
+    next_hard_rules = (
+      next_context.get("hard_rule_assessment")
+      if isinstance(next_context.get("hard_rule_assessment"), dict)
+      else {}
+    )
+    next_context["cycle_stall_assessment"] = _build_unified_cycle_stall_assessment(
       consecutive_no_progress_cycles=consecutive_no_progress_cycles,
       latest_quality_assessment=latest_quality_assessment,
     )
-    return next_context, next_trigger
+    return next_context, copy.deepcopy(next_hard_rules)
 
-  unified_convergence_context, trigger_assessment = _rebuild_unified_context()
+  unified_convergence_context, hard_rule_assessment = _rebuild_unified_context()
   _persist_unified_convergence_state(
     conn=conn,
     draft_id=str(draft_id).strip(),
@@ -21268,9 +24334,12 @@ def _run_unified_post_grid_system_run(
     event_summary="convergence:stage_gate",
   )
 
-  while trigger_assessment.get("needs_stabilization") or not bool(controller_resolution_state.get("all_cleared")):
+  while (
+    not bool(controller_resolution_state.get("all_cleared"))
+    or not bool(hard_rule_assessment.get("all_hard_rules_cleared"))
+  ):
     unified_convergence_cycle_count += 1
-    if unified_convergence_cycle_count > _FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES:
+    if unified_convergence_cycle_count > _UNIFIED_CONVERGENCE_MAX_CYCLES:
       raise RuntimeError("unified_convergence_unresolved_after_max_cycles")
 
     baseline_model_input_json = copy.deepcopy(final_model_input_json)
@@ -21279,8 +24348,8 @@ def _run_unified_post_grid_system_run(
     baseline_controller_resolution_state = copy.deepcopy(controller_resolution_state)
     baseline_realism_memo_json = copy.deepcopy(realism_memo_json)
     baseline_resolution_summary = copy.deepcopy(resolution_summary)
-    trigger_assessment_before = copy.deepcopy(trigger_assessment)
-    stall_assessment = _final_guarantee_stall_assessment(
+    hard_rule_assessment_before = copy.deepcopy(hard_rule_assessment)
+    stall_assessment = _build_unified_cycle_stall_assessment(
       consecutive_no_progress_cycles=consecutive_no_progress_cycles,
       latest_quality_assessment=latest_quality_assessment,
     )
@@ -21297,7 +24366,7 @@ def _run_unified_post_grid_system_run(
       pass_name="unified_convergence",
       pass_label="Unified Convergence",
       attempt_number=unified_convergence_cycle_count,
-      max_attempts=_FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES,
+      max_attempts=_UNIFIED_CONVERGENCE_MAX_CYCLES,
       retry_memory=copy.deepcopy(retry_memory),
       numeric_solver_contract=copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
     )
@@ -21381,7 +24450,7 @@ def _run_unified_post_grid_system_run(
         [
       "remaining_issue_count must converge to zero",
       "accounting must hold",
-      "viability must hold",
+      "hard rules must hold",
       "use only authorized levers",
       "quarter target coverage must satisfy the deterministic solver contract for this cycle's focused required_target_quarters",
           *copy.deepcopy(escalation_packet.get("constraints") or []),
@@ -21470,22 +24539,21 @@ def _run_unified_post_grid_system_run(
       prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
       controller_retry_context=copy.deepcopy(controller_retry_context),
     )
+    cycle_numeric_guidance_packet = _build_unified_numeric_guidance_packet(
+      controller_resolution_state=copy.deepcopy(baseline_controller_resolution_state),
+      controller_retry_context=copy.deepcopy(controller_retry_context),
+      unified_convergence_context=copy.deepcopy(unified_convergence_context),
+      quarter_count=max(
+        _CONVERGENCE_DEFAULT_QUARTER_COUNT,
+        len((((unified_convergence_context or {}).get("current_finmo_json") or {}) if isinstance((unified_convergence_context or {}).get("current_finmo_json"), dict) else {}).get("quarter_rows") or []),
+      ),
+    )
     unified_convergence_plan = _build_unified_convergence_pass_plan(
       review_decision_payload=copy.deepcopy(unified_convergence_decision),
       solved_model_input_json=copy.deepcopy(final_model_input_json),
       financials_json=copy.deepcopy(financials_json or {}),
       numeric_solver_contract=copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
-      deterministic_numeric_guidance=copy.deepcopy(
-        _build_unified_numeric_guidance_packet(
-          controller_resolution_state=copy.deepcopy(controller_resolution_state),
-          controller_retry_context=copy.deepcopy(controller_retry_context),
-          unified_convergence_context=copy.deepcopy(unified_convergence_context),
-          quarter_count=max(
-            _CONVERGENCE_DEFAULT_QUARTER_COUNT,
-            len((((unified_convergence_context or {}).get("current_finmo_json") or {}) if isinstance((unified_convergence_context or {}).get("current_finmo_json"), dict) else {}).get("quarter_rows") or []),
-          ),
-        )
-      ),
+      deterministic_numeric_guidance=copy.deepcopy(cycle_numeric_guidance_packet),
     )
     decision_status = str((unified_convergence_decision or {}).get("status") or "").strip()
     plan_status = str((unified_convergence_plan or {}).get("status") or "").strip()
@@ -21559,7 +24627,7 @@ def _run_unified_post_grid_system_run(
         "no_progress": True,
       }
       consecutive_no_progress_cycles += 1
-      unified_convergence_context, trigger_assessment = _rebuild_unified_context()
+      unified_convergence_context, hard_rule_assessment = _rebuild_unified_context()
       unified_convergence_iterations.append(
         {
           "cycle": unified_convergence_cycle_count,
@@ -21748,15 +24816,18 @@ def _run_unified_post_grid_system_run(
       protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
         copy.deepcopy(realism_issue_ledger)
       )
-      unified_convergence_context, after_trigger_assessment = _rebuild_unified_context()
-      quality_assessment = _final_guarantee_quality_assessment(
+      unified_convergence_context, after_hard_rule_assessment = _rebuild_unified_context()
+      quality_assessment = _build_unified_cycle_quality_assessment(
         before_controller_resolution_state=copy.deepcopy(baseline_controller_resolution_state),
-        before_trigger_assessment=copy.deepcopy(trigger_assessment_before),
+        before_hard_rule_assessment=copy.deepcopy(hard_rule_assessment_before),
         after_controller_resolution_state=copy.deepcopy(controller_resolution_state),
-        after_trigger_assessment=copy.deepcopy(after_trigger_assessment),
+        after_hard_rule_assessment=copy.deepcopy(after_hard_rule_assessment),
+        before_numeric_guidance_packet=copy.deepcopy(cycle_numeric_guidance_packet),
+        candidate_signature=copy.deepcopy(candidate_signature),
+        prior_quality_assessment=copy.deepcopy(latest_quality_assessment),
       )
     else:
-      after_trigger_assessment = copy.deepcopy(trigger_assessment_before)
+      after_hard_rule_assessment = copy.deepcopy(hard_rule_assessment_before)
       quality_assessment = {
         "accepted": False,
         "reject_attempt": True,
@@ -21797,8 +24868,8 @@ def _run_unified_post_grid_system_run(
         "resolved_issue_count": int(_safe_float(controller_resolution_state.get("resolved_issue_count")) or 0),
         "tolerated_issue_count": int(_safe_float(controller_resolution_state.get("tolerated_issue_count")) or 0),
       }
-      trigger_assessment = copy.deepcopy(after_trigger_assessment)
-      if bool(quality_assessment.get("meaningful_progress")) or not bool(trigger_assessment.get("needs_stabilization")):
+      hard_rule_assessment = copy.deepcopy(after_hard_rule_assessment)
+      if bool(quality_assessment.get("meaningful_progress")) or bool(hard_rule_assessment.get("all_hard_rules_cleared")):
         consecutive_no_progress_cycles = 0
       else:
         consecutive_no_progress_cycles += 1
@@ -21809,9 +24880,9 @@ def _run_unified_post_grid_system_run(
       controller_resolution_state = copy.deepcopy(baseline_controller_resolution_state)
       realism_memo_json = copy.deepcopy(baseline_realism_memo_json)
       resolution_summary = copy.deepcopy(baseline_resolution_summary)
-      unified_convergence_context, trigger_assessment = _rebuild_unified_context()
+      unified_convergence_context, hard_rule_assessment = _rebuild_unified_context()
       consecutive_no_progress_cycles += 1
-    unified_convergence_context["guarantee_stall_assessment"] = _final_guarantee_stall_assessment(
+    unified_convergence_context["cycle_stall_assessment"] = _build_unified_cycle_stall_assessment(
       consecutive_no_progress_cycles=consecutive_no_progress_cycles,
       latest_quality_assessment=latest_quality_assessment,
     )
@@ -21821,8 +24892,8 @@ def _run_unified_post_grid_system_run(
         "accepted": accepted_attempt,
         "stall_assessment_before": copy.deepcopy(stall_assessment),
         "quality_assessment": copy.deepcopy(quality_assessment),
-        "trigger_assessment_before": copy.deepcopy(trigger_assessment_before),
-        "trigger_assessment_after": copy.deepcopy(trigger_assessment),
+        "hard_rule_assessment_before": copy.deepcopy(hard_rule_assessment_before),
+        "hard_rule_assessment_after": copy.deepcopy(hard_rule_assessment),
         "decision": copy.deepcopy(unified_convergence_decision),
         "plan": copy.deepcopy(unified_convergence_plan),
         "result": copy.deepcopy(unified_convergence_result),
@@ -21854,6 +24925,7 @@ def _run_unified_post_grid_system_run(
       model_input_json=copy.deepcopy(final_model_input_json),
       finmo_json=copy.deepcopy(final_finmo_json),
     )
+    _handle_convergence_test_mode_failure(quality_assessment)
 
   diagnostics_snapshot = {
     "contract_version": "planning_diagnostics_snapshot_v3",
@@ -21866,7 +24938,7 @@ def _run_unified_post_grid_system_run(
     "cost_telemetry": _openai_call_telemetry_snapshot(),
   }
   next_planning_run_json = _build_planning_run_payload(
-    stage="final_viability_guaranteed",
+    stage="convergence_completed",
     status="completed",
     controller_resolution_state=copy.deepcopy(controller_resolution_state),
     resolution_summary=copy.deepcopy(resolution_summary),
@@ -21903,6 +24975,16 @@ def _run_unified_post_grid_system_run(
     controller_resolution_state=copy.deepcopy(controller_resolution_state),
     working_memo=copy.deepcopy(realism_memo_json),
   )
+  financial_story_payload = _build_financial_story_payload(
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    target_market_json=copy.deepcopy(target_market_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+    current_finmo_json=copy.deepcopy(final_finmo_json or {}),
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    hard_rule_assessment=copy.deepcopy(hard_rule_assessment),
+  )
   persisted_completion = persist_post_intake_execution_state(
     conn,
     draft_id=str(draft_id).strip(),
@@ -21923,13 +25005,14 @@ def _run_unified_post_grid_system_run(
       planning_run_payload=next_planning_run_json,
       explicit_candidates=[("unified_convergence_result", unified_convergence_result)],
     ),
+    financial_story=copy.deepcopy(financial_story_payload),
     active_focus="done",
     business_facts=business_facts,
     status="completed",
     completed=True,
     checkpoint_kind="run_complete",
     event_type="run_completed",
-    event_summary="final_viability_guaranteed:completed",
+    event_summary="convergence_completed:completed",
   )
   if isinstance(persisted_completion, dict) and isinstance(persisted_completion.get("planning_run_json"), dict):
     next_planning_run_json = copy.deepcopy(persisted_completion.get("planning_run_json") or next_planning_run_json)
@@ -21945,6 +25028,11 @@ def _run_unified_post_grid_system_run(
     "numeric_solver_feedback_json": _extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
       explicit_candidates=[("unified_convergence_result", unified_convergence_result)],
+    ),
+    "financial_story": (
+      copy.deepcopy(persisted_completion.get("financial_story"))
+      if isinstance(persisted_completion, dict) and isinstance(persisted_completion.get("financial_story"), dict)
+      else copy.deepcopy(financial_story_payload)
     ),
     "realism_memo_json": persisted_realism_memo,
     "model_input_json": final_model_input_json,
@@ -22350,1702 +25438,6 @@ def _run_planning_system_for_draft(
     lifecycle_mode=lifecycle_mode,
     planning_run_id=planning_run_id,
   )
-  if build_shared_context is None:
-    raise RuntimeError("build_shared_context_unavailable")
-  draft = get_draft(conn, draft_id=str(draft_id).strip())
-  if str(draft.get("active_focus") or "").strip().lower() != "done":
-    raise RuntimeError("draft_not_complete")
-  _reset_openai_call_telemetry()
-  lifecycle_start = begin_planning_run(
-    conn,
-    draft_id=str(draft_id).strip(),
-    trigger_type="system_run",
-    lifecycle_mode=str(lifecycle_mode or "start").strip().lower() or "start",
-    planning_run_id=planning_run_id,
-  )
-  active_planning_run = (
-    lifecycle_start.get("planning_run")
-    if isinstance(lifecycle_start.get("planning_run"), dict)
-    else {}
-  )
-  active_planning_run_id = str(active_planning_run.get("planning_run_id") or "").strip()
-  if not active_planning_run_id:
-    raise RuntimeError("planning_run_start_failed")
-
-  try:
-    from financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
-  try:
-    from financials_year1 import assemble_financials_year1  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
-
-  ops_json = _parse_json_dict(draft.get("operating_model_json"))
-  market_json = _parse_json_dict(draft.get("target_market_json"))
-  people_json = _parse_json_dict(draft.get("people_json"))
-  financials_json = _parse_json_dict(draft.get("financials_json"))
-  financials_year1_json = _parse_json_dict(draft.get("financials_year1_json"))
-  fulfillment_json = _parse_json_dict(draft.get("fulfillment_json"))
-  marketing_model_json = _parse_json_dict(draft.get("marketing_model_json"))
-  planning_run_json = _parse_json_dict(draft.get("planning_run_json"))
-  resume_checkpoint = (
-    lifecycle_start.get("latest_checkpoint")
-    if isinstance(lifecycle_start.get("latest_checkpoint"), dict)
-    else {}
-  )
-  resume_checkpoint_stage = str(resume_checkpoint.get("stage") or "").strip().lower()
-  resume_checkpoint_planning_payload = _parse_json_dict(resume_checkpoint.get("planning_run_json"))
-  resume_checkpoint_model_input_json = _parse_json_dict(resume_checkpoint.get("model_input_json"))
-  resume_checkpoint_finmo_json = _parse_json_dict(resume_checkpoint.get("finmo_json"))
-  resume_from_checkpoint_state = bool(
-    str(lifecycle_mode or "").strip().lower() == "resume"
-    and isinstance(resume_checkpoint_model_input_json, dict)
-    and resume_checkpoint_model_input_json
-    and isinstance(resume_checkpoint_finmo_json, dict)
-    and resume_checkpoint_finmo_json
-    and resume_checkpoint_stage not in {"", "system_run_starting", "baseline_ready", "quarter_grid_running", "quarter_grid_ready"}
-  )
-
-  business_facts: Dict[str, Any] = {
-    "name": draft.get("business_name"),
-    "business_name": draft.get("business_name"),
-    "address": draft.get("business_address"),
-    "start_date": draft.get("business_start_date"),
-    "address_street": draft.get("address_street"),
-    "address_city": draft.get("address_city"),
-    "address_state": draft.get("address_state"),
-    "address_zip": draft.get("address_zip"),
-    "address_country": draft.get("address_country"),
-  }
-
-  def _persist_system_stage(
-    *,
-    stage: str,
-    status: str,
-    planning_mode: str = "",
-    planning_mode_reason: str = "",
-    prompt_file: str = "",
-    gpt_narrative: str = "",
-    gpt_grid_metadata: Optional[Dict[str, Any]] = None,
-    grid_application_summary: Optional[Dict[str, Any]] = None,
-    model_input_payload: Optional[Dict[str, Any]] = None,
-    finmo_payload: Optional[Dict[str, Any]] = None,
-  ) -> Dict[str, Any]:
-    payload = _build_planning_run_payload(
-      stage=stage,
-      status=status,
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=prompt_file,
-      gpt_narrative=gpt_narrative,
-      gpt_grid_metadata=copy.deepcopy(gpt_grid_metadata or {}),
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    )
-    payload["planning_run_id"] = active_planning_run_id
-    payload["trigger_type"] = "system_run"
-    payload["lifecycle_mode"] = str(lifecycle_mode or "start").strip().lower() or "start"
-    persisted = persist_post_intake_execution_state(
-      conn,
-      draft_id=str(draft_id).strip(),
-      new_messages=[],
-      model_input_json=model_input_payload,
-      finmo_json=finmo_payload,
-      planning_run_json=payload,
-      numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-        planning_run_payload=payload
-      ),
-      active_focus="done",
-      status="in_progress",
-      completed=False,
-      checkpoint_kind="stage_snapshot",
-      event_type="stage_persisted",
-      event_summary=f"{stage}:{status}",
-    )
-    persisted_payload = (
-      persisted.get("planning_run_json")
-      if isinstance(persisted, dict) and isinstance(persisted.get("planning_run_json"), dict)
-      else payload
-    )
-    _maybe_interrupt_planning_run(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      planning_run_id=active_planning_run_id,
-      stage=stage,
-      planning_status=status,
-      planning_run_json=copy.deepcopy(persisted_payload),
-      model_input_json=copy.deepcopy(model_input_payload or {}),
-      finmo_json=copy.deepcopy(finmo_payload or {}),
-      numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-        planning_run_payload=persisted_payload
-      ),
-      event_summary=f"{stage}:{status}:lifecycle_gate",
-    )
-    return persisted_payload
-
-  shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
-  shared_context = dict(shared_context or {})
-  shared_context["operating_model"] = ops_json
-  shared_context["target_market"] = market_json
-  shared_context["people_capability"] = people_json
-  shared_context["financials"] = financials_json
-
-  base_year1 = assemble_financials_year1(shared_context, None)
-  if _year1_drivers_conflict(financials_year1_json, base_year1):
-    financials_year1_json = base_year1
-  else:
-    financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
-  if isinstance(financials_year1_json, dict) and financials_year1_json:
-    shared_context["financials_year1_json"] = financials_year1_json
-
-  try:
-    marketing_model_json = _compute_marketing_model_json(
-      conn=conn,
-      ops_json=ops_json,
-      market_json=market_json,
-      people_json=people_json,
-      financials_year1_json=financials_year1_json,
-      business_facts=business_facts,
-      existing_marketing_model_json=marketing_model_json,
-      estimate_marketing_baseline_from_context=estimate_marketing_baseline_from_context,
-    )
-  except Exception:
-    marketing_model_json = dict(marketing_model_json or {})
-  shared_context["marketing"] = marketing_model_json
-
-  try:
-    from finmo_bridge import sync_planning_state_to_finmo  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.finmo_bridge import sync_planning_state_to_finmo  # type: ignore
-  try:
-    from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
-
-  sync_result = sync_planning_state_to_finmo(
-    finmo_path="",
-    business_facts=business_facts,
-    ops_json=ops_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    marketing_model_json=marketing_model_json,
-    controller_input_seed=[],
-    forecast_quarters=[],
-    calibration_spec=None,
-  )
-  if resume_from_checkpoint_state:
-    model_input_json = copy.deepcopy(resume_checkpoint_model_input_json)
-    catalog_source_model_input_json = copy.deepcopy(model_input_json)
-    finmo_json = copy.deepcopy(resume_checkpoint_finmo_json)
-    planning_run_json = _persist_system_stage(
-      stage="resume_checkpoint_loaded",
-      status="running",
-      model_input_payload=model_input_json,
-      finmo_payload=finmo_json,
-    )
-  else:
-    model_input_json = (
-      sync_result.get("model_input_json")
-      if isinstance(sync_result.get("model_input_json"), dict)
-      else {}
-    )
-    catalog_source_model_input_json = copy.deepcopy(model_input_json)
-    finmo_json = (
-      sync_result.get("finmo_json")
-      if isinstance(sync_result.get("finmo_json"), dict)
-      else {}
-    )
-    planning_run_json = _persist_system_stage(
-      stage="baseline_ready",
-      status="running",
-      model_input_payload=model_input_json,
-      finmo_payload=finmo_json,
-    )
-
-  planning_choice = determine_planning_mode(
-    ops_json=dict(ops_json or {}),
-    target_market_json=dict(market_json or {}),
-    people_json=dict(people_json or {}),
-    financials_json=dict(financials_json or {}),
-    financials_year1_json=dict(financials_year1_json or {}),
-    fulfillment_json=dict(fulfillment_json or {}),
-    marketing_model_json=dict(marketing_model_json or {}),
-    model_input_json=copy.deepcopy(model_input_json),
-    finmo_json=copy.deepcopy(finmo_json),
-    business_facts=copy.deepcopy(business_facts or {}),
-  )
-  planning_mode = str(planning_choice.get("planning_mode") or "").strip()
-  planning_mode_reason = str(planning_choice.get("planning_mode_reason") or "").strip()
-  if resume_from_checkpoint_state:
-    planning_result = {
-      "prompt_file": str(
-        (resume_checkpoint_planning_payload or {}).get("prompt_file")
-        or planning_choice.get("prompt_file")
-        or ""
-      ).strip(),
-      "gpt_narrative": str((resume_checkpoint_planning_payload or {}).get("gpt_narrative") or "").strip(),
-      "metadata": copy.deepcopy((resume_checkpoint_planning_payload or {}).get("gpt_grid_metadata") or {}),
-    }
-    grid_application_summary = copy.deepcopy(
-      (resume_checkpoint_planning_payload or {}).get("grid_application_summary") or {}
-    )
-    applied_model_input_json = copy.deepcopy(model_input_json)
-    applied_finmo_json = copy.deepcopy(finmo_json)
-    planning_run_json = _persist_system_stage(
-      stage="resume_checkpoint_ready",
-      status="running",
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
-      gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      model_input_payload=applied_model_input_json,
-      finmo_payload=applied_finmo_json,
-    )
-  else:
-    planning_run_json = _persist_system_stage(
-      stage="quarter_grid_running",
-      status="running",
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
-      model_input_payload=model_input_json,
-      finmo_payload=finmo_json,
-    )
-
-    planning_result = generate_live_quarter_grid_plan(
-      business_name=str(business_facts.get("name") or "").strip(),
-      planning_mode=planning_mode,
-      model_input_json=copy.deepcopy(model_input_json),
-      finmo_json=copy.deepcopy(finmo_json),
-      ops_json=ops_json,
-      target_market_json=market_json,
-      people_json=people_json,
-      financials_json=financials_json,
-      financials_year1_json=financials_year1_json,
-      fulfillment_json=fulfillment_json,
-      marketing_model_json=marketing_model_json,
-      realism_memo_json=_parse_json_dict(draft.get("realism_memo_json")),
-      business_facts=copy.deepcopy(business_facts or {}),
-    )
-    validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
-    if (
-      list(validation.get("missing_rows") or [])
-      or list(validation.get("extra_rows") or [])
-      or list(validation.get("duplicate_rows") or [])
-      or list(validation.get("malformed_rows") or [])
-    ):
-      raise RuntimeError("planning_grid_validation_failed")
-    planning_run_json = _persist_system_stage(
-      stage="quarter_grid_ready",
-      status="ready_for_grid_application",
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
-      gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
-      model_input_payload=model_input_json,
-      finmo_payload=finmo_json,
-    )
-
-    grid_application_result = apply_live_quarter_grid_plan(
-      baseline_model_input_json=copy.deepcopy(model_input_json),
-      grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
-    )
-    grid_application_summary = (
-      grid_application_result.get("application_summary")
-      if isinstance(grid_application_result.get("application_summary"), dict)
-      else {}
-    )
-    applied_model_input_json = (
-      grid_application_result.get("applied_model_input_json")
-      if isinstance(grid_application_result.get("applied_model_input_json"), dict)
-      else {}
-    )
-    applied_finmo_json = (
-      grid_application_result.get("applied_finmo_json")
-      if isinstance(grid_application_result.get("applied_finmo_json"), dict)
-      else {}
-    )
-  return _run_unified_post_grid_system_run(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    planning_run_id=active_planning_run_id,
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    target_market_json=copy.deepcopy(market_json or {}),
-    people_json=copy.deepcopy(people_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-    fulfillment_json=copy.deepcopy(fulfillment_json or {}),
-    marketing_model_json=copy.deepcopy(marketing_model_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    planning_result=copy.deepcopy(planning_result or {}),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    catalog_source_model_input_json=copy.deepcopy(model_input_json),
-    applied_model_input_json=copy.deepcopy(applied_model_input_json),
-    applied_finmo_json=copy.deepcopy(applied_finmo_json),
-  )
-  realism_resolution_loop = _run_realism_resolution_loop(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    planning_run_id=active_planning_run_id,
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    target_market_json=copy.deepcopy(market_json or {}),
-    people_json=copy.deepcopy(people_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-    fulfillment_json=copy.deepcopy(fulfillment_json or {}),
-    marketing_model_json=copy.deepcopy(marketing_model_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    catalog_source_model_input_json=copy.deepcopy(model_input_json),
-    applied_model_input_json=copy.deepcopy(applied_model_input_json),
-    applied_finmo_json=copy.deepcopy(applied_finmo_json),
-  )
-  realism_memo_before_resolution = (
-    realism_resolution_loop.get("initial_memo")
-    if isinstance(realism_resolution_loop.get("initial_memo"), dict)
-    else {}
-  )
-  realism_resolution_iterations = [
-    item for item in (realism_resolution_loop.get("iterations") or []) if isinstance(item, dict)
-  ]
-  realism_resolution_stop_reason = str(realism_resolution_loop.get("stop_reason") or "").strip()
-  realism_resolution_iteration_count = int(_safe_float(realism_resolution_loop.get("iteration_count")) or 0)
-  realism_resolution_decision = (
-    realism_resolution_loop.get("last_decision")
-    if isinstance(realism_resolution_loop.get("last_decision"), dict)
-    else {}
-  )
-  realism_resolution_plan = (
-    realism_resolution_loop.get("last_plan")
-    if isinstance(realism_resolution_loop.get("last_plan"), dict)
-    else {}
-  )
-  realism_resolution_result = (
-    realism_resolution_loop.get("last_result")
-    if isinstance(realism_resolution_loop.get("last_result"), dict)
-    else {}
-  )
-  initial_restructure_context = (
-    realism_resolution_loop.get("initial_restructure_context")
-    if isinstance(realism_resolution_loop.get("initial_restructure_context"), dict)
-    else {}
-  )
-  initial_restructure_decision = (
-    realism_resolution_loop.get("initial_restructure_decision")
-    if isinstance(realism_resolution_loop.get("initial_restructure_decision"), dict)
-    else {}
-  )
-  initial_restructure_pass_plan = (
-    realism_resolution_loop.get("initial_restructure_pass_plan")
-    if isinstance(realism_resolution_loop.get("initial_restructure_pass_plan"), dict)
-    else {}
-  )
-  initial_restructure_pass_result = (
-    realism_resolution_loop.get("initial_restructure_pass_result")
-    if isinstance(realism_resolution_loop.get("initial_restructure_pass_result"), dict)
-    else {}
-  )
-  initial_restructure_effect_summary = (
-    realism_resolution_loop.get("initial_restructure_effect_summary")
-    if isinstance(realism_resolution_loop.get("initial_restructure_effect_summary"), dict)
-    else {}
-  )
-  realism_resolution_verification = (
-    realism_resolution_loop.get("last_verification")
-    if isinstance(realism_resolution_loop.get("last_verification"), dict)
-    else {}
-  )
-  realism_resolved_model_input_json = (
-    realism_resolution_loop.get("final_model_input_json")
-    if isinstance(realism_resolution_loop.get("final_model_input_json"), dict)
-    else applied_model_input_json
-  )
-  realism_resolved_finmo_json = (
-    realism_resolution_loop.get("final_finmo_json")
-    if isinstance(realism_resolution_loop.get("final_finmo_json"), dict)
-    else applied_finmo_json
-  )
-  realism_memo_json = (
-    realism_resolution_loop.get("realism_memo_json")
-    if isinstance(realism_resolution_loop.get("realism_memo_json"), dict)
-    else {}
-  )
-  realism_issue_ledger = (
-    realism_resolution_loop.get("issue_ledger")
-    if isinstance(realism_resolution_loop.get("issue_ledger"), list)
-    else []
-  )
-  controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
-    issue_status_records=copy.deepcopy(realism_issue_ledger),
-    iteration=realism_resolution_iteration_count,
-    verification_payload=copy.deepcopy(realism_resolution_verification),
-  )
-  strategy_protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
-    copy.deepcopy(realism_issue_ledger)
-  )
-  resolution_summary: Dict[str, Any] = {}
-  final_model_input_json = copy.deepcopy(realism_resolved_model_input_json)
-  final_finmo_json = copy.deepcopy(realism_resolved_finmo_json)
-  cash_strategy_effect_summary: Dict[str, Any] = {}
-  final_stabilizer_context: Dict[str, Any] = {}
-  final_stabilizer_decision: Dict[str, Any] = {}
-  final_stabilizer_pass_plan: Dict[str, Any] = {}
-  final_stabilizer_pass_result: Dict[str, Any] = {}
-  final_stabilizer_effect_summary: Dict[str, Any] = {}
-  strategy_recheck_baseline_issue_ledger = copy.deepcopy(realism_issue_ledger)
-  strategy_recheck_baseline_model_input_json = copy.deepcopy(final_model_input_json)
-  strategy_recheck_baseline_finmo_json = copy.deepcopy(final_finmo_json)
-  first_pass_handoff = _build_first_pass_handoff_payload(
-    draft_id=str(draft_id).strip(),
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    applied_model_input_json=copy.deepcopy(final_model_input_json),
-    applied_finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  cash_strategy_review_context = _build_cash_strategy_review_context_payload(
-    draft_id=str(draft_id).strip(),
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    solved_model_input_json=copy.deepcopy(final_model_input_json),
-    solved_finmo_json=copy.deepcopy(final_finmo_json),
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    prior_numeric_feedback=_build_numeric_solver_feedback_payload(
-      copy.deepcopy(realism_resolution_result)
-    ),
-  )
-  cash_strategy_numeric_solver_contract = copy.deepcopy(
-    (cash_strategy_review_context or {}).get("numeric_solver_contract") or {}
-  )
-  _persist_cash_strategy_state(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    stage="cash_strategy_running",
-    status="running",
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-    realism_resolution_result=copy.deepcopy(realism_resolution_result),
-    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-    realism_resolution_stop_reason=realism_resolution_stop_reason,
-    realism_resolution_iteration_count=realism_resolution_iteration_count,
-    initial_restructure_context=copy.deepcopy(initial_restructure_context),
-    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-    first_pass_handoff=copy.deepcopy(first_pass_handoff),
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    cash_strategy_review_decision={},
-    cash_strategy_second_pass_plan={},
-    cash_strategy_second_pass_result={},
-    cash_strategy_effect_summary={},
-    realism_memo_json=copy.deepcopy(realism_memo_json),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  _maybe_interrupt_planning_run(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    planning_run_id=active_planning_run_id,
-    stage="cash_strategy_running",
-    planning_status="running",
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    realism_memo_json=copy.deepcopy(realism_memo_json),
-    event_summary="cash_strategy:stage_gate",
-  )
-  cash_strategy_attempt = _run_controller_retry_loop(
-    pass_name="cash_strategy_review",
-    pass_label="Cash Strategy Review",
-    planner_runner=lambda controller_retry_context, prior_numeric_feedback, working_model_input, working_finmo: _run_cash_strategy_review_openai(
-      draft_id=str(draft_id).strip(),
-      business_facts=copy.deepcopy(business_facts or {}),
-      ops_json=copy.deepcopy(ops_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      first_pass_handoff=copy.deepcopy(first_pass_handoff),
-      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-      solved_model_input_json=copy.deepcopy(working_model_input),
-      solved_finmo_json=copy.deepcopy(working_finmo),
-      prior_numeric_feedback=copy.deepcopy(
-        prior_numeric_feedback
-        if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
-        else ((cash_strategy_review_context or {}).get("prior_numeric_solver_feedback") or {})
-      ),
-      controller_retry_context=copy.deepcopy(controller_retry_context),
-    ),
-    plan_builder=lambda decision, working_model_input, working_finmo: _build_cash_strategy_second_pass_plan(
-      review_decision_payload=copy.deepcopy(decision),
-      solved_model_input_json=copy.deepcopy(working_model_input),
-      financials_json=copy.deepcopy(financials_json or {}),
-      numeric_solver_contract=copy.deepcopy(cash_strategy_numeric_solver_contract),
-    ),
-    current_model_input_json=copy.deepcopy(final_model_input_json),
-    current_finmo_json=copy.deepcopy(final_finmo_json),
-    catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
-    numeric_solver_contract=copy.deepcopy(cash_strategy_numeric_solver_contract),
-    contract_version="cash_strategy_second_pass_result_v1",
-    max_attempts=1,
-    lifecycle_guard=lambda attempt_snapshot: _maybe_interrupt_planning_run(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      planning_run_id=active_planning_run_id,
-      stage="cash_strategy_running",
-      planning_status="running",
-      model_input_json=copy.deepcopy(
-        attempt_snapshot.get("working_model_input_json")
-        if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
-        else final_model_input_json
-      ),
-      finmo_json=copy.deepcopy(
-        attempt_snapshot.get("working_finmo_json")
-        if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
-        else final_finmo_json
-      ),
-      realism_memo_json=copy.deepcopy(realism_memo_json),
-      event_summary="cash_strategy:attempt_gate",
-    ),
-    attempt_persistor=lambda attempt_snapshot: _persist_cash_strategy_state(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      stage="cash_strategy_running",
-      status="running",
-      controller_resolution_state=copy.deepcopy(controller_resolution_state),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-      realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-      realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-      realism_resolution_result=copy.deepcopy(realism_resolution_result),
-      realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-      realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-      realism_resolution_stop_reason=realism_resolution_stop_reason,
-      realism_resolution_iteration_count=realism_resolution_iteration_count,
-      initial_restructure_context=copy.deepcopy(initial_restructure_context),
-      initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-      initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-      initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-      initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-      first_pass_handoff=copy.deepcopy(first_pass_handoff),
-      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-      cash_strategy_review_decision=copy.deepcopy(attempt_snapshot.get("decision") or {}),
-      cash_strategy_second_pass_plan=copy.deepcopy(attempt_snapshot.get("plan") or {}),
-      cash_strategy_second_pass_result=copy.deepcopy(attempt_snapshot.get("result") or {}),
-      cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-      realism_memo_json=copy.deepcopy(realism_memo_json),
-      model_input_json=copy.deepcopy(
-        attempt_snapshot.get("working_model_input_json")
-        if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
-        else final_model_input_json
-      ),
-      finmo_json=copy.deepcopy(
-        attempt_snapshot.get("working_finmo_json")
-        if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
-        else final_finmo_json
-      ),
-    ),
-  )
-  cash_strategy_review_decision = copy.deepcopy(cash_strategy_attempt.get("decision") or {})
-  cash_strategy_second_pass_plan = copy.deepcopy(cash_strategy_attempt.get("plan") or {})
-  cash_strategy_second_pass_result = copy.deepcopy(cash_strategy_attempt.get("result") or {})
-  cash_strategy_recheck_verification: Dict[str, Any] = {}
-  if (
-    isinstance(cash_strategy_second_pass_result.get("updated_model_input_json"), dict)
-    and cash_strategy_second_pass_result.get("status") in {"completed", "infeasible_target_miss"}
-  ):
-    final_model_input_json = copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {})
-    final_finmo_json = copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {})
-    if str(cash_strategy_second_pass_result.get("status") or "").strip() == "completed":
-      strategy_recheck_iteration = max(1, realism_resolution_iteration_count + 1)
-      strategy_recheck_context = _build_strategy_recheck_context_payload(
-        baseline_issue_status_records=copy.deepcopy(strategy_recheck_baseline_issue_ledger),
-        baseline_model_input_json=copy.deepcopy(strategy_recheck_baseline_model_input_json),
-        baseline_finmo_json=copy.deepcopy(strategy_recheck_baseline_finmo_json),
-        second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-      )
-      strategy_recheck_memo = _build_realism_memo_from_issue_ledger(
-        before_memo=copy.deepcopy(realism_memo_json),
-        issue_status_records=copy.deepcopy(strategy_recheck_baseline_issue_ledger),
-        resolution_summary=copy.deepcopy(resolution_summary),
-        iteration=strategy_recheck_iteration,
-        issue_keys=_issue_keys_from_status_records(copy.deepcopy(strategy_recheck_baseline_issue_ledger)),
-      )
-      strategy_recheck_ledger = copy.deepcopy(strategy_recheck_baseline_issue_ledger)
-      strategy_recheck_issue_packets = _build_issue_packets_from_issue_ledger(
-        issue_status_records=copy.deepcopy(strategy_recheck_ledger),
-        prior_decision_payload=copy.deepcopy(realism_resolution_decision),
-      )
-      if strategy_recheck_issue_packets and (strategy_recheck_context.get("strategy_changed_lever_ids") or []):
-        cash_strategy_recheck_verification = _run_realism_verification_openai(
-          draft_id=str(draft_id).strip(),
-          business_facts=copy.deepcopy(business_facts or {}),
-          ops_json=copy.deepcopy(ops_json or {}),
-          planning_mode=planning_mode,
-          planning_mode_reason=planning_mode_reason,
-          planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-          protected_resolved_issue_constraints=copy.deepcopy(strategy_protected_resolved_issue_constraints),
-          strategy_recheck_context=copy.deepcopy(strategy_recheck_context),
-          realism_memo_before_resolution=copy.deepcopy(strategy_recheck_memo),
-          realism_resolution_decision={
-            "decision": {
-              "issue_packets": copy.deepcopy(strategy_recheck_issue_packets),
-            }
-          },
-          realism_resolution_plan={
-            "status": "strategy_recheck_verification",
-            "translated_action_packages": [],
-          },
-          realism_resolution_result={
-            "applied_updates": copy.deepcopy(
-              cash_strategy_second_pass_result.get("applied_updates") or []
-            ),
-          },
-          updated_model_input_json=copy.deepcopy(final_model_input_json),
-          updated_finmo_json=copy.deepcopy(final_finmo_json),
-        )
-        strategy_recheck_ledger = _apply_realism_verification_to_issue_status_records(
-          issue_status_records=copy.deepcopy(strategy_recheck_ledger),
-          verification_payload=copy.deepcopy(cash_strategy_recheck_verification),
-          iteration=strategy_recheck_iteration,
-          allowed_issue_keys=_issue_keys_from_status_records(copy.deepcopy(strategy_recheck_ledger)),
-          allow_new_records=False,
-        )
-      else:
-        strategy_recheck_ledger = copy.deepcopy(strategy_recheck_baseline_issue_ledger)
-      if isinstance(cash_strategy_second_pass_result, dict):
-        cash_strategy_second_pass_result["strategy_recheck_verification"] = copy.deepcopy(
-          cash_strategy_recheck_verification
-        )
-      resolution_summary = _build_resolution_summary_from_issue_ledger(
-        before_memo=copy.deepcopy(strategy_recheck_memo),
-        issue_status_records=copy.deepcopy(strategy_recheck_ledger),
-        verification_payload=copy.deepcopy(cash_strategy_recheck_verification),
-      )
-      realism_memo_json = _build_realism_memo_from_issue_ledger(
-        before_memo=copy.deepcopy(strategy_recheck_memo),
-        issue_status_records=copy.deepcopy(strategy_recheck_ledger),
-        resolution_summary=copy.deepcopy(resolution_summary),
-        iteration=strategy_recheck_iteration,
-        verification_payload=copy.deepcopy(cash_strategy_recheck_verification),
-      )
-      realism_issue_ledger = copy.deepcopy(strategy_recheck_ledger)
-      controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
-        issue_status_records=copy.deepcopy(realism_issue_ledger),
-        iteration=strategy_recheck_iteration,
-        verification_payload=copy.deepcopy(cash_strategy_recheck_verification),
-      )
-  cash_strategy_effect_summary = _build_cash_strategy_effect_summary(
-    financials_json=copy.deepcopy(financials_json or {}),
-    review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
-    second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-    first_pass_finmo_json=copy.deepcopy(realism_resolved_finmo_json),
-    final_finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  _persist_cash_strategy_state(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    stage="cash_strategy_completed",
-    status="completed",
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-    realism_resolution_result=copy.deepcopy(realism_resolution_result),
-    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-    realism_resolution_stop_reason=realism_resolution_stop_reason,
-    realism_resolution_iteration_count=realism_resolution_iteration_count,
-    initial_restructure_context=copy.deepcopy(initial_restructure_context),
-    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-    first_pass_handoff=copy.deepcopy(first_pass_handoff),
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-    realism_memo_json=copy.deepcopy(realism_memo_json),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  stabilizer_baseline_model_input_json = copy.deepcopy(final_model_input_json)
-  stabilizer_baseline_finmo_json = copy.deepcopy(final_finmo_json)
-  stabilizer_baseline_issue_ledger = copy.deepcopy(realism_issue_ledger)
-  stabilizer_protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
-    copy.deepcopy(stabilizer_baseline_issue_ledger)
-  )
-  final_stabilizer_context = _build_final_stabilizer_context_payload(
-    draft_id=str(draft_id).strip(),
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    current_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
-    current_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    prior_numeric_feedback=_build_numeric_solver_feedback_payload(
-      copy.deepcopy(cash_strategy_second_pass_result)
-    ),
-  )
-  final_stabilizer_trigger_assessment = _final_stabilizer_trigger_assessment(
-    copy.deepcopy(final_stabilizer_context)
-  )
-  if final_stabilizer_trigger_assessment.get("needs_stabilization"):
-    final_stabilizer_decision = _run_final_stabilizer_openai(
-      draft_id=str(draft_id).strip(),
-      business_facts=copy.deepcopy(business_facts or {}),
-      ops_json=copy.deepcopy(ops_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-      prior_numeric_feedback=copy.deepcopy(
-        (final_stabilizer_context or {}).get("prior_numeric_solver_feedback") or {}
-      ),
-    )
-  else:
-    final_stabilizer_decision = _final_stabilizer_skipped_payload(
-      selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
-      trigger_assessment=copy.deepcopy(final_stabilizer_trigger_assessment),
-    )
-  final_stabilizer_pass_plan = _build_final_stabilizer_pass_plan(
-    review_decision_payload=copy.deepcopy(final_stabilizer_decision),
-    solved_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
-    financials_json=copy.deepcopy(financials_json or {}),
-    numeric_solver_contract=copy.deepcopy(
-      (final_stabilizer_context or {}).get("numeric_solver_contract") or {}
-    ),
-  )
-  if final_stabilizer_trigger_assessment.get("needs_stabilization"):
-    final_stabilizer_numeric_solver_contract = copy.deepcopy(
-      (final_stabilizer_context or {}).get("numeric_solver_contract") or {}
-    )
-    _persist_final_stabilizer_state(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      stage="final_stabilizer_running",
-      status="running",
-      controller_resolution_state=copy.deepcopy(controller_resolution_state),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-      realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-      realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-      realism_resolution_result=copy.deepcopy(realism_resolution_result),
-      realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-      realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-      realism_resolution_stop_reason=realism_resolution_stop_reason,
-      realism_resolution_iteration_count=realism_resolution_iteration_count,
-      initial_restructure_context=copy.deepcopy(initial_restructure_context),
-      initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-      initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-      initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-      initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-      first_pass_handoff=copy.deepcopy(first_pass_handoff),
-      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-      cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-      cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-      cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-      final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-      final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
-      final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
-      final_stabilizer_pass_result={},
-      final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-      realism_memo_json=copy.deepcopy(realism_memo_json),
-      model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
-      finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
-    )
-    _maybe_interrupt_planning_run(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      planning_run_id=active_planning_run_id,
-      stage="final_stabilizer_running",
-      planning_status="running",
-      model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
-      finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
-      realism_memo_json=copy.deepcopy(realism_memo_json),
-      event_summary="final_stabilizer:stage_gate",
-    )
-    final_stabilizer_attempt = _run_controller_retry_loop(
-      pass_name="final_stabilizer",
-      pass_label="Final Stabilizer",
-      planner_runner=lambda controller_retry_context, prior_numeric_feedback, working_model_input, working_finmo: _run_final_stabilizer_openai(
-        draft_id=str(draft_id).strip(),
-        business_facts=copy.deepcopy(business_facts or {}),
-        ops_json=copy.deepcopy(ops_json or {}),
-        financials_json=copy.deepcopy(financials_json or {}),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-        final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-        prior_numeric_feedback=copy.deepcopy(
-          prior_numeric_feedback
-          if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
-          else ((final_stabilizer_context or {}).get("prior_numeric_solver_feedback") or {})
-        ),
-        controller_retry_context=copy.deepcopy(controller_retry_context),
-      ),
-      plan_builder=lambda decision, working_model_input, working_finmo: _build_final_stabilizer_pass_plan(
-        review_decision_payload=copy.deepcopy(decision),
-        solved_model_input_json=copy.deepcopy(working_model_input),
-        financials_json=copy.deepcopy(financials_json or {}),
-        numeric_solver_contract=copy.deepcopy(final_stabilizer_numeric_solver_contract),
-      ),
-      current_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
-      current_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
-      catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
-      numeric_solver_contract=copy.deepcopy(final_stabilizer_numeric_solver_contract),
-      contract_version="final_stabilizer_pass_result_v1",
-      max_attempts=1,
-      lifecycle_guard=lambda attempt_snapshot: _maybe_interrupt_planning_run(
-        conn=conn,
-        draft_id=str(draft_id).strip(),
-        planning_run_id=active_planning_run_id,
-        stage="final_stabilizer_running",
-        planning_status="running",
-        model_input_json=copy.deepcopy(
-          attempt_snapshot.get("working_model_input_json")
-          if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
-          else stabilizer_baseline_model_input_json
-        ),
-        finmo_json=copy.deepcopy(
-          attempt_snapshot.get("working_finmo_json")
-          if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
-          else stabilizer_baseline_finmo_json
-        ),
-        realism_memo_json=copy.deepcopy(realism_memo_json),
-        event_summary="final_stabilizer:attempt_gate",
-      ),
-      attempt_persistor=lambda attempt_snapshot: _persist_final_stabilizer_state(
-        conn=conn,
-        draft_id=str(draft_id).strip(),
-        stage="final_stabilizer_running",
-        status="running",
-        controller_resolution_state=copy.deepcopy(controller_resolution_state),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-        grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-        realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-        realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-        realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-        realism_resolution_result=copy.deepcopy(realism_resolution_result),
-        realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-        realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-        realism_resolution_stop_reason=realism_resolution_stop_reason,
-        realism_resolution_iteration_count=realism_resolution_iteration_count,
-        initial_restructure_context=copy.deepcopy(initial_restructure_context),
-        initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-        initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-        initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-        initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-        first_pass_handoff=copy.deepcopy(first_pass_handoff),
-        cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-        cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-        cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-        cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-        cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-        final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-        final_stabilizer_decision=copy.deepcopy(attempt_snapshot.get("decision") or {}),
-        final_stabilizer_pass_plan=copy.deepcopy(attempt_snapshot.get("plan") or {}),
-        final_stabilizer_pass_result=copy.deepcopy(attempt_snapshot.get("result") or {}),
-        final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-        realism_memo_json=copy.deepcopy(realism_memo_json),
-        model_input_json=copy.deepcopy(
-          attempt_snapshot.get("working_model_input_json")
-          if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
-          else stabilizer_baseline_model_input_json
-        ),
-        finmo_json=copy.deepcopy(
-          attempt_snapshot.get("working_finmo_json")
-          if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
-          else stabilizer_baseline_finmo_json
-        ),
-      ),
-    )
-    final_stabilizer_decision = copy.deepcopy(final_stabilizer_attempt.get("decision") or {})
-    final_stabilizer_pass_plan = copy.deepcopy(final_stabilizer_attempt.get("plan") or {})
-    final_stabilizer_pass_result = copy.deepcopy(final_stabilizer_attempt.get("result") or {})
-  else:
-    final_stabilizer_pass_result = {
-      "contract_version": "final_stabilizer_pass_result_v1",
-      "status": "skipped_not_needed",
-      "final_model_source": "post_strategy_model",
-      "applied_update_count": 0,
-      "applied_control_count": 0,
-      "applied_updates": [],
-      "warnings": [],
-      "updated_model_input_json": copy.deepcopy(stabilizer_baseline_model_input_json),
-      "updated_finmo_json": copy.deepcopy(stabilizer_baseline_finmo_json),
-      "trigger_assessment": copy.deepcopy(final_stabilizer_trigger_assessment),
-    }
-  final_stabilizer_verification: Dict[str, Any] = {}
-  if (
-    final_stabilizer_trigger_assessment.get("needs_stabilization")
-    and
-    isinstance(final_stabilizer_pass_result.get("updated_model_input_json"), dict)
-    and final_stabilizer_pass_result.get("status") in {"completed", "infeasible_target_miss"}
-  ):
-    final_model_input_json = copy.deepcopy(final_stabilizer_pass_result.get("updated_model_input_json") or {})
-    final_finmo_json = copy.deepcopy(final_stabilizer_pass_result.get("updated_finmo_json") or {})
-    if str(final_stabilizer_pass_result.get("status") or "").strip() == "completed":
-      final_stabilizer_iteration = max(1, int(_safe_float(controller_resolution_state.get("last_review_iteration")) or 0) + 1)
-      final_stabilizer_memo = _build_realism_memo_from_issue_ledger(
-        before_memo=copy.deepcopy(realism_memo_json),
-        issue_status_records=copy.deepcopy(stabilizer_baseline_issue_ledger),
-        resolution_summary=copy.deepcopy(resolution_summary),
-        iteration=final_stabilizer_iteration,
-        issue_keys=_issue_keys_from_status_records(copy.deepcopy(stabilizer_baseline_issue_ledger)),
-      )
-      final_stabilizer_ledger = copy.deepcopy(stabilizer_baseline_issue_ledger)
-      final_stabilizer_issue_packets = _build_issue_packets_from_issue_ledger(
-        issue_status_records=copy.deepcopy(final_stabilizer_ledger),
-        prior_decision_payload=copy.deepcopy(realism_resolution_decision),
-      )
-      if final_stabilizer_issue_packets and ((final_stabilizer_pass_plan.get("touched_lever_ids") or []) or []):
-        final_stabilizer_verification = _run_realism_verification_openai(
-        draft_id=str(draft_id).strip(),
-        business_facts=copy.deepcopy(business_facts or {}),
-        ops_json=copy.deepcopy(ops_json or {}),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-        protected_resolved_issue_constraints=copy.deepcopy(stabilizer_protected_resolved_issue_constraints),
-        realism_pass_consistency_context=_build_realism_pass_consistency_context_payload(
-          phase="final_stabilizer",
-          prior_issue_status_records=copy.deepcopy(stabilizer_baseline_issue_ledger),
-          baseline_model_input_json=copy.deepcopy(stabilizer_baseline_model_input_json),
-          baseline_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
-          result_payload=copy.deepcopy(final_stabilizer_pass_result),
-        ),
-        realism_memo_before_resolution=copy.deepcopy(final_stabilizer_memo),
-        realism_resolution_decision={
-          "decision": {
-            "issue_packets": copy.deepcopy(final_stabilizer_issue_packets),
-          }
-        },
-        realism_resolution_plan={
-          "status": "final_stabilizer_verification",
-          "translated_action_packages": [],
-        },
-        realism_resolution_result={
-          "applied_updates": copy.deepcopy(
-            final_stabilizer_pass_result.get("applied_updates") or []
-          ),
-        },
-        updated_model_input_json=copy.deepcopy(final_model_input_json),
-        updated_finmo_json=copy.deepcopy(final_finmo_json),
-        )
-        final_stabilizer_ledger = _apply_realism_verification_to_issue_status_records(
-        issue_status_records=copy.deepcopy(final_stabilizer_ledger),
-        verification_payload=copy.deepcopy(final_stabilizer_verification),
-        iteration=final_stabilizer_iteration,
-        allowed_issue_keys=_issue_keys_from_status_records(copy.deepcopy(final_stabilizer_ledger)),
-        allow_new_records=False,
-        )
-      else:
-        final_stabilizer_ledger = copy.deepcopy(stabilizer_baseline_issue_ledger)
-      if isinstance(final_stabilizer_pass_result, dict):
-        final_stabilizer_pass_result["final_stabilizer_verification"] = copy.deepcopy(
-          final_stabilizer_verification
-        )
-      resolution_summary = _build_resolution_summary_from_issue_ledger(
-        before_memo=copy.deepcopy(realism_memo_json),
-        issue_status_records=copy.deepcopy(final_stabilizer_ledger),
-        verification_payload=copy.deepcopy(final_stabilizer_verification),
-      )
-      realism_memo_json = _build_realism_memo_from_issue_ledger(
-        before_memo=copy.deepcopy(realism_memo_json),
-        issue_status_records=copy.deepcopy(final_stabilizer_ledger),
-        resolution_summary=copy.deepcopy(resolution_summary),
-        iteration=final_stabilizer_iteration,
-        verification_payload=copy.deepcopy(final_stabilizer_verification),
-      )
-      realism_issue_ledger = copy.deepcopy(final_stabilizer_ledger)
-      controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
-        issue_status_records=copy.deepcopy(realism_issue_ledger),
-        iteration=final_stabilizer_iteration,
-        verification_payload=copy.deepcopy(final_stabilizer_verification),
-      )
-  final_stabilizer_effect_summary = _build_final_stabilizer_effect_summary(
-    financials_json=copy.deepcopy(financials_json or {}),
-    review_decision_payload=copy.deepcopy(final_stabilizer_decision),
-    pass_result=copy.deepcopy(final_stabilizer_pass_result),
-    pre_stabilizer_finmo_json=copy.deepcopy(stabilizer_baseline_finmo_json),
-    final_finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  _persist_final_stabilizer_state(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    stage="final_stabilizer_completed",
-    status="completed",
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-    realism_resolution_result=copy.deepcopy(realism_resolution_result),
-    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-    realism_resolution_stop_reason=realism_resolution_stop_reason,
-    realism_resolution_iteration_count=realism_resolution_iteration_count,
-    initial_restructure_context=copy.deepcopy(initial_restructure_context),
-    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-    first_pass_handoff=copy.deepcopy(first_pass_handoff),
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-    final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
-    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
-    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
-    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-    realism_memo_json=copy.deepcopy(realism_memo_json),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  final_guarantee_iterations: List[Dict[str, Any]] = []
-  final_guarantee_protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
-    copy.deepcopy(realism_issue_ledger)
-  )
-  final_guarantee_prior_numeric_feedback = _build_numeric_solver_feedback_payload(
-    copy.deepcopy(final_stabilizer_pass_result)
-  )
-  final_guarantee_context = _full_run_viability_context_payload(
-    draft_id=str(draft_id).strip(),
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    current_model_input_json=copy.deepcopy(final_model_input_json),
-    current_finmo_json=copy.deepcopy(final_finmo_json),
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
-    prior_numeric_feedback=copy.deepcopy(final_guarantee_prior_numeric_feedback),
-  )
-  final_guarantee_trigger_assessment = _final_stabilizer_trigger_assessment(
-    copy.deepcopy(final_guarantee_context)
-  )
-  final_guarantee_cycle = 0
-  final_guarantee_retry_memory_seed: Dict[str, Any] = {}
-  final_guarantee_latest_quality_assessment: Dict[str, Any] = {}
-  final_guarantee_consecutive_no_progress_cycles = 0
-  final_guarantee_context["guarantee_stall_assessment"] = _final_guarantee_stall_assessment(
-    consecutive_no_progress_cycles=final_guarantee_consecutive_no_progress_cycles,
-    latest_quality_assessment=final_guarantee_latest_quality_assessment,
-  )
-  _persist_final_guarantee_state(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    stage="final_guarantee_running",
-    status="running",
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    resolution_summary=copy.deepcopy(resolution_summary),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-    realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-    realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-    realism_resolution_result=copy.deepcopy(realism_resolution_result),
-    realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-    realism_resolution_stop_reason=realism_resolution_stop_reason,
-    realism_resolution_iteration_count=realism_resolution_iteration_count,
-    initial_restructure_context=copy.deepcopy(initial_restructure_context),
-    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-    first_pass_handoff=copy.deepcopy(first_pass_handoff),
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-    final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
-    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
-    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
-    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-    final_guarantee_context=copy.deepcopy(final_guarantee_context),
-    final_guarantee_iterations=[],
-    final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
-    final_guarantee_cycle_count=0,
-    realism_memo_json=copy.deepcopy(realism_memo_json),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  _maybe_interrupt_planning_run(
-    conn=conn,
-    draft_id=str(draft_id).strip(),
-    planning_run_id=active_planning_run_id,
-    stage="final_guarantee_running",
-    planning_status="running",
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    realism_memo_json=copy.deepcopy(realism_memo_json),
-    event_summary="final_guarantee:stage_gate",
-  )
-  while final_guarantee_trigger_assessment.get("needs_stabilization"):
-    final_guarantee_cycle += 1
-    if final_guarantee_cycle > _FULL_RUN_FINAL_GUARANTEE_MAX_CYCLES:
-      raise RuntimeError("final_viability_guarantee_unresolved_after_max_cycles")
-    guarantee_baseline_model_input_json = copy.deepcopy(final_model_input_json)
-    guarantee_baseline_finmo_json = copy.deepcopy(final_finmo_json)
-    guarantee_baseline_controller_resolution_state = copy.deepcopy(controller_resolution_state)
-    guarantee_baseline_issue_ledger = copy.deepcopy(realism_issue_ledger)
-    guarantee_baseline_realism_memo_json = copy.deepcopy(realism_memo_json)
-    guarantee_baseline_resolution_summary = copy.deepcopy(resolution_summary)
-    guarantee_trigger_assessment_before = copy.deepcopy(final_guarantee_trigger_assessment)
-    guarantee_stall_assessment = _final_guarantee_stall_assessment(
-      consecutive_no_progress_cycles=final_guarantee_consecutive_no_progress_cycles,
-      latest_quality_assessment=final_guarantee_latest_quality_assessment,
-    )
-    guarantee_numeric_solver_contract = copy.deepcopy(
-      (final_guarantee_context or {}).get("numeric_solver_contract") or {}
-    )
-    guarantee_attempt = _run_controller_retry_loop(
-      pass_name="final_stabilizer",
-      pass_label=f"Final Viability Guarantee {final_guarantee_cycle}",
-      planner_runner=lambda controller_retry_context, prior_numeric_feedback, working_model_input, working_finmo: _run_final_stabilizer_openai(
-        draft_id=str(draft_id).strip(),
-        business_facts=copy.deepcopy(business_facts or {}),
-        ops_json=copy.deepcopy(ops_json or {}),
-        financials_json=copy.deepcopy(financials_json or {}),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        planning_mode_prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-        final_stabilizer_context=copy.deepcopy(
-          {
-            **_full_run_viability_context_payload(
-              draft_id=str(draft_id).strip(),
-              business_facts=copy.deepcopy(business_facts or {}),
-              ops_json=copy.deepcopy(ops_json or {}),
-              financials_json=copy.deepcopy(financials_json or {}),
-              planning_mode=planning_mode,
-              planning_mode_reason=planning_mode_reason,
-              prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-              current_model_input_json=copy.deepcopy(working_model_input),
-              current_finmo_json=copy.deepcopy(working_finmo),
-              controller_resolution_state=copy.deepcopy(controller_resolution_state),
-              protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
-              prior_numeric_feedback=copy.deepcopy(
-                prior_numeric_feedback
-                if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
-                else final_guarantee_prior_numeric_feedback
-              ),
-            ),
-            "guarantee_stall_assessment": copy.deepcopy(guarantee_stall_assessment),
-          }
-        ),
-        prior_numeric_feedback=copy.deepcopy(
-          prior_numeric_feedback
-          if isinstance(prior_numeric_feedback, dict) and prior_numeric_feedback
-          else final_guarantee_prior_numeric_feedback
-        ),
-        controller_retry_context={
-          **copy.deepcopy(controller_retry_context or {}),
-          "guarantee_stall_assessment": copy.deepcopy(guarantee_stall_assessment),
-          "force_full_horizon_scope": bool(guarantee_stall_assessment.get("force_full_horizon_scope")),
-          "force_all_writable_levers": bool(guarantee_stall_assessment.get("force_all_writable_levers")),
-        },
-      ),
-      plan_builder=lambda decision, working_model_input, working_finmo: _build_final_stabilizer_pass_plan(
-        review_decision_payload=copy.deepcopy(decision),
-        solved_model_input_json=copy.deepcopy(working_model_input),
-        financials_json=copy.deepcopy(financials_json or {}),
-        numeric_solver_contract=copy.deepcopy(guarantee_numeric_solver_contract),
-      ),
-      current_model_input_json=copy.deepcopy(guarantee_baseline_model_input_json),
-      current_finmo_json=copy.deepcopy(guarantee_baseline_finmo_json),
-      catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
-      numeric_solver_contract=copy.deepcopy(guarantee_numeric_solver_contract),
-      contract_version="final_viability_guarantee_result_v1",
-      initial_retry_memory=copy.deepcopy(final_guarantee_retry_memory_seed),
-      controller_retry_context_overrides={
-        "guarantee_stall_assessment": copy.deepcopy(guarantee_stall_assessment),
-        "force_material_tactic_change": bool(guarantee_stall_assessment.get("force_material_tactic_change")),
-        "force_full_horizon_scope": bool(guarantee_stall_assessment.get("force_full_horizon_scope")),
-        "force_all_writable_levers": bool(guarantee_stall_assessment.get("force_all_writable_levers")),
-        "force_structural_driver_changes": bool(guarantee_stall_assessment.get("force_structural_driver_changes")),
-        "minimum_new_lever_count": int(_safe_float(guarantee_stall_assessment.get("minimum_new_lever_count")) or 0),
-        "require_target_reframe_on_same_issue_state": bool(
-          guarantee_stall_assessment.get("require_target_reframe_on_same_issue_state")
-        ),
-      },
-      lifecycle_guard=lambda attempt_snapshot: _maybe_interrupt_planning_run(
-        conn=conn,
-        draft_id=str(draft_id).strip(),
-        planning_run_id=active_planning_run_id,
-        stage="final_guarantee_running",
-        planning_status="running",
-        model_input_json=copy.deepcopy(
-          attempt_snapshot.get("working_model_input_json")
-          if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
-          else guarantee_baseline_model_input_json
-        ),
-        finmo_json=copy.deepcopy(
-          attempt_snapshot.get("working_finmo_json")
-          if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
-          else guarantee_baseline_finmo_json
-        ),
-        realism_memo_json=copy.deepcopy(realism_memo_json),
-        event_summary=f"final_guarantee:cycle_{final_guarantee_cycle}_attempt_gate",
-      ),
-      attempt_persistor=lambda attempt_snapshot: _persist_final_guarantee_state(
-        conn=conn,
-        draft_id=str(draft_id).strip(),
-        stage="final_guarantee_running",
-        status="running",
-        controller_resolution_state=copy.deepcopy(controller_resolution_state),
-        resolution_summary=copy.deepcopy(resolution_summary),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-        grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-        realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-        realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-        realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-        realism_resolution_result=copy.deepcopy(realism_resolution_result),
-        realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-        realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-        realism_resolution_stop_reason=realism_resolution_stop_reason,
-        realism_resolution_iteration_count=realism_resolution_iteration_count,
-        initial_restructure_context=copy.deepcopy(initial_restructure_context),
-        initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-        initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-        initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-        initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-        first_pass_handoff=copy.deepcopy(first_pass_handoff),
-        cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-        cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-        cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-        cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-        cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-        final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-        final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
-        final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
-        final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
-        final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-        final_guarantee_context=copy.deepcopy(final_guarantee_context),
-        final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
-        final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
-        final_guarantee_cycle_count=final_guarantee_cycle,
-        realism_memo_json=copy.deepcopy(realism_memo_json),
-        model_input_json=copy.deepcopy(
-          attempt_snapshot.get("working_model_input_json")
-          if isinstance(attempt_snapshot.get("working_model_input_json"), dict)
-          else guarantee_baseline_model_input_json
-        ),
-        finmo_json=copy.deepcopy(
-          attempt_snapshot.get("working_finmo_json")
-          if isinstance(attempt_snapshot.get("working_finmo_json"), dict)
-          else guarantee_baseline_finmo_json
-        ),
-        guarantee_result=copy.deepcopy(attempt_snapshot.get("result") or {}),
-      ),
-    )
-    guarantee_decision = copy.deepcopy(guarantee_attempt.get("decision") or {})
-    guarantee_plan = copy.deepcopy(guarantee_attempt.get("plan") or {})
-    guarantee_result = copy.deepcopy(guarantee_attempt.get("result") or {})
-    final_guarantee_retry_memory_seed = copy.deepcopy(guarantee_attempt.get("retry_memory") or {})
-    if not isinstance(guarantee_result.get("updated_model_input_json"), dict):
-      raise RuntimeError("final_viability_guarantee_missing_updated_model")
-    final_model_input_json = _model_input_with_controller_catalog(
-      model_input_json=copy.deepcopy(guarantee_result.get("updated_model_input_json") or {}),
-      catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json),
-    )
-    final_finmo_json = (
-      copy.deepcopy(guarantee_result.get("updated_finmo_json") or {})
-      if isinstance(guarantee_result.get("updated_finmo_json"), dict)
-      and guarantee_result.get("updated_finmo_json")
-      else copy.deepcopy(final_finmo_json)
-    )
-    final_guarantee_prior_numeric_feedback = _build_numeric_solver_feedback_payload(
-      copy.deepcopy(guarantee_result)
-    )
-    guarantee_iteration_index = max(
-      1,
-      int(_safe_float(controller_resolution_state.get("last_review_iteration")) or 0) + 1,
-    )
-    guarantee_scan_memo = generate_realism_memo_payload_safe(
-      ops_json=ops_json,
-      financials_json=financials_json,
-      solved_model_input_json=copy.deepcopy(final_model_input_json),
-      solved_finmo_json=copy.deepcopy(final_finmo_json),
-    )
-    guarantee_scan_issue_set = _build_issue_status_records_from_issue_list(
-      current_issues=_memo_issue_records(copy.deepcopy(guarantee_scan_memo), "remaining_issues", "issues"),
-      iteration=guarantee_iteration_index,
-    )
-    realism_issue_ledger = _refresh_issue_status_records_from_scan(
-      existing_issue_status_records=copy.deepcopy(realism_issue_ledger),
-      scanned_issue_status_records=copy.deepcopy(guarantee_scan_issue_set),
-      iteration=guarantee_iteration_index,
-    )
-    resolution_summary = _build_resolution_summary_from_issue_ledger(
-      before_memo=copy.deepcopy(guarantee_scan_memo),
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-    )
-    realism_memo_json = _build_realism_memo_from_issue_ledger(
-      before_memo=copy.deepcopy(guarantee_scan_memo),
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-      resolution_summary=copy.deepcopy(resolution_summary),
-      iteration=guarantee_iteration_index,
-    )
-    controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-      iteration=guarantee_iteration_index,
-    )
-    final_guarantee_context = _full_run_viability_context_payload(
-      draft_id=str(draft_id).strip(),
-      business_facts=copy.deepcopy(business_facts or {}),
-      ops_json=copy.deepcopy(ops_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      current_model_input_json=copy.deepcopy(final_model_input_json),
-      current_finmo_json=copy.deepcopy(final_finmo_json),
-      controller_resolution_state=copy.deepcopy(controller_resolution_state),
-      protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
-      prior_numeric_feedback=copy.deepcopy(final_guarantee_prior_numeric_feedback),
-    )
-    guarantee_quality_assessment = _final_guarantee_quality_assessment(
-      before_controller_resolution_state=copy.deepcopy(guarantee_baseline_controller_resolution_state),
-      before_trigger_assessment=copy.deepcopy(guarantee_trigger_assessment_before),
-      after_controller_resolution_state=copy.deepcopy(controller_resolution_state),
-      after_trigger_assessment=copy.deepcopy(
-        _final_stabilizer_trigger_assessment(copy.deepcopy(final_guarantee_context))
-      ),
-    )
-    accepted_guarantee_attempt = bool(guarantee_quality_assessment.get("accepted"))
-    guarantee_issue_resolution_progress = bool(
-      guarantee_quality_assessment.get("issue_resolution_progress")
-    )
-    guarantee_all_cleared = bool(
-      str(guarantee_quality_assessment.get("status_after") or "").strip().lower() == "all_cleared"
-      or int(_safe_float(guarantee_quality_assessment.get("remaining_issue_count_after")) or 0) <= 0
-    )
-    if accepted_guarantee_attempt:
-      final_guarantee_latest_quality_assessment = copy.deepcopy(guarantee_quality_assessment)
-      if guarantee_issue_resolution_progress or guarantee_all_cleared:
-        final_guarantee_consecutive_no_progress_cycles = 0
-      else:
-        final_guarantee_consecutive_no_progress_cycles += 1
-    else:
-      final_guarantee_latest_quality_assessment = copy.deepcopy(guarantee_quality_assessment)
-      final_guarantee_consecutive_no_progress_cycles += 1
-      final_model_input_json = copy.deepcopy(guarantee_baseline_model_input_json)
-      final_finmo_json = copy.deepcopy(guarantee_baseline_finmo_json)
-      controller_resolution_state = copy.deepcopy(guarantee_baseline_controller_resolution_state)
-      realism_issue_ledger = copy.deepcopy(guarantee_baseline_issue_ledger)
-      realism_memo_json = copy.deepcopy(guarantee_baseline_realism_memo_json)
-      resolution_summary = copy.deepcopy(guarantee_baseline_resolution_summary)
-      final_guarantee_context = _full_run_viability_context_payload(
-        draft_id=str(draft_id).strip(),
-        business_facts=copy.deepcopy(business_facts or {}),
-        ops_json=copy.deepcopy(ops_json or {}),
-        financials_json=copy.deepcopy(financials_json or {}),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-        current_model_input_json=copy.deepcopy(final_model_input_json),
-        current_finmo_json=copy.deepcopy(final_finmo_json),
-        controller_resolution_state=copy.deepcopy(controller_resolution_state),
-        protected_resolved_issue_constraints=copy.deepcopy(final_guarantee_protected_resolved_issue_constraints),
-        prior_numeric_feedback=copy.deepcopy(final_guarantee_prior_numeric_feedback),
-      )
-    final_guarantee_trigger_assessment = _final_stabilizer_trigger_assessment(
-      copy.deepcopy(final_guarantee_context)
-    )
-    final_guarantee_context["guarantee_stall_assessment"] = _final_guarantee_stall_assessment(
-      consecutive_no_progress_cycles=final_guarantee_consecutive_no_progress_cycles,
-      latest_quality_assessment=final_guarantee_latest_quality_assessment,
-    )
-    final_guarantee_iterations.append(
-      {
-        "cycle": final_guarantee_cycle,
-        "accepted": accepted_guarantee_attempt,
-        "stall_assessment_before": copy.deepcopy(guarantee_stall_assessment),
-        "quality_assessment": copy.deepcopy(guarantee_quality_assessment),
-        "trigger_assessment_before": copy.deepcopy(guarantee_trigger_assessment_before),
-        "decision": copy.deepcopy(guarantee_decision),
-        "plan": copy.deepcopy(guarantee_plan),
-        "result": copy.deepcopy(guarantee_result),
-        "retry_memory": copy.deepcopy(guarantee_attempt.get("retry_memory") or {}),
-        "trigger_assessment_after": copy.deepcopy(final_guarantee_trigger_assessment),
-        "controller_resolution_state_before": copy.deepcopy(guarantee_baseline_controller_resolution_state),
-        "controller_resolution_state_after": copy.deepcopy(controller_resolution_state),
-      }
-    )
-    _persist_final_guarantee_state(
-      conn=conn,
-      draft_id=str(draft_id).strip(),
-      stage="final_guarantee_running",
-      status="running",
-      controller_resolution_state=copy.deepcopy(controller_resolution_state),
-      resolution_summary=copy.deepcopy(resolution_summary),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
-      realism_resolution_decision=copy.deepcopy(realism_resolution_decision),
-      realism_resolution_plan=copy.deepcopy(realism_resolution_plan),
-      realism_resolution_result=copy.deepcopy(realism_resolution_result),
-      realism_resolution_verification=copy.deepcopy(realism_resolution_verification),
-      realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-      realism_resolution_stop_reason=realism_resolution_stop_reason,
-      realism_resolution_iteration_count=realism_resolution_iteration_count,
-      initial_restructure_context=copy.deepcopy(initial_restructure_context),
-      initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-      initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-      initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-      initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-      first_pass_handoff=copy.deepcopy(first_pass_handoff),
-      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-      cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-      cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-      cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-      final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-      final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
-      final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
-      final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
-      final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-      final_guarantee_context=copy.deepcopy(final_guarantee_context),
-      final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
-      final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
-      final_guarantee_cycle_count=final_guarantee_cycle,
-      realism_memo_json=copy.deepcopy(realism_memo_json),
-      model_input_json=copy.deepcopy(final_model_input_json),
-      finmo_json=copy.deepcopy(final_finmo_json),
-      guarantee_result=copy.deepcopy(guarantee_result),
-    )
-  if final_guarantee_trigger_assessment.get("needs_stabilization") or not bool(controller_resolution_state.get("all_cleared")):
-    raise RuntimeError(
-      "final_viability_guarantee_incomplete:"
-      f" status={str(controller_resolution_state.get('status') or '').strip() or 'unknown'}"
-      f" remaining_issue_count={int(_safe_float(controller_resolution_state.get('remaining_issue_count')) or 0)}"
-    )
-  final_stabilizer_effect_summary["full_run_guarantee_cycles"] = len(final_guarantee_iterations)
-  final_stabilizer_effect_summary["full_run_guarantee_final_trigger_assessment"] = copy.deepcopy(
-    final_guarantee_trigger_assessment
-  )
-  retry_telemetry = _collect_controller_retry_telemetry(
-    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-    realism_resolution_iterations=copy.deepcopy(realism_resolution_iterations),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
-    final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
-  )
-  persisted_realism_memo = _build_persisted_realism_memo_payload(
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    working_memo=copy.deepcopy(realism_memo_json),
-  )
-  diagnostics_snapshot = {
-    "contract_version": "planning_diagnostics_snapshot_v2",
-    "baseline_model_input_json": copy.deepcopy(model_input_json),
-    "baseline_finmo_json": copy.deepcopy(finmo_json),
-    "grid_applied_model_input_json": copy.deepcopy(applied_model_input_json),
-    "grid_applied_finmo_json": copy.deepcopy(applied_finmo_json),
-    "post_initial_restructure_model_input_json": copy.deepcopy(
-      initial_restructure_pass_result.get("updated_model_input_json")
-      if isinstance(initial_restructure_pass_result.get("updated_model_input_json"), dict)
-      else applied_model_input_json
-    ),
-    "post_initial_restructure_finmo_json": copy.deepcopy(
-      initial_restructure_pass_result.get("updated_finmo_json")
-      if isinstance(initial_restructure_pass_result.get("updated_finmo_json"), dict)
-      else applied_finmo_json
-    ),
-    "realism_resolved_model_input_json": copy.deepcopy(realism_resolved_model_input_json),
-    "realism_resolved_finmo_json": copy.deepcopy(realism_resolved_finmo_json),
-    "post_strategy_model_input_json": copy.deepcopy(stabilizer_baseline_model_input_json),
-    "post_strategy_finmo_json": copy.deepcopy(stabilizer_baseline_finmo_json),
-    "final_model_input_json": copy.deepcopy(final_model_input_json),
-    "final_finmo_json": copy.deepcopy(final_finmo_json),
-    "final_guarantee_iterations": copy.deepcopy(final_guarantee_iterations),
-    "cost_telemetry": _openai_call_telemetry_snapshot(),
-    "retry_telemetry": copy.deepcopy(retry_telemetry),
-  }
-  try:
-    from client_intake_and_finmo.numeric_execution import build_numeric_solver_contract  # type: ignore
-  except Exception:
-    from numeric_execution import build_numeric_solver_contract  # type: ignore
-  next_planning_run_json = _build_planning_run_payload(
-    stage="final_viability_guaranteed",
-    status="completed",
-    controller_resolution_state=copy.deepcopy(controller_resolution_state),
-    resolution_summary=copy.deepcopy(resolution_summary),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-    gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
-    gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
-    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-    realism_memo_before_resolution=realism_memo_before_resolution,
-    realism_resolution_decision=realism_resolution_decision,
-    realism_resolution_plan=realism_resolution_plan,
-    realism_resolution_result=realism_resolution_result,
-    realism_resolution_verification=realism_resolution_verification,
-    realism_resolution_iterations=realism_resolution_iterations,
-    realism_resolution_stop_reason=realism_resolution_stop_reason,
-    realism_resolution_iteration_count=realism_resolution_iteration_count,
-    initial_restructure_context=copy.deepcopy(initial_restructure_context),
-    initial_restructure_decision=copy.deepcopy(initial_restructure_decision),
-    initial_restructure_pass_plan=copy.deepcopy(initial_restructure_pass_plan),
-    initial_restructure_pass_result=copy.deepcopy(initial_restructure_pass_result),
-    initial_restructure_effect_summary=copy.deepcopy(initial_restructure_effect_summary),
-    first_pass_handoff=copy.deepcopy(first_pass_handoff),
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
-    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
-    final_stabilizer_context=copy.deepcopy(final_stabilizer_context),
-    final_stabilizer_decision=copy.deepcopy(final_stabilizer_decision),
-    final_stabilizer_pass_plan=copy.deepcopy(final_stabilizer_pass_plan),
-    final_stabilizer_pass_result=copy.deepcopy(final_stabilizer_pass_result),
-    final_stabilizer_effect_summary=copy.deepcopy(final_stabilizer_effect_summary),
-    final_guarantee_context=copy.deepcopy(final_guarantee_context),
-    final_guarantee_iterations=copy.deepcopy(final_guarantee_iterations),
-    final_guarantee_trigger_assessment=copy.deepcopy(final_guarantee_trigger_assessment),
-    final_guarantee_cycle_count=len(final_guarantee_iterations),
-    diagnostics_snapshot=copy.deepcopy(diagnostics_snapshot),
-    numeric_solver_contract=build_numeric_solver_contract(
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
-      issue_status_records=_controller_state_issue_status_records(controller_resolution_state),
-      writable_lever_catalog=_build_writable_lever_review_catalog(final_model_input_json),
-      current_model_input_json=copy.deepcopy(final_model_input_json or {}),
-      current_finmo_json=copy.deepcopy(final_finmo_json or {}),
-      pass_name="final_system_state",
-      contract_scope="planning_run_snapshot",
-    ),
-  )
-  next_planning_run_json["planning_run_id"] = active_planning_run_id
-  next_planning_run_json["trigger_type"] = "system_run"
-  next_planning_run_json["lifecycle_mode"] = str(lifecycle_mode or "start").strip().lower() or "start"
-  final_guarantee_latest_result = (
-    copy.deepcopy((final_guarantee_iterations[-1] or {}).get("result") or {})
-    if final_guarantee_iterations and isinstance(final_guarantee_iterations[-1], dict)
-    else {}
-  )
-
-  persisted_completion = persist_post_intake_execution_state(
-    conn,
-    draft_id=str(draft_id).strip(),
-    new_messages=[],
-    operating_model_json=ops_json,
-    target_market_json=market_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    marketing_model_json=marketing_model_json,
-    realism_memo_json=persisted_realism_memo,
-    fulfillment_json=fulfillment_json,
-    model_input_json=final_model_input_json,
-    finmo_json=final_finmo_json,
-    planning_run_json=next_planning_run_json,
-    numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=next_planning_run_json,
-      explicit_candidates=[
-        ("final_viability_guarantee_result", final_guarantee_latest_result),
-        ("final_stabilizer_pass_result", final_stabilizer_pass_result),
-        ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
-        ("realism_resolution_result", realism_resolution_result),
-        ("initial_restructure_pass_result", initial_restructure_pass_result),
-      ],
-    ),
-    active_focus="done",
-    business_facts=business_facts,
-    status="completed",
-    completed=True,
-    checkpoint_kind="run_complete",
-    event_type="run_completed",
-    event_summary="final_viability_guaranteed:completed",
-  )
-
-  if isinstance(persisted_completion, dict) and isinstance(persisted_completion.get("planning_run_json"), dict):
-    next_planning_run_json = copy.deepcopy(persisted_completion.get("planning_run_json") or next_planning_run_json)
-
-  return {
-    "draft_id": str(draft_id).strip(),
-    "planning_run_json": next_planning_run_json,
-    "planning_runtime_json": (
-      copy.deepcopy(persisted_completion.get("planning_runtime_json"))
-      if isinstance(persisted_completion, dict) and isinstance(persisted_completion.get("planning_runtime_json"), dict)
-      else {}
-    ),
-    "numeric_solver_feedback_json": _extract_numeric_solver_feedback_for_persistence(
-      planning_run_payload=next_planning_run_json,
-      explicit_candidates=[
-        ("final_viability_guarantee_result", final_guarantee_latest_result),
-        ("final_stabilizer_pass_result", final_stabilizer_pass_result),
-        ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
-        ("realism_resolution_result", realism_resolution_result),
-        ("initial_restructure_pass_result", initial_restructure_pass_result),
-      ],
-    ),
-    "realism_memo_json": persisted_realism_memo,
-    "model_input_json": final_model_input_json,
-    "finmo_json": final_finmo_json,
-  }
 
 
 def _persist_failed_system_run_snapshot(

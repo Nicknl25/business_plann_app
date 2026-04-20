@@ -18,7 +18,6 @@ SOLVER_PHASE_3_STATUS = "phase_3_adaptive_number_cruncher_ready"
 SOLVER_PHASE_4_STATUS = "phase_4_initial_restructure_solver_live"
 SOLVER_PHASE_5_STATUS = "phase_5_realism_resolution_solver_live"
 SOLVER_PHASE_6_STATUS = "phase_6_cash_strategy_solver_live"
-SOLVER_PHASE_7_STATUS = "phase_7_final_stabilizer_solver_live"
 SOLVER_PHASE_8_STATUS = "phase_8_live_numeric_executor_boundary"
 
 IMMUTABLE_CORE_MODEL_FILES = (
@@ -64,6 +63,14 @@ _ISSUE_SOLVER_OBJECTIVES: Dict[str, Dict[str, Any]] = {
     "metric_targets": ["revenue", "operating_scale", "ending_cash"],
     "solver_objective": "align growth path with viable operating support",
   },
+  "operating_model_contradiction": {
+    "metric_targets": ["operating_cash_flow", "revenue", "payroll", "capital_expenditures"],
+    "solver_objective": "restore an operating model that is cash-coherent and supportable at the chosen scale",
+  },
+  "catastrophic_liquidity_failure": {
+    "metric_targets": ["ending_cash", "financing_cash_flow", "operating_cash_flow"],
+    "solver_objective": "repair near-term liquidity through direct cash levers and supportable operating fixes",
+  },
 }
 
 TARGETABLE_FINMO_METRIC_IDS = (
@@ -106,6 +113,8 @@ TARGETABLE_FINMO_METRIC_IDS = (
   "operating_cash_flow",
   "capital_expenditures",
   "investing_cash_flow",
+  "debt_issuance",
+  "debt_repayment",
   "debt_receive_repay",
   "equity",
   "owner_distributions",
@@ -198,6 +207,20 @@ _ISSUE_PRIMARY_TARGET_CANDIDATES: Dict[str, List[str]] = {
     "payroll",
     "capital_expenditures",
   ],
+  "operating_model_contradiction": [
+    "operating_cash_flow",
+    "ending_cash",
+    "revenue",
+    "payroll",
+    "capital_expenditures",
+  ],
+  "catastrophic_liquidity_failure": [
+    "ending_cash",
+    "financing_cash_flow",
+    "operating_cash_flow",
+    "owners_capital",
+    "capital_expenditures",
+  ],
 }
 
 _OBJECTIVE_METRIC_ALIAS_MAP: Dict[str, str] = {
@@ -229,8 +252,6 @@ def _solver_phase_status_for_pass(pass_name: Any) -> str:
     return SOLVER_PHASE_5_STATUS
   if normalized == "cash_strategy_review":
     return SOLVER_PHASE_6_STATUS
-  if normalized == "final_stabilizer":
-    return SOLVER_PHASE_7_STATUS
   return SOLVER_PHASE_8_STATUS
 
 
@@ -242,8 +263,6 @@ def _phase_scope_for_status(phase_status: Any) -> str:
     return "realism_resolution_solver_live"
   if normalized == str(SOLVER_PHASE_6_STATUS).lower():
     return "cash_strategy_solver_live"
-  if normalized == str(SOLVER_PHASE_7_STATUS).lower():
-    return "final_stabilizer_solver_live"
   return "live_numeric_executor_boundary"
 
 
@@ -437,17 +456,17 @@ def _infer_issue_lever_ids(
         return
 
   if code == "financing_solvency_mismatch":
-    add_matching(["owner's capital", "owner_equity_contribution", "other equity", "debt draw", "short term debt", "additions (repayments), net", "distributions"])
+    add_matching(["owner's capital", "owner_equity_contribution", "other equity", "debt draw", "debt issuance", "new borrowing", "debt repayment", "short term debt", "distributions"])
     add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "capital expenditures"])
   elif code == "profitability_cash_shape_unrealistic":
+    add_matching(["owner's capital", "other equity", "distributions", "debt issuance", "new borrowing", "debt repayment", "capital expenditures"])
     add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "lease"])
-    add_matching(["owner's capital", "distributions", "additions (repayments), net", "capital expenditures"])
   elif code == "staffing_payroll_mismatch":
     add_matching(["payroll", "capacity", "utilization", "unit price", "marketing", "general & administrative"])
   elif code == "capacity_revenue_mismatch":
     add_matching(["capacity", "utilization", "unit price", "payroll", "capital expenditures", "lease"])
   elif code == "capex_footprint_mismatch":
-    add_matching(["capital expenditures", "lease", "capacity", "payroll", "owner's capital", "additions (repayments), net"])
+    add_matching(["capital expenditures", "lease", "capacity", "payroll", "owner's capital", "debt issuance", "new borrowing", "debt repayment"])
   elif code == "working_capital_payment_model_mismatch":
     add_matching([
       "accounts receivable days",
@@ -457,7 +476,21 @@ def _infer_issue_lever_ids(
       "deferred revenue",
       "owner's capital",
       "distributions",
-      "additions (repayments), net",
+      "debt issuance",
+      "new borrowing",
+      "debt repayment",
+      "unit price",
+      "utilization",
+      "capacity",
+    ])
+  elif code == "catastrophic_liquidity_failure":
+    add_matching(["owner's capital", "other equity", "distributions", "debt issuance", "new borrowing", "debt repayment", "capital expenditures"])
+    add_matching([
+      "accounts receivable days",
+      "inventory days",
+      "accounts payable days",
+      "prepaid expenses",
+      "deferred revenue",
       "unit price",
       "utilization",
       "capacity",
@@ -551,8 +584,6 @@ def _normalized_solver_settings(
     aggressiveness = "high"
   elif pass_name == "unified_convergence":
     aggressiveness = "structural"
-  elif pass_name == "final_stabilizer":
-    aggressiveness = "moderate"
   elif pass_name == "cash_strategy_review":
     aggressiveness = "light"
   if mode == "turnaround" and aggressiveness != "light":
@@ -659,6 +690,8 @@ def _quarter_metric_snapshots(current_finmo_json: Optional[Dict[str, Any]]) -> L
         "operating_cash_flow": float(_safe_float(row.get("operating_cash_flow")) or 0.0),
         "capital_expenditures": float(_safe_float(row.get("capital_expenditures")) or 0.0),
         "investing_cash_flow": float(_safe_float(row.get("investing_cash_flow")) or 0.0),
+        "debt_issuance": float(_safe_float(row.get("debt_issuance")) or 0.0),
+        "debt_repayment": float(_safe_float(row.get("debt_repayment")) or 0.0),
         "debt_receive_repay": float(_safe_float(row.get("debt_receive_repay")) or 0.0),
         "equity": float(_safe_float(row.get("equity")) or 0.0),
         "owner_distributions": float(_safe_float(row.get("owner_distributions")) or 0.0),

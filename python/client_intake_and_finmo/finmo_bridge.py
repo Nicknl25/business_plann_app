@@ -20,6 +20,11 @@ except Exception:
   from financial_model_engine.model_inputs import FinancialModelInputs
 
 
+DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
+DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
+LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
+
+
 def _column_letter(column_index: Any) -> str:
   index = int(column_index or 0)
   if index <= 0:
@@ -199,8 +204,10 @@ def _simple_input_semantics(section_key: str, label: str) -> Dict[str, str]:
     if normalized_label in {"owner's capital", "other equity"}:
       return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
   if normalized_section == "schedules":
-    if normalized_label == "plus: additions (repayments), net":
-      return {"value_kind": "direct_number", "input_semantics": "net_debt_additions_repayments"}
+    if normalized_label == "debt issuance (new borrowing)":
+      return {"value_kind": "direct_number", "input_semantics": "debt_new_borrowing"}
+    if normalized_label == "debt repayment (scheduled)":
+      return {"value_kind": "direct_number", "input_semantics": "debt_scheduled_repayment"}
     if normalized_label == "capital expenditures":
       return {"value_kind": "direct_number", "input_semantics": "capital_expenditures_cash"}
     if normalized_label == "less: principal repayments":
@@ -411,7 +418,8 @@ def build_python_finmo_json(
     {"label": "Operating Cash Flow", "values": _series("operating_cash_flow")},
     {"label": "Capital Expenditures", "values": _series("capital_expenditures")},
     {"label": "Investing Cash Flow", "values": _series("investing_cash_flow")},
-    {"label": "Dept Receive(Repay)", "values": _series("debt_receive_repay")},
+    {"label": "Debt Issuance (New Borrowing)", "values": _series("debt_issuance")},
+    {"label": "Debt Repayment", "values": [round(-(abs(_safe_float(value)) or 0.0), 6) for value in _series("debt_repayment")]},
     {"label": "Equity", "values": _series("equity")},
     {"label": "Distributions", "values": _series("owner_distributions")},
     {"label": "Financing Cash Flow", "values": _series("financing_cash_flow")},
@@ -579,6 +587,77 @@ def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int) -> Tupl
 
 def _compose_period_values(*, stub_value: float, live_values: Sequence[Any]) -> List[float]:
   return [round(_safe_float(stub_value) or 0.0, 6), *[round(_safe_float(item) or 0.0, 6) for item in (live_values or [])]]
+
+
+def _schedule_row_template(
+  *,
+  label: str,
+  period_count: int,
+  values: Optional[Sequence[Any]] = None,
+) -> Dict[str, Any]:
+  normalized_values = [round(_safe_float(item) or 0.0, 6) for item in (values or [])]
+  if not normalized_values:
+    normalized_values = [0.0 for _ in range(max(0, int(period_count) + 1))]
+  return {
+    "named_range": "model_input_schedules",
+    "controller_write": True,
+    "lever_id": _simple_lever_id("schedules", label),
+    "label": label,
+    **_simple_input_semantics("schedules", label),
+    "values": normalized_values,
+  }
+
+
+def _normalize_schedule_rows_for_explicit_debt_controls(
+  rows: Sequence[Dict[str, Any]],
+  *,
+  period_count: int,
+) -> List[Dict[str, Any]]:
+  live_count = max(0, int(period_count))
+  normalized_rows = [_clone(item) for item in (rows or []) if isinstance(item, dict)]
+  legacy_row = None
+  explicit_issuance_present = False
+  explicit_repayment_present = False
+  retained_rows: List[Dict[str, Any]] = []
+  for row in normalized_rows:
+    label = str(row.get("label") or "").strip()
+    if label == LEGACY_NET_DEBT_LABEL:
+      legacy_row = row
+      continue
+    if label == DEBT_ISSUANCE_LABEL:
+      explicit_issuance_present = True
+    elif label == DEBT_REPAYMENT_LABEL:
+      explicit_repayment_present = True
+    retained_rows.append(row)
+
+  legacy_stub_value = 0.0
+  legacy_issuance_values = [0.0 for _ in range(live_count)]
+  legacy_repayment_values = [0.0 for _ in range(live_count)]
+  if isinstance(legacy_row, dict):
+    legacy_stub_value, legacy_live_values = _row_stub_and_live_values(legacy_row.get("values") or [], live_count=live_count)
+    legacy_issuance_values = [round(max(0.0, _safe_float(value) or 0.0), 6) for value in legacy_live_values]
+    legacy_repayment_values = [round(max(0.0, -(_safe_float(value) or 0.0)), 6) for value in legacy_live_values]
+
+  if not explicit_issuance_present:
+    retained_rows.insert(
+      0,
+      _schedule_row_template(
+        label=DEBT_ISSUANCE_LABEL,
+        period_count=live_count,
+        values=_compose_period_values(stub_value=max(0.0, legacy_stub_value), live_values=legacy_issuance_values),
+      ),
+    )
+  if not explicit_repayment_present:
+    insert_index = 1 if retained_rows else 0
+    retained_rows.insert(
+      insert_index,
+      _schedule_row_template(
+        label=DEBT_REPAYMENT_LABEL,
+        period_count=live_count,
+        values=_compose_period_values(stub_value=max(0.0, -legacy_stub_value), live_values=legacy_repayment_values),
+      ),
+    )
+  return retained_rows
 
 
 def _planned_quarter_slots(period_count: int, forecast_quarters: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1026,7 +1105,8 @@ def _python_model_input_template(
     )
 
   schedule_labels = [
-    "Plus: Additions (repayments), net",
+    DEBT_ISSUANCE_LABEL,
+    DEBT_REPAYMENT_LABEL,
     "Capital Expenditures",
     "Less: Principal Repayments",
     "Plus: Net Additions",
@@ -1368,7 +1448,11 @@ def _build_model_input_overlay(
   for row in [item for item in (schedules.get("rows") or []) if isinstance(item, dict)]:
     label = str(row.get("label") or "").strip()
     base_stub_value, base_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
-    if label == "Plus: Additions (repayments), net":
+    if label == DEBT_ISSUANCE_LABEL:
+      row["values"] = _compose_period_values(stub_value=max(0.0, base_stub_value), live_values=[0.0 for _ in slots])
+    elif label == DEBT_REPAYMENT_LABEL:
+      row["values"] = _compose_period_values(stub_value=max(0.0, base_stub_value), live_values=[0.0 for _ in slots])
+    elif label == LEGACY_NET_DEBT_LABEL:
       row["values"] = _compose_period_values(stub_value=base_stub_value, live_values=[0.0 for _ in slots])
     elif label == "Capital Expenditures":
       if projection_mode:
@@ -1454,20 +1538,18 @@ def normalize_model_input_forecast_anchor(
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
   if not isinstance(schedules, dict):
     schedules = {}
-  schedule_rows = [row for row in (schedules.get("rows") or []) if isinstance(row, dict)]
+  schedule_rows = _normalize_schedule_rows_for_explicit_debt_controls(
+    [row for row in (schedules.get("rows") or []) if isinstance(row, dict)],
+    period_count=period_count,
+  )
   has_capex_row = any(str(row.get("label") or "").strip() == "Capital Expenditures" for row in schedule_rows)
   if not has_capex_row:
     schedule_rows.insert(
-      1 if schedule_rows else 0,
-      {
-        "named_range": "model_input_schedules",
-        "controller_write": True,
-        "lever_id": "schedules::Capital Expenditures",
-        "label": "Capital Expenditures",
-        "value_kind": "direct_number",
-        "input_semantics": "quarter_currency",
-        "values": [0.0 for _ in range(period_count + 1)],
-      },
+      2 if len(schedule_rows) >= 2 else len(schedule_rows),
+      _schedule_row_template(
+        label="Capital Expenditures",
+        period_count=period_count,
+      ),
     )
   if schedules.get("ppe_opening_balance_seed") in {None, ""}:
     legacy_ppe_values = list((legacy_ppe_row or {}).get("values") or [])

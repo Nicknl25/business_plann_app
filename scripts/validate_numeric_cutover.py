@@ -224,16 +224,16 @@ def _check_terminal_state(
 ) -> List[str]:
   errors: List[str] = []
 
-  if str(planning.get("stage") or "").strip() != "final_viability_guaranteed":
-    errors.append("planning_run_json.stage did not reach final_viability_guaranteed.")
+  if str(planning.get("stage") or "").strip() != "convergence_completed":
+    errors.append("planning_run_json.stage did not reach convergence_completed.")
   if str(planning.get("status") or "").strip() != "completed":
     errors.append("planning_run_json.status was not completed.")
 
   if row:
     if str(row.get("status") or "").strip().lower() != "completed":
       errors.append("draft row status was not completed.")
-    if str(row.get("planning_stage") or "").strip() != "final_viability_guaranteed":
-      errors.append("draft row planning_stage did not reach final_viability_guaranteed.")
+    if str(row.get("planning_stage") or "").strip() != "convergence_completed":
+      errors.append("draft row planning_stage did not reach convergence_completed.")
     if str(row.get("planning_status") or "").strip() != "completed":
       errors.append("draft row planning_status was not completed.")
 
@@ -254,8 +254,8 @@ def _check_terminal_state(
   else:
     if str(convergence_state.get("owner") or "").strip() != "unified_convergence":
       errors.append("convergence_state_json.owner was not unified_convergence.")
-    if str(convergence_state.get("stage") or "").strip() != "final_viability_guaranteed":
-      errors.append("convergence_state_json.stage did not reach final_viability_guaranteed.")
+    if str(convergence_state.get("stage") or "").strip() != "convergence_completed":
+      errors.append("convergence_state_json.stage did not reach convergence_completed.")
     if str(convergence_state.get("status") or "").strip() != "completed":
       errors.append("convergence_state_json.status was not completed.")
     issue_state = (
@@ -272,6 +272,18 @@ def _check_terminal_state(
         errors.append("convergence_state_json.issue_state.controller_status was not all_cleared.")
       if int(issue_state.get("overall_completion_score_pct") or 0) < 80:
         errors.append("convergence_state_json.issue_state.overall_completion_score_pct was below 80.")
+    hard_rule_state = (
+      convergence_state.get("hard_rule_state")
+      if isinstance(convergence_state.get("hard_rule_state"), dict)
+      else {}
+    )
+    if not hard_rule_state:
+      errors.append("convergence_state_json.hard_rule_state was missing.")
+    else:
+      if not bool(hard_rule_state.get("all_hard_rules_cleared")):
+        errors.append("convergence_state_json.hard_rule_state.all_hard_rules_cleared was not true.")
+      if int(hard_rule_state.get("remaining_hard_issue_count") or 0) != 0:
+        errors.append("convergence_state_json.hard_rule_state.remaining_hard_issue_count was not 0.")
 
   unified_iterations = [
     item for item in (planning.get("unified_convergence_iterations") or [])
@@ -297,20 +309,21 @@ def _check_terminal_state(
       errors.append("last unified_convergence controller_resolution_state_after.remaining_issue_count was not 0.")
 
   unified_context = planning.get("unified_convergence_context") if isinstance(planning.get("unified_convergence_context"), dict) else {}
-  guarantee_policy = (
-    ((unified_context.get("context_modules") or {}).get("guarantee"))
-    if isinstance((unified_context.get("context_modules") or {}).get("guarantee"), dict)
+  hard_rule_context = (
+    ((unified_context.get("context_modules") or {}).get("hard_rules"))
+    if isinstance((unified_context.get("context_modules") or {}).get("hard_rules"), dict)
     else {}
   )
-  full_run_policy = (
-    guarantee_policy.get("full_run_guarantee_policy")
-    if isinstance(guarantee_policy.get("full_run_guarantee_policy"), dict)
+  hard_rule_assessment = (
+    hard_rule_context.get("hard_rule_assessment")
+    if isinstance(hard_rule_context.get("hard_rule_assessment"), dict)
     else {}
   )
-  if not bool(full_run_policy.get("terminal_convergence_loop")):
-    errors.append("unified_convergence_context.context_modules.guarantee.full_run_guarantee_policy.terminal_convergence_loop was not true.")
-  if not bool(full_run_policy.get("must_end_with_remaining_issue_count_zero")):
-    errors.append("unified_convergence_context.context_modules.guarantee.full_run_guarantee_policy.must_end_with_remaining_issue_count_zero was not true.")
+  if not hard_rule_assessment:
+    errors.append("unified_convergence_context.context_modules.hard_rules.hard_rule_assessment was missing.")
+  else:
+    if not bool(hard_rule_assessment.get("all_hard_rules_cleared")):
+      errors.append("unified_convergence_context.context_modules.hard_rules.hard_rule_assessment.all_hard_rules_cleared was not true.")
 
   convergence_summary = (
     planning.get("deterministic_convergence_summary")
@@ -329,12 +342,13 @@ def _check_terminal_state(
       errors.append("planning_run_json.deterministic_convergence_summary.terminal_acceptance_gate was missing.")
     else:
       required_true_flags = (
-        "stage_is_final_viability_guaranteed",
+        "stage_is_convergence_completed",
         "status_is_completed",
         "all_cleared",
         "remaining_issue_count_zero",
-        "final_trigger_assessment_clear",
-        "last_final_guarantee_cycle_accepted",
+        "remaining_hard_issue_count_zero",
+        "hard_rules_cleared",
+        "last_cycle_accepted",
       )
       for flag in required_true_flags:
         if not bool(terminal_gate.get(flag)):
@@ -346,7 +360,7 @@ def _check_terminal_state(
   if not separate_feedback:
     errors.append("separate numeric_solver_feedback_json payload was missing.")
   else:
-    if str(separate_feedback.get("persistence_stage") or "").strip() not in {"final_viability_guaranteed", "convergence_running", "done"}:
+    if str(separate_feedback.get("persistence_stage") or "").strip() not in {"convergence_completed", "convergence_running", "done"}:
       errors.append("numeric_solver_feedback_json.persistence_stage did not reflect terminal planning state.")
     feedback_convergence_summary = (
       separate_feedback.get("deterministic_convergence_summary")
@@ -421,8 +435,8 @@ def _check_monitor_artifact_consistency(
 
   if str(final_run_row.get("run_status") or "").strip().lower() != "completed":
     errors.append("final_planning_run_row.run_status was not completed.")
-  if str(final_run_row.get("current_stage") or "").strip() != "final_viability_guaranteed":
-    errors.append("final_planning_run_row.current_stage did not reach final_viability_guaranteed.")
+  if str(final_run_row.get("current_stage") or "").strip() != "convergence_completed":
+    errors.append("final_planning_run_row.current_stage did not reach convergence_completed.")
   if str(final_run_row.get("current_stage_status") or "").strip() != "completed":
     errors.append("final_planning_run_row.current_stage_status was not completed.")
 
@@ -438,8 +452,8 @@ def _check_monitor_artifact_consistency(
       errors.append("final_planning_run_row.latest_checkpoint_id did not match final_latest_checkpoint.checkpoint_id.")
     if run_row_planning_run_id and str(final_checkpoint.get("planning_run_id") or "").strip() != run_row_planning_run_id:
       errors.append("final_latest_checkpoint.planning_run_id did not match final_planning_run_row.planning_run_id.")
-    if str(final_checkpoint.get("stage") or "").strip() != "final_viability_guaranteed":
-      errors.append("final_latest_checkpoint.stage did not reach final_viability_guaranteed.")
+    if str(final_checkpoint.get("stage") or "").strip() != "convergence_completed":
+      errors.append("final_latest_checkpoint.stage did not reach convergence_completed.")
     if str(final_checkpoint.get("stage_status") or "").strip() != "completed":
       errors.append("final_latest_checkpoint.stage_status was not completed.")
     if str(final_checkpoint.get("checkpoint_kind") or "").strip() != "run_complete":
@@ -487,10 +501,10 @@ def _check_monitor_health_summary(raw: Dict[str, Any]) -> List[str]:
     errors.append("final_monitor_health_summary.run_completed_event_seen was not true.")
   if not bool(summary.get("completed_cleanly")):
     errors.append("final_monitor_health_summary.completed_cleanly was not true.")
-  if str(summary.get("latest_draft_stage") or "").strip() != "final_viability_guaranteed":
-    errors.append("final_monitor_health_summary.latest_draft_stage did not reach final_viability_guaranteed.")
-  if str(summary.get("latest_run_stage") or "").strip() != "final_viability_guaranteed":
-    errors.append("final_monitor_health_summary.latest_run_stage did not reach final_viability_guaranteed.")
+  if str(summary.get("latest_draft_stage") or "").strip() != "convergence_completed":
+    errors.append("final_monitor_health_summary.latest_draft_stage did not reach convergence_completed.")
+  if str(summary.get("latest_run_stage") or "").strip() != "convergence_completed":
+    errors.append("final_monitor_health_summary.latest_run_stage did not reach convergence_completed.")
   if str(summary.get("latest_run_status") or "").strip().lower() != "completed":
     errors.append("final_monitor_health_summary.latest_run_status was not completed.")
 

@@ -329,9 +329,9 @@ def _monitor_health_summary(
   completed_cleanly = bool(
     proc_returncode == 0
     and str(final_snapshot.get("status") or "").strip().lower() == "completed"
-    and str(final_snapshot.get("planning_stage") or "").strip() == "final_viability_guaranteed"
+    and str(final_snapshot.get("planning_stage") or "").strip() == "convergence_completed"
     and str(final_run_row.get("run_status") or "").strip().lower() == "completed"
-    and str(final_run_row.get("current_stage") or "").strip() == "final_viability_guaranteed"
+    and str(final_run_row.get("current_stage") or "").strip() == "convergence_completed"
     and run_completed_event_seen
   )
   return {
@@ -544,8 +544,8 @@ def main(argv: list[str]) -> int:
   if str(final_row.get("status") or "").strip().lower() != "completed":
     print("Final draft row did not complete.", file=sys.stderr)
     return 3
-  if str(final_row.get("planning_stage") or "").strip() != "final_viability_guaranteed":
-    print("Final planning stage did not reach final_viability_guaranteed.", file=sys.stderr)
+  if str(final_row.get("planning_stage") or "").strip() != "convergence_completed":
+    print("Final planning stage did not reach convergence_completed.", file=sys.stderr)
     return 4
   return 0
 
