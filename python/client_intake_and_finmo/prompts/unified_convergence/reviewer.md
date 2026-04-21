@@ -29,7 +29,9 @@ Important principles:
 - Realism beats intake except for legitimate beginning-balance / stub-period facts.
 - The goal is a viable, coherent, realistic ongoing-concern business, not fake precision.
 - Use only 3 to 6 primary target lines. Everything else is a guardrail, not a direct target.
-- Only the focused `required_target_quarters` for this cycle require explicit target coverage.
+- For local-safe levers, only the focused `required_target_quarters` for this cycle require explicit target coverage.
+- If you select a shape-sensitive lever, you must extend the path from the first affected quarter through the end of horizon.
+- No partial edits are allowed for shape-sensitive levers. No isolated quarter patches.
 - Avoid flat trajectories unless the business reality truly warrants it.
 - Payroll may step up in flatter blocks if that best reflects hiring reality.
 - Early negative EBITDA or cash can be acceptable if the business recovers credibly by the end of year two.
@@ -43,6 +45,10 @@ How to use the Python scaffold:
 - `repair_envelope_packets` are the authoritative issue-level repair layer for this cycle. Use them first. They tell you what each open issue materially requires to close: priority, severity, quarter-aware repair targets, explicit gap, repair envelope, driver paths, spillover flags, and primary target proxy metrics.
 - `deterministic_numeric_guidance.metric_pressure_packets` tell you the current value, target floor or ceiling, acceptable zone, gap, and repair envelope for each pressured metric-quarter pair.
 - When repair-envelope fields are present, do not guess the required magnitude. Choose the business strategy, but keep your targets and lever ranges inside the Python-computed pressure envelope unless you have a very strong realism reason to go stronger.
+- `driver_paths.min_delta` and `driver_paths.max_delta` are movement amounts in lever space, not always absolute replacement values. Use `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value` as the authoritative absolute value bounds for `exact_value` or `band` output.
+- `exact_value`, `min_value`, and `max_value` in your `lever_adjustments` response are absolute lever values, not deltas.
+- Stay strictly inside the absolute scaffold bands for every selected lever. Do not emit values outside `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value`.
+- Prefer levers with direct `driver_paths` for the active closure metric. Do not select weak or unsupported side levers unless they are clearly secondary support moves inside the same valid bound system.
 - If a repair target is ratio-based or relationship-based, use its `primary_target_proxy_metrics` and `source_metric_names` to choose real finmo targets that directly move that closure metric. Do not substitute unrelated targets.
 - `planner_model_input_packet` is the compact Python translation of the current writable model-input state for this cycle.
 - `planner_finmo_quarter_view` is the compact Python translation of the current quarter-by-quarter finmo outputs for this cycle.
@@ -54,7 +60,8 @@ How to use the Python scaffold:
 - A substantial correction means materially changing the business move, not lightly rephrasing the same package. If Python asks for new lever families or a minimum new lever count, satisfy that requirement.
 - Use `convergence_scorecard` to understand current score, previous score, score delta, lowest quarter score, pass threshold, and progress status. Your package should move the score up while reducing the canonical remaining issue count.
 - Keep the cycle focused. Work only the top issues, focused quarters, and top lever families that Python scoped for this cycle.
-- The focused cycle is intentionally local. Do not expand scope back to the whole horizon unless Python explicitly changes the scoped quarters.
+- The focused cycle is intentionally local for local-safe levers only.
+- Do not expand the whole horizon unless you select a shape-sensitive lever. If you do, own that lever's full remaining-quarter trajectory explicitly.
 - Work only the top 1 to 2 issues, top 2 to 4 focused quarters, and top 2 to 3 lever families surfaced in the packet.
 
 What good output looks like:
@@ -93,10 +100,13 @@ Field guidance:
   - prefer `band` mode unless the business is already very close
   - use `exact` only when exact placement is truly warranted
   - give realistic bands that solver can actually use
+  - for shape-sensitive levers, do not provide a local patch; provide a full forward path
 
 Targeting guidance:
 - Primary targets should reflect what you want to see in finmo, not model-input rows.
 - Set targets quarter by quarter for the focused required quarters only.
+- For shape-sensitive levers, keep `targets_by_quarter` focused to the cycle scope unless you deliberately want broader finmo targets.
+- The full-horizon requirement applies to the selected lever path itself: own the full remaining-quarter trajectory or do not select that lever.
 - Do not over-target every line.
 - Start from `recommended_primary_target_metric_keys`, then fill `required_quarter_target_scaffold`.
 - When `repair_envelope_packets` provide `primary_target_proxy_metrics`, those proxies are the default primary target set for the active issue unless you have a clearly stronger realism reason to replace one of them with an equally direct finmo proxy.
@@ -115,5 +125,51 @@ Lever guidance:
 - Use ranked levers and driver paths to prioritize the highest-impact repair routes first.
 - If financing is needed, say so through the lever package.
 - If scale, staffing, pricing, capex timing, distributions, debt, or equity need to move, use them.
+- If a selected lever is marked shape-sensitive in the Python contract, your lever_adjustments entry must include:
+  - `shape_type`: one of `ramp`, `step_up`, `hiring_block`, `moderation`, `delayed_follow_through`
+  - `values` or `trajectory_values`: `Q1` through `Q20`, with numeric values for every remaining quarter from the first affected quarter onward
+  - `rationale` or `trajectory_rationale`: brief business logic for that forward path
+- Shape-sensitive levers represent a new operating regime, not a temporary spike. Do not create abrupt collapses, lazy flat tails, or snapback paths without justification.
+
+Example shape-sensitive lever entry:
+```json
+{
+  "lever_id": "expenses::Payroll",
+  "section": "expenses",
+  "direction": "increase",
+  "value_mode": "exact",
+  "exact_value": null,
+  "min_value": null,
+  "max_value": null,
+  "timing_start_q": 1,
+  "timing_end_q": 20,
+  "shape_type": "ramp",
+  "values": {
+    "Q1": 2500000,
+    "Q2": 2600000,
+    "Q3": 2700000,
+    "Q4": 2800000,
+    "Q5": 2850000,
+    "Q6": 2900000,
+    "Q7": 2950000,
+    "Q8": 3000000,
+    "Q9": 3050000,
+    "Q10": 3100000,
+    "Q11": 3150000,
+    "Q12": 3200000,
+    "Q13": 3250000,
+    "Q14": 3300000,
+    "Q15": 3350000,
+    "Q16": 3400000,
+    "Q17": 3450000,
+    "Q18": 3500000,
+    "Q19": 3550000,
+    "Q20": 3600000
+  },
+  "rationale": "Payroll scales as the network ramps and then moderates into a stable operating cadence.",
+  "business_reason": "Staffing must support the higher operating scale across the full forward regime.",
+  "linked_action_effect": "repair_staffing_payroll_mismatch"
+}
+```
 
 Return structured JSON only.

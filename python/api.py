@@ -32,7 +32,7 @@ def create_app() -> Flask:
       # Force load variables from the project root .env (consistent across CWDs).
       root_dir = Path(__file__).resolve().parent.parent
       env_path = root_dir / ".env"
-      load_dotenv(str(env_path))
+      load_dotenv(str(env_path), override=True)
     except Exception:
       # Failing to load .env should not prevent the app from starting;
       # environment variables may already be configured.
@@ -85,6 +85,12 @@ def create_app() -> Flask:
     from api_handlers.business_types import get_business_types_handler
 
     return get_business_types_handler(app=app, request=request)
+
+  @app.route("/api/runtime-probe", methods=["GET", "OPTIONS"])
+  def get_runtime_probe():
+    from api_handlers.intake_consult import get_runtime_probe_payload
+
+    return jsonify(get_runtime_probe_payload())
 
   @app.route("/api/financials", methods=["POST", "OPTIONS"])
   def post_financials():
