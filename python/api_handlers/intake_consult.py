@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import math
 import os
@@ -97,6 +98,10 @@ COMPETITIVE_ADVANTAGE_QUESTION = "Does this accurately reflect what truly sets t
 _RETRYABLE_STATUS = {429, 502, 503, 504}
 _CASH_STRATEGY_REVIEW_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "cash_strategy_review"
 _CASH_STRATEGY_REVIEW_PROMPT_PATH = _CASH_STRATEGY_REVIEW_PROMPTS_DIR / "reviewer.md"
+_ANCHOR_PLAUSIBILITY_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "anchor_plausibility"
+_ANCHOR_PLAUSIBILITY_PROMPT_PATH = _ANCHOR_PLAUSIBILITY_PROMPTS_DIR / "reviewer.md"
+_ANCHOR_REVENUE_REGIME_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "anchor_revenue_regime"
+_ANCHOR_REVENUE_REGIME_PROMPT_PATH = _ANCHOR_REVENUE_REGIME_PROMPTS_DIR / "reviewer.md"
 _INITIAL_RESTRUCTURE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "initial_restructure"
 _INITIAL_RESTRUCTURE_PROMPT_PATH = _INITIAL_RESTRUCTURE_PROMPTS_DIR / "reviewer.md"
 _FINAL_STABILIZER_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "final_stabilizer"
@@ -156,8 +161,19 @@ _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = {
   "cash_non_gpt_fallback_used",
   "cash_out_of_bounds_adjustment",
 }
+_Q0_ANCHOR_PLAUSIBILITY_TEST_MODE_FAIL_FLAGS = {
+  "q0_anchor_plausibility_missing",
+  "q0_anchor_plausibility_failed",
+  "q0_anchor_plausibility_parse_failed",
+  "q0_anchor_plausibility_invalid_response",
+  "q0_anchor_revenue_regime_plausibility_missing",
+  "q0_anchor_revenue_regime_plausibility_failed",
+  "q0_anchor_revenue_regime_plausibility_parse_failed",
+  "q0_anchor_revenue_regime_plausibility_invalid_response",
+}
+_Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN = 6
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 2
-_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-pre-solver-failfast-v4"
+_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-anchor-revenue-regime-v1"
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
   "by_model": {},
@@ -4210,9 +4226,12 @@ def _pre_solver_validation_failure_diagnostics(
     else {}
   )
   invalid_levers: List[Dict[str, Any]] = []
+  anchor_validation_errors: List[Dict[str, Any]] = []
   for item in (pre_solver_validation.get("errors") or []):
     if not isinstance(item, dict):
       continue
+    if str(item.get("validation_category") or "").strip().lower() == "q0_anchor_contract":
+      anchor_validation_errors.append(copy.deepcopy(item))
     if str(item.get("validation_category") or "").strip().lower() != "lever_bounds":
       continue
     reason = str(item.get("reason") or "").strip()
@@ -4234,6 +4253,31 @@ def _pre_solver_validation_failure_diagnostics(
         "reason": reason or None,
       }
     )
+  if anchor_validation_errors:
+    first_error = anchor_validation_errors[0] if isinstance(anchor_validation_errors[0], dict) else {}
+    lever_id = str(first_error.get("lever_id") or "").strip() or None
+    q0_anchor_policies = {
+      str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
+      for item in (plan.get("q0_anchor_policies") or [])
+      if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+    }
+    return {
+      "failure_stage": "anchor_validation",
+      "failure_reason": str(first_error.get("error") or "").strip() or "anchor_validation_failed",
+      "lever": lever_id,
+      "q0_value": _safe_float(first_error.get("previous_value")),
+      "anchor_policy": str((q0_anchor_policies.get(lever_id) or {}).get("anchor_policy") or "").strip() or None,
+      "validation_context": {
+        "convergence_test_mode": _convergence_test_mode_enabled(),
+        "planner_plan_status": str(plan.get("status") or "").strip() or None,
+        "focus_issue_codes": copy.deepcopy(plan.get("focus_issue_codes") or []),
+        "lever_selection": copy.deepcopy(plan.get("lever_selection") or []),
+        "q0_anchor_policies": copy.deepcopy(plan.get("q0_anchor_policies") or []),
+        "q0_anchor_validation_details": copy.deepcopy(plan.get("q0_anchor_validation_details") or []),
+        "q0_anchor_plausibility_call_budget": copy.deepcopy(plan.get("q0_anchor_plausibility_call_budget") or {}),
+        "pre_solver_validation": copy.deepcopy(pre_solver_validation),
+      },
+    }
   return {
     "failure_stage": "pre_solver_validation",
     "failure_reason": str(validation.get("reason_code") or "").strip() or "pre_solver_validation_failed",
@@ -6571,6 +6615,42 @@ def _load_cash_strategy_review_prompt() -> str:
     )
 
 
+def _load_anchor_plausibility_prompt() -> str:
+  try:
+    return _ANCHOR_PLAUSIBILITY_PROMPT_PATH.read_text(encoding="utf-8").strip()
+  except Exception:
+    return (
+      "You are evaluating whether a Q0 intake anchor should be treated as economically plausible for a forecast model.\n"
+      "You are not fixing the model. You are not recommending edits. You are only judging whether the provided Q0 anchor is believable for this business and scale.\n"
+      "NAICS means the North American Industry Classification System code for the business. Treat it as a secondary context signal for what normal looks like for this type of company.\n"
+      "Use NAICS as a proxy for the expected operating model, the typical cost structure, and scaling behavior. Use any provided naics_context as readable grounding for the code when available.\n"
+      "When evaluating plausibility, rely primarily on the concrete financial relationships in the Q0 state, the implied operating model from business_type, and only secondarily on NAICS context.\n"
+      "NAICS must not override clear numerical contradictions. If the financial relationships are strongly inconsistent, choose implausible even if the NAICS context is broad or noisy. If business_type, NAICS, or NAICS context are vague or conflicting, choose uncertain rather than guessing.\n"
+      "Do not treat Q1 or any forecast spread as a benchmark for Q0 plausibility. Judge Q0 as a standalone business state.\n"
+      "Return only a strict JSON judgment with anchor_plausibility, confidence, reason, and key_factors.\n"
+      "Choose implausible when the anchor implies an unrealistic operating regime for the stated business scale.\n"
+      "Choose uncertain when the packet is too ambiguous to support a confident judgment.\n"
+      "Do not return numeric recommendations. Do not mutate values. Do not explain outside the schema."
+    )
+
+
+def _load_anchor_revenue_regime_prompt() -> str:
+  try:
+    return _ANCHOR_REVENUE_REGIME_PROMPT_PATH.read_text(encoding="utf-8").strip()
+  except Exception:
+    return (
+      "You are evaluating whether the Q0 revenue-driver regime should be treated as economically plausible for a forecast model.\n"
+      "NAICS means the North American Industry Classification System code for the business. Treat it as a secondary context signal for what normal looks like for this type of company.\n"
+      "Use NAICS as a proxy for the expected operating model, the typical cost structure, and scaling behavior. Use any provided naics_context as readable grounding for the code when available.\n"
+      "Evaluate Capacity, Unit Price, and Utilization together as one combined revenue regime, not as isolated levers.\n"
+      "Judge whether the resulting business scale implied by the Q0 revenue drivers is believable for this business when compared with the provided cost structure and operating support metrics.\n"
+      "When evaluating plausibility, rely primarily on the concrete financial relationships in the Q0 state, the implied operating model from business_type, and only secondarily on NAICS context.\n"
+      "NAICS must not override clear numerical contradictions. If the financial relationships strongly indicate implausibility, choose implausible even if the NAICS context is broad or noisy. If the packet is too vague or internally conflicted, choose uncertain.\n"
+      "Do not treat Q1 or any forecast spread as a benchmark for Q0 plausibility. Judge the revenue regime as a standalone Q0 business state.\n"
+      "Return only a strict JSON judgment with anchor_plausibility, confidence, reason, and key_factors. Do not recommend edits, target values, or rewritten numbers."
+    )
+
+
 def _load_initial_restructure_prompt() -> str:
   try:
     return _INITIAL_RESTRUCTURE_PROMPT_PATH.read_text(encoding="utf-8").strip()
@@ -6614,6 +6694,8 @@ def _load_unified_convergence_prompt() -> str:
       "Use only the provided writable lever ids and the quarter-specific solver contract.\n"
       "For active issues, return a coordinated strategy that can actually move the business toward a viable ongoing-concern state.\n"
       "Solver will execute every valid package, so focus on strategy quality, quarter targets, and lever coordination.\n"
+      "Read shape_sensitive_contract directly before choosing structural levers.\n"
+      "For shape-sensitive levers, return a full remaining-horizon path that preserves continuity: no quarter-to-quarter drop over 50%, no quarter-to-quarter jump over 2.5x, no snapback after a large build, and no abrupt regime switching without a believable transition.\n"
       "Do not return vague guidance. Return structured JSON only."
     ).strip()
 
@@ -13152,6 +13234,9 @@ def _build_repair_guidance_payload(
     "convergence_engine_contract": _unified_convergence_engine_contract_payload(),
     "planning_context_summary": copy.deepcopy(planning_context_summary or {}),
     "required_numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
+    "shape_sensitive_contract": copy.deepcopy(
+      ((scoped_numeric_solver_contract or {}).get("lever_sensitivity_policy") or {})
+    ),
     "planning_mode_context": _build_planning_mode_context(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
@@ -13248,6 +13333,31 @@ def _cash_strategy_review_schema(
       "capital_posture_summary",
       "confidence",
       "recommended_adjustments",
+    ],
+  }
+
+
+def _anchor_plausibility_review_schema() -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "anchor_plausibility": {
+        "type": "string",
+        "enum": ["plausible", "implausible", "uncertain"],
+      },
+      "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+      "reason": {"type": "string"},
+      "key_factors": {
+        "type": "array",
+        "items": {"type": "string"},
+      },
+    },
+    "required": [
+      "anchor_plausibility",
+      "confidence",
+      "reason",
+      "key_factors",
     ],
   }
 
@@ -13487,6 +13597,34 @@ def _cash_strategy_review_failure_payload(
     "status": status,
     "prompt_file": prompt_file,
     "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
+    "review_status": "not_completed",
+    "detail": str(detail or "").strip(),
+    "decision_source": str(decision_source or "").strip() or "gpt",
+    "prompt_trace": copy.deepcopy(prompt_trace or {}),
+    "raw_openai_response": copy.deepcopy(raw_openai_response or {}),
+    "decision": {},
+  }
+
+
+def _anchor_plausibility_failure_payload(
+  *,
+  draft_id: str,
+  lever_id: str,
+  anchor_context_hash: str,
+  prompt_file: str,
+  status: str,
+  detail: str = "",
+  prompt_trace: Optional[Dict[str, Any]] = None,
+  raw_openai_response: Optional[Dict[str, Any]] = None,
+  decision_source: str = "gpt",
+) -> Dict[str, Any]:
+  return {
+    "contract_version": "q0_anchor_plausibility_review_v1",
+    "draft_id": str(draft_id or "").strip(),
+    "lever_id": str(lever_id or "").strip(),
+    "anchor_context_hash": str(anchor_context_hash or "").strip(),
+    "status": str(status or "").strip(),
+    "prompt_file": str(prompt_file or "").strip(),
     "review_status": "not_completed",
     "detail": str(detail or "").strip(),
     "decision_source": str(decision_source or "").strip() or "gpt",
@@ -14217,6 +14355,7 @@ def _unified_convergence_decision_contract_error(
   required_target_quarters: Optional[List[int]] = None,
   numeric_solver_contract: Optional[Dict[str, Any]] = None,
   controller_retry_context: Optional[Dict[str, Any]] = None,
+  baseline_map: Optional[Dict[str, List[float]]] = None,
   full_horizon_quarter_count: Optional[int] = None,
 ) -> Optional[str]:
   decision = parsed if isinstance(parsed, dict) else {}
@@ -14336,6 +14475,7 @@ def _unified_convergence_decision_contract_error(
     targeted_quarters=copy.deepcopy(target_quarters or required_target_quarters or []),
     numeric_solver_contract=copy.deepcopy(numeric_solver_contract),
     lever_adjustments=copy.deepcopy(lever_adjustments),
+    baseline_map=copy.deepcopy(baseline_map),
     full_horizon_quarter_count=full_horizon_quarter_count,
   )
   if shape_sensitive_requirements.get("required_lever_ids"):
@@ -15005,6 +15145,405 @@ def _run_realism_verification_openai(
   }
 
 
+def _q0_anchor_plausibility_user_payload(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  lever_id: str,
+  lever_entry: Optional[Dict[str, Any]],
+  q0_value: Any,
+  finmo_q0_row: Optional[Dict[str, Any]],
+  derived_metrics: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  business = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  q0_row = finmo_q0_row if isinstance(finmo_q0_row, dict) else {}
+  revenue_q0 = float(_safe_float(q0_row.get("revenue")) or 0.0)
+  gross_profit_q0 = float(_safe_float(q0_row.get("gross_profit")) or 0.0)
+  ebitda_q0 = float(_safe_float(q0_row.get("ebitda")) or 0.0)
+  operating_cash_flow_q0 = float(_safe_float(q0_row.get("operating_cash_flow")) or 0.0)
+  total_liabilities_q0 = float(_safe_float(q0_row.get("total_liabilities")) or 0.0)
+  total_equity_q0 = float(_safe_float(q0_row.get("total_equity")) or 0.0)
+  payload_metrics = copy.deepcopy(derived_metrics or {})
+  payload_metrics["revenue_q0"] = revenue_q0
+  payload_metrics["gross_margin_pct_q0"] = _safe_divide(gross_profit_q0, revenue_q0)
+  payload_metrics["ebitda_margin_pct_q0"] = _safe_divide(ebitda_q0, revenue_q0)
+  payload_metrics["operating_cash_flow_margin_q0"] = _safe_divide(operating_cash_flow_q0, revenue_q0)
+  payload_metrics["debt_to_equity_q0"] = (
+    float(total_liabilities_q0 / max(total_equity_q0, 1.0))
+    if total_equity_q0 > 0.0
+    else None
+  )
+  business_type = str(ops.get("business_type") or "").strip()
+  business_description_summary = str(
+    ops.get("business_description_summary")
+    or business.get("business_description_summary")
+    or ""
+  ).strip()
+  unit_description = str(ops.get("unit_description") or "").strip()
+  return {
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str(business.get("name") or business.get("business_name") or "").strip(),
+    "business_type": business_type,
+    "naics": str(ops.get("business_naics_6") or "").strip(),
+    "naics_context": {
+      "title_or_proxy": business_type or None,
+      "business_description_summary": business_description_summary or None,
+      "unit_description": unit_description or None,
+    },
+    "lever": str(lever_id or "").strip(),
+    "lever_label": str(entry.get("label_path") or entry.get("driver") or entry.get("lever_id") or "").strip(),
+    "lever_section": str(entry.get("section") or "").strip(),
+    "input_semantics": str(entry.get("input_semantics") or "").strip(),
+    "q0_value": _safe_float(q0_value),
+    "q0_revenue": revenue_q0,
+    "derived_metrics": payload_metrics,
+  }
+
+
+def _run_q0_anchor_plausibility_review_openai(
+  *,
+  draft_id: str,
+  lever_id: str,
+  anchor_context_hash: str,
+  user_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+  prompt_file = "client_intake_and_finmo/prompts/anchor_plausibility/reviewer.md"
+  prompt_trace: Dict[str, Any] = {}
+  api_key = _openai_key()
+  if not api_key:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=lever_id,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="skipped_missing_openai_key",
+      detail="OPENAI_API_KEY is not configured.",
+      prompt_trace=prompt_trace,
+    )
+  system_prompt = _load_anchor_plausibility_prompt()
+  prompt_trace = {
+    "system_prompt": system_prompt,
+    "user_payload": copy.deepcopy(user_payload),
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_payload, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "q0_anchor_plausibility_review",
+        "schema": _anchor_plausibility_review_schema(),
+        "strict": True,
+      }
+    },
+  }
+  raw_openai_response: Dict[str, Any] = {}
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+  except Exception as exc:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=lever_id,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_openai_request",
+      detail=str(exc),
+      prompt_trace=prompt_trace,
+    )
+  if resp.status_code >= 400:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=lever_id,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_openai_status",
+      detail=resp.text[:1200],
+      prompt_trace=prompt_trace,
+    )
+  raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+  parsed = _parse_responses_json_dict(raw_openai_response)
+  if not isinstance(parsed, dict):
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=lever_id,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_parse",
+      detail="Unable to parse Q0 anchor plausibility JSON.",
+      prompt_trace=prompt_trace,
+      raw_openai_response=raw_openai_response,
+    )
+  plausibility = str(parsed.get("anchor_plausibility") or "").strip().lower()
+  confidence = _safe_float(parsed.get("confidence"))
+  reason = str(parsed.get("reason") or "").strip()
+  key_factors = [
+    str(item).strip()
+    for item in (parsed.get("key_factors") or [])
+    if str(item).strip()
+  ]
+  if plausibility not in {"plausible", "implausible", "uncertain"} or confidence is None or not reason:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=lever_id,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_invalid_response",
+      detail="Q0 anchor plausibility review returned an invalid structured decision.",
+      prompt_trace=prompt_trace,
+      raw_openai_response=raw_openai_response,
+    )
+  return {
+    "contract_version": "q0_anchor_plausibility_review_v1",
+    "draft_id": str(draft_id or "").strip(),
+    "lever_id": str(lever_id or "").strip(),
+    "anchor_context_hash": str(anchor_context_hash or "").strip(),
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "review_status": "completed",
+    "decision_source": "gpt",
+    "detail": "",
+    "prompt_trace": copy.deepcopy(prompt_trace),
+    "raw_openai_response": copy.deepcopy(raw_openai_response),
+    "decision": {
+      "anchor_plausibility": plausibility,
+      "confidence": float(confidence),
+      "reason": reason,
+      "key_factors": key_factors,
+    },
+  }
+
+
+def _run_q0_anchor_plausibility_review_cached(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  lever_id: str,
+  lever_entry: Optional[Dict[str, Any]],
+  q0_value: Any,
+  finmo_q0_row: Optional[Dict[str, Any]],
+  derived_metrics: Optional[Dict[str, Any]],
+  allow_new_call: bool,
+) -> Dict[str, Any]:
+  user_payload = _q0_anchor_plausibility_user_payload(
+    draft_id=draft_id,
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    lever_id=lever_id,
+    lever_entry=copy.deepcopy(lever_entry or {}),
+    q0_value=q0_value,
+    finmo_q0_row=copy.deepcopy(finmo_q0_row or {}),
+    derived_metrics=copy.deepcopy(derived_metrics or {}),
+  )
+  anchor_context_hash = _q0_anchor_plausibility_context_hash(
+    draft_id=draft_id,
+    lever_id=lever_id,
+    payload=user_payload,
+  )
+  cache_key = (str(draft_id or "").strip(), str(lever_id or "").strip(), anchor_context_hash)
+  cache = _q0_anchor_plausibility_cache()
+  cached = cache.get(cache_key)
+  if isinstance(cached, dict):
+    cached_payload = copy.deepcopy(cached)
+    cached_payload["cache_hit"] = True
+    return cached_payload
+  if not allow_new_call:
+    result = _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=lever_id,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file="client_intake_and_finmo/prompts/anchor_plausibility/reviewer.md",
+      status="failed_budget_exhausted",
+      detail="Anchor plausibility review budget exhausted before this lever could be evaluated.",
+      prompt_trace={"user_payload": copy.deepcopy(user_payload)},
+    )
+    result["cache_hit"] = False
+    cache[cache_key] = copy.deepcopy(result)
+    return result
+  result = _run_q0_anchor_plausibility_review_openai(
+    draft_id=draft_id,
+    lever_id=lever_id,
+    anchor_context_hash=anchor_context_hash,
+    user_payload=user_payload,
+  )
+  result["cache_hit"] = False
+  cache[cache_key] = copy.deepcopy(result)
+  return result
+
+
+def _run_q0_anchor_revenue_regime_review_openai(
+  *,
+  draft_id: str,
+  group_key: str,
+  anchor_context_hash: str,
+  user_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+  prompt_file = "client_intake_and_finmo/prompts/anchor_revenue_regime/reviewer.md"
+  prompt_trace: Dict[str, Any] = {}
+  api_key = _openai_key()
+  if not api_key:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=group_key,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="skipped_missing_openai_key",
+      detail="OPENAI_API_KEY is not configured.",
+      prompt_trace=prompt_trace,
+    )
+  system_prompt = _load_anchor_revenue_regime_prompt()
+  prompt_trace = {
+    "system_prompt": system_prompt,
+    "user_payload": copy.deepcopy(user_payload),
+  }
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_payload, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "q0_anchor_revenue_regime_review",
+        "schema": _anchor_plausibility_review_schema(),
+        "strict": True,
+      }
+    },
+  }
+  raw_openai_response: Dict[str, Any] = {}
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+  except Exception as exc:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=group_key,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_openai_request",
+      detail=str(exc),
+      prompt_trace=prompt_trace,
+    )
+  if resp.status_code >= 400:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=group_key,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_openai_status",
+      detail=resp.text[:1200],
+      prompt_trace=prompt_trace,
+    )
+  raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+  parsed = _parse_responses_json_dict(raw_openai_response)
+  if not isinstance(parsed, dict):
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=group_key,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_parse",
+      detail="Unable to parse Q0 revenue regime plausibility JSON.",
+      prompt_trace=prompt_trace,
+      raw_openai_response=raw_openai_response,
+    )
+  plausibility = str(parsed.get("anchor_plausibility") or "").strip().lower()
+  confidence = _safe_float(parsed.get("confidence"))
+  reason = str(parsed.get("reason") or "").strip()
+  key_factors = [
+    str(item).strip()
+    for item in (parsed.get("key_factors") or [])
+    if str(item).strip()
+  ]
+  if plausibility not in {"plausible", "implausible", "uncertain"} or confidence is None or not reason:
+    return _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=group_key,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file=prompt_file,
+      status="failed_invalid_response",
+      detail="Q0 revenue regime plausibility review returned an invalid structured decision.",
+      prompt_trace=prompt_trace,
+      raw_openai_response=raw_openai_response,
+    )
+  return {
+    "contract_version": "q0_anchor_revenue_regime_review_v1",
+    "draft_id": str(draft_id or "").strip(),
+    "lever_id": str(group_key or "").strip(),
+    "anchor_context_hash": str(anchor_context_hash or "").strip(),
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "review_status": "completed",
+    "decision_source": "gpt",
+    "detail": "",
+    "prompt_trace": copy.deepcopy(prompt_trace),
+    "raw_openai_response": copy.deepcopy(raw_openai_response),
+    "decision": {
+      "anchor_plausibility": plausibility,
+      "confidence": float(confidence),
+      "reason": reason,
+      "key_factors": key_factors,
+    },
+  }
+
+
+def _run_q0_anchor_revenue_regime_review_cached(
+  *,
+  draft_id: str,
+  group_key: str,
+  regime_payload: Dict[str, Any],
+  allow_new_call: bool,
+) -> Dict[str, Any]:
+  anchor_context_hash = _q0_anchor_plausibility_context_hash(
+    draft_id=draft_id,
+    lever_id=group_key,
+    payload=copy.deepcopy(regime_payload or {}),
+  )
+  cache_key = (str(draft_id or "").strip(), str(group_key or "").strip(), anchor_context_hash)
+  cache = _q0_anchor_plausibility_cache()
+  cached = cache.get(cache_key)
+  if isinstance(cached, dict):
+    cached_payload = copy.deepcopy(cached)
+    cached_payload["cache_hit"] = True
+    return cached_payload
+  if not allow_new_call:
+    result = _anchor_plausibility_failure_payload(
+      draft_id=draft_id,
+      lever_id=group_key,
+      anchor_context_hash=anchor_context_hash,
+      prompt_file="client_intake_and_finmo/prompts/anchor_revenue_regime/reviewer.md",
+      status="failed_budget_exhausted",
+      detail="Revenue regime plausibility review budget exhausted before this group could be evaluated.",
+      prompt_trace={"user_payload": copy.deepcopy(regime_payload or {})},
+    )
+    result["cache_hit"] = False
+    cache[cache_key] = copy.deepcopy(result)
+    return result
+  result = _run_q0_anchor_revenue_regime_review_openai(
+    draft_id=draft_id,
+    group_key=group_key,
+    anchor_context_hash=anchor_context_hash,
+    user_payload=copy.deepcopy(regime_payload or {}),
+  )
+  result["cache_hit"] = False
+  cache[cache_key] = copy.deepcopy(result)
+  return result
+
+
 def _run_cash_strategy_review_openai(
   *,
   draft_id: str,
@@ -15539,6 +16078,9 @@ def _run_unified_convergence_openai(
       if isinstance(row, dict)
     ]
   )
+  scoped_baseline_map = _solved_lever_value_map(
+    (unified_convergence_context or {}).get("current_model_input_json")
+  )
   full_horizon_quarter_count = _quarter_count_from_model_input(
     (unified_convergence_context or {}).get("current_model_input_json")
   )
@@ -15806,6 +16348,7 @@ def _run_unified_convergence_openai(
     required_target_quarters=copy.deepcopy(required_target_quarters),
     numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
     controller_retry_context=copy.deepcopy(effective_retry_context),
+    baseline_map=copy.deepcopy(scoped_baseline_map),
     full_horizon_quarter_count=full_horizon_quarter_count,
   )
   if contract_error:
@@ -15824,12 +16367,21 @@ def _run_unified_convergence_openai(
                 "recommended_primary_target_metric_keys": copy.deepcopy(
                   (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
                 ),
+                "shape_sensitive_contract": copy.deepcopy(
+                  (scoped_numeric_solver_contract or {}).get("lever_sensitivity_policy") or {}
+                ),
                 "instruction": (
                   "Repair the response contract. Return a valid unified convergence package with 1 to 6 "
                   "primary_target_metric_names only, provide numeric targets for those chosen metrics in every "
                   "required_target_quarter in this cycle's focused scope, and include target_tolerances for "
                   "every chosen primary target metric. Keep realism, cash posture, and planning mode active as "
-                  "guardrails, not as extra exact target lines."
+                  "guardrails, not as extra exact target lines. "
+                  "If the violation involves a shape-sensitive lever trajectory, repair that trajectory explicitly: "
+                  "cover the full remaining horizon, do not drop by more than 50% quarter-to-quarter, do not jump by more than 2.5x quarter-to-quarter, "
+                  "do not create snapback after a large build, and do not switch regime direction sharply without a believable transition. "
+                  "For large structural increases, use a ramp or staged step-up over multiple quarters. "
+                  "Read shape_sensitive_contract directly. If you select any lever in remaining_horizon_required_lever_ids, or any lever in materiality_triggered_remaining_horizon_lever_ids for a non-trivial move, "
+                  "you must return shape_type plus full remaining-horizon values or trajectory_values for that lever."
                 ),
               },
               ensure_ascii=False,
@@ -15879,6 +16431,8 @@ def _run_unified_convergence_openai(
       parsed=parsed_retry,
       required_target_quarters=copy.deepcopy(required_target_quarters),
       numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+      controller_retry_context=copy.deepcopy(effective_retry_context),
+      baseline_map=copy.deepcopy(scoped_baseline_map),
       full_horizon_quarter_count=full_horizon_quarter_count,
     )
     if retry_contract_error:
@@ -16365,14 +16919,12 @@ def _q0_anchor_policy_for_lever(
   *,
   lever_id: Any,
   anchor_value: Any,
-  current_q1_value: Any,
   lever_entry: Optional[Dict[str, Any]],
   lever_bound_lookup: Optional[Dict[str, Dict[str, Optional[float]]]],
   deterministic_numeric_guidance: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
   lever = str(lever_id or "").strip()
   anchor = _safe_float(anchor_value)
-  current_q1 = _safe_float(current_q1_value)
   entry = lever_entry if isinstance(lever_entry, dict) else {}
   bounds = (
     lever_bound_lookup.get(lever)
@@ -16381,11 +16933,7 @@ def _q0_anchor_policy_for_lever(
   )
   min_value = _safe_float((bounds or {}).get("min_value"))
   max_value = _safe_float((bounds or {}).get("max_value"))
-  repair_pressure = _q0_anchor_repair_pressure_summary(
-    lever_id=lever,
-    deterministic_numeric_guidance=deterministic_numeric_guidance,
-  )
-  max_abs_delta = float(_safe_float(repair_pressure.get("max_abs_delta")) or 0.0)
+  del deterministic_numeric_guidance
   within_bounds = True
   if anchor is not None:
     if min_value is not None and float(anchor) < float(min_value) - 1e-9:
@@ -16398,69 +16946,24 @@ def _q0_anchor_policy_for_lever(
       "anchor_policy": "allow_anchor_break",
       "use_q0_anchor": False,
       "allow_anchor_break": True,
+      "reason_code": "no_q0_anchor_available",
       "reason": "no_q0_anchor_available",
       "q0_value": None,
-      "current_q1_value": current_q1,
-      "repair_pressure_abs": max_abs_delta,
-      "repair_pressure_issue_codes": copy.deepcopy(repair_pressure.get("issue_codes") or []),
+      "repair_pressure_abs": None,
+      "repair_pressure_issue_codes": [],
       "input_semantics": str(entry.get("input_semantics") or "").strip() or None,
     }
-  anchor_magnitude = abs(float(anchor))
-  relative_delta_to_q1 = (
-    abs(float(current_q1) - float(anchor)) / max(anchor_magnitude, 1.0)
-    if current_q1 is not None
-    else 0.0
-  )
   if not within_bounds:
     return {
       "lever_id": lever,
       "anchor_policy": "allow_anchor_break",
       "use_q0_anchor": False,
       "allow_anchor_break": True,
+      "reason_code": "q0_anchor_outside_deterministic_bounds",
       "reason": "q0_anchor_outside_deterministic_bounds",
       "q0_value": float(anchor),
-      "current_q1_value": current_q1,
-      "repair_pressure_abs": max_abs_delta,
-      "repair_pressure_issue_codes": copy.deepcopy(repair_pressure.get("issue_codes") or []),
-      "input_semantics": str(entry.get("input_semantics") or "").strip() or None,
-    }
-  if anchor_magnitude <= 1e-9 and (max_abs_delta > 1e-9 or (current_q1 is not None and abs(float(current_q1)) > 1e-9)):
-    return {
-      "lever_id": lever,
-      "anchor_policy": "allow_anchor_break",
-      "use_q0_anchor": False,
-      "allow_anchor_break": True,
-      "reason": "zero_q0_anchor_conflicts_with_live_repair_pressure",
-      "q0_value": float(anchor),
-      "current_q1_value": current_q1,
-      "repair_pressure_abs": max_abs_delta,
-      "repair_pressure_issue_codes": copy.deepcopy(repair_pressure.get("issue_codes") or []),
-      "input_semantics": str(entry.get("input_semantics") or "").strip() or None,
-    }
-  if max_abs_delta >= max(1.0, anchor_magnitude * 0.50):
-    return {
-      "lever_id": lever,
-      "anchor_policy": "allow_anchor_break",
-      "use_q0_anchor": False,
-      "allow_anchor_break": True,
-      "reason": "repair_pressure_materially_exceeds_q0_anchor",
-      "q0_value": float(anchor),
-      "current_q1_value": current_q1,
-      "repair_pressure_abs": max_abs_delta,
-      "repair_pressure_issue_codes": copy.deepcopy(repair_pressure.get("issue_codes") or []),
-      "input_semantics": str(entry.get("input_semantics") or "").strip() or None,
-    }
-  if current_q1 is not None and relative_delta_to_q1 >= 0.75:
-    return {
-      "lever_id": lever,
-      "anchor_policy": "allow_anchor_break",
-      "use_q0_anchor": False,
-      "allow_anchor_break": True,
-      "reason": "current_q1_regime_already_detached_from_q0",
-      "q0_value": float(anchor),
-      "current_q1_value": float(current_q1),
-      "repair_pressure_abs": max_abs_delta,
-      "repair_pressure_issue_codes": copy.deepcopy(repair_pressure.get("issue_codes") or []),
+      "repair_pressure_abs": None,
+      "repair_pressure_issue_codes": [],
       "input_semantics": str(entry.get("input_semantics") or "").strip() or None,
     }
   return {
@@ -16468,13 +16971,814 @@ def _q0_anchor_policy_for_lever(
     "anchor_policy": "use_q0_anchor",
     "use_q0_anchor": True,
     "allow_anchor_break": False,
-    "reason": "q0_anchor_is_plausible_and_directionally_usable",
+    "reason_code": "q0_anchor_is_deterministically_admissible",
+    "reason": "q0_anchor_is_deterministically_admissible",
     "q0_value": float(anchor),
-    "current_q1_value": current_q1,
-    "repair_pressure_abs": max_abs_delta,
-    "repair_pressure_issue_codes": copy.deepcopy(repair_pressure.get("issue_codes") or []),
+    "repair_pressure_abs": None,
+    "repair_pressure_issue_codes": [],
     "input_semantics": str(entry.get("input_semantics") or "").strip() or None,
   }
+
+
+def _finmo_quarter_row_by_index(
+  finmo_payload: Optional[Dict[str, Any]],
+  quarter_index: int,
+) -> Dict[str, Any]:
+  for row in ((finmo_payload or {}).get("quarter_rows") or []):
+    if not isinstance(row, dict):
+      continue
+    if int(_safe_float(row.get("quarter_index")) or 0) == int(quarter_index):
+      return copy.deepcopy(row)
+  return {}
+
+
+def _q0_anchor_needs_gpt_plausibility(
+  *,
+  lever_id: Any,
+  lever_entry: Optional[Dict[str, Any]],
+) -> bool:
+  lever = str(lever_id or "").strip().lower()
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  semantics = str(entry.get("input_semantics") or "").strip().lower()
+  important_tokens = (
+    "payroll",
+    "unit price",
+    "cost of goods sold",
+    "marketing",
+    "general & administrative",
+    "interest",
+    "tax",
+  )
+  if any(token in lever for token in important_tokens):
+    return True
+  if semantics == "percent_of_revenue" and any(token in lever for token in ("cogs", "marketing", "general & administrative")):
+    return True
+  return False
+
+
+def _q0_anchor_guardrail_assessment(
+  *,
+  lever_id: Any,
+  lever_entry: Optional[Dict[str, Any]],
+  q0_value: Any,
+  finmo_q0_row: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  lever = str(lever_id or "").strip()
+  lever_lower = lever.lower()
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  semantics = str(entry.get("input_semantics") or "").strip().lower()
+  q0 = _safe_float(q0_value)
+  q0_row = finmo_q0_row if isinstance(finmo_q0_row, dict) else {}
+  revenue_q0 = float(_safe_float(q0_row.get("revenue")) or 0.0)
+  metrics = {
+    "revenue_q0": revenue_q0,
+    "payroll_to_revenue_q0": _safe_divide(_safe_float(q0_row.get("payroll")), revenue_q0),
+    "cogs_to_revenue_q0": _safe_divide(_safe_float(q0_row.get("cost_of_goods_sold")), revenue_q0),
+    "marketing_to_revenue_q0": _safe_divide(_safe_float(q0_row.get("marketing")), revenue_q0),
+    "g_and_a_to_revenue_q0": _safe_divide(_safe_float(q0_row.get("general_and_administrative")), revenue_q0),
+    "gross_margin_pct_q0": _safe_divide(_safe_float(q0_row.get("gross_profit")), revenue_q0),
+    "ebitda_margin_pct_q0": _safe_divide(_safe_float(q0_row.get("ebitda")), revenue_q0),
+    "operating_cash_flow_margin_q0": _safe_divide(_safe_float(q0_row.get("operating_cash_flow")), revenue_q0),
+    "debt_to_equity_q0": (
+      float((_safe_float(q0_row.get("total_liabilities")) or 0.0) / max((_safe_float(q0_row.get("total_equity")) or 0.0), 1.0))
+      if (_safe_float(q0_row.get("total_equity")) or 0.0) > 0.0
+      else None
+    ),
+  }
+  if semantics == "percent_of_revenue" and q0 is not None:
+    metrics["lever_percent_of_revenue_q0"] = float(q0)
+    if float(q0) < 0.0 or float(q0) > 1.0:
+      return {
+        "pass": False,
+        "reason_code": "percent_of_revenue_out_of_range",
+        "reason": "percent_of_revenue_out_of_range",
+        "metrics": metrics,
+      }
+  if semantics in {"rate", "percent"} and q0 is not None:
+    metrics["lever_rate_q0"] = float(q0)
+    if float(q0) < 0.0 or float(q0) > 1.0:
+      return {
+        "pass": False,
+        "reason_code": "rate_out_of_range",
+        "reason": "rate_out_of_range",
+        "metrics": metrics,
+      }
+  if "unit price" in lever_lower and q0 is not None and float(q0) <= 0.0:
+    return {
+      "pass": False,
+      "reason_code": "unit_price_non_positive",
+      "reason": "unit_price_non_positive",
+      "metrics": metrics,
+    }
+  if "payroll" in lever_lower and q0 is not None and revenue_q0 > 0.0:
+    payroll_ratio = float(q0) / max(revenue_q0, 1.0)
+    metrics["payroll_to_revenue_q0"] = payroll_ratio
+    if payroll_ratio < 0.005:
+      return {
+        "pass": False,
+        "reason_code": "catastrophic_scale_failure",
+        "reason": "catastrophic_scale_failure",
+        "metrics": metrics,
+      }
+  if (
+    semantics == "percent_of_revenue"
+    and any(token in lever_lower for token in ("cost of goods sold", "cogs"))
+    and q0 is not None
+  ):
+    if float(q0) < 0.0 or float(q0) > 1.0:
+      return {
+        "pass": False,
+        "reason_code": "cogs_extreme_or_invalid",
+        "reason": "cogs_extreme_or_invalid",
+        "metrics": metrics,
+      }
+  return {
+    "pass": True,
+    "reason_code": "guardrail_passed",
+    "reason": "guardrail_passed",
+    "metrics": metrics,
+  }
+
+
+def _revenue_anchor_driver_role(lever_id: Any) -> Optional[str]:
+  lever = str(lever_id or "").strip()
+  if not lever.startswith("revenue::"):
+    return None
+  if lever.endswith("::Capacity"):
+    return "capacity"
+  if lever.endswith("::Unit Price"):
+    return "unit_price"
+  if lever.endswith("::Utilization"):
+    return "utilization"
+  return None
+
+
+def _revenue_anchor_group_key(lever_id: Any) -> Optional[str]:
+  lever = str(lever_id or "").strip()
+  role = _revenue_anchor_driver_role(lever)
+  if not role or "::" not in lever:
+    return None
+  return lever.rsplit("::", 1)[0]
+
+
+def _revenue_anchor_group_member_ids(
+  *,
+  selected_lever_ids: Optional[List[Any]],
+  lever_catalog_map: Optional[Dict[str, Dict[str, Any]]] = None,
+  anchor_value_map: Optional[Dict[str, Any]] = None,
+) -> Dict[str, List[str]]:
+  candidate_ids: Set[str] = set()
+  for source in (
+    selected_lever_ids or [],
+    list((lever_catalog_map or {}).keys()),
+    list((anchor_value_map or {}).keys()),
+  ):
+    for item in source:
+      normalized = str(item or "").strip()
+      if normalized:
+        candidate_ids.add(normalized)
+  grouped: Dict[str, Dict[str, str]] = {}
+  for lever_id in sorted(candidate_ids):
+    role = _revenue_anchor_driver_role(lever_id)
+    group_key = _revenue_anchor_group_key(lever_id)
+    if not role or not group_key:
+      continue
+    grouped.setdefault(group_key, {})[role] = lever_id
+  return {
+    group_key: [members[role] for role in ("capacity", "unit_price", "utilization") if members.get(role)]
+    for group_key, members in grouped.items()
+  }
+
+
+def _anchor_policy_lookup_by_tokens(
+  policy_map: Optional[Dict[str, Dict[str, Any]]],
+  token_options: Tuple[str, ...],
+) -> Dict[str, Any]:
+  for lever_id, policy in (policy_map or {}).items():
+    lever_lower = str(lever_id or "").strip().lower()
+    if any(token in lever_lower for token in token_options) and isinstance(policy, dict):
+      return copy.deepcopy(policy)
+  return {}
+
+
+def _q0_anchor_revenue_regime_payload(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  group_key: str,
+  member_ids: List[str],
+  anchor_value_map: Optional[Dict[str, Any]],
+  solved_finmo_json: Optional[Dict[str, Any]],
+  support_policy_map: Optional[Dict[str, Dict[str, Any]]],
+) -> Dict[str, Any]:
+  business = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  anchor_map = anchor_value_map if isinstance(anchor_value_map, dict) else {}
+  q0_row = _finmo_quarter_row_by_index(solved_finmo_json, 0)
+  revenue_q0 = float(_safe_float(q0_row.get("revenue")) or 0.0)
+
+  def _ratio(row: Dict[str, Any], field_name: str, revenue_value: float) -> Optional[float]:
+    return _safe_divide(_safe_float((row or {}).get(field_name)), revenue_value)
+
+  drivers: Dict[str, Dict[str, Any]] = {}
+  for lever_id in member_ids:
+    role = _revenue_anchor_driver_role(lever_id)
+    if not role:
+      continue
+    drivers[role] = {
+      "lever_id": lever_id,
+      "q0_value": _safe_float(anchor_map.get(lever_id)),
+    }
+
+  support_snapshot = {
+    "payroll_q0": _safe_float(q0_row.get("payroll")),
+    "payroll_to_revenue_q0": _ratio(q0_row, "payroll", revenue_q0),
+    "cogs_pct_q0": _ratio(q0_row, "cost_of_goods_sold", revenue_q0),
+    "marketing_pct_q0": _ratio(q0_row, "marketing", revenue_q0),
+    "g_and_a_pct_q0": _ratio(q0_row, "general_and_administrative", revenue_q0),
+    "gross_margin_pct_q0": _safe_divide(_safe_float(q0_row.get("gross_profit")), revenue_q0),
+    "ebitda_margin_pct_q0": _safe_divide(_safe_float(q0_row.get("ebitda")), revenue_q0),
+  }
+  support_anchor_policies = {
+    "payroll": _anchor_policy_lookup_by_tokens(support_policy_map, ("payroll",)),
+    "cost_of_goods_sold": _anchor_policy_lookup_by_tokens(support_policy_map, ("cost of goods sold", "cogs")),
+    "marketing": _anchor_policy_lookup_by_tokens(support_policy_map, ("marketing",)),
+    "general_and_administrative": _anchor_policy_lookup_by_tokens(support_policy_map, ("general & administrative",)),
+  }
+  return {
+    "draft_id": str(draft_id or "").strip(),
+    "business_name": str(business.get("name") or business.get("business_name") or "").strip(),
+    "business_type": str(ops.get("business_type") or "").strip(),
+    "naics": str(ops.get("business_naics_6") or "").strip(),
+    "naics_context": {
+      "title_or_proxy": str(ops.get("business_type") or "").strip() or None,
+      "business_description_summary": str(
+        ops.get("business_description_summary")
+        or business.get("business_description_summary")
+        or ""
+      ).strip() or None,
+      "unit_description": str(ops.get("unit_description") or "").strip() or None,
+    },
+    "group_key": str(group_key or "").strip(),
+    "drivers": drivers,
+    "revenue_q0": revenue_q0,
+    "derived_metrics": support_snapshot,
+    "support_anchor_policies": support_anchor_policies,
+  }
+
+
+def _q0_anchor_revenue_regime_guardrail_assessment(
+  *,
+  regime_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = regime_payload if isinstance(regime_payload, dict) else {}
+  metrics = copy.deepcopy(payload.get("derived_metrics") or {})
+  support_anchor_policies = (
+    payload.get("support_anchor_policies")
+    if isinstance(payload.get("support_anchor_policies"), dict)
+    else {}
+  )
+  payroll_policy = (
+    support_anchor_policies.get("payroll")
+    if isinstance(support_anchor_policies.get("payroll"), dict)
+    else {}
+  )
+  revenue_q0 = _safe_float(payload.get("revenue_q0"))
+  payroll_q0 = _safe_float((metrics or {}).get("payroll_q0"))
+  payroll_ratio_q0 = _safe_float((metrics or {}).get("payroll_to_revenue_q0"))
+  payroll_break_reason = str(payroll_policy.get("reason_code") or payroll_policy.get("reason") or "").strip()
+  payroll_policy_detail = str(
+    payroll_policy.get("reason_detail")
+    or payroll_policy.get("gpt_reason")
+    or payroll_policy.get("critical_failure_reason")
+    or ""
+  ).strip()
+  if payroll_ratio_q0 is not None and payroll_ratio_q0 < 0.005:
+    return {
+      "pass": False,
+      "reason_code": "revenue_regime_support_structure_implausible",
+      "reason": (
+        "Revenue-driver anchor implies "
+        f"{_format_currency(revenue_q0)} of Q0 revenue "
+        f"but only {_format_currency(payroll_q0)} of payroll "
+        f"({_financial_story_percent(payroll_ratio_q0, digits=1)} of revenue), which is too thin a support structure "
+        "for the implied operating scale."
+      ),
+      "mismatch_detected": "payroll_support_too_thin_for_implied_revenue_scale",
+      "metrics": metrics,
+      "guardrail_context": {
+        "implied_revenue_scale_q0": revenue_q0,
+        "supporting_payroll_q0": payroll_q0,
+        "supporting_payroll_ratio_q0": payroll_ratio_q0,
+      },
+    }
+  if payroll_policy and not bool(payroll_policy.get("use_q0_anchor")) and payroll_break_reason in {
+    "catastrophic_scale_failure",
+    "gpt_implausible",
+    "gpt_uncertain",
+  }:
+    return {
+      "pass": False,
+      "reason_code": "revenue_regime_support_structure_implausible",
+      "reason": (
+        "Revenue-driver anchor implies "
+        f"{_format_currency(revenue_q0)} of Q0 revenue "
+        f"against {_format_currency(payroll_q0)} of payroll "
+        f"({_financial_story_percent(payroll_ratio_q0, digits=1)} of revenue), and the supporting payroll anchor was already rejected "
+        f"as economically implausible ({payroll_break_reason})."
+        + (f" Payroll detail: {payroll_policy_detail}" if payroll_policy_detail else "")
+      ),
+      "mismatch_detected": "support_anchor_rejected_against_implied_revenue_scale",
+      "metrics": metrics,
+      "guardrail_context": {
+        "implied_revenue_scale_q0": revenue_q0,
+        "supporting_payroll_q0": payroll_q0,
+        "supporting_payroll_ratio_q0": payroll_ratio_q0,
+        "support_anchor_reason_code": payroll_break_reason or None,
+        "support_anchor_reason_detail": payroll_policy_detail or None,
+      },
+    }
+  return {
+    "pass": True,
+    "reason_code": "guardrail_passed",
+    "reason": "guardrail_passed",
+    "metrics": metrics,
+    "guardrail_context": {
+      "implied_revenue_scale_q0": revenue_q0,
+      "supporting_payroll_q0": payroll_q0,
+      "supporting_payroll_ratio_q0": payroll_ratio_q0,
+    },
+  }
+
+
+def _q0_anchor_plausibility_context_hash(
+  *,
+  draft_id: Any,
+  lever_id: Any,
+  payload: Optional[Dict[str, Any]],
+) -> str:
+  base = {
+    "draft_id": str(draft_id or "").strip(),
+    "lever_id": str(lever_id or "").strip(),
+    "payload": copy.deepcopy(payload or {}),
+  }
+  raw = json.dumps(base, ensure_ascii=False, sort_keys=True, default=str)
+  return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _q0_anchor_plausibility_cache() -> Dict[Tuple[str, str, str], Dict[str, Any]]:
+  cache = getattr(_q0_anchor_plausibility_cache, "_cache", None)
+  if not isinstance(cache, dict):
+    cache = {}
+    setattr(_q0_anchor_plausibility_cache, "_cache", cache)
+  return cache
+
+
+def _q0_anchor_final_policy_for_lever(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  solved_finmo_json: Optional[Dict[str, Any]],
+  lever_id: Any,
+  anchor_value: Any,
+  lever_entry: Optional[Dict[str, Any]],
+  lever_bound_lookup: Optional[Dict[str, Dict[str, Optional[float]]]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  gpt_call_budget_state: Optional[Dict[str, Any]] = None,
+  technical_policy: Optional[Dict[str, Any]] = None,
+  revenue_regime_policy: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  lever = str(lever_id or "").strip()
+  if isinstance(revenue_regime_policy, dict):
+    policy = copy.deepcopy(revenue_regime_policy)
+    policy["lever_id"] = lever
+    policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+    return policy
+  resolved_technical_policy = (
+    copy.deepcopy(technical_policy)
+    if isinstance(technical_policy, dict)
+    else _q0_anchor_policy_for_lever(
+      lever_id=lever_id,
+      anchor_value=anchor_value,
+      lever_entry=lever_entry,
+      lever_bound_lookup=lever_bound_lookup,
+      deterministic_numeric_guidance=deterministic_numeric_guidance,
+    )
+  )
+  policy = copy.deepcopy(resolved_technical_policy)
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  q0_row = _finmo_quarter_row_by_index(solved_finmo_json, 0)
+  guardrail = _q0_anchor_guardrail_assessment(
+    lever_id=lever,
+    lever_entry=entry,
+    q0_value=anchor_value,
+    finmo_q0_row=q0_row,
+  )
+  gpt_review_required = bool(resolved_technical_policy.get("use_q0_anchor")) and _q0_anchor_needs_gpt_plausibility(
+    lever_id=lever,
+    lever_entry=entry,
+  )
+  policy["technical_pass"] = bool(resolved_technical_policy.get("use_q0_anchor"))
+  policy["technical_policy"] = str(resolved_technical_policy.get("anchor_policy") or "").strip() or None
+  policy["technical_reason"] = str(resolved_technical_policy.get("reason") or "").strip() or None
+  policy["reason_code"] = str(policy.get("reason") or "").strip() or None
+  policy["reason_detail"] = None
+  policy["guardrail_pass"] = bool(guardrail.get("pass"))
+  policy["guardrail_reason_code"] = str(guardrail.get("reason_code") or guardrail.get("reason") or "").strip() or None
+  policy["guardrail_reason"] = str(guardrail.get("reason") or "").strip() or None
+  policy["metrics"] = copy.deepcopy(guardrail.get("metrics") or {})
+  policy["gpt_review_required"] = gpt_review_required
+  policy["gpt_review_status"] = "not_required"
+  policy["gpt_plausibility"] = None
+  policy["confidence"] = None
+  policy["gpt_reason"] = None
+  policy["key_factors"] = []
+  policy["anchor_context_hash"] = None
+  policy["cache_hit"] = False
+  policy["critical_failure_code"] = None
+  policy["critical_failure_reason"] = None
+  policy["gpt_review"] = {}
+  if not bool(resolved_technical_policy.get("use_q0_anchor")):
+    policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+    return policy
+  if not bool(guardrail.get("pass")):
+    policy["anchor_policy"] = "allow_anchor_break"
+    policy["use_q0_anchor"] = False
+    policy["allow_anchor_break"] = True
+    policy["reason_code"] = str(guardrail.get("reason_code") or "").strip() or "catastrophic_scale_failure"
+    policy["reason"] = str(guardrail.get("reason") or "").strip() or "catastrophic_scale_failure"
+    policy["reason_detail"] = str(guardrail.get("reason") or "").strip() or None
+    policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+    return policy
+  if not gpt_review_required:
+    policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+    return policy
+
+  budget_state = gpt_call_budget_state if isinstance(gpt_call_budget_state, dict) else {}
+  gpt_calls_used = int(_safe_float(budget_state.get("calls_used")) or 0)
+  gpt_calls_max = int(_safe_float(budget_state.get("max_calls")) or _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN)
+  review_payload = _run_q0_anchor_plausibility_review_cached(
+    draft_id=str(draft_id or "").strip(),
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    lever_id=lever,
+    lever_entry=copy.deepcopy(entry),
+    q0_value=anchor_value,
+    finmo_q0_row=copy.deepcopy(q0_row),
+    derived_metrics=copy.deepcopy(policy.get("metrics") or {}),
+    allow_new_call=gpt_calls_used < gpt_calls_max,
+  )
+  if not bool(review_payload.get("cache_hit")) and str(review_payload.get("status") or "").strip() not in {"cached_missing", ""}:
+    budget_state["calls_used"] = gpt_calls_used + 1
+    budget_state["max_calls"] = gpt_calls_max
+  policy["anchor_context_hash"] = str(review_payload.get("anchor_context_hash") or "").strip() or None
+  policy["cache_hit"] = bool(review_payload.get("cache_hit"))
+  policy["gpt_review_status"] = str(review_payload.get("status") or "").strip() or None
+  policy["gpt_review"] = {
+    "status": str(review_payload.get("status") or "").strip() or None,
+    "detail": str(review_payload.get("detail") or "").strip() or None,
+    "decision_source": str(review_payload.get("decision_source") or "").strip() or None,
+    "prompt_file": str(review_payload.get("prompt_file") or "").strip() or None,
+    "anchor_context_hash": str(review_payload.get("anchor_context_hash") or "").strip() or None,
+    "cache_hit": bool(review_payload.get("cache_hit")),
+  }
+  review_decision = (
+    review_payload.get("decision")
+    if isinstance(review_payload.get("decision"), dict)
+    else {}
+  )
+  review_status = str(review_payload.get("status") or "").strip()
+  if review_status != "completed":
+    policy["anchor_policy"] = "allow_anchor_break"
+    policy["use_q0_anchor"] = False
+    policy["allow_anchor_break"] = True
+    policy["reason_code"] = "gpt_uncertain"
+    policy["reason"] = str(review_payload.get("detail") or "").strip() or "gpt_uncertain"
+    policy["reason_detail"] = str(review_payload.get("detail") or "").strip() or None
+    policy["gpt_plausibility"] = "unavailable"
+    policy["critical_failure_code"] = (
+      "q0_anchor_plausibility_parse_failed"
+      if review_status == "failed_parse"
+      else "q0_anchor_plausibility_invalid_response"
+      if review_status == "failed_invalid_response"
+      else "q0_anchor_plausibility_failed"
+    )
+    policy["critical_failure_reason"] = (
+      f"Economic plausibility review did not complete for {lever}: {review_status or 'unknown_status'}."
+    )
+    policy["gpt_review"]["prompt_trace"] = copy.deepcopy(review_payload.get("prompt_trace") or {})
+    policy["gpt_review"]["raw_openai_response"] = copy.deepcopy(review_payload.get("raw_openai_response") or {})
+    policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+    return policy
+  plausibility = str(review_decision.get("anchor_plausibility") or "").strip().lower()
+  confidence = _safe_float(review_decision.get("confidence"))
+  prompt_trace = review_payload.get("prompt_trace") if isinstance(review_payload.get("prompt_trace"), dict) else {}
+  raw_response = review_payload.get("raw_openai_response") if isinstance(review_payload.get("raw_openai_response"), dict) else {}
+  policy["gpt_plausibility"] = plausibility or None
+  policy["confidence"] = float(confidence) if confidence is not None else None
+  policy["gpt_reason"] = str(review_decision.get("reason") or "").strip() or None
+  policy["key_factors"] = [
+    str(item).strip()
+    for item in (review_decision.get("key_factors") or [])
+    if str(item).strip()
+  ]
+  if not prompt_trace:
+    policy["critical_failure_code"] = "q0_anchor_plausibility_missing"
+    policy["critical_failure_reason"] = f"Economic plausibility review for {lever} completed without prompt trace."
+  elif not raw_response:
+    policy["critical_failure_code"] = "q0_anchor_plausibility_missing"
+    policy["critical_failure_reason"] = f"Economic plausibility review for {lever} completed without raw GPT response."
+  elif plausibility not in {"plausible", "implausible", "uncertain"}:
+    policy["critical_failure_code"] = "q0_anchor_plausibility_invalid_response"
+    policy["critical_failure_reason"] = f"Economic plausibility review for {lever} returned invalid anchor_plausibility={plausibility!r}."
+  if policy.get("critical_failure_code"):
+    policy["anchor_policy"] = "allow_anchor_break"
+    policy["use_q0_anchor"] = False
+    policy["allow_anchor_break"] = True
+    policy["reason_code"] = "gpt_uncertain"
+    policy["reason"] = str(policy.get("critical_failure_reason") or "").strip() or "gpt_uncertain"
+    policy["reason_detail"] = str(policy.get("critical_failure_reason") or "").strip() or None
+    policy["gpt_review"]["prompt_trace"] = copy.deepcopy(prompt_trace)
+    policy["gpt_review"]["raw_openai_response"] = copy.deepcopy(raw_response)
+    policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+    return policy
+  if plausibility == "implausible":
+    policy["anchor_policy"] = "allow_anchor_break"
+    policy["use_q0_anchor"] = False
+    policy["allow_anchor_break"] = True
+    policy["reason_code"] = "gpt_implausible"
+    policy["reason"] = str(review_decision.get("reason") or "").strip() or "gpt_implausible"
+    policy["reason_detail"] = str(review_decision.get("reason") or "").strip() or None
+  elif plausibility == "uncertain":
+    policy["anchor_policy"] = "allow_anchor_break"
+    policy["use_q0_anchor"] = False
+    policy["allow_anchor_break"] = True
+    policy["reason_code"] = "gpt_uncertain"
+    policy["reason"] = str(review_decision.get("reason") or "").strip() or "gpt_uncertain"
+    policy["reason_detail"] = str(review_decision.get("reason") or "").strip() or None
+  else:
+    policy["anchor_policy"] = "use_q0_anchor"
+    policy["use_q0_anchor"] = True
+    policy["allow_anchor_break"] = False
+    policy["reason_code"] = "gpt_plausible"
+    policy["reason"] = str(review_decision.get("reason") or "").strip() or "gpt_plausible"
+    policy["reason_detail"] = str(review_decision.get("reason") or "").strip() or None
+  policy["final_policy"] = str(policy.get("anchor_policy") or "").strip() or None
+  return policy
+
+
+def _q0_revenue_regime_policy_overrides(
+  *,
+  draft_id: str,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  solved_finmo_json: Optional[Dict[str, Any]],
+  selected_lever_ids: Optional[List[Any]],
+  anchor_value_map: Optional[Dict[str, Any]],
+  lever_catalog_map: Optional[Dict[str, Dict[str, Any]]],
+  technical_policy_map: Optional[Dict[str, Dict[str, Any]]],
+  support_policy_map: Optional[Dict[str, Dict[str, Any]]],
+  gpt_call_budget_state: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Dict[str, Any]]:
+  selected_set = {
+    str(item).strip()
+    for item in (selected_lever_ids or [])
+    if str(item).strip()
+  }
+  group_members = _revenue_anchor_group_member_ids(
+    selected_lever_ids=selected_lever_ids,
+    lever_catalog_map=copy.deepcopy(lever_catalog_map or {}),
+    anchor_value_map=copy.deepcopy(anchor_value_map or {}),
+  )
+  override_map: Dict[str, Dict[str, Any]] = {}
+  for group_key, member_ids in group_members.items():
+    selected_group_members = [lever_id for lever_id in member_ids if lever_id in selected_set]
+    if not selected_group_members:
+      continue
+    member_technical_policies = [
+      copy.deepcopy((technical_policy_map or {}).get(lever_id) or {})
+      for lever_id in member_ids
+      if lever_id
+    ]
+    if any(not bool(policy.get("use_q0_anchor")) for policy in member_technical_policies if policy):
+      for lever_id in selected_group_members:
+        technical_policy = copy.deepcopy((technical_policy_map or {}).get(lever_id) or {})
+        technical_reason = str(technical_policy.get("reason") or "").strip() or None
+        override_map[lever_id] = {
+          **technical_policy,
+          "lever_id": lever_id,
+          "anchor_policy": "allow_anchor_break",
+          "use_q0_anchor": False,
+          "allow_anchor_break": True,
+          "reason_code": "revenue_regime_member_technically_inadmissible",
+          "reason": (
+            f"Revenue-driver anchor cannot be used because at least one driver in the same revenue regime "
+            f"failed the technical admissibility gate before group plausibility could be evaluated."
+          ),
+          "reason_detail": (
+            f"Revenue regime group {group_key} contains a driver that is already technically inadmissible. "
+            "The combined revenue anchor must break as a group."
+          ),
+          "technical_pass": bool(technical_policy.get("use_q0_anchor")),
+          "technical_policy": str(technical_policy.get("anchor_policy") or "").strip() or None,
+          "technical_reason": technical_reason,
+          "guardrail_pass": False,
+          "guardrail_reason_code": "revenue_regime_member_technically_inadmissible",
+          "guardrail_reason": (
+            f"Revenue regime group {group_key} contains a technically inadmissible driver."
+          ),
+          "metrics": {},
+          "gpt_review_required": False,
+          "gpt_review_status": "skipped_member_technical_fail",
+          "gpt_plausibility": None,
+          "confidence": None,
+          "gpt_reason": None,
+          "key_factors": [],
+          "anchor_context_hash": None,
+          "cache_hit": False,
+          "critical_failure_code": None,
+          "critical_failure_reason": None,
+          "gpt_review": {},
+          "revenue_regime_group_key": group_key,
+          "revenue_regime_member_ids": copy.deepcopy(member_ids),
+          "revenue_regime_scope": "group",
+          "final_policy": "allow_anchor_break",
+        }
+      continue
+
+    regime_payload = _q0_anchor_revenue_regime_payload(
+      draft_id=str(draft_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      group_key=group_key,
+      member_ids=copy.deepcopy(member_ids),
+      anchor_value_map=copy.deepcopy(anchor_value_map or {}),
+      solved_finmo_json=copy.deepcopy(solved_finmo_json or {}),
+      support_policy_map=copy.deepcopy(support_policy_map or {}),
+    )
+    guardrail = _q0_anchor_revenue_regime_guardrail_assessment(
+      regime_payload=copy.deepcopy(regime_payload),
+    )
+    if not bool(guardrail.get("pass")):
+      for lever_id in selected_group_members:
+        technical_policy = copy.deepcopy((technical_policy_map or {}).get(lever_id) or {})
+        override_map[lever_id] = {
+          **technical_policy,
+          "lever_id": lever_id,
+          "anchor_policy": "allow_anchor_break",
+          "use_q0_anchor": False,
+          "allow_anchor_break": True,
+          "reason_code": str(guardrail.get("reason_code") or "").strip() or "revenue_regime_support_structure_implausible",
+          "reason": str(guardrail.get("reason") or "").strip() or "Revenue regime support structure is implausible.",
+          "reason_detail": str(guardrail.get("reason") or "").strip() or None,
+          "technical_pass": bool(technical_policy.get("use_q0_anchor")),
+          "technical_policy": str(technical_policy.get("anchor_policy") or "").strip() or None,
+          "technical_reason": str(technical_policy.get("reason") or "").strip() or None,
+          "guardrail_pass": False,
+          "guardrail_reason_code": str(guardrail.get("reason_code") or "").strip() or None,
+          "guardrail_reason": str(guardrail.get("reason") or "").strip() or None,
+          "metrics": copy.deepcopy(guardrail.get("metrics") or {}),
+          "mismatch_detected": str(guardrail.get("mismatch_detected") or "").strip() or None,
+          "guardrail_context": copy.deepcopy(guardrail.get("guardrail_context") or {}),
+          "gpt_review_required": False,
+          "gpt_review_status": "skipped_guardrail_fail",
+          "gpt_plausibility": None,
+          "confidence": None,
+          "gpt_reason": None,
+          "key_factors": [],
+          "anchor_context_hash": None,
+          "cache_hit": False,
+          "critical_failure_code": None,
+          "critical_failure_reason": None,
+          "gpt_review": {},
+          "revenue_regime_group_key": group_key,
+          "revenue_regime_member_ids": copy.deepcopy(member_ids),
+          "revenue_regime_scope": "group",
+          "final_policy": "allow_anchor_break",
+        }
+      continue
+
+    budget_state = gpt_call_budget_state if isinstance(gpt_call_budget_state, dict) else {}
+    gpt_calls_used = int(_safe_float(budget_state.get("calls_used")) or 0)
+    gpt_calls_max = int(_safe_float(budget_state.get("max_calls")) or _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN)
+    review_payload = _run_q0_anchor_revenue_regime_review_cached(
+      draft_id=str(draft_id or "").strip(),
+      group_key=group_key,
+      regime_payload=copy.deepcopy(regime_payload),
+      allow_new_call=gpt_calls_used < gpt_calls_max,
+    )
+    if not bool(review_payload.get("cache_hit")) and str(review_payload.get("status") or "").strip() not in {"cached_missing", ""}:
+      budget_state["calls_used"] = gpt_calls_used + 1
+      budget_state["max_calls"] = gpt_calls_max
+
+    review_decision = (
+      review_payload.get("decision")
+      if isinstance(review_payload.get("decision"), dict)
+      else {}
+    )
+    review_status = str(review_payload.get("status") or "").strip()
+    plausibility = str(review_decision.get("anchor_plausibility") or "").strip().lower()
+    confidence = _safe_float(review_decision.get("confidence"))
+    prompt_trace = review_payload.get("prompt_trace") if isinstance(review_payload.get("prompt_trace"), dict) else {}
+    raw_response = review_payload.get("raw_openai_response") if isinstance(review_payload.get("raw_openai_response"), dict) else {}
+    critical_failure_code = None
+    critical_failure_reason = None
+    if review_status != "completed":
+      critical_failure_code = (
+        "q0_anchor_revenue_regime_plausibility_parse_failed"
+        if review_status == "failed_parse"
+        else "q0_anchor_revenue_regime_plausibility_invalid_response"
+        if review_status == "failed_invalid_response"
+        else "q0_anchor_revenue_regime_plausibility_failed"
+      )
+      critical_failure_reason = (
+        f"Revenue regime plausibility review did not complete for {group_key}: {review_status or 'unknown_status'}."
+      )
+      plausibility = "unavailable"
+    elif not prompt_trace:
+      critical_failure_code = "q0_anchor_revenue_regime_plausibility_missing"
+      critical_failure_reason = f"Revenue regime plausibility review for {group_key} completed without prompt trace."
+    elif not raw_response:
+      critical_failure_code = "q0_anchor_revenue_regime_plausibility_missing"
+      critical_failure_reason = f"Revenue regime plausibility review for {group_key} completed without raw GPT response."
+    elif plausibility not in {"plausible", "implausible", "uncertain"}:
+      critical_failure_code = "q0_anchor_revenue_regime_plausibility_invalid_response"
+      critical_failure_reason = f"Revenue regime plausibility review for {group_key} returned invalid anchor_plausibility={plausibility!r}."
+
+    if critical_failure_code:
+      group_anchor_policy = "allow_anchor_break"
+      group_reason = "revenue_regime_gpt_uncertain"
+      group_use_q0_anchor = False
+      group_allow_anchor_break = True
+    elif plausibility == "implausible":
+      group_anchor_policy = "allow_anchor_break"
+      group_reason = "revenue_regime_gpt_implausible"
+      group_use_q0_anchor = False
+      group_allow_anchor_break = True
+    elif plausibility == "uncertain":
+      group_anchor_policy = "allow_anchor_break"
+      group_reason = "revenue_regime_gpt_uncertain"
+      group_use_q0_anchor = False
+      group_allow_anchor_break = True
+    else:
+      group_anchor_policy = "use_q0_anchor"
+      group_reason = "revenue_regime_gpt_plausible"
+      group_use_q0_anchor = True
+      group_allow_anchor_break = False
+
+    for lever_id in selected_group_members:
+      technical_policy = copy.deepcopy((technical_policy_map or {}).get(lever_id) or {})
+      override_map[lever_id] = {
+        **technical_policy,
+        "lever_id": lever_id,
+        "anchor_policy": group_anchor_policy,
+        "use_q0_anchor": group_use_q0_anchor,
+        "allow_anchor_break": group_allow_anchor_break,
+        "reason_code": group_reason,
+        "reason": str(review_decision.get("reason") or "").strip() or group_reason,
+        "reason_detail": str(review_decision.get("reason") or "").strip() or None,
+        "technical_pass": bool(technical_policy.get("use_q0_anchor")),
+        "technical_policy": str(technical_policy.get("anchor_policy") or "").strip() or None,
+        "technical_reason": str(technical_policy.get("reason") or "").strip() or None,
+        "guardrail_pass": True,
+        "guardrail_reason_code": str(guardrail.get("reason_code") or "").strip() or None,
+        "guardrail_reason": str(guardrail.get("reason") or "").strip() or None,
+        "metrics": copy.deepcopy(guardrail.get("metrics") or {}),
+        "gpt_review_required": True,
+        "gpt_review_status": review_status or None,
+        "gpt_plausibility": plausibility or None,
+        "confidence": float(confidence) if confidence is not None else None,
+        "gpt_reason": str(review_decision.get("reason") or "").strip() or None,
+        "key_factors": [
+          str(item).strip()
+          for item in (review_decision.get("key_factors") or [])
+          if str(item).strip()
+        ],
+        "anchor_context_hash": str(review_payload.get("anchor_context_hash") or "").strip() or None,
+        "cache_hit": bool(review_payload.get("cache_hit")),
+        "critical_failure_code": critical_failure_code,
+        "critical_failure_reason": critical_failure_reason,
+        "gpt_review": {
+          "status": review_status or None,
+          "detail": str(review_payload.get("detail") or "").strip() or None,
+          "decision_source": str(review_payload.get("decision_source") or "").strip() or None,
+          "prompt_file": str(review_payload.get("prompt_file") or "").strip() or None,
+          "anchor_context_hash": str(review_payload.get("anchor_context_hash") or "").strip() or None,
+          "cache_hit": bool(review_payload.get("cache_hit")),
+          "scope": "revenue_regime_group",
+          "group_key": group_key,
+          "group_member_ids": copy.deepcopy(member_ids),
+          "prompt_trace": copy.deepcopy(prompt_trace),
+          "raw_openai_response": copy.deepcopy(raw_response),
+        },
+        "revenue_regime_group_key": group_key,
+        "revenue_regime_member_ids": copy.deepcopy(member_ids),
+        "revenue_regime_scope": "group",
+        "final_policy": group_anchor_policy,
+      }
+  return override_map
 
 
 def _build_q0_anchor_context_payload(
@@ -16501,11 +17805,9 @@ def _build_q0_anchor_context_payload(
   )
   focused_lever_anchor_policies: List[Dict[str, Any]] = []
   for lever_id in focused_lever_ids:
-    current_values = live_value_map.get(lever_id) if isinstance(live_value_map.get(lever_id), list) else []
     policy = _q0_anchor_policy_for_lever(
       lever_id=lever_id,
       anchor_value=anchor_value_map.get(lever_id),
-      current_q1_value=(current_values[0] if current_values else None),
       lever_entry=lever_catalog_map.get(lever_id),
       lever_bound_lookup=lever_bound_lookup,
       deterministic_numeric_guidance=deterministic_numeric_guidance,
@@ -16520,11 +17822,9 @@ def _build_q0_anchor_context_payload(
         "anchor_policy": str(policy.get("anchor_policy") or "").strip() or None,
         "use_q0_anchor": bool(policy.get("use_q0_anchor")),
         "allow_anchor_break": bool(policy.get("allow_anchor_break")),
+        "reason_code": str(policy.get("reason_code") or policy.get("reason") or "").strip() or None,
         "reason": str(policy.get("reason") or "").strip() or None,
         "q0_value": _safe_float(policy.get("q0_value")),
-        "current_q1_value": _safe_float(policy.get("current_q1_value")),
-        "repair_pressure_abs": _safe_float(policy.get("repair_pressure_abs")),
-        "repair_pressure_issue_codes": copy.deepcopy(policy.get("repair_pressure_issue_codes") or []),
       }
     )
   return {
@@ -16546,6 +17846,193 @@ def _build_q0_anchor_context_payload(
     "finmo_stub_snapshot": _q0_finmo_stub_snapshot(finmo_json),
     "focused_lever_anchor_policies": focused_lever_anchor_policies,
   }
+
+
+def _q0_anchor_contract_validation_details(
+  *,
+  selected_lever_ids: Optional[List[Any]],
+  q0_anchor_policy_map: Optional[Dict[str, Dict[str, Any]]],
+  expected_anchor_value_map: Optional[Dict[str, Any]] = None,
+  lever_bound_lookup: Optional[Dict[str, Dict[str, Optional[float]]]] = None,
+) -> List[Dict[str, Any]]:
+  lever_ids = [
+    str(item).strip()
+    for item in (selected_lever_ids or [])
+    if str(item).strip()
+  ]
+  policy_map = q0_anchor_policy_map if isinstance(q0_anchor_policy_map, dict) else {}
+  expected_map = expected_anchor_value_map if isinstance(expected_anchor_value_map, dict) else {}
+  bound_lookup = lever_bound_lookup if isinstance(lever_bound_lookup, dict) else {}
+  details: List[Dict[str, Any]] = []
+  allowed_use_reasons = {
+    "q0_anchor_is_deterministically_admissible",
+    "q0_anchor_is_plausible_and_directionally_usable",
+    "gpt_plausible",
+    "revenue_regime_gpt_plausible",
+  }
+  allowed_break_reasons = {
+    "no_q0_anchor_available",
+    "q0_anchor_outside_deterministic_bounds",
+    "catastrophic_scale_failure",
+    "percent_of_revenue_out_of_range",
+    "rate_out_of_range",
+    "unit_price_non_positive",
+    "cogs_extreme_or_invalid",
+    "gpt_implausible",
+    "gpt_uncertain",
+    "revenue_regime_member_technically_inadmissible",
+    "revenue_regime_support_structure_implausible",
+    "revenue_regime_gpt_implausible",
+    "revenue_regime_gpt_uncertain",
+  }
+  for lever_id in lever_ids:
+    policy = policy_map.get(lever_id) if isinstance(policy_map.get(lever_id), dict) else None
+    expected_q0_value = _safe_float(expected_map.get(lever_id))
+    if policy is None:
+      details.append(
+        {
+          "error": "q0_anchor_policy_missing",
+          "lever_id": lever_id,
+          "quarter": 0,
+          "previous_value": None,
+          "current_value": None,
+          "reason": f"Missing Q0 anchor policy for selected lever {lever_id}.",
+          "validation_category": "q0_anchor_contract",
+        }
+      )
+      continue
+    use_q0_anchor = bool(policy.get("use_q0_anchor"))
+    allow_anchor_break = bool(policy.get("allow_anchor_break"))
+    reason = str(policy.get("reason") or "").strip()
+    reason_code = str(policy.get("reason_code") or reason).strip()
+    q0_value = _safe_float(policy.get("q0_value"))
+    critical_failure_code = str(policy.get("critical_failure_code") or "").strip()
+    critical_failure_reason = str(policy.get("critical_failure_reason") or "").strip()
+    bounds = (
+      bound_lookup.get(lever_id)
+      if isinstance(bound_lookup.get(lever_id), dict)
+      else {}
+    )
+    min_value = _safe_float((bounds or {}).get("min_value"))
+    max_value = _safe_float((bounds or {}).get("max_value"))
+    if expected_q0_value is not None and q0_value is not None:
+      tolerance = max(1e-6, abs(float(expected_q0_value)) * 1e-6)
+      if abs(float(q0_value) - float(expected_q0_value)) > tolerance:
+        details.append(
+          {
+            "error": "q0_anchor_value_mismatch",
+            "lever_id": lever_id,
+            "quarter": 0,
+            "previous_value": expected_q0_value,
+            "current_value": q0_value,
+            "reason": f"Q0 anchor for {lever_id} does not match the intake-derived anchor value.",
+            "validation_category": "q0_anchor_contract",
+          }
+        )
+    if use_q0_anchor == allow_anchor_break:
+      details.append(
+        {
+            "error": "q0_anchor_policy_inconsistent",
+            "lever_id": lever_id,
+            "quarter": 0,
+            "previous_value": q0_value,
+            "current_value": q0_value,
+            "reason": (
+              f"Q0 anchor policy for {lever_id} must choose exactly one of "
+              "use_q0_anchor or allow_anchor_break."
+          ),
+          "validation_category": "q0_anchor_contract",
+        }
+      )
+    if not reason and not reason_code:
+      details.append(
+        {
+          "error": "q0_anchor_policy_missing_reason",
+          "lever_id": lever_id,
+          "quarter": 0,
+          "previous_value": q0_value,
+          "current_value": q0_value,
+          "reason": f"Q0 anchor policy for {lever_id} must include an explicit reason.",
+          "validation_category": "q0_anchor_contract",
+        }
+      )
+    if critical_failure_code:
+      details.append(
+        {
+          "error": critical_failure_code,
+          "lever_id": lever_id,
+          "quarter": 0,
+          "previous_value": q0_value,
+          "current_value": q0_value,
+          "reason": critical_failure_reason or f"Critical anchor plausibility failure for {lever_id}.",
+          "validation_category": "q0_anchor_contract",
+        }
+      )
+    if use_q0_anchor:
+      if q0_value is None:
+        details.append(
+          {
+            "error": "q0_anchor_value_missing_when_required",
+            "lever_id": lever_id,
+            "quarter": 0,
+            "previous_value": None,
+            "current_value": None,
+            "reason": f"Q0 anchor policy for {lever_id} requires a Q0 value when use_q0_anchor is true.",
+            "validation_category": "q0_anchor_contract",
+          }
+        )
+      if reason_code and reason_code not in allowed_use_reasons:
+        details.append(
+          {
+            "error": "q0_anchor_policy_reason_inconsistent",
+            "lever_id": lever_id,
+            "quarter": 0,
+            "previous_value": q0_value,
+            "current_value": q0_value,
+            "reason": (
+              f"Q0 anchor policy for {lever_id} is marked use_q0_anchor but has inconsistent reason {reason_code}."
+            ),
+            "validation_category": "q0_anchor_contract",
+          }
+        )
+      if q0_value is not None:
+        if min_value is not None and float(q0_value) < float(min_value) - 1e-9:
+          details.append(
+            {
+              "error": "q0_anchor_use_policy_out_of_bounds",
+              "lever_id": lever_id,
+              "quarter": 0,
+              "previous_value": q0_value,
+              "current_value": q0_value,
+              "reason": f"anchor_policy=use_q0_anchor for {lever_id} but Q0 is below deterministic bounds.",
+              "validation_category": "q0_anchor_contract",
+            }
+          )
+        if max_value is not None and float(q0_value) > float(max_value) + 1e-9:
+          details.append(
+            {
+              "error": "q0_anchor_use_policy_out_of_bounds",
+              "lever_id": lever_id,
+              "quarter": 0,
+              "previous_value": q0_value,
+              "current_value": q0_value,
+              "reason": f"anchor_policy=use_q0_anchor for {lever_id} but Q0 is above deterministic bounds.",
+              "validation_category": "q0_anchor_contract",
+            }
+          )
+    elif allow_anchor_break and reason_code and reason_code not in allowed_break_reasons:
+      details.append(
+        {
+          "error": "q0_anchor_break_reason_unrecognized",
+          "lever_id": lever_id,
+          "quarter": 0,
+          "previous_value": q0_value,
+          "current_value": q0_value,
+          "reason": f"Q0 anchor break for {lever_id} has unrecognized reason {reason_code}.",
+          "validation_category": "q0_anchor_contract",
+        }
+      )
+  return details
 
 
 def _focus_lever_ids_from_issue_packets(
@@ -17186,9 +18673,16 @@ def _build_final_stabilizer_pass_plan(
 
 def _build_unified_convergence_pass_plan(
   *,
-  review_decision_payload: Optional[Dict[str, Any]],
-  solved_model_input_json: Optional[Dict[str, Any]],
-  financials_json: Optional[Dict[str, Any]],
+  draft_id: str = "",
+  business_facts: Optional[Dict[str, Any]] = None,
+  review_decision_payload: Optional[Dict[str, Any]] = None,
+  solved_model_input_json: Optional[Dict[str, Any]] = None,
+  solved_finmo_json: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  financials_year1_json: Optional[Dict[str, Any]] = None,
+  marketing_model_json: Optional[Dict[str, Any]] = None,
   numeric_solver_contract: Optional[Dict[str, Any]] = None,
   deterministic_numeric_guidance: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -17260,22 +18754,120 @@ def _build_unified_convergence_pass_plan(
   writable_lever_catalog = _build_writable_lever_review_catalog(solved_model_input_json)
   leverage_catalog_map = _lever_review_catalog_entry_map(writable_lever_catalog)
   lever_bound_lookup = _deterministic_lever_bound_lookup(guidance_packet)
-  q0_anchor_policy_map = {
+  try:
+    from client_intake_and_finmo.finmo_bridge import apply_p_and_l_q0_anchor_to_model_input  # type: ignore
+  except Exception:
+    apply_p_and_l_q0_anchor_to_model_input = None  # type: ignore
+  expected_anchor_model_input = (
+    apply_p_and_l_q0_anchor_to_model_input(
+      model_input_json=copy.deepcopy(solved_model_input_json or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      marketing_model_json=copy.deepcopy(marketing_model_json or {}),
+    )
+    if callable(apply_p_and_l_q0_anchor_to_model_input)
+    else copy.deepcopy(solved_model_input_json or {})
+  )
+  expected_anchor_value_map = _solved_lever_anchor_value_map(expected_anchor_model_input)
+  gpt_call_budget_state = {
+    "calls_used": 0,
+    "max_calls": _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN,
+  }
+  support_anchor_assessment_lever_ids = [
+    lever_id
+    for lever_id in sorted(
+      set(list(anchor_value_map.keys()) + list(leverage_catalog_map.keys()) + list(baseline_map.keys()))
+    )
+    if any(
+      token in str(lever_id or "").strip().lower()
+      for token in ("payroll", "cost of goods sold", "marketing", "general & administrative", "interest", "tax")
+    )
+  ]
+  policy_assessment_lever_ids = list(
+    dict.fromkeys(
+      [
+        str(item).strip()
+        for item in ((lever_selection or []) + support_anchor_assessment_lever_ids)
+        if str(item).strip()
+      ]
+    )
+  )
+  technical_q0_anchor_policy_map = {
     lever_id: _q0_anchor_policy_for_lever(
       lever_id=lever_id,
       anchor_value=anchor_value_map.get(lever_id),
-      current_q1_value=(
-        (baseline_map.get(lever_id) or [None])[0]
-        if isinstance(baseline_map.get(lever_id), list)
-        else None
-      ),
       lever_entry=leverage_catalog_map.get(lever_id),
       lever_bound_lookup=lever_bound_lookup,
       deterministic_numeric_guidance=guidance_packet,
     )
-    for lever_id in lever_selection
+    for lever_id in policy_assessment_lever_ids
     if lever_id
   }
+  non_revenue_q0_anchor_policy_map = {
+    lever_id: _q0_anchor_final_policy_for_lever(
+      draft_id=str(draft_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      solved_finmo_json=copy.deepcopy(solved_finmo_json or {}),
+      lever_id=lever_id,
+      anchor_value=anchor_value_map.get(lever_id),
+      lever_entry=leverage_catalog_map.get(lever_id),
+      lever_bound_lookup=lever_bound_lookup,
+      deterministic_numeric_guidance=guidance_packet,
+      gpt_call_budget_state=gpt_call_budget_state,
+      technical_policy=technical_q0_anchor_policy_map.get(lever_id),
+    )
+    for lever_id in policy_assessment_lever_ids
+    if lever_id and not _revenue_anchor_group_key(lever_id)
+  }
+  revenue_regime_q0_anchor_policy_map = _q0_revenue_regime_policy_overrides(
+    draft_id=str(draft_id or "").strip(),
+    business_facts=copy.deepcopy(business_facts or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    solved_finmo_json=copy.deepcopy(solved_finmo_json or {}),
+    selected_lever_ids=copy.deepcopy(lever_selection),
+    anchor_value_map=copy.deepcopy(anchor_value_map),
+    lever_catalog_map=copy.deepcopy(leverage_catalog_map),
+    technical_policy_map=copy.deepcopy(technical_q0_anchor_policy_map),
+    support_policy_map=copy.deepcopy(non_revenue_q0_anchor_policy_map),
+    gpt_call_budget_state=gpt_call_budget_state,
+  )
+  q0_anchor_policy_map = {}
+  for lever_id in (lever_selection or []):
+    normalized_lever_id = str(lever_id or "").strip()
+    if not normalized_lever_id:
+      continue
+    if normalized_lever_id in revenue_regime_q0_anchor_policy_map:
+      q0_anchor_policy_map[normalized_lever_id] = copy.deepcopy(
+        revenue_regime_q0_anchor_policy_map.get(normalized_lever_id) or {}
+      )
+      continue
+    if normalized_lever_id in non_revenue_q0_anchor_policy_map:
+      q0_anchor_policy_map[normalized_lever_id] = copy.deepcopy(
+        non_revenue_q0_anchor_policy_map.get(normalized_lever_id) or {}
+      )
+      continue
+    q0_anchor_policy_map[normalized_lever_id] = _q0_anchor_final_policy_for_lever(
+      draft_id=str(draft_id or "").strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      solved_finmo_json=copy.deepcopy(solved_finmo_json or {}),
+      lever_id=normalized_lever_id,
+      anchor_value=anchor_value_map.get(normalized_lever_id),
+      lever_entry=leverage_catalog_map.get(normalized_lever_id),
+      lever_bound_lookup=lever_bound_lookup,
+      deterministic_numeric_guidance=guidance_packet,
+      gpt_call_budget_state=gpt_call_budget_state,
+      technical_policy=technical_q0_anchor_policy_map.get(normalized_lever_id),
+    )
+  q0_anchor_validation_details = _q0_anchor_contract_validation_details(
+    selected_lever_ids=copy.deepcopy(lever_selection),
+    q0_anchor_policy_map=copy.deepcopy(q0_anchor_policy_map),
+    expected_anchor_value_map=copy.deepcopy(expected_anchor_value_map),
+    lever_bound_lookup=copy.deepcopy(lever_bound_lookup),
+  )
   eligible_lever_ids = _solver_contract_eligible_lever_ids(
     numeric_solver_contract=solver_contract,
     target_quarters=targeted_quarters,
@@ -17479,6 +19071,16 @@ def _build_unified_convergence_pass_plan(
   elif not touched_lever_ids:
     status = "ready_no_valid_solver_contract"
     next_step = "review_unified_targets_levers_and_bands_before_solver"
+  elif q0_anchor_validation_details:
+    status = "ready_no_valid_solver_contract"
+    next_step = "fix_q0_anchor_contract_before_solver"
+    warnings.extend(
+      [
+        f"unified_cycle: {str(item.get('reason') or '').strip()}"
+        for item in q0_anchor_validation_details
+        if str(item.get("reason") or "").strip()
+      ]
+    )
   non_positive_selected_issue_impacts = [
     item
     for item in selected_issue_expected_impacts
@@ -17528,6 +19130,22 @@ def _build_unified_convergence_pass_plan(
         "current_value": _safe_float(detail.get("current_value")),
         "reason": str(detail.get("reason") or "").strip() or None,
         "validation_category": str(detail.get("validation_category") or "").strip() or None,
+      }
+    )
+  for detail in q0_anchor_validation_details:
+    pre_solver_validation_fail_flags.append("q0_anchor_contract_failed")
+    error_code = str(detail.get("error") or "").strip()
+    if error_code in _Q0_ANCHOR_PLAUSIBILITY_TEST_MODE_FAIL_FLAGS:
+      pre_solver_validation_fail_flags.append(error_code)
+    pre_solver_validation_errors.append(
+      {
+        "error": str(detail.get("error") or "").strip() or "q0_anchor_contract_failed",
+        "lever_id": str(detail.get("lever_id") or "").strip() or None,
+        "quarter": int(_safe_float(detail.get("quarter")) or 0) or None,
+        "previous_value": _safe_float(detail.get("previous_value")),
+        "current_value": _safe_float(detail.get("current_value")),
+        "reason": str(detail.get("reason") or "").strip() or None,
+        "validation_category": str(detail.get("validation_category") or "").strip() or "q0_anchor_contract",
       }
     )
   if not targets_by_quarter:
@@ -17646,8 +19264,10 @@ def _build_unified_convergence_pass_plan(
     "auto_generated_lever_adjustment_count": len(auto_lever_adjustments),
     "selected_issue_expected_impacts": copy.deepcopy(selected_issue_expected_impacts),
     "q0_anchor_policies": copy.deepcopy(list(q0_anchor_policy_map.values())),
+    "q0_anchor_plausibility_call_budget": copy.deepcopy(gpt_call_budget_state),
     "shape_sensitive_requirements": copy.deepcopy(shape_sensitive_requirements),
     "pre_solver_validation": copy.deepcopy(pre_solver_validation),
+    "q0_anchor_validation_details": copy.deepcopy(q0_anchor_validation_details),
     "deterministic_guidance_metric_count": len(guidance_packet.get("metric_pressure_packets") or []),
     "deterministic_guidance_lever_count": len(guidance_packet.get("lever_band_scaffold") or []),
     "lever_selection": copy.deepcopy(lever_selection),
@@ -27860,9 +29480,16 @@ def _run_unified_post_grid_system_run(
       ),
     )
     unified_convergence_plan = _build_unified_convergence_pass_plan(
+      draft_id=str(draft_id).strip(),
+      business_facts=copy.deepcopy(business_facts or {}),
       review_decision_payload=copy.deepcopy(unified_convergence_decision),
       solved_model_input_json=copy.deepcopy(final_model_input_json),
+      solved_finmo_json=copy.deepcopy(final_finmo_json),
+      ops_json=copy.deepcopy(ops_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
       financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      marketing_model_json=copy.deepcopy(marketing_model_json or {}),
       numeric_solver_contract=copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
       deterministic_numeric_guidance=copy.deepcopy(cycle_numeric_guidance_packet),
     )
@@ -27903,6 +29530,22 @@ def _run_unified_post_grid_system_run(
         unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
         validation_error=copy.deepcopy(validation_error),
       )
+      critical_anchor_fail_flags = {
+        str(item).strip()
+        for item in (
+          (
+            (diagnostics.get("pre_solver_validation") if isinstance(diagnostics.get("pre_solver_validation"), dict) else {})
+            .get("flags")
+            or []
+          )
+        )
+        if str(item).strip()
+      } & _Q0_ANCHOR_PLAUSIBILITY_TEST_MODE_FAIL_FLAGS
+      if _convergence_test_mode_enabled() and critical_anchor_fail_flags:
+        raise StructuredSystemRunFailure(
+          detail="anchor_validation_failed",
+          diagnostics=copy.deepcopy(diagnostics),
+        )
       non_productive_tracker = _update_non_productive_cycle_tracker(
         retry_memory=retry_memory,
         diagnostics=diagnostics,

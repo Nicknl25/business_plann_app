@@ -279,6 +279,12 @@ def build_python_finmo_json(
   result = calculate_finmo_model(book)
   quarter_rows_raw = result.quarter_rows()
   quarter_rows_with_stub = result.quarter_rows(include_stub=True)
+  first_live_row = next((row for row in quarter_rows_raw if isinstance(row, dict)), None)
+  quarter_rows_with_stub = _apply_operating_stub_to_quarter_rows(
+    quarter_rows_with_stub,
+    model_input_json=model_input_json,
+    first_live_row=first_live_row,
+  )
   raw_periods = [
     _clone(item)
     for item in (((model_input_json.get("periods") or []) if isinstance(model_input_json, dict) else []) or [])
@@ -365,68 +371,69 @@ def build_python_finmo_json(
         }
       )
 
-  def _series(metric_key: str) -> List[float]:
+  def _series(metric_key: str, *, include_stub: bool = False) -> List[float]:
     values: List[float] = []
-    for row in quarter_rows_raw:
+    source_rows = quarter_rows_with_stub if include_stub else quarter_rows_raw
+    for row in source_rows:
       if not isinstance(row, dict):
         continue
       values.append(round(_safe_float(row.get(metric_key)) or 0.0, 6))
     return values
 
   pl_rows = [
-    {"label": "Revenue", "values": _series("revenue")},
-    {"label": "Cost of Goods Sold", "values": _series("cost_of_goods_sold")},
-    {"label": "Gross Profit", "values": _series("gross_profit")},
-    {"label": "Marketing", "values": _series("marketing")},
-    {"label": "Research & Development", "values": _series("research_and_development")},
-    {"label": "Lease/Rent", "values": _series("lease_rent")},
-    {"label": "Payroll", "values": _series("payroll")},
-    {"label": "General & Administrative", "values": _series("general_and_administrative")},
-    {"label": "EBITDA", "values": _series("ebitda")},
-    {"label": "Interest", "values": _series("interest")},
-    {"label": "Depreciation", "values": _series("depreciation")},
-    {"label": "Taxes", "values": _series("taxes")},
-    {"label": "Net Income", "values": _series("net_income")},
+    {"label": "Revenue", "values": _series("revenue", include_stub=True)},
+    {"label": "Cost of Goods Sold", "values": _series("cost_of_goods_sold", include_stub=True)},
+    {"label": "Gross Profit", "values": _series("gross_profit", include_stub=True)},
+    {"label": "Marketing", "values": _series("marketing", include_stub=True)},
+    {"label": "Research & Development", "values": _series("research_and_development", include_stub=True)},
+    {"label": "Lease/Rent", "values": _series("lease_rent", include_stub=True)},
+    {"label": "Payroll", "values": _series("payroll", include_stub=True)},
+    {"label": "General & Administrative", "values": _series("general_and_administrative", include_stub=True)},
+    {"label": "EBITDA", "values": _series("ebitda", include_stub=True)},
+    {"label": "Interest", "values": _series("interest", include_stub=True)},
+    {"label": "Depreciation", "values": _series("depreciation", include_stub=True)},
+    {"label": "Taxes", "values": _series("taxes", include_stub=True)},
+    {"label": "Net Income", "values": _series("net_income", include_stub=True)},
   ]
   balance_rows = [
-    {"label": "Cash", "values": _series("cash")},
-    {"label": "Accounts Receivable", "values": _series("accounts_receivable")},
-    {"label": "Inventory", "values": _series("inventory")},
-    {"label": "Current Assets", "values": _series("current_assets")},
-    {"label": "PPE", "values": _series("ppe")},
-    {"label": "Accumulated Depreciation", "values": _series("accumulated_depreciation")},
-    {"label": "Total Assets", "values": _series("total_assets")},
-    {"label": "Accounts Payable", "values": _series("accounts_payable")},
-    {"label": "Prepaid Expenses (% of Revenue)", "values": _series("prepaid_expenses")},
-    {"label": "Short Term Debt", "values": _series("short_term_debt")},
-    {"label": "Deferred Revenue (% of Revenue)", "values": _series("deferred_revenue")},
-    {"label": "Current Liabilites", "values": _series("current_liabilities")},
-    {"label": "Long Term Debt", "values": _series("long_term_debt")},
-    {"label": "Total Liabilities", "values": _series("total_liabilities")},
-    {"label": "Owner's Capital", "values": _series("owners_capital")},
-    {"label": "Retained Earnings", "values": _series("retained_earnings")},
-    {"label": "Other Equity", "values": _series("other_equity")},
-    {"label": "Total Equity", "values": _series("total_equity")},
-    {"label": "Total Liabilities & Equity", "values": _series("total_liabilities_and_equity")},
+    {"label": "Cash", "values": _series("cash", include_stub=True)},
+    {"label": "Accounts Receivable", "values": _series("accounts_receivable", include_stub=True)},
+    {"label": "Inventory", "values": _series("inventory", include_stub=True)},
+    {"label": "Current Assets", "values": _series("current_assets", include_stub=True)},
+    {"label": "PPE", "values": _series("ppe", include_stub=True)},
+    {"label": "Accumulated Depreciation", "values": _series("accumulated_depreciation", include_stub=True)},
+    {"label": "Total Assets", "values": _series("total_assets", include_stub=True)},
+    {"label": "Accounts Payable", "values": _series("accounts_payable", include_stub=True)},
+    {"label": "Prepaid Expenses (% of Revenue)", "values": _series("prepaid_expenses", include_stub=True)},
+    {"label": "Short Term Debt", "values": _series("short_term_debt", include_stub=True)},
+    {"label": "Deferred Revenue (% of Revenue)", "values": _series("deferred_revenue", include_stub=True)},
+    {"label": "Current Liabilites", "values": _series("current_liabilities", include_stub=True)},
+    {"label": "Long Term Debt", "values": _series("long_term_debt", include_stub=True)},
+    {"label": "Total Liabilities", "values": _series("total_liabilities", include_stub=True)},
+    {"label": "Owner's Capital", "values": _series("owners_capital", include_stub=True)},
+    {"label": "Retained Earnings", "values": _series("retained_earnings", include_stub=True)},
+    {"label": "Other Equity", "values": _series("other_equity", include_stub=True)},
+    {"label": "Total Equity", "values": _series("total_equity", include_stub=True)},
+    {"label": "Total Liabilities & Equity", "values": _series("total_liabilities_and_equity", include_stub=True)},
   ]
   cfs_rows = [
-    {"label": "Beginning Cash", "values": _series("beginning_cash")},
-    {"label": "Net Income", "values": _series("net_income")},
-    {"label": "Depreciatoin", "values": _series("depreciation")},
-    {"label": "Changes in Current Assets", "values": _series("changes_in_current_assets")},
-    {"label": "Changes in Current Liabilites", "values": _series("changes_in_current_liabilities")},
-    {"label": "Operating Cash Flow", "values": _series("operating_cash_flow")},
-    {"label": "Capital Expenditures", "values": _series("capital_expenditures")},
-    {"label": "Investing Cash Flow", "values": _series("investing_cash_flow")},
-    {"label": "Debt Issuance (New Borrowing)", "values": _series("debt_issuance")},
-    {"label": "Debt Repayment", "values": [round(-(abs(_safe_float(value)) or 0.0), 6) for value in _series("debt_repayment")]},
-    {"label": "Equity", "values": _series("equity")},
-    {"label": "Distributions", "values": _series("owner_distributions")},
-    {"label": "Financing Cash Flow", "values": _series("financing_cash_flow")},
-    {"label": "Net Cash Flow", "values": _series("net_cash_flow")},
-    {"label": "Ending Cash", "values": _series("ending_cash")},
+    {"label": "Beginning Cash", "values": _series("beginning_cash", include_stub=True)},
+    {"label": "Net Income", "values": _series("net_income", include_stub=True)},
+    {"label": "Depreciatoin", "values": _series("depreciation", include_stub=True)},
+    {"label": "Changes in Current Assets", "values": _series("changes_in_current_assets", include_stub=True)},
+    {"label": "Changes in Current Liabilites", "values": _series("changes_in_current_liabilities", include_stub=True)},
+    {"label": "Operating Cash Flow", "values": _series("operating_cash_flow", include_stub=True)},
+    {"label": "Capital Expenditures", "values": _series("capital_expenditures", include_stub=True)},
+    {"label": "Investing Cash Flow", "values": _series("investing_cash_flow", include_stub=True)},
+    {"label": "Debt Issuance (New Borrowing)", "values": _series("debt_issuance", include_stub=True)},
+    {"label": "Debt Repayment", "values": [round(-(abs(_safe_float(value)) or 0.0), 6) for value in _series("debt_repayment", include_stub=True)]},
+    {"label": "Equity", "values": _series("equity", include_stub=True)},
+    {"label": "Distributions", "values": _series("owner_distributions", include_stub=True)},
+    {"label": "Financing Cash Flow", "values": _series("financing_cash_flow", include_stub=True)},
+    {"label": "Net Cash Flow", "values": _series("net_cash_flow", include_stub=True)},
+    {"label": "Ending Cash", "values": _series("ending_cash", include_stub=True)},
   ]
-  numeric_values = _series("accounting_equation_check")
+  numeric_values = _series("accounting_equation_check", include_stub=True)
   tolerance = 1.0
   status_values = ["OK" if abs(value) <= tolerance else "FAIL" for value in numeric_values]
   quarter_rows: List[Dict[str, Any]] = []
@@ -587,6 +594,319 @@ def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int) -> Tupl
 
 def _compose_period_values(*, stub_value: float, live_values: Sequence[Any]) -> List[float]:
   return [round(_safe_float(stub_value) or 0.0, 6), *[round(_safe_float(item) or 0.0, 6) for item in (live_values or [])]]
+
+
+def _operating_anchor_baseline_inputs(
+  *,
+  people_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  marketing_model_json: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  marketing_model = marketing_model_json if isinstance(marketing_model_json, dict) else {}
+  people = people_json if isinstance(people_json, dict) else {}
+
+  lease_amount = _quarter_lease_amount(financials)
+  revenue_total_year1 = max(
+    0.0,
+    _safe_float(year1.get("company_revenue_total_year1"))
+    or _safe_float(year1.get("revenue_total_year1"))
+    or _safe_float(financials.get("current_revenue"))
+    or 0.0,
+  )
+  cogs_ratio_baseline = _ratio(financials.get("cogs_total_year1"), revenue_total_year1)
+  marketing_ratio_baseline = _safe_ratio(marketing_model.get("marketing_percent_of_revenue"))
+  if marketing_ratio_baseline is None:
+    marketing_ratio_baseline = _safe_ratio(financials.get("marketing_percent_of_revenue"))
+  payroll_total_year1 = (
+    _safe_float(financials.get("payroll_total_year1"))
+    or _safe_float(financials.get("current_payroll"))
+    or 0.0
+  )
+  if payroll_total_year1 <= 0:
+    payroll_total_year1 = sum(
+      max(0.0, _safe_float(item.get("annual_wage")) or 0.0)
+      for item in ((people.get("people") or []) if isinstance(people.get("people"), list) else [])
+      if isinstance(item, dict)
+    )
+  quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
+  non_rent_opex_year1 = max(
+    0.0,
+    (
+      _safe_float(financials.get("other_opex_absolute"))
+      or _safe_float(financials.get("other_operating_expense"))
+      or 0.0
+    ) - (lease_amount * 4.0)
+  )
+  g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
+  interest_rate_baseline = _ratio(financials.get("annual_interest_payment"), financials.get("total_debt_outstanding"))
+  depreciation_ratio_baseline = _ratio(financials.get("accumulated_depreciation"), revenue_total_year1)
+  tax_rate_baseline = _safe_ratio(financials.get("taxes_percent")) or 0.0
+  return {
+    "revenue_total_year1": round(revenue_total_year1, 6),
+    "lease_amount": round(lease_amount, 6),
+    "cogs_ratio_baseline": round(cogs_ratio_baseline, 6),
+    "marketing_ratio_baseline": round(marketing_ratio_baseline or 0.0, 6),
+    "quarterly_payroll": round(quarterly_payroll, 6),
+    "g_and_a_ratio_baseline": round(g_and_a_ratio_baseline, 6),
+    "interest_rate_baseline": round(interest_rate_baseline, 6),
+    "depreciation_ratio_baseline": round(depreciation_ratio_baseline, 6),
+    "tax_rate_baseline": round(tax_rate_baseline, 6),
+  }
+
+
+def _revenue_stub_anchor_value(
+  row: Dict[str, Any],
+  *,
+  ops_json: Optional[Dict[str, Any]],
+) -> float:
+  ops_catalog = _ops_revenue_catalog(ops_json if isinstance(ops_json, dict) else {})
+  resolved_identity = _resolve_row_identity_from_catalog(
+    row_lob=row.get("placeholder_lob") or row.get("lob"),
+    row_product=row.get("placeholder_product") or row.get("product"),
+    ops_catalog=ops_catalog,
+    revenue_slot_key=str(row.get("revenue_slot_key") or "").strip() or None,
+  )
+  baseline_driver_map = resolved_identity if isinstance(resolved_identity, dict) else {}
+  driver = str(row.get("driver") or "").strip()
+  if driver == "Capacity":
+    return round(_safe_float(baseline_driver_map.get("capacity")) or 0.0, 6)
+  if driver == "Unit Price":
+    return round(_safe_float(baseline_driver_map.get("unit_price")) or 0.0, 6)
+  if driver == "Utilization":
+    return round(_safe_ratio(baseline_driver_map.get("utilization")) or 0.0, 6)
+  return 0.0
+
+
+def apply_p_and_l_q0_anchor_to_model_input(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  marketing_model_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  if not isinstance(sections, dict):
+    return next_payload
+
+  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
+  for row in revenue_rows:
+    base_stub_value, live_values = _row_stub_and_live_values(
+      row.get("values") or [],
+      live_count=max(0, len((row.get("values") or [])) - 1),
+    )
+    anchor_value = float(base_stub_value)
+    if abs(anchor_value) <= 1e-9:
+      anchor_value = _revenue_stub_anchor_value(row, ops_json=ops_json)
+    row["values"] = _compose_period_values(
+      stub_value=anchor_value,
+      live_values=live_values,
+    )
+
+  anchor_inputs = _operating_anchor_baseline_inputs(
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+  )
+  expense_stub_map = {
+    "Cost of Goods Sold": float(anchor_inputs.get("cogs_ratio_baseline") or 0.0),
+    "Marketing": float(anchor_inputs.get("marketing_ratio_baseline") or 0.0),
+    "Research & Development": 0.0,
+    "Lease": float(anchor_inputs.get("lease_amount") or 0.0),
+    "Payroll": float(anchor_inputs.get("quarterly_payroll") or 0.0),
+    "General & Administrative": float(anchor_inputs.get("g_and_a_ratio_baseline") or 0.0),
+    "Interest Rate": float(anchor_inputs.get("interest_rate_baseline") or 0.0),
+    "Depreciation": float(anchor_inputs.get("depreciation_ratio_baseline") or 0.0),
+    "Taxes": float(anchor_inputs.get("tax_rate_baseline") or 0.0),
+  }
+  expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
+  for row in expense_rows:
+    label = str(row.get("label") or "").strip()
+    base_stub_value, live_values = _row_stub_and_live_values(
+      row.get("values") or [],
+      live_count=max(0, len((row.get("values") or [])) - 1),
+    )
+    anchor_value = float(base_stub_value)
+    if abs(anchor_value) <= 1e-9:
+      anchor_value = float(expense_stub_map.get(label) or 0.0)
+    row["values"] = _compose_period_values(
+      stub_value=anchor_value,
+      live_values=live_values,
+    )
+  return next_payload
+
+
+def _controller_row_values(row: Any) -> List[float]:
+  values = (row or {}).get("values") if isinstance(row, dict) else []
+  return [round(_safe_float(item) or 0.0, 6) for item in (values or [])]
+
+
+def _controller_row_stub_value(row: Any) -> float:
+  values = _controller_row_values(row)
+  return float(values[0]) if values else 0.0
+
+
+def _find_controller_row(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  section_key: str,
+  label: str,
+) -> Optional[Dict[str, Any]]:
+  sections = (model_input_json or {}).get("sections") if isinstance(model_input_json, dict) else {}
+  rows = (sections or {}).get(section_key) if isinstance(sections, dict) else []
+  for row in (rows or []):
+    if not isinstance(row, dict):
+      continue
+    if str(row.get("label") or "").strip() == str(label or "").strip():
+      return row
+  return None
+
+
+def _q1_fallback_metric(row: Optional[Dict[str, Any]], metric_key: str) -> float:
+  if not isinstance(row, dict):
+    return 0.0
+  return round(_safe_float(row.get(metric_key)) or 0.0, 6)
+
+
+def _build_operating_stub_metrics(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  first_live_row: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+  sections = (model_input_json or {}).get("sections") if isinstance(model_input_json, dict) else {}
+  revenue_rows = (sections or {}).get("revenue") if isinstance(sections, dict) else []
+  expense_rows = (sections or {}).get("expenses") if isinstance(sections, dict) else []
+  schedules = (sections or {}).get("schedules") if isinstance(sections, dict) else {}
+  balance_rows = (sections or {}).get("balance_sheet") if isinstance(sections, dict) else []
+
+  driver_map: Dict[Tuple[str, str], Dict[str, float]] = {}
+  stub_signals: List[float] = []
+  for row in (revenue_rows or []):
+    if not isinstance(row, dict):
+      continue
+    lob = str(row.get("lob") or "").strip()
+    product = str(row.get("product") or "").strip()
+    driver = str(row.get("driver") or "").strip().lower()
+    if not lob or not product or not driver:
+      continue
+    stub_value = _controller_row_stub_value(row)
+    driver_map.setdefault((lob, product), {})[driver] = stub_value
+    stub_signals.append(abs(stub_value))
+
+  expense_stub_by_label: Dict[str, float] = {}
+  for row in (expense_rows or []):
+    if not isinstance(row, dict):
+      continue
+    label = str(row.get("label") or "").strip()
+    if not label:
+      continue
+    stub_value = _controller_row_stub_value(row)
+    expense_stub_by_label[label] = stub_value
+    stub_signals.append(abs(stub_value))
+
+  balance_stub_by_label: Dict[str, float] = {}
+  for row in (balance_rows or []):
+    if not isinstance(row, dict):
+      continue
+    label = str(row.get("label") or "").strip()
+    if not label:
+      continue
+    balance_stub_by_label[label] = _controller_row_stub_value(row)
+
+  schedule_seed_map = schedules if isinstance(schedules, dict) else {}
+  opening_debt = round(
+    _safe_float(schedule_seed_map.get("debt_opening_balance_seed")) or 0.0,
+    6,
+  )
+  opening_ppe = round(
+    _safe_float(schedule_seed_map.get("ppe_opening_balance_seed")) or 0.0,
+    6,
+  )
+
+  revenue_stub = 0.0
+  for drivers in driver_map.values():
+    capacity = float(drivers.get("capacity") or 0.0)
+    unit_price = float(drivers.get("unit price") or 0.0)
+    utilization = float(drivers.get("utilization") or 0.0)
+    if capacity > 0.0 and unit_price > 0.0 and utilization > 0.0:
+      revenue_stub += capacity * unit_price * utilization
+
+  revenue = round(revenue_stub, 6)
+  cogs_ratio = float(expense_stub_by_label.get("Cost of Goods Sold") or 0.0)
+  marketing_ratio = float(expense_stub_by_label.get("Marketing") or 0.0)
+  r_and_d_ratio = float(expense_stub_by_label.get("Research & Development") or 0.0)
+  g_and_a_ratio = float(expense_stub_by_label.get("General & Administrative") or 0.0)
+  lease_rent = round(float(expense_stub_by_label.get("Lease") or 0.0), 6)
+  payroll = round(float(expense_stub_by_label.get("Payroll") or 0.0), 6)
+  interest_rate = float(expense_stub_by_label.get("Interest Rate") or 0.0)
+  depreciation_ratio = float(expense_stub_by_label.get("Depreciation") or 0.0)
+  tax_rate = float(expense_stub_by_label.get("Taxes") or 0.0)
+
+  cost_of_goods_sold = round(revenue * cogs_ratio, 6)
+  gross_profit = round(revenue - cost_of_goods_sold, 6)
+  marketing = round(revenue * marketing_ratio, 6)
+  research_and_development = round(revenue * r_and_d_ratio, 6)
+  general_and_administrative = round(revenue * g_and_a_ratio, 6)
+  ebitda = round(
+    gross_profit - (marketing + research_and_development + lease_rent + payroll + general_and_administrative),
+    6,
+  )
+  interest = round(opening_debt * interest_rate, 6)
+  depreciation = round(max(0.0, opening_ppe) * depreciation_ratio, 6)
+  pre_tax_income = round(ebitda - interest - depreciation, 6)
+  taxes = round(max(0.0, pre_tax_income) * tax_rate, 6)
+  net_income = round(ebitda - interest - depreciation - taxes, 6)
+
+  return {
+    "revenue": revenue,
+    "cost_of_goods_sold": cost_of_goods_sold,
+    "gross_profit": gross_profit,
+    "marketing": marketing,
+    "research_and_development": research_and_development,
+    "lease_rent": lease_rent,
+    "payroll": payroll,
+    "general_and_administrative": general_and_administrative,
+    "ebitda": ebitda,
+    "interest": interest,
+    "depreciation": depreciation,
+    "taxes": taxes,
+    "net_income": net_income,
+  }
+
+
+def _apply_operating_stub_to_quarter_rows(
+  quarter_rows_with_stub: Sequence[Dict[str, Any]],
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  first_live_row: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  rows = [_clone(row) for row in (quarter_rows_with_stub or []) if isinstance(row, dict)]
+  if not rows:
+    return []
+  stub_index = next(
+    (idx for idx, row in enumerate(rows) if int(_safe_float(row.get("quarter_index")) or 0) == 0),
+    None,
+  )
+  if stub_index is None:
+    return rows
+  operating_stub = _build_operating_stub_metrics(
+    model_input_json,
+    first_live_row=first_live_row,
+  )
+  rows[stub_index].update(
+    {
+      **operating_stub,
+      "cogs": operating_stub.get("cost_of_goods_sold"),
+      "g_and_a": operating_stub.get("general_and_administrative"),
+    }
+  )
+  return rows
 
 
 def _schedule_row_template(
@@ -1480,7 +1800,14 @@ def _build_model_input_overlay(
         live_values=[round(_safe_float(base_values[min(idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0 for idx, _slot in enumerate(slots)],
       )
   sections["schedules"] = schedules
-  return next_payload
+  return apply_p_and_l_q0_anchor_to_model_input(
+    model_input_json=next_payload,
+    ops_json=ops_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    marketing_model_json=marketing_model_json,
+  )
 
 
 def normalize_model_input_forecast_anchor(

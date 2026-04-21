@@ -52,6 +52,7 @@ How to use the Python scaffold:
 - If a repair target is ratio-based or relationship-based, use its `primary_target_proxy_metrics` and `source_metric_names` to choose real finmo targets that directly move that closure metric. Do not substitute unrelated targets.
 - `planner_model_input_packet` is the compact Python translation of the current writable model-input state for this cycle.
 - `planner_finmo_quarter_view` is the compact Python translation of the current quarter-by-quarter finmo outputs for this cycle.
+- `shape_sensitive_contract` is the direct Python rule set for structural levers. Read it explicitly before choosing levers.
 - Do not leave an active material issue without a direct primary-target proxy. If an issue packet points to cash, profitability, staffing, scale, capex, or balance-sheet stress, your chosen primary targets must visibly cover that problem.
 - If `ending_cash` is in the recommended set or active issue packets, treat it as a viability anchor unless you have an unusually strong reason to substitute a better direct proxy.
 - If `controller_escalation_packet.escalation_active` is true, the prior cycle failed the controller progress gate. You must treat that as a hard escalation, not a suggestion.
@@ -129,7 +130,16 @@ Lever guidance:
   - `shape_type`: one of `ramp`, `step_up`, `hiring_block`, `moderation`, `delayed_follow_through`
   - `values` or `trajectory_values`: `Q1` through `Q20`, with numeric values for every remaining quarter from the first affected quarter onward
   - `rationale` or `trajectory_rationale`: brief business logic for that forward path
+- If you select any lever in `shape_sensitive_contract.remaining_horizon_required_lever_ids`, you must always treat it as shape-sensitive.
+- If you select any lever in `shape_sensitive_contract.materiality_triggered_remaining_horizon_lever_ids` for a non-trivial move, you must also treat it as shape-sensitive and return `shape_type` plus full remaining-horizon values.
 - Shape-sensitive levers represent a new operating regime, not a temporary spike. Do not create abrupt collapses, lazy flat tails, or snapback paths without justification.
+- Python will reject shape-sensitive paths that:
+  - drop by more than 50% quarter-to-quarter
+  - jump by more than 2.5x quarter-to-quarter
+  - snap back after a large build
+  - switch regime direction sharply without a believable transition
+- For `Lease`, `Payroll`, `Capacity`, `Unit Price`, `Capex`, and other structural levers, phase major changes over multiple quarters unless the business packet clearly supports a clean step-up.
+- If you need a large structural increase, use a ramp or staged step-up that preserves quarter-to-quarter continuity.
 
 Example shape-sensitive lever entry:
 ```json
