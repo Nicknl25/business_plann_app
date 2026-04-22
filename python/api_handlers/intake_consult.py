@@ -191,9 +191,14 @@ _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS = {
 _TRANSLATION_TEST_MODE_FAIL_FLAGS = {
   "metric_to_lever_translation_failed",
 }
+_DECLARED_REPAIR_MAPPING_TEST_MODE_FAIL_FLAGS = {
+  "declared_repair_mapping_missing",
+  "declared_repair_mapping_incomplete",
+  "declared_repair_mapping_path_missing",
+}
 _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN = 6
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 2
-_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-payroll-failfast-v1"
+_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-22-declared-mapping-failfast-v13"
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
   "by_model": {},
@@ -1514,6 +1519,14 @@ def _issue_proxy_target_metric_names(
     ]
     if direct_working_capital_metrics:
       return direct_working_capital_metrics
+  if issue == "pricing_positioning_mismatch":
+    direct_pricing_metrics = [
+      metric_name
+      for metric_name in proxy_metrics
+      if metric_name in {"gross_profit", "ebitda", "net_income"}
+    ]
+    if direct_pricing_metrics:
+      return direct_pricing_metrics
   return proxy_metrics
 
 
@@ -2046,6 +2059,20 @@ def _cash_strategy_allowed_quarters(
   if strategy in {"preserve_cash", "reinvest"}:
     return available_quarters[:quarter_cap]
   return available_quarters[-quarter_cap:]
+
+
+def _resolved_cash_strategy(*strategy_candidates: Any) -> str:
+  for candidate in strategy_candidates:
+    if isinstance(candidate, dict):
+      for key in ("cash_strategy", "selected_cash_strategy"):
+        value = str(candidate.get(key) or "").strip()
+        if value:
+          return value
+      continue
+    value = str(candidate or "").strip()
+    if value:
+      return value
+  return "balanced"
 
 
 def _cash_strategy_summary_metrics(
@@ -3009,6 +3036,9 @@ def _translate_realism_lever_adjustment(
     "baseline_window": baseline_window,
     "business_reason": str(adjustment.get("business_reason") or "").strip(),
     "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
+    "mapped_repair_targets": _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    ),
     "max_relative_change": max_relative_change,
     "exact_value": None,
     "min_value": float(min(min_value, max_value)),
@@ -3674,7 +3704,7 @@ def _build_cash_strategy_review_context_payload(
   financials = financials_json if isinstance(financials_json, dict) else {}
   model_input = solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
   finmo = solved_finmo_json if isinstance(solved_finmo_json, dict) else {}
-  selected_cash_strategy = str(financials.get("cash_strategy") or "").strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials)
   lever_catalog = _cash_strategy_financing_review_catalog(model_input)
   lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
   q0_anchor_context = _build_q0_anchor_context_payload(
@@ -3904,7 +3934,7 @@ def _build_final_stabilizer_context_payload(
   numeric_solver_contract = build_numeric_solver_contract(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
-    selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+    selected_cash_strategy=_resolved_cash_strategy(financials_json),
     issue_status_records=copy.deepcopy(issue_status_records),
     writable_lever_catalog=copy.deepcopy(leverage_catalog),
     current_model_input_json=copy.deepcopy(current_model_input_json or {}),
@@ -4010,7 +4040,7 @@ def _build_initial_restructure_context_payload(
   numeric_solver_contract = build_numeric_solver_contract(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
-    selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+    selected_cash_strategy=_resolved_cash_strategy(financials_json),
     issue_status_records=copy.deepcopy(issue_status_records),
     writable_lever_catalog=copy.deepcopy(leverage_catalog),
     current_model_input_json=copy.deepcopy(current_model_input_json or {}),
@@ -5371,58 +5401,57 @@ def _build_unified_cycle_quality_assessment(
       item for item in paths
       if str(item.get("path_type") or "").strip().lower() == "direct"
     ]
-    best_paths = direct_paths or paths
     path_type = (
       "direct"
       if direct_paths
-      else str(best_paths[0].get("path_type") or "").strip().lower() or "indirect"
+      else str(paths[0].get("path_type") or "").strip().lower() or "indirect"
     )
     efficiency_order = {"high": 0, "medium": 1, "low": 2}
     efficiency = str(
       sorted(
         [
           str(item.get("efficiency") or "").strip().lower()
-          for item in best_paths
+          for item in paths
           if str(item.get("efficiency") or "").strip()
         ],
         key=lambda value: efficiency_order.get(value, 3),
       )[0]
-      if best_paths
+      if paths
       else ""
     ).strip().lower() or None
     metric_recommended_values = [
       float(_safe_float(item.get("metric_recommended_delta")) or 0.0)
-      for item in best_paths
+      for item in paths
       if _safe_float(item.get("metric_recommended_delta")) is not None
     ]
     metric_min_values = [
       float(_safe_float(item.get("metric_min_delta")) or 0.0)
-      for item in best_paths
+      for item in paths
       if _safe_float(item.get("metric_min_delta")) is not None
     ]
     metric_max_values = [
       float(_safe_float(item.get("metric_max_delta")) or 0.0)
-      for item in best_paths
+      for item in paths
       if _safe_float(item.get("metric_max_delta")) is not None
     ]
     lever_min_values = [
       float(_safe_float(item.get("min_delta")) or 0.0)
-      for item in best_paths
+      for item in paths
       if _safe_float(item.get("min_delta")) is not None
     ]
     lever_max_values = [
       float(_safe_float(item.get("max_delta")) or 0.0)
-      for item in best_paths
+      for item in paths
       if _safe_float(item.get("max_delta")) is not None
     ]
     delta_units = {
       str(item.get("delta_unit") or "").strip()
-      for item in best_paths
+      for item in paths
       if str(item.get("delta_unit") or "").strip()
     }
     translation_bases = [
       str(item.get("translation_basis") or "").strip()
-      for item in best_paths
+      for item in paths
       if str(item.get("translation_basis") or "").strip()
     ]
     return {
@@ -5558,6 +5587,11 @@ def _build_unified_cycle_quality_assessment(
     for key, value in ((candidate.get("lever_control_directions") or {}) if isinstance(candidate.get("lever_control_directions"), dict) else {}).items()
     if str(key).strip() and str(value).strip()
   }
+  declared_issue_impact_map = {
+    str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
+    for item in (candidate.get("selected_issue_expected_impacts") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
   focus_issue_code_set = {
     str(item).strip().lower()
     for item in (candidate.get("focus_issue_codes") or [])
@@ -5673,6 +5707,11 @@ def _build_unified_cycle_quality_assessment(
     after_gap_basis = _issue_metric_gap_progress_basis(after_issue)
     progress_metric_name = str(before_gap_basis.get("selected_metric_name") or "").strip().lower()
     before_metric_summary = copy.deepcopy(before_gap_basis.get("selected_metric_summary") or {})
+    before_metric_summaries = (
+      before_gap_basis.get("metric_summaries")
+      if isinstance(before_gap_basis.get("metric_summaries"), dict)
+      else {}
+    )
     after_metric_summaries = (
       after_gap_basis.get("metric_summaries")
       if isinstance(after_gap_basis.get("metric_summaries"), dict)
@@ -5803,6 +5842,12 @@ def _build_unified_cycle_quality_assessment(
     issue_expected_metric_delta = None
     driver_path_index = _driver_path_index_for_issue(issue_repair_packet)
     closure_metric_driver_map = driver_path_index.get(closure_metric_name) or {}
+    declared_issue_impact = copy.deepcopy(declared_issue_impact_map.get(issue_code) or {})
+    declared_selected_levers = [
+      item
+      for item in (declared_issue_impact.get("selected_levers") or [])
+      if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+    ]
     candidate_issue_lever_ids = {
       str(item).strip()
       for item in (issue_repair_packet.get("candidate_lever_ids") or [])
@@ -5815,11 +5860,23 @@ def _build_unified_cycle_quality_assessment(
         lever_id = str(driver_path.get("lever") or "").strip()
         if lever_id:
           candidate_issue_lever_ids.add(lever_id)
-    selected_issue_lever_ids = [
-      lever_id
-      for lever_id in selected_lever_ids_all
-      if lever_id in candidate_issue_lever_ids
-    ]
+    selected_issue_lever_ids = (
+      list(
+        dict.fromkeys(
+          [
+            str(item.get("lever_id") or "").strip()
+            for item in declared_selected_levers
+            if str(item.get("lever_id") or "").strip()
+          ]
+        )
+      )
+      if declared_selected_levers
+      else [
+        lever_id
+        for lever_id in selected_lever_ids_all
+        if lever_id in candidate_issue_lever_ids
+      ]
+    )
     if not selected_issue_lever_ids and len(focus_issue_records) == 1:
       selected_issue_lever_ids = copy.deepcopy(selected_lever_ids_all[:_CONVERGENCE_MAX_FOCUS_LEVERS])
     issue_in_focus_cycle = bool(
@@ -5854,73 +5911,172 @@ def _build_unified_cycle_quality_assessment(
     selected_direct_closure_metric_count = 0
     selected_weakest_metric_target_count = 0
     selected_expected_metric_deltas: List[float] = []
-    for lever_id in selected_issue_lever_ids:
-      closure_metric_paths = copy.deepcopy(closure_metric_driver_map.get(lever_id) or [])
-      aggregated_closure_metric_paths = _aggregate_driver_paths(closure_metric_paths)
-      targets_closure_metric = bool(closure_metric_paths)
-      planned_direction = selected_lever_direction_map.get(lever_id) or "hold"
-      planned_direction_sign = _direction_sign(planned_direction)
-      expected_lever_direction_sign = _expected_lever_direction_sign(aggregated_closure_metric_paths)
-      directionally_valid = bool(
-        targets_closure_metric
-        and (
-          expected_lever_direction_sign == 0
-          or planned_direction_sign == 0
-          or planned_direction_sign == expected_lever_direction_sign
+    declared_target_progress_detected = False
+    declared_target_metric_names: List[str] = []
+    declared_target_observation_count = 0
+    if declared_selected_levers:
+      for selected_lever in declared_selected_levers:
+        lever_id = str(selected_lever.get("lever_id") or "").strip()
+        planned_direction = str(selected_lever.get("planned_direction") or "").strip().lower() or (
+          selected_lever_direction_map.get(lever_id) or "hold"
         )
-      )
-      if (
-        directionally_valid
-        and str((aggregated_closure_metric_paths or {}).get("path_type") or "").strip().lower() == "direct"
-      ):
-        selected_direct_closure_metric_count += 1
-      if directionally_valid:
-        selected_weakest_metric_target_count += 1
-      selected_expected_metric_delta = _safe_float(
-        (aggregated_closure_metric_paths or {}).get("expected_metric_delta")
-      )
-      if selected_expected_metric_delta is not None:
+        planned_direction_sign = _direction_sign(planned_direction)
+        expected_lever_direction_sign = int(
+          _safe_float(selected_lever.get("expected_direction_sign")) or 0
+        )
+        directionally_valid = bool(selected_lever.get("directionally_valid"))
         if directionally_valid:
-          selected_expected_metric_deltas.append(float(abs(selected_expected_metric_delta)))
-        elif planned_direction_sign != 0:
-          selected_expected_metric_deltas.append(float(-abs(selected_expected_metric_delta)))
-      selected_lever_debug.append(
-        {
-          "lever_id": lever_id,
-          "targets_closure_metric": targets_closure_metric,
-          "planned_direction": planned_direction,
-          "planned_direction_sign": planned_direction_sign,
-          "expected_lever_direction_sign": expected_lever_direction_sign,
-          "directionally_valid_for_closure_metric": directionally_valid,
-          "path_type": str(
-            (aggregated_closure_metric_paths or {}).get("path_type") or "unmapped"
-          ).strip().lower() or "unmapped",
-          "efficiency": str(
-            (aggregated_closure_metric_paths or {}).get("efficiency") or ""
-          ).strip().lower() or None,
-          "expected_metric_delta": _safe_float(
-            (aggregated_closure_metric_paths or {}).get("expected_metric_delta")
-          ),
-          "expected_metric_delta_min": _safe_float(
-            (aggregated_closure_metric_paths or {}).get("expected_metric_delta_min")
-          ),
-          "expected_metric_delta_max": _safe_float(
-            (aggregated_closure_metric_paths or {}).get("expected_metric_delta_max")
-          ),
-          "expected_lever_delta_min": _safe_float(
-            (aggregated_closure_metric_paths or {}).get("expected_lever_delta_min")
-          ),
-          "expected_lever_delta_max": _safe_float(
-            (aggregated_closure_metric_paths or {}).get("expected_lever_delta_max")
-          ),
-          "delta_unit": str(
-            (aggregated_closure_metric_paths or {}).get("delta_unit") or ""
-          ).strip() or None,
-          "translation_basis": copy.deepcopy(
-            (aggregated_closure_metric_paths or {}).get("translation_basis") or []
-          ),
-        }
-      )
+          selected_direct_closure_metric_count += 1
+          selected_weakest_metric_target_count += 1
+        mapped_target_metric_name = str(
+          selected_lever.get("mapped_target_metric_name") or ""
+        ).strip().lower()
+        if mapped_target_metric_name and mapped_target_metric_name not in declared_target_metric_names:
+          declared_target_metric_names.append(mapped_target_metric_name)
+        before_target_summary = (
+          copy.deepcopy(before_metric_summaries.get(mapped_target_metric_name) or {})
+          if mapped_target_metric_name
+          else {}
+        )
+        after_target_summary = (
+          copy.deepcopy(after_metric_summaries.get(mapped_target_metric_name) or {})
+          if mapped_target_metric_name
+          else {}
+        )
+        before_target_actual_value = _safe_float(before_target_summary.get("average_actual_value"))
+        after_target_actual_value = _safe_float(after_target_summary.get("average_actual_value"))
+        actual_target_metric_delta = (
+          float(after_target_actual_value - before_target_actual_value)
+          if before_target_actual_value is not None and after_target_actual_value is not None
+          else None
+        )
+        if actual_target_metric_delta is not None:
+          declared_target_observation_count += 1
+        expected_target_metric_delta = _safe_float(selected_lever.get("expected_metric_delta"))
+        target_metric_unit_kind = str(before_target_summary.get("unit_kind") or "").strip().lower()
+        target_metric_delta_negligible_threshold = _metric_delta_negligible_threshold(
+          unit_kind=target_metric_unit_kind,
+          reference_value=float(expected_target_metric_delta or 0.0),
+        )
+        target_metric_change_negligible = bool(
+          actual_target_metric_delta is None
+          or abs(float(actual_target_metric_delta or 0.0)) <= target_metric_delta_negligible_threshold
+        )
+        if expected_target_metric_delta is not None:
+          if directionally_valid:
+            selected_expected_metric_deltas.append(float(abs(expected_target_metric_delta)))
+          elif planned_direction_sign != 0:
+            selected_expected_metric_deltas.append(float(-abs(expected_target_metric_delta)))
+        if (
+          directionally_valid
+          and expected_target_metric_delta is not None
+          and abs(float(expected_target_metric_delta or 0.0)) > target_metric_delta_negligible_threshold
+          and not target_metric_change_negligible
+        ):
+          declared_target_progress_detected = True
+        selected_lever_debug.append(
+          {
+            "lever_id": lever_id,
+            "targets_closure_metric": bool(mapped_target_metric_name == closure_metric_name),
+            "planned_direction": planned_direction,
+            "planned_direction_sign": planned_direction_sign,
+            "expected_lever_direction_sign": expected_lever_direction_sign,
+            "directionally_valid_for_closure_metric": directionally_valid,
+            "path_type": "declared_mapping",
+            "efficiency": None,
+            "expected_metric_delta": expected_target_metric_delta,
+            "expected_metric_delta_min": None,
+            "expected_metric_delta_max": None,
+            "expected_lever_delta_min": None,
+            "expected_lever_delta_max": None,
+            "delta_unit": None,
+            "translation_basis": [],
+            "mapped_target_metric_name": mapped_target_metric_name or None,
+            "mapped_target_quarters": copy.deepcopy(selected_lever.get("mapped_target_quarters") or []),
+            "covered_quarters": copy.deepcopy(selected_lever.get("covered_quarters") or []),
+            "mapping_complete": bool(selected_lever.get("mapping_complete")),
+            "path_count": int(_safe_float(selected_lever.get("path_count")) or 0),
+            "before_target_metric_value": before_target_actual_value,
+            "after_target_metric_value": after_target_actual_value,
+            "actual_target_metric_delta": actual_target_metric_delta,
+            "target_metric_change_negligible": target_metric_change_negligible,
+          }
+        )
+      direct_driver_exists_for_closure_metric = bool(selected_direct_closure_metric_count > 0)
+      if (
+        not declared_target_progress_detected
+        and declared_target_observation_count <= 0
+        and (gap_reduction > 1e-9 or score_delta > _CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT)
+      ):
+        declared_target_progress_detected = True
+    else:
+      for lever_id in selected_issue_lever_ids:
+        closure_metric_paths = copy.deepcopy(closure_metric_driver_map.get(lever_id) or [])
+        aggregated_closure_metric_paths = _aggregate_driver_paths(closure_metric_paths)
+        targets_closure_metric = bool(closure_metric_paths)
+        planned_direction = selected_lever_direction_map.get(lever_id) or "hold"
+        planned_direction_sign = _direction_sign(planned_direction)
+        expected_lever_direction_sign = _expected_lever_direction_sign(aggregated_closure_metric_paths)
+        directionally_valid = bool(
+          targets_closure_metric
+          and (
+            expected_lever_direction_sign == 0
+            or planned_direction_sign == 0
+            or planned_direction_sign == expected_lever_direction_sign
+          )
+        )
+        if (
+          directionally_valid
+          and str((aggregated_closure_metric_paths or {}).get("path_type") or "").strip().lower() == "direct"
+        ):
+          selected_direct_closure_metric_count += 1
+        if directionally_valid:
+          selected_weakest_metric_target_count += 1
+        selected_expected_metric_delta = _safe_float(
+          (aggregated_closure_metric_paths or {}).get("expected_metric_delta")
+        )
+        if selected_expected_metric_delta is not None:
+          if directionally_valid:
+            selected_expected_metric_deltas.append(float(abs(selected_expected_metric_delta)))
+          elif planned_direction_sign != 0:
+            selected_expected_metric_deltas.append(float(-abs(selected_expected_metric_delta)))
+        selected_lever_debug.append(
+          {
+            "lever_id": lever_id,
+            "targets_closure_metric": targets_closure_metric,
+            "planned_direction": planned_direction,
+            "planned_direction_sign": planned_direction_sign,
+            "expected_lever_direction_sign": expected_lever_direction_sign,
+            "directionally_valid_for_closure_metric": directionally_valid,
+            "path_type": str(
+              (aggregated_closure_metric_paths or {}).get("path_type") or "unmapped"
+            ).strip().lower() or "unmapped",
+            "efficiency": str(
+              (aggregated_closure_metric_paths or {}).get("efficiency") or ""
+            ).strip().lower() or None,
+            "expected_metric_delta": _safe_float(
+              (aggregated_closure_metric_paths or {}).get("expected_metric_delta")
+            ),
+            "expected_metric_delta_min": _safe_float(
+              (aggregated_closure_metric_paths or {}).get("expected_metric_delta_min")
+            ),
+            "expected_metric_delta_max": _safe_float(
+              (aggregated_closure_metric_paths or {}).get("expected_metric_delta_max")
+            ),
+            "expected_lever_delta_min": _safe_float(
+              (aggregated_closure_metric_paths or {}).get("expected_lever_delta_min")
+            ),
+            "expected_lever_delta_max": _safe_float(
+              (aggregated_closure_metric_paths or {}).get("expected_lever_delta_max")
+            ),
+            "delta_unit": str(
+              (aggregated_closure_metric_paths or {}).get("delta_unit") or ""
+            ).strip() or None,
+            "translation_basis": copy.deepcopy(
+              (aggregated_closure_metric_paths or {}).get("translation_basis") or []
+            ),
+          }
+        )
     if selected_expected_metric_deltas:
       issue_expected_metric_delta = float(
         sum(selected_expected_metric_deltas) / max(len(selected_expected_metric_deltas), 1)
@@ -5969,7 +6125,11 @@ def _build_unified_cycle_quality_assessment(
       and
       issue_expected_metric_delta is not None
       and abs(float(issue_expected_metric_delta or 0.0)) > metric_delta_negligible_threshold
-      and actual_metric_change_negligible
+      and (
+        not declared_target_progress_detected
+        if declared_selected_levers
+        else actual_metric_change_negligible
+      )
     )
     issue_flags: List[str] = []
     if issue_still_active_after_cycle and issue_in_focus_cycle and not repair_targets:
@@ -6006,6 +6166,7 @@ def _build_unified_cycle_quality_assessment(
         "repair_target_count": len(repair_targets),
         "repair_targets_exist": bool(repair_targets),
         "repair_metric_names": copy.deepcopy(repair_metric_names),
+        "declared_target_metric_names": copy.deepcopy(declared_target_metric_names),
         "selected_lever_ids": copy.deepcopy(selected_issue_lever_ids),
         "selected_lever_count": len(selected_issue_lever_ids),
         "selected_levers": copy.deepcopy(selected_lever_debug),
@@ -6474,7 +6635,7 @@ def _build_unified_convergence_context_payload(
   numeric_solver_contract = build_numeric_solver_contract(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
-    selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+    selected_cash_strategy=_resolved_cash_strategy(financials_json),
     issue_status_records=copy.deepcopy(issue_status_records),
     writable_lever_catalog=copy.deepcopy(leverage_catalog),
     current_model_input_json=copy.deepcopy(current_model_input_json or {}),
@@ -8475,7 +8636,6 @@ def _metric_family_term_hints(metric_name: Any) -> Dict[str, List[str]]:
     },
     "gross_margin_pct": {
       "expenses": ["cost of goods sold"],
-      "revenue": ["unit price", "utilization", "capacity"],
     },
     "opex_to_revenue_ratio": {
       "expenses": ["payroll", "marketing", "general & administrative", "lease"],
@@ -8594,6 +8754,8 @@ def _issue_metric_lever_allowed(
       role in {"working_capital_asset", "working_capital_liability", "current_liability_financing"}
       or family == "balance_sheet"
     )
+  if issue == "pricing_positioning_mismatch" and metric == "gross_margin_pct":
+    return bool(role == "cost_of_goods_ratio")
   return True
 
 
@@ -8772,7 +8934,7 @@ def _repair_path_type_for_lever(
     if role == "cost_of_goods_ratio":
       return "direct", "high"
     if family == "revenue":
-      return "direct", "medium"
+      return "indirect", "low"
   if metric == "opex_to_revenue_ratio":
     if role in {"operating_cost_ratio", "operating_cost_fixed"}:
       return "direct", "high"
@@ -8944,6 +9106,19 @@ def _quarter_row_operating_cost_base(quarter_row: Optional[Dict[str, Any]]) -> f
   )
 
 
+def _metric_lever_scaffold_fallback_allowed(
+  *,
+  metric_name: Any,
+  lever_entry: Optional[Dict[str, Any]],
+) -> bool:
+  metric = str(metric_name or "").strip().lower()
+  entry = lever_entry if isinstance(lever_entry, dict) else {}
+  role = str(entry.get("accounting_role") or "").strip().lower()
+  if metric == "gross_margin_pct":
+    return role == "cost_of_goods_ratio"
+  return True
+
+
 def _component_delta_to_lever_delta(
   *,
   lever_id: Any,
@@ -9071,21 +9246,6 @@ def _translate_metric_delta_to_lever_delta(
       delta_unit="percent_of_revenue",
       translation_basis="cogs_ratio_from_gross_margin_pct",
       translation_confidence="high",
-    )
-  if metric == "gross_margin_pct" and family == "revenue":
-    denominator = max(1e-9, 1.0 - float(target_metric))
-    desired_revenue = float(max(cogs, 0.0) / denominator)
-    revenue_delta = desired_revenue - revenue
-    lever_delta = (
-      float((baseline_value or 0.0) * (revenue_delta / revenue))
-      if baseline_value is not None and abs(revenue) > 1e-9
-      else float(revenue_delta)
-    )
-    return _result(
-      lever_delta,
-      delta_unit=str(entry.get("input_semantics") or entry.get("value_kind") or "input_units"),
-      translation_basis="proportional_revenue_translation_from_gross_margin_pct",
-      translation_confidence="medium",
     )
 
   if metric == "opex_to_revenue_ratio":
@@ -9558,6 +9718,17 @@ def _repair_aware_issue_packets(
         or enhanced_packet.get("detail")
         or ""
       ).strip()
+      mapped_candidate_lever_ids = _issue_packet_mapped_driver_lever_ids(repair_packet)
+      if mapped_candidate_lever_ids:
+        enhanced_packet["candidate_lever_ids"] = copy.deepcopy(mapped_candidate_lever_ids)
+        enhanced_packet["next_required_lever_ids"] = copy.deepcopy(mapped_candidate_lever_ids)
+      required_lever_families = _issue_packet_required_lever_families(repair_packet)
+      if required_lever_families:
+        enhanced_packet["candidate_lever_families"] = copy.deepcopy(required_lever_families)
+      primary_target_proxy_metrics = _issue_packet_primary_target_proxy_metrics(repair_packet)
+      if primary_target_proxy_metrics:
+        enhanced_packet["primary_target_proxy_metrics"] = copy.deepcopy(primary_target_proxy_metrics)
+        enhanced_packet["metric_targets"] = copy.deepcopy(primary_target_proxy_metrics)
     enhanced_packets.append(enhanced_packet)
   enhanced_packets.sort(
     key=lambda item: (
@@ -9890,6 +10061,7 @@ def _compact_numeric_guidance_for_prompt(
     "guidance_coverage_summary": copy.deepcopy(guidance.get("guidance_coverage_summary") or {}),
     "metric_pressure_packets": compact_metric_packets,
     "lever_band_scaffold": compact_lever_entries,
+    "lever_allowed_mapped_repair_targets": _lever_allowed_mapped_repair_targets(guidance),
   }
 
 
@@ -10180,13 +10352,9 @@ def _build_unified_numeric_guidance_packet(
       )
     )[: max(1, _CONVERGENCE_MAX_FOCUS_METRICS_PER_ISSUE)]
     candidate_lever_pool: List[str] = []
-    for lever_id in (
-      _normalize_realism_lever_ids(issue_record.get("next_required_lever_ids"))
-      + [
-        str(item).strip()
-        for item in (issue_packet.get("candidate_lever_ids") or issue_packet.get("next_required_lever_ids") or [])
-        if str(item).strip()
-      ]
+    for lever_id in _preferred_issue_candidate_lever_ids(
+      issue_record=issue_record,
+      contract_packet=issue_packet,
     ):
       if lever_id and lever_id not in candidate_lever_pool:
         candidate_lever_pool.append(lever_id)
@@ -10580,6 +10748,11 @@ def _build_unified_numeric_guidance_packet(
         translation_basis = str(translation_reference.get("translation_basis") or "").strip() or None
         translation_confidence = str(translation_reference.get("translation_confidence") or "").strip() or None
       else:
+        if not _metric_lever_scaffold_fallback_allowed(
+          metric_name=metric_name,
+          lever_entry=lever_entry,
+        ):
+          continue
         lever_min_delta, lever_max_delta = _driver_path_delta_bounds(
           direction_hint=direction_hint,
           baseline_value=lever_entry.get("baseline_value"),
@@ -10660,6 +10833,18 @@ def _build_unified_numeric_guidance_packet(
       ),
     )
   ]
+  for issue_packet in issue_repair_packets:
+    mapped_candidate_lever_ids = _issue_packet_mapped_driver_lever_ids(issue_packet)
+    issue_packet["candidate_lever_ids"] = copy.deepcopy(mapped_candidate_lever_ids)
+    issue_packet["candidate_lever_families"] = list(
+      dict.fromkeys(
+        [
+          str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
+          for lever_id in mapped_candidate_lever_ids
+          if str(_lever_family_from_lever_id(lever_id) or "").strip()
+        ]
+      )
+    )
 
   metric_pressure_with_equilibrium_target_count = sum(
     1
@@ -12909,11 +13094,10 @@ def _build_repair_guidance_payload(
   )
   if not convergence_context and not controller_state and not retry_context:
     return {}
-  selected_cash_strategy = str(
-    planning_context_summary.get("selected_cash_strategy")
-    or convergence_context.get("selected_cash_strategy")
-    or ""
-  ).strip()
+  selected_cash_strategy = _resolved_cash_strategy(
+    planning_context_summary,
+    convergence_context,
+  )
   full_numeric_solver_contract = copy.deepcopy(
     convergence_context.get("numeric_solver_contract")
     if isinstance(convergence_context.get("numeric_solver_contract"), dict)
@@ -12932,10 +13116,30 @@ def _build_repair_guidance_payload(
     for row in ((current_finmo_json.get("quarter_rows") or []) if isinstance(current_finmo_json, dict) else [])
     if isinstance(row, dict)
   ]
+  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
+    stage=stage,
+    status=status,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_context_summary=copy.deepcopy(planning_context_summary),
+    unified_convergence_context=copy.deepcopy(convergence_context),
+    controller_resolution_state=copy.deepcopy(controller_state),
+    controller_retry_context=copy.deepcopy(retry_context),
+    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
+    unified_convergence_decision=None,
+    unified_convergence_plan=None,
+    unified_convergence_result=None,
+    unified_convergence_cycle_count=unified_convergence_cycle_count,
+  )
+  current_cycle_deterministic_numeric_guidance = copy.deepcopy(
+    (current_cycle_convergence_packet.get("deterministic_numeric_guidance") if isinstance(current_cycle_convergence_packet, dict) else {})
+    or {}
+  )
   raw_retry_scope_payload = _build_retry_scope_payload(
     controller_retry_context=copy.deepcopy(retry_context),
     prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
     numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
+    deterministic_numeric_guidance=copy.deepcopy(current_cycle_deterministic_numeric_guidance),
     solved_model_input_json=copy.deepcopy(convergence_context.get("current_model_input_json") or {}),
     solved_finmo_json=copy.deepcopy(current_finmo_json),
   )
@@ -12978,21 +13182,6 @@ def _build_repair_guidance_payload(
   required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
     copy.deepcopy(scoped_numeric_solver_contract),
     required_target_quarters=copy.deepcopy(required_target_quarters),
-  )
-  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
-    stage=stage,
-    status=status,
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    planning_context_summary=copy.deepcopy(planning_context_summary),
-    unified_convergence_context=copy.deepcopy(convergence_context),
-    controller_resolution_state=copy.deepcopy(controller_state),
-    controller_retry_context=copy.deepcopy(retry_context),
-    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
-    unified_convergence_decision=None,
-    unified_convergence_plan=None,
-    unified_convergence_result=None,
-    unified_convergence_cycle_count=unified_convergence_cycle_count,
   )
   prompt_safe_unified_convergence_context = {
     "contract_version": str(convergence_context.get("contract_version") or "unified_convergence_context_v1"),
@@ -13088,10 +13277,7 @@ def _build_repair_guidance_payload(
     "solver_settings": copy.deepcopy(compact_solver_contract.get("solver_settings") or {}),
     "lever_sensitivity_policy": copy.deepcopy(compact_solver_contract.get("lever_sensitivity_policy") or {}),
   }
-  full_prompt_numeric_guidance = copy.deepcopy(
-    (current_cycle_convergence_packet.get("deterministic_numeric_guidance") if isinstance(current_cycle_convergence_packet, dict) else {})
-    or {}
-  )
+  full_prompt_numeric_guidance = copy.deepcopy(current_cycle_deterministic_numeric_guidance)
   prompt_safe_numeric_guidance = _compact_numeric_guidance_for_prompt(
     copy.deepcopy(full_prompt_numeric_guidance)
   )
@@ -13269,7 +13455,7 @@ def _build_repair_guidance_payload(
       {
         "issue_code": str(packet.get("issue_code") or "").strip().lower(),
         "metric_candidates": copy.deepcopy(packet.get("primary_target_proxy_metrics") or []),
-        "required_lever_families": copy.deepcopy(packet.get("candidate_lever_families") or []),
+        "required_lever_families": copy.deepcopy(_issue_packet_required_lever_families(packet)),
       }
       for packet in (prompt_repair_envelope_packets or [])
       if isinstance(packet, dict) and str(packet.get("issue_code") or "").strip()
@@ -13652,6 +13838,24 @@ def _unified_convergence_schema(
             "rationale": {"type": "string"},
             "business_reason": {"type": "string"},
             "linked_action_effect": {"type": "string"},
+            "mapped_repair_targets": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                  "issue_code": {"type": "string"},
+                  "target_metric_name": {"type": "string", "enum": metric_enum},
+                  "target_quarters": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "integer", "minimum": 1, "maximum": 20},
+                  },
+                },
+                "required": ["issue_code", "target_metric_name", "target_quarters"],
+              },
+            },
           },
           "required": [
             "lever_id",
@@ -13670,6 +13874,7 @@ def _unified_convergence_schema(
             "rationale",
             "business_reason",
             "linked_action_effect",
+            "mapped_repair_targets",
           ],
         },
       },
@@ -14140,18 +14345,10 @@ def _build_deterministic_issue_packets(
       }
     )
     candidate_lever_ids: List[str] = []
-    for lever_id in (
-      _normalize_realism_lever_ids(record.get("next_required_lever_ids"))
-      + [
-        str(item).strip()
-        for item in (contract_packet.get("next_required_lever_ids") or [])
-        if str(item).strip()
-      ]
-      + [
-        str(item).strip()
-        for item in (prior_packet.get("candidate_lever_ids") or [])
-        if str(item).strip()
-      ]
+    for lever_id in _preferred_issue_candidate_lever_ids(
+      issue_record=record,
+      contract_packet=contract_packet,
+      prior_packet=prior_packet,
     ):
       if lever_id and lever_id not in candidate_lever_ids:
         candidate_lever_ids.append(lever_id)
@@ -14433,6 +14630,458 @@ def _numeric_adjust_actions_contract_error(
   return None
 
 
+def _normalize_unified_mapped_repair_targets(raw_targets: Any) -> List[Dict[str, Any]]:
+  normalized: List[Dict[str, Any]] = []
+  seen: set[Tuple[str, str, Tuple[int, ...]]] = set()
+  for item in (raw_targets or []):
+    if not isinstance(item, dict):
+      continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    target_metric_name = str(item.get("target_metric_name") or "").strip().lower()
+    target_quarters = sorted(
+      {
+        int(_safe_float(quarter) or 0)
+        for quarter in (item.get("target_quarters") or [])
+        if int(_safe_float(quarter) or 0) >= 1
+      }
+    )
+    if not issue_code or not target_metric_name or not target_quarters:
+      continue
+    mapping_key = (issue_code, target_metric_name, tuple(target_quarters))
+    if mapping_key in seen:
+      continue
+    seen.add(mapping_key)
+    normalized.append(
+      {
+        "issue_code": issue_code,
+        "target_metric_name": target_metric_name,
+        "target_quarters": copy.deepcopy(target_quarters),
+      }
+    )
+  return normalized
+
+
+def _declared_mapped_target_metric_names(
+  lever_adjustments: Any,
+) -> List[str]:
+  out: List[str] = []
+  for adjustment in (lever_adjustments or []):
+    if not isinstance(adjustment, dict):
+      continue
+    for mapping in _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    ):
+      metric_name = str(mapping.get("target_metric_name") or "").strip().lower()
+      if metric_name and metric_name in _UNIFIED_ALLOWED_TARGET_METRIC_KEYS and metric_name not in out:
+        out.append(metric_name)
+  return out
+
+
+def _merge_required_target_tolerances(
+  raw_tolerances: Any,
+  required_metric_names: Any,
+) -> List[Dict[str, Any]]:
+  merged = _normalize_unified_target_tolerances(raw_tolerances)
+  existing_metric_names = {
+    str(item.get("metric_name") or "").strip().lower()
+    for item in merged
+    if isinstance(item, dict) and str(item.get("metric_name") or "").strip()
+  }
+  for item in _default_unified_target_tolerances(required_metric_names):
+    metric_name = str(item.get("metric_name") or "").strip().lower()
+    if metric_name and metric_name not in existing_metric_names:
+      merged.append(copy.deepcopy(item))
+      existing_metric_names.add(metric_name)
+  merged.sort(key=lambda item: str(item.get("metric_name") or "").strip().lower())
+  return merged
+
+
+def _augment_solver_quarter_target_metrics(
+  *,
+  raw_targets: Any,
+  required_metric_names: Any,
+  numeric_solver_contract: Optional[Dict[str, Any]] = None,
+  required_target_quarters: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+  normalized_targets = _normalize_solver_quarter_target_metrics(raw_targets)
+  required_metrics = _normalize_primary_target_metric_names(required_metric_names)
+  if not required_metrics:
+    return normalized_targets
+  scaffold_contract = (
+    copy.deepcopy(numeric_solver_contract)
+    if isinstance(numeric_solver_contract, dict)
+    else {}
+  )
+  scaffold_contract["recommended_primary_target_metric_keys"] = copy.deepcopy(
+    required_metrics[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
+  )
+  quarter_scaffold = _solver_required_quarter_target_scaffold(
+    scaffold_contract,
+    required_target_quarters=copy.deepcopy(required_target_quarters),
+  )
+  baseline_metric_map_by_quarter: Dict[int, Dict[str, Any]] = {}
+  for item in quarter_scaffold:
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    baseline_metrics = (
+      item.get("baseline_metrics")
+      if isinstance(item.get("baseline_metrics"), dict)
+      else {}
+    )
+    baseline_metric_map_by_quarter[quarter_index] = copy.deepcopy(baseline_metrics)
+  quarter_payload_map = {
+    int(_safe_float(item.get("quarter_index")) or 0): copy.deepcopy(item)
+    for item in normalized_targets
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  }
+  target_quarters = sorted(
+    {
+      quarter
+      for quarter in (
+        list(quarter_payload_map.keys())
+        + list(baseline_metric_map_by_quarter.keys())
+        + [
+          int(_safe_float(item) or 0)
+          for item in (required_target_quarters or [])
+        ]
+      )
+      if quarter >= 1
+    }
+  )
+  for quarter_index in target_quarters:
+    payload = copy.deepcopy(quarter_payload_map.get(quarter_index) or {"quarter_index": quarter_index})
+    baseline_metrics = baseline_metric_map_by_quarter.get(quarter_index) or {}
+    for metric_name in required_metrics:
+      if _safe_float(payload.get(metric_name)) is None:
+        baseline_value = _safe_float(baseline_metrics.get(metric_name))
+        payload[metric_name] = float(baseline_value if baseline_value is not None else 0.0)
+    quarter_payload_map[quarter_index] = payload
+  return [
+    copy.deepcopy(quarter_payload_map[quarter_index])
+    for quarter_index in sorted(quarter_payload_map.keys())
+  ]
+
+
+def _repair_target_matches_declared_mapping(
+  *,
+  repair_target: Optional[Dict[str, Any]],
+  target_metric_name: str,
+  target_quarter_set: set[int],
+) -> bool:
+  item = repair_target if isinstance(repair_target, dict) else {}
+  quarter = int(_safe_float(item.get("quarter")) or 0)
+  if quarter < 1 or (target_quarter_set and quarter not in target_quarter_set):
+    return False
+  metric_name = str(item.get("metric") or "").strip().lower()
+  proxy_metric_names = {
+    str(metric or "").strip().lower()
+    for metric in (item.get("primary_target_proxy_metrics") or [])
+    if str(metric or "").strip()
+  }
+  return bool(
+    target_metric_name
+    and (
+      metric_name == target_metric_name
+      or target_metric_name in proxy_metric_names
+    )
+  )
+
+
+def _declared_mapping_driver_paths_for_lever(
+  *,
+  issue_packet: Optional[Dict[str, Any]],
+  lever_id: str,
+  target_metric_name: str,
+  target_quarters: Optional[List[int]],
+) -> Tuple[List[Dict[str, Any]], List[int]]:
+  packet = issue_packet if isinstance(issue_packet, dict) else {}
+  normalized_quarters = sorted(
+    {
+      int(_safe_float(quarter) or 0)
+      for quarter in (target_quarters or [])
+      if int(_safe_float(quarter) or 0) >= 1
+    }
+  )
+  target_quarter_set = set(normalized_quarters)
+  matched_paths: List[Dict[str, Any]] = []
+  covered_quarters: set[int] = set()
+  for repair_target in (packet.get("repair_targets") or []):
+    if not isinstance(repair_target, dict):
+      continue
+    if not _repair_target_matches_declared_mapping(
+      repair_target=repair_target,
+      target_metric_name=target_metric_name,
+      target_quarter_set=target_quarter_set,
+    ):
+      continue
+    repair_target_quarter = int(_safe_float(repair_target.get("quarter")) or 0)
+    for driver_path in (repair_target.get("driver_paths") or []):
+      if not isinstance(driver_path, dict):
+        continue
+      if str(driver_path.get("lever") or "").strip() != lever_id:
+        continue
+      matched_paths.append(copy.deepcopy(driver_path))
+      if repair_target_quarter >= 1:
+        covered_quarters.add(repair_target_quarter)
+  return matched_paths, sorted(covered_quarters)
+
+
+def _issue_packet_mapped_driver_lever_ids(
+  issue_packet: Optional[Dict[str, Any]],
+) -> List[str]:
+  packet = issue_packet if isinstance(issue_packet, dict) else {}
+  ordered_lever_ids: List[str] = []
+  for repair_target in (packet.get("repair_targets") or []):
+    if not isinstance(repair_target, dict):
+      continue
+    for driver_path in (repair_target.get("driver_paths") or []):
+      if not isinstance(driver_path, dict):
+        continue
+      lever_id = str(driver_path.get("lever") or "").strip()
+      if lever_id and lever_id not in ordered_lever_ids:
+        ordered_lever_ids.append(lever_id)
+  return ordered_lever_ids
+
+
+def _deterministic_guidance_focus_issue_codes(
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+) -> List[str]:
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  ordered_issue_codes: List[str] = []
+  for issue_packet in (guidance.get("issue_repair_packets") or []):
+    if not isinstance(issue_packet, dict):
+      continue
+    issue_code = str(issue_packet.get("issue_code") or "").strip().lower()
+    if issue_code and issue_code not in ordered_issue_codes:
+      ordered_issue_codes.append(issue_code)
+    if len(ordered_issue_codes) >= _CONVERGENCE_MAX_FOCUS_ISSUES:
+      break
+  return ordered_issue_codes
+
+
+def _issue_packet_primary_target_proxy_metrics(
+  issue_packet: Optional[Dict[str, Any]],
+) -> List[str]:
+  packet = issue_packet if isinstance(issue_packet, dict) else {}
+  ordered_metric_names: List[str] = []
+  for raw_metric_name in (packet.get("primary_target_proxy_metrics") or []):
+    metric_name = str(raw_metric_name or "").strip().lower()
+    if metric_name and metric_name not in ordered_metric_names:
+      ordered_metric_names.append(metric_name)
+  for repair_target in (packet.get("repair_targets") or []):
+    if not isinstance(repair_target, dict):
+      continue
+    for raw_metric_name in (repair_target.get("primary_target_proxy_metrics") or []):
+      metric_name = str(raw_metric_name or "").strip().lower()
+      if metric_name and metric_name not in ordered_metric_names:
+        ordered_metric_names.append(metric_name)
+  return ordered_metric_names
+
+
+def _issue_packet_required_lever_families(
+  issue_packet: Optional[Dict[str, Any]],
+) -> List[str]:
+  packet = issue_packet if isinstance(issue_packet, dict) else {}
+  ordered_families: List[str] = []
+
+  def _append_family(raw_family: Any) -> None:
+    family = str(raw_family or "").strip().lower()
+    if family and family not in ordered_families:
+      ordered_families.append(family)
+
+  for raw_family in (packet.get("candidate_lever_families") or []):
+    _append_family(raw_family)
+  if ordered_families:
+    return ordered_families
+
+  for lever_id in _issue_packet_mapped_driver_lever_ids(packet):
+    _append_family(_lever_family_from_lever_id(lever_id))
+  if ordered_families:
+    return ordered_families
+
+  for repair_target in (packet.get("repair_targets") or []):
+    if not isinstance(repair_target, dict):
+      continue
+    for driver_path in (repair_target.get("driver_paths") or []):
+      if not isinstance(driver_path, dict):
+        continue
+      _append_family(driver_path.get("lever_family"))
+      if ordered_families:
+        continue
+      _append_family(_lever_family_from_lever_id(driver_path.get("lever")))
+  return ordered_families
+
+
+def _preferred_issue_candidate_lever_ids(
+  *,
+  issue_record: Optional[Dict[str, Any]] = None,
+  contract_packet: Optional[Dict[str, Any]] = None,
+  prior_packet: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+  record = issue_record if isinstance(issue_record, dict) else {}
+  contract = contract_packet if isinstance(contract_packet, dict) else {}
+  prior = prior_packet if isinstance(prior_packet, dict) else {}
+  mapped_candidates: List[str] = []
+  for lever_id in (
+    [
+      str(item).strip()
+      for item in (
+        contract.get("next_required_lever_ids")
+        or contract.get("candidate_lever_ids")
+        or []
+      )
+      if str(item).strip()
+    ]
+    + [
+      str(item).strip()
+      for item in (
+        prior.get("candidate_lever_ids")
+        or prior.get("next_required_lever_ids")
+        or []
+      )
+      if str(item).strip()
+    ]
+  ):
+    if lever_id and lever_id not in mapped_candidates:
+      mapped_candidates.append(lever_id)
+  if mapped_candidates:
+    return mapped_candidates
+  return _normalize_realism_lever_ids(record.get("next_required_lever_ids"))
+
+
+def _lever_allowed_mapped_repair_targets(
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+) -> Dict[str, List[Dict[str, Any]]]:
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  mapping_quarters: Dict[Tuple[str, str, str], set[int]] = {}
+  for issue_packet in (guidance.get("issue_repair_packets") or []):
+    if not isinstance(issue_packet, dict):
+      continue
+    issue_code = str(issue_packet.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    for repair_target in (issue_packet.get("repair_targets") or []):
+      if not isinstance(repair_target, dict):
+        continue
+      quarter = int(_safe_float(repair_target.get("quarter")) or 0)
+      if quarter < 1:
+        continue
+      target_metric_names = [
+        str(metric_name or "").strip().lower()
+        for metric_name in (repair_target.get("primary_target_proxy_metrics") or [])
+        if str(metric_name or "").strip()
+      ]
+      if not target_metric_names:
+        fallback_metric_name = str(repair_target.get("metric") or "").strip().lower()
+        if fallback_metric_name:
+          target_metric_names = [fallback_metric_name]
+      for driver_path in (repair_target.get("driver_paths") or []):
+        if not isinstance(driver_path, dict):
+          continue
+        lever_id = str(driver_path.get("lever") or "").strip()
+        if not lever_id:
+          continue
+        for target_metric_name in target_metric_names:
+          mapping_quarters.setdefault((lever_id, issue_code, target_metric_name), set()).add(quarter)
+  lever_mapping_map: Dict[str, List[Dict[str, Any]]] = {}
+  for lever_id, issue_code, target_metric_name in sorted(mapping_quarters.keys()):
+    lever_mapping_map.setdefault(lever_id, []).append(
+      {
+        "issue_code": issue_code,
+        "target_metric_name": target_metric_name,
+        "target_quarters": sorted(mapping_quarters[(lever_id, issue_code, target_metric_name)]),
+      }
+    )
+  return lever_mapping_map
+
+
+def _unified_declared_repair_mapping_contract_error(
+  *,
+  lever_adjustments: Optional[List[Dict[str, Any]]],
+  primary_target_metric_names: Optional[List[str]],
+  targets_by_quarter: Optional[List[Dict[str, Any]]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+) -> Optional[str]:
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  issue_packet_map = {
+    str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
+    for item in (guidance.get("issue_repair_packets") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
+  primary_metric_set = {
+    str(metric or "").strip().lower()
+    for metric in (primary_target_metric_names or [])
+    if str(metric or "").strip()
+  }
+  target_metric_quarters: Dict[str, set[int]] = {}
+  for item in (targets_by_quarter or []):
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    for metric_name in primary_metric_set:
+      if _safe_float(item.get(metric_name)) is not None:
+        target_metric_quarters.setdefault(metric_name, set()).add(quarter_index)
+  for adjustment in (lever_adjustments or []):
+    if not isinstance(adjustment, dict):
+      continue
+    lever_id = str(adjustment.get("lever_id") or "").strip()
+    if not lever_id:
+      continue
+    mapped_targets = _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    )
+    if not mapped_targets:
+      return (
+        f"{lever_id} must include non-empty mapped_repair_targets with explicit "
+        "issue_code, target_metric_name, and target_quarters."
+      )
+    for mapping in mapped_targets:
+      issue_code = str(mapping.get("issue_code") or "").strip().lower()
+      target_metric_name = str(mapping.get("target_metric_name") or "").strip().lower()
+      target_quarters = [
+        int(_safe_float(quarter) or 0)
+        for quarter in (mapping.get("target_quarters") or [])
+        if int(_safe_float(quarter) or 0) >= 1
+      ]
+      if target_metric_name not in primary_metric_set:
+        return (
+          f"{lever_id} mapped target metric {target_metric_name or 'missing'} must appear in "
+          "primary_target_metric_names."
+        )
+      declared_metric_quarters = set(target_metric_quarters.get(target_metric_name) or set())
+      if not declared_metric_quarters.issuperset(set(target_quarters)):
+        return (
+          f"{lever_id} mapped target quarters {sorted(target_quarters)} for {target_metric_name} must be "
+          "covered in targets_by_quarter."
+        )
+      issue_packet = issue_packet_map.get(issue_code)
+      if not isinstance(issue_packet, dict) or not issue_packet:
+        return f"{lever_id} mapped issue_code {issue_code or 'missing'} is not present in deterministic issue repair packets."
+      matched_paths, covered_quarters = _declared_mapping_driver_paths_for_lever(
+        issue_packet=issue_packet,
+        lever_id=lever_id,
+        target_metric_name=target_metric_name,
+        target_quarters=target_quarters,
+      )
+      if not matched_paths:
+        return (
+          f"{lever_id} has no deterministic driver path for mapped issue {issue_code}, "
+          f"target metric {target_metric_name}, quarters {sorted(target_quarters)}."
+        )
+      if set(covered_quarters) != set(target_quarters):
+        return (
+          f"{lever_id} mapped quarters {sorted(target_quarters)} are not fully covered by deterministic "
+          f"driver paths for issue {issue_code} and target metric {target_metric_name}. "
+          f"covered={sorted(covered_quarters)}."
+        )
+  return None
+
+
 def _numeric_decision_contract_error(
   *,
   parsed: Optional[Dict[str, Any]],
@@ -14461,6 +15110,7 @@ def _unified_convergence_decision_contract_error(
   parsed: Optional[Dict[str, Any]],
   required_target_quarters: Optional[List[int]] = None,
   numeric_solver_contract: Optional[Dict[str, Any]] = None,
+  deterministic_numeric_guidance: Optional[Dict[str, Any]] = None,
   controller_retry_context: Optional[Dict[str, Any]] = None,
   baseline_map: Optional[Dict[str, List[float]]] = None,
   full_horizon_quarter_count: Optional[int] = None,
@@ -14508,6 +15158,13 @@ def _unified_convergence_decision_contract_error(
       or _safe_float(adjustment.get("max_value")) is None
     ):
       return f"{lever_id} band mode requires min_value and max_value."
+    if adjustment and not _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    ):
+      return (
+        f"{lever_id} must include mapped_repair_targets that explicitly name the issue, "
+        "target metric, and target quarters this lever is intended to move."
+      )
   primary_target_metric_names = _unified_required_target_metric_keys(
     decision_payload=decision,
     numeric_solver_contract=numeric_solver_contract,
@@ -14549,27 +15206,28 @@ def _unified_convergence_decision_contract_error(
         "Escalation requires the primary target set to directly cover the still-open issue metrics. "
         f"Need at least {required_candidate_count} targets from {sorted(required_primary_metric_candidates)}."
       )
-  normalized_tolerances = _normalize_unified_target_tolerances(
-    decision.get("target_tolerances") or []
+  normalized_tolerances = _merge_required_target_tolerances(
+    decision.get("target_tolerances") or [],
+    primary_target_metric_names,
   )
-  tolerance_metric_names = {
-    str(item.get("metric_name") or "").strip().lower()
-    for item in normalized_tolerances
-    if str(item.get("metric_name") or "").strip()
-  }
-  missing_tolerance_metrics = [
-    metric_name for metric_name in primary_target_metric_names if metric_name not in tolerance_metric_names
-  ]
-  if normalized_tolerances and missing_tolerance_metrics:
-    return (
-      f"target_tolerances is missing metrics {missing_tolerance_metrics}. "
-      "Every primary target metric must have a tolerance entry."
-    )
-  targets_by_quarter = _normalize_solver_quarter_target_metrics(
-    decision.get("targets_by_quarter")
+  targets_by_quarter = _augment_solver_quarter_target_metrics(
+    raw_targets=decision.get("targets_by_quarter"),
+    required_metric_names=primary_target_metric_names,
+    numeric_solver_contract=copy.deepcopy(numeric_solver_contract),
+    required_target_quarters=copy.deepcopy(required_target_quarters),
   )
   if not targets_by_quarter:
     return "targets_by_quarter must include numeric quarter targets for the current cycle."
+  mapping_contract_error = _unified_declared_repair_mapping_contract_error(
+    lever_adjustments=copy.deepcopy(lever_adjustments),
+    primary_target_metric_names=copy.deepcopy(primary_target_metric_names),
+    targets_by_quarter=copy.deepcopy(targets_by_quarter),
+    deterministic_numeric_guidance=copy.deepcopy(
+      deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+    ),
+  )
+  if mapping_contract_error:
+    return mapping_contract_error
   target_quarters = sorted(
     {
       int(_safe_float(item.get("quarter_index")) or 0)
@@ -14651,6 +15309,33 @@ def _unified_convergence_decision_contract_error(
     for lever_id in lever_selection
     if str(lever_id).strip()
   }
+  declared_issue_metric_coverage: Dict[str, set[str]] = {}
+  declared_issue_family_coverage: Dict[str, set[str]] = {}
+  declared_issue_quarter_coverage: Dict[str, set[int]] = {}
+  for adjustment in lever_adjustments:
+    if not isinstance(adjustment, dict):
+      continue
+    lever_id = str(adjustment.get("lever_id") or "").strip()
+    if not lever_id:
+      continue
+    lever_family = _lever_family_from_lever_id(lever_id)
+    for mapping in _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    ):
+      issue_code = str(mapping.get("issue_code") or "").strip().lower()
+      metric_name = str(mapping.get("target_metric_name") or "").strip().lower()
+      if not issue_code:
+        continue
+      if metric_name:
+        declared_issue_metric_coverage.setdefault(issue_code, set()).add(metric_name)
+      if lever_family:
+        declared_issue_family_coverage.setdefault(issue_code, set()).add(lever_family)
+      for quarter_index in (
+        int(_safe_float(item) or 0)
+        for item in (mapping.get("target_quarters") or [])
+      ):
+        if quarter_index >= 1:
+          declared_issue_quarter_coverage.setdefault(issue_code, set()).add(int(quarter_index))
   required_lever_families = {
     str(item or "").strip().lower()
     for item in (retry_context.get("required_lever_families") or [])
@@ -14663,6 +15348,7 @@ def _unified_convergence_decision_contract_error(
       f"Missing families: {missing_families}."
     )
   for requirement in [item for item in (retry_context.get("issue_coverage_requirements") or []) if isinstance(item, dict)]:
+    issue_code = str(requirement.get("issue_code") or "").strip().lower()
     metric_candidates = {
       str(item or "").strip().lower()
       for item in (requirement.get("metric_candidates") or [])
@@ -14673,15 +15359,49 @@ def _unified_convergence_decision_contract_error(
         "Escalation requires direct target coverage for each open issue. "
         f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no covered primary metric."
       )
+    if metric_candidates and not (declared_issue_metric_coverage.get(issue_code) or set()) & metric_candidates:
+      return (
+        "Escalation requires each open issue to have a declared mapped repair target, not just broad metric overlap. "
+        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no mapped lever adjustment covering {sorted(metric_candidates)}."
+      )
     issue_required_families = {
       str(item or "").strip().lower()
       for item in (requirement.get("required_lever_families") or [])
       if str(item or "").strip()
     }
-    if issue_required_families and not (selected_families & issue_required_families):
+    missing_issue_families = sorted(
+      family
+      for family in issue_required_families
+      if family not in selected_families
+    )
+    if missing_issue_families:
       return (
-        "Escalation requires each open issue to be attacked with a direct lever family. "
-        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} is missing family coverage."
+        "Escalation requires each open issue to be attacked with the full declared lever-family set. "
+        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} is missing families {missing_issue_families}."
+      )
+    missing_declared_issue_families = sorted(
+      family
+      for family in issue_required_families
+      if family not in (declared_issue_family_coverage.get(issue_code) or set())
+    )
+    if missing_declared_issue_families:
+      return (
+        "Escalation requires each open issue to have declared mapped lever-family coverage across the full required set. "
+        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} is missing declared mapped families {missing_declared_issue_families}."
+      )
+    relevant_quarters = {
+      int(_safe_float(item) or 0)
+      for item in (
+        requirement.get("affected_quarters")
+        or requirement.get("relevant_quarters")
+        or []
+      )
+      if int(_safe_float(item) or 0) >= 1
+    }
+    if relevant_quarters and not ((declared_issue_quarter_coverage.get(issue_code) or set()) & relevant_quarters):
+      return (
+        "Escalation requires declared mapped repair targets to cover the issue's active quarters. "
+        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no mapped quarter overlap with {sorted(relevant_quarters)}."
       )
   return None
 
@@ -14875,7 +15595,7 @@ def _run_realism_resolution_openai(
   full_numeric_solver_contract = build_numeric_solver_contract(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
-    selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+    selected_cash_strategy=_resolved_cash_strategy(financials_json),
     issue_status_records=copy.deepcopy((planner_issue_state or {}).get("issue_status_records") or []),
     writable_lever_catalog=copy.deepcopy(lever_catalog),
     current_model_input_json=copy.deepcopy(solved_model_input_json or {}),
@@ -14887,6 +15607,7 @@ def _run_realism_resolution_openai(
     controller_retry_context=copy.deepcopy(controller_retry_context or {}),
     prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback or {}),
     numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
+    deterministic_numeric_guidance=None,
     solved_model_input_json=copy.deepcopy(solved_model_input_json or {}),
     solved_finmo_json=copy.deepcopy(solved_finmo_json or {}),
   )
@@ -15669,16 +16390,8 @@ def _run_cash_strategy_review_openai(
 ) -> Dict[str, Any]:
   prompt_file = "client_intake_and_finmo/prompts/cash_strategy_review/reviewer.md"
   del first_pass_handoff, solved_finmo_json, prior_numeric_feedback, controller_retry_context
-  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or "").strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials_json)
   prompt_trace: Dict[str, Any] = {}
-  if not selected_cash_strategy:
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy="",
-      prompt_file=prompt_file,
-      status="skipped_no_cash_strategy",
-      detail="No cash strategy was selected for this draft.",
-      prompt_trace=prompt_trace,
-    )
   api_key = _openai_key()
   if not api_key:
     return _cash_strategy_review_failure_payload(
@@ -15843,7 +16556,7 @@ def _run_final_stabilizer_openai(
 ) -> Dict[str, Any]:
   raise RuntimeError("legacy_final_stabilizer_stage_execution_removed_use_unified_convergence")
   prompt_file = "client_intake_and_finmo/prompts/final_stabilizer/reviewer.md"
-  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or "").strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials_json)
   api_key = _openai_key()
   if not api_key:
     return _final_stabilizer_failure_payload(
@@ -15875,6 +16588,7 @@ def _run_final_stabilizer_openai(
     controller_retry_context=copy.deepcopy(controller_retry_context or {}),
     prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
     numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
+    deterministic_numeric_guidance=None,
     solved_model_input_json=copy.deepcopy((final_stabilizer_context or {}).get("current_model_input_json") or {}),
     solved_finmo_json=copy.deepcopy((final_stabilizer_context or {}).get("current_finmo_json") or {}),
   )
@@ -16098,11 +16812,10 @@ def _run_unified_convergence_openai(
   planning_context_summary = (
     planning_context_summary_json if isinstance(planning_context_summary_json, dict) else {}
   )
-  selected_cash_strategy = str(
-    planning_context_summary.get("selected_cash_strategy")
-    or (unified_convergence_context or {}).get("selected_cash_strategy")
-    or ""
-  ).strip()
+  selected_cash_strategy = _resolved_cash_strategy(
+    planning_context_summary,
+    unified_convergence_context,
+  )
   api_key = _openai_key()
   if not api_key:
     return {
@@ -16120,10 +16833,45 @@ def _run_unified_convergence_openai(
     if isinstance(prior_numeric_feedback, dict)
     else (unified_convergence_context or {}).get("prior_numeric_solver_feedback") or {}
   )
+  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
+    stage="convergence_running",
+    status=(
+      "escalation"
+      if bool(
+        (
+          (controller_retry_context or {}).get("controller_escalation_packet")
+          if isinstance((controller_retry_context or {}).get("controller_escalation_packet"), dict)
+          else {}
+        ).get("escalation_active")
+      )
+      else "running"
+    ),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    planning_context_summary=copy.deepcopy(planning_context_summary or {}),
+    unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
+    controller_resolution_state=copy.deepcopy(
+      (unified_convergence_context or {}).get("controller_resolution_state")
+      if isinstance((unified_convergence_context or {}).get("controller_resolution_state"), dict)
+      else {}
+    ),
+    controller_retry_context=copy.deepcopy(controller_retry_context or {}),
+    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
+    unified_convergence_cycle_count=copy.deepcopy(
+      (controller_retry_context or {}).get("attempt_number")
+      or (controller_retry_context or {}).get("cycle")
+      or None
+    ),
+  )
+  current_cycle_deterministic_numeric_guidance = copy.deepcopy(
+    (current_cycle_convergence_packet.get("deterministic_numeric_guidance") if isinstance(current_cycle_convergence_packet, dict) else {})
+    or {}
+  )
   raw_retry_scope_payload = _build_retry_scope_payload(
     controller_retry_context=copy.deepcopy(controller_retry_context or {}),
     prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
     numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
+    deterministic_numeric_guidance=copy.deepcopy(current_cycle_deterministic_numeric_guidance),
     solved_model_input_json=copy.deepcopy((unified_convergence_context or {}).get("current_model_input_json") or {}),
     solved_finmo_json=copy.deepcopy((unified_convergence_context or {}).get("current_finmo_json") or {}),
   )
@@ -16192,45 +16940,19 @@ def _run_unified_convergence_openai(
     (unified_convergence_context or {}).get("current_model_input_json")
   )
   required_target_quarters = copy.deepcopy(retry_scope_payload.get("scoped_quarters") or [])
-  required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
-    copy.deepcopy(scoped_numeric_solver_contract),
-    required_target_quarters=copy.deepcopy(required_target_quarters),
-  )
   effective_retry_context = copy.deepcopy(controller_retry_context or {})
-  current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
-    stage="convergence_running",
-    status=(
-      "escalation"
-      if bool(
-        (
-          (controller_retry_context or {}).get("controller_escalation_packet")
-          if isinstance((controller_retry_context or {}).get("controller_escalation_packet"), dict)
-          else {}
-        ).get("escalation_active")
-      )
-      else "running"
-    ),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    planning_context_summary=copy.deepcopy(planning_context_summary or {}),
-    unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
-    controller_resolution_state=copy.deepcopy(
-      (unified_convergence_context or {}).get("controller_resolution_state")
-      if isinstance((unified_convergence_context or {}).get("controller_resolution_state"), dict)
-      else {}
-    ),
-    controller_retry_context=copy.deepcopy(controller_retry_context or {}),
-    prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
-    unified_convergence_cycle_count=copy.deepcopy(
-      (controller_retry_context or {}).get("attempt_number")
-      or (controller_retry_context or {}).get("cycle")
-      or None
-    ),
-  )
   prompt_safe_numeric_guidance = copy.deepcopy(
-    (current_cycle_convergence_packet.get("deterministic_numeric_guidance") if isinstance(current_cycle_convergence_packet, dict) else {})
-    or {}
+    current_cycle_deterministic_numeric_guidance
   )
+  current_guidance_issue_packets = [
+    copy.deepcopy(item)
+    for item in (current_cycle_deterministic_numeric_guidance.get("issue_repair_packets") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  ]
+  if current_guidance_issue_packets:
+    scoped_numeric_solver_contract = copy.deepcopy(scoped_numeric_solver_contract)
+    scoped_numeric_solver_contract["issue_target_packets"] = copy.deepcopy(current_guidance_issue_packets)
+    scoped_numeric_solver_contract["active_issue_count"] = len(current_guidance_issue_packets)
   allowed_lever_ids = _scoped_unified_allowed_lever_ids(
     fallback_allowed_lever_ids=allowed_lever_ids,
     deterministic_numeric_guidance=prompt_safe_numeric_guidance,
@@ -16239,9 +16961,12 @@ def _run_unified_convergence_openai(
     retry_context=effective_retry_context,
     allowed_lever_ids=allowed_lever_ids,
   )
+  original_recommended_primary_target_metric_keys = _normalize_primary_target_metric_names(
+    (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
+  )
   allowed_target_metric_names = _normalize_primary_target_metric_names(
-    (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys")
-    or (scoped_numeric_solver_contract or {}).get("allowed_target_metric_ids")
+    (scoped_numeric_solver_contract or {}).get("allowed_target_metric_ids")
+    or original_recommended_primary_target_metric_keys
     or []
   )
   if isinstance(scoped_model_payload, dict):
@@ -16265,31 +16990,44 @@ def _run_unified_convergence_openai(
     for item in (prompt_safe_numeric_guidance.get("issue_repair_packets") or [])
     if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
   ]
-  if not (effective_retry_context.get("required_open_issue_codes") or []) and focus_issue_codes_for_contract:
+  if focus_issue_codes_for_contract:
     effective_retry_context["required_open_issue_codes"] = copy.deepcopy(focus_issue_codes_for_contract)
   issue_coverage_requirements = [
     {
       "issue_code": str(item.get("issue_code") or "").strip().lower(),
-      "metric_candidates": copy.deepcopy(item.get("primary_target_proxy_metrics") or []),
-      "required_lever_families": copy.deepcopy(item.get("candidate_lever_families") or []),
+      "metric_candidates": copy.deepcopy(_issue_packet_primary_target_proxy_metrics(item)),
+      "required_lever_families": copy.deepcopy(_issue_packet_required_lever_families(item)),
     }
     for item in (prompt_safe_numeric_guidance.get("issue_repair_packets") or [])
     if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
   ]
-  if not (effective_retry_context.get("issue_coverage_requirements") or []) and issue_coverage_requirements:
+  if issue_coverage_requirements:
     effective_retry_context["issue_coverage_requirements"] = copy.deepcopy(issue_coverage_requirements)
-  if not (effective_retry_context.get("required_primary_metric_candidates") or []) and allowed_target_metric_names:
-    effective_retry_context["required_primary_metric_candidates"] = copy.deepcopy(
+  rebuilt_primary_metric_candidates = list(
+    dict.fromkeys(
+      [
+        metric_name
+        for requirement in issue_coverage_requirements
+        for metric_name in (requirement.get("metric_candidates") or [])
+        if str(metric_name or "").strip()
+      ]
+    )
+  )
+  if not rebuilt_primary_metric_candidates and allowed_target_metric_names:
+    rebuilt_primary_metric_candidates = copy.deepcopy(
       allowed_target_metric_names[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
     )
-  if not int(_safe_float(effective_retry_context.get("minimum_primary_metric_coverage_count")) or 0) and allowed_target_metric_names:
+  effective_retry_context["required_primary_metric_candidates"] = copy.deepcopy(
+    rebuilt_primary_metric_candidates[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
+  )
+  if rebuilt_primary_metric_candidates:
     effective_retry_context["minimum_primary_metric_coverage_count"] = min(
       max(1, len(issue_coverage_requirements)),
-      len(allowed_target_metric_names),
+      len(rebuilt_primary_metric_candidates),
     )
-  if not (effective_retry_context.get("required_issue_lever_ids") or []) and allowed_lever_ids:
+  if allowed_lever_ids:
     effective_retry_context["required_issue_lever_ids"] = copy.deepcopy(allowed_lever_ids)
-  if not (effective_retry_context.get("required_lever_families") or []) and allowed_lever_ids:
+  if allowed_lever_ids:
     effective_retry_context["required_lever_families"] = copy.deepcopy(
       list(
         dict.fromkeys(
@@ -16307,6 +17045,32 @@ def _run_unified_convergence_openai(
   effective_retry_context = _normalize_retry_requirements_to_allowed_scope(
     retry_context=effective_retry_context,
     allowed_lever_ids=allowed_lever_ids,
+  )
+  aligned_primary_target_metric_keys = [
+    metric_name
+    for metric_name in _normalize_primary_target_metric_names(
+      (effective_retry_context or {}).get("required_primary_metric_candidates") or []
+    )
+    if not allowed_target_metric_names or metric_name in allowed_target_metric_names
+  ]
+  for metric_name in original_recommended_primary_target_metric_keys + allowed_target_metric_names:
+    normalized_metric_name = str(metric_name or "").strip().lower()
+    if not normalized_metric_name:
+      continue
+    if normalized_metric_name not in aligned_primary_target_metric_keys and (
+      not allowed_target_metric_names or normalized_metric_name in allowed_target_metric_names
+    ):
+      aligned_primary_target_metric_keys.append(normalized_metric_name)
+    if len(aligned_primary_target_metric_keys) >= _UNIFIED_PRIMARY_TARGET_MIN_COUNT:
+      break
+  if aligned_primary_target_metric_keys:
+    scoped_numeric_solver_contract = copy.deepcopy(scoped_numeric_solver_contract)
+    scoped_numeric_solver_contract["recommended_primary_target_metric_keys"] = copy.deepcopy(
+      aligned_primary_target_metric_keys[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
+    )
+  required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
+    copy.deepcopy(scoped_numeric_solver_contract),
+    required_target_quarters=copy.deepcopy(required_target_quarters),
   )
   prompt_safe_retry_scope_payload = {
     "scope_mode": str(retry_scope_payload.get("scope_mode") or "").strip(),
@@ -16371,6 +17135,12 @@ def _run_unified_convergence_openai(
     "selected_cash_strategy": str(scoped_numeric_solver_contract.get("selected_cash_strategy") or "").strip(),
     "active_issue_count": int(_safe_float(scoped_numeric_solver_contract.get("active_issue_count")) or 0),
     "issue_target_packets": copy.deepcopy(scoped_numeric_solver_contract.get("issue_target_packets") or []),
+    "recommended_primary_target_metric_keys": copy.deepcopy(
+      scoped_numeric_solver_contract.get("recommended_primary_target_metric_keys") or []
+    ),
+    "allowed_target_metric_ids": copy.deepcopy(
+      scoped_numeric_solver_contract.get("allowed_target_metric_ids") or []
+    ),
     "solver_settings": copy.deepcopy(scoped_numeric_solver_contract.get("solver_settings") or {}),
     "lever_sensitivity_policy": copy.deepcopy(scoped_numeric_solver_contract.get("lever_sensitivity_policy") or {}),
   }
@@ -16458,14 +17228,51 @@ def _run_unified_convergence_openai(
       "detail": "Unable to parse unified convergence JSON.",
       "decision": {},
     }
+  shape_sensitive_autorepair_lever_ids: List[str] = []
+  mapping_autorepair_lever_ids: List[str] = []
+  parsed, repaired_mapping_lever_ids = _canonicalize_unified_declared_mappings(
+    parsed=copy.deepcopy(parsed),
+    deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+    targeted_quarters=copy.deepcopy(required_target_quarters),
+  )
+  if repaired_mapping_lever_ids:
+    mapping_autorepair_lever_ids = copy.deepcopy(repaired_mapping_lever_ids)
   contract_error = _unified_convergence_decision_contract_error(
     parsed=parsed,
     required_target_quarters=copy.deepcopy(required_target_quarters),
     numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+    deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
     controller_retry_context=copy.deepcopy(effective_retry_context),
     baseline_map=copy.deepcopy(scoped_baseline_map),
     full_horizon_quarter_count=full_horizon_quarter_count,
   )
+  if contract_error and ("shape-sensitive" in str(contract_error).lower() or "shape_sensitive" in str(contract_error).lower()):
+    auto_repaired_parsed, repaired_lever_ids = _auto_repair_shape_sensitive_unified_decision(
+      parsed=copy.deepcopy(parsed),
+      deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+      numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+      full_horizon_quarter_count=full_horizon_quarter_count,
+    )
+    if repaired_lever_ids:
+      auto_repaired_parsed, repaired_mapping_lever_ids = _canonicalize_unified_declared_mappings(
+        parsed=copy.deepcopy(auto_repaired_parsed),
+        deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+        targeted_quarters=copy.deepcopy(required_target_quarters),
+      )
+      repaired_contract_error = _unified_convergence_decision_contract_error(
+        parsed=auto_repaired_parsed,
+        required_target_quarters=copy.deepcopy(required_target_quarters),
+        numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+        deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+        controller_retry_context=copy.deepcopy(effective_retry_context),
+        baseline_map=copy.deepcopy(scoped_baseline_map),
+        full_horizon_quarter_count=full_horizon_quarter_count,
+      )
+      parsed = copy.deepcopy(auto_repaired_parsed)
+      shape_sensitive_autorepair_lever_ids = copy.deepcopy(repaired_lever_ids)
+      mapping_autorepair_lever_ids = list(dict.fromkeys(mapping_autorepair_lever_ids + repaired_mapping_lever_ids))
+      contract_error = repaired_contract_error
   if contract_error:
     retry_payload = copy.deepcopy(payload)
     retry_payload["input"] = list(retry_payload.get("input") or []) + [
@@ -16482,19 +17289,46 @@ def _run_unified_convergence_openai(
                 "recommended_primary_target_metric_keys": copy.deepcopy(
                   (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
                 ),
+                "required_primary_metric_candidates": copy.deepcopy(
+                  (effective_retry_context or {}).get("required_primary_metric_candidates") or []
+                ),
+                "minimum_primary_metric_coverage_count": int(
+                  _safe_float((effective_retry_context or {}).get("minimum_primary_metric_coverage_count")) or 0
+                ),
+                "invalid_response_to_repair": copy.deepcopy(parsed),
+                "issue_coverage_requirements": copy.deepcopy(
+                  (effective_retry_context or {}).get("issue_coverage_requirements") or []
+                ),
+                "lever_allowed_mapped_repair_targets": copy.deepcopy(
+                  _lever_allowed_mapped_repair_targets(prompt_safe_numeric_guidance)
+                ),
                 "shape_sensitive_contract": copy.deepcopy(
                   (scoped_numeric_solver_contract or {}).get("lever_sensitivity_policy") or {}
                 ),
+                "shape_sensitive_autorepair_lever_ids": copy.deepcopy(shape_sensitive_autorepair_lever_ids),
+                "mapping_autorepair_lever_ids": copy.deepcopy(mapping_autorepair_lever_ids),
                 "instruction": (
-                  "Repair the response contract. Return a valid unified convergence package with 1 to 6 "
+                  "Repair the response contract. Return a valid unified convergence package with 3 to 6 "
                   "primary_target_metric_names only, provide numeric targets for those chosen metrics in every "
                   "required_target_quarter in this cycle's focused scope, and include target_tolerances for "
-                  "every chosen primary target metric. Keep realism, cash posture, and planning mode active as "
+                  "every chosen primary target metric. Every lever_adjustment must also include mapped_repair_targets "
+                  "that explicitly name the issue_code, target_metric_name, and target_quarters it is intended to move. "
+                  "Keep realism, cash posture, and planning mode active as "
                   "guardrails, not as extra exact target lines. "
+                  "If required_primary_metric_candidates is present, treat it as a hard escalation rule, not a suggestion: "
+                  "your repaired primary_target_metric_names must include at least minimum_primary_metric_coverage_count "
+                  "metrics from that candidate list. If that candidate list is smaller than the 3-metric minimum, keep those "
+                  "required candidates and add the strongest remaining direct issue proxies from "
+                  "recommended_primary_target_metric_keys until the repaired primary_target_metric_names set reaches at least 3 total metrics. "
+                  "For mapped_repair_targets, copy only exact objects from lever_allowed_mapped_repair_targets for each selected lever. "
+                  "Do not invent new issue_code or target_metric_name combinations for a lever. "
+                  "Each open issue in issue_coverage_requirements must still have direct "
+                  "primary-target coverage. "
                   "If the violation involves a shape-sensitive lever trajectory, repair that trajectory explicitly: "
                   "cover the full remaining horizon, do not drop by more than 50% quarter-to-quarter, do not jump by more than 2.5x quarter-to-quarter, "
                   "do not create snapback after a large build, and do not switch regime direction sharply without a believable transition. "
                   "For large structural increases, use a ramp or staged step-up over multiple quarters. "
+                  "Do not throw away the invalid response and start over blindly. Repair the invalid_response_to_repair directly, preserving valid fields. "
                   "Read shape_sensitive_contract directly. If you select any lever in remaining_horizon_required_lever_ids, or any lever in materiality_triggered_remaining_horizon_lever_ids for a non-trivial move, "
                   "you must return shape_type plus full remaining-horizon values or trajectory_values for that lever."
                 ),
@@ -16542,14 +17376,49 @@ def _run_unified_convergence_openai(
         "detail": f"{contract_error} Retry parse failed.",
         "decision": {},
       }
+    parsed_retry, repaired_retry_mapping_lever_ids = _canonicalize_unified_declared_mappings(
+      parsed=copy.deepcopy(parsed_retry),
+      deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+      targeted_quarters=copy.deepcopy(required_target_quarters),
+    )
+    if repaired_retry_mapping_lever_ids:
+      mapping_autorepair_lever_ids = list(dict.fromkeys(mapping_autorepair_lever_ids + repaired_retry_mapping_lever_ids))
     retry_contract_error = _unified_convergence_decision_contract_error(
       parsed=parsed_retry,
       required_target_quarters=copy.deepcopy(required_target_quarters),
       numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+      deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
       controller_retry_context=copy.deepcopy(effective_retry_context),
       baseline_map=copy.deepcopy(scoped_baseline_map),
       full_horizon_quarter_count=full_horizon_quarter_count,
     )
+    if retry_contract_error and ("shape-sensitive" in str(retry_contract_error).lower() or "shape_sensitive" in str(retry_contract_error).lower()):
+      auto_repaired_retry, repaired_retry_lever_ids = _auto_repair_shape_sensitive_unified_decision(
+        parsed=copy.deepcopy(parsed_retry),
+        deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+        numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+        baseline_map=copy.deepcopy(scoped_baseline_map),
+        full_horizon_quarter_count=full_horizon_quarter_count,
+      )
+      if repaired_retry_lever_ids:
+        auto_repaired_retry, repaired_retry_mapping_lever_ids = _canonicalize_unified_declared_mappings(
+          parsed=copy.deepcopy(auto_repaired_retry),
+          deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+          targeted_quarters=copy.deepcopy(required_target_quarters),
+        )
+        repaired_retry_contract_error = _unified_convergence_decision_contract_error(
+          parsed=auto_repaired_retry,
+          required_target_quarters=copy.deepcopy(required_target_quarters),
+          numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+          deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+          controller_retry_context=copy.deepcopy(effective_retry_context),
+          baseline_map=copy.deepcopy(scoped_baseline_map),
+          full_horizon_quarter_count=full_horizon_quarter_count,
+        )
+        parsed_retry = copy.deepcopy(auto_repaired_retry)
+        retry_contract_error = repaired_retry_contract_error
+        shape_sensitive_autorepair_lever_ids = list(dict.fromkeys(shape_sensitive_autorepair_lever_ids + repaired_retry_lever_ids))
+        mapping_autorepair_lever_ids = list(dict.fromkeys(mapping_autorepair_lever_ids + repaired_retry_mapping_lever_ids))
     if retry_contract_error:
       return {
         "contract_version": "unified_convergence_decision_v1",
@@ -16571,6 +17440,8 @@ def _run_unified_convergence_openai(
     "selected_cash_strategy": selected_cash_strategy,
     "review_status": "completed",
     "detail": "",
+    "shape_sensitive_autorepair_lever_ids": copy.deepcopy(shape_sensitive_autorepair_lever_ids),
+    "mapping_autorepair_lever_ids": copy.deepcopy(mapping_autorepair_lever_ids),
     "decision": parsed,
   }
 
@@ -16589,7 +17460,7 @@ def _run_initial_restructure_openai(
   controller_retry_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   prompt_file = "client_intake_and_finmo/prompts/initial_restructure/reviewer.md"
-  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or "").strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials_json)
   api_key = _openai_key()
   if not api_key:
     return _initial_restructure_failure_payload(
@@ -16621,6 +17492,7 @@ def _run_initial_restructure_openai(
     controller_retry_context=copy.deepcopy(controller_retry_context or {}),
     prior_numeric_feedback=copy.deepcopy(effective_prior_numeric_feedback),
     numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
+    deterministic_numeric_guidance=None,
     solved_model_input_json=copy.deepcopy((initial_restructure_context or {}).get("current_model_input_json") or {}),
     solved_finmo_json=copy.deepcopy((initial_restructure_context or {}).get("current_finmo_json") or {}),
   )
@@ -18686,6 +19558,9 @@ def _translate_cash_strategy_adjustment(
     "baseline_window": _baseline_window_summary(baseline_values, start_q=start_q, end_q=end_q),
     "business_reason": str(adjustment.get("business_reason") or "").strip(),
     "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
+    "mapped_repair_targets": _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    ),
   }
 
   if value_mode == "exact":
@@ -18756,6 +19631,9 @@ def _translate_unified_convergence_adjustment(
             or ""
           ).strip(),
           "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
+          "mapped_repair_targets": _normalize_unified_mapped_repair_targets(
+            adjustment.get("mapped_repair_targets") or []
+          ),
           "shape_type": str(adjustment.get("shape_type") or "").strip().lower(),
           "exact_value": float(trajectory_values.get(quarter_index) or 0.0),
           "min_value": None,
@@ -18789,13 +19667,34 @@ def _scoped_unified_allowed_lever_ids(
     for item in (guidance.get("issue_repair_packets") or [])
     if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
   ]
+  focus_issue_code_set = {
+    str(item.get("issue_code") or "").strip().lower()
+    for item in issue_packets
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
   scoped_ids: List[str] = []
   for issue_packet in issue_packets:
-    for lever_id in (issue_packet.get("candidate_lever_ids") or []):
+    for lever_id in _issue_packet_mapped_driver_lever_ids(issue_packet):
       lever = str(lever_id).strip()
       if lever and lever in fallback_ids and lever not in scoped_ids:
         scoped_ids.append(lever)
-  return scoped_ids or fallback_ids
+  for scaffold in (guidance.get("lever_band_scaffold") or []):
+    if not isinstance(scaffold, dict):
+      continue
+    lever = str(scaffold.get("lever_id") or "").strip()
+    if not lever or lever not in fallback_ids or lever in scoped_ids:
+      continue
+    covered_issue_codes = {
+      str(item).strip().lower()
+      for item in (scaffold.get("covered_issue_codes") or [])
+      if str(item).strip()
+    }
+    if focus_issue_code_set and covered_issue_codes and covered_issue_codes.isdisjoint(focus_issue_code_set):
+      continue
+    scoped_ids.append(lever)
+  if issue_packets:
+    return scoped_ids
+  return fallback_ids
 
 
 def _normalize_retry_requirements_to_allowed_scope(
@@ -18868,10 +19767,136 @@ def _normalize_retry_requirements_to_allowed_scope(
   return context
 
 
+def _autofill_unified_mapped_repair_targets_for_lever(
+  *,
+  lever_id: str,
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  primary_target_metric_names: Optional[List[str]],
+  targeted_quarters: Optional[List[int]],
+) -> List[Dict[str, Any]]:
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  selected_primary_metrics = {
+    str(metric or "").strip().lower()
+    for metric in (primary_target_metric_names or [])
+    if str(metric or "").strip()
+  }
+  targeted_quarter_set = {
+    int(_safe_float(quarter) or 0)
+    for quarter in (targeted_quarters or [])
+    if int(_safe_float(quarter) or 0) >= 1
+  }
+  mapping_quarters: Dict[Tuple[str, str], set[int]] = {}
+  for issue_packet in (guidance.get("issue_repair_packets") or []):
+    if not isinstance(issue_packet, dict):
+      continue
+    issue_code = str(issue_packet.get("issue_code") or "").strip().lower()
+    if not issue_code:
+      continue
+    for repair_target in (issue_packet.get("repair_targets") or []):
+      if not isinstance(repair_target, dict):
+        continue
+      quarter = int(_safe_float(repair_target.get("quarter")) or 0)
+      if quarter < 1:
+        continue
+      if targeted_quarter_set and quarter not in targeted_quarter_set:
+        continue
+      has_matching_path = any(
+        isinstance(driver_path, dict)
+        and str(driver_path.get("lever") or "").strip() == lever_id
+        for driver_path in (repair_target.get("driver_paths") or [])
+      )
+      if not has_matching_path:
+        continue
+      metric_candidates = {
+        str(repair_target.get("metric") or "").strip().lower()
+      }
+      metric_candidates.update(
+        {
+          str(metric or "").strip().lower()
+          for metric in (repair_target.get("primary_target_proxy_metrics") or [])
+          if str(metric or "").strip()
+        }
+      )
+      matched_primary_metrics = [
+        metric_name
+        for metric_name in selected_primary_metrics
+        if metric_name in metric_candidates
+      ]
+      for metric_name in matched_primary_metrics:
+        mapping_quarters.setdefault((issue_code, metric_name), set()).add(quarter)
+  mappings: List[Dict[str, Any]] = []
+  for issue_code, target_metric_name in sorted(mapping_quarters.keys()):
+    mappings.append(
+      {
+        "issue_code": issue_code,
+        "target_metric_name": target_metric_name,
+        "target_quarters": sorted(mapping_quarters[(issue_code, target_metric_name)]),
+      }
+    )
+  return mappings
+
+
+def _canonicalize_unified_declared_mappings(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  targeted_quarters: Optional[List[int]] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
+  decision = copy.deepcopy(parsed if isinstance(parsed, dict) else {})
+  lever_adjustments = [
+    copy.deepcopy(item)
+    for item in (decision.get("lever_adjustments") or [])
+    if isinstance(item, dict)
+  ]
+  if not lever_adjustments:
+    return decision, []
+  primary_target_metric_names = _normalize_primary_target_metric_names(
+    decision.get("primary_target_metric_names") or []
+  )
+  effective_targeted_quarters = sorted(
+    {
+      int(_safe_float(item) or 0)
+      for item in (
+        targeted_quarters
+        or [
+          int(_safe_float(item.get("quarter_index")) or 0)
+          for item in _normalize_solver_quarter_target_metrics(
+            decision.get("targets_by_quarter") or []
+          )
+        ]
+      )
+      if int(_safe_float(item) or 0) >= 1
+    }
+  )
+  repaired_lever_ids: List[str] = []
+  for adjustment in lever_adjustments:
+    lever_id = str(adjustment.get("lever_id") or "").strip()
+    if not lever_id:
+      continue
+    canonical_mappings = _autofill_unified_mapped_repair_targets_for_lever(
+      lever_id=lever_id,
+      deterministic_numeric_guidance=deterministic_numeric_guidance,
+      primary_target_metric_names=copy.deepcopy(primary_target_metric_names),
+      targeted_quarters=copy.deepcopy(effective_targeted_quarters),
+    )
+    if not canonical_mappings:
+      continue
+    current_mappings = _normalize_unified_mapped_repair_targets(
+      adjustment.get("mapped_repair_targets") or []
+    )
+    if current_mappings != canonical_mappings:
+      adjustment["mapped_repair_targets"] = copy.deepcopy(canonical_mappings)
+      repaired_lever_ids.append(lever_id)
+  if repaired_lever_ids:
+    decision["lever_adjustments"] = copy.deepcopy(lever_adjustments)
+  return decision, repaired_lever_ids
+
+
 def _autofill_unified_lever_adjustments_from_guidance(
   *,
   lever_selection: Optional[List[str]],
   deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  primary_target_metric_names: Optional[List[str]],
   targeted_quarters: Optional[List[int]],
 ) -> List[Dict[str, Any]]:
   guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
@@ -18927,6 +19952,12 @@ def _autofill_unified_lever_adjustments_from_guidance(
           "Python-generated lever band scaffold based on live model state, severity, and viable move ranges."
         ),
         "linked_action_effect": "deterministic_numeric_guidance_band_scaffold",
+        "mapped_repair_targets": _autofill_unified_mapped_repair_targets_for_lever(
+          lever_id=lever_id,
+          deterministic_numeric_guidance=guidance,
+          primary_target_metric_names=copy.deepcopy(primary_target_metric_names or []),
+          targeted_quarters=copy.deepcopy(normalized_targeted_quarters),
+        ),
       }
     )
   return autofilled
@@ -18943,8 +19974,8 @@ def _unified_selected_issue_expected_impacts(
     for item in (lever_selection or [])
     if str(item).strip()
   ]
-  selected_set = set(selected_levers)
   adjustment_direction_map: Dict[str, str] = {}
+  adjustment_mapping_map: Dict[str, List[Dict[str, Any]]] = {}
   for adjustment in (lever_adjustments or []):
     if not isinstance(adjustment, dict):
       continue
@@ -18952,6 +19983,10 @@ def _unified_selected_issue_expected_impacts(
     direction = str(adjustment.get("direction") or "").strip().lower()
     if lever_id and direction and lever_id not in adjustment_direction_map:
       adjustment_direction_map[lever_id] = direction
+    if lever_id and lever_id not in adjustment_mapping_map:
+      adjustment_mapping_map[lever_id] = _normalize_unified_mapped_repair_targets(
+        adjustment.get("mapped_repair_targets") or []
+      )
 
   def _direction_sign(direction_value: Any) -> int:
     direction_text = str(direction_value or "").strip().lower()
@@ -18978,13 +20013,74 @@ def _unified_selected_issue_expected_impacts(
       return -1
     return 0
 
+  def _aggregate_declared_paths(driver_paths: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    paths = [copy.deepcopy(item) for item in (driver_paths or []) if isinstance(item, dict)]
+    if not paths:
+      return {}
+    direct_exists = any(
+      str(item.get("path_type") or "").strip().lower() == "direct"
+      for item in paths
+    )
+    efficiency_order = {"high": 0, "medium": 1, "low": 2}
+    efficiency = str(
+      sorted(
+        [
+          str(item.get("efficiency") or "").strip().lower()
+          for item in paths
+          if str(item.get("efficiency") or "").strip()
+        ],
+        key=lambda value: efficiency_order.get(value, 3),
+      )[0]
+      if paths
+      else ""
+    ).strip().lower() or None
+    metric_recommended_values = [
+      float(_safe_float(item.get("metric_recommended_delta")) or 0.0)
+      for item in paths
+      if _safe_float(item.get("metric_recommended_delta")) is not None
+    ]
+    metric_min_values = [
+      float(_safe_float(item.get("metric_min_delta")) or 0.0)
+      for item in paths
+      if _safe_float(item.get("metric_min_delta")) is not None
+    ]
+    metric_max_values = [
+      float(_safe_float(item.get("metric_max_delta")) or 0.0)
+      for item in paths
+      if _safe_float(item.get("metric_max_delta")) is not None
+    ]
+    lever_min_values = [
+      float(_safe_float(item.get("min_delta")) or 0.0)
+      for item in paths
+      if _safe_float(item.get("min_delta")) is not None
+    ]
+    lever_max_values = [
+      float(_safe_float(item.get("max_delta")) or 0.0)
+      for item in paths
+      if _safe_float(item.get("max_delta")) is not None
+    ]
+    return {
+      "path_type": "direct" if direct_exists else str(paths[0].get("path_type") or "").strip().lower() or "indirect",
+      "efficiency": efficiency,
+      "expected_metric_delta": float(sum(metric_recommended_values)) if metric_recommended_values else None,
+      "expected_metric_delta_min": float(sum(metric_min_values)) if metric_min_values else None,
+      "expected_metric_delta_max": float(sum(metric_max_values)) if metric_max_values else None,
+      "min_delta": float(sum(lever_min_values)) if lever_min_values else None,
+      "max_delta": float(sum(lever_max_values)) if lever_max_values else None,
+    }
+
   guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  issue_packet_map = {
+    str(item.get("issue_code") or "").strip().lower(): copy.deepcopy(item)
+    for item in (guidance.get("issue_repair_packets") or [])
+    if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+  }
   issue_packets = [
     item
     for item in (guidance.get("issue_repair_packets") or [])
     if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
   ]
-  summaries: List[Dict[str, Any]] = []
+  summary_map: Dict[str, Dict[str, Any]] = {}
   for issue_packet in issue_packets:
     issue_code = str(issue_packet.get("issue_code") or "").strip().lower()
     candidate_ids = {
@@ -18992,6 +20088,15 @@ def _unified_selected_issue_expected_impacts(
       for item in (issue_packet.get("candidate_lever_ids") or [])
       if str(item).strip()
     }
+    for repair_target in (issue_packet.get("repair_targets") or []):
+      if not isinstance(repair_target, dict):
+        continue
+      for driver_path in (repair_target.get("driver_paths") or []):
+        if not isinstance(driver_path, dict):
+          continue
+        lever_id = str(driver_path.get("lever") or "").strip()
+        if lever_id:
+          candidate_ids.add(lever_id)
     selected_issue_levers = [
       lever_id
       for lever_id in selected_levers
@@ -18999,58 +20104,94 @@ def _unified_selected_issue_expected_impacts(
     ]
     if not selected_issue_levers:
       continue
-    per_lever_expected: List[float] = []
-    selected_lever_debug: List[Dict[str, Any]] = []
+    issue_summary = summary_map.setdefault(
+      issue_code,
+      {
+        "issue_code": issue_code,
+        "selected_lever_ids": [],
+        "_per_lever_expected": [],
+        "selected_levers": [],
+      },
+    )
     for lever_id in selected_issue_levers:
-      matching_paths = [
-        copy.deepcopy(path)
-        for repair_target in (issue_packet.get("repair_targets") or [])
-        if isinstance(repair_target, dict)
-        for path in (repair_target.get("driver_paths") or [])
-        if isinstance(path, dict) and str(path.get("lever") or "").strip() == lever_id
+      lever_mappings = [
+        mapping
+        for mapping in (adjustment_mapping_map.get(lever_id) or [])
+        if str(mapping.get("issue_code") or "").strip().lower() == issue_code
       ]
-      if not matching_paths:
+      if not lever_mappings:
+        issue_summary["selected_levers"].append(
+          {
+            "lever_id": lever_id,
+            "planned_direction": adjustment_direction_map.get(lever_id) or "hold",
+            "directionally_valid": False,
+            "expected_direction_sign": 0,
+            "expected_metric_delta": 0.0,
+            "mapping_error": "missing_declared_mapping",
+          }
+        )
         continue
-      matching_paths.sort(key=_driver_path_sort_key)
-      best_path = copy.deepcopy(matching_paths[0])
-      expected_metric_delta = _safe_float(best_path.get("metric_recommended_delta"))
-      expected_sign = _expected_sign_from_path(best_path)
       planned_direction = adjustment_direction_map.get(lever_id) or "hold"
       planned_sign = _direction_sign(planned_direction)
-      directionally_valid = bool(
-        expected_metric_delta is not None
-        and (
-          expected_sign == 0
-          or planned_sign == 0
-          or planned_sign == expected_sign
+      for mapping in lever_mappings:
+        matching_paths, covered_quarters = _declared_mapping_driver_paths_for_lever(
+          issue_packet=issue_packet_map.get(issue_code) or {},
+          lever_id=lever_id,
+          target_metric_name=str(mapping.get("target_metric_name") or "").strip().lower(),
+          target_quarters=copy.deepcopy(mapping.get("target_quarters") or []),
         )
-      )
-      if expected_metric_delta is not None:
-        per_lever_expected.append(
-          float(abs(expected_metric_delta))
-          if directionally_valid
-          else float(-abs(expected_metric_delta))
+        aggregated_paths = _aggregate_declared_paths(matching_paths)
+        expected_metric_delta = _safe_float(aggregated_paths.get("expected_metric_delta"))
+        expected_sign = _expected_sign_from_path(aggregated_paths)
+        directionally_valid = bool(
+          expected_metric_delta is not None
+          and (
+            expected_sign == 0
+            or planned_sign == 0
+            or planned_sign == expected_sign
+          )
         )
-      selected_lever_debug.append(
-        {
-          "lever_id": lever_id,
-          "planned_direction": planned_direction,
-          "expected_direction_sign": expected_sign,
-          "expected_metric_delta": expected_metric_delta,
-          "directionally_valid": directionally_valid,
-        }
-      )
-    if per_lever_expected:
-      expected_metric_delta = float(sum(per_lever_expected) / max(len(per_lever_expected), 1))
-    else:
-      expected_metric_delta = 0.0
+        if expected_metric_delta is not None:
+          issue_summary["_per_lever_expected"].append(
+            float(abs(expected_metric_delta))
+            if directionally_valid
+            else float(-abs(expected_metric_delta))
+          )
+        if lever_id not in issue_summary["selected_lever_ids"]:
+          issue_summary["selected_lever_ids"].append(lever_id)
+        issue_summary["selected_levers"].append(
+          {
+            "lever_id": lever_id,
+            "planned_direction": planned_direction,
+            "expected_direction_sign": expected_sign,
+            "expected_metric_delta": expected_metric_delta,
+            "directionally_valid": directionally_valid,
+            "mapped_target_metric_name": str(mapping.get("target_metric_name") or "").strip().lower(),
+            "mapped_target_quarters": copy.deepcopy(mapping.get("target_quarters") or []),
+            "covered_quarters": copy.deepcopy(covered_quarters),
+            "mapping_complete": bool(set(covered_quarters) == set(mapping.get("target_quarters") or [])),
+            "path_count": len(matching_paths),
+          }
+        )
+  summaries: List[Dict[str, Any]] = []
+  for issue_code, issue_summary in summary_map.items():
+    per_lever_expected = [
+      float(item)
+      for item in (issue_summary.pop("_per_lever_expected", []) or [])
+      if _safe_float(item) is not None
+    ]
+    expected_metric_delta = (
+      float(sum(per_lever_expected) / max(len(per_lever_expected), 1))
+      if per_lever_expected
+      else 0.0
+    )
     summaries.append(
       {
         "issue_code": issue_code,
-        "selected_lever_ids": copy.deepcopy(selected_issue_levers),
+        "selected_lever_ids": copy.deepcopy(issue_summary.get("selected_lever_ids") or []),
         "expected_metric_delta": expected_metric_delta,
         "directionally_valid": bool(expected_metric_delta > 0),
-        "selected_levers": copy.deepcopy(selected_lever_debug),
+        "selected_levers": copy.deepcopy(issue_summary.get("selected_levers") or []),
       }
     )
   return summaries
@@ -19076,7 +20217,7 @@ def _build_final_stabilizer_pass_plan(
     if isinstance(numeric_solver_contract, dict)
     else {}
   )
-  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or review_payload.get("selected_cash_strategy") or "").strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials_json, review_payload)
   review_status = str(review_payload.get("status") or "").strip()
   prompt_file = str(review_payload.get("prompt_file") or "").strip()
   if review_status != "completed":
@@ -19226,11 +20367,7 @@ def _build_unified_convergence_pass_plan(
     if isinstance(numeric_solver_contract, dict)
     else {}
   )
-  selected_cash_strategy = str(
-    (financials_json or {}).get("cash_strategy")
-    or review_payload.get("selected_cash_strategy")
-    or ""
-  ).strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials_json, review_payload)
   review_status = str(review_payload.get("status") or "").strip()
   prompt_file = str(review_payload.get("prompt_file") or "").strip()
   if review_status != "completed":
@@ -19266,11 +20403,14 @@ def _build_unified_convergence_pass_plan(
     decision_payload=decision,
     numeric_solver_contract=solver_contract,
   )
-  target_tolerances = _normalize_unified_target_tolerances(
-    decision.get("target_tolerances") or []
-  ) or _default_unified_target_tolerances(primary_target_metric_names)
-  targets_by_quarter = _normalize_solver_quarter_target_metrics(
-    decision.get("targets_by_quarter") or []
+  target_tolerances = _merge_required_target_tolerances(
+    decision.get("target_tolerances") or [],
+    primary_target_metric_names,
+  )
+  targets_by_quarter = _augment_solver_quarter_target_metrics(
+    raw_targets=decision.get("targets_by_quarter") or [],
+    required_metric_names=primary_target_metric_names,
+    numeric_solver_contract=copy.deepcopy(solver_contract),
   )
   targeted_quarters = sorted(
     {
@@ -19441,6 +20581,7 @@ def _build_unified_convergence_pass_plan(
   auto_lever_adjustments = _autofill_unified_lever_adjustments_from_guidance(
     lever_selection=lever_selection,
     deterministic_numeric_guidance=guidance_packet,
+    primary_target_metric_names=primary_target_metric_names,
     targeted_quarters=targeted_quarters,
   )
   auto_lever_adjustments = [
@@ -19656,6 +20797,73 @@ def _build_unified_convergence_pass_plan(
     for item in selected_issue_expected_impacts
     if isinstance(item, dict) and float(_safe_float(item.get("expected_metric_delta")) or 0.0) <= 0.0
   ]
+  declared_mapping_validation_details: List[Dict[str, Any]] = []
+  for item in selected_issue_expected_impacts:
+    if not isinstance(item, dict):
+      continue
+    issue_code = str(item.get("issue_code") or "").strip().lower()
+    for selected_lever in (item.get("selected_levers") or []):
+      if not isinstance(selected_lever, dict):
+        continue
+      error_code = str(selected_lever.get("mapping_error") or "").strip().lower()
+      if error_code == "missing_declared_mapping":
+        declared_mapping_validation_details.append(
+          {
+            "error": "declared_repair_mapping_missing",
+            "lever_id": str(selected_lever.get("lever_id") or "").strip() or None,
+            "quarter": None,
+            "previous_value": None,
+            "current_value": None,
+            "reason": (
+              f"{str(selected_lever.get('lever_id') or '').strip() or 'selected_lever'} is missing an explicit "
+              f"declared repair mapping for {issue_code or 'unknown_issue'}."
+            ),
+            "validation_category": "declared_repair_mapping",
+          }
+        )
+      elif not bool(selected_lever.get("path_count")):
+        declared_mapping_validation_details.append(
+          {
+            "error": "declared_repair_mapping_path_missing",
+            "lever_id": str(selected_lever.get("lever_id") or "").strip() or None,
+            "quarter": None,
+            "previous_value": None,
+            "current_value": None,
+            "reason": (
+              f"{str(selected_lever.get('lever_id') or '').strip() or 'selected_lever'} declared a repair mapping "
+              f"for {issue_code or 'unknown_issue'} but no deterministic driver path was found."
+            ),
+            "validation_category": "declared_repair_mapping",
+          }
+        )
+      elif not bool(selected_lever.get("mapping_complete", True)):
+        declared_mapping_validation_details.append(
+          {
+            "error": "declared_repair_mapping_incomplete",
+            "lever_id": str(selected_lever.get("lever_id") or "").strip() or None,
+            "quarter": None,
+            "previous_value": None,
+            "current_value": None,
+            "reason": (
+              f"{str(selected_lever.get('lever_id') or '').strip() or 'selected_lever'} declared target quarters "
+              f"{copy.deepcopy(selected_lever.get('mapped_target_quarters') or [])} for "
+              f"{str(selected_lever.get('mapped_target_metric_name') or '').strip() or 'unknown_metric'}, "
+              f"but only covered {copy.deepcopy(selected_lever.get('covered_quarters') or [])}."
+            ),
+            "validation_category": "declared_repair_mapping",
+          }
+        )
+  if declared_mapping_validation_details:
+    warnings.extend(
+      [
+        f"unified_cycle: {str(item.get('reason') or '').strip()}"
+        for item in declared_mapping_validation_details
+        if str(item.get("reason") or "").strip()
+      ]
+    )
+    if _convergence_test_mode_enabled():
+      status = "ready_no_valid_solver_contract"
+      next_step = "fix_declared_repair_mappings_before_solver"
   if non_positive_selected_issue_impacts:
     warnings.extend(
       [
@@ -19752,6 +20960,22 @@ def _build_unified_convergence_pass_plan(
         "current_value": _safe_float(detail.get("metric_delta")),
         "reason": str(detail.get("reason") or "").strip() or None,
         "validation_category": str(detail.get("validation_category") or "").strip() or "translation_contract",
+      }
+    )
+  for detail in declared_mapping_validation_details:
+    pre_solver_validation_fail_flags.append("declared_repair_mapping_failed")
+    error_code = str(detail.get("error") or "").strip()
+    if error_code in _DECLARED_REPAIR_MAPPING_TEST_MODE_FAIL_FLAGS:
+      pre_solver_validation_fail_flags.append(error_code)
+    pre_solver_validation_errors.append(
+      {
+        "error": error_code or "declared_repair_mapping_failed",
+        "lever_id": str(detail.get("lever_id") or "").strip() or None,
+        "quarter": int(_safe_float(detail.get("quarter")) or 0) or None,
+        "previous_value": _safe_float(detail.get("previous_value")),
+        "current_value": _safe_float(detail.get("current_value")),
+        "reason": str(detail.get("reason") or "").strip() or None,
+        "validation_category": str(detail.get("validation_category") or "").strip() or "declared_repair_mapping",
       }
     )
   if not targets_by_quarter:
@@ -19913,6 +21137,7 @@ _SOLVER_TARGET_METRIC_KEYS = (
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS = _SOLVER_TARGET_METRIC_KEYS
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
+_DERIVED_NON_COVERAGE_PRIMARY_TARGET_METRICS = {"payroll"}
 
 _REQUIRED_SOLVER_TARGET_METRIC_KEYS = (
   "revenue",
@@ -20414,6 +21639,23 @@ def _shape_sensitive_material_change_triggered(
     if direction in {"increase", "decrease"}:
       return False
     return False
+  last_target_quarter = max(quarter_candidates or [0])
+  if 0 <= last_target_quarter < len(baseline_values):
+    next_quarter_baseline = _safe_float(baseline_values[last_target_quarter])
+    if next_quarter_baseline is not None:
+      current_abs = abs(float(candidate_value))
+      next_abs = abs(float(next_quarter_baseline))
+      if (current_abs <= 1e-9) != (next_abs <= 1e-9):
+        return True
+      if current_abs > 1e-9 and next_abs > 1e-9:
+        lower = min(current_abs, next_abs)
+        higher = max(current_abs, next_abs)
+        if lower <= 1e-9:
+          return True
+        if higher / lower > 2.5:
+          return True
+        if next_abs < current_abs * 0.5 or current_abs < next_abs * 0.5:
+          return True
   if abs(baseline_anchor) <= 1e-9:
     return abs(float(candidate_value)) > 1e-9
   relative_delta = abs(float(candidate_value) - baseline_anchor) / abs(baseline_anchor)
@@ -20498,6 +21740,338 @@ def _shape_sensitive_remaining_horizon_requirements(
     ),
     "anchor_quarter": anchor_quarter,
   }
+
+
+def _shape_sensitive_autorepair_transition_quarters(
+  *,
+  anchor_value: float,
+  target_value: float,
+  quarter_count: int,
+) -> int:
+  total_quarters = max(1, int(quarter_count or 1))
+  anchor_abs = abs(float(anchor_value))
+  target_abs = abs(float(target_value))
+  if total_quarters <= 1:
+    return 1
+  if anchor_abs > 1e-9 and target_abs > 1e-9:
+    ratio = float(target_abs / anchor_abs)
+    if ratio >= 1.0:
+      if ratio <= 1.50:
+        return 1
+      return max(
+        1,
+        min(
+          total_quarters,
+          int(math.ceil(math.log(ratio) / math.log(1.50))),
+        ),
+      )
+    if ratio >= 0.80:
+      return 1
+    return max(
+      1,
+      min(
+        total_quarters,
+        int(math.ceil(math.log(ratio) / math.log(0.80))),
+      ),
+    )
+  return min(total_quarters, 4)
+
+
+def _shape_sensitive_autorepair_values(
+  *,
+  anchor_value: float,
+  target_value: float,
+  required_target_quarters: Optional[List[int]],
+) -> Dict[str, float]:
+  required_quarters = [
+    int(_safe_float(item) or 0)
+    for item in (required_target_quarters or [])
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  required_quarters = sorted(list(dict.fromkeys(required_quarters)))
+  if not required_quarters:
+    return {}
+  start_value = float(anchor_value)
+  desired_target = float(target_value)
+  if start_value > 1e-9 and desired_target <= 0.0:
+    desired_target = max(float(start_value * (0.80 ** len(required_quarters))), 1e-6)
+  transition_quarters = _shape_sensitive_autorepair_transition_quarters(
+    anchor_value=start_value,
+    target_value=desired_target,
+    quarter_count=len(required_quarters),
+  )
+  values: Dict[str, float] = {}
+  if abs(start_value) > 1e-9 and abs(desired_target) > 1e-9 and start_value * desired_target > 0.0:
+    factor = float((abs(desired_target) / abs(start_value)) ** (1.0 / max(transition_quarters, 1)))
+    current_value = float(start_value)
+    for idx, quarter_index in enumerate(required_quarters, start=1):
+      if idx <= transition_quarters:
+        next_value = float(abs(start_value) * (factor ** idx))
+        if desired_target < 0.0:
+          next_value = -next_value
+        if desired_target >= start_value:
+          next_value = min(next_value, desired_target)
+        else:
+          next_value = max(next_value, desired_target)
+      else:
+        next_value = float(desired_target)
+      current_value = float(next_value)
+      values[f"Q{quarter_index}"] = float(round(current_value, 6))
+    return values
+  current_value = float(start_value)
+  linear_step = float((desired_target - start_value) / max(transition_quarters, 1))
+  for idx, quarter_index in enumerate(required_quarters, start=1):
+    if idx <= transition_quarters:
+      next_value = float(current_value + linear_step)
+      if current_value > 1e-9 and 0.0 <= next_value < current_value * 0.50:
+        next_value = float(current_value * 0.50)
+      if current_value > 1e-9 and next_value > current_value * 2.50:
+        next_value = float(current_value * 2.50)
+      if desired_target >= current_value:
+        next_value = min(next_value, desired_target)
+      else:
+        next_value = max(next_value, desired_target)
+      current_value = float(next_value)
+    else:
+      current_value = float(desired_target)
+    values[f"Q{quarter_index}"] = float(round(current_value, 6))
+  return values
+
+
+def _shape_sensitive_autorepair_target_value(
+  *,
+  lever_id: str,
+  adjustment: Optional[Dict[str, Any]],
+  scaffold_entry: Optional[Dict[str, Any]],
+  anchor_value: float,
+) -> Optional[float]:
+  candidate_value = _shape_sensitive_midpoint_value(adjustment=adjustment)
+  if candidate_value is not None:
+    return float(candidate_value)
+  scaffold = scaffold_entry if isinstance(scaffold_entry, dict) else {}
+  lower = _safe_float(scaffold.get("suggested_min_value"))
+  upper = _safe_float(scaffold.get("suggested_max_value"))
+  range_values = [
+    float(value)
+    for value in (lower, upper)
+    if value is not None
+  ]
+  if not range_values:
+    return None
+  low_value = float(min(range_values))
+  high_value = float(max(range_values))
+  direction = str(
+    ((adjustment or {}).get("direction"))
+    or scaffold.get("direction_hint")
+    or ""
+  ).strip().lower()
+  if direction == "increase":
+    candidate_value = high_value
+  elif direction == "decrease":
+    candidate_value = low_value
+  elif low_value <= float(anchor_value) <= high_value:
+    candidate_value = float(anchor_value)
+  else:
+    candidate_value = low_value if abs(low_value - float(anchor_value)) <= abs(high_value - float(anchor_value)) else high_value
+  input_semantics = str(scaffold.get("input_semantics") or "").strip().lower()
+  value_kind = str(scaffold.get("value_kind") or "").strip().lower()
+  if (
+    value_kind in {"ratio", "direct_number"}
+    or any(token in input_semantics for token in ("percent", "capacity", "currency", "count", "units", "price"))
+  ):
+    candidate_value = max(0.0, float(candidate_value))
+  if lever_id in _SHAPE_SENSITIVE_REMAINING_HORIZON_REQUIRED_LEVER_IDS:
+    candidate_value = max(0.0, float(candidate_value))
+  return float(candidate_value)
+
+
+def _shape_sensitive_autorepair_shape_type(
+  *,
+  adjustment: Optional[Dict[str, Any]],
+  anchor_value: float,
+  target_value: float,
+) -> str:
+  direction = str((adjustment or {}).get("direction") or "").strip().lower()
+  if direction == "increase":
+    return "ramp"
+  if direction == "decrease":
+    return "moderation"
+  if float(target_value) > float(anchor_value) * 1.05:
+    return "ramp"
+  if float(target_value) < float(anchor_value) * 0.95:
+    return "moderation"
+  return "step_up"
+
+
+def _auto_repair_shape_sensitive_unified_decision(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  numeric_solver_contract: Optional[Dict[str, Any]],
+  baseline_map: Optional[Dict[str, List[float]]],
+  full_horizon_quarter_count: int,
+) -> Tuple[Dict[str, Any], List[str]]:
+  decision = copy.deepcopy(parsed if isinstance(parsed, dict) else {})
+  if not decision:
+    return {}, []
+  lever_selection = [
+    str(item).strip()
+    for item in (decision.get("lever_selection") or [])
+    if str(item).strip()
+  ]
+  if not lever_selection:
+    return decision, []
+  targeted_quarters = sorted(
+    {
+      int(_safe_float(item.get("quarter_index")) or 0)
+      for item in (decision.get("targets_by_quarter") or [])
+      if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+    }
+  )
+  lever_adjustments = [
+    copy.deepcopy(item)
+    for item in (decision.get("lever_adjustments") or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  ]
+  adjustment_index_map = {
+    str(item.get("lever_id") or "").strip(): idx
+    for idx, item in enumerate(lever_adjustments)
+    if str(item.get("lever_id") or "").strip()
+  }
+  scaffold_map = {
+    str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
+    for item in ((deterministic_numeric_guidance or {}).get("lever_band_scaffold") or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  }
+  shape_sensitive_requirements = _shape_sensitive_remaining_horizon_requirements(
+    selected_lever_ids=copy.deepcopy(lever_selection),
+    targeted_quarters=copy.deepcopy(targeted_quarters),
+    numeric_solver_contract=copy.deepcopy(numeric_solver_contract),
+    lever_adjustments=copy.deepcopy(lever_adjustments),
+    baseline_map=copy.deepcopy(baseline_map),
+    full_horizon_quarter_count=full_horizon_quarter_count,
+  )
+  required_quarters = copy.deepcopy(shape_sensitive_requirements.get("required_target_quarters") or [])
+  if not required_quarters:
+    return decision, []
+  repaired_lever_ids: List[str] = []
+  for lever_id in (shape_sensitive_requirements.get("required_lever_ids") or []):
+    existing_index = adjustment_index_map.get(lever_id)
+    existing_adjustment = (
+      copy.deepcopy(lever_adjustments[existing_index])
+      if existing_index is not None and 0 <= existing_index < len(lever_adjustments)
+      else None
+    )
+    path_detail = _shape_sensitive_path_validation_detail(
+      lever_id=lever_id,
+      adjustment=existing_adjustment,
+      required_target_quarters=copy.deepcopy(required_quarters),
+      anchor_value=None,
+    )
+    if not path_detail:
+      continue
+    scaffold_entry = scaffold_map.get(lever_id) or {}
+    repaired_adjustment = copy.deepcopy(existing_adjustment or {})
+    if not repaired_adjustment and not scaffold_entry:
+      continue
+    if not repaired_adjustment:
+      repaired_adjustment = {
+        "lever_id": lever_id,
+        "section": str(scaffold_entry.get("section") or "").strip(),
+        "direction": str(scaffold_entry.get("direction_hint") or "either").strip().lower() or "either",
+        "value_mode": "band",
+        "exact_value": None,
+        "min_value": _safe_float(scaffold_entry.get("suggested_min_value")),
+        "max_value": _safe_float(scaffold_entry.get("suggested_max_value")),
+        "mapped_repair_targets": _autofill_unified_mapped_repair_targets_for_lever(
+          lever_id=lever_id,
+          deterministic_numeric_guidance=deterministic_numeric_guidance,
+          primary_target_metric_names=copy.deepcopy(
+            _normalize_primary_target_metric_names(decision.get("primary_target_metric_names") or [])
+          ),
+          targeted_quarters=copy.deepcopy(targeted_quarters),
+        ),
+      }
+    anchor_values = (
+      (baseline_map or {}).get(lever_id)
+      if isinstance(baseline_map, dict)
+      else None
+    ) or []
+    anchor_quarter = int(min(required_quarters or [1]) or 1)
+    if 0 <= anchor_quarter - 1 < len(anchor_values):
+      anchor_value = float(_safe_float(anchor_values[anchor_quarter - 1]) or 0.0)
+    else:
+      anchor_value = float(
+        _safe_float(scaffold_entry.get("baseline_value"))
+        or _safe_float(((scaffold_entry.get("baseline_window") or {}) if isinstance(scaffold_entry.get("baseline_window"), dict) else {}).get("value_end"))
+        or 0.0
+      )
+    trajectory_values = _shape_sensitive_trajectory_values_by_quarter(repaired_adjustment)
+    if trajectory_values and all(int(q) in trajectory_values for q in required_quarters):
+      synthesized_values = {
+        f"Q{int(q)}": float(_safe_float(trajectory_values.get(int(q))) or 0.0)
+        for q in required_quarters
+      }
+    else:
+      target_value = _shape_sensitive_autorepair_target_value(
+        lever_id=lever_id,
+        adjustment=repaired_adjustment,
+        scaffold_entry=scaffold_entry,
+        anchor_value=anchor_value,
+      )
+      if target_value is None:
+        continue
+      synthesized_values = _shape_sensitive_autorepair_values(
+        anchor_value=anchor_value,
+        target_value=float(target_value),
+        required_target_quarters=copy.deepcopy(required_quarters),
+      )
+      if not synthesized_values:
+        continue
+    repaired_adjustment["lever_id"] = lever_id
+    repaired_adjustment["section"] = str(
+      repaired_adjustment.get("section")
+      or scaffold_entry.get("section")
+      or ""
+    ).strip()
+    repaired_adjustment["timing_start_q"] = int(min(required_quarters or [1]) or 1)
+    repaired_adjustment["timing_end_q"] = int(max(required_quarters or [1]) or 1)
+    repaired_adjustment["shape_type"] = _shape_sensitive_autorepair_shape_type(
+      adjustment=repaired_adjustment,
+      anchor_value=anchor_value,
+      target_value=float(list(synthesized_values.values())[-1]),
+    )
+    repaired_adjustment["values"] = copy.deepcopy(synthesized_values)
+    repaired_adjustment["trajectory_values"] = copy.deepcopy(synthesized_values)
+    rationale = str(
+      repaired_adjustment.get("trajectory_rationale")
+      or repaired_adjustment.get("rationale")
+      or repaired_adjustment.get("business_reason")
+      or ""
+    ).strip()
+    if not rationale:
+      rationale = (
+        "Python completed the structural remaining-horizon path from the selected lever band so solver receives a valid continuous trajectory."
+      )
+    repaired_adjustment["rationale"] = rationale
+    repaired_adjustment["trajectory_rationale"] = rationale
+    if not _normalize_unified_mapped_repair_targets(repaired_adjustment.get("mapped_repair_targets") or []):
+      repaired_adjustment["mapped_repair_targets"] = _autofill_unified_mapped_repair_targets_for_lever(
+        lever_id=lever_id,
+        deterministic_numeric_guidance=deterministic_numeric_guidance,
+        primary_target_metric_names=copy.deepcopy(
+          _normalize_primary_target_metric_names(decision.get("primary_target_metric_names") or [])
+        ),
+        targeted_quarters=copy.deepcopy(targeted_quarters),
+      )
+    if existing_index is not None and 0 <= existing_index < len(lever_adjustments):
+      lever_adjustments[existing_index] = copy.deepcopy(repaired_adjustment)
+    else:
+      lever_adjustments.append(copy.deepcopy(repaired_adjustment))
+    repaired_lever_ids.append(lever_id)
+  if repaired_lever_ids:
+    decision["lever_adjustments"] = copy.deepcopy(lever_adjustments)
+  return decision, repaired_lever_ids
 
 
 def _with_shape_sensitive_solver_contract_policy(
@@ -20654,14 +22228,21 @@ def _unified_required_target_metric_keys(
   keys = _normalize_primary_target_metric_names(
     decision.get("primary_target_metric_names") or []
   )
+  declared_mapping_metric_names = _declared_mapped_target_metric_names(
+    decision.get("lever_adjustments") or []
+  )
   if keys:
-    filtered_keys = [
+    base_keys = [
       key
       for key in keys
       if not allowed_keys or key in allowed_keys
     ]
-    return filtered_keys[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
-  return _solver_contract_primary_target_metric_keys(numeric_solver_contract)
+  else:
+    base_keys = _solver_contract_primary_target_metric_keys(numeric_solver_contract)
+  for metric_name in declared_mapping_metric_names:
+    if metric_name not in base_keys and (not allowed_keys or metric_name in allowed_keys):
+      base_keys.append(metric_name)
+  return base_keys[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
 
 
 def _normalize_solver_quarter_target_metrics(raw_targets: Any) -> List[Dict[str, Any]]:
@@ -21127,6 +22708,13 @@ def _extract_pass_retry_candidate_signature(
     "target_metric_names": copy.deepcopy(target_metric_names),
     "quarter_targets": copy.deepcopy(flattened_targets),
     "quarter_target_key": json.dumps(flattened_targets, sort_keys=True),
+    "selected_issue_expected_impacts": copy.deepcopy(
+      [
+        item
+        for item in ((review_plan or {}).get("selected_issue_expected_impacts") or [])
+        if isinstance(item, dict)
+      ]
+    ),
     "lever_control_directions": {
       lever_id: (
         "increase"
@@ -21618,42 +23206,33 @@ def _build_convergence_escalation_packet(
       ],
       allowed_metric_names=allowed_target_metric_names,
     )
-    for metric_name in (
-      str(item).strip()
-      for item in (contract_packet.get("metric_targets") or [])
-      if str(item).strip()
-    ):
-      normalized_metric_name = _normalize_targetable_metric_name(metric_name)
-      if (
-        normalized_metric_name
-        and (not allowed_target_metric_names or normalized_metric_name in allowed_target_metric_names)
-        and normalized_metric_name not in metric_candidates
-      ):
-        metric_candidates.append(normalized_metric_name)
     if not metric_candidates:
       metric_candidates = [
         str(item).strip()
         for item in ((contract.get("recommended_primary_target_metric_keys") or [])[:3])
-        if str(item).strip()
+        if str(item).strip() and str(item).strip().lower() not in _DERIVED_NON_COVERAGE_PRIMARY_TARGET_METRICS
       ]
-    metric_candidates = metric_candidates[:3]
-    lever_ids = [
-      str(item).strip()
-      for item in (
-        record.get("next_required_lever_ids")
-        or contract_packet.get("next_required_lever_ids")
-        or []
-      )
-      if str(item).strip()
+    metric_candidates = [
+      metric_name
+      for metric_name in metric_candidates
+      if str(metric_name).strip().lower() not in _DERIVED_NON_COVERAGE_PRIMARY_TARGET_METRICS
     ]
+    metric_candidates = metric_candidates[:3]
+    lever_ids = _preferred_issue_candidate_lever_ids(
+      issue_record=record,
+      contract_packet=contract_packet,
+    )
     lever_ids = lever_ids[:_CONVERGENCE_MAX_FOCUS_LEVERS]
-    lever_families = sorted(
-      {
-        _lever_family_from_lever_id(item)
-        for item in lever_ids
-        if _lever_family_from_lever_id(item)
-      }
-    )[:_CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES]
+    lever_families = _issue_packet_required_lever_families(contract_packet)
+    if not lever_families:
+      lever_families = sorted(
+        {
+          _lever_family_from_lever_id(item)
+          for item in lever_ids
+          if _lever_family_from_lever_id(item)
+        }
+      )
+    lever_families = lever_families[:_CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES]
     relevant_quarters = sorted(
       {
         int(_safe_float(item) or 0)
@@ -21757,7 +23336,7 @@ def _build_convergence_escalation_packet(
   recommended_metrics = [
     str(item).strip()
     for item in (contract.get("recommended_primary_target_metric_keys") or [])
-    if str(item).strip()
+    if str(item).strip() and str(item).strip().lower() not in _DERIVED_NON_COVERAGE_PRIMARY_TARGET_METRICS
   ]
   for metric_name in recommended_metrics:
     if metric_name not in required_primary_metric_candidates:
@@ -21786,6 +23365,11 @@ def _build_convergence_escalation_packet(
   required_new_lever_families = [
     family for family in required_lever_families if family not in set(previous_attempted_families)
   ]
+  available_new_issue_lever_ids = [
+    lever_id
+    for lever_id in required_issue_lever_ids
+    if lever_id not in set(previous_lever_ids)
+  ]
   minimum_new_lever_count = int(_safe_float(stall.get("minimum_new_lever_count")) or 0)
   minimum_primary_metric_coverage_count = max(2, min(3, len(issue_coverage_requirements) + 1))
   if progress_status in {"flat", "regressed"}:
@@ -21794,6 +23378,10 @@ def _build_convergence_escalation_packet(
     minimum_new_lever_count = max(minimum_new_lever_count, 3)
   if required_new_lever_families:
     minimum_new_lever_count = max(minimum_new_lever_count, min(3, len(required_new_lever_families) + 1))
+  minimum_new_lever_count = min(
+    int(minimum_new_lever_count),
+    int(len(available_new_issue_lever_ids)),
+  )
 
   return {
     "escalation_active": escalation_active,
@@ -21822,6 +23410,7 @@ def _build_convergence_escalation_packet(
     "required_issue_lever_ids": copy.deepcopy(required_issue_lever_ids),
     "required_lever_families": copy.deepcopy(required_lever_families),
     "required_new_lever_families": copy.deepcopy(required_new_lever_families),
+    "available_new_issue_lever_ids": copy.deepcopy(available_new_issue_lever_ids),
     "issue_coverage_requirements": copy.deepcopy(issue_coverage_requirements),
     "previous_attempted_lever_families": copy.deepcopy(previous_attempted_families),
     "last_failure_reason": (
@@ -21924,24 +23513,39 @@ def _retry_scope_lever_ids(
   *,
   controller_retry_context: Optional[Dict[str, Any]],
   numeric_solver_contract: Optional[Dict[str, Any]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]] = None,
+  solved_model_input_json: Optional[Dict[str, Any]] = None,
   scoped_quarters: Optional[List[int]] = None,
 ) -> List[str]:
   context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
   contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
-  catalog_entries = [
+  contract_catalog_entries = [
     item
     for item in (((contract.get("writable_lever_catalog") or {}) if isinstance(contract.get("writable_lever_catalog"), dict) else {}).get("entries") or [])
     if isinstance(item, dict)
   ]
+  model_catalog_entries = _build_writable_lever_review_catalog(solved_model_input_json)
+  catalog_entries: List[Dict[str, Any]] = []
+  seen_catalog_lever_ids: set[str] = set()
+  for item in contract_catalog_entries + model_catalog_entries:
+    lever_id = str(item.get("lever_id") or "").strip() if isinstance(item, dict) else ""
+    if not lever_id or lever_id in seen_catalog_lever_ids:
+      continue
+    seen_catalog_lever_ids.add(lever_id)
+    catalog_entries.append(copy.deepcopy(item))
   all_catalog_lever_ids = [
     str(item.get("lever_id") or "").strip()
     for item in catalog_entries
     if str(item.get("lever_id") or "").strip()
   ]
+  current_guidance_focus_issue_codes = _deterministic_guidance_focus_issue_codes(
+    deterministic_numeric_guidance
+  )
   focus_issue_codes = [
     str(item).strip().lower()
     for item in (
-      context.get("focus_issue_codes")
+      current_guidance_focus_issue_codes
+      or context.get("focus_issue_codes")
       or context.get("required_open_issue_codes")
       or [
         str((item or {}).get("issue_code") or "").strip().lower()
@@ -21951,6 +23555,12 @@ def _retry_scope_lever_ids(
     )
     if str(item).strip()
   ][: _CONVERGENCE_MAX_FOCUS_ISSUES]
+  guidance_scoped_ids = _scoped_unified_allowed_lever_ids(
+    fallback_allowed_lever_ids=all_catalog_lever_ids,
+    deterministic_numeric_guidance=deterministic_numeric_guidance,
+  )
+  if guidance_scoped_ids:
+    return guidance_scoped_ids[:_CONVERGENCE_MAX_FOCUS_LEVERS]
   focused_ids = [
     str(item).strip()
     for item in (context.get("required_issue_lever_ids") or [])
@@ -22064,15 +23674,20 @@ def _build_retry_scope_payload(
   controller_retry_context: Optional[Dict[str, Any]],
   prior_numeric_feedback: Optional[Dict[str, Any]],
   numeric_solver_contract: Optional[Dict[str, Any]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
   solved_model_input_json: Optional[Dict[str, Any]],
   solved_finmo_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
   context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
   quarter_count = _quarter_count_from_model_input(solved_model_input_json)
+  current_guidance_focus_issue_codes = _deterministic_guidance_focus_issue_codes(
+    deterministic_numeric_guidance
+  )
   focus_issue_codes = [
     str(item).strip().lower()
     for item in (
-      context.get("focus_issue_codes")
+      current_guidance_focus_issue_codes
+      or context.get("focus_issue_codes")
       or context.get("required_open_issue_codes")
       or [
         str((item or {}).get("issue_code") or "").strip().lower()
@@ -22092,14 +23707,25 @@ def _build_retry_scope_payload(
       "focus_issue_codes": copy.deepcopy(focus_issue_codes),
     },
     numeric_solver_contract=numeric_solver_contract,
+    deterministic_numeric_guidance=deterministic_numeric_guidance,
+    solved_model_input_json=solved_model_input_json,
     scoped_quarters=scoped_quarters,
   )
   lever_value_map = _solved_lever_value_map(solved_model_input_json)
-  full_catalog_entries = [
+  contract_catalog_entries = [
     item
     for item in ((((numeric_solver_contract or {}).get("writable_lever_catalog") or {}) if isinstance((numeric_solver_contract or {}).get("writable_lever_catalog"), dict) else {}).get("entries") or [])
     if isinstance(item, dict)
   ]
+  model_catalog_entries = _build_writable_lever_review_catalog(solved_model_input_json)
+  full_catalog_entries: List[Dict[str, Any]] = []
+  seen_catalog_lever_ids: set[str] = set()
+  for item in contract_catalog_entries + model_catalog_entries:
+    lever_id = str(item.get("lever_id") or "").strip() if isinstance(item, dict) else ""
+    if not lever_id or lever_id in seen_catalog_lever_ids:
+      continue
+    seen_catalog_lever_ids.add(lever_id)
+    full_catalog_entries.append(copy.deepcopy(item))
   scoped_catalog_entries = [
     copy.deepcopy(item)
     for item in full_catalog_entries
@@ -22783,6 +24409,11 @@ def _run_controller_retry_loop(
             detail="payroll_validation_failed",
             diagnostics=diagnostics,
           )
+        if pre_solver_flags & _DECLARED_REPAIR_MAPPING_TEST_MODE_FAIL_FLAGS:
+          raise StructuredSystemRunFailure(
+            detail="declared_repair_mapping_failed",
+            diagnostics=diagnostics,
+          )
         raise StructuredSystemRunFailure(
           detail=str(validation_error.get("reason_code") or "pre_solver_validation_failed").strip(),
           diagnostics=diagnostics,
@@ -23104,7 +24735,7 @@ def _build_cash_strategy_second_pass_plan(
     if isinstance(numeric_solver_contract, dict)
     else {}
   )
-  selected_cash_strategy = str((financials_json or {}).get("cash_strategy") or review_payload.get("selected_cash_strategy") or "").strip()
+  selected_cash_strategy = _resolved_cash_strategy(financials_json, review_payload)
   review_status = str(review_payload.get("status") or "").strip()
   prompt_file = str(review_payload.get("prompt_file") or "").strip()
   if review_status != "completed":
@@ -24279,7 +25910,7 @@ def _run_realism_resolution_loop(
     realism_numeric_solver_contract = build_numeric_solver_contract(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
-      selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+      selected_cash_strategy=_resolved_cash_strategy(financials_json),
       issue_status_records=copy.deepcopy((planner_issue_state or {}).get("issue_status_records") or []),
       writable_lever_catalog=_build_writable_lever_review_catalog(current_model_input),
       current_model_input_json=copy.deepcopy(current_model_input or {}),
@@ -30168,10 +31799,14 @@ def _run_unified_post_grid_system_run(
     candidate_signature = _extract_pass_retry_candidate_signature(unified_convergence_plan)
     validation_error = None
     if decision_status and decision_status != "completed":
+      planner_detail = str((unified_convergence_decision or {}).get("detail") or "").strip()
       validation_error = {
         "rejected": True,
         "reason_code": "planner_not_completed",
-        "reason": f"Unified convergence planner did not complete successfully: {decision_status}.",
+        "reason": (
+          f"Unified convergence planner did not complete successfully: {decision_status}."
+          + (f" Detail: {planner_detail}" if planner_detail else "")
+        ),
       }
     elif plan_status == "skipped_review_not_completed" and plan_active_issue_count > 0:
       validation_error = {
@@ -30220,6 +31855,17 @@ def _run_unified_post_grid_system_run(
         )
         if str(item).strip()
       } & _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS
+      critical_mapping_fail_flags = {
+        str(item).strip()
+        for item in (
+          (
+            (diagnostics.get("pre_solver_validation") if isinstance(diagnostics.get("pre_solver_validation"), dict) else {})
+            .get("flags")
+            or []
+          )
+        )
+        if str(item).strip()
+      } & _DECLARED_REPAIR_MAPPING_TEST_MODE_FAIL_FLAGS
       if _convergence_test_mode_enabled() and critical_anchor_fail_flags:
         raise StructuredSystemRunFailure(
           detail="anchor_validation_failed",
@@ -30228,6 +31874,11 @@ def _run_unified_post_grid_system_run(
       if _convergence_test_mode_enabled() and critical_payroll_fail_flags:
         raise StructuredSystemRunFailure(
           detail="payroll_validation_failed",
+          diagnostics=copy.deepcopy(diagnostics),
+        )
+      if _convergence_test_mode_enabled() and critical_mapping_fail_flags:
+        raise StructuredSystemRunFailure(
+          detail="declared_repair_mapping_failed",
           diagnostics=copy.deepcopy(diagnostics),
         )
       if _convergence_test_mode_enabled():
@@ -30835,7 +32486,7 @@ def _run_unified_post_grid_system_run(
     numeric_solver_contract=build_numeric_solver_contract(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
-      selected_cash_strategy=str((financials_json or {}).get("cash_strategy") or "").strip(),
+      selected_cash_strategy=_resolved_cash_strategy(financials_json),
       issue_status_records=_controller_state_issue_status_records(controller_resolution_state),
       writable_lever_catalog=_build_writable_lever_review_catalog(final_model_input_json),
       current_model_input_json=copy.deepcopy(final_model_input_json or {}),

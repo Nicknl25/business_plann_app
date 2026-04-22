@@ -195,7 +195,6 @@ _ISSUE_PRIMARY_TARGET_CANDIDATES: Dict[str, List[str]] = {
     "g_and_a",
   ],
   "pricing_positioning_mismatch": [
-    "revenue",
     "gross_profit",
     "ebitda",
     "net_income",

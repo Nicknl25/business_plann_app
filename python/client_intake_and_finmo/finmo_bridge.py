@@ -1213,6 +1213,76 @@ def _build_operating_stub_metrics(
   }
 
 
+def _build_balance_sheet_intake_stub_metrics(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, float]:
+  sections = (model_input_json or {}).get("sections") if isinstance(model_input_json, dict) else {}
+  schedules = (sections or {}).get("schedules") if isinstance(sections, dict) else {}
+  balance_rows = (sections or {}).get("balance_sheet") if isinstance(sections, dict) else []
+
+  schedule_seed_map = schedules if isinstance(schedules, dict) else {}
+  balance_stub_by_label: Dict[str, float] = {}
+  for row in (balance_rows or []):
+    if not isinstance(row, dict):
+      continue
+    label = str(row.get("label") or "").strip()
+    if not label:
+      continue
+    balance_stub_by_label[label] = _controller_row_stub_value(row)
+
+  def _seed_value(key: str) -> float:
+    return round(float(_safe_float(schedule_seed_map.get(key)) or 0.0), 6)
+
+  cash = max(0.0, _seed_value("cash_opening_balance_seed"))
+  accounts_receivable = max(0.0, _seed_value("accounts_receivable_opening_balance_seed"))
+  inventory = max(0.0, _seed_value("inventory_opening_balance_seed"))
+  prepaid_expenses = 0.0
+  current_assets = round(cash + accounts_receivable + inventory + prepaid_expenses, 6)
+
+  ppe = max(0.0, _seed_value("ppe_opening_balance_seed"))
+  accumulated_depreciation = round(float(_safe_float(schedule_seed_map.get("accumulated_depreciation_opening_seed")) or 0.0), 6)
+  total_assets = round(current_assets + ppe + accumulated_depreciation, 6)
+
+  accounts_payable = max(0.0, _seed_value("accounts_payable_opening_balance_seed"))
+  short_term_debt = max(0.0, _seed_value("short_term_debt_opening_balance_seed"))
+  deferred_revenue = 0.0
+  current_liabilities = round(accounts_payable + short_term_debt + deferred_revenue, 6)
+
+  total_debt_opening = max(0.0, _seed_value("debt_opening_balance_seed"))
+  long_term_debt = round(max(0.0, total_debt_opening - short_term_debt), 6)
+  total_liabilities = round(current_liabilities + long_term_debt, 6)
+
+  owners_capital = round(float(balance_stub_by_label.get("Owner's Capital") or 0.0), 6)
+  other_equity = round(float(balance_stub_by_label.get("Other Equity") or 0.0), 6)
+  retained_earnings = round(total_assets - total_liabilities - owners_capital - other_equity, 6)
+  total_equity = round(owners_capital + retained_earnings + other_equity, 6)
+  total_liabilities_and_equity = round(total_liabilities + total_equity, 6)
+
+  return {
+    "cash": round(cash, 6),
+    "accounts_receivable": round(accounts_receivable, 6),
+    "inventory": round(inventory, 6),
+    "prepaid_expenses": round(prepaid_expenses, 6),
+    "current_assets": current_assets,
+    "ppe": round(ppe, 6),
+    "accumulated_depreciation": accumulated_depreciation,
+    "total_assets": total_assets,
+    "accounts_payable": round(accounts_payable, 6),
+    "short_term_debt": round(short_term_debt, 6),
+    "deferred_revenue": round(deferred_revenue, 6),
+    "current_liabilities": current_liabilities,
+    "long_term_debt": long_term_debt,
+    "total_liabilities": total_liabilities,
+    "owners_capital": owners_capital,
+    "retained_earnings": retained_earnings,
+    "other_equity": other_equity,
+    "total_equity": total_equity,
+    "total_liabilities_and_equity": total_liabilities_and_equity,
+    "beginning_cash": round(cash, 6),
+    "ending_cash": round(cash, 6),
+  }
+
+
 def _apply_operating_stub_to_quarter_rows(
   quarter_rows_with_stub: Sequence[Dict[str, Any]],
   *,
@@ -1232,9 +1302,11 @@ def _apply_operating_stub_to_quarter_rows(
     model_input_json,
     first_live_row=first_live_row,
   )
+  balance_sheet_stub = _build_balance_sheet_intake_stub_metrics(model_input_json)
   rows[stub_index].update(
     {
       **operating_stub,
+      **balance_sheet_stub,
       "cogs": operating_stub.get("cost_of_goods_sold"),
       "g_and_a": operating_stub.get("general_and_administrative"),
     }

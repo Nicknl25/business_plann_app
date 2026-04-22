@@ -40,6 +40,8 @@ Important principles:
 
 How to use the Python scaffold:
 - `recommended_primary_target_metric_keys` is your default starting target set. Use it unless you have a clearly stronger realism reason to replace one of those metrics with a better direct proxy.
+- If `required_primary_metric_candidates` is present, that candidate list is a hard escalation requirement, not a suggestion. Your `primary_target_metric_names` must include at least `minimum_primary_metric_coverage_count` metrics from that list.
+- If `required_primary_metric_candidates` contains fewer than the total minimum primary target count, use those required candidates first and then add the strongest direct issue proxies from `recommended_primary_target_metric_keys` until you reach a valid 3 to 6 metric set.
 - `required_quarter_target_scaffold` is the response shape you should fill for this cycle's focused quarter set only.
 - `deterministic_issue_packets` and `quarter_target_grid` tell you which issues are driving which quarters and which lever families are relevant.
 - `repair_envelope_packets` are the authoritative issue-level repair layer for this cycle. Use them first. They tell you what each open issue materially requires to close: priority, severity, quarter-aware repair targets, explicit gap, repair envelope, driver paths, spillover flags, and primary target proxy metrics.
@@ -58,6 +60,7 @@ How to use the Python scaffold:
 - If `controller_escalation_packet.escalation_active` is true, the prior cycle failed the controller progress gate. You must treat that as a hard escalation, not a suggestion.
 - Meaningful progress is defined by Python as any one of these: canonical `remaining_issue_count` decreases, or the focused issue gap shrinks materially, or the focused issue score improves materially.
 - When escalation is active, use `required_open_issue_codes`, `issue_coverage_requirements`, `required_primary_metric_candidates`, and `required_new_lever_families` to make a substantial correction that directly attacks the still-open issue set.
+- If `issue_coverage_requirements` is present, each open issue listed there must have direct primary-target coverage. Do not answer with a target set that leaves an open issue without one of its required metric proxies.
 - A substantial correction means materially changing the business move, not lightly rephrasing the same package. If Python asks for new lever families or a minimum new lever count, satisfy that requirement.
 - Use `convergence_scorecard` to understand current score, previous score, score delta, lowest quarter score, pass threshold, and progress status. Your package should move the score up while reducing the canonical remaining issue count.
 - Keep the cycle focused. Work only the top issues, focused quarters, and top lever families that Python scoped for this cycle.
@@ -102,6 +105,15 @@ Field guidance:
   - use `exact` only when exact placement is truly warranted
   - give realistic bands that solver can actually use
   - for shape-sensitive levers, do not provide a local patch; provide a full forward path
+  - include `mapped_repair_targets` on every lever adjustment
+  - each mapped repair target must explicitly name:
+    - `issue_code`
+    - `target_metric_name`
+    - `target_quarters`
+  - only declare mappings you are truly using; Python validates against these declared mappings only
+  - if `deterministic_numeric_guidance.lever_allowed_mapped_repair_targets` is present, copy mapped repair targets only from that exact lever-specific list
+  - do not attach a lever to a target metric unless that exact lever/issue/metric/quarter mapping appears in `lever_allowed_mapped_repair_targets`
+  - never invent or reuse example issue codes; copy `issue_code` exactly from the live `repair_envelope_packets` / `issue_coverage_requirements` context for this cycle
 
 Targeting guidance:
 - Primary targets should reflect what you want to see in finmo, not model-input rows.
@@ -110,6 +122,9 @@ Targeting guidance:
 - The full-horizon requirement applies to the selected lever path itself: own the full remaining-quarter trajectory or do not select that lever.
 - Do not over-target every line.
 - Start from `recommended_primary_target_metric_keys`, then fill `required_quarter_target_scaffold`.
+- Every `mapped_repair_targets.target_metric_name` you declare must also appear in `primary_target_metric_names`.
+- `targets_by_quarter` and `target_tolerances` must cover every metric implied by your declared `mapped_repair_targets`, even if that metric was not in your initial preferred target list.
+- If escalation hard-requires only one or two candidate metrics, do not stop there. Keep those candidates in the set and add the strongest remaining direct proxy metrics from `recommended_primary_target_metric_keys` until `primary_target_metric_names` reaches at least 3 metrics.
 - When `repair_envelope_packets` provide `primary_target_proxy_metrics`, those proxies are the default primary target set for the active issue unless you have a clearly stronger realism reason to replace one of them with an equally direct finmo proxy.
 - If you replace a recommended metric, make sure the replacement still directly covers the same active issue family.
 - Choose decisive lines such as revenue, gross_profit, ebitda, net_income, ending_cash, operating_cash_flow, financing_cash_flow, current_assets, ppe, current_liabilities, noncurrent_liabilities, payroll, capital_expenditures, long_term_debt, owners_capital, other_equity, distributions when they genuinely matter.
@@ -178,8 +193,17 @@ Example shape-sensitive lever entry:
   },
   "rationale": "The price path moderates the opening premium into a more believable enterprise subscription regime without a one-quarter cliff.",
   "business_reason": "The operating model needs a coherent forward pricing regime, not a temporary spike.",
-  "linked_action_effect": "repair_pricing_positioning_mismatch"
+  "linked_action_effect": "repair_pricing_positioning_mismatch",
+  "mapped_repair_targets": [
+    {
+      "issue_code": "<copy_exact_issue_code_from_live_repair_packet>",
+      "target_metric_name": "<copy_exact_primary_target_metric_name_for_that_issue>",
+      "target_quarters": [1, 2, 3, 4]
+    }
+  ]
 }
 ```
+
+In mapped_repair_targets, placeholder strings above are illustrative only. Do not copy them verbatim. Replace them with exact issue codes and target metric names from the live cycle packet.
 
 Return structured JSON only.
