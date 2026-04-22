@@ -20,6 +20,7 @@ from intake_consult_draft import (
   begin_planning_run,
   clear_planning_run_action,
   current_app_timestamp_iso,
+  current_app_timestamp_str,
   current_app_timezone_name,
   get_draft,
   get_latest_planning_run_checkpoint,
@@ -184,13 +185,15 @@ _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS = {
   "payroll_derivation_log_count_mismatch",
   "payroll_derivation_log_inconsistent",
   "payroll_values_not_fully_derived",
+  "payroll_ratio_outside_sanity_band",
+  "payroll_fte_growth_exceeds_guardrail",
 }
 _TRANSLATION_TEST_MODE_FAIL_FLAGS = {
   "metric_to_lever_translation_failed",
 }
 _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN = 6
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 2
-_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-solver-false-failfast-v1"
+_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-payroll-failfast-v1"
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
   "by_model": {},
@@ -17953,7 +17956,7 @@ def _build_q0_anchor_context_payload(
         "In model_input, the opening balances live in schedule seeds while the controller-write levers are day-count assumptions."
       ),
       "payroll_rule": (
-        "Q0 payroll remains an intake/display anchor, but forecast payroll is derived from operating capacity and utilization. "
+        "Q0 payroll remains an intake/display anchor, but forecast payroll is derived from quarter revenue using revenue-per-employee assumptions and OEWS wage grounding. "
         "Payroll is not a writable anchor candidate."
       ),
       "realism_rule": "Intake informs the plan where plausible, but intake does not trump realism.",
@@ -18011,7 +18014,7 @@ def _q0_anchor_contract_validation_details(
           "previous_value": _safe_float(expected_map.get(lever_id)),
           "current_value": _safe_float(expected_map.get(lever_id)),
           "reason": (
-            "Payroll is derived from operating capacity and utilization and must not participate in the Q0 anchor policy system."
+            "Payroll is derived from quarter revenue using revenue-per-employee assumptions and OEWS wage grounding, and must not participate in the Q0 anchor policy system."
           ),
           "validation_category": "q0_anchor_contract",
         }
@@ -18311,11 +18314,11 @@ def _validate_payroll_derivation_contract(
         "quarter": 0,
         "previous_value": q0_value,
         "current_value": q0_value,
-        "reason": "Payroll must not remain controller-writable once payroll is capacity/FTE-derived.",
+        "reason": "Payroll must not remain controller-writable once payroll is revenue/OEWS-derived.",
         "validation_category": "payroll_derivation",
       }
     )
-  if str(current_row.get("derived_driver") or "").strip() != "fte_derived":
+  if str(current_row.get("derived_driver") or "").strip() != "revenue_oews_derived":
     details.append(
       {
         "error": "payroll_row_missing_derived_driver_marker",
@@ -18323,7 +18326,7 @@ def _validate_payroll_derivation_contract(
         "quarter": 0,
         "previous_value": q0_value,
         "current_value": q0_value,
-        "reason": "Payroll row must be marked with derived_driver='fte_derived'.",
+        "reason": "Payroll row must be marked with derived_driver='revenue_oews_derived'.",
         "validation_category": "payroll_derivation",
       }
     )
@@ -18412,7 +18415,7 @@ def _validate_payroll_derivation_contract(
             "quarter": quarter_index,
             "previous_value": expected_value,
             "current_value": current_value,
-            "reason": "Payroll forecast values must exactly match the deterministic FTE-derived recomputation from current capacity/utilization.",
+            "reason": "Payroll forecast values must exactly match the deterministic revenue/OEWS-derived recomputation from current revenue drivers.",
             "validation_category": "payroll_derivation",
           }
         )
@@ -18435,27 +18438,27 @@ def _validate_payroll_derivation_contract(
   for quarter_index in range(1, min(len(current_logs), len(expected_logs)) + 1):
     current_log = current_logs[quarter_index - 1] if isinstance(current_logs[quarter_index - 1], dict) else {}
     expected_log = expected_logs[quarter_index - 1] if isinstance(expected_logs[quarter_index - 1], dict) else {}
-    current_total_fte = _safe_float(current_log.get("total_fte"))
-    support_fte = _safe_float(current_log.get("support_fte"))
-    base_fte = _safe_float(current_log.get("base_fte"))
+    current_implied_fte = _safe_float(current_log.get("implied_fte_raw"))
+    expected_implied_fte = _safe_float(expected_log.get("implied_fte_raw"))
     current_payroll = _safe_float(current_log.get("derived_payroll"))
     expected_payroll = _safe_float(expected_log.get("derived_payroll"))
-    current_active_clients = _safe_float(current_log.get("active_clients"))
-    expected_active_clients = _safe_float(expected_log.get("active_clients"))
+    current_quarter_revenue = _safe_float(current_log.get("quarter_revenue"))
+    expected_quarter_revenue = _safe_float(expected_log.get("quarter_revenue"))
+    current_payroll_ratio = _safe_float(current_log.get("payroll_to_revenue"))
+    expected_payroll_ratio = _safe_float(expected_log.get("payroll_to_revenue"))
     if (
-      current_total_fte is None
-      or support_fte is None
-      or base_fte is None
-      or abs(float(current_total_fte) - round(float(current_total_fte))) > 1e-9
-      or abs(float(support_fte) - round(float(support_fte))) > 1e-9
-      or abs(float(base_fte) - round(float(base_fte))) > 1e-9
-      or int(round(float(current_total_fte))) != int(round(float(support_fte))) + int(round(float(base_fte)))
+      current_implied_fte is None
+      or expected_implied_fte is None
+      or abs(float(current_implied_fte) - float(expected_implied_fte)) > max(1e-6, abs(float(expected_implied_fte)) * 1e-6)
       or current_payroll is None
       or expected_payroll is None
       or abs(float(current_payroll) - float(expected_payroll)) > max(1e-6, abs(float(expected_payroll)) * 1e-6)
-      or current_active_clients is None
-      or expected_active_clients is None
-      or abs(float(current_active_clients) - float(expected_active_clients)) > max(1e-6, abs(float(expected_active_clients)) * 1e-6)
+      or current_quarter_revenue is None
+      or expected_quarter_revenue is None
+      or abs(float(current_quarter_revenue) - float(expected_quarter_revenue)) > max(1e-6, abs(float(expected_quarter_revenue)) * 1e-6)
+      or current_payroll_ratio is None
+      or expected_payroll_ratio is None
+      or abs(float(current_payroll_ratio) - float(expected_payroll_ratio)) > max(1e-6, abs(float(expected_payroll_ratio)) * 1e-6)
     ):
       details.append(
         {
@@ -18464,11 +18467,50 @@ def _validate_payroll_derivation_contract(
           "quarter": quarter_index,
           "previous_value": expected_payroll,
           "current_value": current_payroll,
-          "reason": "Payroll derivation runtime log is inconsistent with the deterministic FTE payroll recomputation.",
+          "reason": "Payroll derivation runtime log is inconsistent with the deterministic revenue/OEWS payroll recomputation.",
           "validation_category": "payroll_derivation",
         }
       )
       break
+
+  ratio_floor = max(0.0, _safe_float((current_policy or {}).get("payroll_ratio_floor")) or 0.05)
+  ratio_ceiling = max(ratio_floor, _safe_float((current_policy or {}).get("payroll_ratio_ceiling")) or 0.50)
+  max_fte_growth = max(0.0, _safe_float((current_policy or {}).get("max_fte_growth_per_quarter")) or 0.50)
+  prior_implied_fte: Optional[float] = None
+  for quarter_index in range(1, len(current_logs) + 1):
+    current_log = current_logs[quarter_index - 1] if isinstance(current_logs[quarter_index - 1], dict) else {}
+    quarter_revenue = _safe_float(current_log.get("quarter_revenue")) or 0.0
+    payroll_ratio = _safe_float(current_log.get("payroll_to_revenue"))
+    implied_fte = _safe_float(current_log.get("implied_fte_raw")) or 0.0
+    if quarter_revenue > 0.0 and (payroll_ratio is None or payroll_ratio < ratio_floor or payroll_ratio > ratio_ceiling):
+      details.append(
+        {
+          "error": "payroll_ratio_outside_sanity_band",
+          "lever_id": "expenses::Payroll",
+          "quarter": quarter_index,
+          "previous_value": ratio_floor,
+          "current_value": payroll_ratio,
+          "reason": "Revenue-derived payroll must stay within the deterministic payroll-to-revenue sanity band.",
+          "validation_category": "payroll_derivation",
+        }
+      )
+      break
+    if prior_implied_fte is not None and prior_implied_fte > 0.0:
+      growth = (implied_fte - prior_implied_fte) / prior_implied_fte
+      if growth > max_fte_growth:
+        details.append(
+          {
+            "error": "payroll_fte_growth_exceeds_guardrail",
+            "lever_id": "expenses::Payroll",
+            "quarter": quarter_index,
+            "previous_value": prior_implied_fte,
+            "current_value": implied_fte,
+            "reason": "Implied FTE growth from revenue-derived payroll exceeds the deterministic quarter-over-quarter guardrail.",
+            "validation_category": "payroll_derivation",
+          }
+        )
+        break
+    prior_implied_fte = implied_fte
 
   return {
     "status": "failed" if details else "passed",
@@ -19371,7 +19413,7 @@ def _build_unified_convergence_pass_plan(
         "previous_value": None,
         "current_value": None,
         "reason": (
-          "Payroll is capacity/FTE-derived in the model-input layer and must not be selected as a writable convergence lever."
+          "Payroll is revenue/OEWS-derived in the model-input layer and must not be selected as a writable convergence lever."
         ),
         "validation_category": "internal_consistency",
       }
@@ -22720,6 +22762,27 @@ def _run_controller_retry_loop(
           unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
           validation_error=copy.deepcopy(validation_error),
         )
+        pre_solver_flags = {
+          str(item).strip()
+          for item in (
+            (
+              (diagnostics.get("pre_solver_validation") if isinstance(diagnostics.get("pre_solver_validation"), dict) else {})
+              .get("flags")
+              or []
+            )
+          )
+          if str(item).strip()
+        }
+        if pre_solver_flags & _Q0_ANCHOR_PLAUSIBILITY_TEST_MODE_FAIL_FLAGS:
+          raise StructuredSystemRunFailure(
+            detail="anchor_validation_failed",
+            diagnostics=diagnostics,
+          )
+        if pre_solver_flags & _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS:
+          raise StructuredSystemRunFailure(
+            detail="payroll_validation_failed",
+            diagnostics=diagnostics,
+          )
         raise StructuredSystemRunFailure(
           detail=str(validation_error.get("reason_code") or "pre_solver_validation_failed").strip(),
           diagnostics=diagnostics,
@@ -30157,11 +30220,6 @@ def _run_unified_post_grid_system_run(
         )
         if str(item).strip()
       } & _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS
-      if _convergence_test_mode_enabled():
-        raise StructuredSystemRunFailure(
-          detail="solver_not_invoked",
-          diagnostics=copy.deepcopy(diagnostics),
-        )
       if _convergence_test_mode_enabled() and critical_anchor_fail_flags:
         raise StructuredSystemRunFailure(
           detail="anchor_validation_failed",
@@ -30170,6 +30228,11 @@ def _run_unified_post_grid_system_run(
       if _convergence_test_mode_enabled() and critical_payroll_fail_flags:
         raise StructuredSystemRunFailure(
           detail="payroll_validation_failed",
+          diagnostics=copy.deepcopy(diagnostics),
+        )
+      if _convergence_test_mode_enabled():
+        raise StructuredSystemRunFailure(
+          detail="solver_not_invoked",
           diagnostics=copy.deepcopy(diagnostics),
         )
       non_productive_tracker = _update_non_productive_cycle_tracker(

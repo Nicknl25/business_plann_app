@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import json
-import math
 import re
 from copy import deepcopy
 from datetime import datetime
@@ -24,6 +23,7 @@ except Exception:
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
 DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
 LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
+ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
 def _column_letter(column_index: Any) -> str:
@@ -97,6 +97,17 @@ def _safe_int(value: Any) -> int:
     return int(float(value))
   except Exception:
     return 0
+
+
+def _load_root_env() -> None:
+  try:
+    from dotenv import load_dotenv  # type: ignore
+  except Exception:
+    return
+  try:
+    load_dotenv(str(ROOT_ENV_PATH))
+  except Exception:
+    pass
 
 
 def _as_iso_date(value: Any) -> Optional[str]:
@@ -661,79 +672,131 @@ def _operating_anchor_baseline_inputs(
   }
 
 
-_PAYROLL_DERIVATION_POLICY_VERSION = "payroll_fte_policy_v1"
-_PAYROLL_DERIVATION_SOURCE = "fte_derived"
+_PAYROLL_DERIVATION_POLICY_VERSION = "payroll_revenue_oews_policy_v2"
+_PAYROLL_DERIVATION_SOURCE = "revenue_oews_derived"
 _PAYROLL_DERIVATION_LEVER_ID = "expenses::Payroll"
-_DEFAULT_CLIENTS_PER_SUPPORT_FTE = 40
-_DEFAULT_BASE_FTE = 4
-_MIN_BASE_FTE = 3
-_MAX_BASE_FTE = 5
 _DEFAULT_AVG_ANNUAL_SALARY = 150000.0
+_DEFAULT_REVENUE_PER_EMPLOYEE = 650000.0
+_PAYROLL_RATIO_FLOOR = 0.05
+_PAYROLL_RATIO_CEILING = 0.50
+_MAX_FTE_GROWTH_PER_QUARTER = 0.50
+_OEWS_ALL_OCCUPATIONS_WAGE_CACHE: Dict[str, Tuple[float, str]] = {}
 
 
 def _payroll_average_annual_salary_and_source(
-  people_json: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
 ) -> Tuple[float, str]:
-  people = people_json if isinstance(people_json, dict) else {}
-  wages: List[float] = []
-  for source_list in (
-    people.get("people") if isinstance(people.get("people"), list) else [],
-    people.get("inferred_roles") if isinstance(people.get("inferred_roles"), list) else [],
-  ):
-    for item in source_list:
-      if not isinstance(item, dict):
-        continue
-      annual_wage = max(0.0, _safe_float(item.get("annual_wage")) or 0.0)
-      if annual_wage > 0.0:
-        wages.append(float(annual_wage))
-  if wages:
-    return round(sum(wages) / max(len(wages), 1), 6), "people_json_average_annual_wage"
-  return float(_DEFAULT_AVG_ANNUAL_SALARY), "default_fallback_annual_wage"
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  naics_value = str(ops.get("business_naics_6") or "").strip()
+  cache_key = naics_value or "__fallback__"
+  cached = _OEWS_ALL_OCCUPATIONS_WAGE_CACHE.get(cache_key)
+  if cached:
+    return round(float(cached[0]), 6), str(cached[1] or "cached_oews_all_occupations_mean")
+
+  query_codes: List[str] = []
+  if naics_value:
+    query_codes.append(naics_value)
+    for prefix_len in (4, 3, 2):
+      if len(naics_value) >= prefix_len:
+        prefix = naics_value[:prefix_len]
+        if prefix not in query_codes:
+          query_codes.append(prefix)
+  for fallback_code in ("000001", "000000"):
+    if fallback_code not in query_codes:
+      query_codes.append(fallback_code)
+
+  _load_root_env()
+  conn = None
+  cur = None
+  try:
+    try:
+      from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
+    except Exception:
+      from intake_submission import get_mysql_connection  # type: ignore
+    conn = get_mysql_connection()
+    cur = conn.cursor(dictionary=True)
+    for code in query_codes:
+      cur.execute(
+        """
+        SELECT naics, a_mean, a_median
+        FROM oews_state_wages
+        WHERE prim_state = %s
+          AND naics = %s
+          AND occ_title = %s
+          AND o_group = %s
+        LIMIT 1
+        """,
+        ("US", code, "All Occupations", "total"),
+      )
+      row = cur.fetchone() or {}
+      mean_value = _safe_float(row.get("a_mean"))
+      if mean_value is not None and mean_value > 0.0:
+        source = f"oews_all_occupations_mean:{code}"
+        _OEWS_ALL_OCCUPATIONS_WAGE_CACHE[cache_key] = (round(float(mean_value), 6), source)
+        return round(float(mean_value), 6), source
+      median_value = _safe_float(row.get("a_median"))
+      if median_value is not None and median_value > 0.0:
+        source = f"oews_all_occupations_median_fallback:{code}"
+        _OEWS_ALL_OCCUPATIONS_WAGE_CACHE[cache_key] = (round(float(median_value), 6), source)
+        return round(float(median_value), 6), source
+  except Exception:
+    pass
+  finally:
+    try:
+      if cur is not None:
+        cur.close()
+    except Exception:
+      pass
+    try:
+      if conn is not None:
+        conn.close()
+    except Exception:
+      pass
+  fallback = float(_DEFAULT_AVG_ANNUAL_SALARY)
+  _OEWS_ALL_OCCUPATIONS_WAGE_CACHE[cache_key] = (fallback, "default_fallback_annual_wage")
+  return fallback, "default_fallback_annual_wage"
 
 
-def _payroll_base_fte_and_source(
-  people_json: Optional[Dict[str, Any]],
-) -> Tuple[int, str]:
-  people = people_json if isinstance(people_json, dict) else {}
-  direct_people_count = len([
-    item for item in (people.get("people") or [])
-    if isinstance(item, dict)
-    and (
-      str(item.get("full_name") or "").strip()
-      or str(item.get("role_title") or "").strip()
-      or (_safe_float(item.get("annual_wage")) or 0.0) > 0.0
-    )
-  ])
-  immediate_inferred_count = len([
-    item for item in (people.get("inferred_roles") or [])
-    if isinstance(item, dict)
-    and int(_safe_float(item.get("months_until_hire")) or 0) <= 0
-  ])
-  observed_count = max(direct_people_count, immediate_inferred_count)
-  if observed_count > 0:
-    return int(max(_MIN_BASE_FTE, min(_MAX_BASE_FTE, observed_count))), "people_json_base_fte_clamped"
-  return int(_DEFAULT_BASE_FTE), "default_base_fte"
+def _payroll_revenue_per_employee_and_source(
+  financials_json: Optional[Dict[str, Any]],
+  *,
+  avg_salary: float,
+) -> Tuple[float, str]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  current_revenue = max(0.0, _safe_float(financials.get("current_revenue")) or 0.0)
+  current_num_employees = max(0.0, _safe_float(financials.get("current_num_employees")) or 0.0)
+  if current_revenue > 0.0 and current_num_employees > 0.0:
+    candidate = float(current_revenue / current_num_employees)
+    implied_ratio = float(avg_salary / max(candidate, 1.0))
+    if _PAYROLL_RATIO_FLOOR <= implied_ratio <= _PAYROLL_RATIO_CEILING:
+      return round(candidate, 6), "intake_current_revenue_per_employee"
+  return float(_DEFAULT_REVENUE_PER_EMPLOYEE), "default_revenue_per_employee"
 
 
 def _default_payroll_derivation_policy(
   *,
-  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  avg_salary, avg_salary_source = _payroll_average_annual_salary_and_source(people_json)
-  base_fte, base_fte_source = _payroll_base_fte_and_source(people_json)
+  avg_salary, avg_salary_source = _payroll_average_annual_salary_and_source(ops_json)
+  revenue_per_employee, revenue_per_employee_source = _payroll_revenue_per_employee_and_source(
+    financials_json,
+    avg_salary=avg_salary,
+  )
   ops = ops_json if isinstance(ops_json, dict) else {}
   return {
     "policy_version": _PAYROLL_DERIVATION_POLICY_VERSION,
     "payroll_source": _PAYROLL_DERIVATION_SOURCE,
     "lever_id": _PAYROLL_DERIVATION_LEVER_ID,
-    "driver_basis": "capacity_times_utilization",
-    "support_model": "fte_capacity_support",
-    "clients_per_fte": int(_DEFAULT_CLIENTS_PER_SUPPORT_FTE),
-    "base_fte": int(base_fte),
+    "driver_basis": "quarter_revenue",
+    "salary_basis": "oews_all_occupations_mean",
     "avg_salary": float(avg_salary),
+    "revenue_per_employee": float(revenue_per_employee),
+    "payroll_ratio_floor": float(_PAYROLL_RATIO_FLOOR),
+    "payroll_ratio_ceiling": float(_PAYROLL_RATIO_CEILING),
+    "max_fte_growth_per_quarter": float(_MAX_FTE_GROWTH_PER_QUARTER),
     "avg_salary_source": avg_salary_source,
-    "base_fte_source": base_fte_source,
+    "revenue_per_employee_source": revenue_per_employee_source,
     "business_type": str(ops.get("business_type") or "").strip() or None,
     "naics": str(ops.get("business_naics_6") or "").strip() or None,
   }
@@ -745,20 +808,24 @@ def _normalized_payroll_derivation_policy(
   payload = model_input_json if isinstance(model_input_json, dict) else {}
   policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
   raw_policy = policies.get(_PAYROLL_DERIVATION_LEVER_ID) if isinstance(policies.get(_PAYROLL_DERIVATION_LEVER_ID), dict) else {}
-  clients_per_fte = int(max(1, _safe_float(raw_policy.get("clients_per_fte")) or _DEFAULT_CLIENTS_PER_SUPPORT_FTE))
-  base_fte = int(max(_MIN_BASE_FTE, min(_MAX_BASE_FTE, _safe_float(raw_policy.get("base_fte")) or _DEFAULT_BASE_FTE)))
   avg_salary = float(max(1.0, _safe_float(raw_policy.get("avg_salary")) or _DEFAULT_AVG_ANNUAL_SALARY))
+  revenue_per_employee = float(max(1.0, _safe_float(raw_policy.get("revenue_per_employee")) or _DEFAULT_REVENUE_PER_EMPLOYEE))
+  payroll_ratio_floor = float(max(0.0, _safe_ratio(raw_policy.get("payroll_ratio_floor")) or _PAYROLL_RATIO_FLOOR))
+  payroll_ratio_ceiling = float(max(payroll_ratio_floor, _safe_ratio(raw_policy.get("payroll_ratio_ceiling")) or _PAYROLL_RATIO_CEILING))
+  max_fte_growth_per_quarter = float(max(0.0, _safe_ratio(raw_policy.get("max_fte_growth_per_quarter")) or _MAX_FTE_GROWTH_PER_QUARTER))
   return {
     "policy_version": str(raw_policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
     "payroll_source": _PAYROLL_DERIVATION_SOURCE,
     "lever_id": _PAYROLL_DERIVATION_LEVER_ID,
-    "driver_basis": str(raw_policy.get("driver_basis") or "capacity_times_utilization").strip() or "capacity_times_utilization",
-    "support_model": str(raw_policy.get("support_model") or "fte_capacity_support").strip() or "fte_capacity_support",
-    "clients_per_fte": clients_per_fte,
-    "base_fte": base_fte,
+    "driver_basis": str(raw_policy.get("driver_basis") or "quarter_revenue").strip() or "quarter_revenue",
+    "salary_basis": str(raw_policy.get("salary_basis") or "oews_all_occupations_mean").strip() or "oews_all_occupations_mean",
     "avg_salary": avg_salary,
+    "revenue_per_employee": revenue_per_employee,
+    "payroll_ratio_floor": payroll_ratio_floor,
+    "payroll_ratio_ceiling": payroll_ratio_ceiling,
+    "max_fte_growth_per_quarter": max_fte_growth_per_quarter,
     "avg_salary_source": str(raw_policy.get("avg_salary_source") or "default_fallback_annual_wage").strip() or "default_fallback_annual_wage",
-    "base_fte_source": str(raw_policy.get("base_fte_source") or "default_base_fte").strip() or "default_base_fte",
+    "revenue_per_employee_source": str(raw_policy.get("revenue_per_employee_source") or "default_revenue_per_employee").strip() or "default_revenue_per_employee",
     "business_type": str(raw_policy.get("business_type") or "").strip() or None,
     "naics": str(raw_policy.get("naics") or "").strip() or None,
   }
@@ -791,6 +858,28 @@ def _revenue_driver_live_series(
     _stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
     out[key] = [round(max(0.0, _safe_float(value) or 0.0), 6) for value in live_values[:live_count]]
   return out
+
+
+def _revenue_live_series_from_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+) -> List[float]:
+  capacity_series = _revenue_driver_live_series(model_input_json, driver_name="Capacity", live_count=live_count)
+  unit_price_series = _revenue_driver_live_series(model_input_json, driver_name="Unit Price", live_count=live_count)
+  utilization_series = _revenue_driver_live_series(model_input_json, driver_name="Utilization", live_count=live_count)
+  revenue_by_quarter: List[float] = [0.0 for _ in range(live_count)]
+  for key in sorted(set(list(capacity_series.keys()) + list(unit_price_series.keys()) + list(utilization_series.keys()))):
+    capacities = capacity_series.get(key) or [0.0 for _ in range(live_count)]
+    unit_prices = unit_price_series.get(key) or [0.0 for _ in range(live_count)]
+    utilizations = utilization_series.get(key) or [0.0 for _ in range(live_count)]
+    for idx in range(live_count):
+      revenue_by_quarter[idx] += (
+        max(0.0, _safe_float(capacities[idx]) or 0.0)
+        * max(0.0, _safe_float(unit_prices[idx]) or 0.0)
+        * max(0.0, _safe_float(utilizations[idx]) or 0.0)
+      )
+  return [round(float(value), 6) for value in revenue_by_quarter]
 
 
 def apply_derived_driver_policies_to_model_input(
@@ -829,52 +918,49 @@ def apply_derived_driver_policies_to_model_input(
   )
   stub_value, _existing_live_values = _row_stub_and_live_values(values, live_count=live_count)
   policy = _normalized_payroll_derivation_policy(next_payload)
-  capacity_series = _revenue_driver_live_series(next_payload, driver_name="Capacity", live_count=live_count)
-  utilization_series = _revenue_driver_live_series(next_payload, driver_name="Utilization", live_count=live_count)
-
-  active_clients_by_quarter: List[float] = [0.0 for _ in range(live_count)]
-  for key in sorted(set(list(capacity_series.keys()) + list(utilization_series.keys()))):
-    capacities = capacity_series.get(key) or [0.0 for _ in range(live_count)]
-    utilizations = utilization_series.get(key) or [0.0 for _ in range(live_count)]
-    for idx in range(live_count):
-      active_clients_by_quarter[idx] += max(0.0, _safe_float(capacities[idx]) or 0.0) * max(0.0, _safe_float(utilizations[idx]) or 0.0)
-
+  revenue_by_quarter = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
   avg_annual_salary = float(policy.get("avg_salary") or _DEFAULT_AVG_ANNUAL_SALARY)
-  quarterly_salary = avg_annual_salary / 4.0
-  clients_per_fte = int(policy.get("clients_per_fte") or _DEFAULT_CLIENTS_PER_SUPPORT_FTE)
-  base_fte = int(policy.get("base_fte") or _DEFAULT_BASE_FTE)
+  revenue_per_employee = float(policy.get("revenue_per_employee") or _DEFAULT_REVENUE_PER_EMPLOYEE)
   derived_live_values: List[float] = []
   quarter_logs: List[Dict[str, Any]] = []
-  for idx, active_clients in enumerate(active_clients_by_quarter, start=1):
-    support_fte = int(math.ceil(max(0.0, active_clients) / max(float(clients_per_fte), 1.0))) if active_clients > 0.0 else 0
-    total_fte = int(support_fte + base_fte)
-    derived_payroll = round(float(total_fte * quarterly_salary), 6)
+  previous_implied_fte_raw: Optional[float] = None
+  for idx, quarter_revenue in enumerate(revenue_by_quarter, start=1):
+    implied_fte_raw = float((max(0.0, quarter_revenue) * 4.0) / max(revenue_per_employee, 1.0)) if quarter_revenue > 0.0 else 0.0
+    derived_payroll = round(float((max(0.0, quarter_revenue) * avg_annual_salary) / max(revenue_per_employee, 1.0)), 6) if quarter_revenue > 0.0 else 0.0
+    payroll_to_revenue = round(float(derived_payroll / quarter_revenue), 6) if quarter_revenue > 0.0 else 0.0
+    fte_growth_qoq = None
+    if previous_implied_fte_raw is not None and previous_implied_fte_raw > 0.0:
+      fte_growth_qoq = round(float((implied_fte_raw - previous_implied_fte_raw) / previous_implied_fte_raw), 6)
     derived_live_values.append(derived_payroll)
     quarter_logs.append(
       {
         "quarter_index": idx,
         "payroll_source": _PAYROLL_DERIVATION_SOURCE,
-        "active_clients": round(float(active_clients), 6),
-        "support_fte": int(support_fte),
-        "base_fte": int(base_fte),
-        "total_fte": int(total_fte),
-        "clients_per_fte": int(clients_per_fte),
+        "quarter_revenue": round(float(max(0.0, quarter_revenue)), 6),
+        "revenue_per_employee": round(float(revenue_per_employee), 6),
         "avg_salary": round(float(avg_annual_salary), 6),
+        "implied_fte_raw": round(float(implied_fte_raw), 6),
         "derived_payroll": derived_payroll,
+        "payroll_to_revenue": payroll_to_revenue,
+        "fte_growth_qoq": fte_growth_qoq,
       }
     )
+    previous_implied_fte_raw = float(implied_fte_raw)
 
   payroll_row["controller_write"] = False
   payroll_row["derived_driver"] = _PAYROLL_DERIVATION_SOURCE
   payroll_row["payroll_derivation"] = {
     "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
     "payroll_source": _PAYROLL_DERIVATION_SOURCE,
-    "driver_basis": str(policy.get("driver_basis") or "capacity_times_utilization").strip() or "capacity_times_utilization",
-    "clients_per_fte": int(clients_per_fte),
-    "base_fte": int(base_fte),
+    "driver_basis": str(policy.get("driver_basis") or "quarter_revenue").strip() or "quarter_revenue",
+    "salary_basis": str(policy.get("salary_basis") or "oews_all_occupations_mean").strip() or "oews_all_occupations_mean",
+    "revenue_per_employee": round(float(revenue_per_employee), 6),
     "avg_salary": round(float(avg_annual_salary), 6),
+    "revenue_per_employee_source": str(policy.get("revenue_per_employee_source") or "").strip() or None,
     "avg_salary_source": str(policy.get("avg_salary_source") or "").strip() or None,
-    "base_fte_source": str(policy.get("base_fte_source") or "").strip() or None,
+    "payroll_ratio_floor": round(float(policy.get("payroll_ratio_floor") or _PAYROLL_RATIO_FLOOR), 6),
+    "payroll_ratio_ceiling": round(float(policy.get("payroll_ratio_ceiling") or _PAYROLL_RATIO_CEILING), 6),
+    "max_fte_growth_per_quarter": round(float(policy.get("max_fte_growth_per_quarter") or _MAX_FTE_GROWTH_PER_QUARTER), 6),
     "quarter_logs": deepcopy(quarter_logs),
   }
   payroll_row["values"] = _compose_period_values(
@@ -890,9 +976,15 @@ def apply_derived_driver_policies_to_model_input(
     next_payload["derived_driver_runtime"][_PAYROLL_DERIVATION_LEVER_ID] = {
       "payroll_source": _PAYROLL_DERIVATION_SOURCE,
       "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
-      "clients_per_fte": int(clients_per_fte),
-      "base_fte": int(base_fte),
+      "driver_basis": str(policy.get("driver_basis") or "quarter_revenue").strip() or "quarter_revenue",
+      "salary_basis": str(policy.get("salary_basis") or "oews_all_occupations_mean").strip() or "oews_all_occupations_mean",
+      "revenue_per_employee": round(float(revenue_per_employee), 6),
       "avg_salary": round(float(avg_annual_salary), 6),
+      "revenue_per_employee_source": str(policy.get("revenue_per_employee_source") or "").strip() or None,
+      "avg_salary_source": str(policy.get("avg_salary_source") or "").strip() or None,
+      "payroll_ratio_floor": round(float(policy.get("payroll_ratio_floor") or _PAYROLL_RATIO_FLOOR), 6),
+      "payroll_ratio_ceiling": round(float(policy.get("payroll_ratio_ceiling") or _PAYROLL_RATIO_CEILING), 6),
+      "max_fte_growth_per_quarter": round(float(policy.get("max_fte_growth_per_quarter") or _MAX_FTE_GROWTH_PER_QUARTER), 6),
       "quarter_logs": deepcopy(quarter_logs),
     }
   return next_payload
@@ -2048,7 +2140,7 @@ def _build_model_input_overlay(
   next_payload.setdefault("derived_driver_policies", {})
   if isinstance(next_payload.get("derived_driver_policies"), dict):
     next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = _default_payroll_derivation_policy(
-      people_json=people_json,
+      financials_json=financials_json,
       ops_json=ops_json,
     )
   anchored_payload = apply_p_and_l_q0_anchor_to_model_input(

@@ -33,7 +33,7 @@ Important principles:
 - If you select a shape-sensitive lever, you must extend the path from the first affected quarter through the end of horizon.
 - No partial edits are allowed for shape-sensitive levers. No isolated quarter patches.
 - Avoid flat trajectories unless the business reality truly warrants it.
-- Payroll is Python-derived from operating capacity and utilization using FTE logic. Do not select `expenses::Payroll` and do not emit payroll values in `lever_adjustments`.
+- Payroll is Python-derived from quarter revenue using revenue-per-employee assumptions plus OEWS wage grounding. Do not select `expenses::Payroll` and do not emit payroll values in `lever_adjustments`.
 - Early negative EBITDA or cash can be acceptable if the business recovers credibly by the end of year two.
 - Do not build absurd cash piles or other visibly unrealistic output just because the model can.
 - Do not act like realism, cash strategy, stabilizer, and guarantee are separate stages. They are simultaneous context inside one loop.
