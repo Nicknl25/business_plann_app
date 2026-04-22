@@ -33,7 +33,7 @@ Important principles:
 - If you select a shape-sensitive lever, you must extend the path from the first affected quarter through the end of horizon.
 - No partial edits are allowed for shape-sensitive levers. No isolated quarter patches.
 - Avoid flat trajectories unless the business reality truly warrants it.
-- Payroll may step up in flatter blocks if that best reflects hiring reality.
+- Payroll is Python-derived from operating capacity and utilization using FTE logic. Do not select `expenses::Payroll` and do not emit payroll values in `lever_adjustments`.
 - Early negative EBITDA or cash can be acceptable if the business recovers credibly by the end of year two.
 - Do not build absurd cash piles or other visibly unrealistic output just because the model can.
 - Do not act like realism, cash strategy, stabilizer, and guarantee are separate stages. They are simultaneous context inside one loop.
@@ -125,7 +125,7 @@ Lever guidance:
 - Use the writable lever catalog and current values to choose realistic lever combinations.
 - Use ranked levers and driver paths to prioritize the highest-impact repair routes first.
 - If financing is needed, say so through the lever package.
-- If scale, staffing, pricing, capex timing, distributions, debt, or equity need to move, use them.
+- If scale, staffing support, pricing, capex timing, distributions, debt, or equity need to move, use the operating and financing levers Python exposed. Payroll itself is derived after those moves.
 - If a selected lever is marked shape-sensitive in the Python contract, your lever_adjustments entry must include:
   - `shape_type`: one of `ramp`, `step_up`, `hiring_block`, `moderation`, `delayed_follow_through`
   - `values` or `trajectory_values`: `Q1` through `Q20`, with numeric values for every remaining quarter from the first affected quarter onward
@@ -138,47 +138,47 @@ Lever guidance:
   - jump by more than 2.5x quarter-to-quarter
   - snap back after a large build
   - switch regime direction sharply without a believable transition
-- For `Lease`, `Payroll`, `Capacity`, `Unit Price`, `Capex`, and other structural levers, phase major changes over multiple quarters unless the business packet clearly supports a clean step-up.
+- For `Lease`, `Capacity`, `Unit Price`, `Capex`, and other structural levers, phase major changes over multiple quarters unless the business packet clearly supports a clean step-up.
 - If you need a large structural increase, use a ramp or staged step-up that preserves quarter-to-quarter continuity.
 
 Example shape-sensitive lever entry:
 ```json
 {
-  "lever_id": "expenses::Payroll",
-  "section": "expenses",
-  "direction": "increase",
+  "lever_id": "revenue::Primary line of business::shipment::Unit Price",
+  "section": "revenue",
+  "direction": "decrease",
   "value_mode": "exact",
   "exact_value": null,
   "min_value": null,
   "max_value": null,
   "timing_start_q": 1,
   "timing_end_q": 20,
-  "shape_type": "ramp",
+  "shape_type": "moderation",
   "values": {
-    "Q1": 2500000,
-    "Q2": 2600000,
-    "Q3": 2700000,
-    "Q4": 2800000,
-    "Q5": 2850000,
-    "Q6": 2900000,
-    "Q7": 2950000,
-    "Q8": 3000000,
-    "Q9": 3050000,
-    "Q10": 3100000,
-    "Q11": 3150000,
-    "Q12": 3200000,
-    "Q13": 3250000,
-    "Q14": 3300000,
-    "Q15": 3350000,
-    "Q16": 3400000,
-    "Q17": 3450000,
-    "Q18": 3500000,
-    "Q19": 3550000,
-    "Q20": 3600000
+    "Q1": 15000,
+    "Q2": 14800,
+    "Q3": 14500,
+    "Q4": 14250,
+    "Q5": 14000,
+    "Q6": 13800,
+    "Q7": 13650,
+    "Q8": 13500,
+    "Q9": 13400,
+    "Q10": 13300,
+    "Q11": 13200,
+    "Q12": 13100,
+    "Q13": 13000,
+    "Q14": 12950,
+    "Q15": 12900,
+    "Q16": 12850,
+    "Q17": 12800,
+    "Q18": 12750,
+    "Q19": 12700,
+    "Q20": 12650
   },
-  "rationale": "Payroll scales as the network ramps and then moderates into a stable operating cadence.",
-  "business_reason": "Staffing must support the higher operating scale across the full forward regime.",
-  "linked_action_effect": "repair_staffing_payroll_mismatch"
+  "rationale": "The price path moderates the opening premium into a more believable enterprise subscription regime without a one-quarter cliff.",
+  "business_reason": "The operating model needs a coherent forward pricing regime, not a temporary spike.",
+  "linked_action_effect": "repair_pricing_positioning_mismatch"
 }
 ```
 

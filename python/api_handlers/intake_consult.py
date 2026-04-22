@@ -171,9 +171,26 @@ _Q0_ANCHOR_PLAUSIBILITY_TEST_MODE_FAIL_FLAGS = {
   "q0_anchor_revenue_regime_plausibility_parse_failed",
   "q0_anchor_revenue_regime_plausibility_invalid_response",
 }
+_PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS = {
+  "payroll_derivation_validator_unavailable",
+  "payroll_row_missing",
+  "payroll_q0_anchor_mismatch",
+  "payroll_stub_missing",
+  "payroll_row_should_not_be_writable",
+  "payroll_row_missing_derived_driver_marker",
+  "payroll_lever_still_writable_catalog",
+  "payroll_derivation_policy_missing",
+  "payroll_derivation_runtime_missing",
+  "payroll_derivation_log_count_mismatch",
+  "payroll_derivation_log_inconsistent",
+  "payroll_values_not_fully_derived",
+}
+_TRANSLATION_TEST_MODE_FAIL_FLAGS = {
+  "metric_to_lever_translation_failed",
+}
 _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN = 6
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 2
-_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-anchor-revenue-regime-v1"
+_INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-21-solver-false-failfast-v1"
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
   "by_model": {},
@@ -3057,6 +3074,7 @@ def _extract_controller_lever_catalog(model_input_json: Optional[Dict[str, Any]]
     if isinstance(item, dict)
     and bool(item.get("controller_write", True))
     and str(item.get("lever_id") or "").strip()
+    and str(item.get("lever_id") or "").strip() != "expenses::Payroll"
   ]
   if direct:
     return direct
@@ -3067,6 +3085,7 @@ def _extract_controller_lever_catalog(model_input_json: Optional[Dict[str, Any]]
     if isinstance(item, dict)
     and bool(item.get("controller_write", True))
     and str(item.get("lever_id") or "").strip()
+    and str(item.get("lever_id") or "").strip() != "expenses::Payroll"
   ]
 
 
@@ -4227,11 +4246,14 @@ def _pre_solver_validation_failure_diagnostics(
   )
   invalid_levers: List[Dict[str, Any]] = []
   anchor_validation_errors: List[Dict[str, Any]] = []
+  payroll_validation_errors: List[Dict[str, Any]] = []
   for item in (pre_solver_validation.get("errors") or []):
     if not isinstance(item, dict):
       continue
     if str(item.get("validation_category") or "").strip().lower() == "q0_anchor_contract":
       anchor_validation_errors.append(copy.deepcopy(item))
+    if str(item.get("validation_category") or "").strip().lower() == "payroll_derivation":
+      payroll_validation_errors.append(copy.deepcopy(item))
     if str(item.get("validation_category") or "").strip().lower() != "lever_bounds":
       continue
     reason = str(item.get("reason") or "").strip()
@@ -4275,6 +4297,34 @@ def _pre_solver_validation_failure_diagnostics(
         "q0_anchor_policies": copy.deepcopy(plan.get("q0_anchor_policies") or []),
         "q0_anchor_validation_details": copy.deepcopy(plan.get("q0_anchor_validation_details") or []),
         "q0_anchor_plausibility_call_budget": copy.deepcopy(plan.get("q0_anchor_plausibility_call_budget") or {}),
+        "pre_solver_validation": copy.deepcopy(pre_solver_validation),
+      },
+    }
+  if payroll_validation_errors:
+    first_error = payroll_validation_errors[0] if isinstance(payroll_validation_errors[0], dict) else {}
+    payroll_runtime = (
+      ((plan.get("payroll_derivation_validation") or {}).get("current_runtime"))
+      if isinstance(plan.get("payroll_derivation_validation"), dict)
+      else {}
+    )
+    payroll_policy = (
+      ((plan.get("payroll_derivation_validation") or {}).get("current_policy"))
+      if isinstance(plan.get("payroll_derivation_validation"), dict)
+      else {}
+    )
+    return {
+      "failure_stage": "payroll_validation",
+      "failure_reason": str(first_error.get("error") or "").strip() or "payroll_validation_failed",
+      "lever": "expenses::Payroll",
+      "q0_value": _safe_float(first_error.get("previous_value")),
+      "validation_context": {
+        "convergence_test_mode": _convergence_test_mode_enabled(),
+        "planner_plan_status": str(plan.get("status") or "").strip() or None,
+        "focus_issue_codes": copy.deepcopy(plan.get("focus_issue_codes") or []),
+        "lever_selection": copy.deepcopy(plan.get("lever_selection") or []),
+        "payroll_derivation_validation": copy.deepcopy(plan.get("payroll_derivation_validation") or {}),
+        "payroll_policy": copy.deepcopy(payroll_policy),
+        "payroll_runtime": copy.deepcopy(payroll_runtime),
         "pre_solver_validation": copy.deepcopy(pre_solver_validation),
       },
     }
@@ -6986,11 +7036,11 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
     ],
     "reopen_contains": ["::capacity", "::utilization", "::unit price"],
   },
-  "staffing_payroll_mismatch": {
-    "title": "staffing_payroll_mismatch",
-    "reopen_prefixes": ["expenses::payroll"],
-    "reopen_contains": [],
-  },
+    "staffing_payroll_mismatch": {
+      "title": "staffing_payroll_mismatch",
+      "reopen_prefixes": ["revenue::"],
+      "reopen_contains": ["::capacity", "::utilization", "::unit price"],
+    },
   "cost_structure_mismatch": {
     "title": "cost_structure_mismatch",
     "reopen_prefixes": [
@@ -8332,7 +8382,7 @@ def _issue_family_priority(issue_code: Any) -> List[str]:
   preferred = {
     "financing_solvency_mismatch": ["balance_sheet", "schedules", "revenue", "expenses"],
     "profitability_cash_shape_unrealistic": ["revenue", "expenses", "balance_sheet", "schedules"],
-    "staffing_payroll_mismatch": ["expenses"],
+    "staffing_payroll_mismatch": ["revenue", "expenses"],
     "capacity_revenue_mismatch": ["revenue", "expenses", "schedules"],
     "pricing_positioning_mismatch": ["revenue", "expenses"],
     "cost_structure_mismatch": ["expenses", "revenue", "schedules"],
@@ -8362,7 +8412,7 @@ def _issue_family_term_hints(issue_code: Any) -> Dict[str, List[str]]:
       "schedules": ["debt issuance", "new borrowing", "debt repayment", "capital expenditures"],
     },
     "staffing_payroll_mismatch": {
-      "expenses": ["payroll"],
+      "revenue": ["unit price", "utilization", "capacity"],
     },
     "capacity_revenue_mismatch": {
       "revenue": ["capacity", "utilization", "unit price"],
@@ -8533,9 +8583,8 @@ def _issue_metric_lever_allowed(
   family = str(_lever_family_from_lever_id(lever_id) or "").strip().lower()
   if issue == "staffing_payroll_mismatch" and metric == "payroll_to_revenue_ratio":
     return bool(
-      "expenses::payroll" in lever
-      or (role in {"operating_cost_fixed", "operating_cost_ratio"} and "payroll" in lever)
-      or (family == "expenses" and "payroll" in lever)
+      lever.startswith("revenue::")
+      and any(lever.endswith(token) for token in ("::capacity", "::unit price", "::utilization"))
     )
   if issue == "working_capital_payment_model_mismatch" and metric in {"current_ratio", "working_capital_to_revenue_ratio"}:
     return bool(
@@ -8625,6 +8674,8 @@ def _balanced_issue_candidate_lever_ids(
         continue
       ordered_candidates.append(lever_id)
   for lever_id in source_ids:
+    if lever_id not in entry_map:
+      continue
     entry = entry_map.get(lever_id) or {}
     if (
       lever_id not in ordered_candidates
@@ -8967,6 +9018,7 @@ def _translate_metric_delta_to_lever_delta(
   total_equity = float(_safe_float(row.get("total_equity")) or 0.0)
   ppe = float(_safe_float(row.get("ppe")) or 0.0)
   working_capital = current_assets - current_liabilities
+  cogs = float(_quarter_row_cost_of_goods_sold(row) or 0.0)
   gross_margin_pct = _safe_divide(gross_profit, revenue)
   opex_total = payroll + marketing + g_and_a + lease_rent + float(_safe_float(row.get("research_and_development")) or 0.0)
 
@@ -9359,6 +9411,44 @@ def _translate_metric_delta_to_lever_delta(
       )
 
   return {}
+
+
+def _safe_translate_metric_delta_to_lever_delta(
+  *,
+  metric_name: Any,
+  current_metric_value: Any,
+  metric_delta: Any,
+  lever_id: Any,
+  lever_entry: Optional[Dict[str, Any]],
+  quarter_row: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+  try:
+    translated = _translate_metric_delta_to_lever_delta(
+      metric_name=metric_name,
+      current_metric_value=current_metric_value,
+      metric_delta=metric_delta,
+      lever_id=lever_id,
+      lever_entry=lever_entry,
+      quarter_row=quarter_row,
+    )
+    return translated if isinstance(translated, dict) else {}, None
+  except Exception as exc:
+    row = quarter_row if isinstance(quarter_row, dict) else {}
+    return {}, {
+      "error": "metric_to_lever_translation_failed",
+      "metric_name": str(metric_name or "").strip() or None,
+      "lever_id": str(lever_id or "").strip() or None,
+      "quarter": int(_safe_float(row.get("quarter_index")) or 0) or None,
+      "current_metric_value": _safe_float(current_metric_value),
+      "metric_delta": _safe_float(metric_delta),
+      "reason": (
+        f"Metric-to-lever translation failed for "
+        f"{str(metric_name or '').strip() or 'unknown_metric'} -> "
+        f"{str(lever_id or '').strip() or 'unknown_lever'}: "
+        f"{exc.__class__.__name__}: {str(exc or '').strip()}"
+      ),
+      "validation_category": "translation_contract",
+    }
 
 
 def _spillover_flags_for_metric(
@@ -10408,6 +10498,7 @@ def _build_unified_numeric_guidance_packet(
     if str(item.get("lever_id") or "").strip()
   }
   enriched_metric_pressure_packets: List[Dict[str, Any]] = []
+  translation_failures: List[Dict[str, Any]] = []
   for item in metric_pressure_packets:
     issue_code = str(item.get("issue_code") or "").strip().lower()
     metric_name = str(item.get("metric_name") or "").strip().lower()
@@ -10441,7 +10532,7 @@ def _build_unified_numeric_guidance_packet(
           .get("recommended_delta")
         )
       )
-      translated_metric_min = _translate_metric_delta_to_lever_delta(
+      translated_metric_min, translation_error_min = _safe_translate_metric_delta_to_lever_delta(
         metric_name=metric_name,
         current_metric_value=item.get("current_value"),
         metric_delta=min_delta,
@@ -10449,7 +10540,7 @@ def _build_unified_numeric_guidance_packet(
         lever_entry=lever_entry,
         quarter_row=quarter_row,
       )
-      translated_metric_max = _translate_metric_delta_to_lever_delta(
+      translated_metric_max, translation_error_max = _safe_translate_metric_delta_to_lever_delta(
         metric_name=metric_name,
         current_metric_value=item.get("current_value"),
         metric_delta=max_delta,
@@ -10457,7 +10548,7 @@ def _build_unified_numeric_guidance_packet(
         lever_entry=lever_entry,
         quarter_row=quarter_row,
       )
-      translated_metric_recommended = _translate_metric_delta_to_lever_delta(
+      translated_metric_recommended, translation_error_recommended = _safe_translate_metric_delta_to_lever_delta(
         metric_name=metric_name,
         current_metric_value=item.get("current_value"),
         metric_delta=metric_recommended_delta,
@@ -10465,6 +10556,9 @@ def _build_unified_numeric_guidance_packet(
         lever_entry=lever_entry,
         quarter_row=quarter_row,
       )
+      for translation_error in (translation_error_min, translation_error_max, translation_error_recommended):
+        if isinstance(translation_error, dict):
+          translation_failures.append(copy.deepcopy(translation_error))
       translated_lever_deltas = [
         float(result.get("lever_delta"))
         for result in (translated_metric_min, translated_metric_max, translated_metric_recommended)
@@ -10598,12 +10692,14 @@ def _build_unified_numeric_guidance_packet(
       "lever_band_count": len(lever_band_scaffold),
       "lever_band_with_value_range_count": len(lever_band_scaffold),
       "translated_driver_path_count": translated_driver_path_count,
+      "translation_failure_count": len(translation_failures),
       "issue_repair_packet_count": len(issue_repair_packets),
       "focus_issue_codes": copy.deepcopy(focus_issue_codes),
     },
     "metric_pressure_packets": enriched_metric_pressure_packets,
     "lever_band_scaffold": lever_band_scaffold,
     "issue_repair_packets": issue_repair_packets,
+    "translation_failures": copy.deepcopy(translation_failures),
     "convergence_scorecard": _build_convergence_scorecard(
       controller_resolution_state=controller_state,
       controller_retry_context=retry_context,
@@ -13156,6 +13252,10 @@ def _build_repair_guidance_payload(
       if isinstance(item, dict) and str(item.get("lever_id") or "").strip() in aligned_lever_set
     ]
     scoped_model_payload["lever_ids"] = copy.deepcopy(aligned_lever_ids)
+  prompt_safe_retry_packet = _normalize_retry_requirements_to_allowed_scope(
+    retry_context=prompt_safe_retry_packet,
+    allowed_lever_ids=aligned_lever_ids or (((scoped_numeric_solver_contract or {}).get("writable_lever_catalog") or {}).get("lever_ids") or []),
+  )
   prompt_safe_retry_scope_payload["focus_issue_codes"] = copy.deepcopy(aligned_focus_issue_codes)
   if aligned_lever_ids:
     prompt_safe_retry_scope_payload["scoped_lever_ids"] = copy.deepcopy(aligned_lever_ids)
@@ -13197,6 +13297,10 @@ def _build_repair_guidance_payload(
         )
       )
     )
+  prompt_safe_retry_packet = _normalize_retry_requirements_to_allowed_scope(
+    retry_context=prompt_safe_retry_packet,
+    allowed_lever_ids=aligned_lever_ids or (((scoped_numeric_solver_contract or {}).get("writable_lever_catalog") or {}).get("lever_ids") or []),
+  )
   required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
     copy.deepcopy(scoped_numeric_solver_contract),
     required_target_quarters=copy.deepcopy(required_target_quarters),
@@ -16089,6 +16193,7 @@ def _run_unified_convergence_openai(
     copy.deepcopy(scoped_numeric_solver_contract),
     required_target_quarters=copy.deepcopy(required_target_quarters),
   )
+  effective_retry_context = copy.deepcopy(controller_retry_context or {})
   current_cycle_convergence_packet = _build_current_cycle_convergence_packet(
     stage="convergence_running",
     status=(
@@ -16127,6 +16232,10 @@ def _run_unified_convergence_openai(
     fallback_allowed_lever_ids=allowed_lever_ids,
     deterministic_numeric_guidance=prompt_safe_numeric_guidance,
   )
+  effective_retry_context = _normalize_retry_requirements_to_allowed_scope(
+    retry_context=effective_retry_context,
+    allowed_lever_ids=allowed_lever_ids,
+  )
   allowed_target_metric_names = _normalize_primary_target_metric_names(
     (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys")
     or (scoped_numeric_solver_contract or {}).get("allowed_target_metric_ids")
@@ -16148,7 +16257,6 @@ def _run_unified_convergence_openai(
     "resolved_issue_constraints": copy.deepcopy((unified_convergence_context or {}).get("resolved_issue_constraints") or []),
     "context_modules": copy.deepcopy((unified_convergence_context or {}).get("context_modules") or {}),
   }
-  effective_retry_context = copy.deepcopy(controller_retry_context or {})
   focus_issue_codes_for_contract = [
     str(item.get("issue_code") or "").strip().lower()
     for item in (prompt_safe_numeric_guidance.get("issue_repair_packets") or [])
@@ -16193,6 +16301,10 @@ def _run_unified_convergence_openai(
         )
       )
     )
+  effective_retry_context = _normalize_retry_requirements_to_allowed_scope(
+    retry_context=effective_retry_context,
+    allowed_lever_ids=allowed_lever_ids,
+  )
   prompt_safe_retry_scope_payload = {
     "scope_mode": str(retry_scope_payload.get("scope_mode") or "").strip(),
     "focus_issue_codes": copy.deepcopy(retry_scope_payload.get("focus_issue_codes") or []),
@@ -17799,7 +17911,7 @@ def _build_q0_anchor_context_payload(
       [
         str(item).strip()
         for item in (focus_lever_ids or [])
-        if str(item).strip()
+        if str(item).strip() and str(item).strip() != "expenses::Payroll"
       ]
     )
   )
@@ -17839,6 +17951,10 @@ def _build_q0_anchor_context_payload(
       "working_capital_translation": (
         "Accounts receivable, accounts payable, and inventory enter intake as balances. "
         "In model_input, the opening balances live in schedule seeds while the controller-write levers are day-count assumptions."
+      ),
+      "payroll_rule": (
+        "Q0 payroll remains an intake/display anchor, but forecast payroll is derived from operating capacity and utilization. "
+        "Payroll is not a writable anchor candidate."
       ),
       "realism_rule": "Intake informs the plan where plausible, but intake does not trump realism.",
     },
@@ -17886,6 +18002,21 @@ def _q0_anchor_contract_validation_details(
     "revenue_regime_gpt_uncertain",
   }
   for lever_id in lever_ids:
+    if lever_id == "expenses::Payroll":
+      details.append(
+        {
+          "error": "payroll_is_derived_not_anchor_candidate",
+          "lever_id": lever_id,
+          "quarter": 0,
+          "previous_value": _safe_float(expected_map.get(lever_id)),
+          "current_value": _safe_float(expected_map.get(lever_id)),
+          "reason": (
+            "Payroll is derived from operating capacity and utilization and must not participate in the Q0 anchor policy system."
+          ),
+          "validation_category": "q0_anchor_contract",
+        }
+      )
+      continue
     policy = policy_map.get(lever_id) if isinstance(policy_map.get(lever_id), dict) else None
     expected_q0_value = _safe_float(expected_map.get(lever_id))
     if policy is None:
@@ -18062,6 +18193,290 @@ def _focus_lever_ids_from_issue_packets(
         if len(lever_ids) >= max_count:
           return lever_ids
   return lever_ids
+
+
+def _payroll_row_from_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
+  return next(
+    (
+      row for row in expense_rows
+      if str(row.get("label") or "").strip() == "Payroll"
+    ),
+    None,
+  )
+
+
+def _validate_payroll_derivation_contract(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  expected_q0_value: Optional[float] = None,
+) -> Dict[str, Any]:
+  payload = copy.deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
+  details: List[Dict[str, Any]] = []
+  try:
+    from client_intake_and_finmo.finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
+  except Exception:
+    try:
+      from finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
+    except Exception:
+      apply_derived_driver_policies_to_model_input = None  # type: ignore
+  if not callable(apply_derived_driver_policies_to_model_input):
+    details.append(
+      {
+        "error": "payroll_derivation_validator_unavailable",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": expected_q0_value,
+        "current_value": None,
+        "reason": "Payroll derivation validator could not import the deterministic model-input payroll derivation helper.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+    return {
+      "status": "failed",
+      "details": details,
+      "current_policy": {},
+      "current_runtime": {},
+      "expected_runtime": {},
+    }
+
+  current_row = _payroll_row_from_model_input(payload)
+  if not isinstance(current_row, dict):
+    details.append(
+      {
+        "error": "payroll_row_missing",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": expected_q0_value,
+        "current_value": None,
+        "reason": "Model input is missing the Payroll row in sections.expenses.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+    return {
+      "status": "failed",
+      "details": details,
+      "current_policy": {},
+      "current_runtime": {},
+      "expected_runtime": {},
+    }
+
+  current_values = list(current_row.get("values") or [])
+  live_count = max(
+    0,
+    len(
+      [
+        item for item in (payload.get("periods") or [])
+        if isinstance(item, dict) and not bool(item.get("is_stub"))
+      ]
+    )
+    or (len(current_values) - 1 if len(current_values) >= 1 else 0),
+  )
+  if len(current_values) < live_count + 1:
+    details.append(
+      {
+        "error": "payroll_stub_missing",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": expected_q0_value,
+        "current_value": None,
+        "reason": "Payroll values must include a Q0 stub plus all live forecast quarters.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+  q0_value = _safe_float(current_values[0] if current_values else None)
+  if expected_q0_value is not None and q0_value is not None:
+    tolerance = max(1e-6, abs(float(expected_q0_value)) * 1e-6)
+    if abs(float(q0_value) - float(expected_q0_value)) > tolerance:
+      details.append(
+        {
+          "error": "payroll_q0_anchor_mismatch",
+          "lever_id": "expenses::Payroll",
+          "quarter": 0,
+          "previous_value": expected_q0_value,
+          "current_value": q0_value,
+          "reason": "Payroll Q0 must remain the intake-derived anchor and must not be replaced by derived forecast payroll.",
+          "validation_category": "payroll_derivation",
+        }
+      )
+  if bool(current_row.get("controller_write", True)):
+    details.append(
+      {
+        "error": "payroll_row_should_not_be_writable",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": q0_value,
+        "current_value": q0_value,
+        "reason": "Payroll must not remain controller-writable once payroll is capacity/FTE-derived.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+  if str(current_row.get("derived_driver") or "").strip() != "fte_derived":
+    details.append(
+      {
+        "error": "payroll_row_missing_derived_driver_marker",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": q0_value,
+        "current_value": q0_value,
+        "reason": "Payroll row must be marked with derived_driver='fte_derived'.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+  if any(
+    isinstance(item, dict) and str(item.get("lever_id") or "").strip() == "expenses::Payroll"
+    for item in (payload.get("controller_write_levers") or [])
+  ):
+    details.append(
+      {
+        "error": "payroll_lever_still_writable_catalog",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": q0_value,
+        "current_value": q0_value,
+        "reason": "Payroll must not remain in controller_write_levers once it becomes derived.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+  lever_catalog = payload.get("lever_catalog") if isinstance(payload.get("lever_catalog"), dict) else {}
+  if isinstance(lever_catalog, dict) and "expenses::Payroll" in lever_catalog:
+    details.append(
+      {
+        "error": "payroll_lever_still_writable_catalog",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": q0_value,
+        "current_value": q0_value,
+        "reason": "Payroll must not remain in lever_catalog once it becomes derived.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+
+  current_policy = (
+    ((payload.get("derived_driver_policies") or {}).get("expenses::Payroll"))
+    if isinstance(payload.get("derived_driver_policies"), dict)
+    else {}
+  )
+  current_runtime = (
+    ((payload.get("derived_driver_runtime") or {}).get("expenses::Payroll"))
+    if isinstance(payload.get("derived_driver_runtime"), dict)
+    else {}
+  )
+  if not isinstance(current_policy, dict) or not current_policy:
+    details.append(
+      {
+        "error": "payroll_derivation_policy_missing",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": q0_value,
+        "current_value": q0_value,
+        "reason": "Derived payroll policy metadata is missing from model_input_json.derived_driver_policies.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+  if not isinstance(current_runtime, dict) or not current_runtime:
+    details.append(
+      {
+        "error": "payroll_derivation_runtime_missing",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": q0_value,
+        "current_value": q0_value,
+        "reason": "Derived payroll runtime metadata is missing from model_input_json.derived_driver_runtime.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+
+  expected_payload = apply_derived_driver_policies_to_model_input(copy.deepcopy(payload))
+  expected_row = _payroll_row_from_model_input(expected_payload)
+  expected_runtime = (
+    ((expected_payload.get("derived_driver_runtime") or {}).get("expenses::Payroll"))
+    if isinstance(expected_payload.get("derived_driver_runtime"), dict)
+    else {}
+  )
+  expected_values = list((expected_row or {}).get("values") or [])
+  if len(expected_values) >= live_count + 1 and len(current_values) >= live_count + 1:
+    for quarter_index in range(1, live_count + 1):
+      current_value = _safe_float(current_values[quarter_index])
+      expected_value = _safe_float(expected_values[quarter_index])
+      tolerance = max(1e-6, abs(float(expected_value or 0.0)) * 1e-6)
+      if current_value is None or expected_value is None or abs(float(current_value) - float(expected_value)) > tolerance:
+        details.append(
+          {
+            "error": "payroll_values_not_fully_derived",
+            "lever_id": "expenses::Payroll",
+            "quarter": quarter_index,
+            "previous_value": expected_value,
+            "current_value": current_value,
+            "reason": "Payroll forecast values must exactly match the deterministic FTE-derived recomputation from current capacity/utilization.",
+            "validation_category": "payroll_derivation",
+          }
+        )
+        break
+
+  current_logs = list((current_runtime or {}).get("quarter_logs") or []) if isinstance(current_runtime, dict) else []
+  expected_logs = list((expected_runtime or {}).get("quarter_logs") or []) if isinstance(expected_runtime, dict) else []
+  if live_count and len(current_logs) != live_count:
+    details.append(
+      {
+        "error": "payroll_derivation_log_count_mismatch",
+        "lever_id": "expenses::Payroll",
+        "quarter": 0,
+        "previous_value": float(live_count),
+        "current_value": float(len(current_logs)),
+        "reason": "Payroll derivation runtime must log one derived record per live forecast quarter.",
+        "validation_category": "payroll_derivation",
+      }
+    )
+  for quarter_index in range(1, min(len(current_logs), len(expected_logs)) + 1):
+    current_log = current_logs[quarter_index - 1] if isinstance(current_logs[quarter_index - 1], dict) else {}
+    expected_log = expected_logs[quarter_index - 1] if isinstance(expected_logs[quarter_index - 1], dict) else {}
+    current_total_fte = _safe_float(current_log.get("total_fte"))
+    support_fte = _safe_float(current_log.get("support_fte"))
+    base_fte = _safe_float(current_log.get("base_fte"))
+    current_payroll = _safe_float(current_log.get("derived_payroll"))
+    expected_payroll = _safe_float(expected_log.get("derived_payroll"))
+    current_active_clients = _safe_float(current_log.get("active_clients"))
+    expected_active_clients = _safe_float(expected_log.get("active_clients"))
+    if (
+      current_total_fte is None
+      or support_fte is None
+      or base_fte is None
+      or abs(float(current_total_fte) - round(float(current_total_fte))) > 1e-9
+      or abs(float(support_fte) - round(float(support_fte))) > 1e-9
+      or abs(float(base_fte) - round(float(base_fte))) > 1e-9
+      or int(round(float(current_total_fte))) != int(round(float(support_fte))) + int(round(float(base_fte)))
+      or current_payroll is None
+      or expected_payroll is None
+      or abs(float(current_payroll) - float(expected_payroll)) > max(1e-6, abs(float(expected_payroll)) * 1e-6)
+      or current_active_clients is None
+      or expected_active_clients is None
+      or abs(float(current_active_clients) - float(expected_active_clients)) > max(1e-6, abs(float(expected_active_clients)) * 1e-6)
+    ):
+      details.append(
+        {
+          "error": "payroll_derivation_log_inconsistent",
+          "lever_id": "expenses::Payroll",
+          "quarter": quarter_index,
+          "previous_value": expected_payroll,
+          "current_value": current_payroll,
+          "reason": "Payroll derivation runtime log is inconsistent with the deterministic FTE payroll recomputation.",
+          "validation_category": "payroll_derivation",
+        }
+      )
+      break
+
+  return {
+    "status": "failed" if details else "passed",
+    "details": copy.deepcopy(details),
+    "current_policy": copy.deepcopy(current_policy) if isinstance(current_policy, dict) else {},
+    "current_runtime": copy.deepcopy(current_runtime) if isinstance(current_runtime, dict) else {},
+    "expected_runtime": copy.deepcopy(expected_runtime) if isinstance(expected_runtime, dict) else {},
+  }
 
 
 def _apply_translated_driver_path_bounds_to_lever_scaffold(
@@ -18339,6 +18754,76 @@ def _scoped_unified_allowed_lever_ids(
       if lever and lever in fallback_ids and lever not in scoped_ids:
         scoped_ids.append(lever)
   return scoped_ids or fallback_ids
+
+
+def _normalize_retry_requirements_to_allowed_scope(
+  *,
+  retry_context: Optional[Dict[str, Any]],
+  allowed_lever_ids: Optional[List[str]],
+) -> Dict[str, Any]:
+  context = copy.deepcopy(retry_context if isinstance(retry_context, dict) else {})
+  allowed_ids = [
+    str(item).strip()
+    for item in (allowed_lever_ids or [])
+    if str(item).strip()
+  ]
+  if not allowed_ids:
+    return context
+  allowed_set = set(allowed_ids)
+  allowed_families = {
+    family
+    for family in (
+      _lever_family_from_lever_id(lever_id)
+      for lever_id in allowed_ids
+    )
+    if family
+  }
+
+  context["required_issue_lever_ids"] = [
+    lever_id
+    for lever_id in (
+      str(item).strip()
+      for item in (context.get("required_issue_lever_ids") or [])
+      if str(item).strip()
+    )
+    if lever_id in allowed_set
+  ]
+  context["required_lever_families"] = [
+    family
+    for family in (
+      str(item).strip().lower()
+      for item in (context.get("required_lever_families") or [])
+      if str(item).strip()
+    )
+    if family in allowed_families
+  ]
+  context["required_new_lever_families"] = [
+    family
+    for family in (
+      str(item).strip().lower()
+      for item in (context.get("required_new_lever_families") or [])
+      if str(item).strip()
+    )
+    if family in allowed_families
+  ]
+
+  normalized_issue_requirements: List[Dict[str, Any]] = []
+  for requirement in (context.get("issue_coverage_requirements") or []):
+    if not isinstance(requirement, dict):
+      continue
+    normalized_requirement = copy.deepcopy(requirement)
+    normalized_requirement["required_lever_families"] = [
+      family
+      for family in (
+        str(item).strip().lower()
+        for item in (requirement.get("required_lever_families") or [])
+        if str(item).strip()
+      )
+      if family in allowed_families
+    ]
+    normalized_issue_requirements.append(normalized_requirement)
+  context["issue_coverage_requirements"] = normalized_issue_requirements
+  return context
 
 
 def _autofill_unified_lever_adjustments_from_guidance(
@@ -18721,7 +19206,7 @@ def _build_unified_convergence_pass_plan(
     }
 
   decision = review_payload.get("decision") if isinstance(review_payload.get("decision"), dict) else {}
-  lever_selection = list(
+  raw_lever_selection = list(
     dict.fromkeys(
       [
         str(item).strip()
@@ -18730,6 +19215,11 @@ def _build_unified_convergence_pass_plan(
       ]
     )
   )
+  payroll_selection_requested = "expenses::Payroll" in raw_lever_selection
+  lever_selection = [
+    lever_id for lever_id in raw_lever_selection
+    if lever_id != "expenses::Payroll"
+  ]
   primary_target_metric_names = _unified_required_target_metric_keys(
     decision_payload=decision,
     numeric_solver_contract=solver_contract,
@@ -18771,6 +19261,10 @@ def _build_unified_convergence_pass_plan(
     else copy.deepcopy(solved_model_input_json or {})
   )
   expected_anchor_value_map = _solved_lever_anchor_value_map(expected_anchor_model_input)
+  payroll_derivation_validation = _validate_payroll_derivation_contract(
+    model_input_json=copy.deepcopy(solved_model_input_json or {}),
+    expected_q0_value=_safe_float(expected_anchor_value_map.get("expenses::Payroll")),
+  )
   gpt_call_budget_state = {
     "calls_used": 0,
     "max_calls": _Q0_ANCHOR_PLAUSIBILITY_MAX_CALLS_PER_PLAN,
@@ -18868,6 +19362,20 @@ def _build_unified_convergence_pass_plan(
     expected_anchor_value_map=copy.deepcopy(expected_anchor_value_map),
     lever_bound_lookup=copy.deepcopy(lever_bound_lookup),
   )
+  if payroll_selection_requested:
+    q0_anchor_validation_details.append(
+      {
+        "error": "payroll_is_derived_not_writable",
+        "lever_id": "expenses::Payroll",
+        "quarter": None,
+        "previous_value": None,
+        "current_value": None,
+        "reason": (
+          "Payroll is capacity/FTE-derived in the model-input layer and must not be selected as a writable convergence lever."
+        ),
+        "validation_category": "internal_consistency",
+      }
+    )
   eligible_lever_ids = _solver_contract_eligible_lever_ids(
     numeric_solver_contract=solver_contract,
     target_quarters=targeted_quarters,
@@ -19081,6 +19589,26 @@ def _build_unified_convergence_pass_plan(
         if str(item.get("reason") or "").strip()
       ]
     )
+  elif payroll_derivation_validation.get("details"):
+    status = "ready_no_valid_solver_contract"
+    next_step = "fix_payroll_derivation_contract_before_solver"
+    warnings.extend(
+      [
+        f"unified_cycle: {str(item.get('reason') or '').strip()}"
+        for item in (payroll_derivation_validation.get("details") or [])
+        if isinstance(item, dict) and str(item.get("reason") or "").strip()
+      ]
+    )
+  elif guidance_packet.get("translation_failures"):
+    status = "ready_no_valid_solver_contract"
+    next_step = "fix_metric_to_lever_translation_before_solver"
+    warnings.extend(
+      [
+        f"unified_cycle: {str(item.get('reason') or '').strip()}"
+        for item in (guidance_packet.get("translation_failures") or [])
+        if isinstance(item, dict) and str(item.get("reason") or "").strip()
+      ]
+    )
   non_positive_selected_issue_impacts = [
     item
     for item in selected_issue_expected_impacts
@@ -19146,6 +19674,42 @@ def _build_unified_convergence_pass_plan(
         "current_value": _safe_float(detail.get("current_value")),
         "reason": str(detail.get("reason") or "").strip() or None,
         "validation_category": str(detail.get("validation_category") or "").strip() or "q0_anchor_contract",
+      }
+    )
+  for detail in (payroll_derivation_validation.get("details") or []):
+    if not isinstance(detail, dict):
+      continue
+    pre_solver_validation_fail_flags.append("payroll_derivation_failed")
+    error_code = str(detail.get("error") or "").strip()
+    if error_code in _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS:
+      pre_solver_validation_fail_flags.append(error_code)
+    pre_solver_validation_errors.append(
+      {
+        "error": error_code or "payroll_derivation_failed",
+        "lever_id": str(detail.get("lever_id") or "").strip() or "expenses::Payroll",
+        "quarter": int(_safe_float(detail.get("quarter")) or 0) or None,
+        "previous_value": _safe_float(detail.get("previous_value")),
+        "current_value": _safe_float(detail.get("current_value")),
+        "reason": str(detail.get("reason") or "").strip() or None,
+        "validation_category": str(detail.get("validation_category") or "").strip() or "payroll_derivation",
+      }
+    )
+  for detail in (guidance_packet.get("translation_failures") or []):
+    if not isinstance(detail, dict):
+      continue
+    pre_solver_validation_fail_flags.append("metric_to_lever_translation_failed")
+    error_code = str(detail.get("error") or "").strip()
+    if error_code in _TRANSLATION_TEST_MODE_FAIL_FLAGS:
+      pre_solver_validation_fail_flags.append(error_code)
+    pre_solver_validation_errors.append(
+      {
+        "error": error_code or "metric_to_lever_translation_failed",
+        "lever_id": str(detail.get("lever_id") or "").strip() or None,
+        "quarter": int(_safe_float(detail.get("quarter")) or 0) or None,
+        "previous_value": _safe_float(detail.get("current_metric_value")),
+        "current_value": _safe_float(detail.get("metric_delta")),
+        "reason": str(detail.get("reason") or "").strip() or None,
+        "validation_category": str(detail.get("validation_category") or "").strip() or "translation_contract",
       }
     )
   if not targets_by_quarter:
@@ -19268,6 +19832,8 @@ def _build_unified_convergence_pass_plan(
     "shape_sensitive_requirements": copy.deepcopy(shape_sensitive_requirements),
     "pre_solver_validation": copy.deepcopy(pre_solver_validation),
     "q0_anchor_validation_details": copy.deepcopy(q0_anchor_validation_details),
+    "payroll_derivation_validation": copy.deepcopy(payroll_derivation_validation),
+    "translation_failures": copy.deepcopy(guidance_packet.get("translation_failures") or []),
     "deterministic_guidance_metric_count": len(guidance_packet.get("metric_pressure_packets") or []),
     "deterministic_guidance_lever_count": len(guidance_packet.get("lever_band_scaffold") or []),
     "lever_selection": copy.deepcopy(lever_selection),
@@ -19322,7 +19888,6 @@ _REQUIRED_SOLVER_TARGET_METRIC_KEYS = (
 )
 
 _SHAPE_SENSITIVE_REMAINING_HORIZON_REQUIRED_LEVER_IDS = {
-  "expenses::Payroll",
   "revenue::Primary line of business::shipment::Capacity",
   "revenue::Primary line of business::shipment::Unit Price",
   "schedules::Capital Expenditures",
@@ -19704,6 +20269,11 @@ def _shape_sensitive_lever_class(lever_id: Any) -> Optional[str]:
     return "remaining_horizon_required"
   if lever in _SHAPE_SENSITIVE_MATERIALITY_TRIGGERED_LEVER_IDS:
     return "materiality_triggered_remaining_horizon"
+  if lever.startswith("revenue::"):
+    if lever.endswith("::Capacity") or lever.endswith("::Unit Price"):
+      return "remaining_horizon_required"
+    if lever.endswith("::Utilization"):
+      return "materiality_triggered_remaining_horizon"
   return "local_safe"
 
 
@@ -19892,9 +20462,40 @@ def _with_shape_sensitive_solver_contract_policy(
   numeric_solver_contract: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
   contract = copy.deepcopy(numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {})
+  writable_catalog = (
+    contract.get("writable_lever_catalog")
+    if isinstance(contract.get("writable_lever_catalog"), dict)
+    else {}
+  )
+  contract_lever_ids = [
+    str(item).strip()
+    for item in (
+      (writable_catalog.get("lever_ids") or [])
+      or (contract.get("allowed_lever_ids") or [])
+    )
+    if str(item).strip()
+  ]
+  scoped_remaining_horizon_required_lever_ids = [
+    lever_id
+    for lever_id in contract_lever_ids
+    if _shape_sensitive_lever_class(lever_id) == "remaining_horizon_required"
+  ]
+  scoped_materiality_triggered_lever_ids = [
+    lever_id
+    for lever_id in contract_lever_ids
+    if _shape_sensitive_lever_class(lever_id) == "materiality_triggered_remaining_horizon"
+  ]
   contract["lever_sensitivity_policy"] = {
-    "remaining_horizon_required_lever_ids": sorted(_SHAPE_SENSITIVE_REMAINING_HORIZON_REQUIRED_LEVER_IDS),
-    "materiality_triggered_remaining_horizon_lever_ids": sorted(_SHAPE_SENSITIVE_MATERIALITY_TRIGGERED_LEVER_IDS),
+    "remaining_horizon_required_lever_ids": (
+      sorted(scoped_remaining_horizon_required_lever_ids)
+      if scoped_remaining_horizon_required_lever_ids
+      else sorted(_SHAPE_SENSITIVE_REMAINING_HORIZON_REQUIRED_LEVER_IDS)
+    ),
+    "materiality_triggered_remaining_horizon_lever_ids": (
+      sorted(scoped_materiality_triggered_lever_ids)
+      if scoped_materiality_triggered_lever_ids
+      else sorted(_SHAPE_SENSITIVE_MATERIALITY_TRIGGERED_LEVER_IDS)
+    ),
     "material_relative_delta_threshold": _SHAPE_SENSITIVE_MATERIAL_RELATIVE_DELTA_THRESHOLD,
     "rule": (
       "If any selected lever is remaining_horizon_required, or if a materiality-triggered lever is used for a material move, "
@@ -29530,6 +30131,10 @@ def _run_unified_post_grid_system_run(
         unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
         validation_error=copy.deepcopy(validation_error),
       )
+      diagnostics["solver_invoked"] = False
+      diagnostics["cycle"] = int(unified_convergence_cycle_count)
+      diagnostics["planner_plan_status"] = str(plan_status or "").strip() or None
+      diagnostics["validation_error"] = copy.deepcopy(validation_error)
       critical_anchor_fail_flags = {
         str(item).strip()
         for item in (
@@ -29541,9 +30146,30 @@ def _run_unified_post_grid_system_run(
         )
         if str(item).strip()
       } & _Q0_ANCHOR_PLAUSIBILITY_TEST_MODE_FAIL_FLAGS
+      critical_payroll_fail_flags = {
+        str(item).strip()
+        for item in (
+          (
+            (diagnostics.get("pre_solver_validation") if isinstance(diagnostics.get("pre_solver_validation"), dict) else {})
+            .get("flags")
+            or []
+          )
+        )
+        if str(item).strip()
+      } & _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS
+      if _convergence_test_mode_enabled():
+        raise StructuredSystemRunFailure(
+          detail="solver_not_invoked",
+          diagnostics=copy.deepcopy(diagnostics),
+        )
       if _convergence_test_mode_enabled() and critical_anchor_fail_flags:
         raise StructuredSystemRunFailure(
           detail="anchor_validation_failed",
+          diagnostics=copy.deepcopy(diagnostics),
+        )
+      if _convergence_test_mode_enabled() and critical_payroll_fail_flags:
+        raise StructuredSystemRunFailure(
+          detail="payroll_validation_failed",
           diagnostics=copy.deepcopy(diagnostics),
         )
       non_productive_tracker = _update_non_productive_cycle_tracker(

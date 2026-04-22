@@ -883,6 +883,10 @@ def apply_exact_lever_updates_to_model_input(
   model_input_json: Dict[str, Any],
   exact_updates: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
+  try:
+    from client_intake_and_finmo.finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
+  except Exception:
+    from finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
   next_model_input = json.loads(json.dumps(model_input_json if isinstance(model_input_json, dict) else {}))
   lever_rows = _lever_row_map(next_model_input)
   for update in exact_updates:
@@ -901,7 +905,7 @@ def apply_exact_lever_updates_to_model_input(
       values.extend([0.0 for _ in range(target_length - len(values))])
     row["values"] = values[:target_length]
     row["values"][quarter_index if has_stub else quarter_index - 1] = round(float(value), 6)
-  return next_model_input
+  return apply_derived_driver_policies_to_model_input(next_model_input)
 
 
 def apply_live_quarter_grid_plan(

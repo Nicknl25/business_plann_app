@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import math
 import re
 from copy import deepcopy
 from datetime import datetime
@@ -275,23 +276,26 @@ def build_python_finmo_json(
   model_input_json: Dict[str, Any],
   finmo_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-  book = FinancialModelInputs.from_model_input_json(model_input_json if isinstance(model_input_json, dict) else {})
+  normalized_model_input = apply_derived_driver_policies_to_model_input(
+    model_input_json if isinstance(model_input_json, dict) else {}
+  )
+  book = FinancialModelInputs.from_model_input_json(normalized_model_input)
   result = calculate_finmo_model(book)
   quarter_rows_raw = result.quarter_rows()
   quarter_rows_with_stub = result.quarter_rows(include_stub=True)
   first_live_row = next((row for row in quarter_rows_raw if isinstance(row, dict)), None)
   quarter_rows_with_stub = _apply_operating_stub_to_quarter_rows(
     quarter_rows_with_stub,
-    model_input_json=model_input_json,
+    model_input_json=normalized_model_input,
     first_live_row=first_live_row,
   )
   raw_periods = [
     _clone(item)
-    for item in (((model_input_json.get("periods") or []) if isinstance(model_input_json, dict) else []) or [])
+    for item in (((normalized_model_input.get("periods") or []) if isinstance(normalized_model_input, dict) else []) or [])
     if isinstance(item, dict)
   ]
   periods: List[Dict[str, Any]] = []
-  start_date_iso = _as_iso_date((model_input_json or {}).get("start_date")) if isinstance(model_input_json, dict) else None
+  start_date_iso = _as_iso_date((normalized_model_input or {}).get("start_date")) if isinstance(normalized_model_input, dict) else None
   if raw_periods:
     has_stub_period = any(_safe_float(item.get("quarter")) == 0.0 for item in raw_periods)
     if has_stub_period:
@@ -655,6 +659,243 @@ def _operating_anchor_baseline_inputs(
     "depreciation_ratio_baseline": round(depreciation_ratio_baseline, 6),
     "tax_rate_baseline": round(tax_rate_baseline, 6),
   }
+
+
+_PAYROLL_DERIVATION_POLICY_VERSION = "payroll_fte_policy_v1"
+_PAYROLL_DERIVATION_SOURCE = "fte_derived"
+_PAYROLL_DERIVATION_LEVER_ID = "expenses::Payroll"
+_DEFAULT_CLIENTS_PER_SUPPORT_FTE = 40
+_DEFAULT_BASE_FTE = 4
+_MIN_BASE_FTE = 3
+_MAX_BASE_FTE = 5
+_DEFAULT_AVG_ANNUAL_SALARY = 150000.0
+
+
+def _payroll_average_annual_salary_and_source(
+  people_json: Optional[Dict[str, Any]],
+) -> Tuple[float, str]:
+  people = people_json if isinstance(people_json, dict) else {}
+  wages: List[float] = []
+  for source_list in (
+    people.get("people") if isinstance(people.get("people"), list) else [],
+    people.get("inferred_roles") if isinstance(people.get("inferred_roles"), list) else [],
+  ):
+    for item in source_list:
+      if not isinstance(item, dict):
+        continue
+      annual_wage = max(0.0, _safe_float(item.get("annual_wage")) or 0.0)
+      if annual_wage > 0.0:
+        wages.append(float(annual_wage))
+  if wages:
+    return round(sum(wages) / max(len(wages), 1), 6), "people_json_average_annual_wage"
+  return float(_DEFAULT_AVG_ANNUAL_SALARY), "default_fallback_annual_wage"
+
+
+def _payroll_base_fte_and_source(
+  people_json: Optional[Dict[str, Any]],
+) -> Tuple[int, str]:
+  people = people_json if isinstance(people_json, dict) else {}
+  direct_people_count = len([
+    item for item in (people.get("people") or [])
+    if isinstance(item, dict)
+    and (
+      str(item.get("full_name") or "").strip()
+      or str(item.get("role_title") or "").strip()
+      or (_safe_float(item.get("annual_wage")) or 0.0) > 0.0
+    )
+  ])
+  immediate_inferred_count = len([
+    item for item in (people.get("inferred_roles") or [])
+    if isinstance(item, dict)
+    and int(_safe_float(item.get("months_until_hire")) or 0) <= 0
+  ])
+  observed_count = max(direct_people_count, immediate_inferred_count)
+  if observed_count > 0:
+    return int(max(_MIN_BASE_FTE, min(_MAX_BASE_FTE, observed_count))), "people_json_base_fte_clamped"
+  return int(_DEFAULT_BASE_FTE), "default_base_fte"
+
+
+def _default_payroll_derivation_policy(
+  *,
+  people_json: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  avg_salary, avg_salary_source = _payroll_average_annual_salary_and_source(people_json)
+  base_fte, base_fte_source = _payroll_base_fte_and_source(people_json)
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  return {
+    "policy_version": _PAYROLL_DERIVATION_POLICY_VERSION,
+    "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+    "lever_id": _PAYROLL_DERIVATION_LEVER_ID,
+    "driver_basis": "capacity_times_utilization",
+    "support_model": "fte_capacity_support",
+    "clients_per_fte": int(_DEFAULT_CLIENTS_PER_SUPPORT_FTE),
+    "base_fte": int(base_fte),
+    "avg_salary": float(avg_salary),
+    "avg_salary_source": avg_salary_source,
+    "base_fte_source": base_fte_source,
+    "business_type": str(ops.get("business_type") or "").strip() or None,
+    "naics": str(ops.get("business_naics_6") or "").strip() or None,
+  }
+
+
+def _normalized_payroll_derivation_policy(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  raw_policy = policies.get(_PAYROLL_DERIVATION_LEVER_ID) if isinstance(policies.get(_PAYROLL_DERIVATION_LEVER_ID), dict) else {}
+  clients_per_fte = int(max(1, _safe_float(raw_policy.get("clients_per_fte")) or _DEFAULT_CLIENTS_PER_SUPPORT_FTE))
+  base_fte = int(max(_MIN_BASE_FTE, min(_MAX_BASE_FTE, _safe_float(raw_policy.get("base_fte")) or _DEFAULT_BASE_FTE)))
+  avg_salary = float(max(1.0, _safe_float(raw_policy.get("avg_salary")) or _DEFAULT_AVG_ANNUAL_SALARY))
+  return {
+    "policy_version": str(raw_policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
+    "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+    "lever_id": _PAYROLL_DERIVATION_LEVER_ID,
+    "driver_basis": str(raw_policy.get("driver_basis") or "capacity_times_utilization").strip() or "capacity_times_utilization",
+    "support_model": str(raw_policy.get("support_model") or "fte_capacity_support").strip() or "fte_capacity_support",
+    "clients_per_fte": clients_per_fte,
+    "base_fte": base_fte,
+    "avg_salary": avg_salary,
+    "avg_salary_source": str(raw_policy.get("avg_salary_source") or "default_fallback_annual_wage").strip() or "default_fallback_annual_wage",
+    "base_fte_source": str(raw_policy.get("base_fte_source") or "default_base_fte").strip() or "default_base_fte",
+    "business_type": str(raw_policy.get("business_type") or "").strip() or None,
+    "naics": str(raw_policy.get("naics") or "").strip() or None,
+  }
+
+
+def _revenue_driver_live_series(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  driver_name: str,
+  live_count: int,
+) -> Dict[str, List[float]]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
+  out: Dict[str, List[float]] = {}
+  for row in revenue_rows:
+    driver = str(row.get("driver") or "").strip().lower()
+    if driver != str(driver_name or "").strip().lower():
+      continue
+    key = str(
+      row.get("revenue_slot_key")
+      or _revenue_slot_identity(
+        row_lob=row.get("lob") or row.get("placeholder_lob"),
+        row_product=row.get("product") or row.get("placeholder_product"),
+      ).get("revenue_slot_key")
+      or ""
+    ).strip()
+    if not key:
+      continue
+    _stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    out[key] = [round(max(0.0, _safe_float(value) or 0.0), 6) for value in live_values[:live_count]]
+  return out
+
+
+def apply_derived_driver_policies_to_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
+  if isinstance(next_payload.get("controller_write_levers"), list):
+    next_payload["controller_write_levers"] = [
+      deepcopy(item)
+      for item in (next_payload.get("controller_write_levers") or [])
+      if isinstance(item, dict) and str(item.get("lever_id") or "").strip() != _PAYROLL_DERIVATION_LEVER_ID
+    ]
+  if isinstance(next_payload.get("lever_catalog"), dict):
+    lever_catalog = deepcopy(next_payload.get("lever_catalog") or {})
+    lever_catalog.pop(_PAYROLL_DERIVATION_LEVER_ID, None)
+    next_payload["lever_catalog"] = lever_catalog
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  if not isinstance(sections, dict):
+    return next_payload
+  expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
+  payroll_row = next((
+    row for row in expense_rows
+    if str(row.get("label") or "").strip() == "Payroll"
+  ), None)
+  if not isinstance(payroll_row, dict):
+    return next_payload
+
+  values = list(payroll_row.get("values") or [])
+  live_count = max(
+    0,
+    len([
+      item for item in (next_payload.get("periods") or [])
+      if isinstance(item, dict) and not bool(item.get("is_stub"))
+    ])
+    or (len(values) - 1 if len(values) >= 1 else 0),
+  )
+  stub_value, _existing_live_values = _row_stub_and_live_values(values, live_count=live_count)
+  policy = _normalized_payroll_derivation_policy(next_payload)
+  capacity_series = _revenue_driver_live_series(next_payload, driver_name="Capacity", live_count=live_count)
+  utilization_series = _revenue_driver_live_series(next_payload, driver_name="Utilization", live_count=live_count)
+
+  active_clients_by_quarter: List[float] = [0.0 for _ in range(live_count)]
+  for key in sorted(set(list(capacity_series.keys()) + list(utilization_series.keys()))):
+    capacities = capacity_series.get(key) or [0.0 for _ in range(live_count)]
+    utilizations = utilization_series.get(key) or [0.0 for _ in range(live_count)]
+    for idx in range(live_count):
+      active_clients_by_quarter[idx] += max(0.0, _safe_float(capacities[idx]) or 0.0) * max(0.0, _safe_float(utilizations[idx]) or 0.0)
+
+  avg_annual_salary = float(policy.get("avg_salary") or _DEFAULT_AVG_ANNUAL_SALARY)
+  quarterly_salary = avg_annual_salary / 4.0
+  clients_per_fte = int(policy.get("clients_per_fte") or _DEFAULT_CLIENTS_PER_SUPPORT_FTE)
+  base_fte = int(policy.get("base_fte") or _DEFAULT_BASE_FTE)
+  derived_live_values: List[float] = []
+  quarter_logs: List[Dict[str, Any]] = []
+  for idx, active_clients in enumerate(active_clients_by_quarter, start=1):
+    support_fte = int(math.ceil(max(0.0, active_clients) / max(float(clients_per_fte), 1.0))) if active_clients > 0.0 else 0
+    total_fte = int(support_fte + base_fte)
+    derived_payroll = round(float(total_fte * quarterly_salary), 6)
+    derived_live_values.append(derived_payroll)
+    quarter_logs.append(
+      {
+        "quarter_index": idx,
+        "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+        "active_clients": round(float(active_clients), 6),
+        "support_fte": int(support_fte),
+        "base_fte": int(base_fte),
+        "total_fte": int(total_fte),
+        "clients_per_fte": int(clients_per_fte),
+        "avg_salary": round(float(avg_annual_salary), 6),
+        "derived_payroll": derived_payroll,
+      }
+    )
+
+  payroll_row["controller_write"] = False
+  payroll_row["derived_driver"] = _PAYROLL_DERIVATION_SOURCE
+  payroll_row["payroll_derivation"] = {
+    "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
+    "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+    "driver_basis": str(policy.get("driver_basis") or "capacity_times_utilization").strip() or "capacity_times_utilization",
+    "clients_per_fte": int(clients_per_fte),
+    "base_fte": int(base_fte),
+    "avg_salary": round(float(avg_annual_salary), 6),
+    "avg_salary_source": str(policy.get("avg_salary_source") or "").strip() or None,
+    "base_fte_source": str(policy.get("base_fte_source") or "").strip() or None,
+    "quarter_logs": deepcopy(quarter_logs),
+  }
+  payroll_row["values"] = _compose_period_values(
+    stub_value=stub_value,
+    live_values=derived_live_values,
+  )
+
+  next_payload.setdefault("derived_driver_policies", {})
+  if isinstance(next_payload.get("derived_driver_policies"), dict):
+    next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = deepcopy(policy)
+  next_payload.setdefault("derived_driver_runtime", {})
+  if isinstance(next_payload.get("derived_driver_runtime"), dict):
+    next_payload["derived_driver_runtime"][_PAYROLL_DERIVATION_LEVER_ID] = {
+      "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+      "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
+      "clients_per_fte": int(clients_per_fte),
+      "base_fte": int(base_fte),
+      "avg_salary": round(float(avg_annual_salary), 6),
+      "quarter_logs": deepcopy(quarter_logs),
+    }
+  return next_payload
 
 
 def _revenue_stub_anchor_value(
@@ -1379,6 +1620,10 @@ def _python_model_input_template(
     for label in expenses
   ]
   for row in expense_rows:
+    if str(row.get("label") or "").strip() == "Payroll":
+      row["controller_write"] = False
+      row["derived_driver"] = _PAYROLL_DERIVATION_SOURCE
+      continue
     _register_lever(
       {
         "lever_id": str(row.get("lever_id") or "").strip(),
@@ -1800,7 +2045,13 @@ def _build_model_input_overlay(
         live_values=[round(_safe_float(base_values[min(idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0 for idx, _slot in enumerate(slots)],
       )
   sections["schedules"] = schedules
-  return apply_p_and_l_q0_anchor_to_model_input(
+  next_payload.setdefault("derived_driver_policies", {})
+  if isinstance(next_payload.get("derived_driver_policies"), dict):
+    next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = _default_payroll_derivation_policy(
+      people_json=people_json,
+      ops_json=ops_json,
+    )
+  anchored_payload = apply_p_and_l_q0_anchor_to_model_input(
     model_input_json=next_payload,
     ops_json=ops_json,
     people_json=people_json,
@@ -1808,6 +2059,7 @@ def _build_model_input_overlay(
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
   )
+  return apply_derived_driver_policies_to_model_input(anchored_payload)
 
 
 def normalize_model_input_forecast_anchor(
@@ -1891,7 +2143,7 @@ def normalize_model_input_forecast_anchor(
     **schedules,
     "rows": schedule_rows,
   }
-  return next_payload
+  return apply_derived_driver_policies_to_model_input(next_payload)
 
 
 def sync_planning_state_to_finmo(
