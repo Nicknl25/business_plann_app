@@ -5,6 +5,11 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional
 
+from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_direct_target_metric_names_for_levers,
+  post_intake_driver_target_mapping_errors,
+  post_intake_driver_target_metric_ids,
+)
 
 NUMERIC_EXECUTION_BOUNDARY_VERSION = "numeric_execution_boundary_v1"
 NUMERIC_SOLVER_CONTRACT_VERSION = "numeric_solver_contract_v1"
@@ -26,212 +31,27 @@ IMMUTABLE_CORE_MODEL_FILES = (
 )
 
 
-_ISSUE_SOLVER_OBJECTIVES: Dict[str, Dict[str, Any]] = {
-  "financing_solvency_mismatch": {
-    "metric_targets": ["ending_cash", "liquidity_support", "debt_burden"],
-    "solver_objective": "restore_liquidity_without_breaking_operating_shape",
-  },
-  "profitability_cash_shape_unrealistic": {
-    "metric_targets": ["ebitda", "net_income", "ending_cash"],
-    "solver_objective": "improve_trajectory_and_ongoing_concern_shape",
-  },
-  "capacity_revenue_mismatch": {
-    "metric_targets": ["revenue", "capacity_utilization"],
-    "solver_objective": "align_volume_with_capacity_and_timing",
-  },
-  "staffing_payroll_mismatch": {
-    "metric_targets": ["payroll", "staffing_load", "revenue"],
-    "solver_objective": "align_headcount_cost_with_operating_scale",
-  },
-  "capex_footprint_mismatch": {
-    "metric_targets": ["capital_expenditures", "ppe", "investing_cash_flow", "ending_cash", "financing_cash_flow"],
-    "solver_objective": "align_asset_intensity_with_operating_footprint",
-  },
-  "cost_structure_mismatch": {
-    "metric_targets": ["gross_margin", "operating_costs", "ebitda"],
-    "solver_objective": "rebalance_cost_structure_without_fake_plugs",
-  },
-  "working_capital_payment_model_mismatch": {
-    "metric_targets": ["operating_cash_flow", "current_assets", "current_liabilities", "ending_cash"],
-    "solver_objective": "align_working_capital_with_real_collection_payment_timing",
-  },
-  "pricing_positioning_mismatch": {
-    "metric_targets": ["price_realization", "gross_margin", "revenue"],
-    "solver_objective": "align_price_with_offer_and demand reality",
-  },
-  "growth_model_mismatch": {
-    "metric_targets": ["revenue", "operating_scale", "ending_cash"],
-    "solver_objective": "align growth path with viable operating support",
-  },
-  "operating_model_contradiction": {
-    "metric_targets": ["operating_cash_flow", "revenue", "payroll", "capital_expenditures"],
-    "solver_objective": "restore an operating model that is cash-coherent and supportable at the chosen scale",
-  },
-  "catastrophic_liquidity_failure": {
-    "metric_targets": ["ending_cash", "financing_cash_flow", "operating_cash_flow"],
-    "solver_objective": "repair near-term liquidity through direct cash levers and supportable operating fixes",
-  },
+_ISSUE_SOLVER_OBJECTIVES: Dict[str, str] = {
+  "financing_solvency_mismatch": "restore_supportable_capital_structure_without_fake_liquidity_plugs",
+  "profitability_cash_shape_unrealistic": "improve_trajectory_and_ongoing_concern_shape",
+  "capacity_revenue_mismatch": "align_volume_with_capacity_and_timing",
+  "staffing_payroll_mismatch": "align_headcount_cost_with_operating_scale",
+  "capex_footprint_mismatch": "align_asset_intensity_with_operating_footprint",
+  "cost_structure_mismatch": "rebalance_cost_structure_without_fake_plugs",
+  "working_capital_payment_model_mismatch": "align_working_capital_with_real_collection_payment_timing",
+  "pricing_positioning_mismatch": "align_price_with_offer_and demand reality",
+  "growth_model_mismatch": "align growth path with viable operating support",
+  "operating_model_contradiction": "restore an operating model that is cash-coherent and supportable at the chosen scale",
+  "catastrophic_liquidity_failure": "repair near-term liquidity through direct cash levers and supportable operating fixes",
 }
 
-TARGETABLE_FINMO_METRIC_IDS = (
-  "revenue",
-  "cogs",
-  "gross_profit",
-  "marketing",
-  "research_and_development",
-  "lease_rent",
-  "payroll",
-  "g_and_a",
-  "ebitda",
-  "interest",
-  "depreciation",
-  "taxes",
-  "net_income",
-  "ending_cash",
-  "accounts_receivable",
-  "inventory",
-  "prepaid_expenses",
-  "current_assets",
-  "noncurrent_assets",
-  "ppe",
-  "accumulated_depreciation",
-  "accounts_payable",
-  "short_term_debt",
-  "deferred_revenue",
-  "current_liabilities",
-  "long_term_debt",
-  "total_liabilities",
-  "owners_capital",
-  "distributions",
-  "retained_earnings",
-  "other_equity",
-  "total_equity",
-  "total_liabilities_and_equity",
-  "beginning_cash",
-  "changes_in_current_assets",
-  "changes_in_current_liabilities",
-  "operating_cash_flow",
-  "capital_expenditures",
-  "investing_cash_flow",
-  "debt_issuance",
-  "debt_repayment",
-  "debt_receive_repay",
-  "equity",
-  "owner_distributions",
-  "financing_cash_flow",
-  "net_cash_flow",
-  "noncurrent_liabilities",
-)
-
-PRIMARY_TARGETABLE_FINMO_METRIC_IDS = (
-  "revenue",
-  "gross_profit",
-  "ebitda",
-  "net_income",
-  "ending_cash",
-  "operating_cash_flow",
-  "investing_cash_flow",
-  "financing_cash_flow",
-  "current_assets",
-  "ppe",
-  "current_liabilities",
-  "noncurrent_liabilities",
-  "payroll",
-  "marketing",
-  "g_and_a",
-  "lease_rent",
-  "capital_expenditures",
-  "long_term_debt",
-  "total_liabilities",
-  "owners_capital",
-  "other_equity",
-  "distributions",
-)
+TARGETABLE_FINMO_METRIC_IDS = tuple(post_intake_driver_target_metric_ids())
+PRIMARY_TARGETABLE_FINMO_METRIC_IDS = TARGETABLE_FINMO_METRIC_IDS
 
 PRIMARY_TARGET_METRIC_MIN_COUNT = 3
 PRIMARY_TARGET_METRIC_MAX_COUNT = 6
 
-_ISSUE_PRIMARY_TARGET_CANDIDATES: Dict[str, List[str]] = {
-  "financing_solvency_mismatch": [
-    "ending_cash",
-    "financing_cash_flow",
-    "operating_cash_flow",
-    "owners_capital",
-    "noncurrent_liabilities",
-  ],
-  "profitability_cash_shape_unrealistic": [
-    "ebitda",
-    "net_income",
-    "ending_cash",
-    "operating_cash_flow",
-    "gross_profit",
-  ],
-  "staffing_payroll_mismatch": [
-    "payroll",
-    "revenue",
-    "gross_profit",
-    "ebitda",
-  ],
-  "capacity_revenue_mismatch": [
-    "revenue",
-    "gross_profit",
-    "ebitda",
-    "payroll",
-    "capital_expenditures",
-  ],
-  "capex_footprint_mismatch": [
-    "capital_expenditures",
-    "investing_cash_flow",
-    "ppe",
-    "ending_cash",
-    "financing_cash_flow",
-  ],
-  "cost_structure_mismatch": [
-    "gross_profit",
-    "ebitda",
-    "net_income",
-    "operating_cash_flow",
-    "payroll",
-    "g_and_a",
-  ],
-  "pricing_positioning_mismatch": [
-    "gross_profit",
-    "ebitda",
-    "net_income",
-  ],
-  "growth_model_mismatch": [
-    "revenue",
-    "ending_cash",
-    "operating_cash_flow",
-    "payroll",
-    "capital_expenditures",
-  ],
-  "operating_model_contradiction": [
-    "operating_cash_flow",
-    "ending_cash",
-    "revenue",
-    "payroll",
-    "capital_expenditures",
-  ],
-  "catastrophic_liquidity_failure": [
-    "ending_cash",
-    "financing_cash_flow",
-    "operating_cash_flow",
-    "owners_capital",
-    "capital_expenditures",
-  ],
-}
-
-_OBJECTIVE_METRIC_ALIAS_MAP: Dict[str, str] = {
-  "liquidity_support": "ending_cash",
-  "debt_burden": "noncurrent_liabilities",
-  "gross_margin": "gross_profit",
-  "operating_costs": "ebitda",
-  "price_realization": "revenue",
-  "staffing_load": "payroll",
-  "operating_scale": "revenue",
-  "capacity_utilization": "revenue",
-}
+_OBJECTIVE_METRIC_ALIAS_MAP: Dict[str, str] = {}
 
 _DEFAULT_PRIMARY_TARGET_METRICS = (
   "ending_cash",
@@ -286,26 +106,11 @@ def _recommended_primary_target_metric_keys(
   issue_status_records: Optional[List[Dict[str, Any]]],
 ) -> List[str]:
   keys: List[str] = []
-  active_issue_codes: List[str] = []
   for packet in _issue_target_packets(issue_status_records):
-    issue_code = str(packet.get("issue_code") or "").strip().lower()
-    if not issue_code:
-      continue
-    active_issue_codes.append(issue_code)
     for metric_name in (packet.get("metric_targets") or []):
       normalized = _normalized_primary_target_metric_name(metric_name)
       if normalized and normalized not in keys:
         keys.append(normalized)
-    for metric_name in (_ISSUE_PRIMARY_TARGET_CANDIDATES.get(issue_code) or []):
-      normalized = _normalized_primary_target_metric_name(metric_name)
-      if normalized and normalized not in keys:
-        keys.append(normalized)
-  for metric_name in _DEFAULT_PRIMARY_TARGET_METRICS:
-    normalized = _normalized_primary_target_metric_name(metric_name)
-    if normalized and normalized not in keys:
-      keys.append(normalized)
-  if "ending_cash" in keys:
-    keys = ["ending_cash"] + [metric for metric in keys if metric != "ending_cash"]
   return keys[: min(PRIMARY_TARGET_METRIC_MAX_COUNT, _PREFERRED_PRIMARY_TARGET_METRIC_COUNT)]
 
 
@@ -455,11 +260,10 @@ def _infer_issue_lever_ids(
         return
 
   if code == "financing_solvency_mismatch":
-    add_matching(["owner's capital", "owner_equity_contribution", "other equity", "debt draw", "debt issuance", "new borrowing", "debt repayment", "short term debt", "distributions"])
-    add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "capital expenditures"])
+    add_matching(["owner's capital", "owner_equity_contribution", "other equity", "debt draw", "debt issuance", "new borrowing", "debt repayment", "short term debt"])
   elif code == "profitability_cash_shape_unrealistic":
-    add_matching(["unit price", "utilization", "capacity", "cost of goods sold", "payroll", "general & administrative", "marketing", "lease"])
-    add_matching(["owner's capital", "other equity", "distributions", "debt issuance", "new borrowing", "debt repayment", "capital expenditures"])
+    add_matching(["cost of goods sold", "general & administrative", "marketing", "lease"])
+    add_matching(["owner's capital", "other equity", "distributions", "debt issuance", "new borrowing", "debt repayment"])
   elif code == "staffing_payroll_mismatch":
     add_matching(["payroll", "capacity", "utilization", "unit price", "marketing", "general & administrative"])
   elif code == "capacity_revenue_mismatch":
@@ -645,61 +449,63 @@ def _quarter_metric_snapshots(current_finmo_json: Optional[Dict[str, Any]]) -> L
       {
         "quarter_index": quarter_index,
         "date": row.get("date"),
-        "revenue": float(_safe_float(row.get("revenue")) or 0.0),
-        "cogs": float(_safe_float(row.get("cogs")) or 0.0),
-        "gross_profit": float(_safe_float(row.get("gross_profit")) or 0.0),
-        "marketing": float(_safe_float(row.get("marketing")) or 0.0),
-        "research_and_development": float(_safe_float(row.get("research_and_development")) or 0.0),
-        "lease_rent": float(_safe_float(row.get("lease_rent")) or 0.0),
-        "payroll": float(_safe_float(row.get("payroll")) or 0.0),
-        "g_and_a": float(_safe_float(row.get("g_and_a")) or 0.0),
-        "ebitda": float(_safe_float(row.get("ebitda")) or 0.0),
-        "interest": float(_safe_float(row.get("interest")) or 0.0),
-        "depreciation": float(_safe_float(row.get("depreciation")) or 0.0),
-        "taxes": float(_safe_float(row.get("taxes")) or 0.0),
-        "net_income": float(_safe_float(row.get("net_income")) or 0.0),
-        "cash": float(_safe_float(row.get("cash")) or 0.0),
-        "ending_cash": float(_safe_float(row.get("ending_cash")) or 0.0),
-        "accounts_receivable": float(_safe_float(row.get("accounts_receivable")) or 0.0),
-        "inventory": float(_safe_float(row.get("inventory")) or 0.0),
-        "prepaid_expenses": float(_safe_float(row.get("prepaid_expenses")) or 0.0),
-        "current_assets": float(_safe_float(row.get("current_assets")) or 0.0),
-        "noncurrent_assets": (
+        "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
+        "cogs": int(round(float(_safe_float(row.get("cogs")) or 0.0))),
+        "gross_profit": int(round(float(_safe_float(row.get("gross_profit")) or 0.0))),
+        "marketing": int(round(float(_safe_float(row.get("marketing")) or 0.0))),
+        "research_and_development": int(round(float(_safe_float(row.get("research_and_development")) or 0.0))),
+        "lease_rent": int(round(float(_safe_float(row.get("lease_rent")) or 0.0))),
+        "payroll": int(round(float(_safe_float(row.get("payroll")) or 0.0))),
+        "g_and_a": int(round(float(_safe_float(row.get("g_and_a")) or 0.0))),
+        "ebitda": int(round(float(_safe_float(row.get("ebitda")) or 0.0))),
+        "interest": int(round(float(_safe_float(row.get("interest")) or 0.0))),
+        "depreciation": int(round(float(_safe_float(row.get("depreciation")) or 0.0))),
+        "taxes": int(round(float(_safe_float(row.get("taxes")) or 0.0))),
+        "net_income": int(round(float(_safe_float(row.get("net_income")) or 0.0))),
+        "cash": int(round(float(_safe_float(row.get("cash")) or 0.0))),
+        "ending_cash": int(round(float(_safe_float(row.get("ending_cash")) or 0.0))),
+        "accounts_receivable": int(round(float(_safe_float(row.get("accounts_receivable")) or 0.0))),
+        "inventory": int(round(float(_safe_float(row.get("inventory")) or 0.0))),
+        "prepaid_expenses": int(round(float(_safe_float(row.get("prepaid_expenses")) or 0.0))),
+        "current_assets": int(round(float(_safe_float(row.get("current_assets")) or 0.0))),
+        "noncurrent_assets": int(round(
           float(_safe_float(row.get("total_assets")) or 0.0)
           - float(_safe_float(row.get("current_assets")) or 0.0)
-        ),
-        "ppe": float(_safe_float(row.get("ppe")) or 0.0),
-        "accumulated_depreciation": float(_safe_float(row.get("accumulated_depreciation")) or 0.0),
-        "total_assets": float(_safe_float(row.get("total_assets")) or 0.0),
-        "accounts_payable": float(_safe_float(row.get("accounts_payable")) or 0.0),
-        "short_term_debt": float(_safe_float(row.get("short_term_debt")) or 0.0),
-        "deferred_revenue": float(_safe_float(row.get("deferred_revenue")) or 0.0),
-        "current_liabilities": float(_safe_float(row.get("current_liabilities")) or 0.0),
-        "long_term_debt": float(_safe_float(row.get("long_term_debt")) or 0.0),
-        "total_liabilities": float(_safe_float(row.get("total_liabilities")) or 0.0),
-        "owners_capital": float(_safe_float(row.get("owners_capital")) or 0.0),
-        "distributions": float(_safe_float(row.get("distributions")) or 0.0),
-        "retained_earnings": float(_safe_float(row.get("retained_earnings")) or 0.0),
-        "other_equity": float(_safe_float(row.get("other_equity")) or 0.0),
-        "total_equity": float(_safe_float(row.get("total_equity")) or 0.0),
-        "total_liabilities_and_equity": float(_safe_float(row.get("total_liabilities_and_equity")) or 0.0),
-        "beginning_cash": float(_safe_float(row.get("beginning_cash")) or 0.0),
-        "changes_in_current_assets": float(_safe_float(row.get("changes_in_current_assets")) or 0.0),
-        "changes_in_current_liabilities": float(_safe_float(row.get("changes_in_current_liabilities")) or 0.0),
-        "operating_cash_flow": float(_safe_float(row.get("operating_cash_flow")) or 0.0),
-        "capital_expenditures": float(_safe_float(row.get("capital_expenditures")) or 0.0),
-        "investing_cash_flow": float(_safe_float(row.get("investing_cash_flow")) or 0.0),
-        "debt_issuance": float(_safe_float(row.get("debt_issuance")) or 0.0),
-        "debt_repayment": float(_safe_float(row.get("debt_repayment")) or 0.0),
-        "debt_receive_repay": float(_safe_float(row.get("debt_receive_repay")) or 0.0),
-        "equity": float(_safe_float(row.get("equity")) or 0.0),
-        "owner_distributions": float(_safe_float(row.get("owner_distributions")) or 0.0),
-        "financing_cash_flow": float(_safe_float(row.get("financing_cash_flow")) or 0.0),
-        "net_cash_flow": float(_safe_float(row.get("net_cash_flow")) or 0.0),
-        "noncurrent_liabilities": (
+        )),
+        "ppe": int(round(float(_safe_float(row.get("ppe")) or 0.0))),
+        "accumulated_depreciation": int(round(float(_safe_float(row.get("accumulated_depreciation")) or 0.0))),
+        "total_assets": int(round(float(_safe_float(row.get("total_assets")) or 0.0))),
+        "accounts_payable": int(round(float(_safe_float(row.get("accounts_payable")) or 0.0))),
+        "short_term_debt": int(round(float(_safe_float(row.get("short_term_debt")) or 0.0))),
+        "deferred_revenue": int(round(float(_safe_float(row.get("deferred_revenue")) or 0.0))),
+        "current_liabilities": int(round(float(_safe_float(row.get("current_liabilities")) or 0.0))),
+        "long_term_debt": int(round(float(_safe_float(row.get("long_term_debt")) or 0.0))),
+        "total_liabilities": int(round(float(_safe_float(row.get("total_liabilities")) or 0.0))),
+        "owners_capital": int(round(float(_safe_float(row.get("owners_capital")) or 0.0))),
+        "distributions": int(round(float(_safe_float(row.get("distributions")) or 0.0))),
+        "retained_earnings": int(round(float(_safe_float(row.get("retained_earnings")) or 0.0))),
+        "other_equity": int(round(float(_safe_float(row.get("other_equity")) or 0.0))),
+        "total_equity": int(round(float(_safe_float(row.get("total_equity")) or 0.0))),
+        "total_liabilities_and_equity": int(round(float(_safe_float(row.get("total_liabilities_and_equity")) or 0.0))),
+        "beginning_cash": int(round(float(_safe_float(row.get("beginning_cash")) or 0.0))),
+        "changes_in_current_assets": int(round(float(_safe_float(row.get("changes_in_current_assets")) or 0.0))),
+        "changes_in_current_liabilities": int(round(float(_safe_float(row.get("changes_in_current_liabilities")) or 0.0))),
+        "operating_cash_flow": int(round(float(_safe_float(row.get("operating_cash_flow")) or 0.0))),
+        "capital_expenditures": int(round(float(_safe_float(row.get("capital_expenditures")) or 0.0))),
+        "investing_cash_flow": int(round(float(_safe_float(row.get("investing_cash_flow")) or 0.0))),
+        "debt_issuance": int(round(float(_safe_float(row.get("debt_issuance")) or 0.0))),
+        "debt_repayment": int(round(float(_safe_float(row.get("debt_repayment")) or 0.0))),
+        "debt_receive_repay": int(round(float(_safe_float(row.get("debt_receive_repay")) or 0.0))),
+        "equity": int(round(float(_safe_float(row.get("equity")) or 0.0))),
+        "owner_distributions": int(round(float(_safe_float(row.get("owner_distributions")) or 0.0))),
+        "financing_cash_flow": int(round(float(_safe_float(row.get("financing_cash_flow")) or 0.0))),
+        "net_cash_flow": int(round(float(_safe_float(row.get("net_cash_flow")) or 0.0))),
+        "noncurrent_liabilities": int(round(
           float(_safe_float(row.get("total_liabilities")) or 0.0)
           - float(_safe_float(row.get("current_liabilities")) or 0.0)
-        ),
+        )),
+        "lease_principal_repayments": int(round(float(_safe_float(row.get("lease_principal_repayments")) or 0.0))),
+        "lease_net_additions": int(round(float(_safe_float(row.get("lease_net_additions")) or 0.0))),
       }
     )
   return out
@@ -709,7 +515,14 @@ def _issue_target_packets(issue_status_records: Optional[List[Dict[str, Any]]]) 
   packets: List[Dict[str, Any]] = []
   for item in _normalized_issue_status_records(issue_status_records):
     issue_code = str(item.get("issue_code") or "").strip().lower()
-    objective = copy.deepcopy(_ISSUE_SOLVER_OBJECTIVES.get(issue_code) or {})
+    next_required_lever_ids = [
+      str(lever_id).strip()
+      for lever_id in (item.get("next_required_lever_ids") or [])
+      if str(lever_id).strip()
+    ]
+    metric_targets = post_intake_direct_target_metric_names_for_levers(
+      next_required_lever_ids
+    )
     packets.append(
       {
         "issue_code": issue_code,
@@ -717,10 +530,13 @@ def _issue_target_packets(issue_status_records: Optional[List[Dict[str, Any]]]) 
         "remaining_issue_materiality": str(item.get("remaining_issue_materiality") or "").strip().lower(),
         "remaining_issue_severity_score": int(item.get("remaining_issue_severity_score") or 0),
         "remaining_problem_quarters": copy.deepcopy(item.get("remaining_problem_quarters") or []),
-        "next_required_lever_ids": copy.deepcopy(item.get("next_required_lever_ids") or []),
+        "next_required_lever_ids": copy.deepcopy(next_required_lever_ids),
+        "candidate_lever_ids": copy.deepcopy(next_required_lever_ids),
         "iteration_needed": bool(item.get("iteration_needed")),
-        "metric_targets": copy.deepcopy(objective.get("metric_targets") or []),
-        "solver_objective": str(objective.get("solver_objective") or "align_issue_to_viable_quarter_shape").strip(),
+        "metric_targets": copy.deepcopy(metric_targets),
+        "solver_objective": str(
+          _ISSUE_SOLVER_OBJECTIVES.get(issue_code) or "align_issue_to_viable_quarter_shape"
+        ).strip(),
       }
     )
   return packets
@@ -791,11 +607,37 @@ def build_numeric_solver_contract(
     writable_lever_catalog=writable_lever_catalog,
     current_finmo_json=current_finmo_json,
   )
+  mapping_errors = post_intake_driver_target_mapping_errors(
+    str(item.get("lever_id") or "").strip()
+    for item in (writable_lever_catalog or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  )
+  if mapping_errors:
+    raise RuntimeError(
+      "post_intake_driver_target_mapping_invalid: " + "; ".join(mapping_errors)
+    )
   active_issues = [
     item
     for item in normalized_issues
     if str(item.get("verifier_status") or "").strip().lower() != "resolved"
   ]
+  issue_target_packets = _issue_target_packets(active_issues)
+  missing_issue_target_packets = [
+    {
+      "issue_code": str(item.get("issue_code") or "").strip().lower(),
+      "next_required_lever_ids": copy.deepcopy(item.get("next_required_lever_ids") or []),
+    }
+    for item in issue_target_packets
+    if (item.get("next_required_lever_ids") or []) and not (item.get("metric_targets") or [])
+  ]
+  if missing_issue_target_packets:
+    raise RuntimeError(
+      "post_intake_driver_target_mapping_missing_issue_targets: "
+      + "; ".join(
+        f"{item['issue_code']} -> {item['next_required_lever_ids']}"
+        for item in missing_issue_target_packets
+      )
+    )
   lever_entries = [
     copy.deepcopy(item)
     for item in (writable_lever_catalog or [])
@@ -816,7 +658,7 @@ def build_numeric_solver_contract(
     ),
     "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
     "active_issue_count": len(active_issues),
-    "issue_target_packets": _issue_target_packets(active_issues),
+    "issue_target_packets": issue_target_packets,
     "quarter_target_grid": _quarter_target_grid(
       issue_status_records=active_issues,
       current_finmo_json=current_finmo_json,
@@ -947,8 +789,16 @@ def build_numeric_execution_plan(
       target_tolerances.append(
         {
           "metric_name": metric_name,
-          "relative_tolerance_pct": _safe_float(tolerance_item.get("relative_tolerance_pct")),
-          "absolute_tolerance": _safe_float(tolerance_item.get("absolute_tolerance")),
+          "relative_tolerance_pct": (
+            round(float(_safe_float(tolerance_item.get("relative_tolerance_pct"))), 2)
+            if _safe_float(tolerance_item.get("relative_tolerance_pct")) is not None
+            else None
+          ),
+          "absolute_tolerance": (
+            int(round(float(_safe_float(tolerance_item.get("absolute_tolerance")))))
+            if _safe_float(tolerance_item.get("absolute_tolerance")) is not None
+            else None
+          ),
           "tolerance_reason": str(tolerance_item.get("tolerance_reason") or "").strip(),
         }
       )

@@ -38,29 +38,29 @@ Important principles:
 - Do not build absurd cash piles or other visibly unrealistic output just because the model can.
 - Do not act like realism, cash strategy, stabilizer, and guarantee are separate stages. They are simultaneous context inside one loop.
 
-How to use the Python scaffold:
-- `recommended_primary_target_metric_keys` is your default starting target set. Use it unless you have a clearly stronger realism reason to replace one of those metrics with a better direct proxy.
-- If `required_primary_metric_candidates` is present, that candidate list is a hard escalation requirement, not a suggestion. Your `primary_target_metric_names` must include at least `minimum_primary_metric_coverage_count` metrics from that list.
-- If `required_primary_metric_candidates` contains fewer than the total minimum primary target count, use those required candidates first and then add the strongest direct issue proxies from `recommended_primary_target_metric_keys` until you reach a valid 3 to 6 metric set.
+How to use the Python contract envelope:
+- `recommended_primary_target_metric_keys` is your default starting target set. Use it unless you have a clearly stronger realism reason to replace one of those metrics with a better direct mapped target row from `driver_target_mapping_lookup`.
+- If `required_primary_metric_candidates` is present, that candidate list is a hard Python coverage requirement. Your `primary_target_metric_names` must include at least `minimum_primary_metric_coverage_count` metrics from that list.
+- If `required_primary_metric_candidates` is present, those are the direct mapped target rows Python expects you to cover for this cycle. Do not invent substitute metrics outside that direct-mapping surface.
 - `required_quarter_target_scaffold` is the response shape you should fill for this cycle's focused quarter set only.
 - `deterministic_issue_packets` and `quarter_target_grid` tell you which issues are driving which quarters and which lever families are relevant.
-- `repair_envelope_packets` are the authoritative issue-level repair layer for this cycle. Use them first. They tell you what each open issue materially requires to close: priority, severity, quarter-aware repair targets, explicit gap, repair envelope, driver paths, spillover flags, and primary target proxy metrics.
+- `repair_envelope_packets` are the authoritative issue-level repair layer for this cycle. Use them first. They tell you what each open issue materially requires to close: priority, severity, quarter-aware repair targets, explicit gap, repair envelope, driver paths, and spillover flags.
 - `deterministic_numeric_guidance.metric_pressure_packets` tell you the current value, target floor or ceiling, acceptable zone, gap, and repair envelope for each pressured metric-quarter pair.
+- `deterministic_numeric_guidance.driver_target_mapping_lookup` is the direct mapping source of truth for this cycle. It tells you exactly which direct FINMO target row each writable lever owns.
 - When repair-envelope fields are present, do not guess the required magnitude. Choose the business strategy, but keep your targets and lever ranges inside the Python-computed pressure envelope unless you have a very strong realism reason to go stronger.
 - `driver_paths.min_delta` and `driver_paths.max_delta` are movement amounts in lever space, not always absolute replacement values. Use `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value` as the authoritative absolute value bounds for `exact_value` or `band` output.
 - `exact_value`, `min_value`, and `max_value` in your `lever_adjustments` response are absolute lever values, not deltas.
 - Stay strictly inside the absolute scaffold bands for every selected lever. Do not emit values outside `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value`.
 - Prefer levers with direct `driver_paths` for the active closure metric. Do not select weak or unsupported side levers unless they are clearly secondary support moves inside the same valid bound system.
-- If a repair target is ratio-based or relationship-based, use its `primary_target_proxy_metrics` and `source_metric_names` to choose real finmo targets that directly move that closure metric. Do not substitute unrelated targets.
+- If an issue was detected through a ratio or relationship metric, do not target that ratio directly. Choose the direct FINMO target rows exposed by `driver_target_mapping_lookup` and `lever_allowed_mapped_repair_targets`.
 - `planner_model_input_packet` is the compact Python translation of the current writable model-input state for this cycle.
 - `planner_finmo_quarter_view` is the compact Python translation of the current quarter-by-quarter finmo outputs for this cycle.
 - `shape_sensitive_contract` is the direct Python rule set for structural levers. Read it explicitly before choosing levers.
-- Do not leave an active material issue without a direct primary-target proxy. If an issue packet points to cash, profitability, staffing, scale, capex, or balance-sheet stress, your chosen primary targets must visibly cover that problem.
-- If `ending_cash` is in the recommended set or active issue packets, treat it as a viability anchor unless you have an unusually strong reason to substitute a better direct proxy.
-- If `controller_escalation_packet.escalation_active` is true, the prior cycle failed the controller progress gate. You must treat that as a hard escalation, not a suggestion.
+- Do not leave an active material issue without direct primary-target coverage. If an issue packet points to cash, profitability, staffing, scale, capex, or balance-sheet stress, your chosen primary targets must visibly cover that problem through direct mapped FINMO rows.
+- If `ending_cash` is in the recommended set or active issue packets, treat it as a viability anchor unless you have an unusually strong reason to substitute another direct mapped target row from a selected financing lever.
 - Meaningful progress is defined by Python as any one of these: canonical `remaining_issue_count` decreases, or the focused issue gap shrinks materially, or the focused issue score improves materially.
-- When escalation is active, use `required_open_issue_codes`, `issue_coverage_requirements`, `required_primary_metric_candidates`, and `required_new_lever_families` to make a substantial correction that directly attacks the still-open issue set.
-- If `issue_coverage_requirements` is present, each open issue listed there must have direct primary-target coverage. Do not answer with a target set that leaves an open issue without one of its required metric proxies.
+- When the retry context asks for materially different coverage, use `required_open_issue_codes`, `issue_coverage_requirements`, `required_primary_metric_candidates`, and `required_new_lever_families` to make a substantial correction that directly attacks the still-open issue set.
+- If `issue_coverage_requirements` is present, each open issue listed there must have direct primary-target coverage. Do not answer with a target set that leaves an open issue without one of its required direct mapped target rows.
 - A substantial correction means materially changing the business move, not lightly rephrasing the same package. If Python asks for new lever families or a minimum new lever count, satisfy that requirement.
 - Use `convergence_scorecard` to understand current score, previous score, score delta, lowest quarter score, pass threshold, and progress status. Your package should move the score up while reducing the canonical remaining issue count.
 - Keep the cycle focused. Work only the top issues, focused quarters, and top lever families that Python scoped for this cycle.
@@ -93,17 +93,24 @@ Field guidance:
 - `change_type`: short label for what kind of change this is
 - `progress_expectation`: what should improve if this works
 - `lever_selection`: exact writable levers solver may move
-- `primary_target_metric_names`: 3 to 6 decisive finmo lines only
-- `targets_by_quarter`: provide metric targets only for the focused required quarters and chosen primary metrics
+- `primary_target_metric_names`: 3 to 6 decisive direct finmo lines only
+- `targets_by_quarter`: provide metric targets for every focused required quarter and every chosen primary metric
 - `target_tolerances`: for every chosen primary metric, provide:
   - `metric_name`
   - `relative_tolerance_pct`
   - `absolute_tolerance`
   - `tolerance_reason`
+- Numeric contract:
+  - all currency values must be whole-dollar integers only
+  - all ratio or percentage values must use at most 2 decimal places
+  - do not emit cents, long decimals, or float noise anywhere
+  - Python will reject misformatted numeric output
 - `lever_adjustments`: provide explicit GPT-authored controls for the selected levers:
   - prefer `band` mode unless the business is already very close
   - use `exact` only when exact placement is truly warranted
   - give realistic bands that solver can actually use
+  - every selected lever must have an explicit `lever_adjustment`; Python will not generate missing adjustments
+  - if you select any capital allocation lever such as `balance_sheet::Distributions`, `balance_sheet::Owner's Capital`, `balance_sheet::Other Equity`, `balance_sheet::Short Term Debt (% of LTD)`, `schedules::Debt Issuance (New Borrowing)`, or `schedules::Debt Repayment (Scheduled)`, you must provide explicit numeric `lever_adjustments`; Python will reject missing capital-control adjustments and will not scaffold financing mix for you
   - for shape-sensitive levers, do not provide a local patch; provide a full forward path
   - include `mapped_repair_targets` on every lever adjustment
   - each mapped repair target must explicitly name:
@@ -113,21 +120,26 @@ Field guidance:
   - only declare mappings you are truly using; Python validates against these declared mappings only
   - if `deterministic_numeric_guidance.lever_allowed_mapped_repair_targets` is present, copy mapped repair targets only from that exact lever-specific list
   - do not attach a lever to a target metric unless that exact lever/issue/metric/quarter mapping appears in `lever_allowed_mapped_repair_targets`
+  - each selected lever's `target_metric_name` must match its direct row in `driver_target_mapping_lookup`
   - never invent or reuse example issue codes; copy `issue_code` exactly from the live `repair_envelope_packets` / `issue_coverage_requirements` context for this cycle
+  - Python will not fill missing mappings, metrics, targets, or lever adjustments; incomplete output will fail
 
 Targeting guidance:
-- Primary targets should reflect what you want to see in finmo, not model-input rows.
+- Primary targets should be the direct FINMO rows owned by your selected levers, not model-input rows and not derived ratios, margins, or aggregates.
 - Set targets quarter by quarter for the focused required quarters only.
 - For shape-sensitive levers, keep `targets_by_quarter` focused to the cycle scope unless you deliberately want broader finmo targets.
 - The full-horizon requirement applies to the selected lever path itself: own the full remaining-quarter trajectory or do not select that lever.
 - Do not over-target every line.
-- Start from `recommended_primary_target_metric_keys`, then fill `required_quarter_target_scaffold`.
+- Start from `recommended_primary_target_metric_keys`, then fill `required_quarter_target_scaffold` using only direct mapped target rows from `driver_target_mapping_lookup`.
 - Every `mapped_repair_targets.target_metric_name` you declare must also appear in `primary_target_metric_names`.
 - `targets_by_quarter` and `target_tolerances` must cover every metric implied by your declared `mapped_repair_targets`, even if that metric was not in your initial preferred target list.
-- If escalation hard-requires only one or two candidate metrics, do not stop there. Keep those candidates in the set and add the strongest remaining direct proxy metrics from `recommended_primary_target_metric_keys` until `primary_target_metric_names` reaches at least 3 metrics.
-- When `repair_envelope_packets` provide `primary_target_proxy_metrics`, those proxies are the default primary target set for the active issue unless you have a clearly stronger realism reason to replace one of them with an equally direct finmo proxy.
-- If you replace a recommended metric, make sure the replacement still directly covers the same active issue family.
-- Choose decisive lines such as revenue, gross_profit, ebitda, net_income, ending_cash, operating_cash_flow, financing_cash_flow, current_assets, ppe, current_liabilities, noncurrent_liabilities, payroll, capital_expenditures, long_term_debt, owners_capital, other_equity, distributions when they genuinely matter.
+- Every targeted quarter must be explicitly present in `targets_by_quarter`.
+- Every `targets_by_quarter.metric_targets.target_value` must be a whole-dollar integer.
+- Every `target_tolerances.absolute_tolerance` must be a whole-dollar integer.
+- Every `target_tolerances.relative_tolerance_pct` must use at most 2 decimal places.
+- If Python hard-requires only one or two candidate metrics, keep those direct mapped rows in the set and only add additional direct mapped rows from selected levers when needed to reach a valid 3 to 6 metric set.
+- If you replace a recommended metric, make sure the replacement is still a direct mapped FINMO row for one of the selected levers and still covers the same active issue family.
+- Choose decisive direct lines such as revenue, cogs, marketing, research_and_development, lease_rent, g_and_a, interest, depreciation, taxes, accounts_receivable, inventory, accounts_payable, prepaid_expenses, deferred_revenue, short_term_debt, owners_capital, other_equity, distributions, debt_issuance, debt_repayment, capital_expenditures, lease_principal_repayments, and lease_net_additions when they genuinely matter.
 
 Tolerance guidance:
 - Tolerances should be big enough to allow practical convergence and small enough to preserve realism.
@@ -141,6 +153,8 @@ Lever guidance:
 - Use ranked levers and driver paths to prioritize the highest-impact repair routes first.
 - If financing is needed, say so through the lever package.
 - If scale, staffing support, pricing, capex timing, distributions, debt, or equity need to move, use the operating and financing levers Python exposed. Payroll itself is derived after those moves.
+- For currency-like levers, `exact_value`, `min_value`, and `max_value` must be whole-dollar integers.
+- For ratio-like levers, `exact_value`, `min_value`, and `max_value` must use at most 2 decimal places.
 - If a selected lever is marked shape-sensitive in the Python contract, your lever_adjustments entry must include:
   - `shape_type`: one of `ramp`, `step_up`, `hiring_block`, `moderation`, `delayed_follow_through`
   - `values` or `trajectory_values`: `Q1` through `Q20`, with numeric values for every remaining quarter from the first affected quarter onward
