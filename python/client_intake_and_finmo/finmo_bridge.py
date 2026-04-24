@@ -200,16 +200,20 @@ def _simple_input_semantics(section_key: str, label: str) -> Dict[str, str]:
       "research & development",
       "general & administrative",
       "interest rate",
-      "depreciation",
       "taxes",
     }:
       return {"value_kind": "ratio", "input_semantics": "percent_of_revenue"}
+    if normalized_label == "depreciation":
+      return {"value_kind": "ratio", "input_semantics": "percent_of_prior_ppe"}
     if normalized_label in {"lease", "payroll"}:
       return {"value_kind": "direct_number", "input_semantics": "quarter_currency"}
   if normalized_section == "balance_sheet":
     if normalized_label in {"accounts receivable days", "inventory days", "accounts payable days"}:
       return {"value_kind": "day_count", "input_semantics": "days"}
-    if normalized_label in {"prepaid expenses", "deferred revnue"}:
+    if normalized_label in {
+      "prepaid expenses (% of revenue)",
+      "deferred revenue (% of revenue)",
+    }:
       return {"value_kind": "ratio", "input_semantics": "percent_of_revenue"}
     if normalized_label == "short term debt (% of ltd)":
       return {"value_kind": "ratio", "input_semantics": "percent_of_long_term_debt"}
@@ -675,6 +679,12 @@ def _operating_anchor_baseline_inputs(
 _PAYROLL_DERIVATION_POLICY_VERSION = "payroll_revenue_oews_policy_v2"
 _PAYROLL_DERIVATION_SOURCE = "revenue_oews_derived"
 _PAYROLL_DERIVATION_LEVER_ID = "expenses::Payroll"
+_CAPEX_DEPRECIATION_POLICY_KEY = "capex_depreciation_policy"
+_CAPEX_DEPRECIATION_POLICY_VERSION = "structural_capacity_capex_useful_life_v1"
+_CAPEX_DEPRECIATION_SOURCE = "structural_capacity_ppe_derived"
+_CAPEX_MAINTENANCE_RATE = 0.10
+_CAPEX_USEFUL_LIFE_YEARS = 5.0
+_CAPEX_DEPRECIATION_MIN_PRIOR_PPE = 1e-6
 _DEFAULT_AVG_ANNUAL_SALARY = 150000.0
 _DEFAULT_REVENUE_PER_EMPLOYEE = 650000.0
 _PAYROLL_RATIO_FLOOR = 0.05
@@ -831,6 +841,215 @@ def _normalized_payroll_derivation_policy(
   }
 
 
+def _default_capex_depreciation_policy(
+  *,
+  financials_json: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  explicit_capex_overrides: Optional[Dict[int, float]] = None,
+) -> Dict[str, Any]:
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  initial_assets = float(max(0.0, _safe_float(financials.get("initial_assets")) or 0.0))
+  if initial_assets <= 0.0:
+    raise ValueError(
+      "capex_depreciation_initial_assets_missing: initial_assets is required and must be greater than zero for deterministic capex/depreciation derivation."
+    )
+  normalized_overrides = {
+    int(quarter_index): round(max(0.0, _safe_float(value) or 0.0), 6)
+    for quarter_index, value in ((explicit_capex_overrides or {}).items())
+    if int(_safe_float(quarter_index) or 0) >= 1 and _safe_float(value) is not None
+  }
+  return {
+    "policy_version": _CAPEX_DEPRECIATION_POLICY_VERSION,
+    "capex_source": _CAPEX_DEPRECIATION_SOURCE,
+    "maintenance_rate": float(_CAPEX_MAINTENANCE_RATE),
+    "useful_life_years": float(_CAPEX_USEFUL_LIFE_YEARS),
+    "initial_assets": float(initial_assets),
+    "initial_assets_source": "financials_json.initial_assets",
+    "explicit_capex_overrides": normalized_overrides,
+    "business_type": str(ops.get("business_type") or "").strip() or None,
+    "naics": str(ops.get("business_naics_6") or "").strip() or None,
+  }
+
+
+def _normalized_capex_depreciation_policy(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  raw_policy = (
+    policies.get(_CAPEX_DEPRECIATION_POLICY_KEY)
+    if isinstance(policies.get(_CAPEX_DEPRECIATION_POLICY_KEY), dict)
+    else {}
+  )
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  fallback_initial_assets = round(
+    max(
+      0.0,
+      _safe_float(raw_policy.get("initial_assets"))
+      or _safe_float((schedules or {}).get("ppe_opening_balance_seed"))
+      or 0.0,
+    ),
+    6,
+  )
+  explicit_capex_overrides = {
+    int(_safe_float(quarter_index) or 0): round(max(0.0, _safe_float(value) or 0.0), 6)
+    for quarter_index, value in (((raw_policy.get("explicit_capex_overrides") or {}) if isinstance(raw_policy.get("explicit_capex_overrides"), dict) else {}).items())
+    if int(_safe_float(quarter_index) or 0) >= 1 and _safe_float(value) is not None
+  }
+  return {
+    "policy_version": str(raw_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip() or _CAPEX_DEPRECIATION_POLICY_VERSION,
+    "capex_source": str(raw_policy.get("capex_source") or _CAPEX_DEPRECIATION_SOURCE).strip() or _CAPEX_DEPRECIATION_SOURCE,
+    "maintenance_rate": float(max(0.0, _safe_ratio(raw_policy.get("maintenance_rate")) or _CAPEX_MAINTENANCE_RATE)),
+    "useful_life_years": float(max(1.0, _safe_float(raw_policy.get("useful_life_years")) or _CAPEX_USEFUL_LIFE_YEARS)),
+    "initial_assets": float(fallback_initial_assets),
+    "initial_assets_source": (
+      str(raw_policy.get("initial_assets_source") or "").strip()
+      or ("model_input.sections.schedules.ppe_opening_balance_seed" if fallback_initial_assets > 0.0 else None)
+    ),
+    "explicit_capex_overrides": explicit_capex_overrides,
+    "business_type": str(raw_policy.get("business_type") or "").strip() or None,
+    "naics": str(raw_policy.get("naics") or "").strip() or None,
+  }
+
+
+def _structural_capacity_series_from_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  revenue_rows = [
+    row for row in (sections.get("revenue") or [])
+    if isinstance(row, dict) and str(row.get("driver") or "").strip().lower() == "capacity"
+  ]
+  if not revenue_rows:
+    raise ValueError(
+      "capex_depreciation_capacity_signal_missing: structural Capacity driver rows are required in model_input.sections.revenue."
+    )
+  initial_capacity = 0.0
+  live_capacity = [0.0 for _ in range(max(0, int(live_count or 0)))]
+  for row in revenue_rows:
+    stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    initial_capacity += max(0.0, float(stub_value))
+    for idx, value in enumerate(live_values[:live_count]):
+      live_capacity[idx] += max(0.0, float(_safe_float(value) or 0.0))
+  initial_capacity = round(initial_capacity, 6)
+  live_capacity = [round(float(value), 6) for value in live_capacity]
+  if initial_capacity <= 0.0:
+    raise ValueError(
+      "capex_depreciation_initial_capacity_missing: total structural opening Capacity must be greater than zero."
+    )
+  return {
+    "initial_capacity": initial_capacity,
+    "live_capacity_by_quarter": live_capacity,
+  }
+
+
+def _derived_capex_and_depreciation_runtime(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  live_count: int,
+  policy: Dict[str, Any],
+) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  opening_ppe = round(max(0.0, _safe_float((schedules or {}).get("ppe_opening_balance_seed")) or 0.0), 6)
+  initial_assets = round(max(0.0, float(_safe_float(policy.get("initial_assets")) or 0.0)), 6)
+  if initial_assets <= 0.0:
+    raise ValueError(
+      "capex_depreciation_initial_assets_missing: initial_assets is required and must be greater than zero for deterministic capex/depreciation derivation."
+    )
+  capacity_runtime = _structural_capacity_series_from_model_input(
+    payload,
+    live_count=live_count,
+  )
+  initial_capacity = float(capacity_runtime.get("initial_capacity") or 0.0)
+  if initial_capacity <= 0.0:
+    raise ValueError(
+      "capex_depreciation_initial_capacity_missing: total structural opening Capacity must be greater than zero."
+    )
+  capital_per_capacity_unit = round(initial_assets / initial_capacity, 6)
+  maintenance_rate = float(policy.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE)
+  useful_life_years = float(policy.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS)
+  explicit_capex_overrides = (
+    policy.get("explicit_capex_overrides")
+    if isinstance(policy.get("explicit_capex_overrides"), dict)
+    else {}
+  )
+
+  previous_capacity = initial_capacity
+  previous_ppe = opening_ppe
+  capex_live_values: List[float] = []
+  depreciation_percent_live_values: List[float] = []
+  depreciation_amount_live_values: List[float] = []
+  quarter_logs: List[Dict[str, Any]] = []
+  for quarter_index, current_capacity in enumerate(capacity_runtime.get("live_capacity_by_quarter") or [], start=1):
+    structural_capacity = round(max(0.0, _safe_float(current_capacity) or 0.0), 6)
+    capacity_growth_units = round(max(0.0, structural_capacity - previous_capacity), 6)
+    maintenance_capex = round(max(0.0, previous_ppe) * maintenance_rate, 6)
+    expansion_capex = round(capacity_growth_units * capital_per_capacity_unit, 6)
+    derived_capex = round(maintenance_capex + expansion_capex, 6)
+    explicit_capex = _safe_float(explicit_capex_overrides.get(quarter_index))
+    final_capex = round(max(0.0, explicit_capex), 6) if explicit_capex is not None else derived_capex
+    depreciation_dollars = round(final_capex / useful_life_years, 6)
+    if previous_ppe <= _CAPEX_DEPRECIATION_MIN_PRIOR_PPE:
+      depreciation_percent = 0.0
+      modeled_depreciation = 0.0
+      zero_prior_ppe = True
+    else:
+      depreciation_percent = round(depreciation_dollars / previous_ppe, 6)
+      modeled_depreciation = round(depreciation_percent * previous_ppe, 6)
+      zero_prior_ppe = False
+    closing_ppe = round(max(0.0, previous_ppe + final_capex - modeled_depreciation), 6)
+    capex_live_values.append(final_capex)
+    depreciation_percent_live_values.append(depreciation_percent)
+    depreciation_amount_live_values.append(modeled_depreciation)
+    quarter_logs.append(
+      {
+        "quarter_index": quarter_index,
+        "prior_ppe": round(previous_ppe, 6),
+        "structural_capacity": structural_capacity,
+        "previous_structural_capacity": round(previous_capacity, 6),
+        "capacity_growth_units": capacity_growth_units,
+        "capital_per_capacity_unit": capital_per_capacity_unit,
+        "maintenance_rate": round(maintenance_rate, 6),
+        "maintenance_capex": maintenance_capex,
+        "expansion_capex": expansion_capex,
+        "derived_capex": derived_capex,
+        "explicit_capex_override": round(max(0.0, explicit_capex), 6) if explicit_capex is not None else None,
+        "final_capex_used": final_capex,
+        "useful_life_years": useful_life_years,
+        "depreciation_dollars": depreciation_dollars,
+        "depreciation_percent": depreciation_percent,
+        "modeled_depreciation": modeled_depreciation,
+        "closing_ppe": closing_ppe,
+        "zero_prior_ppe": zero_prior_ppe,
+      }
+    )
+    previous_capacity = structural_capacity
+    previous_ppe = closing_ppe
+  if len(capex_live_values) != live_count or len(depreciation_percent_live_values) != live_count:
+    raise ValueError(
+      "capex_depreciation_series_contract_invalid: derived capex/depreciation series did not cover every live quarter."
+    )
+  return {
+    "initial_assets": initial_assets,
+    "initial_capacity": round(initial_capacity, 6),
+    "opening_ppe": opening_ppe,
+    "capital_per_capacity_unit": capital_per_capacity_unit,
+    "maintenance_rate": round(maintenance_rate, 6),
+    "useful_life_years": round(useful_life_years, 6),
+    "capex_live_values": capex_live_values,
+    "depreciation_percent_live_values": depreciation_percent_live_values,
+    "depreciation_amount_live_values": depreciation_amount_live_values,
+    "quarter_logs": quarter_logs,
+  }
+
+
 def _revenue_driver_live_series(
   model_input_json: Optional[Dict[str, Any]],
   *,
@@ -900,82 +1119,66 @@ def apply_derived_driver_policies_to_model_input(
   if not isinstance(sections, dict):
     return next_payload
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  schedule_rows = [row for row in ((schedules or {}).get("rows") or []) if isinstance(row, dict)]
+  period_live_count = len([
+    item for item in (next_payload.get("periods") or [])
+    if isinstance(item, dict) and not bool(item.get("is_stub"))
+  ])
+  value_live_count = max(
+    [
+      max(0, len(list(row.get("values") or [])) - 1)
+      for row in (expense_rows + schedule_rows)
+      if isinstance(row, dict)
+    ] or [0]
+  )
+  live_count = max(0, period_live_count, value_live_count)
+
   payroll_row = next((
     row for row in expense_rows
     if str(row.get("label") or "").strip() == "Payroll"
   ), None)
-  if not isinstance(payroll_row, dict):
-    return next_payload
-
-  values = list(payroll_row.get("values") or [])
-  live_count = max(
-    0,
-    len([
-      item for item in (next_payload.get("periods") or [])
-      if isinstance(item, dict) and not bool(item.get("is_stub"))
-    ])
-    or (len(values) - 1 if len(values) >= 1 else 0),
-  )
-  stub_value, _existing_live_values = _row_stub_and_live_values(values, live_count=live_count)
-  policy = _normalized_payroll_derivation_policy(next_payload)
-  revenue_by_quarter = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
-  avg_annual_salary = float(policy.get("avg_salary") or _DEFAULT_AVG_ANNUAL_SALARY)
-  revenue_per_employee = float(policy.get("revenue_per_employee") or _DEFAULT_REVENUE_PER_EMPLOYEE)
-  derived_live_values: List[float] = []
-  quarter_logs: List[Dict[str, Any]] = []
-  previous_implied_fte_raw: Optional[float] = None
-  for idx, quarter_revenue in enumerate(revenue_by_quarter, start=1):
-    implied_fte_raw = float((max(0.0, quarter_revenue) * 4.0) / max(revenue_per_employee, 1.0)) if quarter_revenue > 0.0 else 0.0
-    derived_payroll = round(float((max(0.0, quarter_revenue) * avg_annual_salary) / max(revenue_per_employee, 1.0)), 6) if quarter_revenue > 0.0 else 0.0
-    payroll_to_revenue = round(float(derived_payroll / quarter_revenue), 6) if quarter_revenue > 0.0 else 0.0
-    fte_growth_qoq = None
-    if previous_implied_fte_raw is not None and previous_implied_fte_raw > 0.0:
-      fte_growth_qoq = round(float((implied_fte_raw - previous_implied_fte_raw) / previous_implied_fte_raw), 6)
-    derived_live_values.append(derived_payroll)
-    quarter_logs.append(
-      {
-        "quarter_index": idx,
-        "payroll_source": _PAYROLL_DERIVATION_SOURCE,
-        "quarter_revenue": round(float(max(0.0, quarter_revenue)), 6),
-        "revenue_per_employee": round(float(revenue_per_employee), 6),
-        "avg_salary": round(float(avg_annual_salary), 6),
-        "implied_fte_raw": round(float(implied_fte_raw), 6),
-        "derived_payroll": derived_payroll,
-        "payroll_to_revenue": payroll_to_revenue,
-        "fte_growth_qoq": fte_growth_qoq,
-      }
-    )
-    previous_implied_fte_raw = float(implied_fte_raw)
-
-  payroll_row["controller_write"] = False
-  payroll_row["derived_driver"] = _PAYROLL_DERIVATION_SOURCE
-  payroll_row["payroll_derivation"] = {
-    "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
-    "payroll_source": _PAYROLL_DERIVATION_SOURCE,
-    "driver_basis": str(policy.get("driver_basis") or "quarter_revenue").strip() or "quarter_revenue",
-    "salary_basis": str(policy.get("salary_basis") or "oews_all_occupations_mean").strip() or "oews_all_occupations_mean",
-    "revenue_per_employee": round(float(revenue_per_employee), 6),
-    "avg_salary": round(float(avg_annual_salary), 6),
-    "revenue_per_employee_source": str(policy.get("revenue_per_employee_source") or "").strip() or None,
-    "avg_salary_source": str(policy.get("avg_salary_source") or "").strip() or None,
-    "payroll_ratio_floor": round(float(policy.get("payroll_ratio_floor") or _PAYROLL_RATIO_FLOOR), 6),
-    "payroll_ratio_ceiling": round(float(policy.get("payroll_ratio_ceiling") or _PAYROLL_RATIO_CEILING), 6),
-    "max_fte_growth_per_quarter": round(float(policy.get("max_fte_growth_per_quarter") or _MAX_FTE_GROWTH_PER_QUARTER), 6),
-    "quarter_logs": deepcopy(quarter_logs),
-  }
-  payroll_row["values"] = _compose_period_values(
-    stub_value=stub_value,
-    live_values=derived_live_values,
-  )
-
   next_payload.setdefault("derived_driver_policies", {})
-  if isinstance(next_payload.get("derived_driver_policies"), dict):
-    next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = deepcopy(policy)
   next_payload.setdefault("derived_driver_runtime", {})
-  if isinstance(next_payload.get("derived_driver_runtime"), dict):
-    next_payload["derived_driver_runtime"][_PAYROLL_DERIVATION_LEVER_ID] = {
-      "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+
+  if isinstance(payroll_row, dict):
+    values = list(payroll_row.get("values") or [])
+    stub_value, _existing_live_values = _row_stub_and_live_values(values, live_count=live_count)
+    policy = _normalized_payroll_derivation_policy(next_payload)
+    revenue_by_quarter = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
+    avg_annual_salary = float(policy.get("avg_salary") or _DEFAULT_AVG_ANNUAL_SALARY)
+    revenue_per_employee = float(policy.get("revenue_per_employee") or _DEFAULT_REVENUE_PER_EMPLOYEE)
+    derived_live_values: List[float] = []
+    quarter_logs: List[Dict[str, Any]] = []
+    previous_implied_fte_raw: Optional[float] = None
+    for idx, quarter_revenue in enumerate(revenue_by_quarter, start=1):
+      implied_fte_raw = float((max(0.0, quarter_revenue) * 4.0) / max(revenue_per_employee, 1.0)) if quarter_revenue > 0.0 else 0.0
+      derived_payroll = round(float((max(0.0, quarter_revenue) * avg_annual_salary) / max(revenue_per_employee, 1.0)), 6) if quarter_revenue > 0.0 else 0.0
+      payroll_to_revenue = round(float(derived_payroll / quarter_revenue), 6) if quarter_revenue > 0.0 else 0.0
+      fte_growth_qoq = None
+      if previous_implied_fte_raw is not None and previous_implied_fte_raw > 0.0:
+        fte_growth_qoq = round(float((implied_fte_raw - previous_implied_fte_raw) / previous_implied_fte_raw), 6)
+      derived_live_values.append(derived_payroll)
+      quarter_logs.append(
+        {
+          "quarter_index": idx,
+          "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+          "quarter_revenue": round(float(max(0.0, quarter_revenue)), 6),
+          "revenue_per_employee": round(float(revenue_per_employee), 6),
+          "avg_salary": round(float(avg_annual_salary), 6),
+          "implied_fte_raw": round(float(implied_fte_raw), 6),
+          "derived_payroll": derived_payroll,
+          "payroll_to_revenue": payroll_to_revenue,
+          "fte_growth_qoq": fte_growth_qoq,
+        }
+      )
+      previous_implied_fte_raw = float(implied_fte_raw)
+
+    payroll_row["controller_write"] = False
+    payroll_row["derived_driver"] = _PAYROLL_DERIVATION_SOURCE
+    payroll_row["payroll_derivation"] = {
       "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
+      "payroll_source": _PAYROLL_DERIVATION_SOURCE,
       "driver_basis": str(policy.get("driver_basis") or "quarter_revenue").strip() or "quarter_revenue",
       "salary_basis": str(policy.get("salary_basis") or "oews_all_occupations_mean").strip() or "oews_all_occupations_mean",
       "revenue_per_employee": round(float(revenue_per_employee), 6),
@@ -986,6 +1189,122 @@ def apply_derived_driver_policies_to_model_input(
       "payroll_ratio_ceiling": round(float(policy.get("payroll_ratio_ceiling") or _PAYROLL_RATIO_CEILING), 6),
       "max_fte_growth_per_quarter": round(float(policy.get("max_fte_growth_per_quarter") or _MAX_FTE_GROWTH_PER_QUARTER), 6),
       "quarter_logs": deepcopy(quarter_logs),
+    }
+    payroll_row["values"] = _compose_period_values(
+      stub_value=stub_value,
+      live_values=derived_live_values,
+    )
+    if isinstance(next_payload.get("derived_driver_policies"), dict):
+      next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = deepcopy(policy)
+    if isinstance(next_payload.get("derived_driver_runtime"), dict):
+      next_payload["derived_driver_runtime"][_PAYROLL_DERIVATION_LEVER_ID] = {
+        "payroll_source": _PAYROLL_DERIVATION_SOURCE,
+        "policy_version": str(policy.get("policy_version") or _PAYROLL_DERIVATION_POLICY_VERSION).strip(),
+        "driver_basis": str(policy.get("driver_basis") or "quarter_revenue").strip() or "quarter_revenue",
+        "salary_basis": str(policy.get("salary_basis") or "oews_all_occupations_mean").strip() or "oews_all_occupations_mean",
+        "revenue_per_employee": round(float(revenue_per_employee), 6),
+        "avg_salary": round(float(avg_annual_salary), 6),
+        "revenue_per_employee_source": str(policy.get("revenue_per_employee_source") or "").strip() or None,
+        "avg_salary_source": str(policy.get("avg_salary_source") or "").strip() or None,
+        "payroll_ratio_floor": round(float(policy.get("payroll_ratio_floor") or _PAYROLL_RATIO_FLOOR), 6),
+        "payroll_ratio_ceiling": round(float(policy.get("payroll_ratio_ceiling") or _PAYROLL_RATIO_CEILING), 6),
+        "max_fte_growth_per_quarter": round(float(policy.get("max_fte_growth_per_quarter") or _MAX_FTE_GROWTH_PER_QUARTER), 6),
+        "quarter_logs": deepcopy(quarter_logs),
+      }
+
+  depreciation_row = next((
+    row for row in expense_rows
+    if str(row.get("label") or "").strip() == "Depreciation"
+  ), None)
+  if not isinstance(depreciation_row, dict):
+    raise ValueError(
+      "capex_depreciation_row_missing: model_input.sections.expenses must include the Depreciation row."
+    )
+  if not isinstance(schedules, dict):
+    raise ValueError(
+      "capex_depreciation_schedule_missing: model_input.sections.schedules is required for deterministic capex/depreciation derivation."
+    )
+  capex_row = next((
+    row for row in schedule_rows
+    if str(row.get("label") or "").strip() == "Capital Expenditures"
+  ), None)
+  if not isinstance(capex_row, dict):
+    raise ValueError(
+      "capex_depreciation_row_missing: model_input.sections.schedules.rows must include the Capital Expenditures row."
+    )
+
+  capex_policy = _normalized_capex_depreciation_policy(next_payload)
+  capex_runtime = _derived_capex_and_depreciation_runtime(
+    model_input_json=next_payload,
+    live_count=live_count,
+    policy=capex_policy,
+  )
+  capex_stub_value, _existing_capex_live_values = _row_stub_and_live_values(
+    capex_row.get("values") or [],
+    live_count=live_count,
+  )
+  depreciation_stub_value, _existing_depreciation_live_values = _row_stub_and_live_values(
+    depreciation_row.get("values") or [],
+    live_count=live_count,
+  )
+  explicit_override_quarters = sorted(
+    quarter_index
+    for quarter_index in (
+      int(_safe_float(item) or 0)
+      for item in ((capex_policy.get("explicit_capex_overrides") or {}).keys() if isinstance(capex_policy.get("explicit_capex_overrides"), dict) else [])
+    )
+    if quarter_index >= 1
+  )
+  capex_row["derived_driver"] = _CAPEX_DEPRECIATION_SOURCE
+  capex_row["value_kind"] = "direct_number"
+  capex_row["input_semantics"] = "capital_expenditures_cash"
+  capex_row["capex_depreciation"] = {
+    "policy_version": str(capex_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
+    "capex_source": _CAPEX_DEPRECIATION_SOURCE,
+    "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE), 6),
+    "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
+    "capital_per_capacity_unit": round(float(capex_runtime.get("capital_per_capacity_unit") or 0.0), 6),
+    "initial_assets": round(float(capex_runtime.get("initial_assets") or 0.0), 6),
+    "initial_capacity": round(float(capex_runtime.get("initial_capacity") or 0.0), 6),
+    "opening_ppe": round(float(capex_runtime.get("opening_ppe") or 0.0), 6),
+    "explicit_override_quarters": explicit_override_quarters,
+    "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
+  }
+  capex_row["values"] = _compose_period_values(
+    stub_value=capex_stub_value,
+    live_values=list(capex_runtime.get("capex_live_values") or []),
+  )
+  depreciation_row["derived_driver"] = _CAPEX_DEPRECIATION_SOURCE
+  depreciation_row["value_kind"] = "ratio"
+  depreciation_row["input_semantics"] = "percent_of_prior_ppe"
+  depreciation_row["capex_depreciation"] = {
+    "policy_version": str(capex_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
+    "depreciation_source": _CAPEX_DEPRECIATION_SOURCE,
+    "depreciation_driver_basis": "final_capex_used",
+    "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
+    "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
+  }
+  depreciation_row["values"] = _compose_period_values(
+    stub_value=depreciation_stub_value,
+    live_values=list(capex_runtime.get("depreciation_percent_live_values") or []),
+  )
+  if isinstance(next_payload.get("derived_driver_policies"), dict):
+    next_payload["derived_driver_policies"][_CAPEX_DEPRECIATION_POLICY_KEY] = deepcopy(capex_policy)
+  if isinstance(next_payload.get("derived_driver_runtime"), dict):
+    next_payload["derived_driver_runtime"][_CAPEX_DEPRECIATION_POLICY_KEY] = {
+      "capex_source": _CAPEX_DEPRECIATION_SOURCE,
+      "policy_version": str(capex_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
+      "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE), 6),
+      "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
+      "capital_per_capacity_unit": round(float(capex_runtime.get("capital_per_capacity_unit") or 0.0), 6),
+      "initial_assets": round(float(capex_runtime.get("initial_assets") or 0.0), 6),
+      "initial_capacity": round(float(capex_runtime.get("initial_capacity") or 0.0), 6),
+      "opening_ppe": round(float(capex_runtime.get("opening_ppe") or 0.0), 6),
+      "explicit_capex_overrides": deepcopy(capex_policy.get("explicit_capex_overrides") or {}),
+      "capex_live_values": deepcopy(capex_runtime.get("capex_live_values") or []),
+      "depreciation_percent_live_values": deepcopy(capex_runtime.get("depreciation_percent_live_values") or []),
+      "depreciation_amount_live_values": deepcopy(capex_runtime.get("depreciation_amount_live_values") or []),
+      "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
     }
   return next_payload
 
@@ -2061,7 +2380,6 @@ def _build_model_input_overlay(
   )
   g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
   interest_rate_baseline = _ratio((financials_json or {}).get("annual_interest_payment"), (financials_json or {}).get("total_debt_outstanding"))
-  depreciation_ratio_baseline = _ratio((financials_json or {}).get("accumulated_depreciation"), revenue_total_year1)
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -2084,7 +2402,7 @@ def _build_model_input_overlay(
       elif seed_slots and label == "Interest Rate":
         values.append(round(_safe_float(slot.get("interest_rate")) or 0.0, 6))
       elif seed_slots and label == "Depreciation":
-        values.append(round(_safe_float(slot.get("depreciation_percent")) or 0.0, 6))
+        values.append(0.0)
       elif seed_slots and label == "Taxes":
         values.append(round(_safe_float(slot.get("tax_percent")) or 0.0, 6))
       elif label == "Cost of Goods Sold":
@@ -2102,7 +2420,7 @@ def _build_model_input_overlay(
       elif label == "Interest Rate":
         values.append(round(interest_rate_baseline, 6))
       elif label == "Depreciation":
-        values.append(round(depreciation_ratio_baseline if not projection_mode else _ratio(slot.get("depreciation"), revenue), 6))
+        values.append(0.0)
       elif label == "Taxes":
         values.append(round(_safe_ratio((financials_json or {}).get("taxes_percent")) or (_ratio(slot.get("taxes"), revenue) if projection_mode else 0.0), 6))
       else:
@@ -2172,8 +2490,14 @@ def _build_model_input_overlay(
   schedules["inventory_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0), 6)
   schedules["accounts_payable_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0), 6)
   schedules["short_term_debt_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("short_term_debt")) or 0.0), 6)
-  annual_capex = _safe_float((financials_json or {}).get("current_capex")) or 0.0
-  quarterly_capex = round(max(0.0, annual_capex) / 4.0, 6) if annual_capex else 0.0
+  explicit_capex_overrides: Dict[int, float] = {}
+  for quarter_index, slot in enumerate(slots, start=1):
+    if not isinstance(slot, dict):
+      continue
+    raw_capex = slot.get("capex")
+    if raw_capex in {None, ""}:
+      continue
+    explicit_capex_overrides[quarter_index] = round(max(0.0, _safe_float(raw_capex) or 0.0), 6)
   for row in [item for item in (schedules.get("rows") or []) if isinstance(item, dict)]:
     label = str(row.get("label") or "").strip()
     base_stub_value, base_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
@@ -2184,16 +2508,10 @@ def _build_model_input_overlay(
     elif label == LEGACY_NET_DEBT_LABEL:
       row["values"] = _compose_period_values(stub_value=base_stub_value, live_values=[0.0 for _ in slots])
     elif label == "Capital Expenditures":
-      if projection_mode:
-        row["values"] = _compose_period_values(
-          stub_value=base_stub_value,
-          live_values=[round(max(0.0, _safe_float(slot.get("capex")) or 0.0), 6) for slot in slots],
-        )
-      else:
-        row["values"] = _compose_period_values(
-          stub_value=base_stub_value,
-          live_values=[quarterly_capex for _ in slots],
-        )
+      row["values"] = _compose_period_values(
+        stub_value=base_stub_value,
+        live_values=[explicit_capex_overrides.get(idx, 0.0) for idx in range(1, len(slots) + 1)],
+      )
     elif label == "Less: Principal Repayments":
       annual_principal = _safe_float((financials_json or {}).get("annual_principal_payment")) or 0.0
       quarterly = round(max(0.0, annual_principal) / 4.0, 6) if annual_principal else 0.0
@@ -2214,6 +2532,11 @@ def _build_model_input_overlay(
     next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = _default_payroll_derivation_policy(
       financials_json=financials_json,
       ops_json=ops_json,
+    )
+    next_payload["derived_driver_policies"][_CAPEX_DEPRECIATION_POLICY_KEY] = _default_capex_depreciation_policy(
+      financials_json=financials_json,
+      ops_json=ops_json,
+      explicit_capex_overrides=explicit_capex_overrides,
     )
   anchored_payload = apply_p_and_l_q0_anchor_to_model_input(
     model_input_json=next_payload,
