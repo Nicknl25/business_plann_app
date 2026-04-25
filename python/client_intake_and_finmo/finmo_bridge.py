@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -1006,18 +1006,26 @@ def _shape_revenue_capacity_and_utilization(
     utilization_row = group["rows"]["utilization"]
     unit_price_row = group["rows"]["unit price"]
     capacity_stub = round(float(group["stub_values"].get("capacity") or 0.0), 6)
-    if capacity_stub <= 0.0:
+    capacity_values = group["live_values"].get("capacity") or [0.0 for _ in range(live_count)]
+    initial_capacity = next(
+      (
+        round(max(0.0, _safe_float(value) or 0.0), 6)
+        for value in capacity_values[:live_count]
+        if round(max(0.0, _safe_float(value) or 0.0), 6) > 0.0
+      ),
+      0.0,
+    )
+    if initial_capacity <= 0.0:
       raise ValueError(
-        f"capacity_shaping_initial_capacity_missing: revenue_slot_key {key} must have a positive structural Capacity stub."
+        f"capacity_shaping_initial_capacity_missing: revenue_slot_key {key} must have a positive structural Capacity value in the live forecast."
       )
 
-    capacity_values = group["live_values"].get("capacity") or [0.0 for _ in range(live_count)]
     unit_price_values = group["live_values"].get("unit price") or [0.0 for _ in range(live_count)]
     utilization_values = group["live_values"].get("utilization") or [0.0 for _ in range(live_count)]
     shaped_capacity_values: List[float] = []
     shaped_utilization_values: List[float] = []
     quarter_logs: List[Dict[str, Any]] = []
-    previous_capacity = capacity_stub
+    previous_capacity = initial_capacity
 
     for idx in range(max(0, int(live_count or 0))):
       quarter_index = idx + 1
@@ -1109,6 +1117,7 @@ def _shape_revenue_capacity_and_utilization(
         "lob": group.get("lob") or None,
         "product": group.get("product") or None,
         "capacity_stub": capacity_stub,
+        "initial_live_capacity": initial_capacity,
         "utilization_stub": round(float(group["stub_values"].get("utilization") or 0.0), 6),
         "unit_price_stub": round(float(group["stub_values"].get("unit price") or 0.0), 6),
         "expansion_quarters": [item["quarter_index"] for item in quarter_logs if item.get("expansion_triggered")],
@@ -1148,18 +1157,24 @@ def _structural_capacity_series_from_model_input(
     raise ValueError(
       "capex_depreciation_capacity_signal_missing: structural Capacity driver rows are required in model_input.sections.revenue."
     )
-  initial_capacity = 0.0
   live_capacity = [0.0 for _ in range(max(0, int(live_count or 0)))]
   for row in revenue_rows:
-    stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
-    initial_capacity += max(0.0, float(stub_value))
+    _stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
     for idx, value in enumerate(live_values[:live_count]):
       live_capacity[idx] += max(0.0, float(_safe_float(value) or 0.0))
+  initial_capacity = next(
+    (
+      round(max(0.0, float(value)), 6)
+      for value in live_capacity
+      if round(max(0.0, float(value)), 6) > 0.0
+    ),
+    0.0,
+  )
   initial_capacity = round(initial_capacity, 6)
   live_capacity = [round(float(value), 6) for value in live_capacity]
   if initial_capacity <= 0.0:
     raise ValueError(
-      "capex_depreciation_initial_capacity_missing: total structural opening Capacity must be greater than zero."
+      "capex_depreciation_initial_capacity_missing: total structural live-forecast Capacity must be greater than zero."
     )
   return {
     "initial_capacity": initial_capacity,
@@ -1539,91 +1554,6 @@ def apply_derived_driver_policies_to_model_input(
       "capacity_shaping": deepcopy(capacity_shaping_runtime),
       "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
     }
-  return next_payload
-
-
-def _revenue_stub_anchor_value(
-  row: Dict[str, Any],
-  *,
-  ops_json: Optional[Dict[str, Any]],
-) -> float:
-  ops_catalog = _ops_revenue_catalog(ops_json if isinstance(ops_json, dict) else {})
-  resolved_identity = _resolve_row_identity_from_catalog(
-    row_lob=row.get("placeholder_lob") or row.get("lob"),
-    row_product=row.get("placeholder_product") or row.get("product"),
-    ops_catalog=ops_catalog,
-    revenue_slot_key=str(row.get("revenue_slot_key") or "").strip() or None,
-  )
-  baseline_driver_map = resolved_identity if isinstance(resolved_identity, dict) else {}
-  driver = str(row.get("driver") or "").strip()
-  if driver == "Capacity":
-    return round(_safe_float(baseline_driver_map.get("capacity")) or 0.0, 6)
-  if driver == "Unit Price":
-    return round(_safe_float(baseline_driver_map.get("unit_price")) or 0.0, 6)
-  if driver == "Utilization":
-    return round(_safe_ratio(baseline_driver_map.get("utilization")) or 0.0, 6)
-  return 0.0
-
-
-def apply_p_and_l_q0_anchor_to_model_input(
-  *,
-  model_input_json: Optional[Dict[str, Any]],
-  ops_json: Optional[Dict[str, Any]],
-  people_json: Optional[Dict[str, Any]],
-  financials_json: Optional[Dict[str, Any]],
-  financials_year1_json: Optional[Dict[str, Any]],
-  marketing_model_json: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
-  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
-  if not isinstance(sections, dict):
-    return next_payload
-
-  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
-  for row in revenue_rows:
-    base_stub_value, live_values = _row_stub_and_live_values(
-      row.get("values") or [],
-      live_count=max(0, len((row.get("values") or [])) - 1),
-    )
-    anchor_value = float(base_stub_value)
-    if abs(anchor_value) <= 1e-9:
-      anchor_value = _revenue_stub_anchor_value(row, ops_json=ops_json)
-    row["values"] = _compose_period_values(
-      stub_value=anchor_value,
-      live_values=live_values,
-    )
-
-  anchor_inputs = _operating_anchor_baseline_inputs(
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    marketing_model_json=marketing_model_json,
-  )
-  expense_stub_map = {
-    "Cost of Goods Sold": float(anchor_inputs.get("cogs_ratio_baseline") or 0.0),
-    "Marketing": float(anchor_inputs.get("marketing_ratio_baseline") or 0.0),
-    "Research & Development": 0.0,
-    "Lease": float(anchor_inputs.get("lease_amount") or 0.0),
-    "Payroll": float(anchor_inputs.get("quarterly_payroll") or 0.0),
-    "General & Administrative": float(anchor_inputs.get("g_and_a_ratio_baseline") or 0.0),
-    "Interest Rate": float(anchor_inputs.get("interest_rate_baseline") or 0.0),
-    "Depreciation": float(anchor_inputs.get("depreciation_ratio_baseline") or 0.0),
-    "Taxes": float(anchor_inputs.get("tax_rate_baseline") or 0.0),
-  }
-  expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
-  for row in expense_rows:
-    label = str(row.get("label") or "").strip()
-    base_stub_value, live_values = _row_stub_and_live_values(
-      row.get("values") or [],
-      live_count=max(0, len((row.get("values") or [])) - 1),
-    )
-    anchor_value = float(base_stub_value)
-    if abs(anchor_value) <= 1e-9:
-      anchor_value = float(expense_stub_map.get(label) or 0.0)
-    row["values"] = _compose_period_values(
-      stub_value=anchor_value,
-      live_values=live_values,
-    )
   return next_payload
 
 
@@ -2771,15 +2701,7 @@ def _build_model_input_overlay(
       ops_json=ops_json,
       explicit_capex_overrides=explicit_capex_overrides,
     )
-  anchored_payload = apply_p_and_l_q0_anchor_to_model_input(
-    model_input_json=next_payload,
-    ops_json=ops_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    marketing_model_json=marketing_model_json,
-  )
-  return apply_derived_driver_policies_to_model_input(anchored_payload)
+  return apply_derived_driver_policies_to_model_input(next_payload)
 
 
 def normalize_model_input_forecast_anchor(

@@ -52,6 +52,7 @@ How to use the Python contract envelope:
 - `deterministic_numeric_guidance.driver_target_mapping_lookup` is the direct mapping source of truth for this cycle. It tells you exactly which direct FINMO target row each writable lever owns.
 - When repair-envelope fields are present, do not guess the required magnitude. Choose the business strategy, but keep your targets and lever ranges inside the Python-computed pressure envelope unless you have a very strong realism reason to go stronger.
 - `driver_paths.min_delta` and `driver_paths.max_delta` are movement amounts in lever space, not always absolute replacement values. Use `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value` as the authoritative absolute value bounds for `exact_value` or `band` output.
+- If a driver path includes `driver_target_conversion`, use it to understand both the FINMO target dollars and the model-input driver equivalent. `lever_adjustments.exact_value`, `min_value`, and `max_value` must always be in `driver_value_unit`, never in target dollars unless the lever itself is currency-like.
 - `exact_value`, `min_value`, and `max_value` in your `lever_adjustments` response are absolute lever values, not deltas.
 - Stay strictly inside the absolute scaffold bands for every selected lever. Do not emit values outside `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value`.
 - For ratio/percent levers, values are decimal ratios, not whole-number percentages: `0.32` means 32%. Never emit `0`, `32`, or any ratio value outside the deterministic scaffold band.
@@ -165,6 +166,7 @@ Lever guidance:
 - If scale, staffing support, pricing, distributions, debt, or equity need to move, use the operating and financing levers Python exposed. Payroll itself is derived after those moves.
 - For currency-like levers, `exact_value`, `min_value`, and `max_value` must be whole-dollar integers.
 - For ratio-like levers, `exact_value`, `min_value`, and `max_value` must use at most 2 decimal places.
+- For percent-of-revenue levers such as `expenses::Cost of Goods Sold`, return ratios like `0.35`, not dollar COGS values like `198450`.
 - If a selected lever is marked shape-sensitive in the Python contract, your lever_adjustments entry must include:
   - `shape_type`: one of `ramp`, `step_up`, `hiring_block`, `moderation`, `delayed_follow_through`
   - `values` or `trajectory_values`: `Q1` through `Q20`, with numeric values for every remaining quarter from the first affected quarter onward

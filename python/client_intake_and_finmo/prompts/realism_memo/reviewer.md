@@ -63,14 +63,13 @@ Output schema:
   - `capacity_revenue_mismatch`
   - `pricing_positioning_mismatch`
   - `cost_structure_mismatch`
-  - `working_capital_payment_model_mismatch`
 - Do not invent new issue codes.
 
 What to look for:
 - capacity or throughput assumptions that do not fit the stated business reality
 - pricing that does not fit the stated business or customer reality
-- cost structure that does not fit how the business says it operates
-- working-capital or payment timing assumptions that do not fit the operating model
+- cost structure that does not fit how the business says it operates, limited to direct operating cost rows such as COGS, marketing, research and development, lease/rent, and G&A
+- do not flag capex, PPE, asset footprint, equipment investment, depreciation, liquidity, receivables, payables, deferred revenue, current ratio, or working-capital timing in this memo; those are handled by deterministic derived-driver or cash-pass layers
 
 Tone:
 - concise

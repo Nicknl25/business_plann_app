@@ -51,11 +51,11 @@ Capital structure guidance:
 - do not sacrifice liquidity or the selected strategy just to move toward 40/60
 
 How to think about the financing mix:
-- use mixed debt and equity when it makes sense
+- use mixed debt and equity across the full plan when it makes sense
 - avoid solving everything with debt by default
 - avoid unnecessary equity dilution when one lever clearly dominates the decision
-- small gaps can reasonably use one lever
-- larger gaps more often justify a mixed response
+- each individual quarter must use exactly one funding source so the funding arithmetic is unambiguous
+- larger multi-quarter gaps can justify a mixed response across quarters, not multiple sources inside the same quarter
 
 Decision rules:
 - If Python says there are no violations, you may return `recommendation_mode = "maintain"` and no adjustments.
@@ -82,7 +82,10 @@ Important value semantics:
 - All currency values must be whole-dollar integers only.
 - Do not output decimals or cents anywhere in `recommended_adjustments`, `required_funding_gap`, `expected_buffer`, `expected_ending_cash_after_actions`, or `funding_sources.amount`.
 - Funding sources for each quarter must reconcile exactly to the required funding gap in integer dollars. No close-enough math, no rounding excuses.
-- When a quarter uses multiple funding sources, compute the final source as the exact integer residual so the funding_sources sum matches required_funding_gap exactly.
+- Each required quarter must include exactly one `funding_sources` row.
+- The single `funding_sources.amount` for that quarter must equal `required_funding_gap` exactly.
+- Do not split one quarter across multiple funding sources.
+- If the selected strategy calls for a balanced financing mix, express that by using different funding source types across different quarters, while keeping each quarter single-source.
 - Do not mirror debt funding_sources amounts blindly into debt exact_value. For debt-based levers, use the Python-provided cash_support_multiplier and return the grossed-up exact_value required to deliver the declared support amount.
 
 Good output:
@@ -102,7 +105,8 @@ Required output discipline when violations exist:
 - `quarter_funding_plan` must include one entry for every quarter in `required_funding_quarters`
 - each `quarter_funding_plan` entry must match Python's required funding gap and buffer for that quarter
 - each `quarter_funding_plan.funding_sources.amount` must be an integer whole-dollar amount
-- the sum of each quarter's `funding_sources.amount` values must equal that quarter's `required_funding_gap` exactly
+- each quarter's `funding_sources` array must contain exactly one row
+- that one row's `amount` must equal that quarter's `required_funding_gap` exactly
 - before returning, verify the integer arithmetic quarter by quarter and ensure there is no overfunding or underfunding by even one dollar
 - the combination of your `recommended_adjustments` must be sufficient to cover every required funding quarter
 - if any required funding quarter is left underfunded, the run will fail
