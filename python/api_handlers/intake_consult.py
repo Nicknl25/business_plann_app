@@ -12876,6 +12876,173 @@ def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]
   return parsed if isinstance(parsed, dict) else None
 
 
+def _forecast_starting_ppe_schema() -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "starting_ppe": {"type": "integer", "minimum": 1},
+      "maintenance_capex_percent": {"type": "number", "minimum": 2, "maximum": 15},
+    },
+    "required": ["starting_ppe", "maintenance_capex_percent"],
+  }
+
+
+def _revenue_catalog_snapshot_for_starting_ppe(ops_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  candidates: List[Any] = []
+  for key in (
+    "revenue_products",
+    "revenue_model",
+    "products",
+    "lines_of_business",
+    "lobs",
+  ):
+    value = ops.get(key)
+    if isinstance(value, list):
+      candidates.extend(value)
+    elif isinstance(value, dict):
+      candidates.append(value)
+  snapshot: List[Dict[str, Any]] = []
+  for item in candidates[:6]:
+    if not isinstance(item, dict):
+      continue
+    entry = {
+      key: item.get(key)
+      for key in (
+        "lob",
+        "line_of_business",
+        "product",
+        "unit_name",
+        "capacity",
+        "unit_price",
+        "utilization",
+        "capacity_driver",
+        "fulfillment_model",
+      )
+      if item.get(key) not in {None, ""}
+    }
+    if entry:
+      snapshot.append(entry)
+  return snapshot
+
+
+def _estimate_forecast_starting_ppe_with_gpt(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  api_key = _openai_key()
+  if not api_key:
+    raise RuntimeError("forecast_starting_ppe_openai_key_missing: OPENAI_API_KEY is not configured.")
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  starting_annual_revenue = int(round(float(
+    _safe_float(year1.get("company_revenue_total_year1"))
+    or _safe_float(year1.get("revenue_total_year1"))
+    or _safe_float(financials.get("current_revenue"))
+    or 0.0
+  )))
+  starting_quarter_revenue = int(round(starting_annual_revenue / 4.0)) if starting_annual_revenue > 0 else 0
+  user_context = {
+    "task": "Return one realistic starting PPE value for the first live forecast quarter.",
+    "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
+    "business_context": {
+      "consumer_type": ops.get("consumer_type"),
+      "business_type": ops.get("business_type"),
+      "business_stage": ops.get("business_stage"),
+      "business_description_summary": ops.get("business_description_summary"),
+      "capacity_driver": ops.get("capacity_driver"),
+      "unit_name": ops.get("unit_name"),
+      "sales_modality": ops.get("sales_modality"),
+      "geographic_scope": ops.get("geographic_scope"),
+      "fulfillment_summary": ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
+      "revenue_driver_snapshot": _revenue_catalog_snapshot_for_starting_ppe(ops),
+    },
+    "starting_operating_scale": {
+      "starting_annual_revenue": starting_annual_revenue,
+      "starting_quarter_revenue": starting_quarter_revenue,
+    },
+    "hard_rules": [
+      "Return the realistic starting PPE for Q1 as whole-dollar integer starting_ppe.",
+      "Return one annual maintenance capex percent as maintenance_capex_percent, using percentage points like 8 for 8%.",
+      "maintenance_capex_percent must be at least 2 and no more than 15.",
+      "Do not use or infer from client-reported stub/Q0 PPE; it is intentionally not provided.",
+      "Do not forecast future PPE, capex, depreciation, or future quarters.",
+      "Treat starting_ppe as the operating asset base needed at the start of Q1 to support the described business scale.",
+      "Treat maintenance_capex_percent as the annual maintenance spend needed to keep that PPE productive before expansion capex.",
+    ],
+  }
+  system_prompt = (
+    "You estimate two model-input assumptions for a 3-statement forecast: realistic starting PPE for Q1 "
+    "and annual maintenance capex percent. Return only JSON matching the schema. starting_ppe must be a "
+    "whole-dollar integer. maintenance_capex_percent must be percentage points, for example 8 for 8%, "
+    "and must be at least 2 and no more than 15. "
+    "Do not output explanations, ranges, future quarters, capex, depreciation, or client stub values."
+  )
+  payload = {
+    "model": _openai_model(),
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "forecast_starting_ppe",
+        "schema": _forecast_starting_ppe_schema(),
+        "strict": True,
+      }
+    },
+  }
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  if resp.status_code >= 400:
+    raise RuntimeError(f"forecast_starting_ppe_openai_status: {resp.text[:1200]}")
+  raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+  parsed = _parse_responses_json_dict(raw_openai_response)
+  if not isinstance(parsed, dict):
+    raise RuntimeError("forecast_starting_ppe_parse_failed: GPT did not return a JSON object.")
+  starting_ppe = int(round(float(_safe_float(parsed.get("starting_ppe")) or 0.0)))
+  if starting_ppe <= 0:
+    raise RuntimeError(
+      f"forecast_starting_ppe_invalid: starting_ppe must be a positive integer. actual={parsed.get('starting_ppe')!r}"
+    )
+  if starting_annual_revenue <= 0:
+    raise RuntimeError(
+      "forecast_starting_ppe_revenue_missing: starting annual revenue must be greater than zero before GPT starting PPE can be validated."
+    )
+  max_reasonable_ppe = int(round(float(starting_annual_revenue) * 10.0))
+  if starting_ppe > max_reasonable_ppe:
+    raise RuntimeError(
+      "forecast_starting_ppe_absurd_relative_to_revenue: "
+      f"starting_ppe={starting_ppe} exceeds 10x starting_annual_revenue={starting_annual_revenue} "
+      f"(max={max_reasonable_ppe})."
+    )
+  maintenance_capex_percent = float(_safe_float(parsed.get("maintenance_capex_percent")) or 0.0)
+  if maintenance_capex_percent < 2.0 or maintenance_capex_percent > 15.0:
+    raise RuntimeError(
+      "forecast_starting_ppe_maintenance_capex_percent_invalid: "
+      f"maintenance_capex_percent must be at least 2 and no more than 15. actual={parsed.get('maintenance_capex_percent')!r}"
+    )
+  return {
+    "contract_version": "forecast_starting_ppe_decision_v1",
+    "decision_source": "gpt",
+    "starting_ppe": starting_ppe,
+    "maintenance_capex_percent": round(float(maintenance_capex_percent), 2),
+    "maintenance_rate": round(float(maintenance_capex_percent) / 100.0, 6),
+    "prompt_context": user_context,
+    "raw_openai_response": raw_openai_response,
+  }
+
+
 def _solver_quarter_target_metrics_schema(
   *,
   allowed_metric_keys: Optional[List[str]] = None,
@@ -14485,9 +14652,17 @@ def _build_deterministic_issue_packets(
     contract_packet = contract_issue_packet_map.get(issue_code) or {}
     prior_packet = prior_packet_map.get(issue_code) or {}
     if not contract_packet:
+      available_contract_issue_codes = sorted(contract_issue_packet_map.keys())
+      available_prior_issue_codes = sorted(prior_packet_map.keys())
+      record_status = str(record.get("verifier_status") or "").strip().lower()
+      record_effective_status = str(record.get("effective_status") or "").strip().lower()
       raise RuntimeError(
         "post_intake_driver_target_mapping_missing_issue_contract: "
-        f"{issue_code} is present in convergence but has no table-backed numeric solver contract packet."
+        f"{issue_code} is present in convergence but has no table-backed numeric solver contract packet. "
+        f"record_status={record_status or 'unknown'}; "
+        f"record_effective_status={record_effective_status or 'unknown'}; "
+        f"available_contract_issue_codes={available_contract_issue_codes}; "
+        f"available_prior_issue_codes={available_prior_issue_codes}"
       )
     issue_title = str(
       record.get("issue")
@@ -30835,10 +31010,19 @@ def _run_unified_post_grid_system_run(
       1,
       int(_safe_float(baseline_controller_resolution_state.get("last_review_iteration")) or 0) + 1,
     )
+    verification_numeric_solver_contract = copy.deepcopy(
+      (unified_convergence_decision or {}).get("numeric_solver_contract")
+      if isinstance((unified_convergence_decision or {}).get("numeric_solver_contract"), dict)
+      else (unified_convergence_plan or {}).get("numeric_solver_contract")
+      if isinstance((unified_convergence_plan or {}).get("numeric_solver_contract"), dict)
+      else (unified_convergence_context or {}).get("numeric_solver_contract")
+      if isinstance((unified_convergence_context or {}).get("numeric_solver_contract"), dict)
+      else {}
+    )
     verification_issue_packets = _build_issue_packets_from_issue_ledger(
       issue_status_records=copy.deepcopy(baseline_issue_ledger),
-      numeric_solver_contract=copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
-      prior_decision_payload=copy.deepcopy((unified_convergence_decision or {}).get("decision") or {}),
+      numeric_solver_contract=copy.deepcopy(verification_numeric_solver_contract),
+      prior_decision_payload=copy.deepcopy(unified_convergence_decision or {}),
       current_finmo_json=copy.deepcopy(final_finmo_json),
     )
     verification_allowed_issue_keys = [
@@ -31574,6 +31758,30 @@ def _run_planning_system_for_draft_unified(
     marketing_model_json = dict(marketing_model_json or {})
   shared_context["marketing"] = marketing_model_json
 
+  forecast_starting_ppe_decision = _estimate_forecast_starting_ppe_with_gpt(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+  )
+  forecast_starting_ppe = int(forecast_starting_ppe_decision.get("starting_ppe") or 0)
+  if forecast_starting_ppe <= 0:
+    raise RuntimeError(
+      f"forecast_starting_ppe_invalid: GPT returned invalid starting_ppe={forecast_starting_ppe!r}"
+    )
+  maintenance_rate = float(_safe_float(forecast_starting_ppe_decision.get("maintenance_rate")) or 0.0)
+  if maintenance_rate < 0.02 or maintenance_rate > 0.15:
+    raise RuntimeError(
+      f"forecast_starting_ppe_maintenance_rate_invalid: GPT returned invalid maintenance_rate={maintenance_rate!r}; expected 0.02 <= rate <= 0.15."
+    )
+  shared_context["forecast_starting_ppe_decision"] = {
+    "contract_version": forecast_starting_ppe_decision.get("contract_version"),
+    "decision_source": forecast_starting_ppe_decision.get("decision_source"),
+    "starting_ppe": forecast_starting_ppe,
+    "maintenance_capex_percent": forecast_starting_ppe_decision.get("maintenance_capex_percent"),
+    "maintenance_rate": maintenance_rate,
+  }
+
   try:
     from finmo_bridge import sync_planning_state_to_finmo  # type: ignore
   except Exception:
@@ -31591,6 +31799,8 @@ def _run_planning_system_for_draft_unified(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
     marketing_model_json=marketing_model_json,
+    forecast_starting_ppe=forecast_starting_ppe,
+    maintenance_rate=maintenance_rate,
     controller_input_seed=[],
     forecast_quarters=[],
     calibration_spec=None,

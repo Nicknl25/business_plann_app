@@ -209,6 +209,12 @@ def _row_value(book: FinancialModelInputs, section: str, label: str, quarter_ind
 
 def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResult:
   start = _parse_start_date(model_inputs.start_date)
+  client_stub_ppe = max(0.0, model_inputs.ppe_opening_balance_seed)
+  forecast_opening_ppe = max(
+    0.0,
+    model_inputs.forecast_ppe_opening_balance_seed
+    or model_inputs.ppe_opening_balance_seed,
+  )
   opening_short_term_debt = max(0.0, model_inputs.short_term_debt_opening_balance_seed)
   opening_total_debt = max(0.0, model_inputs.debt_opening_balance_seed)
   opening_long_term_debt = opening_total_debt
@@ -218,7 +224,13 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
     model_inputs.cash_opening_balance_seed
     + model_inputs.accounts_receivable_opening_balance_seed
     + model_inputs.inventory_opening_balance_seed
-    + model_inputs.ppe_opening_balance_seed
+    + client_stub_ppe
+  )
+  forecast_opening_total_assets = (
+    model_inputs.cash_opening_balance_seed
+    + model_inputs.accounts_receivable_opening_balance_seed
+    + model_inputs.inventory_opening_balance_seed
+    + forecast_opening_ppe
   )
   opening_current_liabilities = (
     model_inputs.accounts_payable_opening_balance_seed
@@ -231,6 +243,12 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   )
   opening_retained_earnings = (
     opening_total_assets
+    - opening_total_liabilities
+    - opening_owner_capital
+    - opening_other_equity
+  )
+  forecast_opening_retained_earnings = (
+    forecast_opening_total_assets
     - opening_total_liabilities
     - opening_owner_capital
     - opening_other_equity
@@ -265,7 +283,7 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
         + model_inputs.accounts_receivable_opening_balance_seed
         + model_inputs.inventory_opening_balance_seed
       ),
-      ppe=model_inputs.ppe_opening_balance_seed,
+      ppe=client_stub_ppe,
       accumulated_depreciation=model_inputs.accumulated_depreciation_opening_seed,
       total_assets=opening_total_assets,
       accounts_payable=model_inputs.accounts_payable_opening_balance_seed,
@@ -314,10 +332,10 @@ def calculate_finmo_model(model_inputs: FinancialModelInputs) -> FinmoModelResul
   previous_inventory = model_inputs.inventory_opening_balance_seed
   previous_prepaid_expenses = 0.0
   previous_current_liabilities = opening_current_liabilities
-  previous_ppe = model_inputs.ppe_opening_balance_seed
+  previous_ppe = forecast_opening_ppe
   previous_owners_capital = opening_owner_capital
   previous_other_equity = opening_other_equity
-  previous_retained_earnings = opening_retained_earnings
+  previous_retained_earnings = forecast_opening_retained_earnings
   previous_accumulated_depreciation = model_inputs.accumulated_depreciation_opening_seed
   previous_debt_closing_balance = opening_total_debt
   previous_lease_closing_balance = model_inputs.lease_opening_balance_seed

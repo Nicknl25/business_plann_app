@@ -682,7 +682,6 @@ _PAYROLL_DERIVATION_LEVER_ID = "expenses::Payroll"
 _CAPEX_DEPRECIATION_POLICY_KEY = "capex_depreciation_policy"
 _CAPEX_DEPRECIATION_POLICY_VERSION = "utilization_first_structural_capacity_capex_v2"
 _CAPEX_DEPRECIATION_SOURCE = "structural_capacity_ppe_derived"
-_CAPEX_MAINTENANCE_RATE = 0.10
 _CAPEX_USEFUL_LIFE_YEARS = 5.0
 _CAPEX_DEPRECIATION_MIN_PRIOR_PPE = 1e-6
 _CAPACITY_UTILIZATION_CEILING = 0.85
@@ -847,15 +846,23 @@ def _default_capex_depreciation_policy(
   *,
   financials_json: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
+  forecast_starting_ppe: Optional[float] = None,
+  maintenance_rate: Optional[float] = None,
   explicit_capex_overrides: Optional[Dict[int, float]] = None,
 ) -> Dict[str, Any]:
   financials = financials_json if isinstance(financials_json, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
-  initial_assets = float(max(0.0, _safe_float(financials.get("initial_assets")) or 0.0))
-  if initial_assets <= 0.0:
+  forecast_ppe = float(max(0.0, _safe_float(forecast_starting_ppe) or 0.0))
+  if forecast_ppe <= 0.0:
     raise ValueError(
-      "capex_depreciation_initial_assets_missing: initial_assets is required and must be greater than zero for deterministic capex/depreciation derivation."
+      "forecast_starting_ppe_missing: GPT-authored forecast_starting_ppe is required and must be greater than zero for deterministic capex/depreciation derivation."
     )
+  normalized_maintenance_rate = _safe_ratio(maintenance_rate)
+  if normalized_maintenance_rate is None or normalized_maintenance_rate < 0.02 or normalized_maintenance_rate > 0.15:
+    raise ValueError(
+      "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
+    )
+  client_reported_ppe = float(max(0.0, _safe_float(financials.get("initial_assets")) or 0.0))
   normalized_overrides = {
     int(quarter_index): round(max(0.0, _safe_float(value) or 0.0), 6)
     for quarter_index, value in ((explicit_capex_overrides or {}).items())
@@ -864,12 +871,17 @@ def _default_capex_depreciation_policy(
   return {
     "policy_version": _CAPEX_DEPRECIATION_POLICY_VERSION,
     "capex_source": _CAPEX_DEPRECIATION_SOURCE,
-    "maintenance_rate": float(_CAPEX_MAINTENANCE_RATE),
+    "maintenance_rate": float(normalized_maintenance_rate),
+    "maintenance_rate_source": "gpt_forecast_starting_ppe.maintenance_capex_percent",
     "useful_life_years": float(_CAPEX_USEFUL_LIFE_YEARS),
     "capacity_utilization_ceiling": float(_CAPACITY_UTILIZATION_CEILING),
     "capacity_post_expansion_utilization": float(_CAPACITY_POST_EXPANSION_UTILIZATION),
-    "initial_assets": float(initial_assets),
-    "initial_assets_source": "financials_json.initial_assets",
+    "initial_assets": float(forecast_ppe),
+    "initial_assets_source": "gpt_forecast_starting_ppe.starting_ppe",
+    "forecast_starting_ppe": float(forecast_ppe),
+    "forecast_starting_ppe_source": "gpt_forecast_starting_ppe.starting_ppe",
+    "client_reported_ppe_stub": float(client_reported_ppe),
+    "client_reported_ppe_stub_source": "financials_json.initial_assets",
     "explicit_capex_overrides": normalized_overrides,
     "business_type": str(ops.get("business_type") or "").strip() or None,
     "naics": str(ops.get("business_naics_6") or "").strip() or None,
@@ -892,6 +904,8 @@ def _normalized_capex_depreciation_policy(
     max(
       0.0,
       _safe_float(raw_policy.get("initial_assets"))
+      or _safe_float(raw_policy.get("forecast_starting_ppe"))
+      or _safe_float((schedules or {}).get("forecast_ppe_opening_balance_seed"))
       or _safe_float((schedules or {}).get("ppe_opening_balance_seed"))
       or 0.0,
     ),
@@ -902,18 +916,28 @@ def _normalized_capex_depreciation_policy(
     for quarter_index, value in (((raw_policy.get("explicit_capex_overrides") or {}) if isinstance(raw_policy.get("explicit_capex_overrides"), dict) else {}).items())
     if int(_safe_float(quarter_index) or 0) >= 1 and _safe_float(value) is not None
   }
+  maintenance_rate = _safe_ratio(raw_policy.get("maintenance_rate"))
+  if maintenance_rate is None or maintenance_rate < 0.02 or maintenance_rate > 0.15:
+    raise ValueError(
+      "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
+    )
   return {
     "policy_version": str(raw_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip() or _CAPEX_DEPRECIATION_POLICY_VERSION,
     "capex_source": str(raw_policy.get("capex_source") or _CAPEX_DEPRECIATION_SOURCE).strip() or _CAPEX_DEPRECIATION_SOURCE,
-    "maintenance_rate": float(max(0.0, _safe_ratio(raw_policy.get("maintenance_rate")) or _CAPEX_MAINTENANCE_RATE)),
+    "maintenance_rate": float(maintenance_rate),
+    "maintenance_rate_source": str(raw_policy.get("maintenance_rate_source") or "").strip() or None,
     "useful_life_years": float(max(1.0, _safe_float(raw_policy.get("useful_life_years")) or _CAPEX_USEFUL_LIFE_YEARS)),
     "capacity_utilization_ceiling": float(max(0.0, _safe_ratio(raw_policy.get("capacity_utilization_ceiling")) or _CAPACITY_UTILIZATION_CEILING)),
     "capacity_post_expansion_utilization": float(max(0.0, _safe_ratio(raw_policy.get("capacity_post_expansion_utilization")) or _CAPACITY_POST_EXPANSION_UTILIZATION)),
     "initial_assets": float(fallback_initial_assets),
     "initial_assets_source": (
       str(raw_policy.get("initial_assets_source") or "").strip()
-      or ("model_input.sections.schedules.ppe_opening_balance_seed" if fallback_initial_assets > 0.0 else None)
+      or ("model_input.sections.schedules.forecast_ppe_opening_balance_seed" if fallback_initial_assets > 0.0 else None)
     ),
+    "forecast_starting_ppe": float(_safe_float(raw_policy.get("forecast_starting_ppe")) or fallback_initial_assets),
+    "forecast_starting_ppe_source": str(raw_policy.get("forecast_starting_ppe_source") or "").strip() or None,
+    "client_reported_ppe_stub": float(max(0.0, _safe_float(raw_policy.get("client_reported_ppe_stub")) or _safe_float((schedules or {}).get("client_reported_ppe_stub")) or _safe_float((schedules or {}).get("ppe_opening_balance_seed")) or 0.0)),
+    "client_reported_ppe_stub_source": str(raw_policy.get("client_reported_ppe_stub_source") or "").strip() or None,
     "explicit_capex_overrides": explicit_capex_overrides,
     "business_type": str(raw_policy.get("business_type") or "").strip() or None,
     "naics": str(raw_policy.get("naics") or "").strip() or None,
@@ -1191,7 +1215,15 @@ def _derived_capex_and_depreciation_runtime(
   payload = model_input_json if isinstance(model_input_json, dict) else {}
   sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
-  opening_ppe = round(max(0.0, _safe_float((schedules or {}).get("ppe_opening_balance_seed")) or 0.0), 6)
+  opening_ppe = round(
+    max(
+      0.0,
+      _safe_float((schedules or {}).get("forecast_ppe_opening_balance_seed"))
+      or _safe_float((schedules or {}).get("ppe_opening_balance_seed"))
+      or 0.0,
+    ),
+    6,
+  )
   initial_assets = round(max(0.0, float(_safe_float(policy.get("initial_assets")) or 0.0)), 6)
   if initial_assets <= 0.0:
     raise ValueError(
@@ -1207,7 +1239,11 @@ def _derived_capex_and_depreciation_runtime(
       "capex_depreciation_initial_capacity_missing: total structural opening Capacity must be greater than zero."
     )
   capital_per_capacity_unit = round(initial_assets / initial_capacity, 6)
-  maintenance_rate = float(policy.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE)
+  maintenance_rate = float(_safe_ratio(policy.get("maintenance_rate")) or 0.0)
+  if maintenance_rate < 0.02 or maintenance_rate > 0.15:
+    raise ValueError(
+      "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
+    )
   useful_life_years = float(policy.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS)
   explicit_capex_overrides = (
     policy.get("explicit_capex_overrides")
@@ -1274,6 +1310,15 @@ def _derived_capex_and_depreciation_runtime(
     "initial_assets": initial_assets,
     "initial_capacity": round(initial_capacity, 6),
     "opening_ppe": opening_ppe,
+    "client_reported_ppe_stub": round(
+      max(
+        0.0,
+        _safe_float((schedules or {}).get("client_reported_ppe_stub"))
+        or _safe_float((schedules or {}).get("ppe_opening_balance_seed"))
+        or 0.0,
+      ),
+      6,
+    ),
     "capital_per_capacity_unit": capital_per_capacity_unit,
     "maintenance_rate": round(maintenance_rate, 6),
     "useful_life_years": round(useful_life_years, 6),
@@ -1504,7 +1549,7 @@ def apply_derived_driver_policies_to_model_input(
   capex_row["capex_depreciation"] = {
     "policy_version": str(capex_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
     "capex_source": _CAPEX_DEPRECIATION_SOURCE,
-    "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE), 6),
+    "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or 0.0), 6),
     "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
     "capacity_utilization_ceiling": round(float(capacity_shaping_runtime.get("utilization_ceiling") or _CAPACITY_UTILIZATION_CEILING), 6),
     "capacity_post_expansion_utilization": round(float(capacity_shaping_runtime.get("post_expansion_utilization") or _CAPACITY_POST_EXPANSION_UTILIZATION), 6),
@@ -1512,6 +1557,8 @@ def apply_derived_driver_policies_to_model_input(
     "initial_assets": round(float(capex_runtime.get("initial_assets") or 0.0), 6),
     "initial_capacity": round(float(capex_runtime.get("initial_capacity") or 0.0), 6),
     "opening_ppe": round(float(capex_runtime.get("opening_ppe") or 0.0), 6),
+    "forecast_starting_ppe": round(float(capex_runtime.get("opening_ppe") or 0.0), 6),
+    "client_reported_ppe_stub": round(float(capex_runtime.get("client_reported_ppe_stub") or 0.0), 6),
     "explicit_override_quarters": explicit_override_quarters,
     "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
   }
@@ -1539,7 +1586,7 @@ def apply_derived_driver_policies_to_model_input(
     next_payload["derived_driver_runtime"][_CAPEX_DEPRECIATION_POLICY_KEY] = {
       "capex_source": _CAPEX_DEPRECIATION_SOURCE,
       "policy_version": str(capex_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
-      "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE), 6),
+      "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or 0.0), 6),
       "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
       "capacity_utilization_ceiling": round(float(capacity_shaping_runtime.get("utilization_ceiling") or _CAPACITY_UTILIZATION_CEILING), 6),
       "capacity_post_expansion_utilization": round(float(capacity_shaping_runtime.get("post_expansion_utilization") or _CAPACITY_POST_EXPANSION_UTILIZATION), 6),
@@ -1547,6 +1594,8 @@ def apply_derived_driver_policies_to_model_input(
       "initial_assets": round(float(capex_runtime.get("initial_assets") or 0.0), 6),
       "initial_capacity": round(float(capex_runtime.get("initial_capacity") or 0.0), 6),
       "opening_ppe": round(float(capex_runtime.get("opening_ppe") or 0.0), 6),
+      "forecast_starting_ppe": round(float(capex_runtime.get("opening_ppe") or 0.0), 6),
+      "client_reported_ppe_stub": round(float(capex_runtime.get("client_reported_ppe_stub") or 0.0), 6),
       "explicit_capex_overrides": deepcopy(capex_policy.get("explicit_capex_overrides") or {}),
       "capex_live_values": deepcopy(capex_runtime.get("capex_live_values") or []),
       "depreciation_percent_live_values": deepcopy(capex_runtime.get("depreciation_percent_live_values") or []),
@@ -2363,6 +2412,8 @@ def _python_model_input_template(
         "debt_opening_balance_seed": 0.0,
         "lease_opening_balance_seed": 0.0,
         "ppe_opening_balance_seed": 0.0,
+        "client_reported_ppe_stub": 0.0,
+        "forecast_ppe_opening_balance_seed": 0.0,
         "accumulated_depreciation_opening_seed": 0.0,
         "cash_opening_balance_seed": 0.0,
         "accounts_receivable_opening_balance_seed": 0.0,
@@ -2383,6 +2434,8 @@ def build_python_model_input_json(
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
   marketing_model_json: Optional[Dict[str, Any]],
+  forecast_starting_ppe: Optional[float],
+  maintenance_rate: Optional[float],
   controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
   forecast_quarters: Sequence[Dict[str, Any]] = (),
   business_name: Optional[str] = None,
@@ -2403,6 +2456,8 @@ def build_python_model_input_json(
     financials_json=financials_json or {},
     financials_year1_json=financials_year1_json or {},
     marketing_model_json=marketing_model_json or {},
+    forecast_starting_ppe=forecast_starting_ppe,
+    maintenance_rate=maintenance_rate,
     controller_input_seed=controller_input_seed,
     forecast_quarters=forecast_quarters,
   )
@@ -2417,6 +2472,8 @@ def _build_model_input_overlay(
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Dict[str, Any],
+  forecast_starting_ppe: Optional[float],
+  maintenance_rate: Optional[float],
   controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
   forecast_quarters: Sequence[Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -2642,8 +2699,15 @@ def _build_model_input_overlay(
   lease_seed = _annualized_lease_commitment((financials_json or {}).get("initial_lease"))
   if lease_seed is not None:
     schedules["lease_opening_balance_seed"] = round(lease_seed, 6)
-  ppe_seed = _safe_float((financials_json or {}).get("initial_assets")) or 0.0
-  schedules["ppe_opening_balance_seed"] = round(max(0.0, ppe_seed), 6)
+  client_ppe_seed = _safe_float((financials_json or {}).get("initial_assets")) or 0.0
+  forecast_ppe_seed = _safe_float(forecast_starting_ppe)
+  if forecast_ppe_seed is None or forecast_ppe_seed <= 0.0:
+    raise ValueError(
+      "forecast_starting_ppe_missing: GPT-authored forecast_starting_ppe is required before model_input can seed forecast PPE."
+    )
+  schedules["ppe_opening_balance_seed"] = round(max(0.0, client_ppe_seed), 6)
+  schedules["client_reported_ppe_stub"] = round(max(0.0, client_ppe_seed), 6)
+  schedules["forecast_ppe_opening_balance_seed"] = round(max(0.0, forecast_ppe_seed), 6)
   accum_dep_seed = _safe_float((financials_json or {}).get("accumulated_depreciation"))
   if accum_dep_seed is None:
     accum_dep_seed = 0.0
@@ -2699,6 +2763,8 @@ def _build_model_input_overlay(
     next_payload["derived_driver_policies"][_CAPEX_DEPRECIATION_POLICY_KEY] = _default_capex_depreciation_policy(
       financials_json=financials_json,
       ops_json=ops_json,
+      forecast_starting_ppe=forecast_ppe_seed,
+      maintenance_rate=maintenance_rate,
       explicit_capex_overrides=explicit_capex_overrides,
     )
   return apply_derived_driver_policies_to_model_input(next_payload)
@@ -2797,6 +2863,8 @@ def sync_planning_state_to_finmo(
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
   marketing_model_json: Optional[Dict[str, Any]],
+  forecast_starting_ppe: Optional[float],
+  maintenance_rate: Optional[float],
   controller_input_seed: Optional[Sequence[Dict[str, Any]]] = None,
   forecast_quarters: Sequence[Dict[str, Any]],
   calibration_spec: Optional[Dict[str, Any]] = None,
@@ -2809,6 +2877,8 @@ def sync_planning_state_to_finmo(
     financials_json=financials_json or {},
     financials_year1_json=financials_year1_json or {},
     marketing_model_json=marketing_model_json or {},
+    forecast_starting_ppe=forecast_starting_ppe,
+    maintenance_rate=maintenance_rate,
     controller_input_seed=controller_input_seed or [],
     forecast_quarters=forecast_quarters or [],
     business_name=str((business_facts or {}).get("business_name") or "").strip(),

@@ -269,6 +269,7 @@ class FinancialModelInputs:
   debt_opening_balance_seed: float = 0.0
   lease_opening_balance_seed: float = 0.0
   ppe_opening_balance_seed: float = 0.0
+  forecast_ppe_opening_balance_seed: float = 0.0
   accumulated_depreciation_opening_seed: float = 0.0
   cash_opening_balance_seed: float = 0.0
   accounts_receivable_opening_balance_seed: float = 0.0
@@ -339,6 +340,9 @@ class FinancialModelInputs:
     next_book.debt_opening_balance_seed = _safe_float(schedules.get("debt_opening_balance_seed"))
     next_book.lease_opening_balance_seed = _safe_float(schedules.get("lease_opening_balance_seed"))
     next_book.ppe_opening_balance_seed = _safe_float(schedules.get("ppe_opening_balance_seed"))
+    next_book.forecast_ppe_opening_balance_seed = _safe_float(
+      schedules.get("forecast_ppe_opening_balance_seed")
+    )
     next_book.accumulated_depreciation_opening_seed = _safe_float(schedules.get("accumulated_depreciation_opening_seed"))
     next_book.cash_opening_balance_seed = _safe_float(schedules.get("cash_opening_balance_seed"))
     next_book.accounts_receivable_opening_balance_seed = _safe_float(schedules.get("accounts_receivable_opening_balance_seed"))
@@ -500,6 +504,7 @@ class FinancialModelInputs:
     debt_opening_balance_seed: Optional[Any] = None,
     lease_opening_balance_seed: Optional[Any] = None,
     ppe_opening_balance_seed: Optional[Any] = None,
+    forecast_ppe_opening_balance_seed: Optional[Any] = None,
     accumulated_depreciation_opening_seed: Optional[Any] = None,
     cash_opening_balance_seed: Optional[Any] = None,
     accounts_receivable_opening_balance_seed: Optional[Any] = None,
@@ -513,6 +518,8 @@ class FinancialModelInputs:
       self.lease_opening_balance_seed = _safe_float(lease_opening_balance_seed)
     if ppe_opening_balance_seed is not None:
       self.ppe_opening_balance_seed = _safe_float(ppe_opening_balance_seed)
+    if forecast_ppe_opening_balance_seed is not None:
+      self.forecast_ppe_opening_balance_seed = _safe_float(forecast_ppe_opening_balance_seed)
     if accumulated_depreciation_opening_seed is not None:
       self.accumulated_depreciation_opening_seed = _safe_float(accumulated_depreciation_opening_seed)
     if cash_opening_balance_seed is not None:
@@ -602,6 +609,7 @@ class FinancialModelInputs:
           "debt_opening_balance_seed": round(self.debt_opening_balance_seed, 6),
           "lease_opening_balance_seed": round(self.lease_opening_balance_seed, 6),
           "ppe_opening_balance_seed": round(self.ppe_opening_balance_seed, 6),
+          "forecast_ppe_opening_balance_seed": round(self.forecast_ppe_opening_balance_seed, 6),
           "accumulated_depreciation_opening_seed": round(self.accumulated_depreciation_opening_seed, 6),
           "cash_opening_balance_seed": round(self.cash_opening_balance_seed, 6),
           "accounts_receivable_opening_balance_seed": round(self.accounts_receivable_opening_balance_seed, 6),
@@ -627,6 +635,7 @@ class FinancialModelInputs:
           "debt_opening_balance_seed": round(self.debt_opening_balance_seed, 6),
           "lease_opening_balance_seed": round(self.lease_opening_balance_seed, 6),
           "ppe_opening_balance_seed": round(self.ppe_opening_balance_seed, 6),
+          "forecast_ppe_opening_balance_seed": round(self.forecast_ppe_opening_balance_seed, 6),
           "accumulated_depreciation_opening_seed": round(self.accumulated_depreciation_opening_seed, 6),
           "cash_opening_balance_seed": round(self.cash_opening_balance_seed, 6),
           "accounts_receivable_opening_balance_seed": round(self.accounts_receivable_opening_balance_seed, 6),
