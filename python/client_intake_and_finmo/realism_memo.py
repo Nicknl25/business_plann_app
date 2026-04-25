@@ -18,16 +18,10 @@ REALISM_MEMO_REVIEWER_PROMPT_PATH = PROMPTS_DIR / "reviewer.md"
 REALISM_MEMO_GRID_ADVISORY_PROMPT_PATH = PROMPTS_DIR / "grid_advisory.md"
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 _REALISM_ISSUE_CODES = [
-  "operating_model_contradiction",
   "capacity_revenue_mismatch",
   "pricing_positioning_mismatch",
-  "staffing_payroll_mismatch",
   "cost_structure_mismatch",
-  "growth_model_mismatch",
   "working_capital_payment_model_mismatch",
-  "capex_footprint_mismatch",
-  "financing_solvency_mismatch",
-  "profitability_cash_shape_unrealistic",
 ]
 
 

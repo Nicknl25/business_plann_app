@@ -9,10 +9,15 @@ get as close as possible to GPT-defined quarter-level finmo targets.
 from __future__ import annotations
 
 import copy
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.optimize import minimize  # type: ignore
+try:
+  from client_intake_and_finmo.post_intake_mapping import post_intake_driver_target_metric_ids  # type: ignore
+except Exception:
+  from post_intake_mapping import post_intake_driver_target_metric_ids  # type: ignore
 
 try:
   from financial_model_engine.model_inputs import QUARTER_COUNT  # type: ignore
@@ -20,30 +25,7 @@ except Exception:
   QUARTER_COUNT = 20
 
 
-TARGET_METRIC_KEYS = (
-  "revenue",
-  "gross_profit",
-  "ebitda",
-  "net_income",
-  "ending_cash",
-  "operating_cash_flow",
-  "investing_cash_flow",
-  "financing_cash_flow",
-  "current_assets",
-  "ppe",
-  "current_liabilities",
-  "noncurrent_liabilities",
-  "payroll",
-  "marketing",
-  "g_and_a",
-  "lease_rent",
-  "capital_expenditures",
-  "long_term_debt",
-  "total_liabilities",
-  "owners_capital",
-  "other_equity",
-  "distributions",
-)
+TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -244,7 +226,12 @@ def _metric_tolerance(
     "revenue",
     "gross_profit",
     "ending_cash",
+    "accounts_receivable",
+    "inventory",
+    "prepaid_expenses",
     "current_assets",
+    "accounts_payable",
+    "deferred_revenue",
     "noncurrent_assets",
     "current_liabilities",
     "noncurrent_liabilities",
@@ -586,6 +573,15 @@ def solve_review_plan(
   fallback_exact_updates: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
   contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
+  runtime_deadline = _safe_float(contract.get("runtime_deadline_monotonic"))
+
+  def _raise_if_runtime_deadline_exceeded(stage: str) -> None:
+    if runtime_deadline is None:
+      return
+    if time.perf_counter() <= float(runtime_deadline):
+      return
+    raise TimeoutError(f"numeric_solver_runtime_deadline_exceeded:{stage}")
+
   pass_name = str(contract.get("pass_name") or "").strip()
   if pass_name not in {
     "initial_restructure",
@@ -669,6 +665,7 @@ def solve_review_plan(
   working_model_input_json = copy.deepcopy(base_model_input_json)
 
   for task in quarter_tasks:
+    _raise_if_runtime_deadline_exceeded("quarter_start")
     quarter_index = int(task.get("quarter_index") or 0)
     target_metrics = {
       str(metric_name).strip(): float(metric_value)
@@ -696,6 +693,7 @@ def solve_review_plan(
     baseline_vector = [float(spec.get("baseline_value") or 0.0) for spec in variable_specs]
     anchor_vector = [float(spec.get("anchor_value") or 0.0) for spec in variable_specs]
     unit_bounds = [(0.0, 1.0) for _ in variable_specs]
+    task_tolerance_overrides = copy.deepcopy(task.get("target_tolerances") or {})
 
     baseline_score, _, _, baseline_metrics = _evaluate_quarter_objective(
       base_model_input_json=working_model_input_json,
@@ -703,7 +701,7 @@ def solve_review_plan(
       variable_specs=variable_specs,
       vector=baseline_vector,
       target_metrics=target_metrics,
-      tolerance_overrides=copy.deepcopy(task.get("target_tolerances") or {}),
+      tolerance_overrides=task_tolerance_overrides,
     )
     best_score = float(baseline_score)
     best_vector = list(baseline_vector)
@@ -713,16 +711,124 @@ def solve_review_plan(
     optimizer_message = "baseline_only"
     optimizer_success = False
 
+    anchor_score, anchor_model_input_json, anchor_finmo_json, anchor_metrics = _evaluate_quarter_objective(
+      base_model_input_json=working_model_input_json,
+      quarter_index=quarter_index,
+      variable_specs=variable_specs,
+      vector=anchor_vector,
+      target_metrics=target_metrics,
+      tolerance_overrides=task_tolerance_overrides,
+    )
+    anchor_within_tolerance = all(
+      float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
+      for payload in anchor_metrics.values()
+    )
+    if float(anchor_score) < float(best_score) - 1e-9:
+      best_score = float(anchor_score)
+      best_vector = list(anchor_vector)
+      updated_model_input_json = copy.deepcopy(anchor_model_input_json)
+      updated_finmo_json = copy.deepcopy(anchor_finmo_json)
+      metric_results = copy.deepcopy(anchor_metrics)
+      optimizer_message = "gpt_anchor_evaluated"
+      optimizer_success = bool(anchor_within_tolerance)
+    if anchor_within_tolerance:
+      optimizer_message = "gpt_anchor_within_tolerance"
+      optimizer_success = True
+
     seed_vectors = [
-      _vector_to_unit_interval(
-        actual_vector=baseline_vector,
-        variable_specs=variable_specs,
-      ),
       _vector_to_unit_interval(
         actual_vector=anchor_vector,
         variable_specs=variable_specs,
       ),
+      _vector_to_unit_interval(
+        actual_vector=baseline_vector,
+        variable_specs=variable_specs,
+      ),
     ]
+    def _append_actual_seed(actual_vector: List[float]) -> None:
+      seed_vectors.append(
+        _vector_to_unit_interval(
+          actual_vector=actual_vector,
+          variable_specs=variable_specs,
+        )
+      )
+
+    if len(variable_specs) == 1:
+      seed_vectors.extend([[value] for value in (0.0, 0.25, 0.50, 0.75, 1.0)])
+      spec = variable_specs[0]
+      baseline = float(spec.get("baseline_value") or 0.0)
+      low = float(spec.get("min_value") or baseline)
+      high = float(spec.get("max_value") or baseline)
+      if len(target_metrics) == 1 and abs(high - low) > 1e-9:
+        metric_name, target_value = next(iter(target_metrics.items()))
+        baseline_payload = baseline_metrics.get(metric_name) if isinstance(baseline_metrics, dict) else {}
+        baseline_actual = _safe_float((baseline_payload or {}).get("actual_value"))
+        if baseline_actual is not None:
+          for probe_value in (low, high):
+            probe = min(max(float(probe_value), min(low, high)), max(low, high))
+            if abs(probe - baseline) <= 1e-9:
+              continue
+            _, _, _, probe_metrics = _evaluate_quarter_objective(
+              base_model_input_json=working_model_input_json,
+              quarter_index=quarter_index,
+              variable_specs=variable_specs,
+              vector=[probe],
+              target_metrics=target_metrics,
+              tolerance_overrides=task_tolerance_overrides,
+            )
+            probe_payload = probe_metrics.get(metric_name) if isinstance(probe_metrics, dict) else {}
+            probe_actual = _safe_float((probe_payload or {}).get("actual_value"))
+            if probe_actual is None or abs(float(probe_actual) - float(baseline_actual)) <= 1e-9:
+              continue
+            estimated = float(baseline) + (
+              (float(target_value) - float(baseline_actual))
+              * (float(probe) - float(baseline))
+              / (float(probe_actual) - float(baseline_actual))
+            )
+            estimated = min(max(estimated, min(low, high)), max(low, high))
+            estimate_score, estimate_model_input_json, estimate_finmo_json, estimate_metric_results = _evaluate_quarter_objective(
+              base_model_input_json=working_model_input_json,
+              quarter_index=quarter_index,
+              variable_specs=variable_specs,
+              vector=[estimated],
+              target_metrics=target_metrics,
+              tolerance_overrides=task_tolerance_overrides,
+            )
+            if float(estimate_score) < float(best_score) - 1e-9:
+              best_score = float(estimate_score)
+              best_vector = [float(estimated)]
+              updated_model_input_json = copy.deepcopy(estimate_model_input_json)
+              updated_finmo_json = copy.deepcopy(estimate_finmo_json)
+              metric_results = copy.deepcopy(estimate_metric_results)
+              optimizer_message = "direct_single_metric_estimate"
+              optimizer_success = bool(
+                all(
+                  float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
+                  for payload in estimate_metric_results.values()
+                )
+              )
+            _append_actual_seed([estimated])
+            break
+      local_step = max(abs(baseline) * 0.05, abs(high - low) * 0.02, 0.01)
+      for multiplier in (-4, -2, -1, 1, 2, 4):
+        candidate = min(max(baseline + (local_step * multiplier), min(low, high)), max(low, high))
+        _append_actual_seed([candidate])
+    else:
+      anchor_unit_seed = seed_vectors[0]
+      for idx in range(len(variable_specs)):
+        for value in (0.0, 0.50, 1.0):
+          candidate_seed = list(anchor_unit_seed)
+          candidate_seed[idx] = value
+          seed_vectors.append(candidate_seed)
+        spec = variable_specs[idx]
+        baseline = float(spec.get("baseline_value") or 0.0)
+        low = float(spec.get("min_value") or baseline)
+        high = float(spec.get("max_value") or baseline)
+        local_step = max(abs(baseline) * 0.05, abs(high - low) * 0.02, 0.01)
+        for multiplier in (-2, -1, 1, 2):
+          actual_candidate = [float(value) for value in anchor_vector]
+          actual_candidate[idx] = min(max(baseline + (local_step * multiplier), min(low, high)), max(low, high))
+          _append_actual_seed(actual_candidate)
     normalized_seeds: List[List[float]] = []
     for seed in seed_vectors:
       rounded = [round(float(value), 6) for value in seed]
@@ -730,6 +836,7 @@ def solve_review_plan(
         normalized_seeds.append(rounded)
 
     def _unit_objective(arr: List[float]) -> float:
+      _raise_if_runtime_deadline_exceeded("objective")
       actual_vector = _vector_from_unit_interval(
         unit_vector=[float(v) for v in arr],
         variable_specs=variable_specs,
@@ -740,10 +847,40 @@ def solve_review_plan(
         variable_specs=variable_specs,
         vector=actual_vector,
         target_metrics=target_metrics,
-        tolerance_overrides=copy.deepcopy(task.get("target_tolerances") or {}),
+        tolerance_overrides=task_tolerance_overrides,
       )[0]
 
-    for seed in normalized_seeds:
+    if not anchor_within_tolerance:
+      for seed in normalized_seeds:
+        _raise_if_runtime_deadline_exceeded("deterministic_seed")
+        seed_vector = _vector_from_unit_interval(
+          unit_vector=[float(v) for v in seed],
+          variable_specs=variable_specs,
+        )
+        seed_score, seed_model_input_json, seed_finmo_json, seed_metric_results = _evaluate_quarter_objective(
+          base_model_input_json=working_model_input_json,
+          quarter_index=quarter_index,
+          variable_specs=variable_specs,
+          vector=seed_vector,
+          target_metrics=target_metrics,
+          tolerance_overrides=task_tolerance_overrides,
+        )
+        if float(seed_score) < float(best_score) - 1e-9:
+          best_score = float(seed_score)
+          best_vector = list(seed_vector)
+          updated_model_input_json = copy.deepcopy(seed_model_input_json)
+          updated_finmo_json = copy.deepcopy(seed_finmo_json)
+          metric_results = copy.deepcopy(seed_metric_results)
+          optimizer_message = "deterministic_seed_evaluated"
+          optimizer_success = bool(
+            all(
+              float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
+              for payload in seed_metric_results.values()
+            )
+          )
+
+    for seed in ([] if (anchor_within_tolerance or optimizer_success) else normalized_seeds):
+      _raise_if_runtime_deadline_exceeded("optimizer_seed")
       result = minimize(
         _unit_objective,
         x0=seed,
@@ -756,6 +893,7 @@ def solve_review_plan(
           # steps on million-dollar levers.
           "eps": 0.05,
           "ftol": 1e-9,
+          "maxfun": 160,
         },
       )
       candidate_vector = _vector_from_unit_interval(
@@ -768,7 +906,7 @@ def solve_review_plan(
         variable_specs=variable_specs,
         vector=candidate_vector,
         target_metrics=target_metrics,
-        tolerance_overrides=copy.deepcopy(task.get("target_tolerances") or {}),
+        tolerance_overrides=task_tolerance_overrides,
       )
       if float(candidate_score) < float(best_score) - 1e-9:
         best_score = float(candidate_score)

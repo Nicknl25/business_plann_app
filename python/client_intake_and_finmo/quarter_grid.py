@@ -889,6 +889,18 @@ def apply_exact_lever_updates_to_model_input(
     from finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
   next_model_input = json.loads(json.dumps(model_input_json if isinstance(model_input_json, dict) else {}))
   lever_rows = _lever_row_map(next_model_input)
+  nonnegative_only_levers = {
+    "balance_sheet::Distributions",
+    "balance_sheet::Owner's Capital",
+    "schedules::Debt Issuance (New Borrowing)",
+    "schedules::Debt Repayment (Scheduled)",
+    "balance_sheet::Short Term Debt (% of LTD)",
+  }
+  stock_level_levers = {
+    "balance_sheet::Owner's Capital",
+    "balance_sheet::Other Equity",
+  }
+  explicit_quarters_by_lever: Dict[str, set[int]] = {}
   for update in exact_updates:
     if not isinstance(update, dict):
       continue
@@ -898,6 +910,8 @@ def apply_exact_lever_updates_to_model_input(
     row = lever_rows.get(lever_id)
     if not lever_id or row is None or value is None or quarter_index < 1 or quarter_index > QUARTER_COUNT:
       continue
+    if lever_id in nonnegative_only_levers:
+      value = max(0.0, float(value))
     values = list(row.get("values") or [])
     has_stub = len(values) >= QUARTER_COUNT + 1
     target_length = QUARTER_COUNT + 1 if has_stub else QUARTER_COUNT
@@ -905,6 +919,36 @@ def apply_exact_lever_updates_to_model_input(
       values.extend([0.0 for _ in range(target_length - len(values))])
     row["values"] = values[:target_length]
     row["values"][quarter_index if has_stub else quarter_index - 1] = round(float(value), 6)
+    explicit_quarters_by_lever.setdefault(lever_id, set()).add(quarter_index)
+  for lever_id in stock_level_levers:
+    row = lever_rows.get(lever_id)
+    if row is None:
+      continue
+    explicit_quarters = sorted(explicit_quarters_by_lever.get(lever_id) or [])
+    if not explicit_quarters:
+      continue
+    values = list(row.get("values") or [])
+    has_stub = len(values) >= QUARTER_COUNT + 1
+    target_length = QUARTER_COUNT + 1 if has_stub else QUARTER_COUNT
+    if len(values) < target_length:
+      values.extend([0.0 for _ in range(target_length - len(values))])
+    row["values"] = values[:target_length]
+    carryforward_active = False
+    previous_value = None
+    for quarter_index in range(1, QUARTER_COUNT + 1):
+      value_idx = quarter_index if has_stub else quarter_index - 1
+      current_value = float_or_none(row["values"][value_idx])
+      if current_value is None:
+        current_value = 0.0
+      if quarter_index in explicit_quarters:
+        carryforward_active = True
+        if lever_id == "balance_sheet::Owner's Capital" and previous_value is not None:
+          current_value = max(float(previous_value), float(current_value))
+          row["values"][value_idx] = round(float(current_value), 6)
+      elif carryforward_active and previous_value is not None:
+        current_value = float(previous_value)
+        row["values"][value_idx] = round(float(current_value), 6)
+      previous_value = float(current_value)
   return apply_derived_driver_policies_to_model_input(next_model_input)
 
 

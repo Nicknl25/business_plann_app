@@ -60,26 +60,17 @@ Output schema:
 - `issues` may be empty if no meaningful realism issue is found
 - the order of `issues` is the ranking from most structurally important to least
 - `issue_code` must be chosen from this fixed list and must match the issue meaning:
-  - `operating_model_contradiction`
   - `capacity_revenue_mismatch`
   - `pricing_positioning_mismatch`
-  - `staffing_payroll_mismatch`
   - `cost_structure_mismatch`
-  - `growth_model_mismatch`
   - `working_capital_payment_model_mismatch`
-  - `capex_footprint_mismatch`
-  - `financing_solvency_mismatch`
-  - `profitability_cash_shape_unrealistic`
 - Do not invent new issue codes.
 
 What to look for:
-- operating model contradictions
+- capacity or throughput assumptions that do not fit the stated business reality
 - pricing that does not fit the stated business or customer reality
-- staffing or workload assumptions that do not fit the business model
-- financial structure that does not fit the operating setup
-- growth expectations that do not fit the current business shape
 - cost structure that does not fit how the business says it operates
-- any other realism or coherence issue that materially weakens the business model
+- working-capital or payment timing assumptions that do not fit the operating model
 
 Tone:
 - concise
@@ -94,9 +85,9 @@ Good output example:
   "status": "ready",
   "issues": [
     {
-      "issue_code": "staffing_payroll_mismatch",
-      "issue": "The staffing model does not fully match the operating load.",
-      "detail": "The business appears to depend on a level of delivery intensity that leaves little room for normal operating friction."
+      "issue_code": "capacity_revenue_mismatch",
+      "issue": "The capacity model does not fully match the operating load.",
+      "detail": "The business appears to depend on throughput that leaves little room for normal operating friction."
     },
     {
       "issue_code": "pricing_positioning_mismatch",
@@ -111,7 +102,7 @@ Bad output example:
   "status": "ready",
   "issues": [
     {
-      "issue_code": "staffing_payroll_mismatch",
+      "issue_code": "capacity_revenue_mismatch",
       "issue": "You should hire another provider and raise starting cash.",
       "detail": "Increase equity and lower payroll."
     }

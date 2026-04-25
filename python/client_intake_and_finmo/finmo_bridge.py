@@ -680,11 +680,13 @@ _PAYROLL_DERIVATION_POLICY_VERSION = "payroll_revenue_oews_policy_v2"
 _PAYROLL_DERIVATION_SOURCE = "revenue_oews_derived"
 _PAYROLL_DERIVATION_LEVER_ID = "expenses::Payroll"
 _CAPEX_DEPRECIATION_POLICY_KEY = "capex_depreciation_policy"
-_CAPEX_DEPRECIATION_POLICY_VERSION = "structural_capacity_capex_useful_life_v1"
+_CAPEX_DEPRECIATION_POLICY_VERSION = "utilization_first_structural_capacity_capex_v2"
 _CAPEX_DEPRECIATION_SOURCE = "structural_capacity_ppe_derived"
 _CAPEX_MAINTENANCE_RATE = 0.10
 _CAPEX_USEFUL_LIFE_YEARS = 5.0
 _CAPEX_DEPRECIATION_MIN_PRIOR_PPE = 1e-6
+_CAPACITY_UTILIZATION_CEILING = 0.85
+_CAPACITY_POST_EXPANSION_UTILIZATION = 0.70
 _DEFAULT_AVG_ANNUAL_SALARY = 150000.0
 _DEFAULT_REVENUE_PER_EMPLOYEE = 650000.0
 _PAYROLL_RATIO_FLOOR = 0.05
@@ -864,6 +866,8 @@ def _default_capex_depreciation_policy(
     "capex_source": _CAPEX_DEPRECIATION_SOURCE,
     "maintenance_rate": float(_CAPEX_MAINTENANCE_RATE),
     "useful_life_years": float(_CAPEX_USEFUL_LIFE_YEARS),
+    "capacity_utilization_ceiling": float(_CAPACITY_UTILIZATION_CEILING),
+    "capacity_post_expansion_utilization": float(_CAPACITY_POST_EXPANSION_UTILIZATION),
     "initial_assets": float(initial_assets),
     "initial_assets_source": "financials_json.initial_assets",
     "explicit_capex_overrides": normalized_overrides,
@@ -903,6 +907,8 @@ def _normalized_capex_depreciation_policy(
     "capex_source": str(raw_policy.get("capex_source") or _CAPEX_DEPRECIATION_SOURCE).strip() or _CAPEX_DEPRECIATION_SOURCE,
     "maintenance_rate": float(max(0.0, _safe_ratio(raw_policy.get("maintenance_rate")) or _CAPEX_MAINTENANCE_RATE)),
     "useful_life_years": float(max(1.0, _safe_float(raw_policy.get("useful_life_years")) or _CAPEX_USEFUL_LIFE_YEARS)),
+    "capacity_utilization_ceiling": float(max(0.0, _safe_ratio(raw_policy.get("capacity_utilization_ceiling")) or _CAPACITY_UTILIZATION_CEILING)),
+    "capacity_post_expansion_utilization": float(max(0.0, _safe_ratio(raw_policy.get("capacity_post_expansion_utilization")) or _CAPACITY_POST_EXPANSION_UTILIZATION)),
     "initial_assets": float(fallback_initial_assets),
     "initial_assets_source": (
       str(raw_policy.get("initial_assets_source") or "").strip()
@@ -911,6 +917,219 @@ def _normalized_capex_depreciation_policy(
     "explicit_capex_overrides": explicit_capex_overrides,
     "business_type": str(raw_policy.get("business_type") or "").strip() or None,
     "naics": str(raw_policy.get("naics") or "").strip() or None,
+  }
+
+
+def _revenue_slot_key_from_row(row: Dict[str, Any]) -> str:
+  return str(
+    row.get("revenue_slot_key")
+    or _revenue_slot_identity(
+      row_lob=row.get("lob") or row.get("placeholder_lob"),
+      row_product=row.get("product") or row.get("placeholder_product"),
+    ).get("revenue_slot_key")
+    or ""
+  ).strip()
+
+
+def _shape_revenue_capacity_and_utilization(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+  policy: Dict[str, Any],
+) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
+  if not revenue_rows:
+    raise ValueError(
+      "capacity_shaping_revenue_rows_missing: model_input.sections.revenue must include Capacity, Unit Price, and Utilization rows."
+    )
+
+  utilization_ceiling = round(float(_safe_ratio(policy.get("capacity_utilization_ceiling")) or 0.0), 6)
+  post_expansion_utilization = round(float(_safe_ratio(policy.get("capacity_post_expansion_utilization")) or 0.0), 6)
+  if utilization_ceiling <= 0.0 or utilization_ceiling > 1.0:
+    raise ValueError(
+      "capacity_shaping_policy_invalid: capacity_utilization_ceiling must be greater than 0 and no more than 1."
+    )
+  if post_expansion_utilization <= 0.0 or post_expansion_utilization >= utilization_ceiling:
+    raise ValueError(
+      "capacity_shaping_policy_invalid: capacity_post_expansion_utilization must be greater than 0 and less than capacity_utilization_ceiling."
+    )
+
+  grouped: Dict[str, Dict[str, Any]] = {}
+  for row in revenue_rows:
+    driver = str(row.get("driver") or "").strip().lower()
+    if driver not in {"capacity", "unit price", "utilization"}:
+      continue
+    key = _revenue_slot_key_from_row(row)
+    if not key:
+      raise ValueError(
+        "capacity_shaping_revenue_slot_missing: every revenue driver row must have a revenue_slot_key."
+      )
+    group = grouped.setdefault(
+      key,
+      {
+        "rows": {},
+        "stub_values": {},
+        "live_values": {},
+        "lob": str(row.get("lob") or row.get("placeholder_lob") or "").strip(),
+        "product": str(row.get("product") or row.get("placeholder_product") or "").strip(),
+      },
+    )
+    if driver in group["rows"]:
+      raise ValueError(
+        f"capacity_shaping_duplicate_driver_row: duplicate {driver} row for revenue_slot_key {key}."
+      )
+    stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    group["rows"][driver] = row
+    group["stub_values"][driver] = round(max(0.0, _safe_float(stub_value) or 0.0), 6)
+    group["live_values"][driver] = [round(max(0.0, _safe_float(value) or 0.0), 6) for value in live_values[:live_count]]
+
+  if not grouped:
+    raise ValueError(
+      "capacity_shaping_capacity_signal_missing: structural Capacity driver rows are required in model_input.sections.revenue."
+    )
+
+  product_logs: List[Dict[str, Any]] = []
+  total_capacity_by_quarter = [0.0 for _ in range(max(0, int(live_count or 0)))]
+  total_revenue_before_by_quarter = [0.0 for _ in range(max(0, int(live_count or 0)))]
+  total_revenue_after_by_quarter = [0.0 for _ in range(max(0, int(live_count or 0)))]
+  total_expansion_quarters: List[int] = []
+
+  for key, group in sorted(grouped.items()):
+    missing = [driver for driver in ("capacity", "unit price", "utilization") if driver not in group["rows"]]
+    if missing:
+      raise ValueError(
+        f"capacity_shaping_driver_set_incomplete: revenue_slot_key {key} is missing {', '.join(missing)}."
+      )
+    capacity_row = group["rows"]["capacity"]
+    utilization_row = group["rows"]["utilization"]
+    unit_price_row = group["rows"]["unit price"]
+    capacity_stub = round(float(group["stub_values"].get("capacity") or 0.0), 6)
+    if capacity_stub <= 0.0:
+      raise ValueError(
+        f"capacity_shaping_initial_capacity_missing: revenue_slot_key {key} must have a positive structural Capacity stub."
+      )
+
+    capacity_values = group["live_values"].get("capacity") or [0.0 for _ in range(live_count)]
+    unit_price_values = group["live_values"].get("unit price") or [0.0 for _ in range(live_count)]
+    utilization_values = group["live_values"].get("utilization") or [0.0 for _ in range(live_count)]
+    shaped_capacity_values: List[float] = []
+    shaped_utilization_values: List[float] = []
+    quarter_logs: List[Dict[str, Any]] = []
+    previous_capacity = capacity_stub
+
+    for idx in range(max(0, int(live_count or 0))):
+      quarter_index = idx + 1
+      original_capacity = round(max(0.0, _safe_float(capacity_values[idx]) or 0.0), 6)
+      unit_price = round(max(0.0, _safe_float(unit_price_values[idx]) or 0.0), 6)
+      original_utilization = round(max(0.0, _safe_float(utilization_values[idx]) or 0.0), 6)
+      intended_revenue = round(original_capacity * unit_price * original_utilization, 6)
+      if intended_revenue > 0.0 and unit_price <= 0.0:
+        raise ValueError(
+          f"capacity_shaping_unit_price_missing: revenue_slot_key {key} has positive intended revenue in Q{quarter_index} but no Unit Price."
+        )
+
+      utilization_if_no_expansion = 0.0
+      expansion_triggered = False
+      capacity_delta = 0.0
+      if intended_revenue <= 0.0 or unit_price <= 0.0:
+        shaped_capacity = previous_capacity
+        shaped_utilization = 0.0
+      else:
+        utilization_if_no_expansion = round(intended_revenue / max(previous_capacity * unit_price, 1e-9), 6)
+        if utilization_if_no_expansion <= utilization_ceiling:
+          shaped_capacity = previous_capacity
+          shaped_utilization = utilization_if_no_expansion
+        else:
+          shaped_capacity = round(intended_revenue / max(unit_price * post_expansion_utilization, 1e-9), 6)
+          shaped_capacity = max(previous_capacity, shaped_capacity)
+          shaped_utilization = round(intended_revenue / max(shaped_capacity * unit_price, 1e-9), 6)
+          capacity_delta = round(max(0.0, shaped_capacity - previous_capacity), 6)
+          expansion_triggered = capacity_delta > 0.0
+
+      shaped_revenue = round(shaped_capacity * unit_price * shaped_utilization, 6)
+      if intended_revenue > 0.0 and shaped_revenue <= 0.0:
+        raise ValueError(
+          f"capacity_shaping_revenue_preservation_failed: revenue_slot_key {key} produced zero shaped revenue in Q{quarter_index}."
+        )
+      shaped_capacity_values.append(round(shaped_capacity, 6))
+      shaped_utilization_values.append(round(shaped_utilization, 6))
+      total_capacity_by_quarter[idx] += round(shaped_capacity, 6)
+      total_revenue_before_by_quarter[idx] += intended_revenue
+      total_revenue_after_by_quarter[idx] += shaped_revenue
+      if expansion_triggered:
+        total_expansion_quarters.append(quarter_index)
+      quarter_logs.append(
+        {
+          "quarter_index": quarter_index,
+          "original_capacity": original_capacity,
+          "unit_price": unit_price,
+          "original_utilization": original_utilization,
+          "intended_revenue": intended_revenue,
+          "previous_structural_capacity": round(previous_capacity, 6),
+          "utilization_if_no_expansion": utilization_if_no_expansion,
+          "utilization_ceiling": utilization_ceiling,
+          "post_expansion_utilization": post_expansion_utilization,
+          "shaped_capacity": round(shaped_capacity, 6),
+          "shaped_utilization": round(shaped_utilization, 6),
+          "capacity_delta": capacity_delta,
+          "expansion_triggered": expansion_triggered,
+          "shaped_revenue": shaped_revenue,
+        }
+      )
+      previous_capacity = round(shaped_capacity, 6)
+
+    if len(shaped_capacity_values) != live_count or len(shaped_utilization_values) != live_count:
+      raise ValueError(
+        f"capacity_shaping_series_contract_invalid: revenue_slot_key {key} did not produce every live quarter."
+      )
+    capacity_row["capacity_shaping"] = {
+      "policy_version": str(policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
+      "source": _CAPEX_DEPRECIATION_SOURCE,
+      "utilization_ceiling": utilization_ceiling,
+      "post_expansion_utilization": post_expansion_utilization,
+    }
+    utilization_row["capacity_shaping"] = deepcopy(capacity_row["capacity_shaping"])
+    unit_price_row["capacity_shaping"] = {
+      **deepcopy(capacity_row["capacity_shaping"]),
+      "role": "price_preserved",
+    }
+    capacity_row["values"] = _compose_period_values(
+      stub_value=capacity_stub,
+      live_values=shaped_capacity_values,
+    )
+    utilization_row["values"] = _compose_period_values(
+      stub_value=group["stub_values"].get("utilization") or 0.0,
+      live_values=shaped_utilization_values,
+    )
+    product_logs.append(
+      {
+        "revenue_slot_key": key,
+        "lob": group.get("lob") or None,
+        "product": group.get("product") or None,
+        "capacity_stub": capacity_stub,
+        "utilization_stub": round(float(group["stub_values"].get("utilization") or 0.0), 6),
+        "unit_price_stub": round(float(group["stub_values"].get("unit price") or 0.0), 6),
+        "expansion_quarters": [item["quarter_index"] for item in quarter_logs if item.get("expansion_triggered")],
+        "quarter_logs": quarter_logs,
+      }
+    )
+
+  if len(total_capacity_by_quarter) != live_count:
+    raise ValueError(
+      "capacity_shaping_series_contract_invalid: shaped aggregate capacity did not cover every live quarter."
+    )
+  return {
+    "policy_version": str(policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
+    "source": _CAPEX_DEPRECIATION_SOURCE,
+    "utilization_ceiling": utilization_ceiling,
+    "post_expansion_utilization": post_expansion_utilization,
+    "total_capacity_by_quarter": [round(float(value), 6) for value in total_capacity_by_quarter],
+    "total_revenue_before_by_quarter": [round(float(value), 6) for value in total_revenue_before_by_quarter],
+    "total_revenue_after_by_quarter": [round(float(value), 6) for value in total_revenue_after_by_quarter],
+    "expansion_quarters": sorted(set(total_expansion_quarters)),
+    "product_logs": product_logs,
   }
 
 
@@ -1141,6 +1360,15 @@ def apply_derived_driver_policies_to_model_input(
   next_payload.setdefault("derived_driver_policies", {})
   next_payload.setdefault("derived_driver_runtime", {})
 
+  capex_policy = _normalized_capex_depreciation_policy(next_payload)
+  capacity_shaping_runtime = _shape_revenue_capacity_and_utilization(
+    next_payload,
+    live_count=live_count,
+    policy=capex_policy,
+  )
+  if isinstance(next_payload.get("derived_driver_runtime"), dict):
+    next_payload["derived_driver_runtime"]["capacity_shaping"] = deepcopy(capacity_shaping_runtime)
+
   if isinstance(payroll_row, dict):
     values = list(payroll_row.get("values") or [])
     stub_value, _existing_live_values = _row_stub_and_live_values(values, live_count=live_count)
@@ -1263,6 +1491,8 @@ def apply_derived_driver_policies_to_model_input(
     "capex_source": _CAPEX_DEPRECIATION_SOURCE,
     "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE), 6),
     "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
+    "capacity_utilization_ceiling": round(float(capacity_shaping_runtime.get("utilization_ceiling") or _CAPACITY_UTILIZATION_CEILING), 6),
+    "capacity_post_expansion_utilization": round(float(capacity_shaping_runtime.get("post_expansion_utilization") or _CAPACITY_POST_EXPANSION_UTILIZATION), 6),
     "capital_per_capacity_unit": round(float(capex_runtime.get("capital_per_capacity_unit") or 0.0), 6),
     "initial_assets": round(float(capex_runtime.get("initial_assets") or 0.0), 6),
     "initial_capacity": round(float(capex_runtime.get("initial_capacity") or 0.0), 6),
@@ -1296,6 +1526,8 @@ def apply_derived_driver_policies_to_model_input(
       "policy_version": str(capex_policy.get("policy_version") or _CAPEX_DEPRECIATION_POLICY_VERSION).strip(),
       "maintenance_rate": round(float(capex_runtime.get("maintenance_rate") or _CAPEX_MAINTENANCE_RATE), 6),
       "useful_life_years": round(float(capex_runtime.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS), 6),
+      "capacity_utilization_ceiling": round(float(capacity_shaping_runtime.get("utilization_ceiling") or _CAPACITY_UTILIZATION_CEILING), 6),
+      "capacity_post_expansion_utilization": round(float(capacity_shaping_runtime.get("post_expansion_utilization") or _CAPACITY_POST_EXPANSION_UTILIZATION), 6),
       "capital_per_capacity_unit": round(float(capex_runtime.get("capital_per_capacity_unit") or 0.0), 6),
       "initial_assets": round(float(capex_runtime.get("initial_assets") or 0.0), 6),
       "initial_capacity": round(float(capex_runtime.get("initial_capacity") or 0.0), 6),
@@ -1304,6 +1536,7 @@ def apply_derived_driver_policies_to_model_input(
       "capex_live_values": deepcopy(capex_runtime.get("capex_live_values") or []),
       "depreciation_percent_live_values": deepcopy(capex_runtime.get("depreciation_percent_live_values") or []),
       "depreciation_amount_live_values": deepcopy(capex_runtime.get("depreciation_amount_live_values") or []),
+      "capacity_shaping": deepcopy(capacity_shaping_runtime),
       "quarter_logs": deepcopy(capex_runtime.get("quarter_logs") or []),
     }
   return next_payload
