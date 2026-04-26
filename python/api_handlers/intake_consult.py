@@ -72,6 +72,7 @@ try:
     post_intake_driver_target_mapping_entry,
     post_intake_driver_target_mapping_errors,
     post_intake_driver_target_metric_ids,
+    post_intake_lever_ids_for_milestone_category,
   )
 except Exception:
   from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
@@ -80,6 +81,7 @@ except Exception:
     post_intake_driver_target_mapping_entry,
     post_intake_driver_target_mapping_errors,
     post_intake_driver_target_metric_ids,
+    post_intake_lever_ids_for_milestone_category,
   )
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
@@ -275,6 +277,7 @@ _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = {
   "cash_non_gpt_fallback_used",
   "cash_required_action_missing",
   "cash_buffer_violation",
+  "cash_pass_failed_unresolved_liquidity",
   "cash_distribution_violation",
 }
 _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS = {
@@ -4324,10 +4327,7 @@ def _initial_restructure_trigger_assessment(
     trigger_reasons.append("three_or_more_initial_realism_issues")
   if (
     "capacity_revenue_mismatch" in remaining_code_set
-    and (
-      "pricing_positioning_mismatch" in remaining_code_set
-      or "cost_structure_mismatch" in remaining_code_set
-    )
+    and "cost_structure_mismatch" in remaining_code_set
   ):
     trigger_reasons.append("operating_shape_cluster_detected")
   if negative_cash_quarters and remaining_issue_count >= 2:
@@ -7342,10 +7342,10 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "reopen_prefixes": ["revenue::"],
     "reopen_contains": ["::capacity", "::utilization", "::unit price"],
   },
-  "pricing_positioning_mismatch": {
-    "title": "pricing_positioning_mismatch",
+  "milestone_throughput_target_mismatch": {
+    "title": "milestone_throughput_target_mismatch",
     "reopen_prefixes": ["revenue::"],
-    "reopen_contains": ["::unit price"],
+    "reopen_contains": ["::capacity", "::utilization"],
   },
   "cost_structure_mismatch": {
     "title": "cost_structure_mismatch",
@@ -7498,6 +7498,9 @@ def _merge_issue_identity_fields(
     merged["issue"] = canonical_title
   if incoming_core.get("detail") and not str(merged.get("detail") or "").strip():
     merged["detail"] = incoming_core["detail"]
+  for key in ("metric_debug", "milestone_context", "milestone_category"):
+    if key in incoming:
+      merged[key] = copy.deepcopy(incoming.get(key))
   return merged
 
 
@@ -7555,7 +7558,6 @@ _CASH_PASS_OWNED_ISSUE_CODES = {
 _REMAINING_HORIZON_ISSUE_CODES = {
   "capacity_revenue_mismatch",
   "cost_structure_mismatch",
-  "pricing_positioning_mismatch",
 }
 
 
@@ -8005,22 +8007,6 @@ def _issue_metric_specs_for_quarter(
         metric_definition="Revenue scale should match the modeled operating support intensity.",
       )
     )
-  elif code == "pricing_positioning_mismatch":
-    gross_margin_floor = {"early": 0.18, "mid": 0.20, "late": 0.22}[phase]
-    gross_margin_ceiling = {"early": 0.60, "mid": 0.55, "late": 0.50}[phase]
-    cogs_floor = max(0.0, revenue * (1.0 - gross_margin_ceiling))
-    cogs_ceiling = max(cogs_floor, revenue * (1.0 - gross_margin_floor))
-    specs.append(
-      _table_target_currency_metric_spec(
-        "cogs",
-        actual_value=_quarter_row_cost_of_goods_sold(row),
-        target_floor=cogs_floor,
-        target_ceiling=cogs_ceiling,
-        score_scale=max(abs(revenue) * 0.06, 1000.0),
-        source_metric_names=["cogs", "revenue", "gross_profit"],
-        metric_definition="COGS dollars must stay inside the direct table-backed pricing/cost band implied by revenue.",
-      )
-    )
   return [item for item in specs if isinstance(item, dict) and str(item.get("metric_name") or "").strip()]
 
 
@@ -8034,6 +8020,15 @@ def _issue_metric_specs_for_record(
   issue_code = str(item.get("issue_code") or "").strip().lower()
   if not issue_code or not isinstance(current_finmo_json, dict):
     return []
+  explicit_specs = [
+    copy.deepcopy(spec)
+    for spec in (item.get("metric_debug") or [])
+    if isinstance(spec, dict)
+    and str(spec.get("metric_name") or "").strip()
+    and int(_safe_float(spec.get("quarter_index")) or 0) >= 1
+  ]
+  if explicit_specs:
+    return explicit_specs
   finmo_rows = {
     int(_safe_float(row.get("quarter_index")) or 0): row
     for row in ((current_finmo_json.get("quarter_rows") or []) if isinstance(current_finmo_json.get("quarter_rows"), list) else [])
@@ -12057,14 +12052,32 @@ def _merge_new_scan_detected_issues(
   iteration: int,
 ) -> List[Dict[str, Any]]:
   out = _clone_issue_status_records(existing_issue_status_records)
-  seen = {
-    _issue_ledger_key(item)
-    for item in out
+  index_by_key = {
+    _issue_ledger_key(item): idx
+    for idx, item in enumerate(out)
     if isinstance(item, dict) and _issue_ledger_key(item)
   }
   for item in _clone_issue_status_records(scanned_issue_status_records):
     key = _issue_ledger_key(item)
-    if not key or key in seen:
+    if not key:
+      continue
+    if key in index_by_key:
+      existing = copy.deepcopy(out[index_by_key[key]])
+      merged = _merge_issue_identity_fields(existing, item)
+      if str(item.get("detail") or "").strip():
+        merged["detail"] = str(item.get("detail") or "").strip()
+      if str(item.get("candidate_kind") or "").strip():
+        merged["candidate_kind"] = str(item.get("candidate_kind") or "").strip()
+      merged["last_seen_iteration"] = int(iteration)
+      merged["verifier_status"] = "not_resolved"
+      merged["remaining_issue_materiality"] = str(item.get("remaining_issue_materiality") or "material").strip() or "material"
+      merged["remaining_issue_severity_score"] = max(
+        1,
+        int(_safe_float(item.get("remaining_issue_severity_score")) or _safe_float(existing.get("remaining_issue_severity_score")) or 100),
+      )
+      merged["remaining_problem_quarters"] = copy.deepcopy(item.get("remaining_problem_quarters") or [])
+      merged["next_required_lever_ids"] = copy.deepcopy(item.get("next_required_lever_ids") or [])
+      out[index_by_key[key]] = _normalize_issue_record_to_controller_truth(merged)
       continue
     merged = _normalize_issue_record_to_controller_truth(item)
     first_detected_iteration = int(
@@ -12073,7 +12086,7 @@ def _merge_new_scan_detected_issues(
     merged["first_detected_iteration"] = max(1, first_detected_iteration)
     merged["last_seen_iteration"] = int(iteration)
     out.append(merged)
-    seen.add(key)
+    index_by_key[key] = len(out) - 1
   return [_normalize_issue_record_to_controller_truth(item) for item in out if isinstance(item, dict)]
 
 
@@ -14652,6 +14665,8 @@ def _build_deterministic_issue_packets(
     contract_packet = contract_issue_packet_map.get(issue_code) or {}
     prior_packet = prior_packet_map.get(issue_code) or {}
     if not contract_packet:
+      if contract_issue_packet_map:
+        continue
       available_contract_issue_codes = sorted(contract_issue_packet_map.keys())
       available_prior_issue_codes = sorted(prior_packet_map.keys())
       record_status = str(record.get("verifier_status") or "").strip().lower()
@@ -24483,6 +24498,125 @@ def _validate_cash_strategy_post_pass(
   }
 
 
+def _raise_cash_pass_unresolved_liquidity_if_needed(
+  *,
+  financials_json: Optional[Dict[str, Any]],
+  final_model_input_json: Optional[Dict[str, Any]],
+  final_finmo_json: Optional[Dict[str, Any]],
+  cash_strategy_review_context: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_decision: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
+) -> None:
+  envelope = _cash_strategy_violation_envelope(
+    selected_cash_strategy=_resolved_cash_strategy(financials_json),
+    finmo_payload=copy.deepcopy(final_finmo_json or {}),
+    model_input_json=copy.deepcopy(final_model_input_json or {}),
+  )
+  violations = [
+    {
+      "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
+      "ending_cash": int(round(float(_safe_float(item.get("ending_cash")) or 0.0))),
+      "required_cash_buffer": int(round(float(_safe_float(item.get("buffer")) or 0.0))),
+      "residual_funding_gap": int(round(float(_safe_float(item.get("residual_funding_gap")) or 0.0))),
+    }
+    for item in (envelope.get("quarter_envelopes") or [])
+    if isinstance(item, dict)
+    and int(round(float(_safe_float(item.get("ending_cash")) or 0.0)))
+    < int(round(float(_safe_float(item.get("buffer")) or 0.0)))
+  ]
+  if not violations:
+    return
+  diagnostics = {
+    "failure_stage": "cash_strategy",
+    "failure_reason": "cash_pass_failed_unresolved_liquidity",
+    "selected_cash_strategy": str(envelope.get("selected_cash_strategy") or "").strip(),
+    "validation_error": {
+      "rejected": True,
+      "reason_code": "cash_pass_failed_unresolved_liquidity",
+      "reason": "Cash pass finished with live-quarter ending_cash below the required cash buffer.",
+    },
+    "pre_solver_validation": {
+      "flags": ["cash_pass_failed_unresolved_liquidity"],
+      "errors": [
+        {
+          "error": "cash_pass_failed_unresolved_liquidity",
+          "reason": (
+            "Cash pass is a hard viability gate: every live quarter must satisfy "
+            "ending_cash >= required_cash_buffer."
+          ),
+          "validation_category": "cash_strategy",
+          "violating_quarters": [int(item.get("quarter_index") or 0) for item in violations],
+        }
+      ],
+    },
+    "cash_buffer_violations": copy.deepcopy(violations),
+    "cash_validation_envelope": copy.deepcopy(envelope),
+    "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context or {}),
+    "cash_strategy_review_decision": copy.deepcopy(cash_strategy_review_decision or {}),
+    "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan or {}),
+    "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result or {}),
+  }
+  raise StructuredSystemRunFailure(
+    detail="cash_pass_failed_unresolved_liquidity",
+    diagnostics=diagnostics,
+  )
+
+
+def _raise_negative_net_income_if_needed(
+  *,
+  final_finmo_json: Optional[Dict[str, Any]],
+  stage: str,
+) -> None:
+  finmo_by_quarter = _finmo_quarter_row_map(final_finmo_json)
+  violations: List[Dict[str, Any]] = []
+  for quarter_index in sorted(finmo_by_quarter):
+    if quarter_index < 1:
+      continue
+    row = finmo_by_quarter.get(quarter_index) or {}
+    net_income = int(round(float(_safe_float(row.get("net_income")) or 0.0)))
+    if net_income >= 0:
+      continue
+    violations.append(
+      {
+        "quarter_index": int(quarter_index),
+        "net_income": net_income,
+        "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
+        "ebitda": int(round(float(_safe_float(row.get("ebitda")) or 0.0))),
+        "depreciation": int(round(float(_safe_float(row.get("depreciation")) or 0.0))),
+        "interest_expense": int(round(float(_safe_float(row.get("interest_expense")) or 0.0))),
+        "ending_cash": int(round(float(_safe_float(row.get("ending_cash")) or 0.0))),
+      }
+    )
+  if not violations:
+    return
+  diagnostics = {
+    "failure_stage": str(stage or "final_model").strip() or "final_model",
+    "failure_reason": "negative_net_income_hard_gate",
+    "validation_error": {
+      "rejected": True,
+      "reason_code": "negative_net_income_hard_gate",
+      "reason": "Final model contains live-quarter negative net income.",
+    },
+    "pre_solver_validation": {
+      "flags": ["negative_net_income_hard_gate"],
+      "errors": [
+        {
+          "error": "negative_net_income_hard_gate",
+          "reason": "Every live quarter must satisfy net_income >= 0 before the run can complete.",
+          "validation_category": "financial_viability",
+          "violating_quarters": [int(item.get("quarter_index") or 0) for item in violations],
+        }
+      ],
+    },
+    "negative_net_income_violations": copy.deepcopy(violations),
+  }
+  raise StructuredSystemRunFailure(
+    detail="negative_net_income_hard_gate",
+    diagnostics=diagnostics,
+  )
+
+
 def _run_realism_resolution_loop(
   *,
   conn,
@@ -29246,6 +29380,234 @@ def _build_realism_milestone_context(
   return milestone_context
 
 
+def _milestone_category_from_description(description: Any) -> str:
+  text = str(description or "").strip().lower()
+  if not text:
+    return ""
+  if any(term in text for term in ("revenue", "sales", "$", "dollar", "arr", "mrr")):
+    return "revenue_growth"
+  if any(
+    term in text
+    for term in (
+      "unit",
+      "order",
+      "procedure",
+      "shipment",
+      "patient",
+      "customer",
+      "member",
+      "appointment",
+      "visit",
+      "case",
+      "job",
+      "treatment",
+    )
+  ) or bool(_milestone_cadence_hint(text)):
+    return "throughput_growth"
+  if any(term in text for term in ("location", "facility", "room", "fleet", "equipment", "capacity")):
+    return "capacity_expansion"
+  if any(term in text for term in ("cash", "debt", "profit", "margin", "break even", "breakeven")):
+    return "financial_stability"
+  return ""
+
+
+def _milestone_numeric_target(description: Any) -> Optional[float]:
+  text = str(description or "")
+  values: List[float] = []
+  for match in re.finditer(r"\b\d[\d,]*(?:\.\d+)?\s*[kKmM]?\b", text):
+    parsed = _extract_single_compact_number(match.group(0))
+    if parsed is not None and float(parsed) > 0.0:
+      values.append(float(parsed))
+  if not values:
+    return None
+  return max(values)
+
+
+def _milestone_quarter_multiplier(cadence: Any) -> float:
+  normalized = str(cadence or "").strip().lower()
+  if normalized == "weekly":
+    return 13.0
+  if normalized == "monthly":
+    return 3.0
+  if normalized == "annual":
+    return 0.25
+  return 1.0
+
+
+def _revenue_driver_groups_by_quarter(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[int, List[Dict[str, float]]]:
+  model_input = model_input_json if isinstance(model_input_json, dict) else {}
+  revenue_rows = (
+    ((model_input.get("sections") or {}).get("revenue") or [])
+    if isinstance(model_input.get("sections"), dict)
+    else []
+  )
+  grouped: Dict[str, Dict[str, Any]] = {}
+  for row in revenue_rows:
+    if not isinstance(row, dict):
+      continue
+    slot_key = str(row.get("revenue_slot_key") or row.get("lever_id") or "").strip()
+    driver = str(row.get("driver") or "").strip().lower()
+    if not slot_key or driver not in {"capacity", "unit price", "utilization"}:
+      continue
+    grouped.setdefault(slot_key, {})[driver] = copy.deepcopy(row.get("values") or [])
+  by_quarter: Dict[int, List[Dict[str, float]]] = {}
+  for rows in grouped.values():
+    capacity_values = rows.get("capacity") if isinstance(rows.get("capacity"), list) else []
+    price_values = rows.get("unit price") if isinstance(rows.get("unit price"), list) else []
+    utilization_values = rows.get("utilization") if isinstance(rows.get("utilization"), list) else []
+    max_len = max(len(capacity_values), len(price_values), len(utilization_values))
+    for index in range(1, max_len):
+      quarter_index = int(index)
+      capacity = float(_safe_float(capacity_values[index] if index < len(capacity_values) else None) or 0.0)
+      price = float(_safe_float(price_values[index] if index < len(price_values) else None) or 0.0)
+      utilization = float(_safe_float(utilization_values[index] if index < len(utilization_values) else None) or 0.0)
+      if capacity <= 0.0 and price <= 0.0 and utilization <= 0.0:
+        continue
+      by_quarter.setdefault(quarter_index, []).append(
+        {
+          "capacity": capacity,
+          "unit_price": price,
+          "utilization": utilization,
+          "realized_units": max(0.0, capacity) * max(0.0, utilization),
+          "revenue": max(0.0, capacity) * max(0.0, utilization) * max(0.0, price),
+        }
+      )
+  return by_quarter
+
+
+def _finmo_quarter_row_map(finmo_json: Optional[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+  finmo = finmo_json if isinstance(finmo_json, dict) else {}
+  return {
+    int(_safe_float(row.get("quarter_index")) or 0): row
+    for row in (finmo.get("quarter_rows") or [])
+    if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1
+  }
+
+
+def _build_milestone_issue_status_records(
+  *,
+  ops_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  iteration: int,
+) -> List[Dict[str, Any]]:
+  milestone_context = _build_realism_milestone_context(
+    ops_json=copy.deepcopy(ops_json or {}),
+    solved_model_input_json=copy.deepcopy(model_input_json or {}),
+  )
+  if not milestone_context:
+    return []
+  available_lever_ids = [
+    str(item.get("lever_id") or "").strip()
+    for item in _build_writable_lever_review_catalog(model_input_json)
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  ]
+  revenue_by_quarter = _revenue_driver_groups_by_quarter(model_input_json)
+  finmo_by_quarter = _finmo_quarter_row_map(finmo_json)
+  records: List[Dict[str, Any]] = []
+  for index, milestone in enumerate(milestone_context, start=1):
+    description = str(milestone.get("description") or "").strip()
+    category = _milestone_category_from_description(description)
+    target_quarter = int(_safe_float(milestone.get("target_quarter_index")) or 0)
+    target_value = _milestone_numeric_target(description)
+    if not description:
+      continue
+    if not category:
+      raise RuntimeError(
+        f"milestone_mapping_failed: milestone {index} could not be classified into a table-backed milestone_category."
+      )
+    if category not in {"throughput_growth", "revenue_growth"}:
+      raise RuntimeError(
+        f"milestone_mapping_failed: milestone {index} category {category} is not yet connected to a direct table-backed target."
+      )
+    if target_quarter < 1:
+      raise RuntimeError(f"milestone_mapping_failed: milestone {index} is missing timing_months_max/target quarter.")
+    if target_value is None or float(target_value) <= 0.0:
+      raise RuntimeError(f"milestone_mapping_failed: milestone {index} is missing a positive numeric target.")
+    candidate_lever_ids = post_intake_lever_ids_for_milestone_category(
+      category,
+      available_lever_ids=available_lever_ids,
+    )
+    if not candidate_lever_ids:
+      raise RuntimeError(
+        f"milestone_mapping_failed: milestone {index} category {category} has no available table-backed levers."
+      )
+    cadence = _milestone_cadence_hint(description) or "quarterly"
+    quarter_multiplier = _milestone_quarter_multiplier(cadence)
+    target_quarter_value = float(target_value) * quarter_multiplier
+    quarter_driver_rows = revenue_by_quarter.get(target_quarter) or []
+    actual_units = sum(float(row.get("realized_units") or 0.0) for row in quarter_driver_rows)
+    driver_revenue = sum(float(row.get("revenue") or 0.0) for row in quarter_driver_rows)
+    average_price = (
+      driver_revenue / actual_units
+      if actual_units > 0.0 and driver_revenue > 0.0
+      else max([float(row.get("unit_price") or 0.0) for row in quarter_driver_rows] or [0.0])
+    )
+    finmo_row = finmo_by_quarter.get(target_quarter) or {}
+    actual_revenue = float(_safe_float(finmo_row.get("revenue")) or driver_revenue or 0.0)
+    if category == "throughput_growth":
+      if average_price <= 0.0:
+        raise RuntimeError(
+          f"milestone_mapping_failed: milestone {index} cannot translate throughput to revenue because unit price is missing."
+        )
+      target_revenue = float(target_quarter_value) * float(average_price)
+      metric_definition = (
+        "Client milestone requires a concrete throughput level by the target quarter. "
+        "The direct solver target is revenue, reached only through mapped Capacity/Utilization drivers."
+      )
+      achieved = actual_units >= target_quarter_value - 1e-6
+      observed_value = actual_revenue
+    else:
+      target_revenue = float(target_quarter_value)
+      metric_definition = (
+        "Client milestone requires a concrete revenue level by the target quarter. "
+        "The direct solver target is revenue through mapped revenue drivers."
+      )
+      achieved = actual_revenue >= target_revenue - 1e-6
+      observed_value = actual_revenue
+    if achieved:
+      continue
+    spec = _table_target_currency_metric_spec(
+      "revenue",
+      actual_value=observed_value,
+      target_floor=target_revenue,
+      score_scale=max(abs(target_revenue - observed_value), target_revenue * 0.10, 1000.0),
+      source_metric_names=["revenue", "capacity", "utilization"],
+      metric_definition=metric_definition,
+    )
+    if not isinstance(spec, dict):
+      raise RuntimeError(f"milestone_mapping_failed: milestone {index} could not build table-backed metric spec.")
+    spec["quarter_index"] = target_quarter
+    spec["milestone_target_value"] = target_value
+    spec["milestone_target_quarter_value"] = target_quarter_value
+    spec["milestone_cadence"] = cadence
+    records.append(
+      _normalize_issue_record_to_controller_truth(
+        {
+          "issue": "milestone_throughput_target_mismatch",
+          "issue_code": "milestone_throughput_target_mismatch",
+          "detail": (
+            f"Milestone not met by Q{target_quarter}: {description}. "
+            f"Actual modeled throughput is {round(actual_units, 2)} {cadence} converted units in the target quarter versus required {round(target_quarter_value, 2)}."
+          ),
+          "verifier_status": "not_resolved",
+          "remaining_issue_materiality": "material",
+          "remaining_issue_severity_score": 88,
+          "remaining_problem_quarters": [target_quarter],
+          "next_required_lever_ids": candidate_lever_ids,
+          "metric_debug": [spec],
+          "milestone_category": category,
+          "milestone_context": copy.deepcopy(milestone),
+          "first_detected_iteration": max(1, int(iteration or 1)),
+          "last_seen_iteration": max(1, int(iteration or 1)),
+        }
+      )
+    )
+  return records
+
+
 def _has_confirmed_milestone(ops_json: Dict[str, Any]) -> bool:
   for milestone in _parse_milestones((ops_json or {}).get("milestones")):
     desc = str(milestone.get("description") or "").strip()
@@ -30360,6 +30722,17 @@ def _run_unified_post_grid_system_run(
     current_issues=_memo_issue_records(copy.deepcopy(realism_memo_before_resolution), "remaining_issues", "issues"),
     iteration=0,
   )
+  milestone_issue_ledger = _build_milestone_issue_status_records(
+    ops_json=copy.deepcopy(ops_json or {}),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    iteration=0,
+  )
+  realism_issue_ledger = _refresh_issue_status_records_from_scan(
+    existing_issue_status_records=[],
+    scanned_issue_status_records=copy.deepcopy(realism_issue_ledger) + copy.deepcopy(milestone_issue_ledger),
+    iteration=0,
+  )
   resolution_summary = _build_resolution_summary_from_issue_ledger(
     before_memo=copy.deepcopy(realism_memo_before_resolution),
     issue_status_records=copy.deepcopy(realism_issue_ledger),
@@ -31100,6 +31473,18 @@ def _run_unified_post_grid_system_run(
         current_issues=_memo_issue_records(copy.deepcopy(scan_memo), "remaining_issues", "issues"),
         iteration=next_iteration,
       )
+      milestone_scan_issue_set = _build_milestone_issue_status_records(
+        ops_json=copy.deepcopy(ops_json or {}),
+        model_input_json=copy.deepcopy(final_model_input_json),
+        finmo_json=copy.deepcopy(final_finmo_json),
+        iteration=next_iteration,
+      )
+      if milestone_scan_issue_set:
+        scan_issue_set = _refresh_issue_status_records_from_scan(
+          existing_issue_status_records=[],
+          scanned_issue_status_records=copy.deepcopy(scan_issue_set) + copy.deepcopy(milestone_scan_issue_set),
+          iteration=next_iteration,
+        )
       realism_issue_ledger = _merge_new_scan_detected_issues(
         existing_issue_status_records=copy.deepcopy(verified_issue_ledger),
         scanned_issue_status_records=copy.deepcopy(scan_issue_set),
@@ -31435,6 +31820,19 @@ def _run_unified_post_grid_system_run(
         detail="cash_strategy_second_pass_execution_failed",
       )
     )
+  _raise_cash_pass_unresolved_liquidity_if_needed(
+    financials_json=copy.deepcopy(financials_json or {}),
+    final_model_input_json=copy.deepcopy(final_model_input_json),
+    final_finmo_json=copy.deepcopy(final_finmo_json),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+  )
+  _raise_negative_net_income_if_needed(
+    final_finmo_json=copy.deepcopy(final_finmo_json),
+    stage="post_cash_pass_final",
+  )
   cash_strategy_effect_summary = _build_cash_strategy_effect_summary(
     financials_json=copy.deepcopy(financials_json or {}),
     review_decision_payload=copy.deepcopy(cash_strategy_review_decision),

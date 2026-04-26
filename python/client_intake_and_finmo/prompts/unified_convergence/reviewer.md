@@ -219,7 +219,7 @@ Example shape-sensitive lever entry:
   },
   "rationale": "The price path moderates the opening premium into a more believable enterprise subscription regime without a one-quarter cliff.",
   "business_reason": "The operating model needs a coherent forward pricing regime, not a temporary spike.",
-  "linked_action_effect": "repair_pricing_positioning_mismatch",
+  "linked_action_effect": "repair_capacity_revenue_mismatch",
   "mapped_repair_targets": [
     {
       "issue_code": "<copy_exact_issue_code_from_live_repair_packet>",

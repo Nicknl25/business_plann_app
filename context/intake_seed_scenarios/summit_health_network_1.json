@@ -1,0 +1,95 @@
+{
+  "scenario_name": "Summit Health Network 1",
+  "seed_prompt": "Create a business scenario for a large regional hospital system with one core service.",
+  "bootstrap": {
+    "business_name": "Summit Health Network 1",
+    "business_start_date": "8/5/2024",
+    "address": "1200 Care Ave, Dallas, TX 75201, USA",
+    "address_street": "1200 Care Ave",
+    "address_city": "Dallas",
+    "address_state": "TX",
+    "address_zip": "75201",
+    "address_country": "USA"
+  },
+  "ops": {
+    "business_description": "A multi-facility regional hospital system providing inpatient care, outpatient procedures, diagnostic services, and surgical services from hospital and ambulatory sites.",
+    "customer_type": "Patients, commercial insurance plans, Medicare, Medicaid, employer health plans, and referring physicians.",
+    "products_confirmed": "Yes, track Procedure as the single core service.",
+    "legal_entity": "C-corp.",
+    "delivery_method": "All procedures are delivered on-site in owned and leased hospital, outpatient, diagnostic, and surgical facilities.",
+    "fulfillment_confirmation": "Yes, all service delivery is on-site through staffed medical facilities and clinical operating rooms.",
+    "sales_channel": "Physician referrals, payer network contracts, direct patient scheduling, emergency department intake, outpatient clinic referrals, and employer health plan relationships.",
+    "geography": "Dallas-Fort Worth metro area and nearby North Texas counties.",
+    "growth_lever": "Growth is driven by completed procedure volume, operating room utilization, referral capture, payer network access, and outpatient service-line expansion.",
+    "competitive_advantage": "Regional brand recognition, advanced clinical capability, high procedure capacity, payer relationships, and a broad referral network.",
+    "goal_12_months": "Reach 900 completed medical procedures per week within 12 months while maintaining safe clinical throughput and care quality.",
+    "milestones": [
+      {
+        "description": "Reach 900 completed medical procedures per week while maintaining safe clinical throughput and care quality.",
+        "timing": "within 12 months",
+        "timing_months_max": 12
+      }
+    ],
+    "confirmation": "Yes, the operating model, service, capacity, geography, growth lever, and milestone are correct.",
+    "products": [
+      {
+        "product_name": "Procedure",
+        "aliases": [
+          "case",
+          "operation",
+          "treatment",
+          "surgery"
+        ],
+        "unit_definition": "One completed medical procedure for one patient, including surgical or procedural care episode.",
+        "cadence": "weekly",
+        "capacity": "At full capacity the system can complete 900 medical procedures per week.",
+        "capacity_value": "900",
+        "capacity_period": "weekly",
+        "utilization": "Use 75% utilization.",
+        "utilization_value": "75%",
+        "price": "Use 4500 per completed procedure.",
+        "price_value": "4500"
+      }
+    ]
+  },
+  "market": {
+    "gender": "All genders.",
+    "age_range": "Adults aged 25 to 70.",
+    "income_range": "Household income of 50000 and above, plus patients covered by commercial insurance, Medicare, Medicaid, or employer health plans.",
+    "education": "Mixed education levels, including high school, trade, college, graduate, and professional education.",
+    "profile_detail_choice": "Skip household and housing.",
+    "employment_mix": "Working adults, retirees, unemployed patients with coverage, public-sector employees, private-sector employees, and self-employed professionals.",
+    "confirmation": "Yes, the target market profile is correct."
+  },
+  "people": {
+    "owner_background": "The executive owner group has 18 years of healthcare administration experience, including hospital operations, payer contracting, compliance oversight, clinical staffing, and multi-site management.",
+    "other_key_people": "The business has 120 employees: 18 physicians and surgeons, 42 nurses and clinical staff, 16 diagnostic and procedure technicians, 12 patient intake and scheduling staff, 10 billing and revenue-cycle staff, 8 facility and supply-chain staff, 8 administrators, and 6 senior managers.",
+    "confirmation": "Yes, the leadership and staffing context is correct."
+  },
+  "financials": {
+    "revenue_setup": "Year-1 revenue is 157950000, calculated as 900 weekly procedure capacity times 75% utilization times 4500 price times 52 weeks.",
+    "cogs": "Use 86872500 for Year-1 COGS, equal to 55% of 157950000 revenue.",
+    "cogs_total_year1": "86872500",
+    "cogs_percent": "55%",
+    "payroll": "Use 42000000 for annual payroll across 120 employees.",
+    "payroll_detail": "Annual payroll is 42000000 for 120 employees across physicians, nurses, technicians, scheduling, billing, facilities, administration, and management.",
+    "current_num_employees": "120",
+    "monthly_rent_expense": "Use 50000 for monthly rent expense.",
+    "other_operating_expense": "Use 60000 for other monthly operating expense.",
+    "other_monthly_debt_payments": "Use 20000 for other monthly debt payments.",
+    "cash_on_hand": "Use 300000 for cash on hand.",
+    "ar_balance": "Use 150000 for accounts receivable.",
+    "ap_balance": "Use 200000 for accounts payable.",
+    "inventory_balance": "Use 50000 for inventory balance.",
+    "current_capex": "Use 1500000 for current capital expenditures.",
+    "initial_assets": "Use 6000000 for initial assets.",
+    "initial_lease": "Use 10000 for monthly lease expense beyond main rent.",
+    "initial_equity": "Use 2500000 for initial equity.",
+    "total_debt_outstanding": "Use 3000000 for total debt outstanding.",
+    "annual_interest_payment": "Use 150000 for annual interest payment.",
+    "annual_principal_payment": "Use 400000 for annual principal payment.",
+    "owner_compensation": "Use 300000 for annual owner compensation.",
+    "cash_strategy": "Reinvest. Extra cash should remain available for equipment, facility capacity, clinical staffing, and service-line growth after required liquidity is secure.",
+    "confirmation": "Yes, the financial setup is correct."
+  }
+}

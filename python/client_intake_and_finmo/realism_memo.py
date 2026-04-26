@@ -19,7 +19,6 @@ REALISM_MEMO_GRID_ADVISORY_PROMPT_PATH = PROMPTS_DIR / "grid_advisory.md"
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 _REALISM_ISSUE_CODES = [
   "capacity_revenue_mismatch",
-  "pricing_positioning_mismatch",
   "cost_structure_mismatch",
   "working_capital_payment_model_mismatch",
 ]

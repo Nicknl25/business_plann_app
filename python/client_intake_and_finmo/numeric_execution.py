@@ -10,6 +10,7 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_driver_target_mapping_errors,
   post_intake_driver_target_mapping_entry,
   post_intake_driver_target_metric_ids,
+  post_intake_lever_ids_for_milestone_category,
 )
 
 NUMERIC_EXECUTION_BOUNDARY_VERSION = "numeric_execution_boundary_v1"
@@ -35,8 +36,8 @@ IMMUTABLE_CORE_MODEL_FILES = (
 _ISSUE_SOLVER_OBJECTIVES: Dict[str, str] = {
   "capacity_revenue_mismatch": "align_volume_with_capacity_and_timing",
   "cost_structure_mismatch": "rebalance_cost_structure_without_fake_plugs",
+  "milestone_throughput_target_mismatch": "hit_explicit_client_milestone_through_mapped_revenue_drivers",
   "working_capital_payment_model_mismatch": "align_working_capital_with_real_collection_payment_timing",
-  "pricing_positioning_mismatch": "align_price_with_offer_and_demand_reality",
 }
 
 TARGETABLE_FINMO_METRIC_IDS = tuple(post_intake_driver_target_metric_ids())
@@ -60,7 +61,6 @@ _PREFERRED_PRIMARY_TARGET_METRIC_COUNT = 6
 _REMAINING_HORIZON_ISSUE_CODES = {
   "capacity_revenue_mismatch",
   "cost_structure_mismatch",
-  "pricing_positioning_mismatch",
 }
 
 
@@ -278,11 +278,14 @@ def _infer_issue_lever_ids(
 
     if code == "capacity_revenue_mismatch":
       return bool(driver_category == "revenue")
-    if code == "pricing_positioning_mismatch":
-      return bool(
-        driver_category == "revenue"
-        or target_metric_name == "cogs"
+    if code == "milestone_throughput_target_mismatch":
+      milestone_levers = set(
+        post_intake_lever_ids_for_milestone_category(
+          "throughput_growth",
+          available_lever_ids=[entry.get("lever_id") for entry in entries],
+        )
       )
+      return lever_id in milestone_levers
     if code == "cost_structure_mismatch":
       return bool(
         driver_category == "revenue"
@@ -418,8 +421,6 @@ def _dominant_issue_cluster(issue_status_records: Optional[List[Dict[str, Any]]]
     return "profitability_shape"
   if "capacity_revenue_mismatch" in codes:
     return "capacity_growth"
-  if "pricing_positioning_mismatch" in codes:
-    return "pricing_mix"
   return "general_rebalance"
 
 

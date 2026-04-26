@@ -1245,6 +1245,12 @@ def _derived_capex_and_depreciation_runtime(
       "capex_depreciation_maintenance_rate_invalid: GPT-authored annual maintenance_rate is required and must satisfy 0.02 <= rate <= 0.15."
     )
   useful_life_years = float(policy.get("useful_life_years") or _CAPEX_USEFUL_LIFE_YEARS)
+  if useful_life_years <= 0.0:
+    raise ValueError(
+      "capex_depreciation_useful_life_invalid: useful_life_years must be greater than zero for deterministic depreciation derivation."
+    )
+  quarterly_maintenance_rate = round(maintenance_rate / 4.0, 6)
+  useful_life_quarters = round(useful_life_years * 4.0, 6)
   explicit_capex_overrides = (
     policy.get("explicit_capex_overrides")
     if isinstance(policy.get("explicit_capex_overrides"), dict)
@@ -1260,12 +1266,12 @@ def _derived_capex_and_depreciation_runtime(
   for quarter_index, current_capacity in enumerate(capacity_runtime.get("live_capacity_by_quarter") or [], start=1):
     structural_capacity = round(max(0.0, _safe_float(current_capacity) or 0.0), 6)
     capacity_growth_units = round(max(0.0, structural_capacity - previous_capacity), 6)
-    maintenance_capex = round(max(0.0, previous_ppe) * maintenance_rate, 6)
+    maintenance_capex = round(max(0.0, previous_ppe) * quarterly_maintenance_rate, 6)
     expansion_capex = round(capacity_growth_units * capital_per_capacity_unit, 6)
     derived_capex = round(maintenance_capex + expansion_capex, 6)
     explicit_capex = _safe_float(explicit_capex_overrides.get(quarter_index))
     final_capex = round(max(0.0, explicit_capex), 6) if explicit_capex is not None else derived_capex
-    depreciation_dollars = round(final_capex / useful_life_years, 6)
+    depreciation_dollars = round(final_capex / useful_life_quarters, 6)
     if previous_ppe <= _CAPEX_DEPRECIATION_MIN_PRIOR_PPE:
       depreciation_percent = 0.0
       modeled_depreciation = 0.0
@@ -1287,12 +1293,15 @@ def _derived_capex_and_depreciation_runtime(
         "capacity_growth_units": capacity_growth_units,
         "capital_per_capacity_unit": capital_per_capacity_unit,
         "maintenance_rate": round(maintenance_rate, 6),
+        "annual_maintenance_rate": round(maintenance_rate, 6),
+        "quarterly_maintenance_rate": quarterly_maintenance_rate,
         "maintenance_capex": maintenance_capex,
         "expansion_capex": expansion_capex,
         "derived_capex": derived_capex,
         "explicit_capex_override": round(max(0.0, explicit_capex), 6) if explicit_capex is not None else None,
         "final_capex_used": final_capex,
         "useful_life_years": useful_life_years,
+        "useful_life_quarters": useful_life_quarters,
         "depreciation_dollars": depreciation_dollars,
         "depreciation_percent": depreciation_percent,
         "modeled_depreciation": modeled_depreciation,
@@ -1321,7 +1330,10 @@ def _derived_capex_and_depreciation_runtime(
     ),
     "capital_per_capacity_unit": capital_per_capacity_unit,
     "maintenance_rate": round(maintenance_rate, 6),
+    "annual_maintenance_rate": round(maintenance_rate, 6),
+    "quarterly_maintenance_rate": quarterly_maintenance_rate,
     "useful_life_years": round(useful_life_years, 6),
+    "useful_life_quarters": useful_life_quarters,
     "capex_live_values": capex_live_values,
     "depreciation_percent_live_values": depreciation_percent_live_values,
     "depreciation_amount_live_values": depreciation_amount_live_values,
