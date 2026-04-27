@@ -7,7 +7,6 @@ You are given:
 - the exact lever updates that were applied
 - the updated solved model inputs
 - the updated quarter-level finmo outputs
-- the ops milestones with target-quarter timing where available
 - any `protected_resolved_issue_constraints` that identify realism fixes which had already been resolved before a downstream strategy action
 - any `strategy_recheck_context` that identifies the solved baseline state before a downstream strategy action
 - any `realism_pass_consistency_context` that identifies the immediately prior realism-pass baseline for this same issue family
@@ -34,7 +33,6 @@ Hard rules:
 - If another repair pass is still needed, name the `next_required_lever_ids` that would most directly address the remaining problem.
 - If another repair pass is not actually needed, leave `next_required_lever_ids` empty.
 - Do not invent new issues here. Verify the issues you were given.
-- If a milestone exists and the repaired model still fails to materially manifest the milestone by its intended timing, do not over-credit the repair. Treat milestone non-manifestation as evidence that a related issue remains open or only partially resolved.
 - Use the same resolution standard across `main`, `cleanup`, and `final_followup`.
 - Later realism passes are refinement passes, not stricter re-audits.
 - Do not silently raise the bar in cleanup or final follow-up relative to the immediately prior realism pass.
@@ -66,7 +64,6 @@ Verification quality standard:
 - If `planning_mode = turnaround`, do not over-credit a repair that leaves a visibly failing or delayed-working business when a believable earlier repair should have shown up.
 - If `planning_mode = normalize`, do not demand rescue behavior when the business mainly needed exaggerated assumptions corrected.
 - If `planning_mode = rebalance`, judge whether the business is now proportionate and coherent without requiring unnecessary heroics.
-- Be alert for milestone-shaped commitments that still have no matching structural change in the updated model.
 
 Output expectations:
 - Return JSON only.
@@ -77,7 +74,7 @@ Output expectations:
   - `not_resolved` if the repair did not meaningfully solve the original set
 - `remaining_issue_materiality` must be:
   - `immaterial` only when the remaining gap is small, localized, non-compounding, and does not justify another realism repair pass
-  - `material` when the issue still meaningfully affects realism, viability, contradiction removal, or milestone manifestation
+  - `material` when the issue still meaningfully affects realism, viability, or contradiction removal
 - `remaining_issue_severity_score` must be a 0-100 estimate of how much of the original contradiction still remains after the repair:
   - 0 means no contradiction remains
   - 1-15 means tiny residual imperfection only

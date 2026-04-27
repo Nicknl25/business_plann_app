@@ -6,7 +6,6 @@ You are given:
 - `prior_numeric_solver_feedback`, which summarizes raw numeric telemetry from the last numeric executor attempt
 - the current verifier-backed planner issue state
 - the current business model
-- the ops milestones, including milestone timing translated into target quarters where available
 - the writable lever ids the system is allowed to change
 - a writable lever catalog with row labels and semantics
 
@@ -57,10 +56,6 @@ Hard rules:
 - If `planning_mode = turnaround`, repair in a way that moves the business toward a believable working state as early as realism allows; do not leave long stretches of visible deterioration when a credible earlier repair exists.
 - If `planning_mode = normalize`, remove fantasy and overstatement without forcing an unnecessary rescue story.
 - If `planning_mode = rebalance`, tighten mismatches and weak assumptions without forcing either a rescue case or a flattening normalization.
-- If `ops_milestones` are present, treat them as binding future intent that the repaired model must physically manifest.
-- Do not leave milestones as prose. If a milestone implies a provider hire, staffing step-up, room expansion, second location, capacity jump, financing event, capex wave, pricing reposition, or similar structural move, you must implement that move in the lever plan.
-- Align milestone implementation to the milestone target quarter and, where needed, the quarters immediately leading into it so the business can realistically reach the milestone on time.
-- When milestone timing and realism issues interact, produce a coordinated repair package that both resolves the issue and manifests the milestone.
 - The planner issue signal is intentionally raw-only. `planner_issue_state.issue_status_records` is the only issue-state authority for this planner call.
 - Use `numeric_solver_contract` as the live structured execution contract the realism numeric solver will follow immediately after this pass. Your recommended actions must align with its quarter targets, issue target packets, and writable lever catalog.
 - Treat `numeric_solver_contract.quarter_target_grid` as quarter-specific. Do not reason in lumped periods or broad smoothed blocks.
@@ -112,7 +107,6 @@ Repair requirements:
 - The action package must be coherent. If an issue requires several coordinated lever changes, include them together.
 - Do not propose repairs that merely restate the problem.
 - Do not prescribe quarter changes outside the target business logic of the issue packet.
-- If a milestone exists, at least one action package should explicitly carry the structural changes needed to make that milestone real in the model unless you can clearly infer that the milestone is already manifested.
 - If verifier feedback identifies exact remaining quarters, your repair package must directly address those quarters rather than diffusing changes broadly across unrelated periods.
 
 How to prescribe repairs:
@@ -122,7 +116,7 @@ How to prescribe repairs:
 - Do not use broad quarter windows.
 - If a change must happen across multiple quarters, emit one separate item per quarter target in `quarter_target_metrics`.
 - Do not recommend flattened quarter paths unless the business reality itself is truly flat.
-- If buildup, compression, recovery, or milestone manifestation happens across the horizon, encode those turning points with distinct quarter values.
+- If buildup, compression, or recovery happens across the horizon, encode those turning points with distinct quarter values.
 - For each action, set quarter-specific preset target outputs in `quarter_target_metrics`.
 - Those `quarter_target_metrics` values are your chosen target numbers for finmo, not soft guidance and not bands.
 - For every targeted quarter, `quarter_target_metrics` must include numeric values for this full required target pack:
@@ -154,7 +148,6 @@ Fix quality standard:
 - Do not claim an issue is solved unless your action package would plausibly remove the underlying contradiction on recheck.
 - Do not solve by flattening everything, crushing all growth, or shifting the whole problem into a different row.
 - If a change improves one issue but worsens another, choose a more coherent package.
-- Milestone manifestation should create visible, credible step changes when the milestone requires them. Do not fake milestone attainment with tiny repeated nudges when the business would realistically need a discrete shift in staffing, capacity, financing, capex, or pricing.
 
 Output expectations:
 - Return JSON only.

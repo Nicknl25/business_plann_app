@@ -243,6 +243,26 @@ def _safe_ratio(value: Any) -> Optional[float]:
   return ratio
 
 
+def _cogs_ratio_from_financials(financials: Optional[Dict[str, Any]], revenue_total_year1: Any) -> float:
+  payload = financials if isinstance(financials, dict) else {}
+  for key in ("cogs_percent_of_revenue", "cogs_percent", "estimated_cogs_percent"):
+    explicit_ratio = _safe_ratio(payload.get(key))
+    if explicit_ratio is not None and explicit_ratio > 0.0:
+      return max(0.0, float(explicit_ratio))
+  cogs_value = (
+    _safe_float(payload.get("cogs_total_year1"))
+    if payload.get("cogs_total_year1") is not None
+    else _safe_float(payload.get("current_cogs"))
+  )
+  if cogs_value is None or cogs_value <= 0.0:
+    return 0.0
+  revenue = _safe_float(revenue_total_year1) or 0.0
+  direct_ratio = _ratio(cogs_value, revenue)
+  if 1.0 < cogs_value <= 100.0 and direct_ratio < 0.05:
+    return cogs_value / 100.0
+  return max(0.0, direct_ratio)
+
+
 def _placeholder_index(value: Any, prefix: str) -> Optional[int]:
   match = re.search(rf"{re.escape(prefix)}\s*(\d+)", str(value or "").strip(), re.IGNORECASE)
   if not match:
@@ -276,6 +296,89 @@ def _revenue_slot_identity(
   }
 
 
+_BALANCE_SHEET_STUB_CONTINUITY_EXCLUDED_LABELS = {
+  # Aggregate/check rows are allowed to move based on their components. The
+  # continuity contract applies to actual balance-sheet lines.
+  "Current Assets",
+  "Current Liabilites",
+  "Total Assets",
+  "Total Liabilities",
+  "Total Equity",
+  "Total Liabilities & Equity",
+  # Debt may be intentionally amortized to zero through scheduled repayments;
+  # that is not the same class as AR / inventory / AP disappearing because the
+  # driver row was left empty.
+  "Long Term Debt",
+  "Short Term Debt",
+}
+
+
+def _enforce_balance_sheet_stub_continuity(balance_rows: Sequence[Dict[str, Any]]) -> None:
+  violations: List[Dict[str, Any]] = []
+  for row in balance_rows or []:
+    if not isinstance(row, dict):
+      continue
+    label = str(row.get("label") or "").strip()
+    if not label or label in _BALANCE_SHEET_STUB_CONTINUITY_EXCLUDED_LABELS:
+      continue
+    values = list(row.get("values") or [])
+    if len(values) <= 1:
+      continue
+    stub_value = round(_safe_float(values[0]) or 0.0, 6)
+    if abs(stub_value) <= 1e-6:
+      continue
+    empty_live_quarters = [
+      idx
+      for idx, value in enumerate(values[1:], start=1)
+      if abs(round(_safe_float(value) or 0.0, 6)) <= 1e-6
+    ]
+    if empty_live_quarters:
+      violations.append(
+        {
+          "label": label,
+          "stub_value": stub_value,
+          "empty_live_quarters": empty_live_quarters,
+          "first_empty_quarter": empty_live_quarters[0],
+        }
+      )
+  if violations:
+    raise ValueError(
+      "balance_sheet_stub_continuity_failed: nonzero stub/opening balance-sheet lines must not become empty in live forecast periods. "
+      + json.dumps({"violations": violations}, ensure_ascii=False)
+    )
+
+
+def _enforce_revenue_driver_formula_contract(
+  *,
+  model_input_json: Dict[str, Any],
+  quarter_rows_raw: Sequence[Dict[str, Any]],
+) -> None:
+  live_rows = [row for row in (quarter_rows_raw or []) if isinstance(row, dict)]
+  driver_revenue_series = _revenue_live_series_from_model_input(
+    model_input_json,
+    live_count=len(live_rows),
+  )
+  violations: List[Dict[str, Any]] = []
+  for idx, row in enumerate(live_rows, start=1):
+    finmo_revenue = float(_safe_float(row.get("revenue")) or 0.0)
+    driver_revenue = float(driver_revenue_series[idx - 1]) if idx - 1 < len(driver_revenue_series) else 0.0
+    if int(round(finmo_revenue)) != int(round(driver_revenue)):
+      violations.append(
+        {
+          "quarter_index": idx,
+          "finmo_revenue": int(round(finmo_revenue)),
+          "driver_formula_revenue": int(round(driver_revenue)),
+          "delta": int(round(finmo_revenue - driver_revenue)),
+          "formula": "sum(Capacity * Unit Price * Utilization) across revenue products",
+        }
+      )
+  if violations:
+    raise ValueError(
+      "revenue_driver_formula_contract_failed: FINMO revenue must equal model-input revenue drivers for every live quarter. "
+      + json.dumps({"violations": violations}, ensure_ascii=False)
+    )
+
+
 def _named_lob(value: Any, fallback: str) -> str:
   text = _canonical_model_input_text(value)
   return text or fallback
@@ -297,6 +400,10 @@ def build_python_finmo_json(
   book = FinancialModelInputs.from_model_input_json(normalized_model_input)
   result = calculate_finmo_model(book)
   quarter_rows_raw = result.quarter_rows()
+  _enforce_revenue_driver_formula_contract(
+    model_input_json=normalized_model_input,
+    quarter_rows_raw=quarter_rows_raw,
+  )
   quarter_rows_with_stub = result.quarter_rows(include_stub=True)
   first_live_row = next((row for row in quarter_rows_raw if isinstance(row, dict)), None)
   quarter_rows_with_stub = _apply_operating_stub_to_quarter_rows(
@@ -435,6 +542,7 @@ def build_python_finmo_json(
     {"label": "Total Equity", "values": _series("total_equity", include_stub=True)},
     {"label": "Total Liabilities & Equity", "values": _series("total_liabilities_and_equity", include_stub=True)},
   ]
+  _enforce_balance_sheet_stub_continuity(balance_rows)
   cfs_rows = [
     {"label": "Beginning Cash", "values": _series("beginning_cash", include_stub=True)},
     {"label": "Net Income", "values": _series("net_income", include_stub=True)},
@@ -635,7 +743,7 @@ def _operating_anchor_baseline_inputs(
     or _safe_float(financials.get("current_revenue"))
     or 0.0,
   )
-  cogs_ratio_baseline = _ratio(financials.get("cogs_total_year1"), revenue_total_year1)
+  cogs_ratio_baseline = _cogs_ratio_from_financials(financials, revenue_total_year1)
   marketing_ratio_baseline = _safe_ratio(marketing_model.get("marketing_percent_of_revenue"))
   if marketing_ratio_baseline is None:
     marketing_ratio_baseline = _safe_ratio(financials.get("marketing_percent_of_revenue"))
@@ -692,6 +800,162 @@ _PAYROLL_RATIO_FLOOR = 0.05
 _PAYROLL_RATIO_CEILING = 0.50
 _MAX_FTE_GROWTH_PER_QUARTER = 0.50
 _OEWS_ALL_OCCUPATIONS_WAGE_CACHE: Dict[str, Tuple[float, str]] = {}
+_SBA_BUSINESS_LOAN_RATE_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def _median(values: List[float]) -> Optional[float]:
+  clean = sorted(float(value) for value in values if value is not None and float(value) > 0.0)
+  if not clean:
+    return None
+  mid = len(clean) // 2
+  if len(clean) % 2:
+    return float(clean[mid])
+  return float((clean[mid - 1] + clean[mid]) / 2.0)
+
+
+def _sba_business_loan_interest_rate_and_source(
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]] = None,
+) -> Tuple[float, Dict[str, Any]]:
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  naics_value = re.sub(r"[^0-9]", "", str(ops.get("business_naics_6") or "").strip())
+  state_value = str(financials.get("state") or ops.get("address_state") or ops.get("state") or "").strip().upper()
+  cache_key = f"{naics_value or '__fallback__'}::{state_value or '__any_state__'}"
+  cached = _SBA_BUSINESS_LOAN_RATE_CACHE.get(cache_key)
+  if cached:
+    return round(float(cached[0]), 6), deepcopy(cached[1])
+
+  query_specs: List[Tuple[str, str, str]] = []
+  if naics_value:
+    query_specs.append(("exact_naics_6", "NAICSCode = %s", naics_value))
+    for prefix_len in (5, 4, 3, 2):
+      if len(naics_value) >= prefix_len:
+        query_specs.append((f"naics_{prefix_len}_prefix", "NAICSCode LIKE %s", f"{naics_value[:prefix_len]}%"))
+  query_specs.append(("all_sba_7a", "NAICSCode IS NOT NULL", ""))
+
+  _load_root_env()
+  conn = None
+  cur = None
+  try:
+    try:
+      from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
+    except Exception:
+      from intake_submission import get_mysql_connection  # type: ignore
+    conn = get_mysql_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+      """
+      SELECT MAX(ApprovalFY) AS max_year
+      FROM sba_loan_7a_raw
+      WHERE InitialInterestRate IS NOT NULL
+        AND InitialInterestRate > 0
+        AND InitialInterestRate <= 50
+      """
+    )
+    max_year = _safe_float((cur.fetchone() or {}).get("max_year"))
+    min_year = int(max_year - 4) if max_year is not None and max_year >= 2000 else None
+    for match_basis, predicate, parameter in query_specs:
+      params: List[Any] = []
+      state_clause = ""
+      if state_value:
+        state_clause = " AND ProjectState = %s"
+        params.append(state_value)
+      year_clause = ""
+      if min_year is not None:
+        year_clause = " AND ApprovalFY >= %s"
+        params.append(min_year)
+      if parameter:
+        params.append(parameter)
+      cur.execute(
+        f"""
+        SELECT InitialInterestRate
+        FROM sba_loan_7a_raw
+        WHERE InitialInterestRate IS NOT NULL
+          AND InitialInterestRate > 0
+          AND InitialInterestRate <= 50
+          {state_clause}
+          {year_clause}
+          AND {predicate}
+        """,
+        tuple(params),
+      )
+      rates = [
+        float(_safe_float(row.get("InitialInterestRate")) or 0.0)
+        for row in (cur.fetchall() or [])
+        if _safe_float(row.get("InitialInterestRate")) is not None
+      ]
+      median_rate_pct = _median(rates)
+      if median_rate_pct is None and state_value:
+        params = []
+        year_clause = ""
+        if min_year is not None:
+          year_clause = " AND ApprovalFY >= %s"
+          params.append(min_year)
+        if parameter:
+          params.append(parameter)
+        cur.execute(
+          f"""
+          SELECT InitialInterestRate
+          FROM sba_loan_7a_raw
+          WHERE InitialInterestRate IS NOT NULL
+            AND InitialInterestRate > 0
+            AND InitialInterestRate <= 50
+            {year_clause}
+            AND {predicate}
+          """,
+          tuple(params),
+        )
+        rates = [
+          float(_safe_float(row.get("InitialInterestRate")) or 0.0)
+          for row in (cur.fetchall() or [])
+          if _safe_float(row.get("InitialInterestRate")) is not None
+        ]
+        median_rate_pct = _median(rates)
+      if median_rate_pct is None:
+        continue
+      annual_rate = round(float(median_rate_pct) / 100.0, 6)
+      source = {
+        "source": "sba_loan_7a_raw",
+        "rate_basis": "median_initial_interest_rate_pct_last_5_approval_years",
+        "match_basis": match_basis,
+        "naics": naics_value or None,
+        "state": state_value or None,
+        "approval_fy_min": min_year,
+        "approval_fy_max": int(max_year) if max_year is not None else None,
+        "sample_count": len(rates),
+        "median_rate_pct": round(float(median_rate_pct), 4),
+        "annual_rate_decimal": annual_rate,
+      }
+      _SBA_BUSINESS_LOAN_RATE_CACHE[cache_key] = (annual_rate, deepcopy(source))
+      return annual_rate, source
+  except Exception as exc:
+    intake_rate = _ratio(financials.get("annual_interest_payment"), financials.get("total_debt_outstanding"))
+    source = {
+      "source": "intake_interest_payment_fallback_after_sba_lookup_error",
+      "error": str(exc),
+      "annual_rate_decimal": round(float(intake_rate), 6),
+    }
+    _SBA_BUSINESS_LOAN_RATE_CACHE[cache_key] = (round(float(intake_rate), 6), deepcopy(source))
+    return round(float(intake_rate), 6), source
+  finally:
+    try:
+      if cur is not None:
+        cur.close()
+    except Exception:
+      pass
+    try:
+      if conn is not None:
+        conn.close()
+    except Exception:
+      pass
+  intake_rate = _ratio(financials.get("annual_interest_payment"), financials.get("total_debt_outstanding"))
+  source = {
+    "source": "intake_interest_payment_fallback_no_sba_rows",
+    "annual_rate_decimal": round(float(intake_rate), 6),
+  }
+  _SBA_BUSINESS_LOAN_RATE_CACHE[cache_key] = (round(float(intake_rate), 6), deepcopy(source))
+  return round(float(intake_rate), 6), source
 
 
 def _payroll_average_annual_salary_and_source(
@@ -853,10 +1117,6 @@ def _default_capex_depreciation_policy(
   financials = financials_json if isinstance(financials_json, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
   forecast_ppe = float(max(0.0, _safe_float(forecast_starting_ppe) or 0.0))
-  if forecast_ppe <= 0.0:
-    raise ValueError(
-      "forecast_starting_ppe_missing: GPT-authored forecast_starting_ppe is required and must be greater than zero for deterministic capex/depreciation derivation."
-    )
   normalized_maintenance_rate = _safe_ratio(maintenance_rate)
   if normalized_maintenance_rate is None or normalized_maintenance_rate < 0.02 or normalized_maintenance_rate > 0.15:
     raise ValueError(
@@ -872,14 +1132,14 @@ def _default_capex_depreciation_policy(
     "policy_version": _CAPEX_DEPRECIATION_POLICY_VERSION,
     "capex_source": _CAPEX_DEPRECIATION_SOURCE,
     "maintenance_rate": float(normalized_maintenance_rate),
-    "maintenance_rate_source": "gpt_forecast_starting_ppe.maintenance_capex_percent",
+    "maintenance_rate_source": "gpt_maintenance_capex_percent",
     "useful_life_years": float(_CAPEX_USEFUL_LIFE_YEARS),
     "capacity_utilization_ceiling": float(_CAPACITY_UTILIZATION_CEILING),
     "capacity_post_expansion_utilization": float(_CAPACITY_POST_EXPANSION_UTILIZATION),
     "initial_assets": float(forecast_ppe),
-    "initial_assets_source": "gpt_forecast_starting_ppe.starting_ppe",
+    "initial_assets_source": "financials_json.initial_assets_authoritative_balance_sheet",
     "forecast_starting_ppe": float(forecast_ppe),
-    "forecast_starting_ppe_source": "gpt_forecast_starting_ppe.starting_ppe",
+    "forecast_starting_ppe_source": "financials_json.initial_assets_authoritative_balance_sheet",
     "client_reported_ppe_stub": float(client_reported_ppe),
     "client_reported_ppe_stub_source": "financials_json.initial_assets",
     "explicit_capex_overrides": normalized_overrides,
@@ -1225,10 +1485,6 @@ def _derived_capex_and_depreciation_runtime(
     6,
   )
   initial_assets = round(max(0.0, float(_safe_float(policy.get("initial_assets")) or 0.0)), 6)
-  if initial_assets <= 0.0:
-    raise ValueError(
-      "capex_depreciation_initial_assets_missing: initial_assets is required and must be greater than zero for deterministic capex/depreciation derivation."
-    )
   capacity_runtime = _structural_capacity_series_from_model_input(
     payload,
     live_count=live_count,
@@ -1238,7 +1494,7 @@ def _derived_capex_and_depreciation_runtime(
     raise ValueError(
       "capex_depreciation_initial_capacity_missing: total structural opening Capacity must be greater than zero."
     )
-  capital_per_capacity_unit = round(initial_assets / initial_capacity, 6)
+  capital_per_capacity_unit = round(initial_assets / initial_capacity, 6) if initial_assets > 0.0 else 0.0
   maintenance_rate = float(_safe_ratio(policy.get("maintenance_rate")) or 0.0)
   if maintenance_rate < 0.02 or maintenance_rate > 0.15:
     raise ValueError(
@@ -1259,6 +1515,12 @@ def _derived_capex_and_depreciation_runtime(
 
   previous_capacity = initial_capacity
   previous_ppe = opening_ppe
+  useful_life_quarter_count = int(round(float(useful_life_quarters)))
+  if useful_life_quarter_count <= 0 or abs(float(useful_life_quarters) - float(useful_life_quarter_count)) > 0.000001:
+    raise ValueError(
+      "capex_depreciation_useful_life_quarters_invalid: useful_life_years must resolve to a positive whole number of quarters."
+    )
+  capex_depreciation_vintages: List[Dict[str, Any]] = []
   capex_live_values: List[float] = []
   depreciation_percent_live_values: List[float] = []
   depreciation_amount_live_values: List[float] = []
@@ -1271,7 +1533,43 @@ def _derived_capex_and_depreciation_runtime(
     derived_capex = round(maintenance_capex + expansion_capex, 6)
     explicit_capex = _safe_float(explicit_capex_overrides.get(quarter_index))
     final_capex = round(max(0.0, explicit_capex), 6) if explicit_capex is not None else derived_capex
-    depreciation_dollars = round(final_capex / useful_life_quarters, 6)
+    if final_capex > 0.0:
+      capex_depreciation_vintages.append(
+        {
+          "placed_quarter": quarter_index,
+          "basis": final_capex,
+          "quarterly_depreciation": round(final_capex / float(useful_life_quarter_count), 6),
+          "remaining_quarters": useful_life_quarter_count,
+        }
+      )
+    active_vintage_components: List[Dict[str, Any]] = []
+    depreciation_dollars = 0.0
+    remaining_vintages: List[Dict[str, Any]] = []
+    for vintage in capex_depreciation_vintages:
+      remaining_quarters = int(_safe_float(vintage.get("remaining_quarters")) or 0)
+      if remaining_quarters <= 0:
+        continue
+      quarterly_depreciation = round(max(0.0, float(_safe_float(vintage.get("quarterly_depreciation")) or 0.0)), 6)
+      basis = round(max(0.0, float(_safe_float(vintage.get("basis")) or 0.0)), 6)
+      placed_quarter = int(_safe_float(vintage.get("placed_quarter")) or quarter_index)
+      depreciation_dollars = round(depreciation_dollars + quarterly_depreciation, 6)
+      active_vintage_components.append(
+        {
+          "placed_quarter": placed_quarter,
+          "basis": basis,
+          "quarterly_depreciation": quarterly_depreciation,
+          "remaining_quarters_before_current": remaining_quarters,
+        }
+      )
+      updated_vintage = deepcopy(vintage)
+      updated_vintage["remaining_quarters"] = remaining_quarters - 1
+      if int(updated_vintage.get("remaining_quarters") or 0) > 0:
+        remaining_vintages.append(updated_vintage)
+    capex_depreciation_vintages = remaining_vintages
+    if depreciation_dollars < 0.0:
+      raise ValueError(
+        "capex_depreciation_schedule_invalid: scheduled depreciation cannot be negative."
+      )
     if previous_ppe <= _CAPEX_DEPRECIATION_MIN_PRIOR_PPE:
       depreciation_percent = 0.0
       modeled_depreciation = 0.0
@@ -1302,6 +1600,10 @@ def _derived_capex_and_depreciation_runtime(
         "final_capex_used": final_capex,
         "useful_life_years": useful_life_years,
         "useful_life_quarters": useful_life_quarters,
+        "useful_life_quarter_count": useful_life_quarter_count,
+        "depreciation_schedule_method": "rolling_capex_vintage_straight_line",
+        "active_capex_vintage_count": len(active_vintage_components),
+        "active_capex_vintage_components": active_vintage_components,
         "depreciation_dollars": depreciation_dollars,
         "depreciation_percent": depreciation_percent,
         "modeled_depreciation": modeled_depreciation,
@@ -1334,6 +1636,8 @@ def _derived_capex_and_depreciation_runtime(
     "quarterly_maintenance_rate": quarterly_maintenance_rate,
     "useful_life_years": round(useful_life_years, 6),
     "useful_life_quarters": useful_life_quarters,
+    "useful_life_quarter_count": useful_life_quarter_count,
+    "depreciation_schedule_method": "rolling_capex_vintage_straight_line",
     "capex_live_values": capex_live_values,
     "depreciation_percent_live_values": depreciation_percent_live_values,
     "depreciation_amount_live_values": depreciation_amount_live_values,
@@ -1390,6 +1694,186 @@ def _revenue_live_series_from_model_input(
         * max(0.0, _safe_float(utilizations[idx]) or 0.0)
       )
   return [round(float(value), 6) for value in revenue_by_quarter]
+
+
+def _model_input_live_values_for_label(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  section_key: str,
+  label: str,
+  live_count: int,
+) -> List[float]:
+  row = _find_controller_row(model_input_json, section_key=section_key, label=label)
+  _stub_value, live_values = _row_stub_and_live_values((row or {}).get("values") or [], live_count=live_count)
+  return [
+    round(_safe_float(live_values[idx]) or 0.0, 6)
+    if idx < len(live_values) else 0.0
+    for idx in range(max(0, live_count))
+  ]
+
+
+def _apply_authoritative_working_capital_driver_policies(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+) -> Dict[str, Any]:
+  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  if not isinstance(sections, dict) or not isinstance(schedules, dict):
+    return next_payload
+  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
+  if not balance_rows:
+    return next_payload
+
+  ar_balance_seed = max(0.0, _safe_float(schedules.get("accounts_receivable_opening_balance_seed")) or 0.0)
+  inventory_balance_seed = max(0.0, _safe_float(schedules.get("inventory_opening_balance_seed")) or 0.0)
+  ap_balance_seed = max(0.0, _safe_float(schedules.get("accounts_payable_opening_balance_seed")) or 0.0)
+  if ar_balance_seed <= 0.0 and inventory_balance_seed <= 0.0 and ap_balance_seed <= 0.0:
+    return next_payload
+
+  days_in_quarter = 90.0
+  revenue_series = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
+  cogs_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Cost of Goods Sold",
+    live_count=live_count,
+  )
+  marketing_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Marketing",
+    live_count=live_count,
+  )
+  r_and_d_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Research & Development",
+    live_count=live_count,
+  )
+  lease_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Lease",
+    live_count=live_count,
+  )
+  payroll_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Payroll",
+    live_count=live_count,
+  )
+  g_and_a_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="General & Administrative",
+    live_count=live_count,
+  )
+
+  runtime_rows: List[Dict[str, Any]] = []
+  seen_working_capital_labels: set[str] = set()
+  for row in balance_rows:
+    label = str(row.get("label") or "").strip()
+    if label not in {"Accounts Receivable Days", "Inventory Days", "Accounts Payable Days"}:
+      continue
+    seen_working_capital_labels.add(label)
+    stub_value, _existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    live_values: List[float] = []
+    for idx in range(max(0, live_count)):
+      revenue = max(0.0, float(revenue_series[idx]) if idx < len(revenue_series) else 0.0)
+      cogs_ratio = max(0.0, float(cogs_ratio_series[idx]) if idx < len(cogs_ratio_series) else 0.0)
+      marketing_ratio = max(0.0, float(marketing_ratio_series[idx]) if idx < len(marketing_ratio_series) else 0.0)
+      r_and_d_ratio = max(0.0, float(r_and_d_ratio_series[idx]) if idx < len(r_and_d_ratio_series) else 0.0)
+      lease = max(0.0, float(lease_series[idx]) if idx < len(lease_series) else 0.0)
+      payroll = max(0.0, float(payroll_series[idx]) if idx < len(payroll_series) else 0.0)
+      g_and_a_ratio = max(0.0, float(g_and_a_ratio_series[idx]) if idx < len(g_and_a_ratio_series) else 0.0)
+      cogs = revenue * cogs_ratio
+      ap_expense_base = (revenue * marketing_ratio) + (revenue * r_and_d_ratio) + lease + payroll + (revenue * g_and_a_ratio)
+      if label == "Accounts Receivable Days":
+        if ar_balance_seed > 0.0 and revenue <= 0.0:
+          raise ValueError(
+            "working_capital_days_contract_failed: Accounts Receivable Days requires positive live revenue "
+            f"when authoritative opening AR exists. quarter_index={idx + 1} ar_balance_seed={ar_balance_seed} revenue={revenue}"
+          )
+        value = (ar_balance_seed / revenue) * days_in_quarter if revenue > 0.0 and ar_balance_seed > 0.0 else 0.0
+      elif label == "Inventory Days":
+        if inventory_balance_seed > 0.0 and cogs <= 0.0:
+          raise ValueError(
+            "working_capital_days_contract_failed: Inventory Days requires positive live COGS "
+            f"when authoritative opening inventory exists. quarter_index={idx + 1} inventory_balance_seed={inventory_balance_seed} cogs={cogs}"
+          )
+        value = (inventory_balance_seed / cogs) * days_in_quarter if cogs > 0.0 and inventory_balance_seed > 0.0 else 0.0
+      else:
+        if ap_balance_seed > 0.0 and ap_expense_base <= 0.0:
+          raise ValueError(
+            "working_capital_days_contract_failed: Accounts Payable Days requires positive live AP expense base "
+            f"when authoritative opening AP exists. quarter_index={idx + 1} ap_balance_seed={ap_balance_seed} ap_expense_base={ap_expense_base}"
+          )
+        value = (ap_balance_seed / ap_expense_base) * days_in_quarter if ap_expense_base > 0.0 and ap_balance_seed > 0.0 else 0.0
+      if (
+        (label == "Accounts Receivable Days" and ar_balance_seed > 0.0)
+        or (label == "Inventory Days" and inventory_balance_seed > 0.0)
+        or (label == "Accounts Payable Days" and ap_balance_seed > 0.0)
+      ) and value <= 0.0:
+        raise ValueError(
+          "working_capital_days_contract_failed: authoritative working-capital balance produced a non-positive live driver. "
+          f"label={label} quarter_index={idx + 1} value={value}"
+        )
+      live_values.append(round(float(value), 6))
+    row["derived_driver"] = "authoritative_balance_sheet_working_capital_days"
+    row["working_capital_derivation"] = {
+      "source": "authoritative_balance_sheet_opening_balances",
+      "driver_basis": "opening_balance_divided_by_current_quarter_model_input_activity",
+      "days_in_quarter": days_in_quarter,
+      "opening_balance_seed": round(
+        ar_balance_seed
+        if label == "Accounts Receivable Days"
+        else inventory_balance_seed
+        if label == "Inventory Days"
+        else ap_balance_seed,
+        6,
+      ),
+    }
+    row["values"] = _compose_period_values(stub_value=stub_value, live_values=live_values)
+    runtime_rows.append(
+      {
+        "lever_id": str(row.get("lever_id") or "").strip(),
+        "label": label,
+        "opening_balance_seed": row["working_capital_derivation"]["opening_balance_seed"],
+        "live_values": deepcopy(live_values),
+      }
+    )
+
+  required_missing: List[str] = []
+  if ar_balance_seed > 0.0 and "Accounts Receivable Days" not in seen_working_capital_labels:
+    required_missing.append("Accounts Receivable Days")
+  if inventory_balance_seed > 0.0 and "Inventory Days" not in seen_working_capital_labels:
+    required_missing.append("Inventory Days")
+  if ap_balance_seed > 0.0 and "Accounts Payable Days" not in seen_working_capital_labels:
+    required_missing.append("Accounts Payable Days")
+  if required_missing:
+    raise ValueError(
+      "working_capital_days_contract_failed: authoritative working-capital balances require model-input day driver rows. "
+      + json.dumps(
+        {
+          "missing_rows": required_missing,
+          "ar_balance_seed": ar_balance_seed,
+          "inventory_balance_seed": inventory_balance_seed,
+          "ap_balance_seed": ap_balance_seed,
+        },
+        ensure_ascii=False,
+      )
+    )
+
+  if runtime_rows:
+    next_payload.setdefault("derived_driver_runtime", {})
+    if isinstance(next_payload.get("derived_driver_runtime"), dict):
+      next_payload["derived_driver_runtime"]["authoritative_balance_sheet_working_capital_days"] = {
+        "source": "authoritative_balance_sheet_opening_balances",
+        "rows": runtime_rows,
+      }
+  return next_payload
 
 
 def apply_derived_driver_policies_to_model_input(
@@ -1511,6 +1995,15 @@ def apply_derived_driver_policies_to_model_input(
         "max_fte_growth_per_quarter": round(float(policy.get("max_fte_growth_per_quarter") or _MAX_FTE_GROWTH_PER_QUARTER), 6),
         "quarter_logs": deepcopy(quarter_logs),
       }
+
+  next_payload = _apply_authoritative_working_capital_driver_policies(
+    next_payload,
+    live_count=live_count,
+  )
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  schedule_rows = [row for row in ((schedules or {}).get("rows") or []) if isinstance(row, dict)]
 
   depreciation_row = next((
     row for row in expense_rows
@@ -2583,7 +3076,7 @@ def _build_model_input_overlay(
     or _safe_float((financials_json or {}).get("current_revenue"))
     or 0.0,
   )
-  cogs_ratio_baseline = _ratio((financials_json or {}).get("cogs_total_year1"), revenue_total_year1)
+  cogs_ratio_baseline = _cogs_ratio_from_financials(financials_json, revenue_total_year1)
   marketing_ratio_baseline = (
     _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
     if isinstance(marketing_model_json, dict) else None
@@ -2611,7 +3104,10 @@ def _build_model_input_overlay(
     ) - (lease_amount * 4.0)
   )
   g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
-  interest_rate_baseline = _ratio((financials_json or {}).get("annual_interest_payment"), (financials_json or {}).get("total_debt_outstanding"))
+  interest_rate_baseline, interest_rate_source = _sba_business_loan_interest_rate_and_source(
+    ops_json,
+    financials_json,
+  )
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -2632,7 +3128,7 @@ def _build_model_input_overlay(
       elif seed_slots and label == "General & Administrative":
         values.append(round(_safe_float(slot.get("g_and_a_percent")) or 0.0, 6))
       elif seed_slots and label == "Interest Rate":
-        values.append(round(_safe_float(slot.get("interest_rate")) or 0.0, 6))
+        values.append(round(interest_rate_baseline, 6))
       elif seed_slots and label == "Depreciation":
         values.append(0.0)
       elif seed_slots and label == "Taxes":
@@ -2663,18 +3159,42 @@ def _build_model_input_overlay(
     )
 
   balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
+  ar_balance_seed = max(0.0, _safe_float((financials_json or {}).get("ar_balance")) or 0.0)
+  inventory_balance_seed = max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0)
+  ap_balance_seed = max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0)
+  days_in_quarter = 90.0
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
     values: List[float] = []
     base_stub_value, base_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
     for slot_idx, slot in enumerate(slots):
       working_capital = slot.get("working_capital") if isinstance(slot.get("working_capital"), dict) else {}
+      revenue = max(0.0, _safe_float(slot.get("revenue")) or 0.0)
+      cogs = max(0.0, _safe_float(slot.get("cogs")) or 0.0)
+      marketing = max(0.0, _safe_float(slot.get("marketing")) or 0.0)
+      r_and_d = max(0.0, _safe_float(slot.get("r_and_d")) or 0.0)
+      lease = max(0.0, _safe_float(slot.get("lease_amount")) or 0.0)
+      payroll = max(0.0, _safe_float(slot.get("payroll_amount")) or 0.0)
+      g_and_a = max(0.0, _safe_float(slot.get("g_and_a")) or 0.0)
+      ap_expense_base = marketing + r_and_d + lease + payroll + g_and_a
       if label == "Accounts Receivable Days":
-        values.append(round(_safe_float(working_capital.get("dso")) or 0.0, 6))
+        explicit_value = _safe_float(working_capital.get("dso"))
+        if explicit_value is not None and explicit_value > 0.0:
+          values.append(round(explicit_value, 6))
+        else:
+          values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6) if revenue > 0.0 and ar_balance_seed > 0.0 else 0.0)
       elif label == "Inventory Days":
-        values.append(round(_safe_float(working_capital.get("inventory_days")) or 0.0, 6))
+        explicit_value = _safe_float(working_capital.get("inventory_days"))
+        if explicit_value is not None and explicit_value > 0.0:
+          values.append(round(explicit_value, 6))
+        else:
+          values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6) if cogs > 0.0 and inventory_balance_seed > 0.0 else 0.0)
       elif label == "Accounts Payable Days":
-        values.append(round(_safe_float(working_capital.get("dpo")) or 0.0, 6))
+        explicit_value = _safe_float(working_capital.get("dpo"))
+        if explicit_value is not None and explicit_value > 0.0:
+          values.append(round(explicit_value, 6))
+        else:
+          values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6) if ap_expense_base > 0.0 and ap_balance_seed > 0.0 else 0.0)
       elif label == "Prepaid Expenses (% of Revenue)":
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
       elif label == "Deferred Revenue (% of Revenue)":
@@ -2713,9 +3233,14 @@ def _build_model_input_overlay(
     schedules["lease_opening_balance_seed"] = round(lease_seed, 6)
   client_ppe_seed = _safe_float((financials_json or {}).get("initial_assets")) or 0.0
   forecast_ppe_seed = _safe_float(forecast_starting_ppe)
-  if forecast_ppe_seed is None or forecast_ppe_seed <= 0.0:
+  if forecast_ppe_seed is None:
     raise ValueError(
-      "forecast_starting_ppe_missing: GPT-authored forecast_starting_ppe is required before model_input can seed forecast PPE."
+      "forecast_starting_ppe_missing: authoritative client balance-sheet initial_assets is required before model_input can seed forecast PPE."
+    )
+  if round(max(0.0, float(forecast_ppe_seed)), 6) != round(max(0.0, float(client_ppe_seed)), 6):
+    raise ValueError(
+      "forecast_starting_ppe_must_equal_authoritative_balance_sheet: "
+      f"forecast_ppe_seed={forecast_ppe_seed} client_ppe_seed={client_ppe_seed}."
     )
   schedules["ppe_opening_balance_seed"] = round(max(0.0, client_ppe_seed), 6)
   schedules["client_reported_ppe_stub"] = round(max(0.0, client_ppe_seed), 6)
@@ -2779,6 +3304,15 @@ def _build_model_input_overlay(
       maintenance_rate=maintenance_rate,
       explicit_capex_overrides=explicit_capex_overrides,
     )
+    next_payload["derived_driver_policies"]["debt_interest_rate_policy"] = {
+      "policy_version": "sba_7a_business_loan_interest_rate_v1",
+      "driver_source": "sba_loan_7a_raw",
+      "lever_id": "expenses::Interest Rate",
+      "annual_rate_decimal": round(float(interest_rate_baseline), 6),
+      "source_detail": deepcopy(interest_rate_source),
+      "finmo_formula_unchanged": True,
+      "finmo_formula": "interest = ((debt_opening + debt_closing) / 2) * expenses::Interest Rate",
+    }
   return apply_derived_driver_policies_to_model_input(next_payload)
 
 

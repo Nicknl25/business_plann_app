@@ -63,7 +63,6 @@ Holistic stabilization standard:
   - capex / maintenance continuity
   - payout behavior
   - financing posture
-  - milestone manifestation
 - The question is: does the business settle into a believable, sustainable path under the chosen mode and strategy?
 
 Planning mode discipline:
@@ -72,7 +71,7 @@ Planning mode discipline:
 - `rebalance`: preserve ambition where justified, but tighten mismatches and prevent the business from drifting into chronic fragility or failure.
 
 Cash strategy discipline:
-- `reinvest`: if stabilization requires preserving or redeploying capital into the business, do so in a way that reads like management building resilience and capability.
+- `balanced`: if stabilization requires preserving liquidity while still allowing measured capital discipline, do so without inventing a separate reinvestment mandate.
 - `preserve_cash`: bias toward liquidity protection, pacing commitments, and keeping buffers intact.
 - `shareholder_return`: only allow meaningful extraction when the business can support it without undermining continuity.
 - `balanced`: permit a mixed posture, but only when the business genuinely supports it.

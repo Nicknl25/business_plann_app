@@ -372,3 +372,80 @@ Do not continue E2E until the next session unless the user asks. If continuing:
 - Do not rely on old `best_path`, escalation, or fuzzy mapping behavior.
 - Do not use broad scaffold fallback to expand active lever scope.
 - Fix classes of bugs, not one surfaced run.
+
+## Update 2026-04-26: Cash, Ramp, Balance Sheet Base, And Current Instability
+
+This section is a handoff for the next Codex session. The system is not stable yet.
+
+### Cash Strategy Update
+
+The cash strategy design was changed from four strategies to three. The user wants `reinvest` removed because it is too broad and unbounded unless it is tied to a specific growth investment model. The remaining strategies should be:
+
+- `maintain_cushion`
+- `debt_paydown`
+- `shareholder_return`
+
+Cash strategy behavior belongs in the cash pass, not convergence. Convergence should build a coherent operating model first; cash pass should then fund or distribute according to the selected strategy. A hard cash viability gate was added: every live quarter must satisfy `ending_cash >= required_cash_buffer`. A run must fail with `cash_pass_failed_unresolved_liquidity` if any live quarter remains below buffer after cash pass. Do not allow cash failures to be tolerated.
+
+The cash system has been moving toward a debt-schedule style implementation similar to the depreciation schedule: debt issuance, repayment, interest, and cash-buffer funding should be visible and deterministic, then translated into existing model input / FINMO-compatible rows. Interest rates should come from the non-Alpha SQL loan-rate table when available. The user wants cash to be robust and strategy-driven, not random hard cash buildup.
+
+### GPT Stage Ramp Update
+
+The ramp is now intentionally split into two GPT phases:
+
+- Ramp GPT runs once before convergence.
+- Convergence GPT runs after that and must obey the ramp contract.
+
+Ramp GPT creates a `stage_ramp_contract` from business type, business stage, planning mode, scale, and model context. It returns stage-family fields such as:
+
+- `revenue_qoq_growth_target_min`
+- `revenue_qoq_growth_target_max`
+- `revenue_qoq_default`
+- `revenue_qoq_max_spike`
+- `fte_qoq_max`
+- `fte_qoq_max_spike`
+- `utilization_high_watermark`
+- `max_spike_count`
+
+Python validates this contract fail-fast, stores it in the business-world contract, and passes it into convergence. Convergence GPT must not change or negotiate this ramp. It is a wall between ramp selection and convergence. Revenue still uses the original formula: `sum(Capacity * Unit Price * Utilization)` across products. Payroll remains Python-derived from revenue plus OEWS/FTE grounding. FINMO formulas do not change.
+
+New fail-fast added on 2026-04-26: `_estimate_stage_ramp_contract_with_gpt()` now has a hard GPT time limit. Default is `45s`, configurable via `STAGE_RAMP_GPT_TIMEOUT_SECONDS`, clamped to `15s..90s`. If ramp GPT hangs, the run fails before convergence with `stage_ramp_contract_timeout`.
+
+### Balance Sheet / Intake Base Forecast Update
+
+Stub 0 remains historical intake fact only. It should stay in `model_input_json` and `finmo_json` as the client-reported intake column, but forecast periods should not mutate stub 0.
+
+The latest design direction from the user is: balance sheet intake is more authoritative than derived P&L intake because balance-sheet inputs are asked more directly. Forecast drivers should be consistent with the authoritative starting balance sheet rather than upsizing the balance sheet to match an inflated P&L. If P&L implies a business larger than the balance sheet supports, P&L should be scaled down or phased over time. Balance sheet should not be automatically upsized to match P&L.
+
+Separately, starting PPE has recently been handled through GPT-generated Q1 forecast starting PPE with a hallucination guardrail: positive integer, annual revenue positive, and `starting_ppe <= 10 * annual_revenue`. This was intended to replace blindly using unrealistic stub PPE as the live forecast base. This area is still philosophically unsettled because the user later leaned toward treating balance-sheet intake as authoritative. Future Codex must be careful not to silently mix these two approaches.
+
+### Current Problems / Instability
+
+The system is significantly unstable right now. Do not claim it is stable from code changes alone. The most recent stress work used controlled completed-intake scenarios, including:
+
+- ClearPaw Veterinary Urgent Care: passed in an earlier run.
+- BlueRidge Climate Works: passed in an earlier run.
+- IronLeaf Specialty Packaging: still failing.
+
+IronLeaf exposed several class bugs:
+
+- The convergence issue envelope sometimes demanded a revenue target that violated the newly selected ramp contract. Example: mature-loss repair wanted Q1 revenue to jump from roughly `$1.5M` to over `$6M`, while ramp GPT correctly capped operational-stage spikes around `10%`.
+- The issue detector then blamed payroll because payroll is revenue-derived. Root cause was not payroll; it was an impossible revenue target envelope.
+- A patch capped business-model coherence revenue floors by the stage-ramp feasible move, but the loop still tends to hammer revenue-only repairs when mature losses also require direct cost actions.
+- Business-model coherence is currently too revenue-centric. When the revenue floor is ramp-capped and cannot solve mature losses, direct mapped cost targets like `cogs`, `marketing`, `research_and_development`, `lease_rent`, and `g_and_a` need to become part of the active target surface instead of repeatedly targeting revenue only.
+- Retry correction grid was added so rejected lever values, for example utilization `1.00` outside `[0.40, 0.84]`, are surfaced back to GPT as explicit correction rows. Verify this actually appears in prompts and changes behavior.
+- Progress detection was adjusted so direct table-backed target movement can count as progress even when old driver-path direction metadata is missing.
+- Focus lever limits were widened from 6 to 12 because three revenue products require the full 9-lever bundle: Capacity, Unit Price, Utilization for each product. The prior cap caused false missing-product failures.
+
+Important current principle: the ramp contract is a hard world constraint. Convergence issue packets must be built inside that world. If Python asks convergence GPT for targets outside the ramp, that is a Python issue-envelope bug, not a GPT failure.
+
+### Next Session Directive
+
+If continuing stabilization, do not start by redesigning everything. Start with the IronLeaf failure class:
+
+1. Use `context\ensure_5050_backend.ps1 -ForceRestart -Port 5050 -StartupTimeoutSeconds 90`.
+2. Rerun the controlled packaging scenario `tmp_stage_scenario_operational_packaging.json`.
+3. Inspect the persisted clone row before changing code.
+4. Fix the business-model coherence issue packet so it does not target revenue-only when the stage-ramp cap makes revenue insufficient.
+5. Keep all mapping table rules intact: direct drivers only, table-backed targets only, no proxy or fuzzy mapping.
+6. Do not change payroll derivation, revenue formula, FINMO formulas, or the driver-only/model-input boundary.

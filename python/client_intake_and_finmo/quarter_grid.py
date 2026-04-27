@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import time
+import copy
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -62,6 +66,35 @@ def _safe_float(value: Any) -> float:
   return num
 
 
+def _safe_ratio(value: Any) -> Optional[float]:
+  try:
+    ratio = float(value)
+  except Exception:
+    return None
+  if ratio != ratio:
+    return None
+  if ratio > 1.0 and ratio <= 100.0:
+    ratio = ratio / 100.0
+  return ratio
+
+
+def _cogs_dollars_from_financials(financials: Dict[str, Any], year1: Dict[str, Any], revenue: float) -> float:
+  for key in ("cogs_percent_of_revenue", "cogs_percent", "estimated_cogs_percent"):
+    ratio = _safe_ratio(financials.get(key))
+    if ratio is not None and ratio > 0.0:
+      return max(0.0, float(revenue) * float(ratio))
+  cogs_value = _safe_float(
+    financials.get("cogs_total_year1")
+    or year1.get("company_cogs_total_year1")
+    or year1.get("cogs_total_year1")
+    or financials.get("current_cogs")
+  )
+  implied_ratio = (cogs_value / revenue) if revenue > 0.0 else 0.0
+  if 1.0 < cogs_value <= 100.0 and implied_ratio < 0.05:
+    return max(0.0, revenue * (cogs_value / 100.0))
+  return max(0.0, cogs_value)
+
+
 def _build_baseline_financial_summary(
   *,
   financials_json: Dict[str, Any],
@@ -70,13 +103,7 @@ def _build_baseline_financial_summary(
   financials = financials_json if isinstance(financials_json, dict) else {}
   year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
   revenue = _safe_float(year1.get("company_revenue_total_year1") or financials.get("current_revenue"))
-  cogs = _safe_float(
-    financials.get("cogs_total_year1")
-    or year1.get("company_cogs_total_year1")
-    or year1.get("cogs_total_year1")
-  )
-  if cogs <= 0:
-    cogs = _safe_float(financials.get("current_cogs"))
+  cogs = _cogs_dollars_from_financials(financials, year1, revenue)
   gross_profit = revenue - cogs
   payroll = _safe_float(
     financials.get("current_payroll")
@@ -143,8 +170,10 @@ def _timeout_env_int(name: str, default: int) -> int:
 
 
 def _openai_timeout_seconds(kind: str = "default") -> Optional[int]:
-  del kind
-  return None
+  normalized_kind = str(kind or "default").strip().lower()
+  if normalized_kind == "strategy":
+    return _timeout_env_int("GRID_STRATEGY_TIMEOUT_SECONDS", _timeout_env_int("OPENAI_TIMEOUT_SECONDS", 90))
+  return _timeout_env_int("OPENAI_TIMEOUT_SECONDS", 90)
 
 
 def _post_openai(
@@ -478,6 +507,25 @@ def has_material_values(values: Sequence[Any]) -> bool:
   return False
 
 
+def _row_driver_name(item: Dict[str, Any]) -> str:
+  return str(item.get("driver") or item.get("label") or "").strip().lower()
+
+
+def _row_value_kind(item: Dict[str, Any]) -> str:
+  return str(item.get("value_kind") or item.get("input_semantics") or "").strip().lower()
+
+
+def _is_ratio_like_row(item: Dict[str, Any]) -> bool:
+  value_kind = _row_value_kind(item)
+  label = str(item.get("label") or "").strip().lower()
+  return (
+    "ratio" in value_kind
+    or "percent" in value_kind
+    or "% of" in label
+    or _row_driver_name(item) in {"utilization"}
+  )
+
+
 def extract_quarter_grid_rows(
   *,
   model_input_json: Dict[str, Any],
@@ -503,6 +551,10 @@ def extract_quarter_grid_rows(
         "row_type": "lever",
         "section": "revenue",
         "label": str(item.get("label") or lever_id),
+        "driver": str(item.get("driver") or item.get("label") or "").strip(),
+        "value_kind": str(item.get("value_kind") or "").strip(),
+        "input_semantics": str(item.get("input_semantics") or "").strip(),
+        "revenue_slot_key": str(item.get("revenue_slot_key") or "").strip(),
         "baseline_values": values[:QUARTER_COUNT],
       }
     )
@@ -527,6 +579,9 @@ def extract_quarter_grid_rows(
           "row_type": "lever",
           "section": section_name,
           "label": str(item.get("label") or lever_id),
+          "driver": str(item.get("driver") or item.get("label") or "").strip(),
+          "value_kind": str(item.get("value_kind") or "").strip(),
+          "input_semantics": str(item.get("input_semantics") or "").strip(),
           "baseline_values": values[:QUARTER_COUNT],
         }
       )
@@ -551,6 +606,9 @@ def extract_quarter_grid_rows(
         "row_type": "lever",
         "section": "schedules",
         "label": str(item.get("label") or lever_id),
+        "driver": str(item.get("driver") or item.get("label") or "").strip(),
+        "value_kind": str(item.get("value_kind") or "").strip(),
+        "input_semantics": str(item.get("input_semantics") or "").strip(),
         "baseline_values": values[:QUARTER_COUNT],
       }
     )
@@ -601,17 +659,18 @@ def build_real_governor_payload(
 
 def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
   financials = financials_json if isinstance(financials_json, dict) else {}
-  strategy = str(financials.get("cash_strategy") or "").strip().lower()
+  raw_strategy = str(financials.get("cash_strategy") or "").strip().lower()
+  strategy = re.sub(r"[^a-z0-9]+", "_", raw_strategy).strip("_")
+  if strategy not in {"preserve_cash", "shareholder_return", "balanced"}:
+    if "preserve" in raw_strategy or "conservative" in raw_strategy or "cushion" in raw_strategy:
+      strategy = "preserve_cash"
+    elif "shareholder" in raw_strategy or "distribution" in raw_strategy or "payout" in raw_strategy or "return capital" in raw_strategy:
+      strategy = "shareholder_return"
+    elif "reinvest" in raw_strategy or "growth" in raw_strategy or "expansion" in raw_strategy:
+      strategy = "balanced"
+    elif "balanced" in raw_strategy or "mixed" in raw_strategy:
+      strategy = "balanced"
   option_map = {
-    "reinvest": {
-      "value": "reinvest",
-      "label": "Reinvest",
-      "description": "The client would generally prefer extra cash to be put back into growth, capacity, or expansion when that is realistic.",
-      "capital_allocation_posture": "Favor staged redeployment of excess cash into credible growth needs instead of leaving cash to build smoothly with no use.",
-      "timing_expectation": "If the business economics support it, reflect periods of cash buildup followed by realistic deployment through existing planning choices such as hiring pace, capex timing, marketing intensity, or debt behavior.",
-      "alignment_test": "A reinvest plan should not read like management is simply hoarding cash while also claiming to prioritize growth.",
-      "visual_goal": "The grid and resulting cash path should usually show some visible redeployment behavior rather than a perfectly smooth cash staircase.",
-    },
     "preserve_cash": {
       "value": "preserve_cash",
       "label": "Preserve cash",
@@ -619,7 +678,7 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
       "capital_allocation_posture": "Favor retaining more liquidity and deploying capital more cautiously unless the operating case clearly justifies faster use of cash.",
       "timing_expectation": "Let cash cushions build earlier and keep deployment pacing more measured across capex, hiring, marketing, and debt choices.",
       "alignment_test": "A preserve-cash plan should not look overly aggressive in capital deployment while still claiming a conservative cash posture.",
-      "visual_goal": "The grid and resulting cash path should usually show stronger retained buffers and fewer sharp deployments than a reinvest case.",
+      "visual_goal": "The grid and resulting cash path should usually show stronger retained buffers and fewer sharp deployments than balanced or shareholder-return cases.",
     },
     "shareholder_return": {
       "value": "shareholder_return",
@@ -633,11 +692,11 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
     "balanced": {
       "value": "balanced",
       "label": "Balanced",
-      "description": "The client wants a mix of cash preservation and selective reinvestment rather than pushing to either extreme.",
-      "capital_allocation_posture": "Blend healthy retained liquidity with selective reinvestment when the business case is strong.",
-      "timing_expectation": "Allow some buildup and some deployment, but keep both the narrative and the grid from leaning too far toward hoarding or aggressive redeployment.",
+      "description": "The client wants a mix of cash preservation, debt discipline, and selective capital return rather than pushing to either extreme.",
+      "capital_allocation_posture": "Blend healthy retained liquidity with measured debt and equity behavior when the business case supports it.",
+      "timing_expectation": "Allow some buildup and some deployment, but keep both the narrative and the grid from leaning too far toward hoarding or aggressive distributions.",
       "alignment_test": "A balanced plan should not collapse into an extreme cash-hoarding or extreme redeployment posture without a strong business reason.",
-      "visual_goal": "The grid and resulting cash path should sit between preserve-cash and reinvest behavior, with visible but measured deployment of excess cash.",
+      "visual_goal": "The grid and resulting cash path should sit between preserve-cash and shareholder-return behavior, with visible but measured capital discipline.",
     },
   }
   selected = dict(option_map.get(strategy) or {})
@@ -662,6 +721,427 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
   return selected
 
 
+def _parse_date(value: Any) -> Optional[date]:
+  if value is None:
+    return None
+  if isinstance(value, datetime):
+    return value.date()
+  if isinstance(value, date):
+    return value
+  raw = str(value).strip()
+  if not raw:
+    return None
+  try:
+    return datetime.fromisoformat(raw).date()
+  except ValueError:
+    pass
+  for fmt in ("%m/%d/%Y", "%m-%d-%Y"):
+    try:
+      return datetime.strptime(raw, fmt).date()
+    except ValueError:
+      continue
+  return None
+
+
+def _whole_months_between(start_date: date, end_date: date) -> int:
+  months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+  if end_date.day < start_date.day:
+    months -= 1
+  return int(months)
+
+
+def _stage_family(stage: Any) -> str:
+  normalized = str(stage or "").strip().lower().replace("_", "-")
+  if normalized in {"pre-revenue", "pre revenue", "startup", "start-up", "new", "launch"}:
+    return "startup"
+  if normalized in {"early", "early-stage", "early stage", "growth"}:
+    return "early"
+  return "operational"
+
+
+def _stage_ramp_contract(stage: Any) -> Dict[str, Any]:
+  family = _stage_family(stage)
+  policies = {
+    "startup": {
+      "revenue_qoq_growth_target_min": 0.05,
+      "revenue_qoq_growth_target_max": 0.40,
+      "revenue_qoq_default": 0.25,
+      "revenue_qoq_max_spike": 0.60,
+      "revenue_spike_window_quarters": [1, 2, 3, 4],
+      "utilization_launch_caps_by_quarter": {
+        1: 0.03,
+        2: 0.04,
+        3: 0.049,
+        4: 0.06,
+        5: 0.073,
+        6: 0.089,
+        7: 0.108,
+        8: 0.131,
+        9: 0.159,
+        10: 0.193,
+        11: 0.235,
+        12: 0.285,
+        13: 0.346,
+        14: 0.421,
+        15: 0.512,
+        16: 0.622,
+        17: 0.756,
+      },
+      "fte_qoq_default": 0.30,
+      "fte_qoq_max": 0.50,
+      "fte_qoq_max_spike": 1.00,
+      "fte_spike_small_base_threshold": 20.0,
+    },
+    "early": {
+      "revenue_qoq_growth_target_min": 0.05,
+      "revenue_qoq_growth_target_max": 0.20,
+      "revenue_qoq_default": 0.12,
+      "revenue_qoq_max_spike": 0.35,
+      "revenue_spike_window_quarters": [idx for idx in range(1, 20)],
+      "utilization_launch_caps_by_quarter": {
+        1: 0.25,
+        2: 0.30,
+        3: 0.36,
+        4: 0.43,
+        5: 0.52,
+        6: 0.62,
+        7: 0.75,
+      },
+      "fte_qoq_default": 0.20,
+      "fte_qoq_max": 0.35,
+      "fte_qoq_max_spike": 0.50,
+      "fte_spike_small_base_threshold": None,
+    },
+    "operational": {
+      "revenue_qoq_growth_target_min": 0.02,
+      "revenue_qoq_growth_target_max": 0.10,
+      "revenue_qoq_default": 0.06,
+      "revenue_qoq_max_spike": 0.20,
+      "revenue_spike_window_quarters": [idx for idx in range(1, 20)],
+      "utilization_launch_caps_by_quarter": {},
+      "fte_qoq_default": 0.10,
+      "fte_qoq_max": 0.20,
+      "fte_qoq_max_spike": 0.30,
+      "fte_spike_small_base_threshold": None,
+    },
+  }
+  contract = dict(policies.get(family) or policies["operational"])
+  contract.update(
+    {
+      "contract_version": "stage_ramp_contract_v1",
+      "stage_family": family,
+      "quarter_pair_scope": [f"Q{idx}->Q{idx + 1}" for idx in range(1, 20)],
+      "max_spike_count": 1,
+      "utilization_high_watermark": 0.85,
+      "capacity_support_rule": (
+        "FTE/revenue growth above the ordinary stage band must be supported by utilization ramp while utilization is below 85% "
+        "or by structural capacity expansion. Once utilization is already above 85%, further growth must be capacity-driven."
+      ),
+      "composite_revenue_formula": "sum(Capacity * Unit Price * Utilization) across revenue products",
+      "composite_revenue_ramp_is_binding": True,
+      "deterministic_validation": True,
+      "no_unchecked_growth": True,
+    }
+  )
+  return contract
+
+
+def _stage_governance_context(
+  *,
+  ops_json: Dict[str, Any],
+  business_facts: Optional[Dict[str, Any]],
+  planning_mode: str,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  start_date = (
+    _parse_date(facts.get("start_date"))
+    or _parse_date(facts.get("business_start_date"))
+    or _parse_date(ops.get("business_start_date"))
+    or _parse_date(ops.get("start_date"))
+  )
+  today = datetime.utcnow().date()
+  explicit_stage = str(ops.get("business_stage") or facts.get("business_stage") or "").strip().lower()
+  if explicit_stage:
+    stage = explicit_stage
+  elif start_date is not None and start_date > today:
+    stage = "pre-revenue"
+  elif start_date is not None and (today - start_date).days <= 365:
+    stage = "early-stage"
+  else:
+    stage = "operating"
+  age_months = _whole_months_between(start_date, today) if start_date is not None else None
+  ramp_contract = (
+    copy.deepcopy(stage_ramp_contract)
+    if isinstance(stage_ramp_contract, dict) and stage_ramp_contract
+    else _stage_ramp_contract(stage)
+  )
+  context = {
+    "contract_version": "quarter_grid_lifecycle_governance_v1",
+    "business_stage": stage,
+    "stage_family": ramp_contract.get("stage_family"),
+    "business_start_date": start_date.isoformat() if start_date is not None else None,
+    "business_age_months_at_run": age_months,
+    "planning_mode": str(planning_mode or "").strip().lower(),
+    "binding": True,
+    "stage_is_reality_limiter": True,
+    "planning_mode_is_operating_posture": True,
+    "fail_fast_if_ignored": True,
+    "stage_ramp_contract": ramp_contract,
+  }
+  if ramp_contract.get("stage_family") == "startup":
+    context["stage_rules"] = [
+      "Pre-revenue is a binding lifecycle state, not descriptive background.",
+      "Q1-Q4 must read like launch and ramp, not a mature operating run-rate.",
+      "Do not start Q1 at or near the late-horizon revenue, utilization, or capacity run-rate.",
+      "Capacity may exist ahead of demand, but revenue should come from staged utilization and price realization rather than instant full-scale operations.",
+      "Revenue, utilization, capacity, staffing support, capex, and profitability must ramp together.",
+      "Because Payroll is derived from revenue using OEWS/FTE logic, revenue must not ramp faster than the deterministic stage_ramp_contract allows.",
+      "Early losses or modest profitability may be realistic; instant mature profitability is not the goal.",
+    ]
+    context["early_revenue_share_ceiling_of_late_run_rate"] = {
+      "Q1": 0.25,
+      "Q2": 0.40,
+      "Q3": 0.60,
+      "Q4": 0.80,
+    }
+  elif ramp_contract.get("stage_family") == "early":
+    context["stage_rules"] = [
+      "Early-stage is a binding lifecycle state, not descriptive background.",
+      "Q1-Q4 should still show a ramp and absorption curve.",
+      "Do not jump immediately to a mature run-rate without operating evidence.",
+      "Losses may be acceptable early if funded and improving.",
+    ]
+    context["early_revenue_share_ceiling_of_late_run_rate"] = {
+      "Q1": 0.55,
+      "Q2": 0.70,
+      "Q3": 0.85,
+    }
+  else:
+    context["stage_rules"] = [
+      "Treat the business as already operating unless facts contradict that.",
+      "Avoid fantasy resets, but chronic mature losses are not acceptable.",
+      "Capacity expansion must be supported by operating earnings and stage reality.",
+    ]
+  return context
+
+
+def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
+  context = governor_payload.get("stage_governance_context") if isinstance(governor_payload, dict) else None
+  if not isinstance(context, dict) or not context:
+    return ""
+  stage = str(context.get("business_stage") or "").strip().lower()
+  rules = context.get("stage_rules") if isinstance(context.get("stage_rules"), list) else []
+  lines = [
+    "Business-stage governance is binding:",
+    "- read `stage_governance_context` as a hard operating contract, not narrative color",
+    "- planning mode and business stage must shape the grid before any profitability goal",
+    "- do not create a forecast that violates the lifecycle stage just to make outputs look clean",
+    "- apply `stage_ramp_contract` to every adjacent quarter pair Q1->Q2 through Q19->Q20",
+    "- do not allow unchecked growth; spikes are only valid inside the contract's window and support rules",
+  ]
+  if str(context.get("stage_family") or "").strip().lower() == "startup":
+    lines.extend(
+      [
+        "- pre-revenue businesses must not begin Q1 at mature run-rate revenue, utilization, capacity deployment, staffing support, or profitability",
+        "- use a launch/ramp curve in Q1-Q4 unless explicit operating facts prove an already-contracted backlog",
+        "- revenue may become strong later, but Q1 must look like a launch period rather than an established mature business",
+        "- keep revenue growth paced enough that the OEWS/FTE-derived Payroll row can staff it under the stage_ramp_contract",
+      ]
+    )
+  elif str(context.get("stage_family") or "").strip().lower() == "early":
+    lines.extend(
+      [
+        "- early-stage businesses should show absorption and ramp behavior in Q1-Q4",
+        "- do not jump instantly to mature run-rate unless the facts prove existing operating traction",
+      ]
+    )
+  for rule in rules:
+    text = str(rule or "").strip()
+    if text:
+      lines.append(f"- {text}")
+  lines.append("Stage governance payload:")
+  lines.append(json.dumps(context, ensure_ascii=False))
+  return "\n".join(lines) + "\n\n"
+
+
+def _quarter_grid_stage_family(governor_payload: Dict[str, Any]) -> str:
+  context = governor_payload.get("stage_governance_context") if isinstance(governor_payload, dict) else {}
+  return str((context or {}).get("stage_family") or "operational").strip().lower()
+
+
+def _quarter_grid_stage_growth_bounds(governor_payload: Dict[str, Any]) -> Dict[str, float]:
+  context = governor_payload.get("stage_governance_context") if isinstance(governor_payload, dict) else {}
+  contract = (context or {}).get("stage_ramp_contract") if isinstance((context or {}).get("stage_ramp_contract"), dict) else {}
+  return {
+    "min": float(contract.get("revenue_qoq_growth_target_min") or 0.05),
+    "max": float(contract.get("revenue_qoq_growth_target_max") or 0.20),
+    "default": float(contract.get("revenue_qoq_default") or 0.10),
+  }
+
+
+def _bounded(value: float, lower: float, upper: float) -> float:
+  return max(float(lower), min(float(upper), float(value)))
+
+
+def _quarter_grid_cell_envelopes_for_row(
+  row: Dict[str, Any],
+  *,
+  governor_payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  if str(row.get("row_type") or "").strip().lower() != "lever":
+    return []
+  section = str(row.get("section") or "").strip().lower()
+  driver = _row_driver_name(row)
+  label = str(row.get("label") or row.get("row_id") or "").strip().lower()
+  baseline_values = [
+    float_or_none(value) if float_or_none(value) is not None else 0.0
+    for value in (row.get("baseline_values") or [])
+  ]
+  padded = [float(value or 0.0) for value in (baseline_values + [0.0] * QUARTER_COUNT)[:QUARTER_COUNT]]
+  stage_family = _quarter_grid_stage_family(governor_payload)
+  growth = _quarter_grid_stage_growth_bounds(governor_payload)
+  stage_contract = (
+    ((governor_payload.get("stage_governance_context") or {}).get("stage_ramp_contract") or {})
+    if isinstance(governor_payload, dict) and isinstance(governor_payload.get("stage_governance_context"), dict)
+    else {}
+  )
+  envelopes: List[Dict[str, Any]] = []
+  previous_min: Optional[float] = None
+  previous_max: Optional[float] = None
+  for idx, baseline in enumerate(padded, start=1):
+    base = max(0.0, float(baseline or 0.0))
+    min_value = 0.0
+    max_value = max(base * 2.0, 1.0)
+    reason = "generic_nonnegative_driver_bound"
+    if _is_ratio_like_row(row):
+      min_value = 0.0
+      max_value = 1.0
+      reason = "ratio_like_driver_bound"
+    if driver == "utilization":
+      stage_caps_raw = (
+        stage_contract.get("utilization_launch_caps_by_quarter")
+        if isinstance(stage_contract.get("utilization_launch_caps_by_quarter"), dict)
+        else {}
+      )
+      stage_caps = {
+        int(float(key)): float(value)
+        for key, value in stage_caps_raw.items()
+        if int(float(key or 0)) >= 1
+      }
+      if stage_caps:
+        cap_value = stage_caps.get(idx)
+        if cap_value is not None:
+          min_value = float(cap_value)
+          max_value = float(cap_value)
+        else:
+          max_value = 0.85
+      else:
+        max_value = 0.85
+      reason = f"structural_utilization_{stage_family}_lifecycle_bound"
+    elif driver == "capacity":
+      if stage_family == "startup":
+        min_value = max(0.0, base)
+        max_value = max(0.0, base)
+        reason = "startup_structural_capacity_fixed_until_absorption_bound"
+      elif previous_min is None:
+        min_value = max(0.0, base * 0.90)
+        max_value = max(base * 1.10, base + 1.0)
+        reason = "structural_capacity_non_decreasing_bound"
+      else:
+        min_value = max(0.0, previous_min)
+        capacity_growth_ceiling = 1.05 if stage_family == "early" else 1.03
+        max_value = max(previous_max or 0.0, (previous_max or 0.0) * capacity_growth_ceiling, base)
+        reason = "structural_capacity_stage_growth_bound"
+    elif driver == "unit price":
+      anchor = max(base, padded[0], 1.0)
+      if previous_min is None:
+        min_value = max(0.0, anchor * 0.98)
+        max_value = anchor * 1.02
+      else:
+        min_value = max(0.0, (previous_min or anchor) * 0.99)
+        max_value = (previous_max or anchor) * 1.02
+      reason = "unit_price_lifecycle_pricing_bound"
+    elif section == "expenses" and _is_ratio_like_row(row):
+      if "cost of goods" in label:
+        min_value, max_value = 0.20, 0.85
+        reason = "cogs_percent_operating_bound"
+      elif "marketing" in label:
+        min_value, max_value = 0.0, 0.35
+        reason = "marketing_percent_operating_bound"
+      elif "research" in label:
+        min_value, max_value = 0.0, 0.35
+        reason = "research_percent_operating_bound"
+      elif "general" in label:
+        min_value, max_value = 0.0, 0.40
+        reason = "g_and_a_percent_operating_bound"
+      else:
+        min_value, max_value = 0.0, 0.60
+        reason = "expense_percent_operating_bound"
+    elif section == "balance_sheet" and _is_ratio_like_row(row):
+      min_value, max_value = 0.0, 1.0
+      reason = "balance_sheet_ratio_bound"
+    elif section == "schedules":
+      if "debt issuance" in label or "owner" in label or "equity" in label:
+        max_value = max(base * 4.0, 1_000_000.0)
+        reason = "capital_flow_driver_bound"
+      elif "debt repayment" in label:
+        max_value = max(base * 4.0, 1_000_000.0)
+        reason = "debt_repayment_driver_bound"
+      else:
+        max_value = max(base * 3.0, 1000.0)
+        reason = "schedule_driver_bound"
+    if section == "revenue" and driver in {"capacity", "unit price", "utilization"} and idx > 1:
+      # Do not let the grid silently freeze all revenue drivers forever. This is
+      # an input-envelope rule, not a post-hoc issue repair.
+      if driver == "capacity":
+        min_value = max(min_value, previous_min or 0.0)
+      elif driver == "unit price":
+        min_value = max(min_value, previous_min or min_value)
+      elif driver == "utilization":
+        min_value = max(min_value, min(0.85, (previous_min or 0.0)))
+    if driver == "unit price":
+      min_value = math.floor(float(min_value) * 100.0) / 100.0
+      max_value = math.ceil(float(max_value) * 100.0) / 100.0
+    else:
+      min_value = round(float(min_value), 6)
+      max_value = round(float(max_value), 6)
+    max_value = round(max(float(max_value), float(min_value)), 6)
+    envelopes.append(
+      {
+        "quarter_index": idx,
+        "min_value": min_value,
+        "max_value": max_value,
+        "basis": reason,
+      }
+    )
+    previous_min = min_value
+    previous_max = max_value
+  return envelopes
+
+
+def attach_quarter_grid_cell_envelopes(
+  *,
+  grid_rows: List[Dict[str, Any]],
+  governor_payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  next_rows: List[Dict[str, Any]] = []
+  for row in grid_rows:
+    copied = json.loads(json.dumps(row if isinstance(row, dict) else {}))
+    copied["cell_envelopes"] = _quarter_grid_cell_envelopes_for_row(
+      copied,
+      governor_payload=governor_payload,
+    )
+    if copied.get("cell_envelopes"):
+      copied["grid_contract"] = (
+        "Every returned quarter value for this row must be inside the matching "
+        "cell_envelopes min_value/max_value. Python will reject values outside the grid."
+      )
+    next_rows.append(copied)
+  return next_rows
+
+
 def build_governor_payload_from_context(
   *,
   ops_json: Dict[str, Any],
@@ -674,13 +1154,23 @@ def build_governor_payload_from_context(
   model_input_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
   business_facts: Optional[Dict[str, Any]] = None,
+  planning_mode: str = "",
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  del target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
+  del target_market_json, people_json, fulfillment_json, marketing_model_json
   baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or _build_baseline_financial_summary(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
   )
   cash_strategy_context = _cash_strategy_context(financials_json)
+  stage_governance_context = _stage_governance_context(
+    ops_json=ops_json,
+    business_facts=business_facts,
+    planning_mode=planning_mode,
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract)
+    if isinstance(stage_ramp_contract, dict)
+    else None,
+  )
   return {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
     "fixed_facts": {
@@ -700,6 +1190,7 @@ def build_governor_payload_from_context(
       ],
     },
     "cash_strategy_context": _sanitize_canonical_live_payload(cash_strategy_context),
+    "stage_governance_context": _sanitize_canonical_live_payload(stage_governance_context),
     "viability_mode": True,
   }
 
@@ -719,6 +1210,7 @@ def generate_live_quarter_grid_plan(
   marketing_model_json: Dict[str, Any],
   realism_memo_json: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
   batch_size: int = 12,
   use_real_strategy_prompt: bool = True,
 ) -> Dict[str, Any]:
@@ -741,6 +1233,14 @@ def generate_live_quarter_grid_plan(
     model_input_json=model_input_json,
     finmo_json=finmo_json,
     business_facts=business_facts or {},
+    planning_mode=normalized_mode,
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract)
+    if isinstance(stage_ramp_contract, dict)
+    else None,
+  )
+  grid_rows = attach_quarter_grid_cell_envelopes(
+    grid_rows=grid_rows,
+    governor_payload=governor_payload,
   )
   source_row = {
     "business_name": str(business_name or "").strip(),
@@ -770,6 +1270,7 @@ def generate_live_quarter_grid_plan(
     raw_batch_validation = validate_quarter_grid_response(
       requested_rows=batch_rows,
       response_json=batch_response if isinstance(batch_response, dict) else {},
+      governor_payload=governor_payload,
     )
     repaired_batch_response = repair_quarter_grid_response(
       requested_rows=batch_rows,
@@ -778,7 +1279,62 @@ def generate_live_quarter_grid_plan(
     repaired_batch_validation = validate_quarter_grid_response(
       requested_rows=batch_rows,
       response_json=repaired_batch_response,
+      governor_payload=governor_payload,
     )
+    for _repair_attempt in range(0, 3):
+      if not (
+        repaired_batch_validation.get("out_of_envelope_rows")
+        or repaired_batch_validation.get("composite_revenue_ramp_violations")
+      ):
+        break
+      repair_prompt = _quarter_grid_contract_repair_prompt(
+        original_prompt=prompt,
+        validation=repaired_batch_validation,
+        invalid_response=repaired_batch_response,
+      )
+      batch_response = call_quarter_grid_openai(
+        repair_prompt,
+        allowed_row_ids=[str(item.get("row_id") or "") for item in batch_rows],
+        use_real_strategy_prompt=bool(use_real_strategy_prompt),
+        planning_mode=normalized_mode,
+        realism_memo_present=bool((source_row.get("realism_memo_json") or {}).get("issues")),
+      )
+      raw_batch_validation = validate_quarter_grid_response(
+        requested_rows=batch_rows,
+        response_json=batch_response if isinstance(batch_response, dict) else {},
+        governor_payload=governor_payload,
+      )
+      repaired_batch_response = repair_quarter_grid_response(
+        requested_rows=batch_rows,
+        response_json=batch_response if isinstance(batch_response, dict) else {},
+      )
+      repaired_batch_validation = validate_quarter_grid_response(
+        requested_rows=batch_rows,
+        response_json=repaired_batch_response,
+        governor_payload=governor_payload,
+      )
+    if repaired_batch_validation.get("out_of_envelope_rows"):
+      raise RuntimeError(
+        "quarter_grid_contract_out_of_envelope: "
+        + json.dumps(
+          {
+            "batch_index": batch_offset,
+            "out_of_envelope_rows": repaired_batch_validation.get("out_of_envelope_rows"),
+          },
+          ensure_ascii=False,
+        )
+      )
+    if repaired_batch_validation.get("composite_revenue_ramp_violations"):
+      raise RuntimeError(
+        "quarter_grid_contract_composite_revenue_ramp_failed: "
+        + json.dumps(
+          {
+            "batch_index": batch_offset,
+            "violations": repaired_batch_validation.get("composite_revenue_ramp_violations"),
+          },
+          ensure_ascii=False,
+        )
+      )
     response_rows.extend(repaired_batch_response.get("rows") if isinstance(repaired_batch_response.get("rows"), list) else [])
     batch_summaries.append(str(batch_response.get("summary") or f"Batch {batch_offset} completed."))
     batch_validation_summaries.append(
@@ -797,6 +1353,7 @@ def generate_live_quarter_grid_plan(
   raw_validation = validate_quarter_grid_response(
     requested_rows=grid_rows,
     response_json=raw_response_json,
+    governor_payload=governor_payload,
   )
   response_json = repair_quarter_grid_response(
     requested_rows=grid_rows,
@@ -805,7 +1362,24 @@ def generate_live_quarter_grid_plan(
   validation = validate_quarter_grid_response(
     requested_rows=grid_rows,
     response_json=response_json,
+    governor_payload=governor_payload,
   )
+  if validation.get("out_of_envelope_rows"):
+    raise RuntimeError(
+      "quarter_grid_contract_out_of_envelope: "
+      + json.dumps(
+        {"out_of_envelope_rows": validation.get("out_of_envelope_rows")},
+        ensure_ascii=False,
+      )
+    )
+  if validation.get("composite_revenue_ramp_violations"):
+    raise RuntimeError(
+      "quarter_grid_contract_composite_revenue_ramp_failed: "
+      + json.dumps(
+        {"violations": validation.get("composite_revenue_ramp_violations")},
+        ensure_ascii=False,
+      )
+    )
   metadata = {
     "planning_mode": normalized_mode,
     "prompt_file": prompt_file,
@@ -823,6 +1397,7 @@ def generate_live_quarter_grid_plan(
       "duplicate_rows": list(validation.get("duplicate_rows") or []),
       "malformed_rows": list(validation.get("malformed_rows") or []),
       "flat_rows": list(validation.get("flat_rows") or []),
+      "composite_revenue_ramp_violations": list(validation.get("composite_revenue_ramp_violations") or []),
     },
     "repair_metadata": response_json.get("repair_metadata") if isinstance(response_json.get("repair_metadata"), dict) else {},
     "response_summary": str(response_json.get("summary") or "").strip(),
@@ -1096,6 +1671,7 @@ def build_quarter_grid_prompt(
   business_name = str(source_row.get("business_name") or "").strip() or "Unknown business"
   row_descriptions = [f"- {item['row_id']} ({item['row_type']})" for item in grid_rows]
   realism_memo_block = _realism_memo_prompt_block(source_row)
+  stage_governance_block = _stage_governance_prompt_block(governor_payload)
   return "".join(
     [
       f"You are building a quarter-by-quarter financial planning grid for {business_name}.\n",
@@ -1106,9 +1682,13 @@ def build_quarter_grid_prompt(
       "Do not group periods. Do not omit rows. Do not invent rows.\n",
       "You must preserve every row_id exactly as given. Do not add suffixes, prefixes, labels, or parentheses.\n",
       "Every returned row must contain exactly 20 quarter_values, one for each quarter_index from 1 to 20.\n",
+      "Every listed row includes deterministic `cell_envelopes` when Python has an allowed numeric range. "
+      "You must keep every returned value inside that row's Q-specific min_value/max_value. "
+      "These envelopes are the source of truth for all driver cells; do not free-form outside them.\n",
       "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n",
       "For output rows, use dollar values from Financial Model QTR semantics.\n",
       "For lever rows, use realistic model-input driver values.\n\n",
+      stage_governance_block,
       "Shared-capacity rule:\n",
       "- reason at the LOB and product level, not just row by row\n",
       "- when products inside the same LOB share one operating engine, treat that LOB's capacity as one conserved 100% pool\n",
@@ -1116,6 +1696,10 @@ def build_quarter_grid_prompt(
       "- split that shared LOB capacity realistically across the products in the grid\n",
       "- your product breakout inside a shared LOB must fit within that one whole capacity pool rather than multiple independent pools\n",
       "- only treat product capacities as fully independent when the business context clearly supports separate operating capacity\n\n",
+      "Revenue-coupling rule:\n",
+      "- revenue is not a standalone row and the three revenue drivers are not independent knobs\n",
+      "- Python will multiply Capacity x Unit Price x Utilization for every product and validate the combined revenue path\n",
+      "- keep the combined revenue path inside stage_governance_context.stage_ramp_contract; do not hide an unrealistic revenue jump by keeping each individual driver inside its row envelope\n\n",
       "Important financing and equity row meanings:\n",
       "- `schedules::Debt Issuance (New Borrowing)` = debt draws or new borrowing in only\n",
       "- `schedules::Debt Repayment (Scheduled)` = term debt repayment or deleveraging out only\n",
@@ -1126,7 +1710,8 @@ def build_quarter_grid_prompt(
       "- `balance_sheet::Distributions` = owner or partner payouts out only; use this for owner cash returns, not Owner's Capital\n",
       "- `balance_sheet::Other Equity` = other equity in/out\n\n",
       "Profitability standard for this probe:\n",
-      "- push toward profitability as early as realism allows\n",
+      "- push toward profitability as early as the business stage realistically allows\n",
+      "- never force instant mature profitability when stage_governance_context says the company is pre-revenue or early-stage\n",
       "- do not normalize persistent multi-year losses if a believable operating repair exists\n",
       "- use the full set of listed variables if needed to create a credible path\n",
       "- the resulting grid should read like a real company plan for this specific business and stage\n\n",
@@ -1137,7 +1722,7 @@ def build_quarter_grid_prompt(
       "- make sure capex timing, hiring pace, marketing intensity, debt behavior, and retained liquidity read like one coherent management posture\n",
       "- explicitly reflect that posture in the summary so the narrative explains how the selected cash strategy shows up in the plan\n",
       "- the resulting quarter grid should make the cash posture visually legible where the business supports it, rather than leaving cash_strategy invisible in the outputs\n",
-      "- for reinvest, if the economics support it, do not let excess cash simply rise smoothly with no believable redeployment path\n",
+      "- do not invent reinvestment behavior; cash strategy is limited to preserve_cash, balanced, or shareholder_return\n",
       "- for preserve cash, keep a visibly more conservative liquidity posture and avoid overly eager cash deployment\n",
       "- for shareholder return, avoid letting excess cash pile up indefinitely without a believable reason to retain it\n",
       "- for balanced, show a middle path with some retained cushion and some selective deployment\n",
@@ -1150,7 +1735,8 @@ def build_quarter_grid_prompt(
       "Rows you must fill:\n",
       "\n".join(
         [
-          f"- {item['row_id']} ({item['row_type']}) :: {str(item.get('label') or item['row_id'])}"
+          f"- {item['row_id']} ({item['row_type']}) :: {str(item.get('label') or item['row_id'])} :: "
+          f"cell_envelopes={json.dumps(item.get('cell_envelopes') or [], ensure_ascii=False)}"
           for item in grid_rows
         ]
       ),
@@ -1181,6 +1767,9 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
     "Fill every listed row for every quarter Q1 through Q20.\n"
     "Preserve each row_id exactly as given.\n"
     "Use the actual business context, stage, and baseline values to create a realistic path.\n"
+    "If stage_governance_context is present, treat it as binding and shape Q1-Q20 around it before optimizing profitability.\n"
+    "Before returning, calculate composite revenue yourself as sum(Capacity * Unit Price * Utilization) across products for each quarter and verify every adjacent QoQ growth rate is inside stage_governance_context.stage_ramp_contract.\n"
+    "For percent/ratio rows such as COGS %, Marketing %, R&D %, G&A %, AR days ratios, or utilization, return decimal ratios inside the row envelope: 0.23 means 23%, not 23 and not 0.000023.\n"
     + realism_boundary
     + planning_mode_text(planning_mode)
     + "\n"
@@ -1203,6 +1792,7 @@ def call_quarter_grid_openai(
   }
   payload = {
     "model": _openai_model(),
+    "temperature": 0,
     "input": [
       {
         "role": "system",
@@ -1236,11 +1826,40 @@ def call_quarter_grid_openai(
     headers=headers,
     payload=payload,
     timeout_seconds=_openai_timeout_seconds("strategy"),
-    max_attempts=2,
+    max_attempts=1,
   )
   if response.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {response.status_code}: {response.text[:1200]}")
   return _parse_json_response(response.json())
+
+
+def _quarter_grid_contract_repair_prompt(
+  *,
+  original_prompt: str,
+  validation: Dict[str, Any],
+  invalid_response: Dict[str, Any],
+) -> str:
+  return (
+    str(original_prompt or "").strip()
+    + "\n\nCONTRACT REPAIR REQUIRED.\n"
+    + "Your prior quarter-grid response violated deterministic Python validation. "
+    + "Return a complete corrected response for the same requested row_ids only. "
+    + "Do not add rows. Do not omit rows. Do not change row_ids. "
+    + "Most importantly, the combined revenue path from Capacity * Unit Price * Utilization across all products "
+    + "must satisfy stage_governance_context.stage_ramp_contract for every adjacent quarter pair. "
+    + "Recalculate composite revenue before answering; if Q2 is too high for Q1, lower Q2 or smooth later quarters rather than violating the ramp.\n"
+    + "For ratio rows, repair using decimal ratios inside the envelope. Example: if COGS min is 0.20, return 0.20 or higher, not 0.00002.\n"
+    + "Validation errors:\n"
+    + json.dumps(
+      {
+        "out_of_envelope_rows": validation.get("out_of_envelope_rows") or [],
+        "composite_revenue_ramp_violations": validation.get("composite_revenue_ramp_violations") or [],
+      },
+      ensure_ascii=False,
+    )
+    + "\nInvalid response to repair:\n"
+    + json.dumps(invalid_response if isinstance(invalid_response, dict) else {}, ensure_ascii=False)
+  )
 
 
 def chunk_quarter_grid_rows(rows: List[Dict[str, Any]], batch_size: int) -> List[List[Dict[str, Any]]]:
@@ -1377,10 +1996,98 @@ def repair_quarter_grid_response(
   }
 
 
+def _quarter_grid_row_values(item: Dict[str, Any]) -> Dict[int, float]:
+  values: Dict[int, float] = {}
+  for quarter_value in (item.get("quarter_values") or []):
+    if not isinstance(quarter_value, dict):
+      continue
+    quarter_index = int(quarter_value.get("quarter_index") or 0)
+    value = float_or_none(quarter_value.get("value"))
+    if 1 <= quarter_index <= QUARTER_COUNT and value is not None:
+      values[quarter_index] = float(value)
+  return values
+
+
+def _composite_revenue_ramp_violations(
+  *,
+  requested_rows: List[Dict[str, Any]],
+  returned_by_id: Dict[str, Dict[str, Any]],
+  governor_payload: Optional[Dict[str, Any]],
+) -> List[str]:
+  context = governor_payload.get("stage_governance_context") if isinstance(governor_payload, dict) else {}
+  contract = context.get("stage_ramp_contract") if isinstance(context, dict) and isinstance(context.get("stage_ramp_contract"), dict) else {}
+  if not contract:
+    return []
+  ordinary_max = float(contract.get("revenue_qoq_growth_target_max") or 0.0)
+  spike_max = float(contract.get("revenue_qoq_max_spike") or ordinary_max)
+  spike_window = {
+    int(item)
+    for item in (contract.get("revenue_spike_window_quarters") or [])
+    if int(float(item or 0)) >= 1
+  }
+  max_spike_count = int(contract.get("max_spike_count") or 0)
+  if ordinary_max <= 0.0:
+    return []
+
+  slots: Dict[str, Dict[str, Dict[int, float]]] = {}
+  for requested_row in requested_rows:
+    if not isinstance(requested_row, dict):
+      continue
+    if str(requested_row.get("section") or "").strip().lower() != "revenue":
+      continue
+    driver = str(requested_row.get("driver") or requested_row.get("label") or "").strip().lower()
+    if driver not in {"capacity", "unit price", "utilization"}:
+      continue
+    row_id = str(requested_row.get("row_id") or "").strip()
+    returned_row = returned_by_id.get(row_id)
+    if not isinstance(returned_row, dict):
+      continue
+    slot_key = str(requested_row.get("revenue_slot_key") or "").strip() or row_id.rsplit("::", 1)[0]
+    slots.setdefault(slot_key, {})[driver] = _quarter_grid_row_values(returned_row)
+
+  if not slots:
+    return []
+  revenue_by_quarter: Dict[int, float] = {idx: 0.0 for idx in range(1, QUARTER_COUNT + 1)}
+  for driver_map in slots.values():
+    capacity_values = driver_map.get("capacity") or {}
+    price_values = driver_map.get("unit price") or {}
+    utilization_values = driver_map.get("utilization") or {}
+    for quarter_index in range(1, QUARTER_COUNT + 1):
+      revenue_by_quarter[quarter_index] += (
+        max(0.0, float(capacity_values.get(quarter_index) or 0.0))
+        * max(0.0, float(price_values.get(quarter_index) or 0.0))
+        * max(0.0, float(utilization_values.get(quarter_index) or 0.0))
+      )
+
+  violations: List[str] = []
+  spike_count = 0
+  for quarter_index in range(2, QUARTER_COUNT + 1):
+    previous_revenue = float(revenue_by_quarter.get(quarter_index - 1) or 0.0)
+    current_revenue = float(revenue_by_quarter.get(quarter_index) or 0.0)
+    if previous_revenue <= 0.0 or current_revenue <= previous_revenue:
+      continue
+    growth = (current_revenue - previous_revenue) / previous_revenue
+    allowed_growth = ordinary_max
+    if growth > ordinary_max and (quarter_index - 1) in spike_window and spike_count < max_spike_count:
+      allowed_growth = spike_max
+      if growth <= allowed_growth + 1e-9:
+        spike_count += 1
+        continue
+    if growth > allowed_growth + 1e-9:
+      violations.append(
+        "composite_revenue_ramp::"
+        f"Q{quarter_index - 1}->Q{quarter_index}::"
+        f"growth={round(growth, 6)}::allowed={round(allowed_growth, 6)}::"
+        f"previous_revenue={round(previous_revenue, 2)}::current_revenue={round(current_revenue, 2)}"
+      )
+  return violations
+
+
 def validate_quarter_grid_response(
   *,
   requested_rows: List[Dict[str, Any]],
   response_json: Dict[str, Any],
+  governor_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   requested_ids = [str(item.get("row_id") or "") for item in requested_rows]
   requested_id_set = set(requested_ids)
@@ -1402,6 +2109,12 @@ def validate_quarter_grid_response(
 
   malformed_rows: List[str] = []
   flat_rows: List[str] = []
+  out_of_envelope_rows: List[str] = []
+  requested_by_id = {
+    str(item.get("row_id") or "").strip(): item
+    for item in requested_rows
+    if isinstance(item, dict) and str(item.get("row_id") or "").strip()
+  }
   for row_id, item in returned_by_id.items():
     quarter_values = item.get("quarter_values") if isinstance(item.get("quarter_values"), list) else []
     if len(quarter_values) != QUARTER_COUNT:
@@ -1423,6 +2136,24 @@ def validate_quarter_grid_response(
         break
       seen_quarters.append(quarter_index)
       exact_values.append(round(float(value), 6))
+      requested_row = requested_by_id.get(row_id) or {}
+      envelope_by_quarter = {
+        int(env.get("quarter_index") or 0): env
+        for env in (requested_row.get("cell_envelopes") or [])
+        if isinstance(env, dict)
+      }
+      envelope = envelope_by_quarter.get(quarter_index)
+      if isinstance(envelope, dict):
+        min_value = float_or_none(envelope.get("min_value"))
+        max_value = float_or_none(envelope.get("max_value"))
+        if min_value is not None and float(value) < float(min_value) - 1e-6:
+          out_of_envelope_rows.append(
+            f"{row_id}::Q{quarter_index}::value={value}::min={min_value}"
+          )
+        if max_value is not None and float(value) > float(max_value) + 1e-6:
+          out_of_envelope_rows.append(
+            f"{row_id}::Q{quarter_index}::value={value}::max={max_value}"
+          )
     if sorted(seen_quarters) != list(range(1, QUARTER_COUNT + 1)):
       malformed_rows.append(f"{row_id}::quarter_indexes_invalid")
       continue
@@ -1437,4 +2168,10 @@ def validate_quarter_grid_response(
     "duplicate_rows": duplicates,
     "malformed_rows": malformed_rows,
     "flat_rows": flat_rows,
+    "out_of_envelope_rows": out_of_envelope_rows,
+    "composite_revenue_ramp_violations": _composite_revenue_ramp_violations(
+      requested_rows=requested_rows,
+      returned_by_id=returned_by_id,
+      governor_payload=governor_payload,
+    ),
 }

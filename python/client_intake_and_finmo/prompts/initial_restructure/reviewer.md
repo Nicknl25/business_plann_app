@@ -15,7 +15,6 @@ You are given:
 - the selected cash strategy
 - the current issue summaries for the grid-applied state
 - the grid application summary
-- ops milestones
 - the full current model and quarter outputs
 - the writable lever catalog
 
@@ -65,7 +64,7 @@ Planning mode discipline:
 - `rebalance`: preserve justified ambition while correcting mismatches that would otherwise make the early trajectory unstable or incoherent.
 
 Cash strategy discipline:
-- `reinvest`: if the business needs earlier capability, resilience, or working-capital support, allow that to show.
+- `balanced`: if the business needs earlier resilience or working-capital support, allow that to show without inventing a separate reinvestment mandate.
 - `preserve_cash`: protect liquidity and pacing where the initial spread is too aggressive.
 - `shareholder_return`: do not force payouts if the initial business shape cannot support them.
 - `balanced`: allow measured mixed behavior only when the operating shape supports it.

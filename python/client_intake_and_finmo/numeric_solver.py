@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.optimize import minimize  # type: ignore
@@ -26,6 +26,9 @@ except Exception:
 
 
 TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
+_SOLVER_DEADLINE_SAFETY_MARGIN_SECONDS = 5.0
+_MAX_DETERMINISTIC_SEEDS_PER_QUARTER = 18
+_MAX_OPTIMIZER_SEEDS_PER_QUARTER = 1
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -520,6 +523,99 @@ def _vector_from_unit_interval(
   return [float(value) for value in actual_vector.tolist()]
 
 
+def _revenue_spec_parts(lever_id: str) -> Tuple[str, str]:
+  parts = [str(part or "").strip() for part in str(lever_id or "").split("::")]
+  if len(parts) < 4 or parts[0].lower() != "revenue":
+    return "", ""
+  driver = parts[-1]
+  if driver not in {"Capacity", "Unit Price", "Utilization"}:
+    return "", ""
+  return "::".join(parts[:-1]), driver
+
+
+def _revenue_direct_actual_vectors(
+  *,
+  variable_specs: List[Dict[str, Any]],
+  target_metrics: Dict[str, float],
+  anchor_vector: List[float],
+) -> List[List[float]]:
+  if set(str(key or "").strip().lower() for key in target_metrics.keys()) != {"revenue"}:
+    return []
+  target_revenue = _safe_float(target_metrics.get("revenue"))
+  if target_revenue is None or float(target_revenue) < 0.0:
+    return []
+  grouped: Dict[str, Dict[str, int]] = {}
+  for idx, spec in enumerate(variable_specs):
+    group_key, driver = _revenue_spec_parts(str(spec.get("lever_id") or ""))
+    if not group_key or not driver:
+      continue
+    grouped.setdefault(group_key, {})[driver] = idx
+  complete_groups = {
+    key: payload
+    for key, payload in grouped.items()
+    if {"Capacity", "Unit Price", "Utilization"}.issubset(set(payload.keys()))
+  }
+  if not complete_groups:
+    return []
+
+  def _clamped_value(idx: int, value: float) -> float:
+    spec = variable_specs[idx]
+    low = float(spec.get("min_value") or 0.0)
+    high = float(spec.get("max_value") or 0.0)
+    if low > high:
+      low, high = high, low
+    return float(min(max(float(value), low), high))
+
+  base_values = [float(value) for value in anchor_vector]
+  group_revenues: Dict[str, float] = {}
+  total_revenue = 0.0
+  for key, payload in complete_groups.items():
+    revenue = (
+      max(0.0, float(base_values[payload["Capacity"]]))
+      * max(0.0, float(base_values[payload["Unit Price"]]))
+      * max(0.0, float(base_values[payload["Utilization"]]))
+    )
+    group_revenues[key] = float(revenue)
+    total_revenue += float(revenue)
+
+  out: List[List[float]] = []
+  adjustable_priority = ("Utilization", "Capacity", "Unit Price")
+  for driver in adjustable_priority:
+    next_vector = [float(value) for value in base_values]
+    changed = False
+    for group_idx, (key, payload) in enumerate(complete_groups.items()):
+      idx = payload.get(driver)
+      if idx is None:
+        continue
+      if total_revenue > 0.0:
+        share = max(0.0, group_revenues.get(key, 0.0)) / max(total_revenue, 1e-9)
+      else:
+        share = 1.0 / max(len(complete_groups), 1)
+      group_target = float(target_revenue) * float(share)
+      if group_idx == len(complete_groups) - 1 and total_revenue <= 0.0:
+        group_target = max(0.0, float(target_revenue) - sum(
+          max(0.0, next_vector[p["Capacity"]])
+          * max(0.0, next_vector[p["Unit Price"]])
+          * max(0.0, next_vector[p["Utilization"]])
+          for g, p in complete_groups.items()
+          if g != key
+        ))
+      other_drivers = [item for item in ("Capacity", "Unit Price", "Utilization") if item != driver]
+      denominator = 1.0
+      for other_driver in other_drivers:
+        denominator *= max(0.0, float(next_vector[payload[other_driver]]))
+      if denominator <= 1e-9:
+        continue
+      desired = float(group_target) / denominator
+      clamped = _clamped_value(idx, desired)
+      if abs(float(clamped) - float(next_vector[idx])) > 1e-9:
+        changed = True
+      next_vector[idx] = clamped
+    if changed and next_vector not in out:
+      out.append(next_vector)
+  return out
+
+
 def _evaluate_quarter_objective(
   *,
   base_model_input_json: Dict[str, Any],
@@ -528,7 +624,10 @@ def _evaluate_quarter_objective(
   vector: List[float],
   target_metrics: Dict[str, float],
   tolerance_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  deadline_checker: Optional[Callable[[str], None]] = None,
 ) -> Tuple[float, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  if deadline_checker is not None:
+    deadline_checker("objective_prepare")
   apply_exact_lever_updates_to_model_input, build_python_finmo_json = _load_numeric_apply_helpers()
   candidate_updates = _candidate_updates(
     quarter_index=quarter_index,
@@ -539,7 +638,11 @@ def _evaluate_quarter_objective(
     model_input_json=base_model_input_json,
     exact_updates=[copy.deepcopy(item) for item in candidate_updates],
   )
+  if deadline_checker is not None:
+    deadline_checker("objective_before_finmo")
   updated_finmo_json = build_python_finmo_json(model_input_json=updated_model_input_json)
+  if deadline_checker is not None:
+    deadline_checker("objective_after_finmo")
   quarter_row = _finmo_row_map(updated_finmo_json).get(quarter_index) or {}
   telemetry_metrics: Dict[str, Any] = {}
   score = 0.0
@@ -574,13 +677,20 @@ def solve_review_plan(
 ) -> Dict[str, Any]:
   contract = numeric_solver_contract if isinstance(numeric_solver_contract, dict) else {}
   runtime_deadline = _safe_float(contract.get("runtime_deadline_monotonic"))
+  objective_evaluation_count = 0
 
   def _raise_if_runtime_deadline_exceeded(stage: str) -> None:
     if runtime_deadline is None:
       return
-    if time.perf_counter() <= float(runtime_deadline):
+    deadline = float(runtime_deadline)
+    remaining = deadline - time.perf_counter()
+    if remaining > _SOLVER_DEADLINE_SAFETY_MARGIN_SECONDS:
       return
-    raise TimeoutError(f"numeric_solver_runtime_deadline_exceeded:{stage}")
+    raise TimeoutError(
+      f"numeric_solver_runtime_deadline_exceeded:{stage}:"
+      f"remaining_seconds={remaining:.3f}:"
+      f"objective_evaluations={objective_evaluation_count}"
+    )
 
   pass_name = str(contract.get("pass_name") or "").strip()
   if pass_name not in {
@@ -694,14 +804,38 @@ def solve_review_plan(
     anchor_vector = [float(spec.get("anchor_value") or 0.0) for spec in variable_specs]
     unit_bounds = [(0.0, 1.0) for _ in variable_specs]
     task_tolerance_overrides = copy.deepcopy(task.get("target_tolerances") or {})
+    quarter_objective_evaluation_count = 0
+    max_quarter_objective_evaluations = min(
+      48,
+      max(12, 8 + (4 * len(variable_specs))),
+    )
 
-    baseline_score, _, _, baseline_metrics = _evaluate_quarter_objective(
-      base_model_input_json=working_model_input_json,
-      quarter_index=quarter_index,
-      variable_specs=variable_specs,
-      vector=baseline_vector,
-      target_metrics=target_metrics,
-      tolerance_overrides=task_tolerance_overrides,
+    def _evaluate_candidate(vector: List[float], *, stage: str) -> Tuple[float, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+      nonlocal objective_evaluation_count, quarter_objective_evaluation_count
+      _raise_if_runtime_deadline_exceeded(stage)
+      if quarter_objective_evaluation_count >= max_quarter_objective_evaluations:
+        raise TimeoutError(
+          "numeric_solver_objective_evaluation_budget_exceeded:"
+          f"quarter={quarter_index}:"
+          f"stage={stage}:"
+          f"limit={max_quarter_objective_evaluations}:"
+          f"objective_evaluations={objective_evaluation_count}"
+        )
+      quarter_objective_evaluation_count += 1
+      objective_evaluation_count += 1
+      return _evaluate_quarter_objective(
+        base_model_input_json=working_model_input_json,
+        quarter_index=quarter_index,
+        variable_specs=variable_specs,
+        vector=vector,
+        target_metrics=target_metrics,
+        tolerance_overrides=task_tolerance_overrides,
+        deadline_checker=_raise_if_runtime_deadline_exceeded,
+      )
+
+    baseline_score, _, _, baseline_metrics = _evaluate_candidate(
+      baseline_vector,
+      stage="baseline",
     )
     best_score = float(baseline_score)
     best_vector = list(baseline_vector)
@@ -711,13 +845,9 @@ def solve_review_plan(
     optimizer_message = "baseline_only"
     optimizer_success = False
 
-    anchor_score, anchor_model_input_json, anchor_finmo_json, anchor_metrics = _evaluate_quarter_objective(
-      base_model_input_json=working_model_input_json,
-      quarter_index=quarter_index,
-      variable_specs=variable_specs,
-      vector=anchor_vector,
-      target_metrics=target_metrics,
-      tolerance_overrides=task_tolerance_overrides,
+    anchor_score, anchor_model_input_json, anchor_finmo_json, anchor_metrics = _evaluate_candidate(
+      anchor_vector,
+      stage="anchor",
     )
     anchor_within_tolerance = all(
       float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
@@ -745,6 +875,12 @@ def solve_review_plan(
         variable_specs=variable_specs,
       ),
     ]
+    revenue_direct_vectors = _revenue_direct_actual_vectors(
+      variable_specs=variable_specs,
+      target_metrics=target_metrics,
+      anchor_vector=anchor_vector,
+    )
+    revenue_direct_mode = bool(revenue_direct_vectors)
     def _append_actual_seed(actual_vector: List[float]) -> None:
       seed_vectors.append(
         _vector_to_unit_interval(
@@ -752,6 +888,9 @@ def solve_review_plan(
           variable_specs=variable_specs,
         )
       )
+
+    for direct_vector in revenue_direct_vectors:
+      _append_actual_seed(direct_vector)
 
     if len(variable_specs) == 1:
       seed_vectors.extend([[value] for value in (0.0, 0.25, 0.50, 0.75, 1.0)])
@@ -768,13 +907,9 @@ def solve_review_plan(
             probe = min(max(float(probe_value), min(low, high)), max(low, high))
             if abs(probe - baseline) <= 1e-9:
               continue
-            _, _, _, probe_metrics = _evaluate_quarter_objective(
-              base_model_input_json=working_model_input_json,
-              quarter_index=quarter_index,
-              variable_specs=variable_specs,
-              vector=[probe],
-              target_metrics=target_metrics,
-              tolerance_overrides=task_tolerance_overrides,
+            _, _, _, probe_metrics = _evaluate_candidate(
+              [probe],
+              stage="single_variable_probe",
             )
             probe_payload = probe_metrics.get(metric_name) if isinstance(probe_metrics, dict) else {}
             probe_actual = _safe_float((probe_payload or {}).get("actual_value"))
@@ -786,13 +921,9 @@ def solve_review_plan(
               / (float(probe_actual) - float(baseline_actual))
             )
             estimated = min(max(estimated, min(low, high)), max(low, high))
-            estimate_score, estimate_model_input_json, estimate_finmo_json, estimate_metric_results = _evaluate_quarter_objective(
-              base_model_input_json=working_model_input_json,
-              quarter_index=quarter_index,
-              variable_specs=variable_specs,
-              vector=[estimated],
-              target_metrics=target_metrics,
-              tolerance_overrides=task_tolerance_overrides,
+            estimate_score, estimate_model_input_json, estimate_finmo_json, estimate_metric_results = _evaluate_candidate(
+              [estimated],
+              stage="single_variable_estimate",
             )
             if float(estimate_score) < float(best_score) - 1e-9:
               best_score = float(estimate_score)
@@ -834,6 +965,8 @@ def solve_review_plan(
       rounded = [round(float(value), 6) for value in seed]
       if rounded not in normalized_seeds:
         normalized_seeds.append(rounded)
+    if len(normalized_seeds) > _MAX_DETERMINISTIC_SEEDS_PER_QUARTER:
+      normalized_seeds = normalized_seeds[:_MAX_DETERMINISTIC_SEEDS_PER_QUARTER]
 
     def _unit_objective(arr: List[float]) -> float:
       _raise_if_runtime_deadline_exceeded("objective")
@@ -841,13 +974,9 @@ def solve_review_plan(
         unit_vector=[float(v) for v in arr],
         variable_specs=variable_specs,
       )
-      return _evaluate_quarter_objective(
-        base_model_input_json=working_model_input_json,
-        quarter_index=quarter_index,
-        variable_specs=variable_specs,
-        vector=actual_vector,
-        target_metrics=target_metrics,
-        tolerance_overrides=task_tolerance_overrides,
+      return _evaluate_candidate(
+        actual_vector,
+        stage="objective",
       )[0]
 
     if not anchor_within_tolerance:
@@ -857,13 +986,9 @@ def solve_review_plan(
           unit_vector=[float(v) for v in seed],
           variable_specs=variable_specs,
         )
-        seed_score, seed_model_input_json, seed_finmo_json, seed_metric_results = _evaluate_quarter_objective(
-          base_model_input_json=working_model_input_json,
-          quarter_index=quarter_index,
-          variable_specs=variable_specs,
-          vector=seed_vector,
-          target_metrics=target_metrics,
-          tolerance_overrides=task_tolerance_overrides,
+        seed_score, seed_model_input_json, seed_finmo_json, seed_metric_results = _evaluate_candidate(
+          seed_vector,
+          stage="deterministic_seed",
         )
         if float(seed_score) < float(best_score) - 1e-9:
           best_score = float(seed_score)
@@ -879,7 +1004,12 @@ def solve_review_plan(
             )
           )
 
-    for seed in ([] if (anchor_within_tolerance or optimizer_success) else normalized_seeds):
+    optimizer_seeds = (
+      []
+      if (anchor_within_tolerance or optimizer_success or revenue_direct_mode)
+      else normalized_seeds[:_MAX_OPTIMIZER_SEEDS_PER_QUARTER]
+    )
+    for seed in optimizer_seeds:
       _raise_if_runtime_deadline_exceeded("optimizer_seed")
       result = minimize(
         _unit_objective,
@@ -887,26 +1017,22 @@ def solve_review_plan(
         method="L-BFGS-B",
         bounds=unit_bounds,
         options={
-          "maxiter": 80,
+          "maxiter": 24,
           # The objective surface comes from a full model recalculation, so
           # normalized finite-difference steps are more reliable than raw-value
           # steps on million-dollar levers.
           "eps": 0.05,
-          "ftol": 1e-9,
-          "maxfun": 160,
+          "ftol": 1e-8,
+          "maxfun": max(12, min(48, 6 * len(variable_specs))),
         },
       )
       candidate_vector = _vector_from_unit_interval(
         unit_vector=[float(v) for v in result.x],
         variable_specs=variable_specs,
       )
-      candidate_score, candidate_model_input_json, candidate_finmo_json, candidate_metric_results = _evaluate_quarter_objective(
-        base_model_input_json=working_model_input_json,
-        quarter_index=quarter_index,
-        variable_specs=variable_specs,
-        vector=candidate_vector,
-        target_metrics=target_metrics,
-        tolerance_overrides=task_tolerance_overrides,
+      candidate_score, candidate_model_input_json, candidate_finmo_json, candidate_metric_results = _evaluate_candidate(
+        candidate_vector,
+        stage="optimizer_result",
       )
       if float(candidate_score) < float(best_score) - 1e-9:
         best_score = float(candidate_score)
@@ -941,6 +1067,8 @@ def solve_review_plan(
           }
         ),
         "message": str(optimizer_message),
+        "objective_evaluation_count": int(quarter_objective_evaluation_count),
+        "objective_evaluation_limit": int(max_quarter_objective_evaluations),
       }
     )
     quarter_results.append(
@@ -952,6 +1080,8 @@ def solve_review_plan(
         "target_metrics": copy.deepcopy(metric_results),
         "allowed_lever_ids": copy.deepcopy(allowed_lever_ids),
         "variable_spec_count": len(variable_specs),
+        "objective_evaluation_count": int(quarter_objective_evaluation_count),
+        "objective_evaluation_limit": int(max_quarter_objective_evaluations),
         "baseline_objective": float(baseline_score),
         "best_objective": float(best_score),
         "objective_delta": float(baseline_score - best_score),
@@ -1040,6 +1170,7 @@ def solve_review_plan(
       "baseline_objective": float(baseline_objective),
       "best_objective": float(best_objective),
       "objective_delta": float(baseline_objective - best_objective),
+      "objective_evaluation_count": int(objective_evaluation_count),
       "quarter_fit_summary": copy.deepcopy(quarter_fit_summary),
       "quarter_results": copy.deepcopy(quarter_results),
     },

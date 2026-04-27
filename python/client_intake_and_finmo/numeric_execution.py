@@ -10,7 +10,6 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_driver_target_mapping_errors,
   post_intake_driver_target_mapping_entry,
   post_intake_driver_target_metric_ids,
-  post_intake_lever_ids_for_milestone_category,
 )
 
 NUMERIC_EXECUTION_BOUNDARY_VERSION = "numeric_execution_boundary_v1"
@@ -36,7 +35,8 @@ IMMUTABLE_CORE_MODEL_FILES = (
 _ISSUE_SOLVER_OBJECTIVES: Dict[str, str] = {
   "capacity_revenue_mismatch": "align_volume_with_capacity_and_timing",
   "cost_structure_mismatch": "rebalance_cost_structure_without_fake_plugs",
-  "milestone_throughput_target_mismatch": "hit_explicit_client_milestone_through_mapped_revenue_drivers",
+  "business_model_coherence_mismatch": "repair_stage_and_mode_coherence_through_mapped_operating_drivers",
+  "p_and_l_flatline_mismatch": "repair_flat_operating_trajectory_through_mapped_revenue_and_cost_drivers",
   "working_capital_payment_model_mismatch": "align_working_capital_with_real_collection_payment_timing",
 }
 
@@ -61,6 +61,8 @@ _PREFERRED_PRIMARY_TARGET_METRIC_COUNT = 6
 _REMAINING_HORIZON_ISSUE_CODES = {
   "capacity_revenue_mismatch",
   "cost_structure_mismatch",
+  "business_model_coherence_mismatch",
+  "p_and_l_flatline_mismatch",
 }
 
 
@@ -185,6 +187,8 @@ def _issue_default_severity(issue_code: str) -> int:
   code = str(issue_code or "").strip().lower()
   if code == "working_capital_payment_model_mismatch":
     return 90
+  if code == "business_model_coherence_mismatch":
+    return 96
   if code in {"capacity_revenue_mismatch", "cost_structure_mismatch"}:
     return 82
   return 75
@@ -278,17 +282,19 @@ def _infer_issue_lever_ids(
 
     if code == "capacity_revenue_mismatch":
       return bool(driver_category == "revenue")
-    if code == "milestone_throughput_target_mismatch":
-      milestone_levers = set(
-        post_intake_lever_ids_for_milestone_category(
-          "throughput_growth",
-          available_lever_ids=[entry.get("lever_id") for entry in entries],
-        )
-      )
-      return lever_id in milestone_levers
     if code == "cost_structure_mismatch":
       return bool(
         driver_category == "revenue"
+        or target_metric_name in operating_cost_target_metric_names
+      )
+    if code == "business_model_coherence_mismatch":
+      return bool(
+        (driver_category == "revenue" and target_driver in {"capacity", "unit_price", "utilization"})
+        or target_metric_name in operating_cost_target_metric_names
+      )
+    if code == "p_and_l_flatline_mismatch":
+      return bool(
+        (driver_category == "revenue" and target_driver in {"capacity", "unit_price", "utilization"})
         or target_metric_name in operating_cost_target_metric_names
       )
     if code == "working_capital_payment_model_mismatch":
@@ -327,9 +333,20 @@ def _enriched_issue_status_records(
           issue_code=issue_code,
           current_finmo_json=current_finmo_json,
         )
-      record["next_required_lever_ids"] = _infer_issue_lever_ids(
-        issue_code=issue_code,
-        writable_lever_catalog=writable_lever_catalog,
+      explicit_lever_ids: List[str] = []
+      for lever_id in [
+        *list(record.get("next_required_lever_ids") or []),
+        *list(record.get("candidate_lever_ids") or []),
+      ]:
+        normalized_lever_id = str(lever_id or "").strip()
+        if normalized_lever_id and normalized_lever_id not in explicit_lever_ids:
+          explicit_lever_ids.append(normalized_lever_id)
+      record["next_required_lever_ids"] = (
+        explicit_lever_ids
+        or _infer_issue_lever_ids(
+          issue_code=issue_code,
+          writable_lever_catalog=writable_lever_catalog,
+        )
       )
       if not str(record.get("remaining_issue_materiality") or "").strip():
         record["remaining_issue_materiality"] = "material"
@@ -407,7 +424,7 @@ def _normalized_solver_settings(
     "no_progress_response": "switch_tactic_not_repeat_same_move",
     "focused_cycle_issue_limit": 1 if pass_name == "unified_convergence" else None,
     "focused_cycle_quarter_limit": 1 if pass_name == "unified_convergence" else None,
-    "focused_cycle_lever_family_limit": 3 if pass_name == "unified_convergence" else None,
+    "focused_cycle_lever_family_limit": 4 if pass_name == "unified_convergence" else None,
   }
 
 
@@ -419,6 +436,8 @@ def _dominant_issue_cluster(issue_status_records: Optional[List[Dict[str, Any]]]
   }
   if "cost_structure_mismatch" in codes:
     return "profitability_shape"
+  if "business_model_coherence_mismatch" in codes:
+    return "business_world_coherence"
   if "capacity_revenue_mismatch" in codes:
     return "capacity_growth"
   return "general_rebalance"

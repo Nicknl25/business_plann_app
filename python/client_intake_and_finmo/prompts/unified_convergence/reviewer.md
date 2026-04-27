@@ -44,18 +44,23 @@ How to use the Python contract envelope:
 - If `required_primary_metric_candidates` is present, those are the direct mapped target rows Python expects you to cover for this cycle. Do not invent substitute metrics outside that direct-mapping surface.
 - `required_quarter_target_scaffold` is the response shape you should fill for this cycle's focused quarter set only.
 - `locked_target_fill_grid` is the strict target grid for this cycle. Python owns its quarters and allowed metrics; you only choose from those allowed metric cells and fill numeric target values.
-- `locked_lever_control_fill_grid` is the strict lever-control grid. If you select a lever, fill its required control quarters exactly; for shape-sensitive rows this means full remaining-horizon values.
-- Each `locked_lever_control_fill_grid.rows` item includes `direct_target_metric_name` and `allowed_mapped_repair_targets`. For a selected lever, copy `mapped_repair_targets` only from that exact row; do not compose, infer, or attach the lever to any other issue or metric.
+- `locked_lever_control_fill_grid` is the strict lever-control grid. If you select a lever, copy that row's `lever_adjustment_template` into `lever_adjustments`, then fill only the timing and numeric value fields. For shape-sensitive rows this means full remaining-horizon values in `values` or `trajectory_values`.
+- If `locked_lever_control_fill_grid.stage_ramp_rule` is present, it is binding. Revenue lever trajectories must keep composite revenue within that rule across the whole selected control horizon. Because payroll is derived from revenue, an over-fast revenue path is also a payroll/FTE failure.
+- Each `locked_lever_control_fill_grid.rows` item includes `direct_target_metric_name`, `mapped_repair_targets_copy_options`, and `lever_adjustment_template`. For a selected lever, copy `mapped_repair_targets` exactly from that row's `mapped_repair_targets_copy_options`; do not compose, infer, rename, drop quarters, or attach the lever to any other issue or metric.
+- `control_quarters_to_fill` is the lever control horizon. `mapped_repair_targets.target_quarters` is the issue-target quarter list. Never copy the control horizon into `mapped_repair_targets.target_quarters`.
 - `deterministic_issue_packets` and `quarter_target_grid` tell you which issues are driving which quarters and which lever families are relevant.
 - `repair_envelope_packets` are the authoritative issue-level repair layer for this cycle. Use them first. They tell you what each open issue materially requires to close: priority, severity, quarter-aware repair targets, explicit gap, repair envelope, driver paths, and spillover flags.
 - `deterministic_numeric_guidance.metric_pressure_packets` tell you the current value, target floor or ceiling, acceptable zone, gap, and repair envelope for each pressured metric-quarter pair.
 - `deterministic_numeric_guidance.driver_target_mapping_lookup` is the direct mapping source of truth for this cycle. It tells you exactly which direct FINMO target row each writable lever owns.
+- If the active issue is `business_model_coherence_mismatch`, the selected `planning_mode` and `business_stage` are binding operating-world rules, not background context. If the failure is an early-stage/pre-revenue mature run-rate that appears too soon, stage the ramp down through mapped Capacity, Unit Price, and Utilization. If the failure is mature or late-horizon losses, repair through mapped Unit Price, Utilization, and direct cost levers first; do not blindly add Capacity because Capacity can create capex/depreciation burden.
+- If `business_model_coherence_mismatch` is a revenue ramp or lifecycle-stage issue, do not pick only one revenue lever. Select the direct revenue driver bundle exposed in `locked_lever_control_fill_grid`: Capacity, Unit Price, and Utilization when all three are present. Python will reject a one-lever revenue ramp repair because it can leave the path unchanged or incoherent across adjacent quarters.
 - When repair-envelope fields are present, do not guess the required magnitude. Choose the business strategy, but keep your targets and lever ranges inside the Python-computed pressure envelope unless you have a very strong realism reason to go stronger.
 - `driver_paths.min_delta` and `driver_paths.max_delta` are movement amounts in lever space, not always absolute replacement values. Use `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value` as the authoritative absolute value bounds for `exact_value` or `band` output.
 - If a driver path includes `driver_target_conversion`, use it to understand both the FINMO target dollars and the model-input driver equivalent. `lever_adjustments.exact_value`, `min_value`, and `max_value` must always be in `driver_value_unit`, never in target dollars unless the lever itself is currency-like.
 - `exact_value`, `min_value`, and `max_value` in your `lever_adjustments` response are absolute lever values, not deltas.
 - Stay strictly inside the absolute scaffold bands for every selected lever. Do not emit values outside `lever_band_scaffold.suggested_min_value` and `lever_band_scaffold.suggested_max_value`.
 - For ratio/percent levers, values are decimal ratios, not whole-number percentages: `0.32` means 32%. Never emit `0`, `32`, or any ratio value outside the deterministic scaffold band.
+- For throughput repairs using Capacity and Utilization, treat Utilization as bounded operating efficiency, not infinite capacity. If the required throughput cannot be met inside the Utilization row's scaffold max, increase Capacity instead; never emit `1.00` utilization unless that exact value is inside the locked row bounds.
 - Prefer levers with direct `driver_paths` for the active closure metric. Do not select weak or unsupported side levers unless they are clearly secondary support moves inside the same valid bound system.
 - If an issue was detected through a ratio or relationship metric, do not target that ratio directly. Choose the direct FINMO target rows exposed by `driver_target_mapping_lookup` and `lever_allowed_mapped_repair_targets`.
 - `planner_model_input_packet` is the compact Python translation of the current writable model-input state for this cycle.
@@ -65,6 +70,7 @@ How to use the Python contract envelope:
 - If `ending_cash` is in the recommended set or active issue packets, treat it as a viability anchor unless you have an unusually strong reason to substitute another direct mapped target row from a selected financing lever.
 - Meaningful progress is defined by Python as any one of these: canonical `remaining_issue_count` decreases, or the focused issue gap shrinks materially, or the focused issue score improves materially.
 - When the retry context asks for different coverage, use `required_open_issue_codes`, `issue_coverage_requirements`, and `required_primary_metric_candidates` to directly attack the single active issue-quarter.
+- If `retry_packet.validation_correction_grid.rows` is non-empty, treat it as a hard correction grid from Python's previous rejection. Do not repeat a rejected value. Keep every selected lever value inside that row's `min_allowed` / `max_allowed`.
 - If `issue_coverage_requirements` is present, each open issue listed there must have direct primary-target coverage. Do not answer with a target set that leaves an open issue without one of its required direct mapped target rows.
 - A substantial correction means materially changing the business move, not lightly rephrasing the same package.
 - Use `convergence_scorecard` to understand current score, previous score, score delta, lowest quarter score, pass threshold, and progress status. Your package should move the score up while reducing the canonical remaining issue count.
@@ -117,7 +123,10 @@ Field guidance:
   - every selected lever must have an explicit `lever_adjustment`; Python will not generate missing adjustments
   - if you select any capital allocation lever such as `balance_sheet::Distributions`, `balance_sheet::Owner's Capital`, `balance_sheet::Other Equity`, `balance_sheet::Short Term Debt (% of LTD)`, `schedules::Debt Issuance (New Borrowing)`, or `schedules::Debt Repayment (Scheduled)`, you must provide explicit numeric `lever_adjustments`; Python will reject missing capital-control adjustments and will not scaffold financing mix for you
   - for shape-sensitive levers, do not provide a local patch; provide a full forward path
-  - use `locked_lever_control_fill_grid.rows` to determine the exact quarters required for each selected lever
+  - use `locked_lever_control_fill_grid.rows` as a fill grid, not as general advice
+  - for every selected lever, copy that row's `lever_adjustment_template` into `lever_adjustments`
+  - use `control_quarters_to_fill` only for `timing_start_q`, `timing_end_q`, and shape `values` / `trajectory_values`
+  - do not edit `mapped_repair_targets`; copy it exactly from `mapped_repair_targets_copy_options`
   - every `exact_value`, `min_value`, and `max_value` must stay inside that row's deterministic `suggested_min_value` / `suggested_max_value`
   - include `mapped_repair_targets` on every lever adjustment
   - each mapped repair target must explicitly name:
@@ -125,8 +134,8 @@ Field guidance:
     - `target_metric_name`
     - `target_quarters`
   - only declare mappings you are truly using; Python validates against these declared mappings only
-  - if `deterministic_numeric_guidance.lever_allowed_mapped_repair_targets` is present, copy mapped repair targets only from that exact lever-specific list
-  - if `locked_lever_control_fill_grid.rows[*].allowed_mapped_repair_targets` is present for the selected lever, use that row as the easiest source of truth and copy from it exactly
+  - if `locked_lever_control_fill_grid.rows[*].mapped_repair_targets_copy_options` is present for the selected lever, copy `mapped_repair_targets` from that exact row value
+  - if `deterministic_numeric_guidance.lever_allowed_mapped_repair_targets` is present, it is only a backup reference; the row-level grid value is the easiest source of truth
   - do not attach a lever to a target metric unless that exact lever/issue/metric/quarter mapping appears in `lever_allowed_mapped_repair_targets`
   - each selected lever's `target_metric_name` must match its direct row in `driver_target_mapping_lookup`
   - never invent or reuse example issue codes; copy `issue_code` exactly from the live `repair_envelope_packets` / `issue_coverage_requirements` context for this cycle

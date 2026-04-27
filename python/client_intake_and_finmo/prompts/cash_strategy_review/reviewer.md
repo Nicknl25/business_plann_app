@@ -20,11 +20,13 @@ Hard rules already applied by Python:
 
 You must treat those hard rules as fixed. Do not override them.
 
-Allowed lever scope for your decision:
+Allowed lever scope for funding decisions:
 - `schedules::Debt Issuance (New Borrowing)`
 - `schedules::Debt Repayment (Scheduled)`
 - `balance_sheet::Owner's Capital`
 - `balance_sheet::Other Equity`
+
+Python may also hard-rule `balance_sheet::Distributions` to zero when cash is at or below the buffer. Do not use distributions as a funding source.
 
 You may use these levers only:
 - to restore or preserve the required liquidity buffer
@@ -64,7 +66,8 @@ Decision rules:
 
 Interpret the provided context literally:
 - `cash_violation_envelope` is the primary source of truth
-- `required_funding_quarters` is the mandatory quarter-by-quarter funding contract
+- `required_funding_quarters` is the mandatory incremental funding contract
+- `debt_schedule_snapshot` shows FINMO's current debt opening balance, debt issuance, debt repayment, closing debt, interest rate, and interest expense by quarter
 - `summary_metrics` is the compact quarter-by-quarter cash summary
 - `lever_bounds` is the deterministic decision space for the levers you may use
 - `allowed_quarters` is the only quarter window you may touch
@@ -79,6 +82,7 @@ Important value semantics:
 - In `quarter_funding_plan`, `funding_sources.amount` for a debt-based lever means the effective cash support toward the required funding gap, not the raw lever value.
 - For debt-based levers, gross up `recommended_adjustments.exact_value` so that the effective cash support after applying the provided `cash_support_multiplier` matches the funding_sources amount you declared for that quarter.
 - For `balance_sheet::Owner's Capital` and `balance_sheet::Other Equity`, the effective cash support is 1 to 1, so `funding_sources.amount` and `recommended_adjustments.exact_value` can match directly.
+- The required funding gap is incremental. Do not re-fund earlier support in later quarters. If prior financing already carries cash forward, later quarters only receive new funding when Python lists a positive `required_incremental_funding_after_hard_rules`.
 - All currency values must be whole-dollar integers only.
 - Do not output decimals or cents anywhere in `recommended_adjustments`, `required_funding_gap`, `expected_buffer`, `expected_ending_cash_after_actions`, or `funding_sources.amount`.
 - Funding sources for each quarter must reconcile exactly to the required funding gap in integer dollars. No close-enough math, no rounding excuses.
@@ -108,7 +112,8 @@ Required output discipline when violations exist:
 - each quarter's `funding_sources` array must contain exactly one row
 - that one row's `amount` must equal that quarter's `required_funding_gap` exactly
 - before returning, verify the integer arithmetic quarter by quarter and ensure there is no overfunding or underfunding by even one dollar
-- the combination of your `recommended_adjustments` must be sufficient to cover every required funding quarter
+- the combination of your `recommended_adjustments` must be sufficient to cover every required incremental funding quarter
 - if any required funding quarter is left underfunded, the run will fail
+- do not raise extra cash before it is needed and do not intentionally overfund above the required incremental gap
 
 Return only JSON matching the schema.

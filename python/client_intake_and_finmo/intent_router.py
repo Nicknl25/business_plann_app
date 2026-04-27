@@ -646,7 +646,7 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "cash_on_hand": {"type": "number"},
 
-      "cash_strategy": {"type": "string", "enum": ["reinvest", "preserve_cash", "shareholder_return", "balanced"]},
+      "cash_strategy": {"type": "string", "enum": ["preserve_cash", "shareholder_return", "balanced"]},
 
       "confidence": {"type": "number"},
 

@@ -54,7 +54,6 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
         "financial_model_field": _clean_text(raw_row.get("financial_model_field")),
         "impact_type": _clean_text(raw_row.get("impact_type")).lower(),
         "notes": _clean_text(raw_row.get("notes")),
-        "milestone_category": _clean_text(raw_row.get("milestone_category")).lower(),
       }
       row["target_metric_name"] = _normalized_metric_id_from_field(row.get("financial_model_field"))
       row["lookup_lever_id"] = _normalized_lookup_key(lever_id)
@@ -98,41 +97,6 @@ def post_intake_driver_target_metric_ids() -> List[str]:
     metric_name = _clean_text(row.get("target_metric_name")).lower()
     if metric_name and metric_name not in ordered:
       ordered.append(metric_name)
-  return ordered
-
-
-def post_intake_lever_ids_for_milestone_category(
-  category: Any,
-  *,
-  available_lever_ids: Optional[Iterable[Any]] = None,
-) -> List[str]:
-  normalized_category = _clean_text(category).lower()
-  if not normalized_category:
-    return []
-  available_by_lookup_key: Dict[str, List[str]] = {}
-  for item in (available_lever_ids or []):
-    lever_id = _clean_text(item)
-    lookup_key = _normalized_lookup_key(lever_id)
-    if lever_id and lookup_key:
-      available_by_lookup_key.setdefault(lookup_key, []).append(lever_id)
-  available_lookup_keys = set(available_by_lookup_key.keys())
-  ordered: List[str] = []
-  for row in load_post_intake_driver_target_mapping_rows():
-    raw_categories = _clean_text(row.get("milestone_category")).lower()
-    categories = {
-      item.strip()
-      for item in raw_categories.replace("|", ";").split(";")
-      if item.strip()
-    }
-    if normalized_category not in categories:
-      continue
-    lookup_key = _clean_text(row.get("lookup_lever_id"))
-    if available_lookup_keys and lookup_key not in available_lookup_keys:
-      continue
-    lever_ids = available_by_lookup_key.get(lookup_key) or [_clean_text(row.get("lever_id"))]
-    for lever_id in lever_ids:
-      if lever_id and lever_id not in ordered:
-        ordered.append(lever_id)
   return ordered
 
 
