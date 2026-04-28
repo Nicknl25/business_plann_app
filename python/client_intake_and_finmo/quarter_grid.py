@@ -8,7 +8,7 @@ import time
 import copy
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
 try:
@@ -853,6 +853,8 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
     "- do not create a forecast that violates the lifecycle stage just to make outputs look clean",
     "- apply `stage_ramp_contract` to every adjacent quarter pair Q1->Q2 through Q19->Q20",
     "- do not allow unchecked growth; spikes are only valid inside the contract's window and support rules",
+    "- use stage_ramp_contract cost maturity caps for COGS, Marketing, R&D, G&A, and Lease before trying to make profit look clean",
+    "- use net_income_margin_floor as a maturity guardrail, not as permission to fake instant mature profitability",
   ]
   if str(context.get("stage_family") or "").strip().lower() == "startup":
     lines.extend(
@@ -890,6 +892,14 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
       "rev_spike_max": row.get("revenue_qoq_spike_max"),
       "fte_max": row.get("fte_qoq_max"),
       "util_cap": row.get("utilization_cap"),
+      "cogs_target": row.get("cogs_percent_of_revenue_target"),
+      "cogs_max": row.get("cogs_percent_of_revenue_max"),
+      "marketing_max": row.get("marketing_percent_of_revenue_max"),
+      "rd_max": row.get("rd_percent_of_revenue_max"),
+      "g_and_a_max": row.get("g_and_a_percent_of_revenue_max"),
+      "lease_max": row.get("lease_percent_of_revenue_max"),
+      "ni_margin_floor": row.get("net_income_margin_floor"),
+      "profitability_posture": row.get("profitability_posture"),
     }
     for row in (payload.get("quarter_ramp_grid") or [])
     if isinstance(row, dict) and int(row.get("quarter_index") or 0) >= 1
@@ -903,6 +913,10 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
     "fte_qoq_max": payload.get("fte_qoq_max"),
     "fte_qoq_max_spike": payload.get("fte_qoq_max_spike"),
     "utilization_high_watermark": payload.get("utilization_high_watermark"),
+    "cost_maturity_caps": copy.deepcopy(payload.get("cost_maturity_caps") or {}),
+    "profitability_floor_by_quarter": copy.deepcopy(payload.get("profitability_floor_by_quarter") or {}),
+    "cost_maturity_ramp_is_binding": bool(payload.get("cost_maturity_ramp_is_binding")),
+    "profitability_maturity_floor_is_binding": bool(payload.get("profitability_maturity_floor_is_binding")),
     "max_spike_count": payload.get("max_spike_count"),
     "quarter_ramp_grid": grid_rows,
     "composite_revenue_formula": payload.get("composite_revenue_formula"),
@@ -962,6 +976,35 @@ def _quarter_grid_stage_growth_bounds(governor_payload: Dict[str, Any]) -> Dict[
     "max": float(contract.get("revenue_qoq_growth_target_max") or 0.20),
     "default": float(contract.get("revenue_qoq_default") or 0.10),
   }
+
+
+def _quarter_grid_stage_maturity_row(governor_payload: Dict[str, Any], quarter_index: int) -> Dict[str, Any]:
+  context = governor_payload.get("stage_governance_context") if isinstance(governor_payload, dict) else {}
+  contract = (context or {}).get("stage_ramp_contract") if isinstance((context or {}).get("stage_ramp_contract"), dict) else {}
+  target_quarter = int(quarter_index or 0)
+  for row in (contract.get("quarter_ramp_grid") or []):
+    if not isinstance(row, dict):
+      continue
+    if int(float_or_none(row.get("quarter_index")) or 0) == target_quarter:
+      return row
+  return {}
+
+
+def _maturity_cap_for_expense_row(label: str, maturity_row: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+  lowered = str(label or "").strip().lower()
+  if not isinstance(maturity_row, dict) or not maturity_row:
+    return None, None
+  if "cost of goods" in lowered or "cogs" in lowered:
+    return float_or_none(maturity_row.get("cogs_percent_of_revenue_max")), "stage_maturity_cogs_percent_cap"
+  if "marketing" in lowered:
+    return float_or_none(maturity_row.get("marketing_percent_of_revenue_max")), "stage_maturity_marketing_percent_cap"
+  if "research" in lowered or "r&d" in lowered or "rd " in f"{lowered} ":
+    return float_or_none(maturity_row.get("rd_percent_of_revenue_max")), "stage_maturity_rd_percent_cap"
+  if "general" in lowered or "administrative" in lowered or "g&a" in lowered:
+    return float_or_none(maturity_row.get("g_and_a_percent_of_revenue_max")), "stage_maturity_g_and_a_percent_cap"
+  if "lease" in lowered or "rent" in lowered:
+    return float_or_none(maturity_row.get("lease_percent_of_revenue_max")), "stage_maturity_lease_percent_cap"
+  return None, None
 
 
 def _bounded(value: float, lower: float, upper: float) -> float:
@@ -1062,6 +1105,13 @@ def _quarter_grid_cell_envelopes_for_row(
       else:
         min_value, max_value = 0.0, 0.60
         reason = "expense_percent_operating_bound"
+      maturity_cap, maturity_reason = _maturity_cap_for_expense_row(
+        label,
+        _quarter_grid_stage_maturity_row(governor_payload, idx),
+      )
+      if maturity_cap is not None:
+        max_value = min(float(max_value), max(float(min_value), float(maturity_cap)))
+        reason = str(maturity_reason or reason)
     elif section == "balance_sheet" and _is_ratio_like_row(row):
       min_value, max_value = 0.0, 1.0
       reason = "balance_sheet_ratio_bound"
@@ -1668,6 +1718,8 @@ def build_quarter_grid_prompt(
       "Every listed row includes deterministic `cell_envelopes` when Python has an allowed numeric range. "
       "You must keep every returned value inside that row's Q-specific min_value/max_value. "
       "These envelopes are the source of truth for all driver cells; do not free-form outside them.\n",
+      "When cost-ratio rows are listed, their envelopes already include the stage maturity caps selected before convergence. "
+      "Do not flatten Marketing and R&D to identical values unless the actual business facts make that natural.\n",
       "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n",
       "For output rows, use dollar values from Financial Model QTR semantics.\n",
       "For lever rows, use realistic model-input driver values.\n\n",
@@ -1683,6 +1735,10 @@ def build_quarter_grid_prompt(
       "- revenue is not a standalone row and the three revenue drivers are not independent knobs\n",
       "- Python will multiply Capacity x Unit Price x Utilization for every product and validate the combined revenue path\n",
       "- keep the combined revenue path inside stage_governance_context.stage_ramp_contract; do not hide an unrealistic revenue jump by keeping each individual driver inside its row envelope\n\n",
+      "Cost/profitability maturity rule:\n",
+      "- stage_governance_context.stage_ramp_contract includes cost-ratio caps and net income margin floors by quarter\n",
+      "- shape COGS, Marketing, R&D, G&A, Lease, revenue, utilization, and capacity together so profitability matures naturally by the later horizon\n",
+      "- do not wait for a late repair to fix chronic losses; build the cost path coherently from the first grid\n\n",
       "Important financing and equity row meanings:\n",
       "- `schedules::Debt Issuance (New Borrowing)` = debt draws or new borrowing in only\n",
       "- `schedules::Debt Repayment (Scheduled)` = term debt repayment or deleveraging out only\n",
@@ -1752,6 +1808,7 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
     "Use the actual business context, stage, and baseline values to create a realistic path.\n"
     "If stage_governance_context is present, treat it as binding and shape Q1-Q20 around it before optimizing profitability.\n"
     "Before returning, calculate composite revenue yourself as sum(Capacity * Unit Price * Utilization) across products for each quarter and verify every adjacent QoQ growth rate is inside stage_governance_context.stage_ramp_contract.\n"
+    "Also apply the stage maturity cost caps and net income margin floors in stage_governance_context.stage_ramp_contract; do not leave late chronic losses for a later repair pass.\n"
     "For percent/ratio rows such as COGS %, Marketing %, R&D %, G&A %, AR days ratios, or utilization, return decimal ratios inside the row envelope: 0.23 means 23%, not 23 and not 0.000023.\n"
     + realism_boundary
     + planning_mode_text(planning_mode)

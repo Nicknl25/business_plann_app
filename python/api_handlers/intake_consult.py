@@ -2952,6 +2952,63 @@ def _cash_strategy_required_funding_quarters(
   return required_quarters
 
 
+def _cash_strategy_funding_source_policy(
+  *,
+  violation_envelope: Optional[Dict[str, Any]],
+  debt_schedule_snapshot: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Scope cash funding sources before GPT chooses the source mix.
+
+  Debt is a valid funding tool for short bridge needs, but chronic liquidity
+  gaps funded with debt can reopen the cash buffer through FINMO interest drag.
+  This policy narrows the source surface deterministically; GPT still chooses
+  among the remaining mapped funding levers.
+  """
+  envelope = violation_envelope if isinstance(violation_envelope, dict) else {}
+  schedule = debt_schedule_snapshot if isinstance(debt_schedule_snapshot, dict) else {}
+  residual_gap_quarters = [
+    int(_safe_float(item) or 0)
+    for item in (envelope.get("residual_gap_quarters") or [])
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  rows = [
+    item for item in (schedule.get("rows") or [])
+    if isinstance(item, dict)
+  ]
+  interest_rates = [
+    float(_safe_float(item.get("interest_rate")) or 0.0)
+    for item in rows
+    if float(_safe_float(item.get("interest_rate")) or 0.0) > 0.0
+  ]
+  max_interest_rate = max(interest_rates) if interest_rates else 0.0
+  gap_count = len(set(residual_gap_quarters))
+  chronic_gap = bool(gap_count >= 5)
+  debt_drag_material = bool(max_interest_rate >= 0.03)
+  allowed_sources = [str(item).strip() for item in _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS if str(item).strip()]
+  excluded_sources: List[str] = []
+  if chronic_gap and debt_drag_material and _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID in allowed_sources:
+    allowed_sources = [
+      lever_id for lever_id in allowed_sources
+      if lever_id != _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID
+    ]
+    excluded_sources.append(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID)
+  return {
+    "contract_version": "cash_strategy_funding_source_policy_v1",
+    "allowed_funding_source_lever_ids": allowed_sources,
+    "excluded_funding_source_lever_ids": excluded_sources,
+    "chronic_liquidity_gap": chronic_gap,
+    "residual_gap_quarter_count": gap_count,
+    "max_interest_rate": round(float(max_interest_rate), 6),
+    "debt_interest_drag_material": debt_drag_material,
+    "policy_reason": (
+      "Chronic liquidity gaps with material debt interest must be funded with mapped equity sources, "
+      "because debt issuance can reopen later cash-buffer violations through FINMO interest drag."
+      if excluded_sources
+      else "Debt issuance remains available because the liquidity gap is not chronic or interest drag is not material."
+    ),
+  }
+
+
 def _cash_strategy_lever_bounds(
   *,
   selected_cash_strategy: Any,
@@ -4368,6 +4425,10 @@ def _build_cash_strategy_review_context_payload(
     finmo_payload=copy.deepcopy(finmo),
     model_input_json=copy.deepcopy(model_input),
   )
+  funding_source_policy = _cash_strategy_funding_source_policy(
+    violation_envelope=copy.deepcopy(violation_envelope),
+    debt_schedule_snapshot=copy.deepcopy(debt_schedule_snapshot),
+  )
   allowed_quarters = [
     int(_safe_float(item) or 0)
     for item in (violation_envelope.get("allowed_review_quarters") or [])
@@ -4408,6 +4469,7 @@ def _build_cash_strategy_review_context_payload(
     },
     "allowed_quarters": copy.deepcopy(allowed_quarters),
     "strategy_policy": copy.deepcopy(violation_envelope.get("strategy_policy") or {}),
+    "funding_source_policy": copy.deepcopy(funding_source_policy),
     "cash_violation_envelope": copy.deepcopy(violation_envelope),
     "debt_schedule_snapshot": copy.deepcopy(debt_schedule_snapshot),
     "required_funding_quarters": _cash_strategy_required_funding_quarters(
@@ -10825,34 +10887,55 @@ def _maintenance_capex_percent_schema() -> Dict[str, Any]:
 
 def _stage_ramp_contract_schema() -> Dict[str, Any]:
   rate_schema = {"type": "number", "minimum": 0, "maximum": 2.5}
+  ratio_schema = {"type": "number", "minimum": 0, "maximum": 1}
+  margin_schema = {"type": "number", "minimum": -1, "maximum": 1}
   grid_row_schema = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-      "quarter_index": {"type": "integer", "minimum": 1, "maximum": 20},
-      "revenue_qoq_target": rate_schema,
-      "revenue_qoq_max": rate_schema,
-      "revenue_qoq_spike_allowed": {"type": "boolean"},
-      "revenue_qoq_spike_max": rate_schema,
-      "fte_qoq_target": rate_schema,
-      "fte_qoq_max": rate_schema,
-      "fte_qoq_spike_allowed": {"type": "boolean"},
-      "fte_qoq_spike_max": rate_schema,
-      "utilization_cap": {"type": "number", "minimum": 0, "maximum": 1},
-      "ramp_reason": {"type": "string"},
+      "q": {"type": "integer", "minimum": 1, "maximum": 20},
+      "rev_target": rate_schema,
+      "rev_max": rate_schema,
+      "rev_spike": {"type": "boolean"},
+      "rev_spike_max": rate_schema,
+      "fte_target": rate_schema,
+      "fte_max": rate_schema,
+      "fte_spike": {"type": "boolean"},
+      "fte_spike_max": rate_schema,
+      "max_util": {"type": "number", "minimum": 0, "maximum": 1},
+      "cogs_target": ratio_schema,
+      "cogs_max": ratio_schema,
+      "marketing_max": ratio_schema,
+      "rd_max": ratio_schema,
+      "ga_max": ratio_schema,
+      "lease_max": ratio_schema,
+      "ni_floor": margin_schema,
+      "posture": {
+        "type": "string",
+        "enum": ["loss_allowed", "improving_losses", "near_breakeven", "positive"],
+      },
+      "why": {"type": "string"},
     },
     "required": [
-      "quarter_index",
-      "revenue_qoq_target",
-      "revenue_qoq_max",
-      "revenue_qoq_spike_allowed",
-      "revenue_qoq_spike_max",
-      "fte_qoq_target",
-      "fte_qoq_max",
-      "fte_qoq_spike_allowed",
-      "fte_qoq_spike_max",
-      "utilization_cap",
-      "ramp_reason",
+      "q",
+      "rev_target",
+      "rev_max",
+      "rev_spike",
+      "rev_spike_max",
+      "fte_target",
+      "fte_max",
+      "fte_spike",
+      "fte_spike_max",
+      "max_util",
+      "cogs_target",
+      "cogs_max",
+      "marketing_max",
+      "rd_max",
+      "ga_max",
+      "lease_max",
+      "ni_floor",
+      "posture",
+      "why",
     ],
   }
   return {
@@ -10925,13 +11008,30 @@ def _validate_stage_ramp_contract_payload(
 
   rows_by_quarter: Dict[int, Dict[str, Any]] = {}
   normalized_rows: List[Dict[str, Any]] = []
+  ramp_field_aliases = {
+    "quarter_index": "q",
+    "revenue_qoq_target": "rev_target",
+    "revenue_qoq_max": "rev_max",
+    "revenue_qoq_spike_max": "rev_spike_max",
+    "fte_qoq_target": "fte_target",
+    "fte_qoq_max": "fte_max",
+    "fte_qoq_spike_max": "fte_spike_max",
+    "utilization_cap": "max_util",
+    "cogs_percent_of_revenue_target": "cogs_target",
+    "cogs_percent_of_revenue_max": "cogs_max",
+    "marketing_percent_of_revenue_max": "marketing_max",
+    "rd_percent_of_revenue_max": "rd_max",
+    "g_and_a_percent_of_revenue_max": "ga_max",
+    "lease_percent_of_revenue_max": "lease_max",
+    "net_income_margin_floor": "ni_floor",
+  }
   for item in raw_grid:
     if not isinstance(item, dict):
       errors.append("quarter_ramp_grid entries must be objects")
       continue
-    quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
+    quarter_index = int(_safe_float(item.get(ramp_field_aliases["quarter_index"])) or 0)
     if quarter_index < 1 or quarter_index > 20:
-      errors.append(f"quarter_ramp_grid has invalid quarter_index {item.get('quarter_index')!r}")
+      errors.append(f"quarter_ramp_grid has invalid q {item.get('q')!r}")
       continue
     if quarter_index in rows_by_quarter:
       errors.append(f"quarter_ramp_grid contains duplicate quarter_index {quarter_index}")
@@ -10944,19 +11044,35 @@ def _validate_stage_ramp_contract_payload(
       "fte_qoq_max",
       "fte_qoq_spike_max",
       "utilization_cap",
+      "cogs_percent_of_revenue_target",
+      "cogs_percent_of_revenue_max",
+      "marketing_percent_of_revenue_max",
+      "rd_percent_of_revenue_max",
+      "g_and_a_percent_of_revenue_max",
+      "lease_percent_of_revenue_max",
+      "net_income_margin_floor",
     ]
     parsed: Dict[str, float] = {}
     for field in numeric_fields:
-      value = _safe_float(item.get(field))
+      value = _safe_float(item.get(ramp_field_aliases[field]))
       if value is None:
-        errors.append(f"quarter_ramp_grid Q{quarter_index} missing {field}")
+        errors.append(f"quarter_ramp_grid Q{quarter_index} missing {ramp_field_aliases[field]}")
         continue
       value = float(value)
-      upper_bound = 1.0 if field == "utilization_cap" else 2.5
-      if value < 0.0 or value > upper_bound:
-        errors.append(f"quarter_ramp_grid Q{quarter_index} {field} must be between 0 and {upper_bound}; received {value}")
-      if not _rate_has_two_decimal_precision(value):
-        errors.append(f"quarter_ramp_grid Q{quarter_index} {field} must use two-decimal ratio precision at most; received {value}")
+      if field == "net_income_margin_floor":
+        lower_bound = -1.0
+        upper_bound = 1.0
+      elif field == "utilization_cap" or field.endswith("_percent_of_revenue_max") or field.endswith("_percent_of_revenue_target"):
+        lower_bound = 0.0
+        upper_bound = 1.0
+      else:
+        lower_bound = 0.0
+        upper_bound = 2.5
+      if value < lower_bound or value > upper_bound:
+        errors.append(
+          f"quarter_ramp_grid Q{quarter_index} {field} must be between {lower_bound} and {upper_bound}; received {value}"
+        )
+      value = round(value, 2)
       parsed[field] = value
     if parsed.get("revenue_qoq_target", 0.0) > parsed.get("revenue_qoq_max", 0.0) + 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_target cannot exceed revenue_qoq_max")
@@ -10974,9 +11090,18 @@ def _validate_stage_ramp_contract_payload(
       errors.append(
         f"quarter_ramp_grid Q{quarter_index} fte_qoq_spike_max must be >= revenue_qoq_spike_max because Payroll/FTE is revenue-derived"
       )
-    revenue_spike_allowed = bool(item.get("revenue_qoq_spike_allowed"))
-    fte_spike_allowed = bool(item.get("fte_qoq_spike_allowed"))
-    reason = str(item.get("ramp_reason") or "").strip()
+    if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
+      errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
+    if parsed.get("cogs_percent_of_revenue_max", 0.0) < 0.20:
+      errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_max must be >= 0.20 so it does not conflict with the COGS operating envelope")
+    revenue_spike_allowed = bool(item.get("rev_spike"))
+    fte_spike_allowed = bool(item.get("fte_spike"))
+    profitability_posture = str(item.get("posture") or "").strip().lower()
+    if profitability_posture not in {"loss_allowed", "improving_losses", "near_breakeven", "positive"}:
+      errors.append(
+        f"quarter_ramp_grid Q{quarter_index} profitability_posture must be loss_allowed, improving_losses, near_breakeven, or positive"
+      )
+    reason = str(item.get("why") or "").strip()
     if not reason:
       errors.append(f"quarter_ramp_grid Q{quarter_index} ramp_reason is required")
     normalized_row = {
@@ -10991,6 +11116,14 @@ def _validate_stage_ramp_contract_payload(
       "fte_qoq_spike_allowed": fte_spike_allowed,
       "fte_qoq_spike_max": round(float(parsed.get("fte_qoq_spike_max") or 0.0), 2),
       "utilization_cap": round(float(parsed.get("utilization_cap") or 0.0), 2),
+      "cogs_percent_of_revenue_target": round(float(parsed.get("cogs_percent_of_revenue_target") or 0.0), 2),
+      "cogs_percent_of_revenue_max": round(float(parsed.get("cogs_percent_of_revenue_max") or 0.0), 2),
+      "marketing_percent_of_revenue_max": round(float(parsed.get("marketing_percent_of_revenue_max") or 0.0), 2),
+      "rd_percent_of_revenue_max": round(float(parsed.get("rd_percent_of_revenue_max") or 0.0), 2),
+      "g_and_a_percent_of_revenue_max": round(float(parsed.get("g_and_a_percent_of_revenue_max") or 0.0), 2),
+      "lease_percent_of_revenue_max": round(float(parsed.get("lease_percent_of_revenue_max") or 0.0), 2),
+      "net_income_margin_floor": round(float(parsed.get("net_income_margin_floor") or 0.0), 2),
+      "profitability_posture": profitability_posture,
       "ramp_reason": reason,
     }
     rows_by_quarter[quarter_index] = normalized_row
@@ -11002,6 +11135,7 @@ def _validate_stage_ramp_contract_payload(
 
   normalized_rows = [rows_by_quarter[quarter] for quarter in sorted(rows_by_quarter)]
   prior_utilization_cap: Optional[float] = None
+  prior_margin_floor: Optional[float] = None
   for row in normalized_rows:
     quarter_index = int(row.get("quarter_index") or 0)
     utilization_cap = float(row.get("utilization_cap") or 0.0)
@@ -11024,6 +11158,22 @@ def _validate_stage_ramp_contract_payload(
             f"Q{quarter_index - 1}->Q{quarter_index} utilization_cap_growth={round(cap_growth, 6)} "
             f"allowed_growth={round(allowed_util_growth, 6)}"
           )
+    margin_floor = float(row.get("net_income_margin_floor") or 0.0)
+    if quarter_index >= 5 and prior_margin_floor is not None and margin_floor + 0.02 < prior_margin_floor:
+      errors.append(
+        "quarter_ramp_grid net_income_margin_floor must generally improve from Q5 onward; "
+        f"Q{quarter_index - 1}->{quarter_index} declined from {prior_margin_floor} to {margin_floor}"
+      )
+    if quarter_index == 10 and margin_floor < -0.02:
+      errors.append(
+        f"quarter_ramp_grid Q10 net_income_margin_floor must be near breakeven (>= -0.02); received {margin_floor}"
+      )
+    if quarter_index >= 11 and margin_floor < 0.0:
+      errors.append(
+        f"quarter_ramp_grid Q{quarter_index} net_income_margin_floor must be nonnegative after Q10; received {margin_floor}"
+      )
+    if quarter_index >= 5:
+      prior_margin_floor = margin_floor
 
   rationale = str(candidate.get("rationale") or "").strip()
   if not rationale:
@@ -11056,8 +11206,23 @@ def _validate_stage_ramp_contract_payload(
     int(row.get("quarter_index") or 0): round(float(row.get("utilization_cap") or 0.0), 2)
     for row in normalized_rows
   }
+  cost_cap_keys = [
+    "cogs_percent_of_revenue_max",
+    "marketing_percent_of_revenue_max",
+    "rd_percent_of_revenue_max",
+    "g_and_a_percent_of_revenue_max",
+    "lease_percent_of_revenue_max",
+  ]
+  cost_cap_summary = {
+    key: round(max([float(row.get(key) or 0.0) for row in normalized_rows] or [0.0]), 2)
+    for key in cost_cap_keys
+  }
+  profitability_floor_by_quarter = {
+    int(row.get("quarter_index") or 0): round(float(row.get("net_income_margin_floor") or 0.0), 2)
+    for row in normalized_rows
+  }
   contract = {
-    "contract_version": "stage_ramp_grid_contract_gpt_v1",
+    "contract_version": "stage_maturity_grid_contract_gpt_v2",
     "decision_source": "gpt_pre_convergence",
     "stage_family": expected_family,
     "quarter_ramp_grid": copy.deepcopy(normalized_rows),
@@ -11067,6 +11232,8 @@ def _validate_stage_ramp_contract_payload(
     "revenue_qoq_max_spike": round(max(revenue_spikes or revenue_maxes or [0.0]), 2),
     "revenue_spike_window_quarters": sorted(revenue_spike_window),
     "utilization_launch_caps_by_quarter": utilization_caps,
+    "cost_maturity_caps": cost_cap_summary,
+    "profitability_floor_by_quarter": profitability_floor_by_quarter,
     "fte_qoq_default": round(sum(fte_targets) / max(len(fte_targets), 1), 2),
     "fte_qoq_max": round(max(fte_maxes or [0.0]), 2),
     "fte_qoq_max_spike": round(max(fte_spikes or fte_maxes or [0.0]), 2),
@@ -11083,6 +11250,8 @@ def _validate_stage_ramp_contract_payload(
     ),
     "composite_revenue_formula": "sum(Capacity * Unit Price * Utilization) across revenue products",
     "composite_revenue_ramp_is_binding": True,
+    "cost_maturity_ramp_is_binding": True,
+    "profitability_maturity_floor_is_binding": True,
     "quarter_grid_is_binding": True,
     "deterministic_validation": True,
     "no_unchecked_growth": True,
@@ -11286,8 +11455,9 @@ def _estimate_stage_ramp_contract_with_gpt(
   ]
   user_context = {
     "task": (
-      "Return one binding 20-quarter stage ramp grid for post-intake planning. "
-      "The grid replaces static hardcoded ramp percentages and will be enforced by Python before convergence."
+      "Return one binding 20-quarter business maturity grid for post-intake planning. "
+      "The grid replaces static hardcoded ramp percentages and late profitability repairs. "
+      "Python will enforce it before convergence by shaping revenue/FTE movement and cost/profitability guardrails."
     ),
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
@@ -11340,26 +11510,39 @@ def _estimate_stage_ramp_contract_with_gpt(
       "All rate values must use at most two decimal places.",
       "stage_family must exactly equal stage_family_required.",
       "quarter_ramp_grid must contain exactly 20 rows, one for every forecast quarter Q1 through Q20.",
+      "Use the compact row field names required by the schema: q, rev_target, rev_max, rev_spike, rev_spike_max, fte_target, fte_max, fte_spike, fte_spike_max, max_util, cogs_target, cogs_max, marketing_max, rd_max, ga_max, lease_max, ni_floor, posture, why.",
       "Q1 is an active forecast-quarter ramp row. Do not zero it out.",
       "For Q1, the row describes the first forecast quarter's realistic ramp posture and max allowed first-quarter operating move.",
       "For Q2 through Q20, each row describes the maximum movement from the prior forecast quarter into that row's quarter.",
-      "For every row, revenue_qoq_target is the realistic planned growth posture, revenue_qoq_max is the hard ordinary maximum, and revenue_qoq_spike_max is the hard spike maximum when revenue_qoq_spike_allowed is true.",
+      "For every row, rev_target is the realistic planned growth posture, rev_max is the hard ordinary maximum, and rev_spike_max is the hard spike maximum when rev_spike is true.",
       "Set spike flags only for specific quarters where the business type and stage can realistically support a one-time or discrete expansion jump.",
       "Use fte_spike_small_base_threshold=-1 when no small-base spike threshold applies.",
-      "Because Payroll/FTE is revenue-derived, each row's fte_qoq_max must be at least revenue_qoq_max and fte_qoq_spike_max must be at least revenue_qoq_spike_max.",
-      "Adjacent utilization_cap values must not imply utilization growth above that row's allowed revenue growth.",
+      "Because Payroll/FTE is revenue-derived, each row's fte_max must be at least rev_max and fte_spike_max must be at least rev_spike_max.",
+      "max_util is a maximum achievable utilization ceiling, not the current utilization target. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth.",
+      "Every row must include COGS, marketing, R&D, G&A, lease, net income margin floor, and profitability posture maturity fields.",
+      "Cost maturity fields are decimal ratios of revenue. They are guardrail caps for model-input cost-driver rows, not target outputs.",
+      "cogs_max must be at least 0.20 so it does not conflict with the model's direct COGS operating envelope.",
+      "Do not make Marketing and R&D identical unless this specific business model makes that economically natural.",
+      "Do not force instant mature profitability. Early losses may be realistic for startup and early-stage businesses.",
+      "By Q10 ni_floor must be near breakeven (>= -0.02). Q11-Q20 ni_floor must be nonnegative unless the stage_family_required is still not mature, which this schema does not allow.",
+      "Profitability posture should move naturally from loss_allowed to improving_losses to near_breakeven to positive as the business matures.",
+      "This is not an instruction to solve profit by one artificial cost cut. It is the operating world the initial grid must live inside.",
       "The ramp must be realistic for the business type, lifecycle stage, planning mode, and operating scale.",
       "Do not return dollar values, targets, lever decisions, or quarter-grid values.",
       "Do not loosen the grid just to make the forecast easier. Python will fail if convergence ignores the grid.",
     ],
   }
   system_prompt = (
-    "You select one realistic 20-quarter stage ramp grid for a 3-statement business planning app. "
+    "You select one realistic 20-quarter business maturity grid for a 3-statement business planning app. "
     "Return only JSON matching the schema. Rates are decimal ratios with at most two decimals: 0.30 means 30%. "
-    "This is not a forecast and not a repair plan; it is the operating-world ramp grid Python will enforce. "
+    "This is not a forecast and not a repair plan; it is the operating-world maturity grid Python will enforce. "
     "Fill exactly one active row per forecast quarter Q1 through Q20. Q1 is part of the forecast and must have "
     "realistic non-placeholder ramp limits for the first forecast quarter. For Q2-Q20, choose realistic revenue "
-    "and FTE QoQ ramp limits from the prior forecast quarter into that quarter. Be strict enough to prevent fantasy growth."
+    "and FTE QoQ ramp limits from the prior forecast quarter into that quarter. Also choose realistic cost-ratio "
+    "caps and net-income margin floors so the initial plan matures naturally rather than needing a late repair pass. "
+    "max_util is the maximum achievable utilization ceiling for the quarter and must never decline; it is not the "
+    "current utilization target. Be strict enough to prevent fantasy growth, fake instant profitability, and "
+    "artificial same-value cost buckets."
   )
   payload = {
     "model": _openai_model(),
@@ -11393,7 +11576,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       raise RuntimeError("stage_ramp_contract_parse_failed: GPT did not return a JSON object.")
     contract: Dict[str, Any] = {}
     current_parsed = copy.deepcopy(parsed)
-    for repair_attempt in range(0, 3):
+    for repair_attempt in range(0, 1):
       try:
         contract = _validate_stage_ramp_contract_payload(
           payload=current_parsed,
@@ -11401,8 +11584,10 @@ def _estimate_stage_ramp_contract_with_gpt(
         )
         break
       except RuntimeError as exc:
-        if repair_attempt >= 2:
-          raise
+        if repair_attempt >= 0:
+          raise RuntimeError(
+            f"{str(exc)}; invalid_stage_ramp_response={json.dumps(current_parsed, ensure_ascii=False)[:4000]}"
+          ) from exc
         repair_payload = copy.deepcopy(payload)
         repair_payload["input"] = list(repair_payload.get("input") or []) + [
           {
@@ -11416,10 +11601,14 @@ def _estimate_stage_ramp_contract_with_gpt(
                     "invalid_response_to_repair": copy.deepcopy(current_parsed),
                     "stage_family_required": expected_family,
                     "instruction": (
-                      "Repair the stage ramp grid directly. Return only a valid JSON object matching the schema. "
+                      "Repair the business maturity grid directly. Return only a valid JSON object matching the schema. "
                       "Keep the same business context and stage_family. Because Payroll/FTE is revenue-derived, "
-                      "each row's fte_qoq_max must be at least revenue_qoq_max and fte_qoq_spike_max must be at least revenue_qoq_spike_max. "
-                      "Adjacent utilization_cap values must not imply utilization growth above that row's allowed revenue growth. "
+                      "each row's fte_max must be at least rev_max and fte_spike_max must be at least rev_spike_max. "
+                      "max_util is a maximum achievable utilization ceiling, not current utilization. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth. "
+                      "Every row must include realistic cost maturity fields, posture, and ni_floor. "
+                      "cogs_max must be >= 0.20. "
+                      "Q10 ni_floor must be >= -0.02 and Q11-Q20 must be >= 0.00. "
+                      "Do not make Marketing and R&D identical unless the business context truly supports it. "
                       "quarter_ramp_grid must contain exactly 20 active rows. Q1 is part of the forecast and must not be zeroed out as a placeholder. "
                       "Use decimal ratios with at most two decimals, where 0.25 means 25%. "
                       "Do not use three-decimal values like 0.901. Use 0.90 or 0.91. "
@@ -12755,6 +12944,100 @@ def _cash_strategy_review_failure_payload(
   }
 
 
+def _cash_strategy_gross_up_effective_support(amount: int, multiplier: float) -> int:
+  target = max(0, int(round(float(amount or 0))))
+  factor = float(multiplier or 1.0)
+  if target <= 0:
+    return 0
+  if factor <= 0.0:
+    return target
+  candidate = max(0, int(round(target / factor)))
+  for value in range(max(0, candidate - 3), candidate + 4):
+    if int(round(value * factor)) == target:
+      return int(value)
+  return int(math.ceil(target / factor))
+
+
+def _normalize_cash_strategy_review_decision_from_funding_plan(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  cash_strategy_review_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  decision = copy.deepcopy(parsed if isinstance(parsed, dict) else {})
+  if str(decision.get("recommendation_mode") or "").strip().lower() != "adjust":
+    return decision
+  context_payload = cash_strategy_review_context if isinstance(cash_strategy_review_context, dict) else {}
+  required_funding_quarters = {
+    int(_safe_float(item.get("quarter_index")) or 0)
+    for item in (context_payload.get("required_funding_quarters") or [])
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  }
+  if not required_funding_quarters:
+    return decision
+  lever_bounds_payload = (
+    context_payload.get("lever_bounds")
+    if isinstance(context_payload.get("lever_bounds"), dict)
+    else {}
+  )
+  funding_source_policy = (
+    context_payload.get("funding_source_policy")
+    if isinstance(context_payload.get("funding_source_policy"), dict)
+    else {}
+  )
+  policy_allowed_funding_sources = {
+    str(item).strip()
+    for item in (
+      funding_source_policy.get("allowed_funding_source_lever_ids")
+      or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
+    )
+    if str(item).strip()
+  }
+  lever_bound_lookup: Dict[tuple[str, int], Dict[str, Any]] = {}
+  for lever_id, rows in (lever_bounds_payload.get("lever_bounds") or {}).items():
+    for row in rows or []:
+      if not isinstance(row, dict):
+        continue
+      quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+      if quarter_index >= 1:
+        lever_bound_lookup[(str(lever_id or "").strip(), quarter_index)] = row
+  derived_adjustments: List[Dict[str, Any]] = []
+  for quarter_plan in (decision.get("quarter_funding_plan") or []):
+    if not isinstance(quarter_plan, dict):
+      continue
+    quarter_index = int(_safe_float(quarter_plan.get("quarter_index")) or 0)
+    if quarter_index not in required_funding_quarters:
+      continue
+    funding_sources = [
+      source for source in (quarter_plan.get("funding_sources") or [])
+      if isinstance(source, dict)
+    ]
+    if len(funding_sources) != 1:
+      continue
+    source = funding_sources[0]
+    lever_id = str(source.get("lever_id") or "").strip()
+    amount = int(round(float(_safe_float(source.get("amount")) or 0.0)))
+    if not lever_id:
+      continue
+    exact_value = amount
+    if lever_id == _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID:
+      bound = lever_bound_lookup.get((lever_id, quarter_index)) or {}
+      supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
+      multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
+      exact_value = _cash_strategy_gross_up_effective_support(amount, multiplier)
+    derived_adjustments.append(
+      {
+        "lever_id": lever_id,
+        "timing_start_q": quarter_index,
+        "timing_end_q": quarter_index,
+        "exact_value": int(exact_value),
+        "business_reason": str(quarter_plan.get("business_reason") or "Derived deterministically from quarter_funding_plan.").strip(),
+      }
+    )
+  if derived_adjustments:
+    decision["recommended_adjustments"] = derived_adjustments
+  return decision
+
+
 def _cash_strategy_review_decision_contract_error(
   *,
   parsed: Optional[Dict[str, Any]],
@@ -12783,6 +13066,19 @@ def _cash_strategy_review_decision_contract_error(
     if isinstance(context_payload.get("lever_bounds"), dict)
     else {}
   )
+  funding_source_policy = (
+    context_payload.get("funding_source_policy")
+    if isinstance(context_payload.get("funding_source_policy"), dict)
+    else {}
+  )
+  policy_allowed_funding_sources = {
+    str(item).strip()
+    for item in (
+      funding_source_policy.get("allowed_funding_source_lever_ids")
+      or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
+    )
+    if str(item).strip()
+  }
   lever_bound_lookup: Dict[tuple[str, int], Dict[str, Any]] = {}
   for lever_id, rows in (lever_bounds_payload.get("lever_bounds") or {}).items():
     for row in rows or []:
@@ -12836,6 +13132,11 @@ def _cash_strategy_review_decision_contract_error(
       return (
         f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id or 'missing'} is not allowed. "
         "Use only debt issuance, debt repayment reduction, owner capital, or other equity."
+      )
+    if policy_allowed_funding_sources and funding_lever_id not in policy_allowed_funding_sources:
+      return (
+        f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id} is outside the deterministic "
+        f"cash funding source policy. allowed={sorted(policy_allowed_funding_sources)}."
       )
     declared_gap = int(round(float(_safe_float(quarter_plan.get("required_funding_gap")) or 0.0)))
     expected_gap = int(round(float(_safe_float(required_payload.get("required_incremental_funding_after_hard_rules")) or 0.0)))
@@ -14723,6 +15024,108 @@ def _run_cash_strategy_review_openai(
     for item in required_funding_quarters
     if int(_safe_float(item.get("quarter_index")) or 0) >= 1
   ]
+  required_funding_quarter_set = set(required_funding_quarter_indexes)
+  funding_source_policy = (
+    context_payload.get("funding_source_policy")
+    if isinstance(context_payload.get("funding_source_policy"), dict)
+    else {}
+  )
+  prompt_allowed_funding_sources = {
+    str(item).strip()
+    for item in (
+      funding_source_policy.get("allowed_funding_source_lever_ids")
+      or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
+    )
+    if str(item).strip()
+  }
+  raw_violation_envelope = (
+    context_payload.get("cash_violation_envelope")
+    if isinstance(context_payload.get("cash_violation_envelope"), dict)
+    else {}
+  )
+  prompt_cash_violation_envelope = {
+    "contract_version": str(raw_violation_envelope.get("contract_version") or "cash_strategy_violation_envelope_v1"),
+    "selected_cash_strategy": str(raw_violation_envelope.get("selected_cash_strategy") or "").strip(),
+    "has_violations": bool(raw_violation_envelope.get("has_violations")),
+    "violation_quarters": copy.deepcopy(raw_violation_envelope.get("violation_quarters") or []),
+    "residual_gap_quarters": copy.deepcopy(raw_violation_envelope.get("residual_gap_quarters") or []),
+    "allowed_review_quarters": copy.deepcopy(raw_violation_envelope.get("allowed_review_quarters") or []),
+    "capital_structure_guidance": copy.deepcopy(raw_violation_envelope.get("capital_structure_guidance") or {}),
+    "validation_requirements": copy.deepcopy(raw_violation_envelope.get("validation_requirements") or {}),
+  }
+  raw_summary_metrics = (
+    context_payload.get("summary_metrics")
+    if isinstance(context_payload.get("summary_metrics"), dict)
+    else {}
+  )
+  prompt_summary_metrics = copy.deepcopy(raw_summary_metrics)
+  if isinstance(prompt_summary_metrics.get("buffer_quarters"), list) and required_funding_quarter_set:
+    prompt_summary_metrics["buffer_quarters"] = [
+      item for item in prompt_summary_metrics.get("buffer_quarters") or []
+      if isinstance(item, dict)
+      and int(_safe_float(item.get("quarter_index")) or 0) in required_funding_quarter_set
+    ]
+  raw_lever_bounds = (
+    context_payload.get("lever_bounds")
+    if isinstance(context_payload.get("lever_bounds"), dict)
+    else {}
+  )
+  prompt_lever_bounds_rows: Dict[str, List[Dict[str, Any]]] = {}
+  for lever_id, rows in (raw_lever_bounds.get("lever_bounds") or {}).items():
+    lever_key = str(lever_id or "").strip()
+    if prompt_allowed_funding_sources and lever_key not in prompt_allowed_funding_sources:
+      continue
+    compact_rows: List[Dict[str, Any]] = []
+    for row in rows or []:
+      if not isinstance(row, dict):
+        continue
+      quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+      if required_funding_quarter_set and quarter_index not in required_funding_quarter_set:
+        continue
+      supporting_metrics = (
+        row.get("supporting_metrics")
+        if isinstance(row.get("supporting_metrics"), dict)
+        else {}
+      )
+      compact_rows.append(
+        {
+          "quarter_index": quarter_index,
+          "current_value": int(round(float(_safe_float(row.get("current_value")) or 0.0))),
+          "min_value": int(round(float(_safe_float(row.get("min_value")) or 0.0))),
+          "max_value": int(round(float(_safe_float(row.get("max_value")) or 0.0))),
+          "supporting_metrics": {
+            "buffer": int(round(float(_safe_float(supporting_metrics.get("buffer")) or 0.0))),
+            "ending_cash_after_hard_rules": int(round(float(_safe_float(supporting_metrics.get("ending_cash_after_hard_rules")) or 0.0))),
+            "residual_funding_gap": int(round(float(_safe_float(supporting_metrics.get("residual_funding_gap")) or 0.0))),
+            "carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("carryforward_headroom")) or 0.0))),
+            "cash_support_multiplier": round(float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0), 6),
+          },
+        }
+      )
+    if compact_rows:
+      prompt_lever_bounds_rows[lever_key] = compact_rows
+  raw_debt_schedule = (
+    context_payload.get("debt_schedule_snapshot")
+    if isinstance(context_payload.get("debt_schedule_snapshot"), dict)
+    else {}
+  )
+  prompt_debt_rows = [
+    {
+      "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
+      "opening_debt": int(round(float(_safe_float(row.get("opening_debt")) or 0.0))),
+      "actual_debt_issuance": int(round(float(_safe_float(row.get("actual_debt_issuance")) or 0.0))),
+      "actual_debt_repayment": int(round(float(_safe_float(row.get("actual_debt_repayment")) or 0.0))),
+      "closing_debt": int(round(float(_safe_float(row.get("closing_debt")) or 0.0))),
+      "interest_rate": round(float(_safe_float(row.get("interest_rate")) or 0.0), 6),
+      "interest_expense": int(round(float(_safe_float(row.get("interest_expense")) or 0.0))),
+    }
+    for row in (raw_debt_schedule.get("rows") or [])
+    if isinstance(row, dict)
+    and (
+      not required_funding_quarter_set
+      or int(_safe_float(row.get("quarter_index")) or 0) in required_funding_quarter_set
+    )
+  ]
   prompt_safe_cash_strategy_review_context = {
     "contract_version": str(context_payload.get("contract_version") or "cash_strategy_review_context_v2"),
     "status": str(context_payload.get("status") or "").strip(),
@@ -14735,12 +15138,23 @@ def _run_cash_strategy_review_openai(
     "business_snapshot": copy.deepcopy(context_payload.get("business_snapshot") or {}),
     "cash_profile_summary": copy.deepcopy(context_payload.get("cash_profile_summary") or {}),
     "strategy_policy": copy.deepcopy(context_payload.get("strategy_policy") or {}),
-    "cash_violation_envelope": copy.deepcopy(context_payload.get("cash_violation_envelope") or {}),
-    "debt_schedule_snapshot": copy.deepcopy(context_payload.get("debt_schedule_snapshot") or {}),
+    "funding_source_policy": copy.deepcopy(funding_source_policy),
+    "cash_violation_envelope": copy.deepcopy(prompt_cash_violation_envelope),
+    "debt_schedule_snapshot": {
+      "contract_version": str(raw_debt_schedule.get("contract_version") or "cash_strategy_debt_schedule_snapshot_v1"),
+      "rows": prompt_debt_rows,
+    },
     "required_funding_quarters": copy.deepcopy(required_funding_quarters),
     "allowed_quarters": copy.deepcopy(allowed_quarters),
-    "summary_metrics": copy.deepcopy(context_payload.get("summary_metrics") or {}),
-    "lever_bounds": copy.deepcopy(context_payload.get("lever_bounds") or {}),
+    "summary_metrics": copy.deepcopy(prompt_summary_metrics),
+    "lever_bounds": {
+      "contract_version": str(raw_lever_bounds.get("contract_version") or "cash_strategy_lever_bounds_v2"),
+      "allowed_quarters": [
+        quarter for quarter in (raw_lever_bounds.get("allowed_quarters") or allowed_quarters)
+        if not required_funding_quarter_set or int(_safe_float(quarter) or 0) in required_funding_quarter_set
+      ],
+      "lever_bounds": prompt_lever_bounds_rows,
+    },
     "validation_requirements": copy.deepcopy(context_payload.get("validation_requirements") or {}),
   }
 
@@ -14755,11 +15169,6 @@ def _run_cash_strategy_review_openai(
     ),
     "cash_strategy": selected_cash_strategy,
     "cash_strategy_review_context": prompt_safe_cash_strategy_review_context,
-    "required_funding_quarters": copy.deepcopy(required_funding_quarters),
-    "debt_schedule_snapshot": copy.deepcopy(context_payload.get("debt_schedule_snapshot") or {}),
-    "summary_metrics": copy.deepcopy(context_payload.get("summary_metrics") or {}),
-    "allowed_quarters": copy.deepcopy(allowed_quarters),
-    "lever_bounds": copy.deepcopy(context_payload.get("lever_bounds") or {}),
     "writable_lever_catalog": copy.deepcopy(scoped_lever_catalog),
     "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
     "solved_model_input_json": {},
@@ -14786,7 +15195,20 @@ def _run_cash_strategy_review_openai(
           [
             lever_id
             for lever_id in allowed_lever_ids
-            if lever_id in _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
+            if lever_id in (
+              set(
+                str(item).strip()
+                for item in (
+                  (
+                    context_payload.get("funding_source_policy")
+                    if isinstance(context_payload.get("funding_source_policy"), dict)
+                    else {}
+                  ).get("allowed_funding_source_lever_ids")
+                  or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
+                )
+                if str(item).strip()
+              )
+            )
           ],
         ),
         "strict": True,
@@ -14833,6 +15255,10 @@ def _run_cash_strategy_review_openai(
       prompt_trace=prompt_trace,
       raw_openai_response=raw_openai_response,
     )
+  parsed = _normalize_cash_strategy_review_decision_from_funding_plan(
+    parsed=parsed,
+    cash_strategy_review_context=context_payload,
+  )
   contract_error = _cash_strategy_review_decision_contract_error(
     parsed=parsed,
     cash_strategy_review_context=context_payload,
@@ -14949,6 +15375,10 @@ def _run_cash_strategy_review_openai(
         prompt_trace=prompt_trace,
         raw_openai_response=retry_raw_openai_response,
       )
+    parsed_retry = _normalize_cash_strategy_review_decision_from_funding_plan(
+      parsed=parsed_retry,
+      cash_strategy_review_context=context_payload,
+    )
     retry_contract_error = _cash_strategy_review_decision_contract_error(
       parsed=parsed_retry,
       cash_strategy_review_context=context_payload,
@@ -25332,8 +25762,9 @@ def _business_world_contract(
     "profitability_maturity_month": 30,
     "rule_summary": (
       "Planning mode is the canonical operating posture. Business stage and age are binding lifecycle limiters. "
-      "Negative net income may be stage-appropriate early, but chronic mature losses or late losses caused by an unsupported "
-      "capex/depreciation burden are not coherent."
+      "The GPT-selected stage maturity grid is binding before convergence: revenue, utilization, FTE, cost-ratio caps, "
+      "and profitability posture must mature together. Negative net income may be stage-appropriate early, but chronic "
+      "mature losses or late losses caused by unsupported operating economics are not coherent."
     ),
   }
 
@@ -25802,6 +26233,122 @@ def _build_p_and_l_flatline_issue_status_records(
         "flatline_failure_signals": copy.deepcopy(signals),
         "first_detected_iteration": max(1, int(iteration or 1)),
         "last_seen_iteration": max(1, int(iteration or 1)),
+      }
+    )
+  ]
+
+
+def _build_stage_maturity_cost_structure_issue_status_records(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  iteration: int,
+) -> List[Dict[str, Any]]:
+  del model_input_json
+  contract = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
+  ramp_rows = {
+    int(_safe_float(row.get("quarter_index")) or 0): row
+    for row in (contract.get("quarter_ramp_grid") or [])
+    if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1
+  }
+  rows_by_q = _finmo_quarter_row_map(finmo_json)
+  if not ramp_rows or not rows_by_q:
+    return []
+  allowed_levers = post_intake_issue_candidate_lever_ids(
+    "cost_structure_mismatch",
+    phase="convergence",
+  )
+  if not allowed_levers:
+    raise RuntimeError(
+      "stage_maturity_cost_structure_mapping_failed: cost_structure_mismatch fired but no table-backed cost levers are available."
+    )
+  component_specs = [
+    ("cogs", "cogs", "cogs_percent_of_revenue_target", "cogs_percent_of_revenue_max"),
+    ("marketing", "marketing", None, "marketing_percent_of_revenue_max"),
+    ("research_and_development", "research_and_development", None, "rd_percent_of_revenue_max"),
+    ("lease_rent", "lease_rent", None, "lease_percent_of_revenue_max"),
+    ("g_and_a", "g_and_a", None, "g_and_a_percent_of_revenue_max"),
+  ]
+  metric_specs: List[Dict[str, Any]] = []
+  problem_quarters: List[int] = []
+  for quarter_index in range(1, _CONVERGENCE_DEFAULT_QUARTER_COUNT + 1):
+    quarter_row = rows_by_q.get(quarter_index) or {}
+    ramp_row = ramp_rows.get(quarter_index) or {}
+    revenue = float(_safe_float(quarter_row.get("revenue")) or 0.0)
+    floor_margin = _safe_float(ramp_row.get("net_income_margin_floor"))
+    if revenue <= 0.0 or floor_margin is None:
+      continue
+    net_income = float(_safe_float(quarter_row.get("net_income")) or 0.0)
+    actual_margin = net_income / revenue
+    margin_gap = float(floor_margin) - actual_margin
+    direct_cost_values = {
+      "cogs": float(_quarter_row_cost_of_goods_sold(quarter_row) or 0.0),
+      "marketing": float(_safe_float(quarter_row.get("marketing")) or 0.0),
+      "research_and_development": float(_safe_float(quarter_row.get("research_and_development")) or 0.0),
+      "lease_rent": float(_safe_float(quarter_row.get("lease_rent")) or 0.0),
+      "g_and_a": float(_safe_float(quarter_row.get("g_and_a")) or 0.0),
+    }
+    cap_violations: List[str] = []
+    for metric_name, _, _, cap_field in component_specs:
+      cap_ratio = _safe_float(ramp_row.get(cap_field))
+      if cap_ratio is None:
+        continue
+      if direct_cost_values.get(metric_name, 0.0) > (revenue * float(cap_ratio)) + 1.0:
+        cap_violations.append(metric_name)
+    if margin_gap <= 0.0001 and not cap_violations:
+      continue
+    problem_quarters.append(quarter_index)
+    margin_gap_dollars = max(0.0, margin_gap * revenue)
+    positive_cost_pool = sum(max(0.0, value) for value in direct_cost_values.values()) or 1.0
+    for metric_name, row_field, target_field, cap_field in component_specs:
+      actual_value = max(0.0, direct_cost_values.get(metric_name, 0.0))
+      if actual_value <= 0.0:
+        continue
+      cap_ratio = _safe_float(ramp_row.get(cap_field))
+      cap_value = revenue * float(cap_ratio) if cap_ratio is not None else actual_value
+      allocated_reduction = margin_gap_dollars * (actual_value / positive_cost_pool)
+      target_ceiling = min(actual_value, cap_value, max(0.0, actual_value - allocated_reduction))
+      target_ratio = _safe_float(ramp_row.get(target_field)) if target_field else None
+      if target_ratio is not None:
+        target_ceiling = min(target_ceiling, max(0.0, revenue * float(target_ratio)))
+      spec = _table_target_currency_metric_spec(
+        metric_name,
+        actual_value=actual_value,
+        target_floor=0.0,
+        target_ceiling=target_ceiling,
+        score_scale=max(revenue * 0.03, abs(actual_value - target_ceiling), 1000.0),
+        source_metric_names=[row_field, "revenue", "net_income", "stage_maturity_contract"],
+        metric_definition=(
+          "Stage maturity net-income guardrails are detected from the GPT-selected maturity grid, "
+          "but repair targets only direct table-backed operating cost rows."
+        ),
+      )
+      if isinstance(spec, dict):
+        spec["quarter_index"] = int(quarter_index)
+        spec["stage_maturity_floor_margin"] = round(float(floor_margin), 2)
+        spec["actual_net_income_margin"] = round(float(actual_margin), 4)
+        metric_specs.append(spec)
+  if not problem_quarters or not metric_specs:
+    return []
+  return [
+    _normalize_issue_record_to_controller_truth(
+      {
+        "issue": "cost_structure_mismatch",
+        "issue_code": "cost_structure_mismatch",
+        "detail": (
+          "The forecast misses the GPT-selected stage maturity profitability floor. "
+          "This is handled through the existing mapped cost_structure_mismatch issue, not a separate profitability issue."
+        ),
+        "candidate_kind": "stage_maturity_cost_structure_guardrail",
+        "remaining_problem_quarters": sorted(set(problem_quarters)),
+        "remaining_issue_materiality": "material",
+        "remaining_issue_severity_score": 100,
+        "next_required_lever_ids": copy.deepcopy(allowed_levers),
+        "metric_debug": metric_specs,
+        "first_detected_iteration": max(1, int(iteration or 1)),
+        "last_seen_iteration": max(1, int(iteration or 1)),
+        "verifier_status": "not_resolved",
       }
     )
   ]
@@ -26931,11 +27478,18 @@ def _run_unified_post_grid_system_run(
     finmo_json=copy.deepcopy(final_finmo_json),
     iteration=0,
   )
+  stage_maturity_issue_ledger = _build_stage_maturity_cost_structure_issue_status_records(
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+    iteration=0,
+  )
   realism_issue_ledger = _refresh_issue_status_records_from_scan(
     existing_issue_status_records=[],
     scanned_issue_status_records=(
       copy.deepcopy(realism_issue_ledger)
       + copy.deepcopy(flatline_issue_ledger)
+      + copy.deepcopy(stage_maturity_issue_ledger)
     ),
     iteration=0,
   )
@@ -27851,12 +28405,19 @@ def _run_unified_post_grid_system_run(
         finmo_json=copy.deepcopy(final_finmo_json),
         iteration=next_iteration,
       )
-      if flatline_scan_issue_set:
+      stage_maturity_scan_issue_set = _build_stage_maturity_cost_structure_issue_status_records(
+        model_input_json=copy.deepcopy(final_model_input_json),
+        finmo_json=copy.deepcopy(final_finmo_json),
+        stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+        iteration=next_iteration,
+      )
+      if flatline_scan_issue_set or stage_maturity_scan_issue_set:
         scan_issue_set = _refresh_issue_status_records_from_scan(
           existing_issue_status_records=[],
           scanned_issue_status_records=(
             copy.deepcopy(scan_issue_set)
             + copy.deepcopy(flatline_scan_issue_set)
+            + copy.deepcopy(stage_maturity_scan_issue_set)
           ),
           iteration=next_iteration,
         )

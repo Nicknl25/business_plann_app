@@ -66,6 +66,8 @@ Decision rules:
 Interpret the provided context literally:
 - `cash_violation_envelope` is the primary source of truth
 - `required_funding_quarters` is the mandatory incremental funding contract
+- `quarter_funding_plan` is the authoritative funding-decision grid; Python deterministically translates each declared source/quarter into the matching application adjustment
+- `funding_source_policy.allowed_funding_source_lever_ids` is the only funding-source set you may use inside `quarter_funding_plan`
 - `debt_schedule_snapshot` shows FINMO's current debt opening balance, debt issuance, debt repayment, closing debt, interest rate, and interest expense by quarter
 - `summary_metrics` is the compact quarter-by-quarter cash summary
 - `lever_bounds` is the deterministic decision space for the levers you may use
@@ -90,6 +92,8 @@ Important value semantics:
 - Do not split one quarter across multiple funding sources.
 - If the selected strategy calls for a balanced financing mix, express that by using different funding source types across different quarters, while keeping each quarter single-source.
 - Do not mirror debt funding_sources amounts blindly into debt exact_value. For debt-based levers, use the Python-provided cash_support_multiplier and return the grossed-up exact_value required to deliver the declared support amount.
+- If `funding_source_policy` excludes debt issuance, do not use debt issuance. That means Python detected a chronic liquidity gap where debt interest drag would reopen later cash-buffer failures.
+- For chronic multi-quarter liquidity gaps, equity funding is usually the realistic source because it restores liquidity without creating future interest drag.
 
 Good output:
 - realistic capital moves that solve the liquidity problem
@@ -112,6 +116,7 @@ Required output discipline when violations exist:
 - that one row's `amount` must equal that quarter's `required_funding_gap` exactly
 - before returning, verify the integer arithmetic quarter by quarter and ensure there is no overfunding or underfunding by even one dollar
 - the combination of your `recommended_adjustments` must be sufficient to cover every required incremental funding quarter
+- recommended_adjustments must mirror quarter_funding_plan; Python will normalize duplicate application rows from the authoritative quarter funding grid
 - if any required funding quarter is left underfunded, the run will fail
 - do not raise extra cash before it is needed and do not intentionally overfund above the required incremental gap
 
