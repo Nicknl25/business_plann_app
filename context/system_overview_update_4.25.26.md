@@ -12,7 +12,7 @@ The user is moving the app away from legacy fuzzy/proxy mapping and toward a det
 
 Key invariants:
 
-- Mapping is table-driven. The source of truth is `python/client_intake_and_finmo/config/post_intake_driver_target_mapping.csv`.
+- Mapping is SQL-table-driven. The source of truth is the MySQL table `post_intak_mapping_lookup`, loaded through `python/client_intake_and_finmo/post_intake_mapping.py`.
 - Solver/convergence should use table-backed driver-to-target relationships, not hardcoded proxy mappings.
 - GPT owns business decisions and numeric targets. Python defines the valid solution space, validates contracts, applies model-input driver updates, and runs deterministic FINMO calculations.
 - Python must not complete, infer, top up, proxy, broaden, or rewrite GPT-owned decision content after GPT returns.
@@ -80,9 +80,9 @@ The mapping table is intended to remove old fuzzy behavior:
 - No derived metric targets such as EBITDA, net income, margins, liquidity ratios, current assets, total assets, or total liabilities.
 - Valid targets should be model/FINMO rows that can be moved through direct model-input drivers.
 
-Important files:
+Important mapping components:
 
-- `python/client_intake_and_finmo/config/post_intake_driver_target_mapping.csv`
+- SQL table `post_intak_mapping_lookup`
 - `python/client_intake_and_finmo/post_intake_mapping.py`
 - `context/post_intake_driver_based_mapping_table_2026-04-22.csv`
 - `context/post_intake_driver_based_mapping_table_2026-04-22.md`
@@ -155,7 +155,7 @@ Remove/retire:
 
 Known current friction:
 
-- Some issue records still show `working_capital_payment_model_mismatch` inside convergence state. This should be treated as cash-pass-owned and not as a convergence blocker.
+- Current issue detection uses the SQL-backed taxonomy: `capacity_support_mismatch`, `cost_structure_mismatch`, `p_and_l_flatline`, `working_capital_mismatch`, `liquidity_failure`, `funding_structure_mismatch`, `accounting_integrity_failure`, and `structural_impossibility`. Working-capital issues are cash-pass-owned and should not be treated as convergence blockers.
 - Some closure metrics still reference ratios such as `current_ratio`. These are not mapping-table targets and should not be convergence targets.
 
 ## Unified Convergence
@@ -359,7 +359,7 @@ Do not continue E2E until the next session unless the user asks. If continuing:
 - `python/client_intake_and_finmo/quarter_grid.py`
 - `python/client_intake_and_finmo/finmo_bridge.py`
 - `python/client_intake_and_finmo/post_intake_mapping.py`
-- `python/client_intake_and_finmo/config/post_intake_driver_target_mapping.csv`
+- SQL table `post_intak_mapping_lookup`
 - `context/ensure_5050_backend.ps1`
 - `context/system_overview_update_4.25.26.md`
 
@@ -385,7 +385,7 @@ The cash strategy design was changed from four strategies to three. The user wan
 - `debt_paydown`
 - `shareholder_return`
 
-Cash strategy behavior belongs in the cash pass, not convergence. Convergence should build a coherent operating model first; cash pass should then fund or distribute according to the selected strategy. A hard cash viability gate was added: every live quarter must satisfy `ending_cash >= required_cash_buffer`. A run must fail with `cash_pass_failed_unresolved_liquidity` if any live quarter remains below buffer after cash pass. Do not allow cash failures to be tolerated.
+Cash strategy behavior belongs in the cash pass, not convergence. Convergence should build a coherent operating model first; cash pass should then fund or distribute according to the selected strategy. A hard cash viability gate was added: every live quarter must satisfy `ending_cash >= required_cash_buffer`. A run must fail with `liquidity_failure` if any live quarter remains below buffer after cash pass. Do not allow cash failures to be tolerated.
 
 The cash system has been moving toward a debt-schedule style implementation similar to the depreciation schedule: debt issuance, repayment, interest, and cash-buffer funding should be visible and deterministic, then translated into existing model input / FINMO-compatible rows. Interest rates should come from the non-Alpha SQL loan-rate table when available. The user wants cash to be robust and strategy-driven, not random hard cash buildup.
 

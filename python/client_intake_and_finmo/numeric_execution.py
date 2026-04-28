@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional
 
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_direct_target_metric_names_for_levers,
+  post_intake_driver_target_lever_ids_for_issue,
   post_intake_driver_target_mapping_errors,
-  post_intake_driver_target_mapping_entry,
   post_intake_driver_target_metric_ids,
 )
 
@@ -21,8 +21,6 @@ TARGET_NUMERIC_EXECUTOR = "gpt_led_solver"
 SOLVER_PHASE_STATUS = "phase_8_live_numeric_executor_boundary"
 SOLVER_PHASE_2_STATUS = "phase_2_contract_defined"
 SOLVER_PHASE_3_STATUS = "phase_3_adaptive_number_cruncher_ready"
-SOLVER_PHASE_4_STATUS = "phase_4_initial_restructure_solver_live"
-SOLVER_PHASE_5_STATUS = "phase_5_realism_resolution_solver_live"
 SOLVER_PHASE_6_STATUS = "phase_6_cash_strategy_solver_live"
 SOLVER_PHASE_8_STATUS = "phase_8_live_numeric_executor_boundary"
 
@@ -33,11 +31,10 @@ IMMUTABLE_CORE_MODEL_FILES = (
 
 
 _ISSUE_SOLVER_OBJECTIVES: Dict[str, str] = {
-  "capacity_revenue_mismatch": "align_volume_with_capacity_and_timing",
+  "capacity_support_mismatch": "align_volume_with_capacity_and_timing",
   "cost_structure_mismatch": "rebalance_cost_structure_without_fake_plugs",
-  "business_model_coherence_mismatch": "repair_stage_and_mode_coherence_through_mapped_operating_drivers",
-  "p_and_l_flatline_mismatch": "repair_flat_operating_trajectory_through_mapped_revenue_and_cost_drivers",
-  "working_capital_payment_model_mismatch": "align_working_capital_with_real_collection_payment_timing",
+  "p_and_l_flatline": "repair_flat_operating_trajectory_through_mapped_revenue_and_cost_drivers",
+  "working_capital_mismatch": "align_working_capital_with_real_collection_payment_timing",
 }
 
 TARGETABLE_FINMO_METRIC_IDS = tuple(post_intake_driver_target_metric_ids())
@@ -45,8 +42,9 @@ PRIMARY_TARGETABLE_FINMO_METRIC_IDS = TARGETABLE_FINMO_METRIC_IDS
 TABLE_TARGET_METRIC_ID_SET = set(TARGETABLE_FINMO_METRIC_IDS)
 
 CASH_PASS_OWNED_ISSUE_CODES = {
-  "catastrophic_liquidity_failure",
-  "working_capital_payment_model_mismatch",
+  "liquidity_failure",
+  "working_capital_mismatch",
+  "funding_structure_mismatch",
 }
 NUMERIC_KNOWN_ISSUE_CODES = set(_ISSUE_SOLVER_OBJECTIVES) | CASH_PASS_OWNED_ISSUE_CODES | {
   "accounting_integrity_failure",
@@ -59,10 +57,9 @@ PRIMARY_TARGET_METRIC_MAX_COUNT = 6
 _OBJECTIVE_METRIC_ALIAS_MAP: Dict[str, str] = {}
 _PREFERRED_PRIMARY_TARGET_METRIC_COUNT = 6
 _REMAINING_HORIZON_ISSUE_CODES = {
-  "capacity_revenue_mismatch",
+  "capacity_support_mismatch",
   "cost_structure_mismatch",
-  "business_model_coherence_mismatch",
-  "p_and_l_flatline_mismatch",
+  "p_and_l_flatline",
 }
 
 
@@ -72,10 +69,6 @@ def _issue_requires_remaining_horizon_scope(issue_code: Any) -> bool:
 
 def _solver_phase_status_for_pass(pass_name: Any) -> str:
   normalized = str(pass_name or "").strip().lower()
-  if normalized == "initial_restructure":
-    return SOLVER_PHASE_4_STATUS
-  if normalized == "realism_resolution":
-    return SOLVER_PHASE_5_STATUS
   if normalized == "cash_strategy_review":
     return SOLVER_PHASE_6_STATUS
   return SOLVER_PHASE_8_STATUS
@@ -83,10 +76,6 @@ def _solver_phase_status_for_pass(pass_name: Any) -> str:
 
 def _phase_scope_for_status(phase_status: Any) -> str:
   normalized = str(phase_status or "").strip().lower()
-  if normalized == str(SOLVER_PHASE_4_STATUS).lower():
-    return "initial_restructure_solver_live"
-  if normalized == str(SOLVER_PHASE_5_STATUS).lower():
-    return "realism_resolution_solver_live"
   if normalized == str(SOLVER_PHASE_6_STATUS).lower():
     return "cash_strategy_solver_live"
   return "live_numeric_executor_boundary"
@@ -185,11 +174,11 @@ def _normalized_issue_status_records(
 
 def _issue_default_severity(issue_code: str) -> int:
   code = str(issue_code or "").strip().lower()
-  if code == "working_capital_payment_model_mismatch":
+  if code == "working_capital_mismatch":
     return 90
-  if code == "business_model_coherence_mismatch":
-    return 96
-  if code in {"capacity_revenue_mismatch", "cost_structure_mismatch"}:
+  if code == "p_and_l_flatline":
+    return 95
+  if code in {"capacity_support_mismatch", "cost_structure_mismatch"}:
     return 82
   return 75
 
@@ -209,7 +198,7 @@ def _infer_issue_quarters(
   issue_code: str,
   current_finmo_json: Optional[Dict[str, Any]],
 ) -> List[int]:
-  rows = _quarter_metric_snapshots(current_finmo_json, include_legacy_output_metrics=True)
+  rows = _quarter_metric_snapshots(current_finmo_json, include_cash_diagnostic_metrics=True)
   all_quarters = [int(row.get("quarter_index") or 0) for row in rows if int(row.get("quarter_index") or 0) >= 1]
   if not all_quarters:
     return []
@@ -217,9 +206,9 @@ def _infer_issue_quarters(
   negative_ebitda_quarters = [q for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows) if float(_safe_float(row.get("ebitda")) or 0.0) < 0.0]
   revenue_quarters = [q for q, row in ((int(r.get("quarter_index") or 0), r) for r in rows) if float(_safe_float(row.get("revenue")) or 0.0) > 0.0]
   code = str(issue_code or "").strip().lower()
-  if code == "working_capital_payment_model_mismatch":
+  if code == "working_capital_mismatch":
     inferred_quarters = _expand_quarter_window(revenue_quarters[:10] or all_quarters[:10], all_quarters=all_quarters)
-  elif code == "capacity_revenue_mismatch":
+  elif code == "capacity_support_mismatch":
     inferred_quarters = _expand_quarter_window(revenue_quarters or all_quarters[:8], all_quarters=all_quarters)
   else:
     inferred_quarters = _expand_quarter_window(loss_quarters or revenue_quarters[:6] or all_quarters[:6], all_quarters=all_quarters)
@@ -227,24 +216,6 @@ def _infer_issue_quarters(
     anchor_quarter = min([q for q in inferred_quarters if int(q) >= 1] or all_quarters[:1] or [1])
     return [quarter for quarter in all_quarters if int(quarter) >= anchor_quarter]
   return inferred_quarters
-
-
-def _catalog_entry_text(entry: Dict[str, Any]) -> str:
-  return " | ".join(
-    [
-      str(entry.get("lever_id") or "").strip().lower(),
-      str(entry.get("section") or "").strip().lower(),
-      str(entry.get("label_path") or "").strip().lower(),
-      str(entry.get("driver") or "").strip().lower(),
-      str(entry.get("accounting_role") or "").strip().lower(),
-      str(entry.get("input_semantics") or "").strip().lower(),
-    ]
-  )
-
-
-def _entry_matches_any(entry: Dict[str, Any], terms: List[str]) -> bool:
-  haystack = _catalog_entry_text(entry)
-  return any(str(term or "").strip().lower() in haystack for term in terms if str(term or "").strip())
 
 
 def _infer_issue_lever_ids(
@@ -259,53 +230,19 @@ def _infer_issue_lever_ids(
   ]
   if not entries:
     return []
-  code = str(issue_code or "").strip().lower()
-  selected: List[str] = []
-  operating_cost_target_metric_names = {
-    "cogs",
-    "marketing",
-    "research_and_development",
-    "lease_rent",
-    "g_and_a",
+  available = {
+    str(entry.get("lever_id") or "").strip()
+    for entry in entries
+    if str(entry.get("lever_id") or "").strip()
   }
-
-  def _lever_allowed_for_issue(entry: Dict[str, Any]) -> bool:
-    lever_id = str(entry.get("lever_id") or "").strip()
-    if not lever_id:
-      return False
-    mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
-    driver_category = str(mapping_entry.get("driver_category") or "").strip().lower()
-    target_metric_name = str(mapping_entry.get("target_metric_name") or "").strip().lower()
-    target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
-    family = str(lever_id.split("::", 1)[0] or "").strip().lower()
-    role = str(entry.get("accounting_role") or "").strip().lower()
-
-    if code == "capacity_revenue_mismatch":
-      return bool(driver_category == "revenue")
-    if code == "cost_structure_mismatch":
-      return bool(
-        driver_category == "revenue"
-        or target_metric_name in operating_cost_target_metric_names
-      )
-    if code == "business_model_coherence_mismatch":
-      return bool(
-        (driver_category == "revenue" and target_driver in {"capacity", "unit_price", "utilization"})
-        or target_metric_name in operating_cost_target_metric_names
-      )
-    if code == "p_and_l_flatline_mismatch":
-      return bool(
-        (driver_category == "revenue" and target_driver in {"capacity", "unit_price", "utilization"})
-        or target_metric_name in operating_cost_target_metric_names
-      )
-    if code == "working_capital_payment_model_mismatch":
-      return bool(driver_category == "working_capital")
-    return False
-
-  for entry in entries:
-    lever_id = str(entry.get("lever_id") or "").strip()
-    if lever_id and lever_id not in selected and _lever_allowed_for_issue(entry):
-      selected.append(lever_id)
-
+  selected = [
+    lever_id
+    for lever_id in post_intake_driver_target_lever_ids_for_issue(
+      issue_code,
+      phase="cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence",
+    )
+    if lever_id in available
+  ]
   return selected[:12]
 
 
@@ -394,9 +331,7 @@ def _normalized_solver_settings(
 ) -> Dict[str, Any]:
   mode = str(planning_mode or "").strip().lower() or "rebalance"
   aggressiveness = "moderate"
-  if pass_name == "initial_restructure":
-    aggressiveness = "high"
-  elif pass_name == "unified_convergence":
+  if pass_name == "unified_convergence":
     aggressiveness = "structural"
   elif pass_name == "cash_strategy_review":
     aggressiveness = "light"
@@ -436,17 +371,17 @@ def _dominant_issue_cluster(issue_status_records: Optional[List[Dict[str, Any]]]
   }
   if "cost_structure_mismatch" in codes:
     return "profitability_shape"
-  if "business_model_coherence_mismatch" in codes:
-    return "business_world_coherence"
-  if "capacity_revenue_mismatch" in codes:
+  if "capacity_support_mismatch" in codes:
     return "capacity_growth"
+  if "p_and_l_flatline" in codes:
+    return "operating_trajectory"
   return "general_rebalance"
 
 
 def _quarter_metric_snapshots(
   current_finmo_json: Optional[Dict[str, Any]],
   *,
-  include_legacy_output_metrics: bool = False,
+  include_cash_diagnostic_metrics: bool = False,
 ) -> List[Dict[str, Any]]:
   finmo = current_finmo_json if isinstance(current_finmo_json, dict) else {}
   out: List[Dict[str, Any]] = []
@@ -517,7 +452,7 @@ def _quarter_metric_snapshots(
         "lease_principal_repayments": int(round(float(_safe_float(row.get("lease_principal_repayments")) or 0.0))),
         "lease_net_additions": int(round(float(_safe_float(row.get("lease_net_additions")) or 0.0))),
       }
-    if not include_legacy_output_metrics:
+    if not include_cash_diagnostic_metrics:
       snapshot = {
         key: value
         for key, value in snapshot.items()
@@ -569,16 +504,16 @@ def _quarter_target_grid(
   *,
   issue_status_records: Optional[List[Dict[str, Any]]],
   current_finmo_json: Optional[Dict[str, Any]],
-  include_legacy_output_metrics: bool = False,
+  include_cash_diagnostic_metrics: bool = False,
 ) -> List[Dict[str, Any]]:
   issue_packets = _issue_target_packets(
     issue_status_records,
-    include_cash_pass_owned_issues=include_legacy_output_metrics,
+    include_cash_pass_owned_issues=include_cash_diagnostic_metrics,
   )
   quarter_map: Dict[int, Dict[str, Any]] = {}
   for row in _quarter_metric_snapshots(
     current_finmo_json,
-    include_legacy_output_metrics=include_legacy_output_metrics,
+    include_cash_diagnostic_metrics=include_cash_diagnostic_metrics,
   ):
     quarter_index = int(row.get("quarter_index") or 0)
     if quarter_index < 1:
@@ -700,17 +635,12 @@ def build_numeric_solver_contract(
     "quarter_target_grid": _quarter_target_grid(
       issue_status_records=active_issues,
       current_finmo_json=current_finmo_json,
-      include_legacy_output_metrics=include_cash_pass_owned_issues,
+      include_cash_diagnostic_metrics=False,
     ),
     "allowed_target_metric_ids": list(PRIMARY_TARGETABLE_FINMO_METRIC_IDS),
     "recommended_primary_target_metric_keys": copy.deepcopy(recommended_primary_target_metric_keys),
     "primary_target_metric_min_count": int(PRIMARY_TARGET_METRIC_MIN_COUNT),
     "primary_target_metric_max_count": int(PRIMARY_TARGET_METRIC_MAX_COUNT),
-    "guardrail_metric_names": [] if not include_cash_pass_owned_issues else [
-      "ending_cash",
-      "operating_cash_flow",
-      "financing_cash_flow",
-    ],
     "writable_lever_catalog": {
       "lever_count": len(lever_entries),
       "lever_ids": [str(item.get("lever_id") or "").strip() for item in lever_entries],
@@ -718,7 +648,7 @@ def build_numeric_solver_contract(
     },
     "baseline_quarter_metrics": _quarter_metric_snapshots(
       current_finmo_json,
-      include_legacy_output_metrics=include_cash_pass_owned_issues,
+      include_cash_diagnostic_metrics=False,
     ),
     "solver_settings": _normalized_solver_settings(
       pass_name=normalized_pass_name,

@@ -677,22 +677,21 @@ def _final_verification_assessment(planning_run: Dict[str, Any], state: Dict[str
   return assessment
 
 
-def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, Any], state: Dict[str, Any]) -> None:
-  result = planning_run.get("realism_resolution_result") if isinstance(planning_run.get("realism_resolution_result"), dict) else {}
-  decision = planning_run.get("realism_resolution_decision") if isinstance(planning_run.get("realism_resolution_decision"), dict) else {}
-  verification = planning_run.get("realism_resolution_verification") if isinstance(planning_run.get("realism_resolution_verification"), dict) else {}
+def _append_unified_convergence_lines(lines: List[str], planning_run: Dict[str, Any], state: Dict[str, Any]) -> None:
+  result = planning_run.get("unified_convergence_result") if isinstance(planning_run.get("unified_convergence_result"), dict) else {}
+  decision = planning_run.get("unified_convergence_decision") if isinstance(planning_run.get("unified_convergence_decision"), dict) else {}
+  verification = planning_run.get("unified_convergence_verification") if isinstance(planning_run.get("unified_convergence_verification"), dict) else {}
   updates = [item for item in (result.get("applied_updates") or []) if isinstance(item, dict)]
-  lines.append("Realism Resolution:")
+  lines.append("Unified Convergence:")
   lines.append(f"Review Status: {str(decision.get('status') or '').strip() or 'missing'}")
   lines.append(f"Result Status: {str(result.get('status') or '').strip() or 'missing'}")
   lines.append(f"Verification Status: {str(verification.get('status') or '').strip() or 'missing'}")
-  lines.append(f"Iteration Count: {int(_safe_float(planning_run.get('realism_resolution_iteration_count')) or 0)}")
-  lines.append(f"Stop Reason: {str(planning_run.get('realism_resolution_stop_reason') or '').strip() or 'missing'}")
+  lines.append(f"Cycle Count: {int(_safe_float(planning_run.get('unified_convergence_cycle_count')) or 0)}")
   lines.append(f"Resolution Summary Status: {str(state.get('status') or '').strip() or 'missing'}")
   lines.append(f"All Cleared: {bool(state.get('all_cleared'))}")
   verification_payload = verification.get("verification") if isinstance(verification.get("verification"), dict) else {}
   lines.append(f"Verification Assessment: {_final_verification_assessment(planning_run, state)}")
-  lines.append(f"Applied Realism Updates: {len(updates)}")
+  lines.append(f"Applied Convergence Updates: {len(updates)}")
   issue_results = [item for item in (verification_payload.get("issue_results") or []) if isinstance(item, dict)]
   if issue_results:
     lines.append("Verification Results:")
@@ -709,7 +708,7 @@ def _append_realism_resolution_lines(lines: List[str], planning_run: Dict[str, A
         lines.append(f"  remaining quarters: {', '.join(f'Q{q}' for q in quarters)}")
       if next_levers:
         lines.append(f"  next levers: {', '.join(next_levers)}")
-  iterations = [item for item in (planning_run.get("realism_resolution_iterations") or []) if isinstance(item, dict)]
+  iterations = [item for item in (planning_run.get("unified_convergence_iterations") or []) if isinstance(item, dict)]
   if iterations:
     lines.append("Iteration Summary:")
     for item in iterations:
@@ -1132,11 +1131,11 @@ def _append_controller_state(lines: List[str], state: Dict[str, Any]) -> None:
   lines.append("")
 
 
-def _append_realism_iteration_details(lines: List[str], planning_run: Dict[str, Any]) -> None:
-  iterations = [item for item in (planning_run.get("realism_resolution_iterations") or []) if isinstance(item, dict)]
-  _append_section(lines, "Realism Iteration Diagnostics")
+def _append_unified_convergence_iteration_details(lines: List[str], planning_run: Dict[str, Any]) -> None:
+  iterations = [item for item in (planning_run.get("unified_convergence_iterations") or []) if isinstance(item, dict)]
+  _append_section(lines, "Unified Convergence Iteration Diagnostics")
   if not iterations:
-    lines.append("No realism iterations recorded.")
+    lines.append("No unified convergence iterations recorded.")
     lines.append("")
     return
   main_iterations = [item for item in iterations if str(item.get("phase") or "").strip().lower() != "cleanup"]
@@ -1720,9 +1719,9 @@ def _save_run_report(
     _append_accounting_equation_section(lines, final_finmo_json)
     _append_realism_memo_lines(lines, controller_state)
     lines.append("")
-    _append_realism_resolution_lines(lines, planning_run, controller_state)
+    _append_unified_convergence_lines(lines, planning_run, controller_state)
     lines.append("")
-    _append_realism_iteration_details(lines, planning_run)
+    _append_unified_convergence_iteration_details(lines, planning_run)
     _append_strategy_section(lines, planning_run)
     _append_statement_matrix(
       lines,
@@ -1898,7 +1897,7 @@ def _save_persisted_state_report(
     lines.append("")
     _append_realism_memo_lines(lines, controller_state)
     lines.append("")
-    _append_realism_resolution_lines(lines, planning_run, controller_state)
+    _append_unified_convergence_lines(lines, planning_run, controller_state)
     lines.append("")
     lines.append("Persisted State")
     lines.append("---------------")
@@ -2012,7 +2011,7 @@ def _save_new_runner_report(
     lines.append("")
     _append_realism_memo_lines(lines, controller_state)
     lines.append("")
-    _append_realism_resolution_lines(lines, planning_run, controller_state)
+    _append_unified_convergence_lines(lines, planning_run, controller_state)
     lines.append("")
     lines.append("GPT Narrative:")
     lines.append(str(planning_run.get("gpt_narrative") or "").strip())

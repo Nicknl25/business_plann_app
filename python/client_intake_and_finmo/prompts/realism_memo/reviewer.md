@@ -60,7 +60,7 @@ Output schema:
 - `issues` may be empty if no meaningful realism issue is found
 - the order of `issues` is the ranking from most structurally important to least
 - `issue_code` must be chosen from this fixed list and must match the issue meaning:
-  - `capacity_revenue_mismatch`
+  - `capacity_support_mismatch`
   - `cost_structure_mismatch`
 - Do not invent new issue codes.
 
@@ -82,7 +82,7 @@ Good output example:
   "status": "ready",
   "issues": [
     {
-      "issue_code": "capacity_revenue_mismatch",
+      "issue_code": "capacity_support_mismatch",
       "issue": "The capacity model does not fully match the operating load.",
       "detail": "The business appears to depend on throughput that leaves little room for normal operating friction."
     }
@@ -94,7 +94,7 @@ Bad output example:
   "status": "ready",
   "issues": [
     {
-      "issue_code": "capacity_revenue_mismatch",
+      "issue_code": "capacity_support_mismatch",
       "issue": "You should hire another provider and raise starting cash.",
       "detail": "Increase equity and lower payroll."
     }

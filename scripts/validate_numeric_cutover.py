@@ -192,20 +192,9 @@ def _check_pass(name: str, plan: Dict[str, Any], result: Dict[str, Any]) -> List
 def _check_realism_trace(planning: Dict[str, Any]) -> List[str]:
   errors: List[str] = []
   retired_payload_keys = [
-    "initial_restructure_context",
-    "initial_restructure_pass_plan",
-    "initial_restructure_pass_result",
-    "realism_resolution_plan",
-    "realism_resolution_result",
-    "realism_resolution_iterations",
     "cash_strategy_review_context",
     "cash_strategy_second_pass_plan",
     "cash_strategy_second_pass_result",
-    "final_stabilizer_context",
-    "final_stabilizer_pass_plan",
-    "final_stabilizer_pass_result",
-    "final_guarantee_context",
-    "final_guarantee_iterations",
   ]
   for key in retired_payload_keys:
     value = planning.get(key)

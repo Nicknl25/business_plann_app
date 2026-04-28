@@ -42,7 +42,12 @@ def _mysql_env() -> Tuple[str, int, str, str, str]:
   port_raw = (os.getenv("MYSQL_PORT") or "3306").strip()
   user = (os.getenv("MYSQL_USER") or "").strip()
   password = os.getenv("MYSQL_PASSWORD") or ""
-  database = (os.getenv("MYSQL_DB") or "").strip()
+  database = (
+    os.getenv("MYSQL_DB")
+    or os.getenv("MYSQL_DATABASE")
+    or os.getenv("DB_NAME")
+    or ""
+  ).strip()
   if not host or not user or not database:
     raise RuntimeError("Missing MYSQL_HOST/MYSQL_USER/MYSQL_DB configuration.")
   try:

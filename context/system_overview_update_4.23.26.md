@@ -320,7 +320,7 @@ Current active loader:
 
 Current mapping table:
 
-- `python/client_intake_and_finmo/config/post_intake_driver_target_mapping.csv`
+- SQL table `post_intak_mapping_lookup`
 
 That table is meant to answer:
 

@@ -21,12 +21,11 @@ Hard rules already applied by Python:
 You must treat those hard rules as fixed. Do not override them.
 
 Allowed lever scope for funding decisions:
-- `schedules::Debt Issuance (New Borrowing)`
-- `schedules::Debt Repayment (Scheduled)`
-- `balance_sheet::Owner's Capital`
-- `balance_sheet::Other Equity`
+- Use only the lever ids present in Python-provided `lever_bounds.lever_bounds` and `writable_lever_current_values`.
+- Those lever ids come from the post-intake mapping table and are the only allowed funding decision surface.
+- Do not invent, rename, substitute, or infer a financing lever.
 
-Python may also hard-rule `balance_sheet::Distributions` to zero when cash is at or below the buffer. Do not use distributions as a funding source.
+Python may also hard-rule the mapped distributions lever to zero when cash is at or below the buffer. Do not use distributions as a funding source.
 
 You may use these levers only:
 - to restore or preserve the required liquidity buffer
@@ -74,14 +73,14 @@ Interpret the provided context literally:
 - `writable_lever_current_values` are the current lever values before your recommended adjustments
 
 Important value semantics:
-- For `schedules::Debt Issuance (New Borrowing)`, treat `exact_value` as the actual borrowing amount to add in that quarter only.
-- For `balance_sheet::Owner's Capital` and `balance_sheet::Other Equity`, treat `exact_value` as the equity contribution amount made in that quarter.
+- For a mapped debt issuance lever, treat `exact_value` as the actual borrowing amount to add in that quarter only.
+- For mapped equity contribution levers, treat `exact_value` as the equity contribution amount made in that quarter.
 - Python will translate those equity contribution amounts into persistent balance-sheet level increases from that quarter forward. Do not assume they disappear in the next quarter.
-- For `schedules::Debt Repayment (Scheduled)`, treat `exact_value` as the final scheduled repayment value for that quarter after your adjustment.
+- For a mapped debt repayment lever, treat `exact_value` as the final scheduled repayment value for that quarter after your adjustment.
 - For debt-based levers, read `lever_bounds[*].supporting_metrics.cash_support_multiplier` literally. Debt issuance and reduced repayment do not lift ending cash 1 to 1 inside the same quarter because FINMO applies same-quarter debt drag.
 - In `quarter_funding_plan`, `funding_sources.amount` for a debt-based lever means the effective cash support toward the required funding gap, not the raw lever value.
 - For debt-based levers, gross up `recommended_adjustments.exact_value` so that the effective cash support after applying the provided `cash_support_multiplier` matches the funding_sources amount you declared for that quarter.
-- For `balance_sheet::Owner's Capital` and `balance_sheet::Other Equity`, the effective cash support is 1 to 1, so `funding_sources.amount` and `recommended_adjustments.exact_value` can match directly.
+- For mapped equity contribution levers, the effective cash support is 1 to 1, so `funding_sources.amount` and `recommended_adjustments.exact_value` can match directly.
 - The required funding gap is incremental. Do not re-fund earlier support in later quarters. If prior financing already carries cash forward, later quarters only receive new funding when Python lists a positive `required_incremental_funding_after_hard_rules`.
 - All currency values must be whole-dollar integers only.
 - Do not output decimals or cents anywhere in `recommended_adjustments`, `required_funding_gap`, `expected_buffer`, `expected_ending_cash_after_actions`, or `funding_sources.amount`.

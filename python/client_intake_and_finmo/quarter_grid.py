@@ -961,9 +961,79 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
     text = str(rule or "").strip()
     if text:
       lines.append(f"- {text}")
-  lines.append("Stage governance payload:")
-  lines.append(json.dumps(context, ensure_ascii=False))
+  lines.append("Compact stage governance payload:")
+  lines.append(json.dumps(_compact_stage_governance_context_for_prompt(context), ensure_ascii=False))
   return "\n".join(lines) + "\n\n"
+
+
+def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[str, Any]:
+  payload = contract if isinstance(contract, dict) else {}
+  grid_rows = [
+    {
+      "q": int(row.get("quarter_index") or 0),
+      "rev_target": row.get("revenue_qoq_target"),
+      "rev_max": row.get("revenue_qoq_max"),
+      "rev_spike": row.get("revenue_qoq_spike_allowed"),
+      "rev_spike_max": row.get("revenue_qoq_spike_max"),
+      "fte_max": row.get("fte_qoq_max"),
+      "util_cap": row.get("utilization_cap"),
+    }
+    for row in (payload.get("quarter_ramp_grid") or [])
+    if isinstance(row, dict) and int(row.get("quarter_index") or 0) >= 1
+  ]
+  return {
+    "contract_version": payload.get("contract_version"),
+    "stage_family": payload.get("stage_family"),
+    "quarter_grid_is_binding": bool(payload.get("quarter_grid_is_binding") or payload.get("composite_revenue_ramp_is_binding")),
+    "revenue_qoq_growth_target_max": payload.get("revenue_qoq_growth_target_max"),
+    "revenue_qoq_max_spike": payload.get("revenue_qoq_max_spike"),
+    "fte_qoq_max": payload.get("fte_qoq_max"),
+    "fte_qoq_max_spike": payload.get("fte_qoq_max_spike"),
+    "utilization_high_watermark": payload.get("utilization_high_watermark"),
+    "max_spike_count": payload.get("max_spike_count"),
+    "quarter_ramp_grid": grid_rows,
+    "composite_revenue_formula": payload.get("composite_revenue_formula"),
+  }
+
+
+def _compact_stage_governance_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
+  payload = context if isinstance(context, dict) else {}
+  ramp_contract = payload.get("stage_ramp_contract") if isinstance(payload.get("stage_ramp_contract"), dict) else {}
+  return {
+    "contract_version": payload.get("contract_version"),
+    "business_stage": payload.get("business_stage"),
+    "stage_family": payload.get("stage_family"),
+    "business_age_months_at_run": payload.get("business_age_months_at_run"),
+    "planning_mode": payload.get("planning_mode"),
+    "binding": bool(payload.get("binding")),
+    "stage_is_reality_limiter": bool(payload.get("stage_is_reality_limiter")),
+    "fail_fast_if_ignored": bool(payload.get("fail_fast_if_ignored")),
+    "stage_ramp_contract": _compact_stage_ramp_contract_for_prompt(ramp_contract),
+    "stage_rules": [
+      str(item).strip()
+      for item in (payload.get("stage_rules") or [])
+      if str(item).strip()
+    ][:8],
+    "early_revenue_share_ceiling_of_late_run_rate": copy.deepcopy(payload.get("early_revenue_share_ceiling_of_late_run_rate") or {}),
+  }
+
+
+def _compact_governor_payload_for_prompt(governor_payload: Dict[str, Any]) -> Dict[str, Any]:
+  payload = governor_payload if isinstance(governor_payload, dict) else {}
+  compact: Dict[str, Any] = {}
+  if isinstance(payload.get("stage_governance_context"), dict):
+    compact["stage_governance_context"] = _compact_stage_governance_context_for_prompt(payload["stage_governance_context"])
+  for key in ("planning_mode", "planning_mode_reason", "selected_cash_strategy"):
+    if key in payload:
+      compact[key] = payload.get(key)
+  cash_strategy_context = payload.get("cash_strategy_context")
+  if isinstance(cash_strategy_context, dict):
+    compact["cash_strategy_context"] = {
+      key: cash_strategy_context.get(key)
+      for key in ("selected_cash_strategy", "strategy_policy", "required_cash_buffer_policy")
+      if key in cash_strategy_context
+    }
+  return compact
 
 
 def _quarter_grid_stage_family(governor_payload: Dict[str, Any]) -> str:
@@ -1729,8 +1799,8 @@ def build_quarter_grid_prompt(
       "- do not treat any of the above as rigid rules; they are planning expectations that must still respect realism and economics\n\n",
       realism_memo_block,
       f"This is batch {batch_index} of {batch_count}. Return only the rows listed in this batch.\n\n",
-      "Real governor context payload:\n",
-      json.dumps(governor_payload, ensure_ascii=False),
+      "Compact governor context payload:\n",
+      json.dumps(_compact_governor_payload_for_prompt(governor_payload), ensure_ascii=False),
       "\n\n",
       "Rows you must fill:\n",
       "\n".join(

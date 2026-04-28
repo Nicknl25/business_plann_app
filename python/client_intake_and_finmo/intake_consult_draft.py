@@ -152,8 +152,6 @@ def _planning_run_flat_field_values(payload: Any) -> Dict[str, Any]:
       return None
 
   last_review_iteration = controller.get("last_review_iteration")
-  if last_review_iteration is None:
-    last_review_iteration = data.get("realism_resolution_iteration_count")
   out = {
     "planning_run_id": str(data.get("planning_run_id") or "").strip() or None,
     "planning_run_status": str(data.get("run_status") or data.get("status") or "").strip() or None,

@@ -15,9 +15,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 from scipy.optimize import minimize  # type: ignore
 try:
-  from client_intake_and_finmo.post_intake_mapping import post_intake_driver_target_metric_ids  # type: ignore
+  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+    post_intake_direct_target_metric_for_lever,
+    post_intake_driver_target_metric_ids,
+  )
 except Exception:
-  from post_intake_mapping import post_intake_driver_target_metric_ids  # type: ignore
+  from post_intake_mapping import (  # type: ignore
+    post_intake_direct_target_metric_for_lever,
+    post_intake_driver_target_metric_ids,
+  )
 
 try:
   from financial_model_engine.model_inputs import QUARTER_COUNT  # type: ignore
@@ -224,40 +230,7 @@ def _metric_tolerance(
   tolerance_override: Optional[Dict[str, Any]] = None,
 ) -> float:
   metric = str(metric_name or "").strip().lower()
-  base = 250.0
-  if metric in {
-    "revenue",
-    "gross_profit",
-    "ending_cash",
-    "accounts_receivable",
-    "inventory",
-    "prepaid_expenses",
-    "current_assets",
-    "accounts_payable",
-    "deferred_revenue",
-    "noncurrent_assets",
-    "current_liabilities",
-    "noncurrent_liabilities",
-    "total_liabilities",
-    "total_equity",
-    "ppe",
-    "long_term_debt",
-    "owners_capital",
-    "other_equity",
-  }:
-    base = 1000.0
-  elif metric in {
-    "operating_cash_flow",
-    "investing_cash_flow",
-    "financing_cash_flow",
-    "capital_expenditures",
-    "payroll",
-    "marketing",
-    "g_and_a",
-    "lease_rent",
-    "distributions",
-  }:
-    base = 500.0
+  base = 1000.0 if metric in TARGET_METRIC_KEYS else 250.0
   override = tolerance_override if isinstance(tolerance_override, dict) else {}
   relative_tolerance_pct = _safe_float(override.get("relative_tolerance_pct"))
   absolute_tolerance = _safe_float(override.get("absolute_tolerance"))
@@ -427,6 +400,30 @@ def _build_variable_specs(
     if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
   }
   aggressiveness = str((((numeric_solver_contract or {}).get("solver_settings") or {}).get("aggressiveness")) or "moderate").strip().lower()
+  contract_bounds_by_key: Dict[Tuple[str, int], Dict[str, float]] = {}
+  for issue_packet in (((numeric_solver_contract or {}).get("issue_target_packets") or [])):
+    if not isinstance(issue_packet, dict):
+      continue
+    for repair_target in (issue_packet.get("repair_targets") or []):
+      if not isinstance(repair_target, dict):
+        continue
+      repair_quarter = int(_safe_float(repair_target.get("quarter")) or 0)
+      if repair_quarter < 1:
+        continue
+      for driver_path in (repair_target.get("driver_paths") or []):
+        if not isinstance(driver_path, dict):
+          continue
+        lever_id = str(driver_path.get("lever") or "").strip()
+        suggested_min = _safe_float(driver_path.get("suggested_min_value"))
+        suggested_max = _safe_float(driver_path.get("suggested_max_value"))
+        if not lever_id or suggested_min is None or suggested_max is None:
+          continue
+        low_bound = float(min(float(suggested_min), float(suggested_max)))
+        high_bound = float(max(float(suggested_min), float(suggested_max)))
+        contract_bounds_by_key[(lever_id, repair_quarter)] = {
+          "min_value": low_bound,
+          "max_value": high_bound,
+        }
   specs: List[Dict[str, Any]] = []
   for lever_id in allowed_lever_ids:
     row = row_map.get(lever_id)
@@ -454,6 +451,17 @@ def _build_variable_specs(
         expansion = 1.00
       low = min(baseline_value, anchor) - (expansion * scale)
       high = max(baseline_value, anchor) + (expansion * scale)
+    contract_bounds = contract_bounds_by_key.get((lever_id, quarter_index)) or {}
+    if contract_bounds:
+      contract_low = _safe_float(contract_bounds.get("min_value"))
+      contract_high = _safe_float(contract_bounds.get("max_value"))
+      if contract_low is not None and contract_high is not None:
+        if low is None or high is None:
+          low = float(contract_low)
+          high = float(contract_high)
+        else:
+          low = min(float(low), float(contract_low))
+          high = max(float(high), float(contract_high))
     if low is None or high is None:
       low, high = _default_move_band(
         baseline_value=baseline_value,
@@ -474,6 +482,7 @@ def _build_variable_specs(
         "anchor_value": float(anchor),
         "min_value": float(low),
         "max_value": float(high),
+        "direct_target_metric_name": post_intake_direct_target_metric_for_lever(lever_id),
       }
     )
   return specs
@@ -616,6 +625,56 @@ def _revenue_direct_actual_vectors(
   return out
 
 
+def _direct_target_metric_actual_vectors(
+  *,
+  variable_specs: List[Dict[str, Any]],
+  target_metrics: Dict[str, float],
+  baseline_vector: List[float],
+  baseline_metrics: Dict[str, Any],
+) -> List[List[float]]:
+  target_metric_keys = {
+    str(metric_name or "").strip().lower()
+    for metric_name in target_metrics.keys()
+    if str(metric_name or "").strip()
+  }
+  if not target_metric_keys:
+    return []
+
+  def _clamped_value(idx: int, value: float) -> float:
+    spec = variable_specs[idx]
+    low = float(spec.get("min_value") or 0.0)
+    high = float(spec.get("max_value") or 0.0)
+    if low > high:
+      low, high = high, low
+    return float(min(max(float(value), low), high))
+
+  next_vector = [float(value) for value in baseline_vector]
+  changed = False
+  for idx, spec in enumerate(variable_specs):
+    metric_name = str(spec.get("direct_target_metric_name") or "").strip().lower()
+    if not metric_name or metric_name not in target_metric_keys:
+      continue
+    target_value = _safe_float(target_metrics.get(metric_name))
+    baseline_metric_payload = baseline_metrics.get(metric_name) if isinstance(baseline_metrics, dict) else {}
+    baseline_metric_value = _safe_float((baseline_metric_payload or {}).get("actual_value"))
+    baseline_driver_value = float(baseline_vector[idx]) if idx < len(baseline_vector) else None
+    if (
+      target_value is None
+      or baseline_metric_value is None
+      or baseline_driver_value is None
+      or abs(float(baseline_metric_value)) <= 1e-9
+    ):
+      continue
+    desired_driver_value = float(baseline_driver_value) * (float(target_value) / float(baseline_metric_value))
+    clamped = _clamped_value(idx, desired_driver_value)
+    if abs(float(clamped) - float(next_vector[idx])) > 1e-9:
+      changed = True
+    next_vector[idx] = clamped
+  if not changed:
+    return []
+  return [next_vector]
+
+
 def _evaluate_quarter_objective(
   *,
   base_model_input_json: Dict[str, Any],
@@ -694,8 +753,6 @@ def solve_review_plan(
 
   pass_name = str(contract.get("pass_name") or "").strip()
   if pass_name not in {
-    "initial_restructure",
-    "realism_resolution",
     "cash_strategy_review",
     "unified_convergence",
   }:
@@ -707,7 +764,7 @@ def solve_review_plan(
       "quarter_results": [],
       "outcome": {
         "execution_state": "numeric_solver_not_applicable",
-        "reason": "Current numeric worker only activates for initial_restructure, realism_resolution, cash_strategy_review, and unified_convergence.",
+        "reason": "Current numeric worker only activates for cash_strategy_review and unified_convergence.",
       },
     }
 
@@ -865,7 +922,41 @@ def solve_review_plan(
       optimizer_message = "gpt_anchor_within_tolerance"
       optimizer_success = True
 
+    direct_target_vectors = _direct_target_metric_actual_vectors(
+      variable_specs=variable_specs,
+      target_metrics=target_metrics,
+      baseline_vector=baseline_vector,
+      baseline_metrics=baseline_metrics,
+    )
+    for direct_vector in direct_target_vectors:
+      if optimizer_success:
+        break
+      direct_score, direct_model_input_json, direct_finmo_json, direct_metrics = _evaluate_candidate(
+        direct_vector,
+        stage="direct_target_metric_estimate",
+      )
+      if float(direct_score) < float(best_score) - 1e-9:
+        best_score = float(direct_score)
+        best_vector = list(direct_vector)
+        updated_model_input_json = copy.deepcopy(direct_model_input_json)
+        updated_finmo_json = copy.deepcopy(direct_finmo_json)
+        metric_results = copy.deepcopy(direct_metrics)
+        optimizer_message = "direct_table_metric_estimate"
+        optimizer_success = bool(
+          all(
+            float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
+            for payload in direct_metrics.values()
+          )
+        )
+
     seed_vectors = [
+      *[
+        _vector_to_unit_interval(
+          actual_vector=direct_vector,
+          variable_specs=variable_specs,
+        )
+        for direct_vector in direct_target_vectors
+      ],
       _vector_to_unit_interval(
         actual_vector=anchor_vector,
         variable_specs=variable_specs,
@@ -986,10 +1077,16 @@ def solve_review_plan(
           unit_vector=[float(v) for v in seed],
           variable_specs=variable_specs,
         )
-        seed_score, seed_model_input_json, seed_finmo_json, seed_metric_results = _evaluate_candidate(
-          seed_vector,
-          stage="deterministic_seed",
-        )
+        try:
+          seed_score, seed_model_input_json, seed_finmo_json, seed_metric_results = _evaluate_candidate(
+            seed_vector,
+            stage="deterministic_seed",
+          )
+        except TimeoutError as exc:
+          if not str(exc).startswith("numeric_solver_objective_evaluation_budget_exceeded:"):
+            raise
+          optimizer_message = str(exc)
+          break
         if float(seed_score) < float(best_score) - 1e-9:
           best_score = float(seed_score)
           best_vector = list(seed_vector)
@@ -1011,29 +1108,35 @@ def solve_review_plan(
     )
     for seed in optimizer_seeds:
       _raise_if_runtime_deadline_exceeded("optimizer_seed")
-      result = minimize(
-        _unit_objective,
-        x0=seed,
-        method="L-BFGS-B",
-        bounds=unit_bounds,
-        options={
-          "maxiter": 24,
-          # The objective surface comes from a full model recalculation, so
-          # normalized finite-difference steps are more reliable than raw-value
-          # steps on million-dollar levers.
-          "eps": 0.05,
-          "ftol": 1e-8,
-          "maxfun": max(12, min(48, 6 * len(variable_specs))),
-        },
-      )
-      candidate_vector = _vector_from_unit_interval(
-        unit_vector=[float(v) for v in result.x],
-        variable_specs=variable_specs,
-      )
-      candidate_score, candidate_model_input_json, candidate_finmo_json, candidate_metric_results = _evaluate_candidate(
-        candidate_vector,
-        stage="optimizer_result",
-      )
+      try:
+        result = minimize(
+          _unit_objective,
+          x0=seed,
+          method="L-BFGS-B",
+          bounds=unit_bounds,
+          options={
+            "maxiter": 24,
+            # The objective surface comes from a full model recalculation, so
+            # normalized finite-difference steps are more reliable than raw-value
+            # steps on million-dollar levers.
+            "eps": 0.05,
+            "ftol": 1e-8,
+            "maxfun": max(12, min(48, 6 * len(variable_specs))),
+          },
+        )
+        candidate_vector = _vector_from_unit_interval(
+          unit_vector=[float(v) for v in result.x],
+          variable_specs=variable_specs,
+        )
+        candidate_score, candidate_model_input_json, candidate_finmo_json, candidate_metric_results = _evaluate_candidate(
+          candidate_vector,
+          stage="optimizer_result",
+        )
+      except TimeoutError as exc:
+        if not str(exc).startswith("numeric_solver_objective_evaluation_budget_exceeded:"):
+          raise
+        optimizer_message = str(exc)
+        break
       if float(candidate_score) < float(best_score) - 1e-9:
         best_score = float(candidate_score)
         best_vector = list(candidate_vector)
