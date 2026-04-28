@@ -69,25 +69,33 @@ try:
   from post_intake_mapping import (  # type: ignore
     post_intake_direct_target_metric_for_lever,
     post_intake_direct_target_metric_names_for_levers,
+    post_intake_compact_mapping_lookup_for_levers,
     post_intake_driver_target_lever_ids_for_issue,
+    post_intake_driver_target_lever_allowed_for_issue,
     post_intake_driver_target_lever_ids_for_cash_roles,
     post_intake_driver_target_lever_ids_for_target_drivers,
     post_intake_driver_target_mapping_entry,
     post_intake_driver_target_mapping_errors,
     post_intake_driver_target_metric_ids,
     post_intake_driver_target_single_lever_id_for_target_driver,
+    post_intake_issue_candidate_lever_ids,
+    post_intake_issue_mapping_contract,
   )
 except Exception:
   from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
     post_intake_direct_target_metric_for_lever,
     post_intake_direct_target_metric_names_for_levers,
+    post_intake_compact_mapping_lookup_for_levers,
     post_intake_driver_target_lever_ids_for_issue,
+    post_intake_driver_target_lever_allowed_for_issue,
     post_intake_driver_target_lever_ids_for_cash_roles,
     post_intake_driver_target_lever_ids_for_target_drivers,
     post_intake_driver_target_mapping_entry,
     post_intake_driver_target_mapping_errors,
     post_intake_driver_target_metric_ids,
     post_intake_driver_target_single_lever_id_for_target_driver,
+    post_intake_issue_candidate_lever_ids,
+    post_intake_issue_mapping_contract,
   )
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
@@ -444,6 +452,414 @@ def get_runtime_probe_payload() -> Dict[str, Any]:
     "cash_pass_owned_issue_codes": sorted(_CASH_PASS_OWNED_ISSUE_CODES),
     "remaining_horizon_issue_codes": sorted(_REMAINING_HORIZON_ISSUE_CODES),
   }
+
+
+def _convergence_test_mode_enabled() -> bool:
+  raw = (os.getenv("CONVERGENCE_TEST_MODE") or "false").strip().lower()
+  return raw not in {"", "0", "false", "no", "off"}
+
+
+def _handle_convergence_test_mode_failure(
+  quality_assessment: Optional[Dict[str, Any]],
+) -> None:
+  assessment = quality_assessment if isinstance(quality_assessment, dict) else {}
+  strict_failure = (
+    assessment.get("strict_failure")
+    if isinstance(assessment.get("strict_failure"), dict)
+    else {}
+  )
+  if not strict_failure:
+    return
+  terminal_message = str(strict_failure.get("terminal_message") or "").strip()
+  detail = str(
+    strict_failure.get("detail")
+    or terminal_message
+    or "unified_convergence_test_mode_failure"
+  ).strip()
+  if _convergence_test_mode_enabled():
+    if terminal_message:
+      print(terminal_message, flush=True)
+      logger.error(terminal_message)
+    raise RuntimeError(detail)
+  if terminal_message:
+    logger.warning(terminal_message)
+  else:
+    logger.warning(detail)
+
+
+def _build_convergence_progress_failure_diagnostics(
+  *,
+  cycles_attempted: int,
+  last_known_state: Optional[Dict[str, Any]],
+  repeated_failure_pattern: Optional[Dict[str, Any]],
+  planner_plan_status: str = "",
+) -> Dict[str, Any]:
+  state = last_known_state if isinstance(last_known_state, dict) else {}
+  pattern = repeated_failure_pattern if isinstance(repeated_failure_pattern, dict) else {}
+  return {
+    "failure_stage": "convergence_progress",
+    "failure_reason": "no_meaningful_progress",
+    "cycles_attempted": int(_safe_float(cycles_attempted) or 0),
+    "last_known_state": {
+      "remaining_issue_count": int(_safe_float(state.get("remaining_issue_count")) or 0),
+      "resolved_issue_count": int(_safe_float(state.get("resolved_issue_count")) or 0),
+      "tolerated_issue_count": int(_safe_float(state.get("tolerated_issue_count")) or 0),
+      "pre_solver_validation_flags": copy.deepcopy(pattern.get("pre_solver_validation_flags") or []),
+    },
+    "repeated_failure_pattern": {
+      "planner_status": str(pattern.get("planner_status") or planner_plan_status or "").strip() or None,
+      "solver_invoked": bool(pattern.get("solver_invoked")),
+      "invalid_levers": copy.deepcopy(pattern.get("invalid_levers") or []),
+      "pre_solver_validation_flags": copy.deepcopy(pattern.get("pre_solver_validation_flags") or []),
+    },
+    "convergence_test_mode": _convergence_test_mode_enabled(),
+  }
+
+
+def _build_unified_cycle_stall_assessment(
+  *,
+  consecutive_no_progress_cycles: int,
+  latest_quality_assessment: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  quality = latest_quality_assessment if isinstance(latest_quality_assessment, dict) else {}
+  consecutive = max(0, int(consecutive_no_progress_cycles or 0))
+  open_issue_codes = [
+    str(item).strip().lower()
+    for item in (quality.get("open_issue_codes_after") or quality.get("open_issue_codes_before") or [])
+    if str(item).strip()
+  ]
+  structural_issue_codes = [
+    code
+    for code in open_issue_codes
+    if code in _ISSUE_CODE_REGISTRY
+  ]
+  progress_detected = bool(quality.get("meaningful_progress"))
+  same_issue_signature_without_progress = bool(quality.get("same_issue_signature_without_progress"))
+  issue_count_regressed_without_progress = bool(
+    quality.get("issue_count_regressed")
+    and not progress_detected
+  )
+  unresolved_issue_plateau = bool(quality.get("unresolved_issue_plateau"))
+  stalled = bool(
+    consecutive >= 1
+    or same_issue_signature_without_progress
+    or quality.get("no_progress")
+    or quality.get("insufficient_issue_progress")
+    or quality.get("early_failure_detected")
+    or issue_count_regressed_without_progress
+    or unresolved_issue_plateau
+    or quality.get("cash_only_viability_progress")
+  )
+  structurally_stalled = bool(
+    consecutive >= 2
+    or (structural_issue_codes and (unresolved_issue_plateau or consecutive >= 1))
+  )
+  return {
+    "stalled": stalled,
+    "consecutive_no_progress_cycles": consecutive,
+    "force_material_tactic_change": stalled,
+    "force_full_horizon_scope": False,
+    "force_all_writable_levers": False,
+    "force_structural_driver_changes": structurally_stalled,
+    "minimum_new_lever_count": 3 if structurally_stalled else (2 if stalled else 0),
+    "require_target_reframe_on_same_issue_state": same_issue_signature_without_progress,
+    "open_issue_codes": copy.deepcopy(open_issue_codes),
+    "structural_issue_codes": copy.deepcopy(structural_issue_codes),
+    "required_change_type": "structural" if structurally_stalled else ("focused_reframe" if stalled else "none"),
+    "latest_quality_assessment": copy.deepcopy(quality),
+    "instruction": (
+      "The convergence loop has stalled. The next attempt must materially change tactic within the current 20-quarter contract."
+      if stalled
+      else "No unified-cycle stall is currently detected."
+    ),
+  }
+
+
+def _cash_strategy_fail_flags_from_review_payload(
+  review_payload: Optional[Dict[str, Any]],
+) -> List[str]:
+  payload = review_payload if isinstance(review_payload, dict) else {}
+  status = str(payload.get("status") or "").strip().lower()
+  flags: List[str] = []
+  if status != "completed":
+    flags.append("cash_pass_not_executed")
+  if status == "failed_parse":
+    flags.append("cash_parse_failed")
+  if status == "completed" and not bool(payload.get("prompt_trace")):
+    flags.append("cash_prompt_trace_missing")
+  if status == "completed" and not bool(payload.get("raw_openai_response")):
+    flags.append("cash_raw_response_missing")
+  if str(payload.get("decision_source") or "").strip().lower() not in {"", "gpt"}:
+    flags.append("cash_non_gpt_fallback_used")
+  return list(dict.fromkeys(flag for flag in flags if flag in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS))
+
+
+def _cash_strategy_failure_stage(
+  *,
+  review_payload: Optional[Dict[str, Any]] = None,
+  plan_payload: Optional[Dict[str, Any]] = None,
+  result_payload: Optional[Dict[str, Any]] = None,
+) -> str:
+  review = review_payload if isinstance(review_payload, dict) else {}
+  plan = plan_payload if isinstance(plan_payload, dict) else {}
+  result = result_payload if isinstance(result_payload, dict) else {}
+  if _cash_strategy_fail_flags_from_review_payload(review):
+    return "review"
+  if plan.get("translation_fail_flags"):
+    return "translation"
+  if result.get("fail_flags") or result.get("post_validation"):
+    return "validation"
+  return "translation"
+
+
+def _cash_validation_errors_from_failure_payload(
+  *,
+  review_payload: Optional[Dict[str, Any]] = None,
+  plan_payload: Optional[Dict[str, Any]] = None,
+  result_payload: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+  review = review_payload if isinstance(review_payload, dict) else {}
+  plan = plan_payload if isinstance(plan_payload, dict) else {}
+  result = result_payload if isinstance(result_payload, dict) else {}
+  errors: List[Dict[str, Any]] = []
+  for warning in [str(item).strip() for item in (plan.get("translation_warnings") or []) if str(item).strip()]:
+    errors.append(
+      {
+        "quarter": None,
+        "lever": None,
+        "expected": "cash adjustment inside deterministic cash bounds",
+        "actual": warning,
+        "reason": warning,
+      }
+    )
+  post_validation = (
+    result.get("post_validation")
+    if isinstance(result.get("post_validation"), dict)
+    else {}
+  )
+  for issue_code in [str(item).strip() for item in (post_validation.get("remaining_issue_codes") or []) if str(item).strip()]:
+    errors.append(
+      {
+        "quarter": None,
+        "lever": None,
+        "expected": "all issues remain cleared after cash pass",
+        "actual": issue_code,
+        "reason": "cash_pass_reopened_issue",
+      }
+    )
+  for rule_code in [str(item).strip() for item in (post_validation.get("failed_rule_codes") or []) if str(item).strip()]:
+    errors.append(
+      {
+        "quarter": None,
+        "lever": None,
+        "expected": "all hard rules remain satisfied after cash pass",
+        "actual": rule_code,
+        "reason": "cash_pass_failed_hard_rule",
+      }
+    )
+  for violation in [item for item in (post_validation.get("cash_buffer_violations") or []) if isinstance(item, dict)]:
+    errors.append(
+      {
+        "quarter": int(_safe_float(violation.get("quarter_index")) or 0) or None,
+        "lever": None,
+        "expected": f"ending_cash >= {int(round(float(_safe_float(violation.get('buffer')) or 0.0)))}",
+        "actual": f"{int(round(float(_safe_float(violation.get('ending_cash')) or 0.0)))}",
+        "reason": "cash_buffer_violation",
+      }
+    )
+  if (
+    not errors
+    and isinstance(review.get("detail"), str)
+    and str(review.get("detail") or "").strip()
+    and str(review.get("status") or "").strip().lower() != "completed"
+  ):
+    errors.append(
+      {
+        "quarter": None,
+        "lever": None,
+        "expected": "completed GPT cash review",
+        "actual": str(review.get("status") or "").strip() or None,
+        "reason": str(review.get("detail") or "").strip(),
+      }
+    )
+  return errors
+
+
+def _build_cash_strategy_failure_diagnostics(
+  *,
+  review_payload: Optional[Dict[str, Any]] = None,
+  plan_payload: Optional[Dict[str, Any]] = None,
+  result_payload: Optional[Dict[str, Any]] = None,
+  extra_flags: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+  review = review_payload if isinstance(review_payload, dict) else {}
+  plan = plan_payload if isinstance(plan_payload, dict) else {}
+  result = result_payload if isinstance(result_payload, dict) else {}
+  flags = list(
+    dict.fromkeys(
+      [
+        *[str(item).strip() for item in (_cash_strategy_fail_flags_from_review_payload(review) or []) if str(item).strip()],
+        *[str(item).strip() for item in (plan.get("translation_fail_flags") or []) if str(item).strip()],
+        *[str(item).strip() for item in (result.get("fail_flags") or []) if str(item).strip()],
+        *[str(item).strip() for item in (extra_flags or []) if str(item).strip()],
+      ]
+    )
+  )
+  context_payload = (
+    review.get("cash_strategy_review_context")
+    if isinstance(review.get("cash_strategy_review_context"), dict)
+    else {}
+  )
+  return {
+    "cash_plan_fail_stage": _cash_strategy_failure_stage(
+      review_payload=review,
+      plan_payload=plan,
+      result_payload=result,
+    ),
+    "cash_plan_fail_flags": flags,
+    "cash_prompt_trace": copy.deepcopy(review.get("prompt_trace") or {}),
+    "cash_raw_response": copy.deepcopy(review.get("raw_openai_response") or {}),
+    "cash_review_decision": copy.deepcopy(review.get("decision") or {}),
+    "cash_translated_plan": copy.deepcopy(plan or {}),
+    "cash_bounds_context": {
+      "selected_cash_strategy": str(review.get("selected_cash_strategy") or "").strip() or None,
+      "allowed_quarters": copy.deepcopy(context_payload.get("allowed_quarters") or []),
+      "lever_bounds": copy.deepcopy(context_payload.get("lever_bounds") or {}),
+      "summary_metrics": copy.deepcopy(context_payload.get("summary_metrics") or {}),
+      "cash_profile_summary": copy.deepcopy(context_payload.get("cash_profile_summary") or {}),
+    },
+    "cash_validation_errors": _cash_validation_errors_from_failure_payload(
+      review_payload=review,
+      plan_payload=plan,
+      result_payload=result,
+    ),
+    "cash_result_payload": copy.deepcopy(result or {}),
+  }
+
+
+def _build_cash_strategy_test_mode_terminal_message(
+  *,
+  failure_payload: Optional[Dict[str, Any]],
+) -> str:
+  payload = failure_payload if isinstance(failure_payload, dict) else {}
+  failure_diagnostics = (
+    payload.get("cash_failure_diagnostics")
+    if isinstance(payload.get("cash_failure_diagnostics"), dict)
+    else {}
+  )
+  return "\n".join(
+    [
+      "STRICT FAILURE: cash strategy test mode triggered",
+      f"cash_plan_fail_stage={str(failure_diagnostics.get('cash_plan_fail_stage') or 'unknown').strip() or 'unknown'}",
+      f"selected_cash_strategy={str(payload.get('selected_cash_strategy') or '').strip() or 'unknown'}",
+      f"status={str(payload.get('status') or '').strip() or 'unknown'}",
+      f"selected_levers={', '.join([str(item).strip() for item in (payload.get('selected_lever_ids') or []) if str(item).strip()]) or 'none'}",
+      f"flags={', '.join([str(item).strip() for item in (payload.get('flags') or []) if str(item).strip()]) or 'none'}",
+      f"before_remaining_issue_count={int(_safe_float(payload.get('before_remaining_issue_count')) or 0)} after_remaining_issue_count={int(_safe_float(payload.get('after_remaining_issue_count')) or 0)}",
+      f"before_all_cleared={bool(payload.get('before_all_cleared'))} after_all_cleared={bool(payload.get('after_all_cleared'))}",
+    ]
+  )
+
+
+def _handle_cash_strategy_test_mode_failure(
+  failure_payload: Optional[Dict[str, Any]],
+) -> None:
+  payload = failure_payload if isinstance(failure_payload, dict) else {}
+  if not payload:
+    return
+  terminal_message = str(payload.get("terminal_message") or "").strip()
+  detail = str(payload.get("detail") or terminal_message or "cash_strategy_test_mode_failure").strip()
+  if _convergence_test_mode_enabled():
+    if terminal_message:
+      print(terminal_message, flush=True)
+      logger.error(terminal_message)
+    raise StructuredSystemRunFailure(
+      detail=detail,
+      diagnostics=copy.deepcopy(payload),
+    )
+  if terminal_message:
+    logger.warning(terminal_message)
+  else:
+    logger.warning(detail)
+
+
+def _build_cash_strategy_test_failure_payload(
+  *,
+  review_payload: Optional[Dict[str, Any]] = None,
+  plan_payload: Optional[Dict[str, Any]] = None,
+  result_payload: Optional[Dict[str, Any]] = None,
+  before_controller_resolution_state: Optional[Dict[str, Any]] = None,
+  after_controller_resolution_state: Optional[Dict[str, Any]] = None,
+  extra_flags: Optional[List[str]] = None,
+  detail: str = "",
+) -> Dict[str, Any]:
+  review = review_payload if isinstance(review_payload, dict) else {}
+  plan = plan_payload if isinstance(plan_payload, dict) else {}
+  result = result_payload if isinstance(result_payload, dict) else {}
+  before_state = before_controller_resolution_state if isinstance(before_controller_resolution_state, dict) else {}
+  after_state = after_controller_resolution_state if isinstance(after_controller_resolution_state, dict) else {}
+  review_flags = _cash_strategy_fail_flags_from_review_payload(review)
+  plan_flags = [
+    str(item).strip()
+    for item in (plan.get("translation_fail_flags") or [])
+    if str(item).strip() in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS
+  ]
+  result_flags = [
+    str(item).strip()
+    for item in (result.get("fail_flags") or [])
+    if str(item).strip() in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS
+  ]
+  combined_flags = list(
+    dict.fromkeys(
+      [
+        *review_flags,
+        *plan_flags,
+        *result_flags,
+        *[
+          str(item).strip()
+          for item in (extra_flags or [])
+          if str(item).strip() in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS
+        ],
+      ]
+    )
+  )
+  selected_lever_ids = [
+    str(item).strip()
+    for item in (plan.get("touched_lever_ids") or [])
+    if str(item).strip()
+  ]
+  if not selected_lever_ids:
+    selected_lever_ids = [
+      str((item or {}).get("lever_id") or "").strip()
+      for item in ((review.get("decision") or {}).get("recommended_adjustments") or [])
+      if isinstance(item, dict) and str((item or {}).get("lever_id") or "").strip()
+    ]
+  status = (
+    str(result.get("status") or "").strip()
+    or str(plan.get("status") or "").strip()
+    or str(review.get("status") or "").strip()
+  )
+  payload = {
+    "selected_cash_strategy": str(review.get("selected_cash_strategy") or "").strip(),
+    "status": status,
+    "selected_lever_ids": selected_lever_ids,
+    "flags": combined_flags,
+    "before_remaining_issue_count": int(_safe_float(before_state.get("remaining_issue_count")) or 0),
+    "after_remaining_issue_count": int(_safe_float(after_state.get("remaining_issue_count")) or 0),
+    "before_all_cleared": bool(before_state.get("all_cleared")),
+    "after_all_cleared": bool(after_state.get("all_cleared")),
+    "detail": str(detail or "").strip() or "cash_strategy_test_mode_failure",
+  }
+  payload["cash_failure_diagnostics"] = _build_cash_strategy_failure_diagnostics(
+    review_payload=review,
+    plan_payload=plan,
+    result_payload=result,
+    extra_flags=combined_flags,
+  )
+  payload["terminal_message"] = _build_cash_strategy_test_mode_terminal_message(
+    failure_payload=payload
+  )
+  return payload
 
 
 def _reset_openai_call_telemetry() -> None:
@@ -1446,8 +1862,8 @@ def _build_planning_run_payload(
     "latest_hard_rule_assessment": copy.deepcopy(latest_hard_rule_assessment),
     "controller_retry_heartbeat": copy.deepcopy(controller_retry_heartbeat or {}),
     "terminal_acceptance_gate": {
-      "stage_is_terminal_converged": final_stage_name == "convergence_completed",
-      "stage_is_convergence_completed": final_stage_name == "convergence_completed",
+      "stage_is_terminal_converged": final_stage_name in {"convergence_completed", "cash_pass_completed"},
+      "stage_is_convergence_completed": final_stage_name in {"convergence_completed", "cash_pass_completed"},
       "status_is_completed": final_status_name == "completed",
       "all_cleared": all_cleared,
       "remaining_issue_count_zero": remaining_issue_count == 0,
@@ -2142,30 +2558,6 @@ def _cash_strategy_capital_structure_snapshot(row: Optional[Dict[str, Any]]) -> 
   capital_base = float(debt_level + equity_level)
   debt_ratio = round(float(debt_level / capital_base), 2) if capital_base > 1e-9 else None
   equity_ratio = round(float(equity_level / capital_base), 2) if capital_base > 1e-9 else None
-  compact_mapping_lookup: List[Dict[str, Any]] = []
-  for item in compact_lever_entries:
-    if not isinstance(item, dict):
-      continue
-    lever_id = str(item.get("lever_id") or "").strip()
-    if not lever_id:
-      continue
-    mapping_entry = post_intake_driver_target_mapping_entry(lever_id)
-    if not isinstance(mapping_entry, dict):
-      continue
-    compact_mapping_lookup.append(
-      {
-        "lever_id": lever_id,
-        "target_metric_name": str(mapping_entry.get("target_metric_name") or "").strip().lower(),
-        "financial_model_field": str(mapping_entry.get("financial_model_field") or "").strip(),
-        "impact_type": str(mapping_entry.get("impact_type") or "").strip().lower(),
-        "post_intake_phase": str(mapping_entry.get("post_intake_phase") or "").strip().lower(),
-        "control_owner": str(mapping_entry.get("control_owner") or "").strip().lower(),
-        "driver_bundle": str(mapping_entry.get("driver_bundle") or "").strip().lower(),
-        "cash_strategy_role": str(mapping_entry.get("cash_strategy_role") or "").strip().lower(),
-        "targeting_allowed": bool(mapping_entry.get("targeting_allowed")),
-        "diagnostic_only": bool(mapping_entry.get("diagnostic_only")),
-      }
-    )
   return {
     "debt": debt_level,
     "equity": equity_level,
@@ -4042,6 +4434,178 @@ def _build_cash_strategy_review_context_payload(
       "ending_cash_must_be_greater_than_or_equal_to_buffer": True,
       "no_distributions_when_cash_is_below_or_equal_to_buffer": True,
       "do_not_validate_on_debt_to_equity_ratio": True,
+    },
+  }
+
+
+def _build_cash_pass_controller_resolution_state(
+  *,
+  phase: str,
+  base_controller_resolution_state: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_context: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_decision: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
+  cash_post_validation: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  base_state = base_controller_resolution_state if isinstance(base_controller_resolution_state, dict) else {}
+  context = cash_strategy_review_context if isinstance(cash_strategy_review_context, dict) else {}
+  decision = cash_strategy_review_decision if isinstance(cash_strategy_review_decision, dict) else {}
+  plan = cash_strategy_second_pass_plan if isinstance(cash_strategy_second_pass_plan, dict) else {}
+  result = cash_strategy_second_pass_result if isinstance(cash_strategy_second_pass_result, dict) else {}
+  post_validation = cash_post_validation if isinstance(cash_post_validation, dict) else {}
+  phase_name = str(phase or "").strip() or "cash_pass_running"
+
+  def _issue_record(issue_code: str, *, quarters: Optional[List[int]] = None, detail: str = "") -> Dict[str, Any]:
+    clean_code = str(issue_code or "").strip().lower()
+    clean_quarters = sorted(
+      {
+        int(_safe_float(item) or 0)
+        for item in (quarters or [])
+        if int(_safe_float(item) or 0) >= 1
+      }
+    )
+    return {
+      "issue_code": clean_code,
+      "issue_title": clean_code,
+      "status": "remaining",
+      "severity": "hard",
+      "phase": "cash_pass",
+      "problem_quarters": clean_quarters,
+      "remaining_problem_quarters": clean_quarters,
+      "verification_reason": str(detail or "").strip(),
+    }
+
+  issue_records_by_code: Dict[str, Dict[str, Any]] = {}
+
+  def _add_issue(issue_code: str, *, quarters: Optional[List[int]] = None, detail: str = "") -> None:
+    clean_code = str(issue_code or "").strip().lower()
+    if not clean_code:
+      return
+    incoming = _issue_record(clean_code, quarters=quarters, detail=detail)
+    existing = issue_records_by_code.get(clean_code)
+    if not existing:
+      issue_records_by_code[clean_code] = incoming
+      return
+    merged_quarters = sorted(
+      {
+        *[
+          int(_safe_float(item) or 0)
+          for item in (existing.get("problem_quarters") or [])
+          if int(_safe_float(item) or 0) >= 1
+        ],
+        *[
+          int(_safe_float(item) or 0)
+          for item in (incoming.get("problem_quarters") or [])
+          if int(_safe_float(item) or 0) >= 1
+        ],
+      }
+    )
+    existing["problem_quarters"] = merged_quarters
+    existing["remaining_problem_quarters"] = merged_quarters
+    if detail and not str(existing.get("verification_reason") or "").strip():
+      existing["verification_reason"] = str(detail).strip()
+
+  required_funding_quarters = [
+    int(_safe_float(item.get("quarter_index")) or 0)
+    for item in (context.get("required_funding_quarters") or [])
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  ]
+  if required_funding_quarters:
+    _add_issue(
+      "liquidity_failure",
+      quarters=required_funding_quarters,
+      detail="Cash pass has required funding quarters to resolve.",
+    )
+  envelope = context.get("cash_violation_envelope") if isinstance(context.get("cash_violation_envelope"), dict) else {}
+  distribution_violation_quarters = [
+    int(_safe_float(item.get("quarter_index")) or 0)
+    for item in (envelope.get("quarter_envelopes") or [])
+    if isinstance(item, dict)
+    and bool(item.get("distribution_violation"))
+    and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  ]
+  if distribution_violation_quarters:
+    _add_issue(
+      "cash_distribution_violation",
+      quarters=distribution_violation_quarters,
+      detail="Cash pass must remove distributions that violate the selected cash posture.",
+    )
+
+  if decision and _cash_strategy_fail_flags_from_review_payload(decision):
+    _add_issue(
+      "cash_strategy_contract_failure",
+      detail="GPT cash strategy review did not satisfy the mandatory cash contract.",
+    )
+  for flag in [str(item).strip() for item in (plan.get("translation_fail_flags") or []) if str(item).strip()]:
+    _add_issue(
+      "cash_strategy_contract_failure",
+      detail=f"Cash strategy translation failed: {flag}",
+    )
+  for flag in [str(item).strip() for item in (result.get("fail_flags") or []) if str(item).strip()]:
+    _add_issue(
+      flag if flag in {"liquidity_failure", "funding_structure_mismatch"} else "cash_strategy_contract_failure",
+      detail=f"Cash strategy result failed: {flag}",
+    )
+  for rule_code in [str(item).strip() for item in (post_validation.get("failed_rule_codes") or []) if str(item).strip()]:
+    _add_issue(rule_code, detail="Cash post-validation failed this hard rule.")
+  cash_buffer_quarters = [
+    int(_safe_float(item.get("quarter_index")) or 0)
+    for item in (post_validation.get("cash_buffer_violations") or [])
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  ]
+  if cash_buffer_quarters:
+    _add_issue(
+      "liquidity_failure",
+      quarters=cash_buffer_quarters,
+      detail="Cash pass finished with ending cash below the required cash buffer.",
+    )
+  cash_distribution_post_quarters = [
+    int(_safe_float(item.get("quarter_index")) or 0)
+    for item in (post_validation.get("cash_distribution_violations") or [])
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  ]
+  if cash_distribution_post_quarters:
+    _add_issue(
+      "cash_distribution_violation",
+      quarters=cash_distribution_post_quarters,
+      detail="Cash pass finished with invalid distributions.",
+    )
+  if post_validation.get("cash_contract_failures"):
+    _add_issue(
+      "cash_strategy_contract_failure",
+      detail="Cash pass contract validation failed.",
+    )
+
+  if str(post_validation.get("status") or "").strip().lower() == "accepted":
+    issue_records_by_code = {}
+
+  issue_records = list(issue_records_by_code.values())
+  remaining_count = len(issue_records)
+  try:
+    last_review_iteration = int(float(base_state.get("last_review_iteration")))
+  except Exception:
+    last_review_iteration = None
+  return {
+    "contract_version": "cash_pass_controller_resolution_state_v1",
+    "status": phase_name,
+    "phase": "cash_pass",
+    "selected_cash_strategy": str(context.get("selected_cash_strategy") or decision.get("selected_cash_strategy") or "").strip(),
+    "last_review_iteration": last_review_iteration,
+    "detected_issue_count": remaining_count,
+    "remaining_issue_count": remaining_count,
+    "resolved_issue_count": 0 if remaining_count else int(_safe_float(base_state.get("resolved_issue_count")) or 0),
+    "tolerated_issue_count": 0,
+    "iteration_pending_issue_count": remaining_count,
+    "all_cleared": remaining_count == 0,
+    "remaining_issues": copy.deepcopy(issue_records),
+    "issue_status_records": copy.deepcopy(issue_records),
+    "cash_pass_visibility": {
+      "stage_visible_in_sql": True,
+      "required_funding_quarters": copy.deepcopy(required_funding_quarters),
+      "cash_buffer_violation_quarters": copy.deepcopy(cash_buffer_quarters),
+      "failed_rule_codes": copy.deepcopy(post_validation.get("failed_rule_codes") or []),
+      "phase": phase_name,
     },
   }
 
@@ -6895,6 +7459,11 @@ def _compact_numeric_guidance_for_prompt(
         "covered_metric_names": copy.deepcopy(item.get("covered_metric_names") or []),
       }
     )
+  compact_mapping_lookup = post_intake_compact_mapping_lookup_for_levers(
+    str(item.get("lever_id") or "").strip()
+    for item in compact_lever_entries
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  )
   return {
     "contract_version": str(guidance.get("contract_version") or "").strip(),
     "completion_policy": copy.deepcopy(guidance.get("completion_policy") or {}),
@@ -8204,14 +8773,19 @@ def _build_unified_numeric_guidance_packet(
       else {}
     )
     candidate_lever_pool: List[str] = []
-    table_issue_lever_ids = set(
-      post_intake_driver_target_lever_ids_for_issue(issue_code, phase="convergence")
-    )
     for lever_id in _preferred_issue_candidate_lever_ids(
       issue_record=issue_record,
       contract_packet=issue_packet,
     ):
-      if lever_id and lever_id in table_issue_lever_ids and lever_id not in candidate_lever_pool:
+      if (
+        lever_id
+        and post_intake_driver_target_lever_allowed_for_issue(
+          lever_id,
+          issue_code,
+          phase="convergence",
+        )
+        and lever_id not in candidate_lever_pool
+      ):
         candidate_lever_pool.append(lever_id)
     actionable_metric_names_from_specs = [
       str(spec.get("metric_name") or "").strip().lower()
@@ -8224,7 +8798,11 @@ def _build_unified_numeric_guidance_packet(
       )
     ]
     for lever_id in lever_catalog_map:
-      if lever_id not in table_issue_lever_ids:
+      if not post_intake_driver_target_lever_allowed_for_issue(
+        lever_id,
+        issue_code,
+        phase="convergence",
+      ):
         continue
       direct_metric_name = str(post_intake_direct_target_metric_for_lever(lever_id) or "").strip().lower()
       if (
@@ -10179,6 +10757,11 @@ def _persist_unified_convergence_state(
   unified_convergence_cycle_count: Optional[int],
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
+  cash_strategy_review_context: Optional[Dict[str, Any]] = None,
+  cash_strategy_review_decision: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
+  cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
+  cash_strategy_effect_summary: Optional[Dict[str, Any]] = None,
   controller_retry_heartbeat: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   return _persist_post_intake_stage_state(
@@ -10203,9 +10786,15 @@ def _persist_unified_convergence_state(
     unified_convergence_result=copy.deepcopy(unified_convergence_result or {}),
     unified_convergence_iterations=copy.deepcopy(unified_convergence_iterations or []),
     unified_convergence_cycle_count=unified_convergence_cycle_count,
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context or {}),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision or {}),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan or {}),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result or {}),
+    cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary or {}),
     controller_retry_heartbeat=copy.deepcopy(controller_retry_heartbeat or {}),
     explicit_numeric_feedback_candidates=[
       ("unified_convergence_result", unified_convergence_result),
+      ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
     ],
   )
 
@@ -12974,6 +13563,18 @@ def _preferred_issue_candidate_lever_ids(
     ]:
       if lever_id and lever_id not in mapped_candidates:
         mapped_candidates.append(lever_id)
+  issue_code = str(
+    contract.get("issue_code")
+    or prior.get("issue_code")
+    or record.get("issue_code")
+    or ""
+  ).strip().lower()
+  if issue_code:
+    return post_intake_issue_candidate_lever_ids(
+      issue_code,
+      preferred_lever_ids=mapped_candidates,
+      fallback_to_table=True,
+    )
   return mapped_candidates
 
 
@@ -18288,13 +18889,25 @@ def _build_convergence_retry_focus_packet(
       continue
     required_open_issue_codes.append(issue_code)
     contract_packet = issue_packet_map.get(issue_code) or {}
-    lever_ids = _preferred_issue_candidate_lever_ids(
-      issue_record=record,
-      contract_packet=contract_packet,
+    mapping_contract = post_intake_issue_mapping_contract(
+      issue_code,
+      preferred_lever_ids=_preferred_issue_candidate_lever_ids(
+        issue_record=record,
+        contract_packet=contract_packet,
+      ),
+      phase="convergence",
+      allowed_target_metric_names=allowed_target_metric_names,
     )
-    candidate_target_metric_names = post_intake_direct_target_metric_names_for_levers(
-      lever_ids
-    )
+    lever_ids = [
+      str(item).strip()
+      for item in (mapping_contract.get("candidate_lever_ids") or [])
+      if str(item).strip()
+    ]
+    candidate_target_metric_names = [
+      str(item).strip().lower()
+      for item in (mapping_contract.get("target_metric_names") or [])
+      if str(item).strip()
+    ]
     candidate_target_metric_name_set = set(candidate_target_metric_names)
     metric_candidates = [
       *_issue_packet_declared_target_metric_names(contract_packet),
@@ -24700,11 +25313,11 @@ def _business_world_contract(
       "business_world_contract_missing_business_stage: ops.business_stage or a parseable business_start_date is required before post-intake convergence."
     )
   business_age_months = _whole_months_between(start_date, today) if start_date is not None else None
-  resolved_stage_ramp_contract = (
-    copy.deepcopy(stage_ramp_contract)
-    if isinstance(stage_ramp_contract, dict) and stage_ramp_contract
-    else _business_stage_ramp_contract(stage)
-  )
+  if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
+    raise RuntimeError(
+      "business_world_contract_missing_gpt_stage_ramp_contract: GPT stage ramp contract is required before post-intake planning."
+    )
+  resolved_stage_ramp_contract = copy.deepcopy(stage_ramp_contract)
   return {
     "contract_version": "business_world_contract_v1",
     "business_stage": stage,
@@ -24741,143 +25354,15 @@ def _business_stage_family(stage: Any) -> str:
   return "operational"
 
 
-def _business_stage_ramp_contract(stage: Any) -> Dict[str, Any]:
-  family = _business_stage_family(stage)
-  policies = {
-    "startup": {
-      "revenue_qoq_growth_target_min": 0.05,
-      "revenue_qoq_growth_target_max": 0.40,
-      "revenue_qoq_default": 0.25,
-      "revenue_qoq_max_spike": 0.60,
-      "revenue_spike_window_quarters": [1, 2, 3, 4],
-      "utilization_launch_caps_by_quarter": {
-        1: 0.03,
-        2: 0.04,
-        3: 0.049,
-        4: 0.06,
-        5: 0.073,
-        6: 0.089,
-        7: 0.108,
-        8: 0.131,
-        9: 0.159,
-        10: 0.193,
-        11: 0.235,
-        12: 0.285,
-        13: 0.346,
-        14: 0.421,
-        15: 0.512,
-        16: 0.622,
-        17: 0.756,
-      },
-      "fte_qoq_default": 0.30,
-      "fte_qoq_max": 0.50,
-      "fte_qoq_max_spike": 1.00,
-      "fte_spike_small_base_threshold": 20.0,
-    },
-    "early": {
-      "revenue_qoq_growth_target_min": 0.05,
-      "revenue_qoq_growth_target_max": 0.20,
-      "revenue_qoq_default": 0.12,
-      "revenue_qoq_max_spike": 0.35,
-      "revenue_spike_window_quarters": [idx for idx in range(1, 20)],
-      "utilization_launch_caps_by_quarter": {
-        1: 0.25,
-        2: 0.30,
-        3: 0.36,
-        4: 0.43,
-        5: 0.52,
-        6: 0.62,
-        7: 0.75,
-      },
-      "fte_qoq_default": 0.20,
-      "fte_qoq_max": 0.35,
-      "fte_qoq_max_spike": 0.50,
-      "fte_spike_small_base_threshold": None,
-    },
-    "operational": {
-      "revenue_qoq_growth_target_min": 0.02,
-      "revenue_qoq_growth_target_max": 0.10,
-      "revenue_qoq_default": 0.06,
-      "revenue_qoq_max_spike": 0.20,
-      "revenue_spike_window_quarters": [idx for idx in range(1, 20)],
-      "utilization_launch_caps_by_quarter": {},
-      "fte_qoq_default": 0.10,
-      "fte_qoq_max": 0.20,
-      "fte_qoq_max_spike": 0.30,
-      "fte_spike_small_base_threshold": None,
-    },
-  }
-  contract = dict(policies.get(family) or policies["operational"])
-  contract.update(
-    {
-      "contract_version": "stage_ramp_contract_v1",
-      "stage_family": family,
-      "quarter_pair_scope": [f"Q{idx}->Q{idx + 1}" for idx in range(1, 20)],
-      "max_spike_count": 1,
-      "utilization_high_watermark": 0.85,
-      "capacity_support_rule": (
-        "Growth above the ordinary stage band must be supported by utilization ramp while utilization is below 85% "
-        "or by structural capacity expansion. Once utilization is already above 85%, further growth must be capacity-driven."
-      ),
-      "composite_revenue_formula": "sum(Capacity * Unit Price * Utilization) across revenue products",
-      "composite_revenue_ramp_is_binding": True,
-      "deterministic_validation": True,
-      "no_unchecked_growth": True,
-    }
-  )
-  contract["quarter_ramp_grid"] = _stage_ramp_grid_from_summary_contract(contract)
-  contract["quarter_grid_is_binding"] = True
-  return contract
-
-
-def _stage_ramp_grid_from_summary_contract(contract: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-  payload = contract if isinstance(contract, dict) else {}
-  ordinary_revenue_max = round(float(_safe_float(payload.get("revenue_qoq_growth_target_max")) or 0.0), 2)
-  target_revenue = round(float(_safe_float(payload.get("revenue_qoq_default")) or ordinary_revenue_max), 2)
-  spike_revenue_max = round(float(_safe_float(payload.get("revenue_qoq_max_spike")) or ordinary_revenue_max), 2)
-  ordinary_fte_max = round(float(_safe_float(payload.get("fte_qoq_max")) or ordinary_revenue_max), 2)
-  target_fte = round(float(_safe_float(payload.get("fte_qoq_default")) or ordinary_fte_max), 2)
-  spike_fte_max = round(float(_safe_float(payload.get("fte_qoq_max_spike")) or max(ordinary_fte_max, spike_revenue_max)), 2)
-  spike_from_quarters = {
-    int(_safe_float(item) or 0)
-    for item in (payload.get("revenue_spike_window_quarters") or [])
-    if int(_safe_float(item) or 0) >= 1
-  }
-  utilization_caps = payload.get("utilization_launch_caps_by_quarter")
-  utilization_caps = utilization_caps if isinstance(utilization_caps, dict) else {}
-  rows: List[Dict[str, Any]] = []
-  for quarter_index in range(1, 21):
-    spike_allowed = bool((quarter_index - 1) in spike_from_quarters and quarter_index > 1)
-    utilization_cap = _safe_float(
-      utilization_caps.get(quarter_index)
-      or utilization_caps.get(str(quarter_index))
-    )
-    rows.append(
-      {
-        "quarter_index": quarter_index,
-        "prior_quarter_index": quarter_index - 1 if quarter_index > 1 else 0,
-        "revenue_qoq_target": target_revenue,
-        "revenue_qoq_max": ordinary_revenue_max,
-        "revenue_qoq_spike_allowed": False if quarter_index == 1 else spike_allowed,
-        "revenue_qoq_spike_max": max(spike_revenue_max, ordinary_revenue_max),
-        "fte_qoq_target": target_fte,
-        "fte_qoq_max": max(ordinary_fte_max, ordinary_revenue_max),
-        "fte_qoq_spike_allowed": False if quarter_index == 1 else spike_allowed,
-        "fte_qoq_spike_max": max(spike_fte_max, spike_revenue_max),
-        "utilization_cap": round(float(utilization_cap if utilization_cap is not None else 1.0), 2),
-        "ramp_reason": "derived_from_summary_stage_ramp_contract",
-      }
-    )
-  return rows
-
-
 def _stage_ramp_grid_rows(contract: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
   payload = contract if isinstance(contract, dict) else {}
   raw_rows = payload.get("quarter_ramp_grid")
   if isinstance(raw_rows, list) and raw_rows:
     rows = [copy.deepcopy(row) for row in raw_rows if isinstance(row, dict)]
   else:
-    rows = _stage_ramp_grid_from_summary_contract(payload)
+    raise RuntimeError(
+      "stage_ramp_contract_missing_quarter_grid: GPT stage ramp contract must include quarter_ramp_grid."
+    )
   rows_by_quarter: Dict[int, Dict[str, Any]] = {}
   for row in rows:
     quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
@@ -25110,20 +25595,20 @@ def _operating_trajectory_allowed_levers(
     for item in _build_writable_lever_review_catalog(model_input_json)
     if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
   ]
-  table_issue_lever_ids = set(
-    post_intake_driver_target_lever_ids_for_issue(
-      "capacity_support_mismatch",
-      phase="convergence",
-    )
-  ) | set(
-    post_intake_driver_target_lever_ids_for_issue(
-      "p_and_l_flatline",
-      phase="convergence",
-    )
-  )
   allowed: List[str] = []
   for lever_id in available_lever_ids:
-    if lever_id not in table_issue_lever_ids:
+    if not (
+      post_intake_driver_target_lever_allowed_for_issue(
+        lever_id,
+        "capacity_support_mismatch",
+        phase="convergence",
+      )
+      or post_intake_driver_target_lever_allowed_for_issue(
+        lever_id,
+        "p_and_l_flatline",
+        phase="convergence",
+      )
+    ):
       continue
     mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
     target_metric = str(mapping_entry.get("target_metric_name") or "").strip().lower()
@@ -27567,6 +28052,64 @@ def _run_unified_post_grid_system_run(
   pre_cash_realism_memo_json = copy.deepcopy(realism_memo_json)
   pre_cash_controller_resolution_state = copy.deepcopy(controller_resolution_state)
   pre_cash_hard_rule_assessment = copy.deepcopy(hard_rule_assessment)
+  pre_cash_debt_semantics_seed = _apply_cash_pass_short_term_debt_current_portion(
+    cash_strategy_result={
+      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+      "applied_updates": [],
+    }
+  )
+  pre_cash_model_input_json = copy.deepcopy(
+    pre_cash_debt_semantics_seed.get("updated_model_input_json")
+    if isinstance(pre_cash_debt_semantics_seed.get("updated_model_input_json"), dict)
+    else pre_cash_model_input_json
+  )
+  pre_cash_finmo_json = copy.deepcopy(
+    pre_cash_debt_semantics_seed.get("updated_finmo_json")
+    if isinstance(pre_cash_debt_semantics_seed.get("updated_finmo_json"), dict)
+    else pre_cash_finmo_json
+  )
+
+  def _persist_cash_pass_stage(
+    *,
+    stage: str,
+    status: str = "running",
+    cash_controller_resolution_state: Optional[Dict[str, Any]] = None,
+    cash_strategy_review_context_payload: Optional[Dict[str, Any]] = None,
+    cash_strategy_review_decision_payload: Optional[Dict[str, Any]] = None,
+    cash_strategy_second_pass_plan_payload: Optional[Dict[str, Any]] = None,
+    cash_strategy_second_pass_result_payload: Optional[Dict[str, Any]] = None,
+    model_input_payload: Optional[Dict[str, Any]] = None,
+    finmo_payload: Optional[Dict[str, Any]] = None,
+  ) -> None:
+    _persist_unified_convergence_state(
+      conn=conn,
+      draft_id=str(draft_id).strip(),
+      stage=stage,
+      status=status,
+      planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+      controller_resolution_state=copy.deepcopy(cash_controller_resolution_state or pre_cash_controller_resolution_state or {}),
+      resolution_summary=copy.deepcopy(pre_cash_resolution_summary or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file=prompt_file,
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+      realism_memo_json=copy.deepcopy(pre_cash_realism_memo_json or {}),
+      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context_payload or {}),
+      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision_payload or {}),
+      cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan_payload or {}),
+      cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result_payload or {}),
+      unified_convergence_context=copy.deepcopy(unified_convergence_context or {}),
+      unified_convergence_decision=copy.deepcopy(unified_convergence_decision or {}),
+      unified_convergence_plan=copy.deepcopy(unified_convergence_plan or {}),
+      unified_convergence_result=copy.deepcopy(unified_convergence_result or {}),
+      unified_convergence_iterations=copy.deepcopy(unified_convergence_iterations),
+      unified_convergence_cycle_count=unified_convergence_cycle_count,
+      model_input_json=copy.deepcopy(model_input_payload or pre_cash_model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_payload or pre_cash_finmo_json or {}),
+    )
+
   cash_strategy_review_context = _build_cash_strategy_review_context_payload(
     draft_id=str(draft_id).strip(),
     business_facts=copy.deepcopy(business_facts or {}),
@@ -27579,6 +28122,16 @@ def _run_unified_post_grid_system_run(
     solved_finmo_json=copy.deepcopy(pre_cash_finmo_json),
     controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
     prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
+  )
+  cash_pass_review_controller_state = _build_cash_pass_controller_resolution_state(
+    phase="cash_pass_review_running",
+    base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+  )
+  _persist_cash_pass_stage(
+    stage="cash_pass_review_running",
+    cash_controller_resolution_state=copy.deepcopy(cash_pass_review_controller_state),
+    cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
   )
   cash_strategy_review_decision = _run_cash_strategy_review_openai(
     draft_id=str(draft_id).strip(),
@@ -27604,6 +28157,19 @@ def _run_unified_post_grid_system_run(
     else {}
   )
   if cash_review_failure_flags:
+    cash_pass_failed_controller_state = _build_cash_pass_controller_resolution_state(
+      phase="cash_pass_failed",
+      base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    )
+    _persist_cash_pass_stage(
+      stage="cash_pass_failed",
+      status="failed",
+      cash_controller_resolution_state=copy.deepcopy(cash_pass_failed_controller_state),
+      cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
+    )
     _handle_cash_strategy_test_mode_failure(
       _build_cash_strategy_test_failure_payload(
         review_payload=copy.deepcopy(cash_strategy_review_decision),
@@ -27613,6 +28179,18 @@ def _run_unified_post_grid_system_run(
         detail=str(cash_strategy_review_decision.get("detail") or "").strip() or "cash_strategy_review_failed",
       )
     )
+  cash_pass_plan_controller_state = _build_cash_pass_controller_resolution_state(
+    phase="cash_pass_plan_running",
+    base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+  )
+  _persist_cash_pass_stage(
+    stage="cash_pass_plan_running",
+    cash_controller_resolution_state=copy.deepcopy(cash_pass_plan_controller_state),
+    cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
+  )
   cash_strategy_second_pass_plan = _build_cash_strategy_second_pass_plan(
     review_decision_payload=copy.deepcopy(review_payload_with_context),
     solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
@@ -27629,6 +28207,21 @@ def _run_unified_post_grid_system_run(
     if str(item).strip() in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS
   ]
   if cash_plan_fail_flags:
+    cash_pass_failed_controller_state = _build_cash_pass_controller_resolution_state(
+      phase="cash_pass_failed",
+      base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+      cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    )
+    _persist_cash_pass_stage(
+      stage="cash_pass_failed",
+      status="failed",
+      cash_controller_resolution_state=copy.deepcopy(cash_pass_failed_controller_state),
+      cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
+      cash_strategy_second_pass_plan_payload=copy.deepcopy(cash_strategy_second_pass_plan),
+    )
     _handle_cash_strategy_test_mode_failure(
       _build_cash_strategy_test_failure_payload(
         review_payload=copy.deepcopy(cash_strategy_review_decision),
@@ -27639,6 +28232,20 @@ def _run_unified_post_grid_system_run(
         detail="cash_strategy_second_pass_plan_failed",
       )
     )
+  cash_pass_application_controller_state = _build_cash_pass_controller_resolution_state(
+    phase="cash_pass_application_running",
+    base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+  )
+  _persist_cash_pass_stage(
+    stage="cash_pass_application_running",
+    cash_controller_resolution_state=copy.deepcopy(cash_pass_application_controller_state),
+    cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan_payload=copy.deepcopy(cash_strategy_second_pass_plan),
+  )
   cash_strategy_second_pass_result = _apply_cash_strategy_exact_updates(
     review_plan=copy.deepcopy(cash_strategy_second_pass_plan),
     current_model_input_json=copy.deepcopy(pre_cash_model_input_json),
@@ -27660,6 +28267,25 @@ def _run_unified_post_grid_system_run(
     iteration=cash_validation_iteration,
   )
   cash_strategy_second_pass_result["post_validation"] = copy.deepcopy(cash_post_validation)
+  cash_pass_validation_controller_state = _build_cash_pass_controller_resolution_state(
+    phase="cash_pass_validation_running",
+    base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+    cash_post_validation=copy.deepcopy(cash_post_validation),
+  )
+  _persist_cash_pass_stage(
+    stage="cash_pass_validation_running",
+    cash_controller_resolution_state=copy.deepcopy(cash_pass_validation_controller_state),
+    cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan_payload=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result_payload=copy.deepcopy(cash_strategy_second_pass_result),
+    model_input_payload=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or pre_cash_model_input_json),
+    finmo_payload=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or pre_cash_finmo_json),
+  )
   post_validation_fail_flags = [
     str(item).strip()
     for item in (cash_post_validation.get("failed_rule_codes") or [])
@@ -27705,6 +28331,26 @@ def _run_unified_post_grid_system_run(
     if str(item).strip() in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS
   ]
   if cash_strategy_result_fail_flags:
+    cash_pass_failed_controller_state = _build_cash_pass_controller_resolution_state(
+      phase="cash_pass_failed",
+      base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
+      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+      cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+      cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+      cash_post_validation=copy.deepcopy(cash_post_validation),
+    )
+    _persist_cash_pass_stage(
+      stage="cash_pass_failed",
+      status="failed",
+      cash_controller_resolution_state=copy.deepcopy(cash_pass_failed_controller_state),
+      cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
+      cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
+      cash_strategy_second_pass_plan_payload=copy.deepcopy(cash_strategy_second_pass_plan),
+      cash_strategy_second_pass_result_payload=copy.deepcopy(cash_strategy_second_pass_result),
+      model_input_payload=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or final_model_input_json),
+      finmo_payload=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or final_finmo_json),
+    )
     _handle_cash_strategy_test_mode_failure(
       _build_cash_strategy_test_failure_payload(
         review_payload=copy.deepcopy(cash_strategy_review_decision),
@@ -27768,7 +28414,7 @@ def _run_unified_post_grid_system_run(
     "cost_telemetry": _openai_call_telemetry_snapshot(),
   }
   next_planning_run_json = _build_planning_run_payload(
-    stage="convergence_completed",
+    stage="cash_pass_completed",
     status="completed",
     controller_resolution_state=copy.deepcopy(controller_resolution_state),
     resolution_summary=copy.deepcopy(resolution_summary),
@@ -27838,7 +28484,10 @@ def _run_unified_post_grid_system_run(
     planning_run_json=next_planning_run_json,
     numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
-      explicit_candidates=[("unified_convergence_result", unified_convergence_result)],
+      explicit_candidates=[
+        ("unified_convergence_result", unified_convergence_result),
+        ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
+      ],
     ),
     financial_story=copy.deepcopy(financial_story_payload),
     active_focus="done",
@@ -27847,7 +28496,7 @@ def _run_unified_post_grid_system_run(
     completed=True,
     checkpoint_kind="run_complete",
     event_type="run_completed",
-    event_summary="convergence_completed:completed",
+    event_summary="cash_pass_completed:completed",
   )
   if isinstance(persisted_completion, dict) and isinstance(persisted_completion.get("planning_run_json"), dict):
     next_planning_run_json = copy.deepcopy(persisted_completion.get("planning_run_json") or next_planning_run_json)
@@ -27862,7 +28511,10 @@ def _run_unified_post_grid_system_run(
     ),
     "numeric_solver_feedback_json": _extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
-      explicit_candidates=[("unified_convergence_result", unified_convergence_result)],
+      explicit_candidates=[
+        ("unified_convergence_result", unified_convergence_result),
+        ("cash_strategy_second_pass_result", cash_strategy_second_pass_result),
+      ],
     ),
     "financial_story": (
       copy.deepcopy(persisted_completion.get("financial_story"))
@@ -28320,6 +28972,223 @@ def _run_planning_system_for_draft(
     lifecycle_mode=lifecycle_mode,
     planning_run_id=planning_run_id,
   )
+
+
+def _minimal_controller_state_from_convergence_payloads(
+  *,
+  planning_convergence_payload: Optional[Dict[str, Any]],
+  convergence_state_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  planning_payload = (
+    planning_convergence_payload
+    if isinstance(planning_convergence_payload, dict)
+    else {}
+  )
+  convergence_payload = (
+    convergence_state_payload
+    if isinstance(convergence_state_payload, dict)
+    else {}
+  )
+  issue_state = (
+    convergence_payload.get("issue_state")
+    if isinstance(convergence_payload.get("issue_state"), dict)
+    else {}
+  )
+  hard_rule_state = (
+    convergence_payload.get("hard_rule_state")
+    if isinstance(convergence_payload.get("hard_rule_state"), dict)
+    else {}
+  )
+  controller_status = str(
+    issue_state.get("controller_status")
+    or planning_payload.get("controller_status")
+    or ""
+  ).strip() or None
+  remaining_issue_count = _safe_float(
+    issue_state.get("remaining_issue_count")
+    if issue_state.get("remaining_issue_count") is not None
+    else planning_payload.get("remaining_issue_count")
+  )
+  all_cleared = bool(
+    controller_status == "all_cleared"
+    or (remaining_issue_count is not None and remaining_issue_count <= 0.0)
+  )
+  return {
+    "status": controller_status,
+    "all_cleared": all_cleared,
+    "detected_issue_count": (
+      int(_safe_float(issue_state.get("detected_issue_count")) or 0)
+      if issue_state.get("detected_issue_count") is not None
+      else planning_payload.get("detected_issue_count")
+    ),
+    "remaining_issue_count": (
+      int(_safe_float(remaining_issue_count) or 0)
+      if remaining_issue_count is not None
+      else None
+    ),
+    "resolved_issue_count": (
+      int(_safe_float(issue_state.get("resolved_issue_count")) or 0)
+      if issue_state.get("resolved_issue_count") is not None
+      else planning_payload.get("resolved_issue_count")
+    ),
+    "tolerated_issue_count": (
+      int(_safe_float(issue_state.get("tolerated_issue_count")) or 0)
+      if issue_state.get("tolerated_issue_count") is not None
+      else planning_payload.get("tolerated_issue_count")
+    ),
+    "iteration_pending_issue_count": (
+      int(_safe_float(issue_state.get("iteration_pending_issue_count")) or 0)
+      if issue_state.get("iteration_pending_issue_count") is not None
+      else planning_payload.get("iteration_pending_issue_count")
+    ),
+    "overall_completion_score_pct": issue_state.get("overall_completion_score_pct"),
+    "overall_completion_grade": issue_state.get("overall_completion_grade"),
+    "lowest_quarter_score_pct": issue_state.get("lowest_quarter_score_pct"),
+    "failing_quarters": copy.deepcopy(issue_state.get("failing_quarters") or []),
+    "remaining_hard_issue_count": (
+      int(_safe_float(hard_rule_state.get("remaining_hard_issue_count")) or 0)
+      if hard_rule_state.get("remaining_hard_issue_count") is not None
+      else None
+    ),
+  }
+
+
+def _latest_failure_preservation_payloads(
+  *,
+  conn,
+  draft_id: str,
+  planning_run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+  draft = get_draft(conn, draft_id=str(draft_id).strip())
+  latest_checkpoint = None
+  run_id = str(planning_run_id or "").strip()
+  if not run_id:
+    latest_checkpoint = get_latest_planning_run_checkpoint(
+      conn,
+      draft_id=str(draft_id).strip(),
+    )
+    run_id = str((latest_checkpoint or {}).get("planning_run_id") or "").strip()
+  candidate_checkpoints: List[Dict[str, Any]] = []
+  if run_id:
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        """
+        SELECT checkpoint_id, checkpoint_kind, planning_convergence_json, convergence_state_json, created_at
+        FROM planning_run_checkpoints
+        WHERE planning_run_id = %s
+        ORDER BY created_at DESC
+        LIMIT 12
+        """,
+        (run_id,),
+      )
+      candidate_checkpoints = [
+        row for row in (cur.fetchall() or [])
+        if isinstance(row, dict)
+      ]
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  if candidate_checkpoints:
+    latest_checkpoint = candidate_checkpoints[0]
+  elif latest_checkpoint is None:
+    latest_checkpoint = get_latest_planning_run_checkpoint(
+      conn,
+      planning_run_id=run_id or None,
+      draft_id=str(draft_id).strip(),
+    )
+  candidate_rows = []
+  for row in candidate_checkpoints:
+    candidate_rows.append(row)
+  if isinstance(latest_checkpoint, dict) and latest_checkpoint not in candidate_rows:
+    candidate_rows.append(latest_checkpoint)
+  if isinstance(draft, dict):
+    candidate_rows.append(draft)
+
+  preserved_planning_convergence: Dict[str, Any] = {}
+  preserved_convergence_state: Dict[str, Any] = {}
+  source_kind: Optional[str] = None
+  source_checkpoint_id: Optional[str] = None
+  for row in candidate_rows:
+    planning_convergence_payload = _parse_json_dict(row.get("planning_convergence_json"))
+    convergence_payload = _parse_json_dict(row.get("convergence_state_json"))
+    issue_state = (
+      convergence_payload.get("issue_state")
+      if isinstance(convergence_payload.get("issue_state"), dict)
+      else {}
+    )
+    has_counts = any(
+      issue_state.get(key) is not None
+      for key in (
+        "remaining_issue_count",
+        "resolved_issue_count",
+        "tolerated_issue_count",
+        "overall_completion_score_pct",
+      )
+    )
+    if planning_convergence_payload or convergence_payload or has_counts:
+      preserved_planning_convergence = copy.deepcopy(planning_convergence_payload)
+      preserved_convergence_state = copy.deepcopy(convergence_payload)
+      source_kind = "checkpoint" if row is not draft else "draft"
+      source_checkpoint_id = str(row.get("checkpoint_id") or "").strip() or None
+      if has_counts:
+        break
+
+  return {
+    "planning_convergence_json": preserved_planning_convergence,
+    "convergence_state_json": preserved_convergence_state,
+    "source_kind": source_kind,
+    "source_checkpoint_id": source_checkpoint_id,
+  }
+
+
+def _merge_terminal_failure_context(
+  *,
+  planning_convergence_payload: Optional[Dict[str, Any]],
+  convergence_state_payload: Optional[Dict[str, Any]],
+  current_stage: str,
+  detail: str,
+  source_kind: Optional[str] = None,
+  source_checkpoint_id: Optional[str] = None,
+  failure_diagnostics: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], bool]:
+  planning_payload = (
+    copy.deepcopy(planning_convergence_payload)
+    if isinstance(planning_convergence_payload, dict)
+    else {}
+  )
+  convergence_payload = (
+    copy.deepcopy(convergence_state_payload)
+    if isinstance(convergence_state_payload, dict)
+    else {}
+  )
+  controller_state = _minimal_controller_state_from_convergence_payloads(
+    planning_convergence_payload=planning_payload,
+    convergence_state_payload=convergence_payload,
+  )
+  terminal_failure_after_all_cleared = bool(controller_state.get("all_cleared"))
+  failure_context = {
+    "failure_reason": str(detail or "").strip() or None,
+    "failed_stage": str(current_stage or "").strip() or None,
+    "source_kind": str(source_kind or "").strip() or None,
+    "source_checkpoint_id": str(source_checkpoint_id or "").strip() or None,
+    "preserved_last_known_good_state": bool(planning_payload or convergence_payload),
+    "terminal_failure_after_all_cleared": terminal_failure_after_all_cleared,
+  }
+  if isinstance(failure_diagnostics, dict) and failure_diagnostics:
+    failure_context["failure_diagnostics"] = copy.deepcopy(failure_diagnostics)
+  planning_payload["status"] = "failed"
+  planning_payload["run_status"] = "failed"
+  planning_payload["failure_reason"] = str(detail or "").strip() or None
+  planning_payload["terminal_failure_context"] = copy.deepcopy(failure_context)
+  if convergence_payload:
+    convergence_payload["status"] = "failed"
+    convergence_payload["stage"] = str(current_stage or "").strip() or None
+    convergence_payload["failure_reason"] = str(detail or "").strip() or None
+    convergence_payload["terminal_failure_context"] = copy.deepcopy(failure_context)
+  return planning_payload, convergence_payload, controller_state, terminal_failure_after_all_cleared
 
 
 def _persist_failed_system_run_snapshot(

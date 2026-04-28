@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_direct_target_metric_names_for_levers,
+  post_intake_driver_target_lever_allowed_for_issue,
   post_intake_driver_target_lever_ids_for_issue,
   post_intake_driver_target_mapping_errors,
   post_intake_driver_target_metric_ids,
@@ -235,14 +236,25 @@ def _infer_issue_lever_ids(
     for entry in entries
     if str(entry.get("lever_id") or "").strip()
   }
+  phase = "cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence"
   selected = [
     lever_id
-    for lever_id in post_intake_driver_target_lever_ids_for_issue(
+    for lever_id in available
+    if post_intake_driver_target_lever_allowed_for_issue(
+      lever_id,
       issue_code,
-      phase="cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence",
+      phase=phase,
     )
-    if lever_id in available
   ]
+  if not selected:
+    selected = [
+      lever_id
+      for lever_id in post_intake_driver_target_lever_ids_for_issue(
+        issue_code,
+        phase=phase,
+      )
+      if lever_id in available
+    ]
   return selected[:12]
 
 

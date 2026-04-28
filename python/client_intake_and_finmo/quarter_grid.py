@@ -759,93 +759,6 @@ def _stage_family(stage: Any) -> str:
   return "operational"
 
 
-def _stage_ramp_contract(stage: Any) -> Dict[str, Any]:
-  family = _stage_family(stage)
-  policies = {
-    "startup": {
-      "revenue_qoq_growth_target_min": 0.05,
-      "revenue_qoq_growth_target_max": 0.40,
-      "revenue_qoq_default": 0.25,
-      "revenue_qoq_max_spike": 0.60,
-      "revenue_spike_window_quarters": [1, 2, 3, 4],
-      "utilization_launch_caps_by_quarter": {
-        1: 0.03,
-        2: 0.04,
-        3: 0.049,
-        4: 0.06,
-        5: 0.073,
-        6: 0.089,
-        7: 0.108,
-        8: 0.131,
-        9: 0.159,
-        10: 0.193,
-        11: 0.235,
-        12: 0.285,
-        13: 0.346,
-        14: 0.421,
-        15: 0.512,
-        16: 0.622,
-        17: 0.756,
-      },
-      "fte_qoq_default": 0.30,
-      "fte_qoq_max": 0.50,
-      "fte_qoq_max_spike": 1.00,
-      "fte_spike_small_base_threshold": 20.0,
-    },
-    "early": {
-      "revenue_qoq_growth_target_min": 0.05,
-      "revenue_qoq_growth_target_max": 0.20,
-      "revenue_qoq_default": 0.12,
-      "revenue_qoq_max_spike": 0.35,
-      "revenue_spike_window_quarters": [idx for idx in range(1, 20)],
-      "utilization_launch_caps_by_quarter": {
-        1: 0.25,
-        2: 0.30,
-        3: 0.36,
-        4: 0.43,
-        5: 0.52,
-        6: 0.62,
-        7: 0.75,
-      },
-      "fte_qoq_default": 0.20,
-      "fte_qoq_max": 0.35,
-      "fte_qoq_max_spike": 0.50,
-      "fte_spike_small_base_threshold": None,
-    },
-    "operational": {
-      "revenue_qoq_growth_target_min": 0.02,
-      "revenue_qoq_growth_target_max": 0.10,
-      "revenue_qoq_default": 0.06,
-      "revenue_qoq_max_spike": 0.20,
-      "revenue_spike_window_quarters": [idx for idx in range(1, 20)],
-      "utilization_launch_caps_by_quarter": {},
-      "fte_qoq_default": 0.10,
-      "fte_qoq_max": 0.20,
-      "fte_qoq_max_spike": 0.30,
-      "fte_spike_small_base_threshold": None,
-    },
-  }
-  contract = dict(policies.get(family) or policies["operational"])
-  contract.update(
-    {
-      "contract_version": "stage_ramp_contract_v1",
-      "stage_family": family,
-      "quarter_pair_scope": [f"Q{idx}->Q{idx + 1}" for idx in range(1, 20)],
-      "max_spike_count": 1,
-      "utilization_high_watermark": 0.85,
-      "capacity_support_rule": (
-        "FTE/revenue growth above the ordinary stage band must be supported by utilization ramp while utilization is below 85% "
-        "or by structural capacity expansion. Once utilization is already above 85%, further growth must be capacity-driven."
-      ),
-      "composite_revenue_formula": "sum(Capacity * Unit Price * Utilization) across revenue products",
-      "composite_revenue_ramp_is_binding": True,
-      "deterministic_validation": True,
-      "no_unchecked_growth": True,
-    }
-  )
-  return contract
-
-
 def _stage_governance_context(
   *,
   ops_json: Dict[str, Any],
@@ -872,11 +785,11 @@ def _stage_governance_context(
   else:
     stage = "operating"
   age_months = _whole_months_between(start_date, today) if start_date is not None else None
-  ramp_contract = (
-    copy.deepcopy(stage_ramp_contract)
-    if isinstance(stage_ramp_contract, dict) and stage_ramp_contract
-    else _stage_ramp_contract(stage)
-  )
+  if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
+    raise RuntimeError(
+      "quarter_grid_missing_gpt_stage_ramp_contract: GPT stage ramp contract is required before quarter-grid planning."
+    )
+  ramp_contract = copy.deepcopy(stage_ramp_contract)
   context = {
     "contract_version": "quarter_grid_lifecycle_governance_v1",
     "business_stage": stage,
