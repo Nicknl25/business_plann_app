@@ -3030,6 +3030,17 @@ def _build_model_input_overlay(
     lob = str(row.get("lob") or placeholder_lob).strip()
     product = str(row.get("product") or placeholder_product).strip()
     driver = str(row.get("driver") or "").strip()
+    intake_stub_value = base_stub_value
+    baseline_driver_map = (
+      (resolved_identity or {})
+      if isinstance(resolved_identity, dict) else {}
+    )
+    if driver == "Capacity":
+      intake_stub_value = round(_safe_float(baseline_driver_map.get("capacity")) or base_stub_value or 0.0, 6)
+    elif driver == "Unit Price":
+      intake_stub_value = round(_safe_float(baseline_driver_map.get("unit_price")) or base_stub_value or 0.0, 6)
+    elif driver == "Utilization":
+      intake_stub_value = round(_safe_ratio(baseline_driver_map.get("utilization")) or base_stub_value or 0.0, 6)
     values: List[float] = []
     if projection_mode:
       for slot_idx, child_map in enumerate(quarter_child_maps):
@@ -3051,10 +3062,6 @@ def _build_model_input_overlay(
           )
         values.append(round(_safe_float(driver_map.get(driver)) or 0.0, 6))
     else:
-      baseline_driver_map = (
-        (resolved_identity or {})
-        if isinstance(resolved_identity, dict) else {}
-      )
       baseline_value = 0.0
       if driver == "Capacity":
         baseline_value = round(_safe_float(baseline_driver_map.get("capacity")) or 0.0, 6)
@@ -3064,7 +3071,7 @@ def _build_model_input_overlay(
         baseline_value = round(_safe_ratio(baseline_driver_map.get("utilization")) or 0.0, 6)
       values = [baseline_value for _ in slots]
     row["values"] = _compose_period_values(
-      stub_value=base_stub_value,
+      stub_value=intake_stub_value,
       live_values=values,
     )
 
@@ -3083,6 +3090,12 @@ def _build_model_input_overlay(
   )
   if marketing_ratio_baseline is None:
     marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
+  r_and_d_ratio_baseline = (
+    _safe_ratio((financials_json or {}).get("r_and_d_percent"))
+    or _safe_ratio((financials_json or {}).get("research_and_development_percent"))
+    or _safe_ratio((financials_json or {}).get("rd_percent_of_revenue"))
+    or 0.0
+  )
   payroll_total_year1 = (
     _safe_float((financials_json or {}).get("payroll_total_year1"))
     or _safe_float((financials_json or {}).get("current_payroll"))
@@ -3112,6 +3125,23 @@ def _build_model_input_overlay(
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
     base_stub_value, base_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
+    intake_stub_value = base_stub_value
+    if label == "Cost of Goods Sold":
+      intake_stub_value = round(cogs_ratio_baseline, 6)
+    elif label == "Marketing":
+      intake_stub_value = round(marketing_ratio_baseline or 0.0, 6)
+    elif label == "Research & Development":
+      intake_stub_value = round(r_and_d_ratio_baseline, 6)
+    elif label == "Lease":
+      intake_stub_value = round(lease_amount, 6)
+    elif label == "Payroll":
+      intake_stub_value = round(quarterly_payroll, 6)
+    elif label == "General & Administrative":
+      intake_stub_value = round(max(0.0, g_and_a_ratio_baseline), 6)
+    elif label == "Interest Rate":
+      intake_stub_value = round(interest_rate_baseline, 6)
+    elif label == "Taxes":
+      intake_stub_value = round(_safe_ratio((financials_json or {}).get("taxes_percent")) or base_stub_value or 0.0, 6)
     values: List[float] = []
     for slot in slots:
       revenue = _safe_float(slot.get("revenue")) or 0.0
@@ -3154,7 +3184,7 @@ def _build_model_input_overlay(
       else:
         values.append(base_live_values[0] if base_live_values else 0.0)
     row["values"] = _compose_period_values(
-      stub_value=base_stub_value,
+      stub_value=intake_stub_value,
       live_values=values,
     )
 

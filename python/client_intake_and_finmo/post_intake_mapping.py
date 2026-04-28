@@ -18,6 +18,7 @@ _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
 _REVENUE_PATTERN_PREFIX = "revenue::*::*::"
 _ENSURE_MAPPING_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
+_POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
 
 def _clean_text(value: Any) -> str:
@@ -37,6 +38,98 @@ def _split_tokens(value: Any) -> List[str]:
     return []
   normalized = raw.replace(";", "|").replace(",", "|")
   return [item.strip() for item in normalized.split("|") if item.strip()]
+
+
+def stage_planning_ramp_policy(
+  *,
+  stage_family: Any,
+  planning_mode: Any,
+  planning_mode_reason: Any = "",
+  business_stage: Any = "",
+) -> Dict[str, Any]:
+  """Deterministic lifecycle policy shared by ramp GPT, validation, and quarter-grid."""
+  family = _clean_text(stage_family).lower() or "operational"
+  raw_mode = _clean_text(planning_mode).lower()
+  mode = raw_mode if raw_mode in _POST_INTAKE_PLANNING_MODES else "turnaround"
+  reason = _clean_text(planning_mode_reason).lower()
+  normalized_stage = _clean_text(business_stage).lower()
+  distress_tokens = ("distress", "rescue", "insolven", "survival", "turnaround")
+  explicit_distress_context = bool(
+    mode == "turnaround"
+    or any(token in reason for token in distress_tokens)
+  )
+
+  policy: Dict[str, Any] = {
+    "policy_version": "stage_planning_ramp_policy_v1",
+    "business_stage": normalized_stage,
+    "stage_family": family,
+    "planning_mode": mode,
+    "planning_mode_reason": reason,
+    "explicit_distress_context": explicit_distress_context,
+    "profitability_postures": ["loss_allowed", "improving_losses", "near_breakeven", "positive"],
+    "stage_rules": [],
+    "validator_rules": {
+      "q10_min_net_income_margin_floor": -0.02,
+      "q11_to_q20_min_net_income_margin_floor": 0.0,
+    },
+  }
+
+  if family == "startup":
+    policy["stage_rules"] = [
+      "Pre-revenue is a binding lifecycle state, not descriptive background.",
+      "Q1-Q4 must read like launch and ramp, not a mature operating run-rate.",
+      "Do not start Q1 at or near the late-horizon revenue, utilization, or capacity run-rate.",
+      "Capacity may exist ahead of demand, but revenue should come from staged utilization and price realization rather than instant full-scale operations.",
+      "Revenue, utilization, capacity, staffing support, capex, and profitability must ramp together.",
+      "Because Payroll is derived from revenue using OEWS/FTE logic, revenue must not ramp faster than the deterministic stage_ramp_contract allows.",
+      "Early losses or modest profitability may be realistic; instant mature profitability is not the goal.",
+    ]
+    policy["early_revenue_share_ceiling_of_late_run_rate"] = {
+      "Q1": 0.25,
+      "Q2": 0.40,
+      "Q3": 0.60,
+      "Q4": 0.80,
+    }
+  elif family == "early":
+    policy["stage_rules"] = [
+      "Early-stage is a binding lifecycle state, not descriptive background.",
+      "Q1-Q4 should still show a ramp and absorption curve.",
+      "Do not jump immediately to a mature run-rate without operating evidence.",
+      "Losses may be acceptable early if funded and improving.",
+      "Loss_allowed posture is not acceptable after Q8; by then losses must be improving or better.",
+    ]
+    policy["early_revenue_share_ceiling_of_late_run_rate"] = {
+      "Q1": 0.55,
+      "Q2": 0.70,
+      "Q3": 0.85,
+    }
+    policy["validator_rules"]["loss_allowed_latest_quarter"] = 8
+  elif explicit_distress_context:
+    policy["stage_rules"] = [
+      "Treat the business as already operating but in turnaround/distress posture.",
+      "Losses may exist early, but they must improve under the ramp contract rather than persist as an unresolved mature loss state.",
+      "Do not model a mature company as a launch-stage startup; operational scale already exists even when profitability is damaged.",
+      "Capacity expansion must be supported by operating recovery and stage reality.",
+    ]
+    policy["validator_rules"]["operational_distress_allows_early_losses"] = True
+  else:
+    policy["profitability_postures"] = ["near_breakeven", "positive"]
+    policy["stage_rules"] = [
+      "Treat the business as already operating unless facts contradict that.",
+      "Avoid fantasy resets; mature operating losses are not acceptable without explicit turnaround/distress planning mode.",
+      "The operating path should generally begin near breakeven or profitable; do not model an established company like a startup launch.",
+      "By Q5 the plan must use a positive profitability posture.",
+      "Capacity expansion must be supported by operating earnings and stage reality.",
+    ]
+    policy["validator_rules"].update(
+      {
+        "operational_requires_nonnegative_from_q1": True,
+        "operational_requires_positive_from_q5": True,
+        "q1_to_q20_min_net_income_margin_floor": 0.0,
+        "q5_to_q20_min_net_income_margin_floor": 0.02,
+      }
+    )
+  return policy
 
 
 def _normalized_metric_id_from_field(financial_model_field: Any) -> str:

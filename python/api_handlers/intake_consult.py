@@ -80,6 +80,7 @@ try:
     post_intake_driver_target_single_lever_id_for_target_driver,
     post_intake_issue_candidate_lever_ids,
     post_intake_issue_mapping_contract,
+    stage_planning_ramp_policy,
   )
 except Exception:
   from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
@@ -96,6 +97,7 @@ except Exception:
     post_intake_driver_target_single_lever_id_for_target_driver,
     post_intake_issue_candidate_lever_ids,
     post_intake_issue_mapping_contract,
+    stage_planning_ramp_policy,
   )
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
@@ -10974,10 +10976,29 @@ def _validate_stage_ramp_contract_payload(
   *,
   payload: Optional[Dict[str, Any]],
   expected_stage_family: str,
+  business_stage: Optional[str] = None,
+  planning_mode: Optional[str] = None,
+  planning_mode_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
   candidate = payload if isinstance(payload, dict) else {}
   errors: List[str] = []
   expected_family = str(expected_stage_family or "").strip().lower() or "operational"
+  normalized_stage = str(business_stage or "").strip().lower()
+  policy = stage_planning_ramp_policy(
+    stage_family=expected_family,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    business_stage=business_stage,
+  )
+  normalized_mode = str(policy.get("planning_mode") or planning_mode or "").strip().lower()
+  normalized_mode_reason = str(policy.get("planning_mode_reason") or planning_mode_reason or "").strip().lower()
+  explicit_distress_context = bool(policy.get("explicit_distress_context"))
+  validator_rules = policy.get("validator_rules") if isinstance(policy.get("validator_rules"), dict) else {}
+  allowed_postures = {
+    str(item or "").strip().lower()
+    for item in (policy.get("profitability_postures") or [])
+    if str(item or "").strip()
+  } or {"loss_allowed", "improving_losses", "near_breakeven", "positive"}
   stage_family = str(candidate.get("stage_family") or "").strip().lower()
   if stage_family != expected_family:
     errors.append(f"stage_family must be {expected_family}; received {stage_family or 'missing'}")
@@ -11101,6 +11122,28 @@ def _validate_stage_ramp_contract_payload(
       errors.append(
         f"quarter_ramp_grid Q{quarter_index} profitability_posture must be loss_allowed, improving_losses, near_breakeven, or positive"
       )
+    elif profitability_posture not in allowed_postures:
+      errors.append(
+        f"quarter_ramp_grid Q{quarter_index} profitability_posture {profitability_posture!r} conflicts with stage/planning policy "
+        f"{policy.get('policy_version')}: allowed={sorted(allowed_postures)}"
+      )
+    if bool(validator_rules.get("operational_requires_nonnegative_from_q1")):
+      if profitability_posture not in allowed_postures:
+        errors.append(
+          f"quarter_ramp_grid Q{quarter_index} operational stage cannot use startup loss posture {profitability_posture!r} "
+          "unless planning mode explicitly indicates distress or turnaround."
+        )
+      if float(parsed.get("net_income_margin_floor") or 0.0) < 0.0:
+        errors.append(
+          f"quarter_ramp_grid Q{quarter_index} operational stage requires ni_floor >= 0.00; "
+          f"received {parsed.get('net_income_margin_floor')}"
+        )
+    loss_allowed_latest = _safe_float(validator_rules.get("loss_allowed_latest_quarter"))
+    if loss_allowed_latest is not None and quarter_index > int(loss_allowed_latest):
+      if profitability_posture == "loss_allowed":
+        errors.append(
+          f"quarter_ramp_grid Q{quarter_index} stage/planning policy does not allow loss_allowed after Q{int(loss_allowed_latest)}."
+        )
     reason = str(item.get("why") or "").strip()
     if not reason:
       errors.append(f"quarter_ramp_grid Q{quarter_index} ramp_reason is required")
@@ -11164,14 +11207,31 @@ def _validate_stage_ramp_contract_payload(
         "quarter_ramp_grid net_income_margin_floor must generally improve from Q5 onward; "
         f"Q{quarter_index - 1}->{quarter_index} declined from {prior_margin_floor} to {margin_floor}"
       )
-    if quarter_index == 10 and margin_floor < -0.02:
+    q10_min_floor = _safe_float(validator_rules.get("q10_min_net_income_margin_floor"))
+    if q10_min_floor is None:
+      q10_min_floor = -0.02
+    if quarter_index == 10 and margin_floor < float(q10_min_floor):
       errors.append(
-        f"quarter_ramp_grid Q10 net_income_margin_floor must be near breakeven (>= -0.02); received {margin_floor}"
+        f"quarter_ramp_grid Q10 net_income_margin_floor must be near breakeven (>= {q10_min_floor}); received {margin_floor}"
       )
-    if quarter_index >= 11 and margin_floor < 0.0:
+    q11_min_floor = _safe_float(validator_rules.get("q11_to_q20_min_net_income_margin_floor"))
+    if q11_min_floor is None:
+      q11_min_floor = 0.0
+    if quarter_index >= 11 and margin_floor < float(q11_min_floor):
       errors.append(
-        f"quarter_ramp_grid Q{quarter_index} net_income_margin_floor must be nonnegative after Q10; received {margin_floor}"
+        f"quarter_ramp_grid Q{quarter_index} net_income_margin_floor must be >= {q11_min_floor} after Q10; received {margin_floor}"
       )
+    q5_floor = _safe_float(validator_rules.get("q5_to_q20_min_net_income_margin_floor"))
+    if q5_floor is not None and quarter_index >= 5 and margin_floor < float(q5_floor):
+      errors.append(
+        f"quarter_ramp_grid Q{quarter_index} stage/planning policy requires ni_floor >= {q5_floor} after Q4; received {margin_floor}"
+      )
+    if bool(validator_rules.get("operational_requires_positive_from_q5")) and quarter_index >= 5:
+      posture = str(row.get("profitability_posture") or "").strip().lower()
+      if posture != "positive":
+        errors.append(
+          f"quarter_ramp_grid Q{quarter_index} operational stage requires positive profitability posture after Q4; received {posture or 'missing'}"
+        )
     if quarter_index >= 5:
       prior_margin_floor = margin_floor
 
@@ -11256,6 +11316,13 @@ def _validate_stage_ramp_contract_payload(
     "deterministic_validation": True,
     "no_unchecked_growth": True,
     "rationale": rationale,
+    "stage_profitability_policy": {
+      **copy.deepcopy(policy),
+      "business_stage": normalized_stage,
+      "planning_mode": normalized_mode,
+      "planning_mode_reason": normalized_mode_reason,
+      "explicit_distress_context": explicit_distress_context,
+    },
   }
   contract["quarter_pair_scope"] = [f"Q{idx}->Q{idx + 1}" for idx in range(1, 20)]
   return contract
@@ -11449,6 +11516,12 @@ def _estimate_stage_ramp_contract_with_gpt(
       "stage_ramp_contract_missing_business_stage: ops.business_stage or business_start_date is required."
     )
   expected_family = _business_stage_family(stage)
+  stage_policy = stage_planning_ramp_policy(
+    stage_family=expected_family,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    business_stage=stage,
+  )
   revenue_driver_states = _model_input_revenue_driver_quarter_states(model_input_json)
   finmo_rows = [
     row for row in ((finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
@@ -11490,6 +11563,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       "initial_assets": financials.get("initial_assets"),
       "total_debt_outstanding": financials.get("total_debt_outstanding"),
     },
+    "stage_profitability_policy": stage_policy,
     "current_model_snapshot": {
       "revenue_driver_states_first_8_quarters": {
         int(key): value
@@ -11520,6 +11594,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       "Because Payroll/FTE is revenue-derived, each row's fte_max must be at least rev_max and fte_spike_max must be at least rev_spike_max.",
       "max_util is a maximum achievable utilization ceiling, not the current utilization target. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth.",
       "Every row must include COGS, marketing, R&D, G&A, lease, net income margin floor, and profitability posture maturity fields.",
+      "Business stage, planning mode, and ramp must satisfy stage_profitability_policy exactly; do not choose a ramp posture outside that policy.",
       "Cost maturity fields are decimal ratios of revenue. They are guardrail caps for model-input cost-driver rows, not target outputs.",
       "cogs_max must be at least 0.20 so it does not conflict with the model's direct COGS operating envelope.",
       "Do not make Marketing and R&D identical unless this specific business model makes that economically natural.",
@@ -11543,6 +11618,7 @@ def _estimate_stage_ramp_contract_with_gpt(
     "max_util is the maximum achievable utilization ceiling for the quarter and must never decline; it is not the "
     "current utilization target. Be strict enough to prevent fantasy growth, fake instant profitability, and "
     "artificial same-value cost buckets."
+    " Use stage_profitability_policy as the binding bridge between planning mode, business stage, and ramp posture."
   )
   payload = {
     "model": _openai_model(),
@@ -11581,6 +11657,9 @@ def _estimate_stage_ramp_contract_with_gpt(
         contract = _validate_stage_ramp_contract_payload(
           payload=current_parsed,
           expected_stage_family=expected_family,
+          business_stage=stage,
+          planning_mode=planning_mode,
+          planning_mode_reason=planning_mode_reason,
         )
         break
       except RuntimeError as exc:
@@ -11607,6 +11686,9 @@ def _estimate_stage_ramp_contract_with_gpt(
                       "max_util is a maximum achievable utilization ceiling, not current utilization. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth. "
                       "Every row must include realistic cost maturity fields, posture, and ni_floor. "
                       "cogs_max must be >= 0.20. "
+                      "Business stage controls profitability posture. For operational stage without explicit distress, "
+                      "Q1-Q20 ni_floor must be >= 0.00, Q5-Q20 ni_floor must be >= 0.02, Q1-Q4 posture must be near_breakeven or positive, "
+                      "and Q5-Q20 posture must be positive. For early stage, loss_allowed posture is not allowed after Q8. "
                       "Q10 ni_floor must be >= -0.02 and Q11-Q20 must be >= 0.00. "
                       "Do not make Marketing and R&D identical unless the business context truly supports it. "
                       "quarter_ramp_grid must contain exactly 20 active rows. Q1 is part of the forecast and must not be zeroed out as a placeholder. "

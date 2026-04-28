@@ -30,6 +30,11 @@ except Exception:
     def normalize_realism_memo_payload(payload: Any) -> Dict[str, Any]:
       return {"status": "not_generated", "issues": []}
 
+try:
+  from post_intake_mapping import stage_planning_ramp_policy  # type: ignore
+except Exception:
+  from client_intake_and_finmo.post_intake_mapping import stage_planning_ramp_policy  # type: ignore
+
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
     "Assume you are allowed to use every listed variable as part of one coherent repair plan for this actual company. "
@@ -790,53 +795,47 @@ def _stage_governance_context(
       "quarter_grid_missing_gpt_stage_ramp_contract: GPT stage ramp contract is required before quarter-grid planning."
     )
   ramp_contract = copy.deepcopy(stage_ramp_contract)
+  expected_stage_family = _stage_family(stage)
+  contract_stage_family = str(ramp_contract.get("stage_family") or "").strip().lower()
+  if contract_stage_family != expected_stage_family:
+    raise RuntimeError(
+      "quarter_grid_stage_ramp_contract_mismatch: GPT stage ramp contract does not match resolved business stage. "
+      + json.dumps(
+        {
+          "business_stage": stage,
+          "expected_stage_family": expected_stage_family,
+          "contract_stage_family": contract_stage_family or None,
+          "planning_mode": str(planning_mode or "").strip().lower(),
+        },
+        ensure_ascii=False,
+      )
+    )
+  policy = stage_planning_ramp_policy(
+    stage_family=expected_stage_family,
+    planning_mode=planning_mode,
+    planning_mode_reason=(ramp_contract.get("stage_profitability_policy") or {}).get("planning_mode_reason")
+    if isinstance(ramp_contract.get("stage_profitability_policy"), dict)
+    else "",
+    business_stage=stage,
+  )
   context = {
     "contract_version": "quarter_grid_lifecycle_governance_v1",
     "business_stage": stage,
-    "stage_family": ramp_contract.get("stage_family"),
+    "stage_family": expected_stage_family,
     "business_start_date": start_date.isoformat() if start_date is not None else None,
     "business_age_months_at_run": age_months,
-    "planning_mode": str(planning_mode or "").strip().lower(),
+    "planning_mode": policy.get("planning_mode"),
     "binding": True,
     "stage_is_reality_limiter": True,
     "planning_mode_is_operating_posture": True,
+    "planning_mode_stage_ramp_consistency_required": True,
     "fail_fast_if_ignored": True,
+    "stage_planning_ramp_policy": policy,
     "stage_ramp_contract": ramp_contract,
   }
-  if ramp_contract.get("stage_family") == "startup":
-    context["stage_rules"] = [
-      "Pre-revenue is a binding lifecycle state, not descriptive background.",
-      "Q1-Q4 must read like launch and ramp, not a mature operating run-rate.",
-      "Do not start Q1 at or near the late-horizon revenue, utilization, or capacity run-rate.",
-      "Capacity may exist ahead of demand, but revenue should come from staged utilization and price realization rather than instant full-scale operations.",
-      "Revenue, utilization, capacity, staffing support, capex, and profitability must ramp together.",
-      "Because Payroll is derived from revenue using OEWS/FTE logic, revenue must not ramp faster than the deterministic stage_ramp_contract allows.",
-      "Early losses or modest profitability may be realistic; instant mature profitability is not the goal.",
-    ]
-    context["early_revenue_share_ceiling_of_late_run_rate"] = {
-      "Q1": 0.25,
-      "Q2": 0.40,
-      "Q3": 0.60,
-      "Q4": 0.80,
-    }
-  elif ramp_contract.get("stage_family") == "early":
-    context["stage_rules"] = [
-      "Early-stage is a binding lifecycle state, not descriptive background.",
-      "Q1-Q4 should still show a ramp and absorption curve.",
-      "Do not jump immediately to a mature run-rate without operating evidence.",
-      "Losses may be acceptable early if funded and improving.",
-    ]
-    context["early_revenue_share_ceiling_of_late_run_rate"] = {
-      "Q1": 0.55,
-      "Q2": 0.70,
-      "Q3": 0.85,
-    }
-  else:
-    context["stage_rules"] = [
-      "Treat the business as already operating unless facts contradict that.",
-      "Avoid fantasy resets, but chronic mature losses are not acceptable.",
-      "Capacity expansion must be supported by operating earnings and stage reality.",
-    ]
+  context["stage_rules"] = copy.deepcopy(policy.get("stage_rules") or [])
+  if isinstance(policy.get("early_revenue_share_ceiling_of_late_run_rate"), dict):
+    context["early_revenue_share_ceiling_of_late_run_rate"] = copy.deepcopy(policy["early_revenue_share_ceiling_of_late_run_rate"])
   return context
 
 
