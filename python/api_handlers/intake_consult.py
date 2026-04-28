@@ -357,12 +357,24 @@ _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID = post_intake_driver_target_single_lever_id
 
 _CASH_STRATEGY_ALLOWED_LEVER_IDS = tuple(
   post_intake_driver_target_lever_ids_for_cash_roles(
-    {"distribution", "debt_paydown", "debt_raise", "equity_raise"}
+    {
+      "distribution",
+      "debt_paydown",
+      "debt_raise",
+      "equity_raise",
+      "owner_equity_raise",
+      "external_equity_raise",
+    }
   )
 )
 _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS = tuple(
   post_intake_driver_target_lever_ids_for_cash_roles(
-    {"debt_raise", "equity_raise"}
+    {
+      "debt_raise",
+      "equity_raise",
+      "owner_equity_raise",
+      "external_equity_raise",
+    }
   )
 )
 _UNIFIED_EXPLICIT_CAPITAL_ALLOCATION_LEVER_IDS = tuple(
@@ -2983,9 +2995,20 @@ def _cash_strategy_funding_source_policy(
     if float(_safe_float(item.get("interest_rate")) or 0.0) > 0.0
   ]
   max_interest_rate = max(interest_rates) if interest_rates else 0.0
+  quarter_envelopes = [
+    item for item in (envelope.get("quarter_envelopes") or [])
+    if isinstance(item, dict)
+  ]
+  debt_ratios = [
+    float(_safe_float(((item.get("capital_structure") or {}) if isinstance(item.get("capital_structure"), dict) else {}).get("debt_ratio")) or 0.0)
+    for item in quarter_envelopes
+  ]
+  max_debt_ratio = max(debt_ratios) if debt_ratios else 0.0
   gap_count = len(set(residual_gap_quarters))
   chronic_gap = bool(gap_count >= 5)
   debt_drag_material = bool(max_interest_rate >= 0.03)
+  leverage_material = bool(max_debt_ratio >= 0.55)
+  external_equity_justified = bool(chronic_gap or leverage_material)
   allowed_sources = [str(item).strip() for item in _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS if str(item).strip()]
   excluded_sources: List[str] = []
   if chronic_gap and debt_drag_material and _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID in allowed_sources:
@@ -2994,6 +3017,29 @@ def _cash_strategy_funding_source_policy(
       if lever_id != _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID
     ]
     excluded_sources.append(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID)
+  if not external_equity_justified and _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID in allowed_sources:
+    allowed_sources = [
+      lever_id for lever_id in allowed_sources
+      if lever_id != _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID
+    ]
+    excluded_sources.append(_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID)
+  policy_reasons: List[str] = []
+  if _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID in excluded_sources:
+    policy_reasons.append(
+      "Chronic liquidity gaps with material debt interest must not be solved with new debt because FINMO interest drag can reopen later cash-buffer violations."
+    )
+  else:
+    policy_reasons.append(
+      "Debt issuance remains available because the liquidity gap is not chronic or interest drag is not material."
+    )
+  if _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID in excluded_sources:
+    policy_reasons.append(
+      "Other Equity is reserved for outside-investor funding and is only available for chronic liquidity gaps or materially leveraged capital structures."
+    )
+  elif _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID in allowed_sources:
+    policy_reasons.append(
+      "Other Equity is available because the gap is chronic or leverage is material enough to justify outside-investor funding."
+    )
   return {
     "contract_version": "cash_strategy_funding_source_policy_v1",
     "allowed_funding_source_lever_ids": allowed_sources,
@@ -3001,13 +3047,15 @@ def _cash_strategy_funding_source_policy(
     "chronic_liquidity_gap": chronic_gap,
     "residual_gap_quarter_count": gap_count,
     "max_interest_rate": round(float(max_interest_rate), 6),
+    "max_debt_ratio": round(float(max_debt_ratio), 2),
     "debt_interest_drag_material": debt_drag_material,
-    "policy_reason": (
-      "Chronic liquidity gaps with material debt interest must be funded with mapped equity sources, "
-      "because debt issuance can reopen later cash-buffer violations through FINMO interest drag."
-      if excluded_sources
-      else "Debt issuance remains available because the liquidity gap is not chronic or interest drag is not material."
+    "external_equity_justified": external_equity_justified,
+    "external_equity_semantics": (
+      "Other Equity means outside investor capital such as angel, VC, silent partners, crowdfunding, "
+      "or another investor ownership stake. It is not routine working-capital funding."
     ),
+    "owner_capital_semantics": "Owner's Capital means owner/founder/member/insider capital contributions.",
+    "policy_reason": " ".join(policy_reasons),
   }
 
 
@@ -13213,7 +13261,7 @@ def _cash_strategy_review_decision_contract_error(
     if funding_lever_id not in set(_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS):
       return (
         f"quarter_funding_plan Q{quarter_index} funding source {funding_lever_id or 'missing'} is not allowed. "
-        "Use only debt issuance, debt repayment reduction, owner capital, or other equity."
+        "Use only debt issuance, debt repayment reduction, owner's capital, or policy-justified outside-investor other equity."
       )
     if policy_allowed_funding_sources and funding_lever_id not in policy_allowed_funding_sources:
       return (

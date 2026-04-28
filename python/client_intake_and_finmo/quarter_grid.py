@@ -1746,7 +1746,7 @@ def build_quarter_grid_prompt(
       "- `schedules::Plus: Net Additions` = capital lease additions only, not owner draws, not generic financing\n",
       "- `balance_sheet::Owner's Capital` = owner or partner capital contributions in only\n",
       "- `balance_sheet::Distributions` = owner or partner payouts out only; use this for owner cash returns, not Owner's Capital\n",
-      "- `balance_sheet::Other Equity` = other equity in/out\n\n",
+      "- `balance_sheet::Other Equity` = outside-investor equity capital such as angel, VC, silent partner, crowdfunding, or investor ownership stake; do not use it as routine working-capital funding\n\n",
       "Profitability standard for this probe:\n",
       "- push toward profitability as early as the business stage realistically allows\n",
       "- never force instant mature profitability when stage_governance_context says the company is pre-revenue or early-stage\n",
