@@ -11020,6 +11020,13 @@ def _rate_has_two_decimal_precision(value: Any) -> bool:
   return round(float(parsed), 2) == float(parsed)
 
 
+def _normalize_stage_ramp_rate_for_validation(value: Any) -> Optional[float]:
+  parsed = _safe_float(value)
+  if parsed is None:
+    return None
+  return round(float(parsed), 2)
+
+
 def _validate_stage_ramp_contract_payload(
   *,
   payload: Optional[Dict[str, Any]],
@@ -11051,14 +11058,17 @@ def _validate_stage_ramp_contract_payload(
   if stage_family != expected_family:
     errors.append(f"stage_family must be {expected_family}; received {stage_family or 'missing'}")
 
-  utilization_high_watermark = _safe_float(candidate.get("utilization_high_watermark"))
-  if utilization_high_watermark is None or float(utilization_high_watermark) < 0.5 or float(utilization_high_watermark) > 0.98:
+  utilization_high_watermark_raw = _safe_float(candidate.get("utilization_high_watermark"))
+  utilization_high_watermark = _normalize_stage_ramp_rate_for_validation(
+    candidate.get("utilization_high_watermark")
+  )
+  if (
+    utilization_high_watermark_raw is None
+    or float(utilization_high_watermark_raw) < 0.5
+    or float(utilization_high_watermark_raw) > 0.98
+  ):
     errors.append(
       f"utilization_high_watermark must be between 0.50 and 0.98; received {candidate.get('utilization_high_watermark')!r}"
-    )
-  elif not _rate_has_two_decimal_precision(utilization_high_watermark):
-    errors.append(
-      f"utilization_high_watermark must use two-decimal ratio precision at most; received {utilization_high_watermark}"
     )
 
   small_base_raw = candidate.get("fte_spike_small_base_threshold")
