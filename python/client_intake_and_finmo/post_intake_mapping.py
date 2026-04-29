@@ -14,11 +14,126 @@ except Exception:  # pragma: no cover - supports legacy sys.path imports
 
 
 _MAPPING_TABLE_NAME = "post_intak_mapping_lookup"
+_CASH_POLICY_TABLE_NAME = "post_intake_cash_policy_lookup"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
 _REVENUE_PATTERN_PREFIX = "revenue::*::*::"
 _ENSURE_MAPPING_TABLE_READY = False
+_ENSURE_CASH_POLICY_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
+_ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
+
+
+_DEFAULT_CASH_POLICY_ROWS: List[Dict[str, Any]] = [
+  {
+    "cash_strategy": "shareholder_return",
+    "debt_position": "low_debt",
+    "debt_to_equity_min": 0.00,
+    "debt_to_equity_max": 0.50,
+    "cash_floor_months": 1.00,
+    "cash_ceiling_months": 1.25,
+    "distribution_weight": 0.90,
+    "debt_paydown_weight": 0.10,
+    "retain_weight": 0.00,
+    "policy_label": "Prioritize shareholder payouts while making token debt progress.",
+  },
+  {
+    "cash_strategy": "shareholder_return",
+    "debt_position": "healthy_debt",
+    "debt_to_equity_min": 0.50,
+    "debt_to_equity_max": 1.00,
+    "cash_floor_months": 1.00,
+    "cash_ceiling_months": 1.25,
+    "distribution_weight": 0.75,
+    "debt_paydown_weight": 0.25,
+    "retain_weight": 0.00,
+    "policy_label": "Return most surplus while reducing leverage at a measured pace.",
+  },
+  {
+    "cash_strategy": "shareholder_return",
+    "debt_position": "high_debt",
+    "debt_to_equity_min": 1.00,
+    "debt_to_equity_max": 999.00,
+    "cash_floor_months": 1.00,
+    "cash_ceiling_months": 1.25,
+    "distribution_weight": 0.60,
+    "debt_paydown_weight": 0.40,
+    "retain_weight": 0.00,
+    "policy_label": "Still return cash, but materially reduce excessive leverage.",
+  },
+  {
+    "cash_strategy": "balanced",
+    "debt_position": "low_debt",
+    "debt_to_equity_min": 0.00,
+    "debt_to_equity_max": 0.50,
+    "cash_floor_months": 1.50,
+    "cash_ceiling_months": 2.00,
+    "distribution_weight": 0.50,
+    "debt_paydown_weight": 0.50,
+    "retain_weight": 0.00,
+    "policy_label": "Split excess cash between shareholder return and debt discipline.",
+  },
+  {
+    "cash_strategy": "balanced",
+    "debt_position": "healthy_debt",
+    "debt_to_equity_min": 0.50,
+    "debt_to_equity_max": 1.00,
+    "cash_floor_months": 1.50,
+    "cash_ceiling_months": 2.00,
+    "distribution_weight": 0.40,
+    "debt_paydown_weight": 0.60,
+    "retain_weight": 0.00,
+    "policy_label": "Lean toward debt paydown while preserving modest shareholder return.",
+  },
+  {
+    "cash_strategy": "balanced",
+    "debt_position": "high_debt",
+    "debt_to_equity_min": 1.00,
+    "debt_to_equity_max": 999.00,
+    "cash_floor_months": 1.50,
+    "cash_ceiling_months": 2.00,
+    "distribution_weight": 0.20,
+    "debt_paydown_weight": 0.80,
+    "retain_weight": 0.00,
+    "policy_label": "Prioritize deleveraging while allowing limited shareholder return.",
+  },
+  {
+    "cash_strategy": "preserve_cash",
+    "debt_position": "low_debt",
+    "debt_to_equity_min": 0.00,
+    "debt_to_equity_max": 0.50,
+    "cash_floor_months": 2.00,
+    "cash_ceiling_months": 3.00,
+    "distribution_weight": 1.00,
+    "debt_paydown_weight": 0.00,
+    "retain_weight": 0.00,
+    "policy_label": "Retain the larger preserve-cash cushion, then distribute surplus above the ceiling.",
+  },
+  {
+    "cash_strategy": "preserve_cash",
+    "debt_position": "healthy_debt",
+    "debt_to_equity_min": 0.50,
+    "debt_to_equity_max": 1.00,
+    "cash_floor_months": 2.00,
+    "cash_ceiling_months": 3.00,
+    "distribution_weight": 0.25,
+    "debt_paydown_weight": 0.75,
+    "retain_weight": 0.00,
+    "policy_label": "Keep the preserve-cash cushion, then use surplus mostly for debt paydown with modest payouts.",
+  },
+  {
+    "cash_strategy": "preserve_cash",
+    "debt_position": "high_debt",
+    "debt_to_equity_min": 1.00,
+    "debt_to_equity_max": 999.00,
+    "cash_floor_months": 2.00,
+    "cash_ceiling_months": 3.00,
+    "distribution_weight": 0.00,
+    "debt_paydown_weight": 1.00,
+    "retain_weight": 0.00,
+    "policy_label": "No shareholder payouts; use surplus above the preserve-cash ceiling to deleverage.",
+  },
+]
 
 
 def _clean_text(value: Any) -> str:
@@ -219,6 +334,107 @@ def _ensure_mapping_lookup_table(conn) -> None:
         pass
 
 
+def _ensure_cash_policy_lookup_table(conn) -> None:
+  global _ENSURE_CASH_POLICY_TABLE_READY
+  if _ENSURE_CASH_POLICY_TABLE_READY:
+    return
+  with _ENSURE_CASH_POLICY_TABLE_LOCK:
+    if _ENSURE_CASH_POLICY_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_CASH_POLICY_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          cash_strategy VARCHAR(64) NOT NULL,
+          debt_position VARCHAR(64) NOT NULL,
+          debt_to_equity_min DECIMAL(10,4) NOT NULL,
+          debt_to_equity_max DECIMAL(10,4) NOT NULL,
+          cash_floor_months DECIMAL(10,4) NOT NULL,
+          cash_ceiling_months DECIMAL(10,4) NOT NULL,
+          distribution_weight DECIMAL(10,4) NOT NULL,
+          debt_paydown_weight DECIMAL(10,4) NOT NULL,
+          retain_weight DECIMAL(10,4) NOT NULL,
+          deploy_above_ceiling_required TINYINT(1) NOT NULL DEFAULT 1,
+          policy_label VARCHAR(255) NOT NULL,
+          policy_status VARCHAR(32) NOT NULL DEFAULT 'active',
+          notes LONGTEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_post_intake_cash_policy (cash_strategy, debt_position),
+          KEY idx_post_intake_cash_policy_strategy (cash_strategy),
+          KEY idx_post_intake_cash_policy_status (policy_status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      try:
+        cur.execute(
+          f"""
+          ALTER TABLE {_CASH_POLICY_TABLE_NAME}
+          ADD COLUMN deploy_above_ceiling_required TINYINT(1) NOT NULL DEFAULT 1
+          AFTER retain_weight
+          """
+        )
+      except Exception:
+        pass
+      for row in _DEFAULT_CASH_POLICY_ROWS:
+        cur.execute(
+          f"""
+          INSERT INTO {_CASH_POLICY_TABLE_NAME} (
+            cash_strategy,
+            debt_position,
+            debt_to_equity_min,
+            debt_to_equity_max,
+            cash_floor_months,
+            cash_ceiling_months,
+            distribution_weight,
+            debt_paydown_weight,
+            retain_weight,
+            deploy_above_ceiling_required,
+            policy_label,
+            policy_status,
+            notes
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'active', %s)
+          ON DUPLICATE KEY UPDATE
+            debt_to_equity_min = VALUES(debt_to_equity_min),
+            debt_to_equity_max = VALUES(debt_to_equity_max),
+            cash_floor_months = VALUES(cash_floor_months),
+            cash_ceiling_months = VALUES(cash_ceiling_months),
+            distribution_weight = VALUES(distribution_weight),
+            debt_paydown_weight = VALUES(debt_paydown_weight),
+            retain_weight = VALUES(retain_weight),
+            deploy_above_ceiling_required = VALUES(deploy_above_ceiling_required),
+            policy_label = VALUES(policy_label),
+            policy_status = VALUES(policy_status),
+            notes = VALUES(notes)
+          """,
+          (
+            _clean_text(row.get("cash_strategy")).lower(),
+            _clean_text(row.get("debt_position")).lower(),
+            float(row.get("debt_to_equity_min") or 0.0),
+            float(row.get("debt_to_equity_max") or 0.0),
+            float(row.get("cash_floor_months") or 0.0),
+            float(row.get("cash_ceiling_months") or 0.0),
+            float(row.get("distribution_weight") or 0.0),
+            float(row.get("debt_paydown_weight") or 0.0),
+            float(row.get("retain_weight") or 0.0),
+            _clean_text(row.get("policy_label")),
+            (
+              "Debt position uses debt_to_equity = total_debt / total_equity. "
+              "If equity is zero or negative and debt exists, classify as high_debt."
+            ),
+          ),
+        )
+      conn.commit()
+      _ENSURE_CASH_POLICY_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
 @lru_cache(maxsize=1)
 def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
   rows: List[Dict[str, Any]] = []
@@ -302,6 +518,77 @@ def _active_mapping_rows() -> List[Dict[str, Any]]:
     for row in load_post_intake_driver_target_mapping_rows()
     if _clean_text(row.get("mapping_status")).lower() == "active"
   ]
+
+
+@lru_cache(maxsize=1)
+def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_cash_policy_lookup_table(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          cash_strategy,
+          debt_position,
+          debt_to_equity_min,
+          debt_to_equity_max,
+          cash_floor_months,
+          cash_ceiling_months,
+          distribution_weight,
+          debt_paydown_weight,
+          retain_weight,
+          deploy_above_ceiling_required,
+          policy_label,
+          policy_status,
+          notes
+        FROM {_CASH_POLICY_TABLE_NAME}
+        ORDER BY
+          FIELD(cash_strategy, 'shareholder_return', 'balanced', 'preserve_cash'),
+          debt_to_equity_min ASC
+        """
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  for raw_row in raw_rows:
+    if not isinstance(raw_row, dict):
+      continue
+    strategy = _clean_text(raw_row.get("cash_strategy")).lower()
+    position = _clean_text(raw_row.get("debt_position")).lower()
+    if not strategy or not position:
+      continue
+    rows.append(
+      {
+        "cash_strategy": strategy,
+        "debt_position": position,
+        "debt_to_equity_min": float(raw_row.get("debt_to_equity_min") or 0.0),
+        "debt_to_equity_max": float(raw_row.get("debt_to_equity_max") or 0.0),
+        "cash_floor_months": float(raw_row.get("cash_floor_months") or 0.0),
+        "cash_ceiling_months": float(raw_row.get("cash_ceiling_months") or 0.0),
+        "distribution_weight": float(raw_row.get("distribution_weight") or 0.0),
+        "debt_paydown_weight": float(raw_row.get("debt_paydown_weight") or 0.0),
+        "retain_weight": float(raw_row.get("retain_weight") or 0.0),
+        "deploy_above_ceiling_required": _clean_bool(raw_row.get("deploy_above_ceiling_required"), default=True),
+        "policy_label": _clean_text(raw_row.get("policy_label")),
+        "policy_status": _clean_text(raw_row.get("policy_status")).lower() or "active",
+        "notes": _clean_text(raw_row.get("notes")),
+      }
+    )
+  if not rows:
+    raise RuntimeError(f"{_CASH_POLICY_TABLE_NAME}_empty: cash policy lookup table has no rows")
+  return rows
 
 
 def _phase_matches(row: Dict[str, Any], phase: Any = None) -> bool:
@@ -648,9 +935,110 @@ class PostIntakeMappingLookup:
     return errors
 
 
+class PostIntakeCashPolicyLookup:
+  """Single gateway for the SQL-backed cash strategy policy table."""
+
+  def __init__(self, rows: Iterable[Dict[str, Any]]) -> None:
+    self._rows = [
+      dict(row)
+      for row in rows
+      if isinstance(row, dict)
+      and _clean_text(row.get("policy_status")).lower() == "active"
+    ]
+
+  def rows(self, *, cash_strategy: Any = None) -> List[Dict[str, Any]]:
+    strategy = _clean_text(cash_strategy).lower()
+    return [
+      dict(row)
+      for row in self._rows
+      if not strategy or _clean_text(row.get("cash_strategy")).lower() == strategy
+    ]
+
+  def debt_position_for_ratio(self, debt_to_equity: Any) -> str:
+    ratio = float(debt_to_equity or 0.0)
+    if ratio < 0.50:
+      return "low_debt"
+    if ratio <= 1.00:
+      return "healthy_debt"
+    return "high_debt"
+
+  def policy_for(
+    self,
+    *,
+    cash_strategy: Any,
+    debt_to_equity: Any,
+    debt_position: Any = None,
+    required: bool = True,
+  ) -> Optional[Dict[str, Any]]:
+    strategy = _clean_text(cash_strategy).lower() or "balanced"
+    ratio = float(debt_to_equity or 0.0)
+    position = _clean_text(debt_position).lower() or self.debt_position_for_ratio(ratio)
+    for row in self.rows(cash_strategy=strategy):
+      row_position = _clean_text(row.get("debt_position")).lower()
+      row_min = float(row.get("debt_to_equity_min") or 0.0)
+      row_max = float(row.get("debt_to_equity_max") or 0.0)
+      if row_position == position and row_min <= ratio <= row_max:
+        return dict(row)
+    for row in self.rows(cash_strategy=strategy):
+      if _clean_text(row.get("debt_position")).lower() == position:
+        return dict(row)
+    if required:
+      raise RuntimeError(
+        "post_intake_cash_policy_missing: "
+        f"cash_strategy={strategy or 'missing'} debt_position={position or 'missing'} debt_to_equity={ratio}"
+      )
+    return None
+
+  def validation_errors(self) -> List[str]:
+    errors: List[str] = []
+    valid_strategies = {"shareholder_return", "balanced", "preserve_cash"}
+    valid_positions = {"low_debt", "healthy_debt", "high_debt"}
+    seen: Set[tuple[str, str]] = set()
+    for row in self._rows:
+      strategy = _clean_text(row.get("cash_strategy")).lower()
+      position = _clean_text(row.get("debt_position")).lower()
+      if strategy not in valid_strategies:
+        errors.append(f"unsupported cash_strategy {strategy or 'missing'}")
+      if position not in valid_positions:
+        errors.append(f"unsupported debt_position {position or 'missing'}")
+      key = (strategy, position)
+      if key in seen:
+        errors.append(f"duplicate cash policy row for {strategy}/{position}")
+      seen.add(key)
+      floor = float(row.get("cash_floor_months") or 0.0)
+      ceiling = float(row.get("cash_ceiling_months") or 0.0)
+      if floor <= 0:
+        errors.append(f"{strategy}/{position} cash_floor_months must be positive")
+      if ceiling < floor:
+        errors.append(f"{strategy}/{position} cash_ceiling_months must be >= cash_floor_months")
+      weight_total = sum(
+        float(row.get(key_name) or 0.0)
+        for key_name in ("distribution_weight", "debt_paydown_weight", "retain_weight")
+      )
+      if round(weight_total, 4) != 1.0:
+        errors.append(f"{strategy}/{position} weights must sum to 1.0; got {weight_total:.4f}")
+      deploy_required = _clean_bool(row.get("deploy_above_ceiling_required"), default=True)
+      deploy_weight = float(row.get("distribution_weight") or 0.0) + float(row.get("debt_paydown_weight") or 0.0)
+      retain_weight = float(row.get("retain_weight") or 0.0)
+      if deploy_required and deploy_weight <= 0:
+        errors.append(f"{strategy}/{position} must provide distribution or debt paydown weight when surplus deployment is required")
+      if deploy_required and retain_weight > 0:
+        errors.append(f"{strategy}/{position} retain_weight must be 0.0 when surplus deployment above ceiling is required")
+    for strategy in sorted(valid_strategies):
+      for position in sorted(valid_positions):
+        if (strategy, position) not in seen:
+          errors.append(f"missing cash policy row for {strategy}/{position}")
+    return errors
+
+
 @lru_cache(maxsize=1)
 def post_intake_mapping_lookup() -> PostIntakeMappingLookup:
   return PostIntakeMappingLookup(load_post_intake_driver_target_mapping_rows())
+
+
+@lru_cache(maxsize=1)
+def post_intake_cash_policy_lookup() -> PostIntakeCashPolicyLookup:
+  return PostIntakeCashPolicyLookup(load_post_intake_cash_policy_rows())
 
 
 @lru_cache(maxsize=1)
@@ -790,3 +1178,26 @@ def post_intake_compact_mapping_lookup_for_levers(
 
 def post_intake_driver_target_mapping_errors(expected_lever_ids: Optional[Iterable[Any]] = None) -> List[str]:
   return post_intake_mapping_lookup().validation_errors(expected_lever_ids)
+
+
+def post_intake_cash_policy_for(
+  *,
+  cash_strategy: Any,
+  debt_to_equity: Any,
+  debt_position: Any = None,
+  required: bool = True,
+) -> Optional[Dict[str, Any]]:
+  return post_intake_cash_policy_lookup().policy_for(
+    cash_strategy=cash_strategy,
+    debt_to_equity=debt_to_equity,
+    debt_position=debt_position,
+    required=required,
+  )
+
+
+def post_intake_cash_policy_rows(*, cash_strategy: Any = None) -> List[Dict[str, Any]]:
+  return post_intake_cash_policy_lookup().rows(cash_strategy=cash_strategy)
+
+
+def post_intake_cash_policy_errors() -> List[str]:
+  return post_intake_cash_policy_lookup().validation_errors()

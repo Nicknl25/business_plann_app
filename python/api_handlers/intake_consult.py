@@ -80,6 +80,8 @@ try:
     post_intake_driver_target_single_lever_id_for_target_driver,
     post_intake_issue_candidate_lever_ids,
     post_intake_issue_mapping_contract,
+    post_intake_cash_policy_errors,
+    post_intake_cash_policy_for,
     stage_planning_ramp_policy,
   )
 except Exception:
@@ -97,6 +99,8 @@ except Exception:
     post_intake_driver_target_single_lever_id_for_target_driver,
     post_intake_issue_candidate_lever_ids,
     post_intake_issue_mapping_contract,
+    post_intake_cash_policy_errors,
+    post_intake_cash_policy_for,
     stage_planning_ramp_policy,
   )
 
@@ -396,6 +400,7 @@ _CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID = post_intake_driver_target_single
 )
 _CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("owners_capital")
 _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("other_equity")
+_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("distributions")
 
 
 _CASH_STRATEGY_ALLOWED_LEVER_IDS = tuple(
@@ -462,6 +467,7 @@ _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = {
   "cash_buffer_violation",
   "liquidity_failure",
   "cash_distribution_violation",
+  "cash_surplus_deployment_failure",
   "cash_strategy_contract_failure",
 }
 _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS = {
@@ -2615,11 +2621,25 @@ def _cash_strategy_capital_structure_snapshot(row: Optional[Dict[str, Any]]) -> 
   capital_base = float(debt_level + equity_level)
   debt_ratio = round(float(debt_level / capital_base), 2) if capital_base > 1e-9 else None
   equity_ratio = round(float(equity_level / capital_base), 2) if capital_base > 1e-9 else None
+  if equity_level > 0:
+    debt_to_equity = round(float(debt_level / equity_level), 4)
+  elif debt_level > 0:
+    debt_to_equity = 999.0
+  else:
+    debt_to_equity = 0.0
+  if debt_to_equity < 0.50:
+    debt_position = "low_debt"
+  elif debt_to_equity <= 1.00:
+    debt_position = "healthy_debt"
+  else:
+    debt_position = "high_debt"
   return {
     "debt": debt_level,
     "equity": equity_level,
     "debt_level": debt_level,
     "equity_level": equity_level,
+    "debt_to_equity": debt_to_equity,
+    "debt_position": debt_position,
     "debt_ratio": debt_ratio,
     "equity_ratio": equity_ratio,
     "preferred_debt_ratio": round(float(_CASH_STRATEGY_PREFERRED_DEBT_RATIO), 2),
@@ -2704,14 +2724,22 @@ def _cash_strategy_debt_schedule_snapshot(
 
 def _cash_strategy_buffer_components(
   row: Optional[Dict[str, Any]],
+  *,
+  cash_floor_months: Optional[float] = None,
+  cash_ceiling_months: Optional[float] = None,
 ) -> Dict[str, Any]:
   opex_quarter = int(round(max(0.0, _cash_strategy_operating_expense_from_row(row))))
   monthly_opex = int(round(max(0.0, float(opex_quarter) / max(_CASH_STRATEGY_MONTHS_PER_QUARTER, 1.0))))
+  floor_months = float(cash_floor_months if cash_floor_months is not None else _CASH_STRATEGY_BUFFER_MONTHS)
+  ceiling_months = float(cash_ceiling_months if cash_ceiling_months is not None else max(floor_months, _CASH_STRATEGY_BUFFER_MONTHS))
   return {
     "operating_expense_quarter": opex_quarter,
-    "buffer_months": round(float(_CASH_STRATEGY_BUFFER_MONTHS), 2),
+    "buffer_months": round(float(floor_months), 2),
+    "cash_floor_months": round(float(floor_months), 2),
+    "cash_ceiling_months": round(float(ceiling_months), 2),
     "monthly_opex": monthly_opex,
-    "cash_buffer_required": int(round(max(float(monthly_opex) * _CASH_STRATEGY_BUFFER_MONTHS, 0.0))),
+    "cash_buffer_required": int(round(max(float(monthly_opex) * floor_months, 0.0))),
+    "cash_ceiling": int(round(max(float(monthly_opex) * ceiling_months, 0.0))),
   }
 
 
@@ -2752,7 +2780,12 @@ def _cash_strategy_violation_envelope(
   live_quarters = sorted(rows_by_quarter.keys())
   lever_map = _solved_lever_value_map(model_input_json)
   stub_value_map = _solved_lever_stub_value_map(model_input_json)
-  distributions_lever_id = post_intake_driver_target_single_lever_id_for_target_driver("distributions")
+  cash_policy_errors = post_intake_cash_policy_errors()
+  if cash_policy_errors:
+    raise RuntimeError(
+      "post_intake_cash_policy_invalid: " + "; ".join(cash_policy_errors[:5])
+    )
+  distributions_lever_id = _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID
   distributions_series = [int(round(float(_safe_float(v) or 0.0))) for v in (lever_map.get(distributions_lever_id) or [])]
   debt_repayment_series = [int(round(float(_safe_float(v) or 0.0))) for v in (lever_map.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])]
   debt_issuance_series = [int(round(float(_safe_float(v) or 0.0))) for v in (lever_map.get(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID) or [])]
@@ -2761,6 +2794,7 @@ def _cash_strategy_violation_envelope(
 
   violation_quarters: List[int] = []
   residual_gap_quarters: List[int] = []
+  surplus_deployment_quarters: List[int] = []
   deterministic_updates: List[Dict[str, Any]] = []
   quarter_envelopes: List[Dict[str, Any]] = []
   previous_effective_other_equity = int(round(float(_safe_float(stub_value_map.get(_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID)) or 0.0)))
@@ -2768,8 +2802,20 @@ def _cash_strategy_violation_envelope(
 
   for quarter_index in live_quarters:
     row = rows_by_quarter.get(quarter_index) or {}
-    buffer_components = _cash_strategy_buffer_components(row)
+    capital_structure = _cash_strategy_capital_structure_snapshot(row)
+    debt_to_equity = float(_safe_float(capital_structure.get("debt_to_equity")) or 0.0)
+    cash_policy = post_intake_cash_policy_for(
+      cash_strategy=_canonical_cash_strategy_value(selected_cash_strategy) or "balanced",
+      debt_to_equity=debt_to_equity,
+      required=True,
+    ) or {}
+    buffer_components = _cash_strategy_buffer_components(
+      row,
+      cash_floor_months=float(_safe_float(cash_policy.get("cash_floor_months")) or _CASH_STRATEGY_BUFFER_MONTHS),
+      cash_ceiling_months=float(_safe_float(cash_policy.get("cash_ceiling_months")) or _CASH_STRATEGY_BUFFER_MONTHS),
+    )
     buffer_required = int(buffer_components.get("cash_buffer_required") or 0)
+    cash_ceiling = int(buffer_components.get("cash_ceiling") or buffer_required)
     ending_cash = int(round(float(_safe_float(row.get("ending_cash")) or 0.0)))
     current_distribution = int(distributions_series[quarter_index - 1] if quarter_index - 1 < len(distributions_series) else 0)
     current_debt_repayment = int(debt_repayment_series[quarter_index - 1] if quarter_index - 1 < len(debt_repayment_series) else 0)
@@ -2795,6 +2841,15 @@ def _cash_strategy_violation_envelope(
     hard_rule_equity_payback_removed = int(max(0, hard_rule_other_equity_value - current_other_equity))
     effective_ending_cash = int(ending_cash + hard_rule_distribution_removed + hard_rule_equity_payback_removed)
     residual_funding_gap = int(max(0, buffer_required - effective_ending_cash))
+    deploy_above_ceiling_required = bool(cash_policy.get("deploy_above_ceiling_required", True))
+    deployable_surplus_above_ceiling = int(
+      max(0, effective_ending_cash - cash_ceiling)
+      if deploy_above_ceiling_required and residual_funding_gap <= 0
+      else 0
+    )
+    current_debt_level = int(round(float(_safe_float(capital_structure.get("debt_level")) or 0.0)))
+    max_additional_debt_paydown = int(min(max(0, current_debt_level), deployable_surplus_above_ceiling))
+    max_additional_distribution = int(max(0, deployable_surplus_above_ceiling))
     hard_rule_actions: List[Dict[str, Any]] = []
     if hard_rule_distribution_removed > 0:
       if (distributions_lever_id, quarter_index) not in deterministic_update_keys:
@@ -2842,6 +2897,9 @@ def _cash_strategy_violation_envelope(
       violation_quarters.append(quarter_index)
     if residual_funding_gap > 0:
       residual_gap_quarters.append(quarter_index)
+    if deployable_surplus_above_ceiling > 0:
+      surplus_deployment_quarters.append(quarter_index)
+      violation_quarters.append(quarter_index)
 
     quarter_envelopes.append(
       {
@@ -2849,8 +2907,15 @@ def _cash_strategy_violation_envelope(
         "date": row.get("date"),
         "ending_cash": ending_cash,
         "buffer": buffer_required,
+        "cash_floor": buffer_required,
+        "cash_ceiling": cash_ceiling,
+        "cash_policy": copy.deepcopy(cash_policy),
         "monthly_opex": int(buffer_components.get("monthly_opex") or 0),
         "operating_expense_quarter": int(buffer_components.get("operating_expense_quarter") or 0),
+        "deploy_above_ceiling_required": deploy_above_ceiling_required,
+        "deployable_surplus_above_ceiling": deployable_surplus_above_ceiling,
+        "max_additional_distribution": max_additional_distribution,
+        "max_additional_debt_paydown": max_additional_debt_paydown,
         "distribution_current_value": current_distribution,
         "debt_repayment_current_value": current_debt_repayment,
         "debt_issuance_current_value": current_debt_issuance,
@@ -2863,7 +2928,7 @@ def _cash_strategy_violation_envelope(
         "buffer_violation": buffer_violation,
         "distribution_violation": distribution_violation,
         "hard_rule_actions": copy.deepcopy(hard_rule_actions),
-        "capital_structure": _cash_strategy_capital_structure_snapshot(row),
+        "capital_structure": copy.deepcopy(capital_structure),
         "soft_capital_structure_guidance": {
           "preferred_debt_ratio": round(float(_CASH_STRATEGY_PREFERRED_DEBT_RATIO), 2),
           "preferred_equity_ratio": round(float(_CASH_STRATEGY_PREFERRED_EQUITY_RATIO), 2),
@@ -2894,22 +2959,16 @@ def _cash_strategy_violation_envelope(
     )
     quarter_payload["cumulative_support_headroom"] = int(rolling_support_headroom)
 
-  if residual_gap_quarters:
-    first_action_quarter = min(residual_gap_quarters)
-    allowed_quarters = [quarter for quarter in live_quarters if quarter >= first_action_quarter]
-  elif violation_quarters:
-    first_action_quarter = min(violation_quarters)
-    allowed_quarters = [quarter for quarter in live_quarters if quarter >= first_action_quarter]
-  else:
-    allowed_quarters = list(live_quarters)
+  allowed_quarters = list(live_quarters)
 
   return {
     "contract_version": "cash_strategy_violation_envelope_v1",
     "selected_cash_strategy": str(selected_cash_strategy or "").strip(),
     "strategy_policy": _cash_strategy_policy_guidance(selected_cash_strategy),
     "has_violations": bool(violation_quarters),
-    "violation_quarters": copy.deepcopy(violation_quarters),
+    "violation_quarters": copy.deepcopy(sorted(set(violation_quarters))),
     "residual_gap_quarters": copy.deepcopy(residual_gap_quarters),
+    "surplus_deployment_quarters": copy.deepcopy(sorted(set(surplus_deployment_quarters))),
     "allowed_review_quarters": copy.deepcopy(allowed_quarters),
     "deterministic_hard_rule_updates": copy.deepcopy(deterministic_updates),
     "quarter_envelopes": copy.deepcopy(quarter_envelopes),
@@ -2950,14 +3009,20 @@ def _cash_strategy_summary_metrics(
     "has_violations": bool(envelope.get("has_violations")),
     "violation_quarters": copy.deepcopy(envelope.get("violation_quarters") or []),
     "residual_gap_quarters": copy.deepcopy(envelope.get("residual_gap_quarters") or []),
+    "surplus_deployment_quarters": copy.deepcopy(envelope.get("surplus_deployment_quarters") or []),
     "allowed_review_quarters": copy.deepcopy(envelope.get("allowed_review_quarters") or []),
     "buffer_quarters": [
       {
         "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
         "ending_cash": int(round(float(_safe_float(item.get("ending_cash")) or 0.0))),
         "buffer": int(round(float(_safe_float(item.get("buffer")) or 0.0))),
+        "cash_ceiling": int(round(float(_safe_float(item.get("cash_ceiling")) or 0.0))),
         "ending_cash_after_hard_rules": int(round(float(_safe_float(item.get("ending_cash_after_hard_rules")) or 0.0))),
         "residual_funding_gap": int(round(float(_safe_float(item.get("residual_funding_gap")) or 0.0))),
+        "deployable_surplus_above_ceiling": int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))),
+        "max_additional_distribution": int(round(float(_safe_float(item.get("max_additional_distribution")) or 0.0))),
+        "max_additional_debt_paydown": int(round(float(_safe_float(item.get("max_additional_debt_paydown")) or 0.0))),
+        "cash_policy": copy.deepcopy(item.get("cash_policy") or {}),
         "buffer_violation": bool(item.get("buffer_violation")),
         "distribution_violation": bool(item.get("distribution_violation")),
       }
@@ -3107,7 +3172,7 @@ def _cash_strategy_lever_bounds(
   selected_cash_strategy: Any,
   violation_envelope: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  del selected_cash_strategy
+  strategy = _canonical_cash_strategy_value(selected_cash_strategy) or "balanced"
   envelope = violation_envelope if isinstance(violation_envelope, dict) else {}
   quarter_envelopes = {
     int(_safe_float(item.get("quarter_index")) or 0): item
@@ -3133,23 +3198,51 @@ def _cash_strategy_lever_bounds(
     debt_issuance_current = int(round(float(_safe_float(current_values.get(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID)) or 0.0)))
     owners_capital_current = int(round(float(_safe_float(current_values.get(_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID)) or 0.0)))
     other_equity_current = int(round(float(_safe_float(current_values.get(_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID)) or 0.0)))
+    distributions_current = int(round(float(_safe_float(current_values.get(_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID)) or 0.0)))
+    deployable_surplus = int(round(float(_safe_float(quarter_payload.get("deployable_surplus_above_ceiling")) or 0.0)))
+    max_additional_debt_paydown = int(round(float(_safe_float(quarter_payload.get("max_additional_debt_paydown")) or 0.0)))
+    max_additional_distribution = int(round(float(_safe_float(quarter_payload.get("max_additional_distribution")) or 0.0)))
+    cash_policy = quarter_payload.get("cash_policy") if isinstance(quarter_payload.get("cash_policy"), dict) else {}
 
     lever_bounds[_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID].append(
       {
         "quarter_index": quarter_index,
         "current_value": debt_repayment_current,
         "min_value": 0,
-        "max_value": debt_repayment_current,
+        "max_value": int(debt_repayment_current + max_additional_debt_paydown),
         "supporting_metrics": {
           "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
+          "cash_ceiling": int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or 0.0))),
           "ending_cash_after_hard_rules": int(round(float(_safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0))),
           "residual_funding_gap": residual_gap,
+          "deployable_surplus_above_ceiling": deployable_surplus,
+          "max_additional_debt_paydown": max_additional_debt_paydown,
           "cash_support_multiplier": round(
             float(_safe_float(quarter_payload.get("debt_cash_support_multiplier")) or 1.0),
             6,
           ),
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
-          "allowed_action": "reduce_or_eliminate_repayment_only",
+          "allowed_action": "reduce_repayment_for_liquidity_or_increase_repayment_for_surplus_deployment",
+          "cash_policy": copy.deepcopy(cash_policy),
+        },
+      }
+    )
+    lever_bounds[_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID].append(
+      {
+        "quarter_index": quarter_index,
+        "current_value": distributions_current,
+        "min_value": 0,
+        "max_value": int(distributions_current + max_additional_distribution),
+        "supporting_metrics": {
+          "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
+          "cash_ceiling": int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or 0.0))),
+          "ending_cash_after_hard_rules": int(round(float(_safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0))),
+          "residual_funding_gap": residual_gap,
+          "deployable_surplus_above_ceiling": deployable_surplus,
+          "max_additional_distribution": max_additional_distribution,
+          "cash_policy": copy.deepcopy(cash_policy),
+          "allowed_action": "increase_distributions_only_from_surplus_above_strategy_cash_ceiling",
+          "strategy": strategy,
         },
       }
     )
@@ -3161,6 +3254,7 @@ def _cash_strategy_lever_bounds(
         "max_value": int(debt_issuance_current + carryforward_headroom),
         "supporting_metrics": {
           "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
+          "cash_ceiling": int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or 0.0))),
           "ending_cash_after_hard_rules": int(round(float(_safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0))),
           "residual_funding_gap": residual_gap,
           "carryforward_headroom": carryforward_headroom,
@@ -3170,6 +3264,7 @@ def _cash_strategy_lever_bounds(
           ),
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
           "soft_capital_structure_guidance": copy.deepcopy(quarter_payload.get("soft_capital_structure_guidance") or {}),
+          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -3181,10 +3276,12 @@ def _cash_strategy_lever_bounds(
         "max_value": int(owners_capital_current + carryforward_headroom),
         "supporting_metrics": {
           "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
+          "cash_ceiling": int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or 0.0))),
           "ending_cash_after_hard_rules": int(round(float(_safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0))),
           "residual_funding_gap": residual_gap,
           "carryforward_headroom": carryforward_headroom,
           "capital_structure": copy.deepcopy(quarter_payload.get("capital_structure") or {}),
+          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -3196,10 +3293,12 @@ def _cash_strategy_lever_bounds(
         "max_value": int(other_equity_current + carryforward_headroom),
         "supporting_metrics": {
           "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
+          "cash_ceiling": int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or 0.0))),
           "ending_cash_after_hard_rules": int(round(float(_safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0))),
           "residual_funding_gap": residual_gap,
           "carryforward_headroom": carryforward_headroom,
           "capital_structure": copy.deepcopy(quarter_payload.get("capital_structure") or {}),
+          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -10967,6 +11066,34 @@ def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]
   return parsed if isinstance(parsed, dict) else None
 
 
+def _openai_strict_json_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+  """Normalize local schemas to OpenAI strict structured-output requirements."""
+  normalized = copy.deepcopy(schema if isinstance(schema, dict) else {})
+
+  def _visit(node: Any) -> None:
+    if isinstance(node, dict):
+      properties = node.get("properties")
+      if isinstance(properties, dict):
+        node["additionalProperties"] = False
+        node["required"] = list(properties.keys())
+        for child in properties.values():
+          _visit(child)
+      items = node.get("items")
+      if isinstance(items, dict):
+        _visit(items)
+      for key in ("anyOf", "oneOf", "allOf"):
+        variants = node.get(key)
+        if isinstance(variants, list):
+          for variant in variants:
+            _visit(variant)
+    elif isinstance(node, list):
+      for item in node:
+        _visit(item)
+
+  _visit(normalized)
+  return normalized
+
+
 def _maintenance_capex_percent_schema() -> Dict[str, Any]:
   return {
     "type": "object",
@@ -12026,7 +12153,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       raise RuntimeError("stage_ramp_contract_parse_failed: GPT did not return a JSON object.")
     contract: Dict[str, Any] = {}
     current_parsed = copy.deepcopy(parsed)
-    for repair_attempt in range(0, 1):
+    for repair_attempt in range(0, 2):
       try:
         contract = _validate_stage_ramp_contract_payload(
           payload=current_parsed,
@@ -12038,7 +12165,7 @@ def _estimate_stage_ramp_contract_with_gpt(
         )
         break
       except RuntimeError as exc:
-        if repair_attempt >= 0:
+        if repair_attempt >= 1:
           raise RuntimeError(
             f"{str(exc)}; invalid_stage_ramp_response={json.dumps(current_parsed, ensure_ascii=False)[:4000]}"
           ) from exc
@@ -13523,6 +13650,18 @@ def _cash_strategy_review_decision_contract_error(
     for item in (context_payload.get("required_funding_quarters") or [])
     if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
   }
+  cash_violation_envelope = (
+    context_payload.get("cash_violation_envelope")
+    if isinstance(context_payload.get("cash_violation_envelope"), dict)
+    else {}
+  )
+  surplus_required_by_quarter = {
+    int(_safe_float(item.get("quarter_index")) or 0): int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0)))
+    for item in (cash_violation_envelope.get("quarter_envelopes") or [])
+    if isinstance(item, dict)
+    and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+    and int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))) > 0
+  }
   lever_bounds_payload = (
     context_payload.get("lever_bounds")
     if isinstance(context_payload.get("lever_bounds"), dict)
@@ -13556,6 +13695,11 @@ def _cash_strategy_review_decision_contract_error(
     return None
   if required_funding_quarters and not recommended_adjustments:
     return "Violating quarters require financing adjustments, so recommended_adjustments must not be empty."
+  if surplus_required_by_quarter and not recommended_adjustments:
+    return (
+      "Surplus deployment quarters require Distributions and/or Debt Repayment adjustments, "
+      "so recommended_adjustments must not be empty."
+    )
   declared_quarter_plan = {
     int(_safe_float(item.get("quarter_index")) or 0): item
     for item in quarter_funding_plan
@@ -13568,6 +13712,7 @@ def _cash_strategy_review_decision_contract_error(
   if missing_quarters:
     return f"quarter_funding_plan must explicitly cover every required funding quarter. missing={missing_quarters}."
   adjustment_by_lever_quarter: Dict[tuple[str, int], Dict[str, Any]] = {}
+  surplus_deployment_by_quarter: Dict[int, int] = {}
   for adjustment in recommended_adjustments:
     lever_id = str(adjustment.get("lever_id") or "").strip()
     start_q = int(_safe_float(adjustment.get("timing_start_q")) or 0)
@@ -13576,6 +13721,61 @@ def _cash_strategy_review_decision_contract_error(
       continue
     for quarter_index in range(start_q, end_q + 1):
       adjustment_by_lever_quarter[(lever_id, quarter_index)] = adjustment
+      bound = lever_bound_lookup.get((lever_id, quarter_index))
+      if not isinstance(bound, dict):
+        return (
+          f"recommended_adjustments {lever_id} Q{quarter_index} is outside the deterministic cash lever bounds."
+        )
+      exact_value = int(round(float(_safe_float(adjustment.get("exact_value")) or 0.0)))
+      current_value = int(round(float(_safe_float(bound.get("current_value")) or 0.0)))
+      min_value = int(round(float(_safe_float(bound.get("min_value")) or 0.0)))
+      max_value = int(round(float(_safe_float(bound.get("max_value")) or current_value)))
+      financing_amount_lever_ids = {
+        _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID,
+        _CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID,
+        _CASH_STRATEGY_OTHER_EQUITY_LEVER_ID,
+      }
+      candidate_value = int(current_value + max(exact_value, 0)) if lever_id in financing_amount_lever_ids else exact_value
+      if candidate_value < min_value or candidate_value > max_value:
+        return (
+          f"recommended_adjustments {lever_id} Q{quarter_index} is outside allowed bounds. "
+          f"candidate_value={candidate_value} min_value={min_value} max_value={max_value}."
+        )
+      supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
+      residual_gap = int(round(float(_safe_float(supporting_metrics.get("residual_funding_gap")) or 0.0)))
+      if (
+        lever_id == _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID
+        and candidate_value > current_value
+        and residual_gap > 0
+      ):
+        return (
+          f"recommended_adjustments {lever_id} Q{quarter_index} cannot increase distributions while "
+          f"the quarter has residual_funding_gap={residual_gap}."
+        )
+      if (
+        lever_id in {_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID, _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID}
+        and candidate_value > current_value
+      ):
+        deployable_surplus = int(round(float(_safe_float(supporting_metrics.get("deployable_surplus_above_ceiling")) or 0.0)))
+        if deployable_surplus > 0:
+          surplus_deployment_by_quarter[quarter_index] = int(
+            surplus_deployment_by_quarter.get(quarter_index, 0) + int(candidate_value - current_value)
+          )
+  underdeployed_surplus_quarters = [
+    {
+      "quarter_index": int(quarter_index),
+      "required_surplus_deployment": int(required_amount),
+      "declared_surplus_deployment": int(surplus_deployment_by_quarter.get(quarter_index, 0)),
+    }
+    for quarter_index, required_amount in sorted(surplus_required_by_quarter.items())
+    if int(surplus_deployment_by_quarter.get(quarter_index, 0)) < int(required_amount)
+  ]
+  if underdeployed_surplus_quarters:
+    return (
+      "recommended_adjustments must deploy surplus above the strategy cash ceiling for every surplus_deployment_quarter. "
+      "underdeployed="
+      + json.dumps(underdeployed_surplus_quarters[:20], ensure_ascii=False, sort_keys=True)
+    )
   for quarter_index, required_payload in required_funding_quarters.items():
     quarter_plan = declared_quarter_plan.get(quarter_index) or {}
     funding_sources = [
@@ -15487,6 +15687,33 @@ def _run_cash_strategy_review_openai(
     if int(_safe_float(item.get("quarter_index")) or 0) >= 1
   ]
   required_funding_quarter_set = set(required_funding_quarter_indexes)
+  raw_violation_envelope = (
+    context_payload.get("cash_violation_envelope")
+    if isinstance(context_payload.get("cash_violation_envelope"), dict)
+    else {}
+  )
+  surplus_deployment_quarter_indexes = [
+    int(_safe_float(item) or 0)
+    for item in (raw_violation_envelope.get("surplus_deployment_quarters") or [])
+    if int(_safe_float(item) or 0) >= 1
+  ]
+  surplus_deployment_quarter_set = set(surplus_deployment_quarter_indexes)
+  decision_quarter_set = set(required_funding_quarter_set) | set(surplus_deployment_quarter_set)
+  required_surplus_deployment_quarters = [
+    {
+      "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
+      "required_surplus_deployment": int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))),
+      "ending_cash_after_hard_rules": int(round(float(_safe_float(item.get("ending_cash_after_hard_rules")) or 0.0))),
+      "cash_ceiling": int(round(float(_safe_float(item.get("cash_ceiling")) or 0.0))),
+      "max_additional_distribution": int(round(float(_safe_float(item.get("max_additional_distribution")) or 0.0))),
+      "max_additional_debt_paydown": int(round(float(_safe_float(item.get("max_additional_debt_paydown")) or 0.0))),
+      "cash_policy": copy.deepcopy(item.get("cash_policy") or {}),
+    }
+    for item in (raw_violation_envelope.get("quarter_envelopes") or [])
+    if isinstance(item, dict)
+    and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+    and int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))) > 0
+  ]
   funding_source_policy = (
     context_payload.get("funding_source_policy")
     if isinstance(context_payload.get("funding_source_policy"), dict)
@@ -15500,17 +15727,13 @@ def _run_cash_strategy_review_openai(
     )
     if str(item).strip()
   }
-  raw_violation_envelope = (
-    context_payload.get("cash_violation_envelope")
-    if isinstance(context_payload.get("cash_violation_envelope"), dict)
-    else {}
-  )
   prompt_cash_violation_envelope = {
     "contract_version": str(raw_violation_envelope.get("contract_version") or "cash_strategy_violation_envelope_v1"),
     "selected_cash_strategy": str(raw_violation_envelope.get("selected_cash_strategy") or "").strip(),
     "has_violations": bool(raw_violation_envelope.get("has_violations")),
     "violation_quarters": copy.deepcopy(raw_violation_envelope.get("violation_quarters") or []),
     "residual_gap_quarters": copy.deepcopy(raw_violation_envelope.get("residual_gap_quarters") or []),
+    "surplus_deployment_quarters": copy.deepcopy(raw_violation_envelope.get("surplus_deployment_quarters") or []),
     "allowed_review_quarters": copy.deepcopy(raw_violation_envelope.get("allowed_review_quarters") or []),
     "capital_structure_guidance": copy.deepcopy(raw_violation_envelope.get("capital_structure_guidance") or {}),
     "validation_requirements": copy.deepcopy(raw_violation_envelope.get("validation_requirements") or {}),
@@ -15521,11 +15744,11 @@ def _run_cash_strategy_review_openai(
     else {}
   )
   prompt_summary_metrics = copy.deepcopy(raw_summary_metrics)
-  if isinstance(prompt_summary_metrics.get("buffer_quarters"), list) and required_funding_quarter_set:
+  if isinstance(prompt_summary_metrics.get("buffer_quarters"), list) and decision_quarter_set:
     prompt_summary_metrics["buffer_quarters"] = [
       item for item in prompt_summary_metrics.get("buffer_quarters") or []
       if isinstance(item, dict)
-      and int(_safe_float(item.get("quarter_index")) or 0) in required_funding_quarter_set
+      and int(_safe_float(item.get("quarter_index")) or 0) in decision_quarter_set
     ]
   raw_lever_bounds = (
     context_payload.get("lever_bounds")
@@ -15533,16 +15756,24 @@ def _run_cash_strategy_review_openai(
     else {}
   )
   prompt_lever_bounds_rows: Dict[str, List[Dict[str, Any]]] = {}
+  surplus_deployment_lever_ids = {
+    _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID,
+    _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
+  }
   for lever_id, rows in (raw_lever_bounds.get("lever_bounds") or {}).items():
     lever_key = str(lever_id or "").strip()
-    if prompt_allowed_funding_sources and lever_key not in prompt_allowed_funding_sources:
+    if (
+      prompt_allowed_funding_sources
+      and lever_key not in prompt_allowed_funding_sources
+      and not (surplus_deployment_quarter_set and lever_key in surplus_deployment_lever_ids)
+    ):
       continue
     compact_rows: List[Dict[str, Any]] = []
     for row in rows or []:
       if not isinstance(row, dict):
         continue
       quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
-      if required_funding_quarter_set and quarter_index not in required_funding_quarter_set:
+      if decision_quarter_set and quarter_index not in decision_quarter_set:
         continue
       supporting_metrics = (
         row.get("supporting_metrics")
@@ -15557,10 +15788,14 @@ def _run_cash_strategy_review_openai(
           "max_value": int(round(float(_safe_float(row.get("max_value")) or 0.0))),
           "supporting_metrics": {
             "buffer": int(round(float(_safe_float(supporting_metrics.get("buffer")) or 0.0))),
+            "cash_ceiling": int(round(float(_safe_float(supporting_metrics.get("cash_ceiling")) or 0.0))),
             "ending_cash_after_hard_rules": int(round(float(_safe_float(supporting_metrics.get("ending_cash_after_hard_rules")) or 0.0))),
             "residual_funding_gap": int(round(float(_safe_float(supporting_metrics.get("residual_funding_gap")) or 0.0))),
+            "deployable_surplus_above_ceiling": int(round(float(_safe_float(supporting_metrics.get("deployable_surplus_above_ceiling")) or 0.0))),
             "carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("carryforward_headroom")) or 0.0))),
             "cash_support_multiplier": round(float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0), 6),
+            "cash_policy": copy.deepcopy(supporting_metrics.get("cash_policy") or {}),
+            "allowed_action": str(supporting_metrics.get("allowed_action") or "").strip(),
           },
         }
       )
@@ -15584,8 +15819,8 @@ def _run_cash_strategy_review_openai(
     for row in (raw_debt_schedule.get("rows") or [])
     if isinstance(row, dict)
     and (
-      not required_funding_quarter_set
-      or int(_safe_float(row.get("quarter_index")) or 0) in required_funding_quarter_set
+      not decision_quarter_set
+      or int(_safe_float(row.get("quarter_index")) or 0) in decision_quarter_set
     )
   ]
   prompt_safe_cash_strategy_review_context = {
@@ -15607,13 +15842,14 @@ def _run_cash_strategy_review_openai(
       "rows": prompt_debt_rows,
     },
     "required_funding_quarters": copy.deepcopy(required_funding_quarters),
+    "required_surplus_deployment_quarters": copy.deepcopy(required_surplus_deployment_quarters),
     "allowed_quarters": copy.deepcopy(allowed_quarters),
     "summary_metrics": copy.deepcopy(prompt_summary_metrics),
     "lever_bounds": {
       "contract_version": str(raw_lever_bounds.get("contract_version") or "cash_strategy_lever_bounds_v2"),
       "allowed_quarters": [
         quarter for quarter in (raw_lever_bounds.get("allowed_quarters") or allowed_quarters)
-        if not required_funding_quarter_set or int(_safe_float(quarter) or 0) in required_funding_quarter_set
+        if not decision_quarter_set or int(_safe_float(quarter) or 0) in decision_quarter_set
       ],
       "lever_bounds": prompt_lever_bounds_rows,
     },
@@ -15775,10 +16011,13 @@ def _run_cash_strategy_review_openai(
               {
                 "repair_contract_violation": str(contract_error or "").strip() or "cash_strategy_plan_did_not_fully_cover_required_funding_quarters",
                 "required_funding_quarters": copy.deepcopy(required_funding_quarters),
+                "required_surplus_deployment_quarters": copy.deepcopy(required_surplus_deployment_quarters),
                 "provisional_translation_fail_flags": sorted(provisional_plan_fail_flags),
                 "provisional_translation_warnings": copy.deepcopy(provisional_plan.get("translation_warnings") or []),
                 "instruction": (
                   "You must fully cover every required incremental funding quarter with integer whole-dollar amounts only. "
+                  "You must also deploy every surplus_deployment_quarter by increasing Distributions and/or Debt Repayment enough "
+                  "to eliminate cash above the strategy cash ceiling, using only Python-provided lever bounds. "
                   "Return recommendation_mode='adjust', include quarter_funding_plan entries for every required funding quarter, "
                   "and make recommended_adjustments sufficient so the translated financing plan covers the full residual funding gap "
                   "for each required incremental quarter. Every quarter_funding_plan funding_sources list must contain exactly one source, and that "
@@ -21914,6 +22153,19 @@ def _validate_cash_strategy_post_pass(
     for item in (cash_validation_envelope.get("quarter_envelopes") or [])
     if isinstance(item, dict) and bool(item.get("distribution_violation"))
   ]
+  cash_surplus_ceiling_violations = [
+    {
+      "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
+      "ending_cash_after_hard_rules": int(round(float(_safe_float(item.get("ending_cash_after_hard_rules")) or 0.0))),
+      "cash_ceiling": int(round(float(_safe_float(item.get("cash_ceiling")) or 0.0))),
+      "deployable_surplus_above_ceiling": int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))),
+      "cash_policy": copy.deepcopy(item.get("cash_policy") or {}),
+    }
+    for item in (cash_validation_envelope.get("quarter_envelopes") or [])
+    if isinstance(item, dict)
+    and bool(item.get("deploy_above_ceiling_required"))
+    and int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))) > 0
+  ]
   cash_contract_failures: List[Dict[str, Any]] = []
   selected_strategy = _resolved_cash_strategy(financials_json)
   if selected_strategy not in {"preserve_cash", "balanced", "shareholder_return"}:
@@ -22030,12 +22282,15 @@ def _validate_cash_strategy_post_pass(
     cash_failed_rule_codes.append("liquidity_failure")
   if cash_distribution_violations:
     cash_failed_rule_codes.append("cash_distribution_violation")
+  if cash_surplus_ceiling_violations:
+    cash_failed_rule_codes.append("cash_surplus_deployment_failure")
   if cash_contract_failures:
     cash_failed_rule_codes.append("cash_strategy_contract_failure")
   keep_changes = bool(
     hard_rule_assessment.get("all_hard_rules_cleared")
     and not cash_buffer_violations
     and not cash_distribution_violations
+    and not cash_surplus_ceiling_violations
     and not cash_contract_failures
   )
   detail_parts: List[str] = []
@@ -22050,6 +22305,10 @@ def _validate_cash_strategy_post_pass(
   if cash_distribution_violations:
     detail_parts.append(
       f"cash_distribution_violations={[int(_safe_float(item.get('quarter_index')) or 0) for item in cash_distribution_violations]}"
+    )
+  if cash_surplus_ceiling_violations:
+    detail_parts.append(
+      f"cash_surplus_ceiling_violations={[int(_safe_float(item.get('quarter_index')) or 0) for item in cash_surplus_ceiling_violations]}"
     )
   if cash_contract_failures:
     detail_parts.append(
@@ -22082,6 +22341,7 @@ def _validate_cash_strategy_post_pass(
     "debt_schedule_snapshot": copy.deepcopy(debt_schedule),
     "cash_buffer_violations": copy.deepcopy(cash_buffer_violations),
     "cash_distribution_violations": copy.deepcopy(cash_distribution_violations),
+    "cash_surplus_ceiling_violations": copy.deepcopy(cash_surplus_ceiling_violations),
   }
 
 
