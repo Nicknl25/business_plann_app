@@ -23,6 +23,8 @@ except Exception:
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
 DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
 LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
+R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
+R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
@@ -721,6 +723,52 @@ def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int) -> Tupl
 
 def _compose_period_values(*, stub_value: float, live_values: Sequence[Any]) -> List[float]:
   return [round(_safe_float(stub_value) or 0.0, 6), *[round(_safe_float(item) or 0.0, 6) for item in (live_values or [])]]
+
+
+def _normalized_r_and_d_applicability_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  raw_policy = (
+    policies.get(R_AND_D_APPLICABILITY_LEVER_ID)
+    if isinstance(policies.get(R_AND_D_APPLICABILITY_LEVER_ID), dict)
+    else {}
+  )
+  if not isinstance(raw_policy, dict):
+    raw_policy = {}
+  enabled_raw = raw_policy.get("r_and_d_enabled")
+  enabled = bool(enabled_raw) if isinstance(enabled_raw, bool) else True
+  return {
+    "policy_version": str(raw_policy.get("policy_version") or R_AND_D_APPLICABILITY_POLICY_VERSION).strip(),
+    "decision_source": str(raw_policy.get("decision_source") or "default_enabled").strip(),
+    "r_and_d_enabled": enabled,
+    "rationale": str(raw_policy.get("rationale") or "").strip(),
+  }
+
+
+def apply_r_and_d_applicability_policy_to_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  r_and_d_enabled: bool,
+  decision_source: str = "gpt_pre_forecast",
+  rationale: str = "",
+) -> Dict[str, Any]:
+  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
+  next_payload.setdefault("derived_driver_policies", {})
+  policies = next_payload.get("derived_driver_policies")
+  if isinstance(policies, dict):
+    policies[R_AND_D_APPLICABILITY_LEVER_ID] = {
+      "policy_version": R_AND_D_APPLICABILITY_POLICY_VERSION,
+      "decision_source": str(decision_source or "gpt_pre_forecast").strip(),
+      "r_and_d_enabled": bool(r_and_d_enabled),
+      "rationale": str(rationale or "").strip(),
+      "forecast_world_applied_before_grid": True,
+      "finmo_formula_unchanged": True,
+    }
+  return apply_derived_driver_policies_to_model_input(next_payload)
+
+
+def r_and_d_enabled_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> bool:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  return bool(_normalized_r_and_d_applicability_policy(payload).get("r_and_d_enabled", True))
 
 
 def _operating_anchor_baseline_inputs(
@@ -1915,6 +1963,47 @@ def apply_derived_driver_policies_to_model_input(
   ), None)
   next_payload.setdefault("derived_driver_policies", {})
   next_payload.setdefault("derived_driver_runtime", {})
+
+  r_and_d_policy = _normalized_r_and_d_applicability_policy(next_payload)
+  r_and_d_row = next((
+    row for row in expense_rows
+    if str(row.get("label") or "").strip() == "Research & Development"
+  ), None)
+  if isinstance(r_and_d_row, dict) and not bool(r_and_d_policy.get("r_and_d_enabled")):
+    stub_value, _existing_live_values = _row_stub_and_live_values(
+      r_and_d_row.get("values") or [],
+      live_count=live_count,
+    )
+    r_and_d_row["controller_write"] = False
+    r_and_d_row["derived_driver"] = "r_and_d_disabled_by_business_applicability"
+    r_and_d_row["r_and_d_applicability"] = deepcopy(r_and_d_policy)
+    r_and_d_row["values"] = _compose_period_values(
+      stub_value=stub_value,
+      live_values=[0.0 for _ in range(live_count)],
+    )
+    if isinstance(next_payload.get("controller_write_levers"), list):
+      next_payload["controller_write_levers"] = [
+        deepcopy(item)
+        for item in (next_payload.get("controller_write_levers") or [])
+        if isinstance(item, dict)
+        and str(item.get("lever_id") or "").strip() != R_AND_D_APPLICABILITY_LEVER_ID
+      ]
+    if isinstance(next_payload.get("lever_catalog"), dict):
+      lever_catalog = deepcopy(next_payload.get("lever_catalog") or {})
+      lever_catalog.pop(R_AND_D_APPLICABILITY_LEVER_ID, None)
+      next_payload["lever_catalog"] = lever_catalog
+    if isinstance(next_payload.get("derived_driver_runtime"), dict):
+      next_payload["derived_driver_runtime"][R_AND_D_APPLICABILITY_LEVER_ID] = {
+        **deepcopy(r_and_d_policy),
+        "forecast_live_values_forced_zero": True,
+        "controller_write_removed": True,
+      }
+  elif isinstance(next_payload.get("derived_driver_runtime"), dict):
+    next_payload["derived_driver_runtime"][R_AND_D_APPLICABILITY_LEVER_ID] = {
+      **deepcopy(r_and_d_policy),
+      "forecast_live_values_forced_zero": False,
+      "controller_write_removed": False,
+    }
 
   capex_policy = _normalized_capex_depreciation_policy(next_payload)
   capacity_shaping_runtime = _shape_revenue_capacity_and_utilization(

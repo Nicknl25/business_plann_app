@@ -106,6 +106,9 @@ OPS_MILESTONE_QUESTION = (
   "(for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?"
 )
 
+R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
+R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
+
 
 class PlanningRunLifecycleInterrupt(RuntimeError):
   def __init__(self, *, action: str, planning_run_id: str, detail: str):
@@ -168,6 +171,46 @@ def _structured_system_run_failure_detail(
     if part
   ]
   return ": ".join(parts) if parts else (str(fallback or "").strip() or "system_run_failed")
+
+
+def _pre_solver_validation_failure_diagnostics(
+  *,
+  unified_convergence_plan: Optional[Dict[str, Any]],
+  validation_error: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  plan = unified_convergence_plan if isinstance(unified_convergence_plan, dict) else {}
+  error = validation_error if isinstance(validation_error, dict) else {}
+  pre_solver_validation = (
+    plan.get("pre_solver_validation")
+    if isinstance(plan.get("pre_solver_validation"), dict)
+    else {
+      "stage": "pre_solver_validation",
+      "status": "failed",
+      "flags": [str(error.get("reason_code") or "pre_solver_validation_failed").strip()],
+      "errors": [
+        {
+          "error": str(error.get("reason_code") or "pre_solver_validation_failed").strip(),
+          "reason": str(error.get("reason") or "").strip(),
+          "validation_category": "planner_contract",
+        }
+      ],
+    }
+  )
+  return {
+    "failure_stage": "pre_solver_validation",
+    "failure_reason": str(error.get("reason_code") or "pre_solver_validation_failed").strip(),
+    "solver_invoked": False,
+    "validation_error": copy.deepcopy(error),
+    "pre_solver_validation": copy.deepcopy(pre_solver_validation),
+    "planner_status": str(plan.get("status") or "").strip() or None,
+    "planner_next_step": str(plan.get("next_step") or "").strip() or None,
+    "selected_cash_strategy": str(plan.get("selected_cash_strategy") or "").strip() or None,
+    "active_issue_count": (
+      int(_safe_float((plan.get("numeric_solver_contract") or {}).get("active_issue_count")) or 0)
+      if isinstance(plan.get("numeric_solver_contract"), dict)
+      else None
+    ),
+  }
 
 
 def _raise_unified_convergence_cycle_timeout_if_needed(
@@ -11034,6 +11077,7 @@ def _validate_stage_ramp_contract_payload(
   business_stage: Optional[str] = None,
   planning_mode: Optional[str] = None,
   planning_mode_reason: Optional[str] = None,
+  r_and_d_enabled: bool = True,
 ) -> Dict[str, Any]:
   candidate = payload if isinstance(payload, dict) else {}
   errors: List[str] = []
@@ -11173,6 +11217,10 @@ def _validate_stage_ramp_contract_payload(
       errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
     if parsed.get("cogs_percent_of_revenue_max", 0.0) < 0.20:
       errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_max must be >= 0.20 so it does not conflict with the COGS operating envelope")
+    if not bool(r_and_d_enabled) and abs(float(parsed.get("rd_percent_of_revenue_max") or 0.0)) > 1e-9:
+      errors.append(
+        f"quarter_ramp_grid Q{quarter_index} rd_max must be 0.00 because R&D applicability is disabled before forecast"
+      )
     revenue_spike_allowed = bool(item.get("rev_spike"))
     fte_spike_allowed = bool(item.get("fte_spike"))
     profitability_posture = str(item.get("posture") or "").strip().lower()
@@ -11541,6 +11589,255 @@ def _stage_ramp_gpt_timeout_seconds() -> float:
   return 45.0
 
 
+def _r_and_d_applicability_timeout_seconds() -> float:
+  raw = str(os.getenv("R_AND_D_APPLICABILITY_GPT_TIMEOUT_SECONDS") or "").strip()
+  if raw:
+    try:
+      return max(10.0, min(45.0, float(raw)))
+    except Exception:
+      pass
+  return 20.0
+
+
+def _r_and_d_applicability_schema() -> Dict[str, Any]:
+  return {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "r_and_d_enabled": {"type": "boolean"},
+      "rationale": {"type": "string", "minLength": 10, "maxLength": 600},
+    },
+    "required": ["r_and_d_enabled", "rationale"],
+  }
+
+
+def _validate_r_and_d_applicability_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  candidate = payload if isinstance(payload, dict) else {}
+  if not isinstance(candidate.get("r_and_d_enabled"), bool):
+    raise RuntimeError(
+      "r_and_d_applicability_invalid: r_and_d_enabled must be an explicit boolean before forecast."
+    )
+  rationale = str(candidate.get("rationale") or "").strip()
+  if len(rationale) < 10:
+    raise RuntimeError("r_and_d_applicability_invalid: rationale is required.")
+  return {
+    "contract_version": R_AND_D_APPLICABILITY_POLICY_VERSION,
+    "decision_source": "gpt_pre_forecast",
+    "r_and_d_enabled": bool(candidate.get("r_and_d_enabled")),
+    "rationale": rationale,
+  }
+
+
+def _r_and_d_policy_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  policy = policies.get(R_AND_D_APPLICABILITY_LEVER_ID) if isinstance(policies.get(R_AND_D_APPLICABILITY_LEVER_ID), dict) else {}
+  return policy if isinstance(policy, dict) else {}
+
+
+def _r_and_d_enabled_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> bool:
+  policy = _r_and_d_policy_from_model_input(model_input_json)
+  enabled = policy.get("r_and_d_enabled")
+  return bool(enabled) if isinstance(enabled, bool) else True
+
+
+def _model_input_r_and_d_live_values(model_input_json: Optional[Dict[str, Any]]) -> List[float]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  for row in (sections.get("expenses") or []):
+    if not isinstance(row, dict):
+      continue
+    if str(row.get("label") or "").strip() != "Research & Development":
+      continue
+    values = list(row.get("values") or [])
+    return [float(_safe_float(value) or 0.0) for value in values[1:]]
+  return []
+
+
+def _assert_r_and_d_applicability_policy_applied(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]] = None,
+  planning_result: Optional[Dict[str, Any]] = None,
+  stage: str = "",
+) -> None:
+  policy = _r_and_d_policy_from_model_input(model_input_json)
+  if not policy or not isinstance(policy.get("r_and_d_enabled"), bool):
+    raise RuntimeError(
+      "r_and_d_applicability_missing_before_forecast: GPT R&D applicability decision must be applied before forecast/grid."
+    )
+  if bool(policy.get("r_and_d_enabled")):
+    return
+
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  r_and_d_row = next(
+    (
+      row for row in (sections.get("expenses") or [])
+      if isinstance(row, dict) and str(row.get("label") or "").strip() == "Research & Development"
+    ),
+    None,
+  )
+  if not isinstance(r_and_d_row, dict):
+    raise RuntimeError(
+      f"r_and_d_disabled_row_missing: R&D disabled but model_input row is missing at {stage or 'unknown_stage'}."
+    )
+  if bool(r_and_d_row.get("controller_write")):
+    raise RuntimeError(
+      f"r_and_d_disabled_still_controller_writable: R&D disabled but row remains editable at {stage or 'unknown_stage'}."
+    )
+  live_values = _model_input_r_and_d_live_values(payload)
+  leaking_values = [
+    {"quarter_index": idx, "value": value}
+    for idx, value in enumerate(live_values, start=1)
+    if abs(float(value or 0.0)) > 1e-9
+  ]
+  if leaking_values:
+    raise RuntimeError(
+      "r_and_d_disabled_live_value_leakage: "
+      + json.dumps({"stage": stage, "leaking_values": leaking_values[:20]}, ensure_ascii=False)
+    )
+  controller_levers = payload.get("controller_write_levers") if isinstance(payload.get("controller_write_levers"), list) else []
+  if any(
+    isinstance(item, dict) and str(item.get("lever_id") or "").strip() == R_AND_D_APPLICABILITY_LEVER_ID
+    for item in controller_levers
+  ):
+    raise RuntimeError(
+      f"r_and_d_disabled_lever_catalog_leakage: controller_write_levers still includes R&D at {stage or 'unknown_stage'}."
+    )
+  lever_catalog = payload.get("lever_catalog") if isinstance(payload.get("lever_catalog"), dict) else {}
+  if R_AND_D_APPLICABILITY_LEVER_ID in lever_catalog:
+    raise RuntimeError(
+      f"r_and_d_disabled_lever_catalog_leakage: lever_catalog still includes R&D at {stage or 'unknown_stage'}."
+    )
+  if isinstance(finmo_json, dict):
+    leaked_finmo = [
+      {
+        "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
+        "research_and_development": float(_safe_float(row.get("research_and_development")) or 0.0),
+      }
+      for row in (finmo_json.get("quarter_rows") or [])
+      if isinstance(row, dict) and abs(float(_safe_float(row.get("research_and_development")) or 0.0)) > 1.0
+    ]
+    if leaked_finmo:
+      raise RuntimeError(
+        "r_and_d_disabled_finmo_leakage: "
+        + json.dumps({"stage": stage, "leaking_finmo_rows": leaked_finmo[:20]}, ensure_ascii=False)
+      )
+  if isinstance(planning_result, dict):
+    grid_rows = []
+    metadata = planning_result.get("metadata") if isinstance(planning_result.get("metadata"), dict) else {}
+    if isinstance(metadata.get("requested_row_ids"), list):
+      grid_rows.extend(metadata.get("requested_row_ids") or [])
+    grid_json = planning_result.get("grid_json") if isinstance(planning_result.get("grid_json"), dict) else {}
+    for row in (grid_json.get("rows") or []):
+      if isinstance(row, dict):
+        grid_rows.append(str(row.get("row_id") or row.get("label") or ""))
+    leaked_rows = [str(item) for item in grid_rows if "Research & Development" in str(item)]
+    if leaked_rows:
+      raise RuntimeError(
+        "r_and_d_disabled_grid_leakage: "
+        + json.dumps({"stage": stage, "leaked_rows": leaked_rows[:20]}, ensure_ascii=False)
+      )
+
+
+def _estimate_r_and_d_applicability_with_gpt(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  api_key = _openai_key()
+  if not api_key:
+    raise RuntimeError("r_and_d_applicability_openai_key_missing: OPENAI_API_KEY is not configured.")
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  current_live_values = _model_input_r_and_d_live_values(model_input_json)
+  user_context = {
+    "task": (
+      "Decide once, before any forecast grid or convergence, whether this business should have "
+      "a separate Research & Development P&L driver in the forecast world."
+    ),
+    "business_identity": {
+      "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
+      "business_type": ops.get("business_type"),
+      "business_stage": ops.get("business_stage") or facts.get("business_stage"),
+      "business_start_date": facts.get("business_start_date") or facts.get("start_date") or ops.get("business_start_date"),
+    },
+    "business_context": {
+      "description": ops.get("business_description_summary") or ops.get("business_description"),
+      "products": ops.get("products") or ops.get("revenue_products") or ops.get("product_summary"),
+      "growth_lever": ops.get("growth_lever"),
+      "competitive_advantage": ops.get("competitive_advantage"),
+      "delivery_method": ops.get("delivery_method") or ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
+    },
+    "financial_context": {
+      "annual_revenue": (
+        year1.get("company_revenue_total_year1")
+        or year1.get("revenue_total_year1")
+        or financials.get("current_revenue")
+      ),
+      "intake_r_and_d_live_values_first_4": current_live_values[:4],
+    },
+    "hard_rules": [
+      "Return r_and_d_enabled=true only when this business has a true separate R&D function.",
+      "True R&D includes software/product engineering, scientific research, lab/product development, clinical innovation, technical platform development, or comparable development work.",
+      "Return r_and_d_enabled=false for ordinary local services, retail, restaurants, logistics, car lots, medical service delivery without product/lab R&D, routine quality control, menu changes, marketing tests, or general business improvement.",
+      "Do not preserve a separate R&D row just because intake produced a small default value.",
+      "This is a structural applicability decision, not a cost forecast.",
+    ],
+  }
+  system_prompt = (
+    "You make one pre-forecast structural applicability decision for a 3-statement planning app. "
+    "Decide whether Research & Development should exist as a separate P&L driver in the forecast. "
+    "Return only JSON matching the schema. Be conservative: if R&D is not a real distinct operating function, return false."
+  )
+  payload = {
+    "model": _openai_model(),
+    "temperature": 0,
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "r_and_d_applicability",
+        "schema": _r_and_d_applicability_schema(),
+        "strict": True,
+      }
+    },
+  }
+  timeout_seconds = _r_and_d_applicability_timeout_seconds()
+  prior_deadline = _set_active_openai_deadline(time.perf_counter() + timeout_seconds)
+  try:
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+    if resp.status_code >= 400:
+      raise RuntimeError(f"r_and_d_applicability_openai_status: {resp.text[:1200]}")
+    raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+    parsed = _parse_responses_json_dict(raw_openai_response)
+    if not isinstance(parsed, dict):
+      raise RuntimeError("r_and_d_applicability_parse_failed: GPT did not return a JSON object.")
+    decision = _validate_r_and_d_applicability_payload(parsed)
+  except TimeoutError as exc:
+    raise RuntimeError(
+      f"r_and_d_applicability_timeout: GPT R&D applicability selection exceeded {timeout_seconds:.0f}s before forecast."
+    ) from exc
+  finally:
+    _set_active_openai_deadline(prior_deadline)
+  decision["prompt_context"] = user_context
+  decision["raw_openai_response"] = raw_openai_response
+  return decision
+
+
 def _estimate_stage_ramp_contract_with_gpt(
   *,
   business_facts: Optional[Dict[str, Any]],
@@ -11551,6 +11848,7 @@ def _estimate_stage_ramp_contract_with_gpt(
   planning_mode_reason: str,
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
+  r_and_d_applicability: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   api_key = _openai_key()
   if not api_key:
@@ -11579,6 +11877,13 @@ def _estimate_stage_ramp_contract_with_gpt(
     planning_mode=planning_mode,
     planning_mode_reason=planning_mode_reason,
     business_stage=stage,
+  )
+  rd_decision = r_and_d_applicability if isinstance(r_and_d_applicability, dict) else {}
+  rd_enabled = bool(rd_decision.get("r_and_d_enabled")) if isinstance(rd_decision.get("r_and_d_enabled"), bool) else True
+  rd_cost_rule = (
+    "R&D applicability is enabled. Include R&D maturity caps only when the business facts make separate R&D economically natural."
+    if rd_enabled
+    else "R&D applicability is disabled before forecast. Set every rd_max value to 0.00 and do not treat R&D as a forecast cost."
   )
   revenue_driver_states = _model_input_revenue_driver_quarter_states(model_input_json)
   finmo_rows = [
@@ -11621,6 +11926,11 @@ def _estimate_stage_ramp_contract_with_gpt(
       "initial_assets": financials.get("initial_assets"),
       "total_debt_outstanding": financials.get("total_debt_outstanding"),
     },
+    "r_and_d_applicability": {
+      key: copy.deepcopy(value)
+      for key, value in rd_decision.items()
+      if key not in {"prompt_context", "raw_openai_response"}
+    },
     "stage_profitability_policy": stage_policy,
     "current_model_snapshot": {
       "revenue_driver_states_first_8_quarters": {
@@ -11651,11 +11961,16 @@ def _estimate_stage_ramp_contract_with_gpt(
       "Use fte_spike_small_base_threshold=-1 when no small-base spike threshold applies.",
       "Because Payroll/FTE is revenue-derived, each row's fte_max must be at least rev_max and fte_spike_max must be at least rev_spike_max.",
       "max_util is a maximum achievable utilization ceiling, not the current utilization target. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth.",
-      "Every row must include COGS, marketing, R&D, G&A, lease, net income margin floor, and profitability posture maturity fields.",
+      "Every row must include COGS, marketing, rd_max, G&A, lease, net income margin floor, and profitability posture maturity fields because the schema requires those fields.",
+      rd_cost_rule,
       "Business stage, planning mode, and ramp must satisfy stage_profitability_policy exactly; do not choose a ramp posture outside that policy.",
       "Cost maturity fields are decimal ratios of revenue. They are guardrail caps for model-input cost-driver rows, not target outputs.",
       "cogs_max must be at least 0.20 so it does not conflict with the model's direct COGS operating envelope.",
-      "Do not make Marketing and R&D identical unless this specific business model makes that economically natural.",
+      (
+        "Do not make Marketing and R&D identical unless this specific business model makes that economically natural."
+        if rd_enabled
+        else "Because R&D is disabled, do not compare Marketing to R&D or preserve any R&D spend."
+      ),
       "Do not force instant mature profitability. Early losses may be realistic for startup and early-stage businesses.",
       "By Q10 ni_floor must be near breakeven (>= -0.02). Q11-Q20 ni_floor must be nonnegative unless the stage_family_required is still not mature, which this schema does not allow.",
       "Profitability posture should move naturally from loss_allowed to improving_losses to near_breakeven to positive as the business matures.",
@@ -11676,7 +11991,8 @@ def _estimate_stage_ramp_contract_with_gpt(
     "max_util is the maximum achievable utilization ceiling for the quarter and must never decline; it is not the "
     "current utilization target. Be strict enough to prevent fantasy growth, fake instant profitability, and "
     "artificial same-value cost buckets."
-    " Use stage_profitability_policy as the binding bridge between planning mode, business stage, and ramp posture."
+    " Use stage_profitability_policy as the binding bridge between planning mode, business stage, and ramp posture. "
+    "Respect r_and_d_applicability: when disabled, rd_max must be 0.00 in every row."
   )
   payload = {
     "model": _openai_model(),
@@ -11718,6 +12034,7 @@ def _estimate_stage_ramp_contract_with_gpt(
           business_stage=stage,
           planning_mode=planning_mode,
           planning_mode_reason=planning_mode_reason,
+          r_and_d_enabled=rd_enabled,
         )
         break
       except RuntimeError as exc:
@@ -11783,6 +12100,11 @@ def _estimate_stage_ramp_contract_with_gpt(
   contract["business_stage_source"] = "ops.business_stage" if explicit_stage else "business_start_date_inferred"
   contract["planning_mode"] = str(planning_mode or "").strip().lower()
   contract["planning_mode_reason"] = str(planning_mode_reason or "").strip()
+  contract["r_and_d_applicability"] = {
+    key: copy.deepcopy(value)
+    for key, value in rd_decision.items()
+    if key not in {"prompt_context", "raw_openai_response"}
+  }
   contract["prompt_context"] = user_context
   contract["raw_openai_response"] = raw_openai_response
   return contract
@@ -26385,8 +26707,8 @@ def _build_stage_maturity_cost_structure_issue_status_records(
   stage_ramp_contract: Optional[Dict[str, Any]],
   iteration: int,
 ) -> List[Dict[str, Any]]:
-  del model_input_json
   contract = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
+  r_and_d_enabled = _r_and_d_enabled_from_model_input(model_input_json)
   ramp_rows = {
     int(_safe_float(row.get("quarter_index")) or 0): row
     for row in (contract.get("quarter_ramp_grid") or [])
@@ -26399,6 +26721,11 @@ def _build_stage_maturity_cost_structure_issue_status_records(
     "cost_structure_mismatch",
     phase="convergence",
   )
+  if not r_and_d_enabled:
+    allowed_levers = [
+      lever_id for lever_id in allowed_levers
+      if str(lever_id or "").strip() != R_AND_D_APPLICABILITY_LEVER_ID
+    ]
   if not allowed_levers:
     raise RuntimeError(
       "stage_maturity_cost_structure_mapping_failed: cost_structure_mismatch fired but no table-backed cost levers are available."
@@ -26406,10 +26733,11 @@ def _build_stage_maturity_cost_structure_issue_status_records(
   component_specs = [
     ("cogs", "cogs", "cogs_percent_of_revenue_target", "cogs_percent_of_revenue_max"),
     ("marketing", "marketing", None, "marketing_percent_of_revenue_max"),
-    ("research_and_development", "research_and_development", None, "rd_percent_of_revenue_max"),
     ("lease_rent", "lease_rent", None, "lease_percent_of_revenue_max"),
     ("g_and_a", "g_and_a", None, "g_and_a_percent_of_revenue_max"),
   ]
+  if r_and_d_enabled:
+    component_specs.insert(2, ("research_and_development", "research_and_development", None, "rd_percent_of_revenue_max"))
   metric_specs: List[Dict[str, Any]] = []
   problem_quarters: List[int] = []
   for quarter_index in range(1, _CONVERGENCE_DEFAULT_QUARTER_COUNT + 1):
@@ -26425,10 +26753,22 @@ def _build_stage_maturity_cost_structure_issue_status_records(
     direct_cost_values = {
       "cogs": float(_quarter_row_cost_of_goods_sold(quarter_row) or 0.0),
       "marketing": float(_safe_float(quarter_row.get("marketing")) or 0.0),
-      "research_and_development": float(_safe_float(quarter_row.get("research_and_development")) or 0.0),
       "lease_rent": float(_safe_float(quarter_row.get("lease_rent")) or 0.0),
       "g_and_a": float(_safe_float(quarter_row.get("g_and_a")) or 0.0),
     }
+    if r_and_d_enabled:
+      direct_cost_values["research_and_development"] = float(_safe_float(quarter_row.get("research_and_development")) or 0.0)
+    elif abs(float(_safe_float(quarter_row.get("research_and_development")) or 0.0)) > 1.0:
+      raise RuntimeError(
+        "r_and_d_disabled_cost_structure_finmo_leakage: "
+        + json.dumps(
+          {
+            "quarter_index": quarter_index,
+            "research_and_development": quarter_row.get("research_and_development"),
+          },
+          ensure_ascii=False,
+        )
+      )
     cap_violations: List[str] = []
     for metric_name, _, _, cap_field in component_specs:
       cap_ratio = _safe_float(ramp_row.get(cap_field))
@@ -29443,9 +29783,17 @@ def _run_planning_system_for_draft_unified(
   }
 
   try:
-    from finmo_bridge import sync_planning_state_to_finmo  # type: ignore
+    from finmo_bridge import (  # type: ignore
+      apply_r_and_d_applicability_policy_to_model_input,
+      build_python_finmo_json,
+      sync_planning_state_to_finmo,
+    )
   except Exception:
-    from client_intake_and_finmo.finmo_bridge import sync_planning_state_to_finmo  # type: ignore
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      apply_r_and_d_applicability_policy_to_model_input,
+      build_python_finmo_json,
+      sync_planning_state_to_finmo,
+    )
   try:
     from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
   except Exception:
@@ -29469,6 +29817,11 @@ def _run_planning_system_for_draft_unified(
     model_input_json = copy.deepcopy(resume_checkpoint_model_input_json)
     catalog_source_model_input_json = copy.deepcopy(model_input_json)
     finmo_json = copy.deepcopy(resume_checkpoint_finmo_json)
+    _assert_r_and_d_applicability_policy_applied(
+      model_input_json=model_input_json,
+      finmo_json=finmo_json,
+      stage="resume_checkpoint_loaded",
+    )
     planning_context_summary_json = _refresh_planning_context_summary(
       current_model_input_json=model_input_json,
     )
@@ -29490,9 +29843,40 @@ def _run_planning_system_for_draft_unified(
       if isinstance(sync_result.get("finmo_json"), dict)
       else {}
     )
+    r_and_d_applicability_decision = _estimate_r_and_d_applicability_with_gpt(
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      model_input_json=copy.deepcopy(model_input_json or {}),
+    )
+    model_input_json = apply_r_and_d_applicability_policy_to_model_input(
+      copy.deepcopy(model_input_json or {}),
+      r_and_d_enabled=bool(r_and_d_applicability_decision.get("r_and_d_enabled")),
+      decision_source="gpt_pre_forecast",
+      rationale=str(r_and_d_applicability_decision.get("rationale") or ""),
+    )
+    finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(model_input_json))
+    catalog_source_model_input_json = copy.deepcopy(model_input_json)
+    shared_context["r_and_d_applicability_decision"] = {
+      key: copy.deepcopy(value)
+      for key, value in r_and_d_applicability_decision.items()
+      if key not in {"prompt_context", "raw_openai_response"}
+    }
+    _assert_r_and_d_applicability_policy_applied(
+      model_input_json=model_input_json,
+      finmo_json=finmo_json,
+      stage="baseline_ready_before_planning_mode",
+    )
     planning_context_summary_json = _refresh_planning_context_summary(
       current_model_input_json=model_input_json,
     )
+    if isinstance(planning_context_summary_json, dict):
+      planning_context_summary_json["r_and_d_applicability"] = {
+        key: copy.deepcopy(value)
+        for key, value in r_and_d_applicability_decision.items()
+        if key not in {"prompt_context", "raw_openai_response"}
+      }
     _persist_system_stage(
       stage="baseline_ready",
       status="running",
@@ -29520,6 +29904,14 @@ def _run_planning_system_for_draft_unified(
     planning_mode_reason_value=planning_mode_reason,
     prompt_file_value=str(planning_choice.get("prompt_file") or "").strip(),
   )
+  r_and_d_applicability_decision_for_ramp = {
+    **copy.deepcopy(_r_and_d_policy_from_model_input(model_input_json)),
+    "contract_version": R_AND_D_APPLICABILITY_POLICY_VERSION,
+  }
+  if isinstance(planning_context_summary_json, dict):
+    planning_context_summary_json["r_and_d_applicability"] = copy.deepcopy(
+      r_and_d_applicability_decision_for_ramp
+    )
   stage_ramp_contract = _estimate_stage_ramp_contract_with_gpt(
     business_facts=copy.deepcopy(business_facts or {}),
     ops_json=copy.deepcopy(ops_json or {}),
@@ -29529,6 +29921,7 @@ def _run_planning_system_for_draft_unified(
     planning_mode_reason=planning_mode_reason,
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
+    r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
   )
   shared_context["stage_ramp_contract_decision"] = {
     key: copy.deepcopy(value)
@@ -29615,6 +30008,12 @@ def _run_planning_system_for_draft_unified(
       model_input_payload=model_input_json,
       finmo_payload=finmo_json,
     )
+    _assert_r_and_d_applicability_policy_applied(
+      model_input_json=model_input_json,
+      finmo_json=finmo_json,
+      planning_result=planning_result,
+      stage="quarter_grid_ready",
+    )
 
     grid_application_result = apply_live_quarter_grid_plan(
       baseline_model_input_json=copy.deepcopy(model_input_json),
@@ -29634,6 +30033,11 @@ def _run_planning_system_for_draft_unified(
       grid_application_result.get("applied_finmo_json")
       if isinstance(grid_application_result.get("applied_finmo_json"), dict)
       else {}
+    )
+    _assert_r_and_d_applicability_policy_applied(
+      model_input_json=applied_model_input_json,
+      finmo_json=applied_finmo_json,
+      stage="quarter_grid_applied",
     )
 
   return _run_unified_post_grid_system_run(

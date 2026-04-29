@@ -57,8 +57,22 @@ _GRID_EXCLUDED_LEVER_IDS = {
   "balance_sheet::PPE $ (Excluding Capital Leases)",
   "balance_sheet::Accumulated Depreciation",
 }
+_R_AND_D_LEVER_ID = "expenses::Research & Development"
 
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _r_and_d_applicability_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  policy = policies.get(_R_AND_D_LEVER_ID) if isinstance(policies.get(_R_AND_D_LEVER_ID), dict) else {}
+  enabled = policy.get("r_and_d_enabled") if isinstance(policy, dict) else None
+  return {
+    "policy_version": str((policy or {}).get("policy_version") or "r_and_d_applicability_pre_forecast_v1"),
+    "decision_source": str((policy or {}).get("decision_source") or "missing").strip(),
+    "r_and_d_enabled": bool(enabled) if isinstance(enabled, bool) else True,
+    "rationale": str((policy or {}).get("rationale") or "").strip(),
+  }
 
 
 def _safe_float(value: Any) -> float:
@@ -770,6 +784,7 @@ def _stage_governance_context(
   business_facts: Optional[Dict[str, Any]],
   planning_mode: str,
   stage_ramp_contract: Optional[Dict[str, Any]] = None,
+  r_and_d_applicability: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   facts = business_facts if isinstance(business_facts, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
@@ -832,6 +847,7 @@ def _stage_governance_context(
     "fail_fast_if_ignored": True,
     "stage_planning_ramp_policy": policy,
     "stage_ramp_contract": ramp_contract,
+    "r_and_d_applicability": copy.deepcopy(r_and_d_applicability or {}),
   }
   context["stage_rules"] = copy.deepcopy(policy.get("stage_rules") or [])
   if isinstance(policy.get("early_revenue_share_ceiling_of_late_run_rate"), dict):
@@ -845,6 +861,13 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
     return ""
   stage = str(context.get("business_stage") or "").strip().lower()
   rules = context.get("stage_rules") if isinstance(context.get("stage_rules"), list) else []
+  rd_policy = context.get("r_and_d_applicability") if isinstance(context.get("r_and_d_applicability"), dict) else {}
+  rd_enabled = bool(rd_policy.get("r_and_d_enabled")) if isinstance(rd_policy.get("r_and_d_enabled"), bool) else True
+  cost_cap_line = (
+    "- use stage_ramp_contract cost maturity caps for COGS, Marketing, R&D, G&A, and Lease before trying to make profit look clean"
+    if rd_enabled
+    else "- R&D is disabled before forecast; do not create, preserve, edit, or imply any R&D spend. Use cost caps for COGS, Marketing, G&A, and Lease only"
+  )
   lines = [
     "Business-stage governance is binding:",
     "- read `stage_governance_context` as a hard operating contract, not narrative color",
@@ -852,7 +875,7 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
     "- do not create a forecast that violates the lifecycle stage just to make outputs look clean",
     "- apply `stage_ramp_contract` to every adjacent quarter pair Q1->Q2 through Q19->Q20",
     "- do not allow unchecked growth; spikes are only valid inside the contract's window and support rules",
-    "- use stage_ramp_contract cost maturity caps for COGS, Marketing, R&D, G&A, and Lease before trying to make profit look clean",
+    cost_cap_line,
     "- use net_income_margin_floor as a maturity guardrail, not as permission to fake instant mature profitability",
   ]
   if str(context.get("stage_family") or "").strip().lower() == "startup":
@@ -925,6 +948,7 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
 def _compact_stage_governance_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
   payload = context if isinstance(context, dict) else {}
   ramp_contract = payload.get("stage_ramp_contract") if isinstance(payload.get("stage_ramp_contract"), dict) else {}
+  rd_policy = payload.get("r_and_d_applicability") if isinstance(payload.get("r_and_d_applicability"), dict) else {}
   return {
     "contract_version": payload.get("contract_version"),
     "business_stage": payload.get("business_stage"),
@@ -935,6 +959,11 @@ def _compact_stage_governance_context_for_prompt(context: Dict[str, Any]) -> Dic
     "stage_is_reality_limiter": bool(payload.get("stage_is_reality_limiter")),
     "fail_fast_if_ignored": bool(payload.get("fail_fast_if_ignored")),
     "stage_ramp_contract": _compact_stage_ramp_contract_for_prompt(ramp_contract),
+    "r_and_d_applicability": {
+      "r_and_d_enabled": bool(rd_policy.get("r_and_d_enabled")) if isinstance(rd_policy.get("r_and_d_enabled"), bool) else True,
+      "decision_source": rd_policy.get("decision_source"),
+      "rationale": rd_policy.get("rationale"),
+    },
     "stage_rules": [
       str(item).strip()
       for item in (payload.get("stage_rules") or [])
@@ -1202,6 +1231,7 @@ def build_governor_payload_from_context(
     stage_ramp_contract=copy.deepcopy(stage_ramp_contract)
     if isinstance(stage_ramp_contract, dict)
     else None,
+    r_and_d_applicability=_r_and_d_applicability_from_model_input(model_input_json),
   )
   return {
     "baseline_summary": _sanitize_canonical_live_payload(baseline_summary or {}),
@@ -1704,6 +1734,22 @@ def build_quarter_grid_prompt(
   row_descriptions = [f"- {item['row_id']} ({item['row_type']})" for item in grid_rows]
   realism_memo_block = _realism_memo_prompt_block(source_row)
   stage_governance_block = _stage_governance_prompt_block(governor_payload)
+  rd_context = (
+    ((governor_payload.get("stage_governance_context") or {}).get("r_and_d_applicability") or {})
+    if isinstance(governor_payload, dict) and isinstance(governor_payload.get("stage_governance_context"), dict)
+    else {}
+  )
+  rd_enabled = bool(rd_context.get("r_and_d_enabled")) if isinstance(rd_context.get("r_and_d_enabled"), bool) else True
+  cost_ratio_rows_rule = (
+    "Do not flatten Marketing and R&D to identical values unless the actual business facts make that natural.\n"
+    if rd_enabled
+    else "R&D is disabled before forecast for this business. Do not create, discuss, infer, or include any R&D row or R&D spend.\n"
+  )
+  cost_maturity_rule = (
+    "- shape COGS, Marketing, R&D, G&A, Lease, revenue, utilization, and capacity together so profitability matures naturally by the later horizon\n"
+    if rd_enabled
+    else "- shape COGS, Marketing, G&A, Lease, revenue, utilization, and capacity together so profitability matures naturally by the later horizon; R&D is not part of this forecast\n"
+  )
   return "".join(
     [
       f"You are building a quarter-by-quarter financial planning grid for {business_name}.\n",
@@ -1718,7 +1764,7 @@ def build_quarter_grid_prompt(
       "You must keep every returned value inside that row's Q-specific min_value/max_value. "
       "These envelopes are the source of truth for all driver cells; do not free-form outside them.\n",
       "When cost-ratio rows are listed, their envelopes already include the stage maturity caps selected before convergence. "
-      "Do not flatten Marketing and R&D to identical values unless the actual business facts make that natural.\n",
+      + cost_ratio_rows_rule,
       "Rows may stay similar quarter to quarter when genuinely appropriate, but do not flatten the whole horizon into one repeated answer unless the business logic truly requires it.\n",
       "For output rows, use dollar values from Financial Model QTR semantics.\n",
       "For lever rows, use realistic model-input driver values.\n\n",
@@ -1736,7 +1782,7 @@ def build_quarter_grid_prompt(
       "- keep the combined revenue path inside stage_governance_context.stage_ramp_contract; do not hide an unrealistic revenue jump by keeping each individual driver inside its row envelope\n\n",
       "Cost/profitability maturity rule:\n",
       "- stage_governance_context.stage_ramp_contract includes cost-ratio caps and net income margin floors by quarter\n",
-      "- shape COGS, Marketing, R&D, G&A, Lease, revenue, utilization, and capacity together so profitability matures naturally by the later horizon\n",
+      cost_maturity_rule,
       "- do not wait for a late repair to fix chronic losses; build the cost path coherently from the first grid\n\n",
       "Important financing and equity row meanings:\n",
       "- `schedules::Debt Issuance (New Borrowing)` = debt draws or new borrowing in only\n",
@@ -1808,7 +1854,7 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
     "If stage_governance_context is present, treat it as binding and shape Q1-Q20 around it before optimizing profitability.\n"
     "Before returning, calculate composite revenue yourself as sum(Capacity * Unit Price * Utilization) across products for each quarter and verify every adjacent QoQ growth rate is inside stage_governance_context.stage_ramp_contract.\n"
     "Also apply the stage maturity cost caps and net income margin floors in stage_governance_context.stage_ramp_contract; do not leave late chronic losses for a later repair pass.\n"
-    "For percent/ratio rows such as COGS %, Marketing %, R&D %, G&A %, AR days ratios, or utilization, return decimal ratios inside the row envelope: 0.23 means 23%, not 23 and not 0.000023.\n"
+    "For percent/ratio rows such as COGS %, Marketing %, G&A %, AR days ratios, or utilization, return decimal ratios inside the row envelope: 0.23 means 23%, not 23 and not 0.000023.\n"
     + realism_boundary
     + planning_mode_text(planning_mode)
     + "\n"
