@@ -449,3 +449,344 @@ If continuing stabilization, do not start by redesigning everything. Start with 
 4. Fix the business-model coherence issue packet so it does not target revenue-only when the stage-ramp cap makes revenue insufficient.
 5. Keep all mapping table rules intact: direct drivers only, table-backed targets only, no proxy or fuzzy mapping.
 6. Do not change payroll derivation, revenue formula, FINMO formulas, or the driver-only/model-input boundary.
+
+## Update 2026-04-29: SQL Table Infrastructure, Contract Lookup, Cash Policy Work, And Current Cash Instability
+
+This section supersedes stale notes above where they conflict. The latest architecture direction is table-driven post-intake infrastructure with three SQL lookup tables. Future Codex should start from these tables and their lookup functions before changing prompt, schema, validation, mapping, or cash behavior.
+
+### Current Non-Negotiable Architecture
+
+The user wants one semantic post-intake architecture:
+
+1. `model_input_json` for Q1-Q20 is the only mutable planning state.
+2. FINMO is derived from `model_input_json`.
+3. Issue detection reads `model_input_json + finmo_json`.
+4. Repair contracts are full 20-quarter contracts, not 4-quarter partial horizons.
+5. GPT fills only the Python-defined contract/grid.
+6. Python applies only model-input driver updates.
+7. FINMO recalculates.
+8. Progress is compared from old state to new state.
+9. Cash pass runs after convergence and owns liquidity, working capital, funding, distributions, and debt/capital structure behavior.
+
+Do not resurrect legacy partial-horizon convergence, best-path, escalation, fuzzy mapping, ratio/proxy targets, or hidden Python completion paths.
+
+Hard runtime limits are part of correctness:
+
+- A convergence cycle must not exceed 180 seconds total.
+- Max convergence cycles must stay 10 unless the user explicitly approves a change.
+- Meaningful progress is required between cycles.
+- Do not increase timeouts or cycle counts to make a run pass.
+- Use `context\ensure_5050_backend.ps1` to manage port 5050. Do not ask the user to restart the backend.
+
+### SQL Source-Of-Truth Tables
+
+There are now three SQL tables that should be treated as infrastructure, not optional helpers.
+
+#### `post_intak_mapping_lookup`
+
+Purpose: single source of truth for post-intake mapping.
+
+What it owns:
+
+- `lever_id`
+- direct target driver / FINMO field
+- issue code association
+- phase ownership such as convergence or cash pass
+- mapping status
+- cash strategy role metadata where relevant
+
+Rules:
+
+- Mapping must be lookup-driven from this SQL table.
+- Do not hardcode separate mapping authority in prompts, issue detectors, solver, or cash pass.
+- If an issue cannot tie to mapped direct drivers, delete or redesign the issue. Do not target ratios, aggregate outputs, or proxy metrics directly.
+- The table maps drivers/lever ids to direct model-input/FINMO target rows. It does not change FINMO formulas.
+
+Primary lookup file:
+
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+
+Important functions:
+
+- `post_intake_mapping_lookup()`
+- `post_intake_driver_target_mapping_by_lever()`
+- `post_intake_driver_target_mapping_entry(lever_id)`
+- `post_intake_driver_target_metric_for_lever(lever_id)`
+- `post_intake_driver_target_metric_ids(...)`
+- `post_intake_driver_target_mapping_rows_for_issue(issue_code, phase=...)`
+- `post_intake_issue_mapping_contract(issue_code, phase=...)`
+- `post_intake_lever_ids_for_cash_roles(...)`
+- `post_intake_compact_mapping_lookup_for_levers(...)`
+- `post_intake_driver_target_mapping_errors(...)`
+
+Current consumers include:
+
+- convergence issue packets
+- convergence prompt mapping context
+- solver target metric validation
+- model-input repair cell validation
+- cash funding/repayment/distribution lever selection
+- runtime probes and preflight checks
+
+#### `post_intake_cash_policy_lookup`
+
+Purpose: single source of truth for cash strategy deployment policy.
+
+Current canonical strategies:
+
+- `preserve_cash`
+- `balanced`
+- `shareholder_return`
+
+Do not bring `reinvest` back as a cash strategy. If old intake text says reinvest/growth/expansion, current canonicalization maps that to `balanced`.
+
+What the table owns:
+
+- cash strategy
+- debt-position band
+- debt-to-equity min/max band
+- cash floor months
+- cash ceiling months
+- distribution weight
+- debt paydown weight
+- retain weight
+- whether surplus above ceiling must be deployed
+- policy status
+
+Important functions:
+
+- `post_intake_cash_policy_lookup()`
+- `post_intake_cash_policy_for(strategy, debt_to_equity=...)`
+- `post_intake_cash_policy_rows(cash_strategy=...)`
+- `post_intake_cash_policy_errors()`
+
+Important behavior:
+
+- Cash buffer/floor and ceiling come from this table.
+- Surplus deployment weights come from this table.
+- Cash pass should deploy excess cash above the strategy ceiling through mapped levers, not let cash hoard indefinitely.
+- Funding sources must still be strategy-aware and mapping-table-backed.
+- Short-term debt current portion should be reflected in cash pass/debt behavior.
+
+Recent active code changes in this area:
+
+- `_canonical_cash_strategy_value()` now gives explicit labels priority, so text such as `Balanced. Extra cash should preserve liquidity...` is not accidentally classified as `preserve_cash`.
+- `quarter_grid._cash_strategy_context()` has the same explicit-label-priority fix.
+- `_cash_strategy_violation_envelope()` now attempts sequential and future-aware surplus deployment so a quarter does not distribute cash that is needed to keep a later quarter above buffer.
+- `_normalize_cash_strategy_review_decision_from_funding_plan()` now derives required funding adjustments and deterministic surplus deployment adjustments from the cash envelope and SQL cash policy.
+- `_apply_cash_policy_surplus_cleanup()` was added to deploy residual surplus above the strategy ceiling after FINMO recalculation.
+
+Warning: this cash cleanup path is exactly where the current instability remains. Do not assume it is correct yet.
+
+#### `post_intake_gpt_contract_lookup`
+
+Purpose: single source of truth for GPT contract fields, schema, prompt field specs, normalization rules, and validation rules.
+
+The goal is a database-defined contract engine:
+
+- prompts generated from the table
+- OpenAI schemas generated from the table
+- validators read from the table
+- normalizers read from the table
+- formatting/rounding rules read from the table
+
+Important functions:
+
+- `post_intake_gpt_contract_lookup()`
+- `post_intake_gpt_contract_rows(contract_name=..., grid_name=...)`
+- `post_intake_gpt_contract_fields_for_grid(contract_name, grid_name)`
+- `post_intake_gpt_contract_field_for_path(contract_name, field_path)`
+- `post_intake_gpt_contract_required_field_names(contract_name, grid_name)`
+- `post_intake_gpt_contract_alias_to_field_name(contract_name, grid_name)`
+- `post_intake_gpt_contract_summary(contract_name)`
+- `post_intake_gpt_contract_errors()`
+- `post_intake_gpt_contract_openai_schema(contract_name)`
+- `post_intake_gpt_contract_prompt_field_spec(contract_name)`
+- `post_intake_gpt_contract_normalize_payload(contract_name, payload)`
+- `post_intake_gpt_contract_payload_errors(contract_name, payload)`
+
+Contracts currently represented include:
+
+- `unified_convergence_decision`
+- `cash_strategy_review`
+- `unified_convergence_verification`
+
+Rules:
+
+- No post-intake GPT contract should bypass this table if it can be represented there.
+- Strict OpenAI schema failures should be fixed at the contract table/schema-generation level, not field-by-field in random call sites.
+- Currency should be normalized/validated as integer dollars.
+- Ratios/percentages should be normalized/validated using the contract table precision rules.
+- Python may normalize formatting, aliases, and numeric representation where the value is semantically the same. Python must not invent business decisions.
+
+### Prompt And GPT Contract Direction
+
+Use grid-style structured contracts wherever GPT is asked for planning data. The user does not want freeform GPT planning for convergence, ramp, cash pass, or other deterministic contract work.
+
+Current desired pattern:
+
+- Python builds a full grid/contract.
+- GPT fills required cells only.
+- Python validates every required field.
+- Python normalizes harmless formatting.
+- Python rejects missing, unmapped, out-of-bounds, or structurally invalid outputs.
+
+R&D toggle is now selected before convergence. If R&D is off, R&D should not be included in the forecast contract rather than being removed after GPT already used it.
+
+Ramp GPT runs before convergence and should produce a 20-quarter, stage-aware ramp. There should be no fallback ramp. If GPT does not provide a valid ramp, fail fast. Ramp is a world constraint for convergence, not a suggestion.
+
+Planning mode, business stage, and ramp must facilitate each other. Established/operational companies should not be forced into startup-style loss ramps unless the actual intake economics require it.
+
+### Issue Detection Current Target Set
+
+The old broad issue set was intentionally replaced. The active conceptual issue set should be:
+
+- `capacity_support_mismatch` in convergence
+- `cost_structure_mismatch` in convergence
+- `p_and_l_flatline` in convergence
+- `working_capital_mismatch` in cash pass
+- `liquidity_failure` in cash pass as a hard gate
+- `funding_structure_mismatch` in cash pass
+- `accounting_integrity_failure` as a hard gate
+- `structural_impossibility` as a hard gate
+
+Rules:
+
+- `business_model_coherence` should not be active as a broad standalone issue unless it has been explicitly redesigned. The user wanted it removed because it was too broad and duplicated other checks.
+- Capex/PPE ratio checks should remain out of active convergence because capex is derived and PPE is driven through capex/depreciation mechanics.
+- Pricing-positioning mismatch, old profitability cash shape, escalation, memo/retired issue items, and legacy mapping-driven targets should stay deleted.
+- Flatline detection should not flag lines that are legitimately flat for stretches, such as lease/rent or price. It should catch unfinished/copy-forward output, not legitimate stable drivers.
+- Working capital is cash-pass-owned.
+
+### Model Mechanics That Must Not Be Broken
+
+Revenue:
+
+- Revenue remains `sum(Capacity * Unit Price * Utilization)` across up to three products.
+- Fail fast if revenue does not equal the three-driver formula.
+- Do not target revenue directly as a mapped repair lever; target direct drivers from the mapping table.
+
+Payroll:
+
+- Do not change payroll derivation.
+- Payroll uses the existing OEWS/FTE grounding logic.
+- Payroll should not be manually rewritten as a generic cost plug.
+
+Capex/depreciation:
+
+- Capex remains derived in the model-input/derived-driver layer.
+- Capacity, utilization, and capex interact through structural capacity step changes plus maintenance capex.
+- Depreciation uses the depreciation schedule approach so expansion capex does not cause a one-quarter depreciation spike and then disappear.
+- FINMO formulas must not be changed.
+
+Stub 0:
+
+- Stub 0 remains historical intake fact.
+- Stub 0 should be visible in P&L and balance sheet for user review.
+- Stub 0 is not a forecast period and should not be mutated by post-intake convergence.
+
+Balance sheet base:
+
+- The current design leans toward treating intake balance sheet as the authoritative starting state.
+- Forecast P&L should be coherent inside that starting balance-sheet reality.
+- Do not silently upsize the balance sheet just to make inflated P&L plausible.
+
+### Current Cash Instability Stop Point
+
+The latest work was testing cash strategies after adding the SQL cash policy table and contract lookup table. The `shareholder_return` test passed, but `balanced` remains unstable.
+
+Known passing cash test:
+
+- Source scenario: large profitable software business.
+- Passing draft: `64443436e4e149a98501f20e1a0100b8`.
+- Strategy: `shareholder_return`.
+- Result: `cash_pass_completed`, `completed`, `remaining issues = 0`.
+- Runtime was about 138 seconds.
+- Distributions were applied heavily, debt issuance and debt repayment were zero because the business did not need funding/debt changes.
+
+Known failing balanced test:
+
+- Source scenario: `tmp_stage_scenario_operational_packaging.json`.
+- Source draft seeded for balanced testing: `0f4761bbfa7c4b24b182306ebf763599`.
+- Latest failed clone: `0e6ce99c648c4eaa8e9082b8b977f581`.
+- Strategy: `balanced`.
+- Failure: `liquidity_failure`.
+- Failure detail: Q20 ending cash was below required buffer.
+- Observed values from the last failed run: Q20 ending cash around `804,947`, required buffer around `865,932`.
+- The envelope also had deterministic hard-rule behavior that tried to force Q20 distributions to zero, which suggests the hard-rule/update timing may be wrong: the validation may be seeing a raw cash violation that should have been corrected before final validation, or cleanup may be distributing too much earlier and leaving Q20 short.
+
+Most likely next investigation:
+
+1. Inspect draft `0e6ce99c648c4eaa8e9082b8b977f581`.
+2. Look specifically at `planning_convergence_json.cash_validation_envelope.quarter_envelopes[20]`.
+3. Compare raw `ending_cash`, `ending_cash_after_hard_rules`, `residual_funding_gap`, `distribution_current_value`, `hard_rule_actions`, and actual applied updates.
+4. Determine whether deterministic hard-rule updates are only being reported in the envelope instead of applied before final validation.
+5. Fix the class so final validation only sees a model state after deterministic cash hard rules and cleanup have actually been applied.
+
+Do not fix this by increasing cycle count or timeout. Do not hide the violation. Cash viability remains a hard gate.
+
+### E2E And Backend Procedure
+
+Use this backend helper every time:
+
+```powershell
+.\context\ensure_5050_backend.ps1
+```
+
+The user approved this workflow and does not want to be asked to restart or babysit Flask. If code changes are not taking effect, assume backend is stale and refresh it through the helper.
+
+Probe expectations:
+
+- `mapping_source` should be `sql.post_intak_mapping_lookup`.
+- `active_quarter_limit` should be `20`.
+- `cycle_timeout_seconds` should be `180.0`.
+- `max_cycles` should be `10`.
+- cash issue codes should include `funding_structure_mismatch`, `liquidity_failure`, and `working_capital_mismatch`.
+
+Useful run command:
+
+```powershell
+.\.venv\Scripts\python.exe "Test Files\run_persisted_system_run.py" --draft-id <draft_id> --base-url http://127.0.0.1:5050 --seed <unique_seed>
+```
+
+Useful seeding command pattern:
+
+```powershell
+.\.venv\Scripts\python.exe "Test Files\seed_completed_intake_from_scenario.py" "<scenario description>" --scenario-file <scenario.json> --set bootstrap.business_start_date="<date>" --set financials.cash_strategy="<strategy sentence>" --base-url http://127.0.0.1:5050 --seed <seed> --run-system-run
+```
+
+### OpenAI / External Instability
+
+Recent tests also hit external API instability:
+
+- Stage ramp GPT timed out under the hard timeout.
+- Cash strategy review GPT timed out under the hard timeout.
+- Some runner attempts had connection resets immediately after backend restart.
+
+Do not confuse these with business-model failures. If OpenAI is not reachable or times out, record the exact timeout and retry only within user-approved limits. Do not loosen timeouts to hide it.
+
+### Files To Inspect First In A New Thread
+
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+- `python/api_handlers/intake_consult.py`
+- `python/client_intake_and_finmo/quarter_grid.py`
+- `python/client_intake_and_finmo/numeric_execution.py`
+- `python/client_intake_and_finmo/numeric_solver.py`
+- `python/client_intake_and_finmo/finmo_bridge.py`
+- `python/financial_model_engine/finmo_model.py`
+- `python/client_intake_and_finmo/prompts/unified_convergence/reviewer.md`
+- `python/client_intake_and_finmo/prompts/cash_strategy_review/reviewer.md`
+- `context/ensure_5050_backend.ps1`
+- SQL tables `post_intak_mapping_lookup`, `post_intake_cash_policy_lookup`, `post_intake_gpt_contract_lookup`, and `intake_consult_drafts`
+
+### Current Working Tree Note At Time Of This Update
+
+At this checkpoint, current code changes include:
+
+- explicit-label-first cash strategy canonicalization in `intake_consult.py`
+- matching cash strategy canonicalization in `quarter_grid.py`
+- sequential/future-aware cash surplus envelope logic
+- deterministic SQL cash policy surplus deployment from `quarter_funding_plan` and cash envelopes
+- residual cash policy cleanup after cash-pass FINMO recalculation
+
+These changes have compile-level validation but the balanced cash strategy has not passed yet. Treat this commit as a checkpoint for recovery and continued stabilization, not as proof the cash system is finished.

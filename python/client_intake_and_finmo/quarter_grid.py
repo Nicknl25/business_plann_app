@@ -681,13 +681,19 @@ def _cash_strategy_context(financials_json: Dict[str, Any]) -> Dict[str, Any]:
   raw_strategy = str(financials.get("cash_strategy") or "").strip().lower()
   strategy = re.sub(r"[^a-z0-9]+", "_", raw_strategy).strip("_")
   if strategy not in {"preserve_cash", "shareholder_return", "balanced"}:
-    if "preserve" in raw_strategy or "conservative" in raw_strategy or "cushion" in raw_strategy:
+    if strategy.startswith("balanced"):
+      strategy = "balanced"
+    elif strategy.startswith("shareholder_return") or strategy.startswith("shareholder"):
+      strategy = "shareholder_return"
+    elif strategy.startswith("preserve_cash") or strategy.startswith("preserve"):
       strategy = "preserve_cash"
+    elif "balanced" in raw_strategy or "mixed" in raw_strategy:
+      strategy = "balanced"
     elif "shareholder" in raw_strategy or "distribution" in raw_strategy or "payout" in raw_strategy or "return capital" in raw_strategy:
       strategy = "shareholder_return"
+    elif "preserve" in raw_strategy or "conservative" in raw_strategy or "cushion" in raw_strategy:
+      strategy = "preserve_cash"
     elif "reinvest" in raw_strategy or "growth" in raw_strategy or "expansion" in raw_strategy:
-      strategy = "balanced"
-    elif "balanced" in raw_strategy or "mixed" in raw_strategy:
       strategy = "balanced"
   option_map = {
     "preserve_cash": {
