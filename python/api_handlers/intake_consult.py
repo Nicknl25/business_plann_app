@@ -82,6 +82,11 @@ try:
     post_intake_issue_mapping_contract,
     post_intake_cash_policy_errors,
     post_intake_cash_policy_for,
+    post_intake_gpt_contract_errors,
+    post_intake_gpt_contract_normalize_payload,
+    post_intake_gpt_contract_openai_schema,
+    post_intake_gpt_contract_payload_errors,
+    post_intake_gpt_contract_prompt_field_spec,
     stage_planning_ramp_policy,
   )
 except Exception:
@@ -101,6 +106,11 @@ except Exception:
     post_intake_issue_mapping_contract,
     post_intake_cash_policy_errors,
     post_intake_cash_policy_for,
+    post_intake_gpt_contract_errors,
+    post_intake_gpt_contract_normalize_payload,
+    post_intake_gpt_contract_openai_schema,
+    post_intake_gpt_contract_payload_errors,
+    post_intake_gpt_contract_prompt_field_spec,
     stage_planning_ramp_policy,
   )
 
@@ -11094,93 +11104,113 @@ def _openai_strict_json_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
   return normalized
 
 
+def _post_intake_gpt_contract_table_errors() -> List[str]:
+  try:
+    return list(post_intake_gpt_contract_errors() or [])
+  except Exception as exc:
+    return [f"post_intake_gpt_contract_lookup_unavailable: {exc}"]
+
+
+def _post_intake_contract_schema(
+  contract_name: str,
+  *,
+  field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+  errors = _post_intake_gpt_contract_table_errors()
+  if errors:
+    raise RuntimeError(
+      "post_intake_gpt_contract_lookup_invalid: "
+      + "; ".join(str(item) for item in errors[:10])
+    )
+  try:
+    schema = post_intake_gpt_contract_openai_schema(
+      contract_name=contract_name,
+      field_schema_overrides=field_schema_overrides,
+      array_item_schema_overrides=array_item_schema_overrides,
+    )
+  except Exception as exc:
+    raise RuntimeError(
+      f"post_intake_gpt_contract_schema_failed: contract={contract_name} detail={exc}"
+    ) from exc
+  return _openai_strict_json_schema(schema)
+
+
+def _post_intake_contract_prompt_spec(contract_name: str) -> Dict[str, Any]:
+  try:
+    return post_intake_gpt_contract_prompt_field_spec(contract_name)
+  except Exception as exc:
+    raise RuntimeError(
+      f"post_intake_gpt_contract_prompt_spec_failed: contract={contract_name} detail={exc}"
+    ) from exc
+
+
+def _normalize_post_intake_contract_payload(
+  *,
+  contract_name: str,
+  payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  try:
+    normalized = post_intake_gpt_contract_normalize_payload(
+      contract_name=contract_name,
+      payload=payload if isinstance(payload, dict) else {},
+    )
+  except Exception as exc:
+    raise RuntimeError(
+      f"post_intake_gpt_contract_normalization_failed: contract={contract_name} detail={exc}"
+    ) from exc
+  return normalized if isinstance(normalized, dict) else {}
+
+
+def _post_intake_contract_payload_errors(
+  *,
+  contract_name: str,
+  payload: Optional[Dict[str, Any]],
+) -> List[str]:
+  try:
+    return list(
+      post_intake_gpt_contract_payload_errors(
+        contract_name=contract_name,
+        payload=payload if isinstance(payload, dict) else {},
+      )
+      or []
+    )
+  except Exception as exc:
+    return [
+      f"post_intake_gpt_contract_payload_validation_failed: contract={contract_name} detail={exc}"
+    ]
+
+
 def _maintenance_capex_percent_schema() -> Dict[str, Any]:
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-      "maintenance_capex_percent": {"type": "number", "minimum": 2, "maximum": 15},
-    },
-    "required": ["maintenance_capex_percent"],
-  }
+  return _post_intake_contract_schema("maintenance_capex_percent")
 
 
 def _stage_ramp_contract_schema() -> Dict[str, Any]:
   rate_schema = {"type": "number", "minimum": 0, "maximum": 2.5}
   ratio_schema = {"type": "number", "minimum": 0, "maximum": 1}
   margin_schema = {"type": "number", "minimum": -1, "maximum": 1}
-  grid_row_schema = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
+  del ratio_schema
+  return _post_intake_contract_schema(
+    "stage_ramp_contract",
+    field_schema_overrides={
       "q": {"type": "integer", "minimum": 1, "maximum": 20},
       "rev_target": rate_schema,
       "rev_max": rate_schema,
-      "rev_spike": {"type": "boolean"},
       "rev_spike_max": rate_schema,
       "fte_target": rate_schema,
       "fte_max": rate_schema,
-      "fte_spike": {"type": "boolean"},
       "fte_spike_max": rate_schema,
       "max_util": {"type": "number", "minimum": 0, "maximum": 1},
-      "cogs_target": ratio_schema,
-      "cogs_max": ratio_schema,
-      "marketing_max": ratio_schema,
-      "rd_max": ratio_schema,
-      "ga_max": ratio_schema,
-      "lease_max": ratio_schema,
+      "cogs_target": {"type": "number", "minimum": 0, "maximum": 1},
+      "cogs_max": {"type": "number", "minimum": 0, "maximum": 1},
+      "marketing_max": {"type": "number", "minimum": 0, "maximum": 1},
+      "rd_max": {"type": "number", "minimum": 0, "maximum": 1},
+      "ga_max": {"type": "number", "minimum": 0, "maximum": 1},
+      "lease_max": {"type": "number", "minimum": 0, "maximum": 1},
       "ni_floor": margin_schema,
-      "posture": {
-        "type": "string",
-        "enum": ["loss_allowed", "improving_losses", "near_breakeven", "positive"],
-      },
-      "why": {"type": "string"},
-    },
-    "required": [
-      "q",
-      "rev_target",
-      "rev_max",
-      "rev_spike",
-      "rev_spike_max",
-      "fte_target",
-      "fte_max",
-      "fte_spike",
-      "fte_spike_max",
-      "max_util",
-      "cogs_target",
-      "cogs_max",
-      "marketing_max",
-      "rd_max",
-      "ga_max",
-      "lease_max",
-      "ni_floor",
-      "posture",
-      "why",
-    ],
-  }
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-      "stage_family": {"type": "string", "enum": ["startup", "early", "operational"]},
-      "utilization_high_watermark": {"type": "number", "minimum": 0.5, "maximum": 0.98},
       "fte_spike_small_base_threshold": {"type": "number", "minimum": -1, "maximum": 1000},
-      "quarter_ramp_grid": {
-        "type": "array",
-        "minItems": 20,
-        "maxItems": 20,
-        "items": grid_row_schema,
-      },
-      "rationale": {"type": "string"},
     },
-    "required": [
-      "stage_family",
-      "utilization_high_watermark",
-      "fte_spike_small_base_threshold",
-      "quarter_ramp_grid",
-      "rationale",
-    ],
-  }
+  )
 
 
 def _rate_has_two_decimal_precision(value: Any) -> bool:
@@ -11206,7 +11236,19 @@ def _validate_stage_ramp_contract_payload(
   planning_mode_reason: Optional[str] = None,
   r_and_d_enabled: bool = True,
 ) -> Dict[str, Any]:
-  candidate = payload if isinstance(payload, dict) else {}
+  candidate = _normalize_post_intake_contract_payload(
+    contract_name="stage_ramp_contract",
+    payload=payload if isinstance(payload, dict) else {},
+  )
+  contract_errors = _post_intake_contract_payload_errors(
+    contract_name="stage_ramp_contract",
+    payload=candidate,
+  )
+  if contract_errors:
+    raise RuntimeError(
+      "stage_ramp_contract_table_validation_failed: "
+      + "; ".join(str(item) for item in contract_errors[:20])
+    )
   errors: List[str] = []
   expected_family = str(expected_stage_family or "").strip().lower() or "operational"
   normalized_stage = str(business_stage or "").strip().lower()
@@ -11624,6 +11666,7 @@ def _estimate_maintenance_capex_percent_with_gpt(
   starting_quarter_revenue = int(round(starting_annual_revenue / 4.0)) if starting_annual_revenue > 0 else 0
   user_context = {
     "task": "Return one realistic annual maintenance capex percent for the client-stated opening PPE base.",
+    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("maintenance_capex_percent"),
     "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
     "business_context": {
       "consumer_type": ops.get("consumer_type"),
@@ -11688,6 +11731,19 @@ def _estimate_maintenance_capex_percent_with_gpt(
   parsed = _parse_responses_json_dict(raw_openai_response)
   if not isinstance(parsed, dict):
     raise RuntimeError("maintenance_capex_percent_parse_failed: GPT did not return a JSON object.")
+  parsed = _normalize_post_intake_contract_payload(
+    contract_name="maintenance_capex_percent",
+    payload=parsed,
+  )
+  contract_errors = _post_intake_contract_payload_errors(
+    contract_name="maintenance_capex_percent",
+    payload=parsed,
+  )
+  if contract_errors:
+    raise RuntimeError(
+      "maintenance_capex_percent_contract_invalid: "
+      + "; ".join(str(item) for item in contract_errors[:10])
+    )
   maintenance_capex_percent = float(_safe_float(parsed.get("maintenance_capex_percent")) or 0.0)
   if maintenance_capex_percent < 2.0 or maintenance_capex_percent > 15.0:
     raise RuntimeError(
@@ -11727,19 +11783,28 @@ def _r_and_d_applicability_timeout_seconds() -> float:
 
 
 def _r_and_d_applicability_schema() -> Dict[str, Any]:
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-      "r_and_d_enabled": {"type": "boolean"},
+  return _post_intake_contract_schema(
+    "r_and_d_applicability",
+    field_schema_overrides={
       "rationale": {"type": "string", "minLength": 10, "maxLength": 600},
     },
-    "required": ["r_and_d_enabled", "rationale"],
-  }
+  )
 
 
 def _validate_r_and_d_applicability_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-  candidate = payload if isinstance(payload, dict) else {}
+  candidate = _normalize_post_intake_contract_payload(
+    contract_name="r_and_d_applicability",
+    payload=payload if isinstance(payload, dict) else {},
+  )
+  contract_errors = _post_intake_contract_payload_errors(
+    contract_name="r_and_d_applicability",
+    payload=candidate,
+  )
+  if contract_errors:
+    raise RuntimeError(
+      "r_and_d_applicability_contract_invalid: "
+      + "; ".join(str(item) for item in contract_errors[:10])
+    )
   if not isinstance(candidate.get("r_and_d_enabled"), bool):
     raise RuntimeError(
       "r_and_d_applicability_invalid: r_and_d_enabled must be an explicit boolean before forecast."
@@ -11889,6 +11954,7 @@ def _estimate_r_and_d_applicability_with_gpt(
       "Decide once, before any forecast grid or convergence, whether this business should have "
       "a separate Research & Development P&L driver in the forecast world."
     ),
+    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("r_and_d_applicability"),
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
       "business_type": ops.get("business_type"),
@@ -12022,6 +12088,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       "The grid replaces static hardcoded ramp percentages and late profitability repairs. "
       "Python will enforce it before convergence by shaping revenue/FTE movement and cost/profitability guardrails."
     ),
+    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("stage_ramp_contract"),
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
       "business_type": ops.get("business_type"),
@@ -13271,83 +13338,19 @@ def _cash_strategy_review_schema(
 ) -> Dict[str, Any]:
   funding_quarter_enum = list(required_funding_quarters or allowed_quarters or [1])
   funding_lever_enum = list(funding_source_lever_ids or allowed_lever_ids or [""])
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-      "recommendation_mode": {"type": "string", "enum": ["maintain", "adjust"]},
-      "executive_summary": {"type": "string"},
-      "capital_posture_summary": {"type": "string"},
-      "funding_mix_summary": {"type": "string"},
-      "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-      "recommended_adjustments": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
-            "timing_start_q": {"type": "integer", "enum": allowed_quarters or [1]},
-            "timing_end_q": {"type": "integer", "enum": allowed_quarters or [1]},
-            "exact_value": {"type": "integer"},
-            "business_reason": {"type": "string"},
-          },
-          "required": [
-            "lever_id",
-            "timing_start_q",
-            "timing_end_q",
-            "exact_value",
-            "business_reason",
-          ],
-        },
-      },
-      "quarter_funding_plan": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "quarter_index": {"type": "integer", "enum": funding_quarter_enum},
-            "required_funding_gap": {"type": "integer", "minimum": 0},
-            "expected_buffer": {"type": "integer", "minimum": 0},
-            "expected_ending_cash_after_actions": {"type": "integer"},
-            "funding_sources": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 1,
-              "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                  "lever_id": {"type": "string", "enum": funding_lever_enum},
-                  "amount": {"type": "integer", "minimum": 0},
-                },
-                "required": ["lever_id", "amount"],
-              },
-            },
-            "business_reason": {"type": "string"},
-          },
-          "required": [
-            "quarter_index",
-            "required_funding_gap",
-            "expected_buffer",
-            "expected_ending_cash_after_actions",
-            "funding_sources",
-            "business_reason",
-          ],
-        },
-      },
+  return _post_intake_contract_schema(
+    "cash_strategy_review",
+    field_schema_overrides={
+      "recommended_adjustments[].lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
+      "recommended_adjustments[].timing_start_q": {"type": "integer", "enum": allowed_quarters or [1]},
+      "recommended_adjustments[].timing_end_q": {"type": "integer", "enum": allowed_quarters or [1]},
+      "quarter_funding_plan[].quarter_index": {"type": "integer", "enum": funding_quarter_enum},
+      "quarter_funding_plan[].required_funding_gap": {"type": "integer", "minimum": 0},
+      "quarter_funding_plan[].expected_buffer": {"type": "integer", "minimum": 0},
+      "funding_sources[].lever_id": {"type": "string", "enum": funding_lever_enum},
+      "funding_sources[].amount": {"type": "integer", "minimum": 0},
     },
-    "required": [
-      "recommendation_mode",
-      "executive_summary",
-      "capital_posture_summary",
-      "funding_mix_summary",
-      "confidence",
-      "recommended_adjustments",
-      "quarter_funding_plan",
-    ],
-  }
+  )
 
 
 def _unified_convergence_schema(
@@ -13377,15 +13380,9 @@ def _unified_convergence_schema(
       "type": "integer",
       "enum": mapped_target_quarter_values,
     }
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-      "strategy_class": {"type": "string"},
-      "change_type": {"type": "string"},
-      "progress_expectation": {"type": "string"},
-      "strategy_rationale": {"type": "string"},
-      "retry_reason": {"type": "string"},
+  return _post_intake_contract_schema(
+    "unified_convergence_decision",
+    field_schema_overrides={
       "lever_selection": {
         "type": "array",
         "minItems": 1,
@@ -13423,70 +13420,16 @@ def _unified_convergence_schema(
           ],
         },
       },
-      "lever_adjustments": {
+      "lever_adjustments[].lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
+      "lever_adjustments[].shape_type": {
+        "type": ["string", "null"],
+        "enum": [*list(_SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES), None],
+      },
+      "mapped_repair_targets[].target_metric_name": {"type": "string", "enum": metric_enum},
+      "mapped_repair_targets[].target_quarters": {
         "type": "array",
-        "minItems": 0,
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
-            "section": {"type": "string"},
-            "direction": {"type": "string", "enum": ["increase", "decrease", "hold", "retime", "either"]},
-            "value_mode": {"type": "string", "enum": ["exact", "band"]},
-            "exact_value": {"type": ["number", "null"]},
-            "min_value": {"type": ["number", "null"]},
-            "max_value": {"type": ["number", "null"]},
-            "timing_start_q": {"type": "integer", "minimum": 1, "maximum": 20},
-            "timing_end_q": {"type": "integer", "minimum": 1, "maximum": 20},
-            "shape_type": {
-              "type": ["string", "null"],
-              "enum": [*list(_SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES), None],
-            },
-            "trajectory_values": _shape_sensitive_trajectory_values_schema(),
-            "values": _shape_sensitive_trajectory_values_schema(),
-            "trajectory_rationale": {"type": "string"},
-            "rationale": {"type": "string"},
-            "business_reason": {"type": "string"},
-            "linked_action_effect": {"type": "string"},
-            "mapped_repair_targets": {
-              "type": "array",
-              "minItems": 0,
-              "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                  "issue_code": {"type": "string"},
-                  "target_metric_name": {"type": "string", "enum": metric_enum},
-                  "target_quarters": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": mapped_target_quarter_schema,
-                  },
-                },
-                "required": ["issue_code", "target_metric_name", "target_quarters"],
-              },
-            },
-          },
-          "required": [
-            "lever_id",
-            "section",
-            "direction",
-            "value_mode",
-            "exact_value",
-            "min_value",
-            "max_value",
-            "timing_start_q",
-            "timing_end_q",
-            "shape_type",
-            "trajectory_values",
-            "values",
-            "trajectory_rationale",
-            "rationale",
-            "business_reason",
-            "linked_action_effect",
-          ],
-        },
+        "minItems": 1,
+        "items": mapped_target_quarter_schema,
       },
       "model_input_repair_cells": _model_input_repair_cell_schema(
         allowed_cell_ids=allowed_model_input_repair_cell_ids,
@@ -13494,19 +13437,7 @@ def _unified_convergence_schema(
         allowed_quarters=allowed_model_input_repair_quarters,
       ),
     },
-    "required": [
-      "strategy_class",
-      "change_type",
-      "progress_expectation",
-      "strategy_rationale",
-      "retry_reason",
-      "lever_selection",
-      "primary_target_metric_names",
-      "targets_by_quarter",
-      "target_tolerances",
-      "model_input_repair_cells",
-    ],
-  }
+  )
 
 
 def _cash_strategy_review_failure_payload(
@@ -13633,6 +13564,15 @@ def _cash_strategy_review_decision_contract_error(
   cash_strategy_review_context: Optional[Dict[str, Any]],
 ) -> Optional[str]:
   decision = parsed if isinstance(parsed, dict) else {}
+  table_contract_errors = _post_intake_contract_payload_errors(
+    contract_name="cash_strategy_review",
+    payload=decision,
+  )
+  if table_contract_errors:
+    return (
+      "cash_strategy_review_table_contract_invalid: "
+      + "; ".join(str(item) for item in table_contract_errors[:20])
+    )
   context_payload = cash_strategy_review_context if isinstance(cash_strategy_review_context, dict) else {}
   recommendation_mode = str(decision.get("recommendation_mode") or "").strip().lower()
   if recommendation_mode not in {"maintain", "adjust"}:
@@ -13864,52 +13804,15 @@ def _cash_strategy_review_decision_contract_error(
 
 
 def _realism_verification_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
-  return {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-      "overall_assessment": {
-        "type": "string",
-        "enum": ["all_resolved", "partially_resolved", "not_resolved"],
-      },
-      "executive_summary": {"type": "string"},
-      "issue_results": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "issue_code": {"type": "string"},
-            "status": {"type": "string", "enum": ["resolved", "partially_resolved", "not_resolved"]},
-            "remaining_issue_materiality": {"type": "string", "enum": ["immaterial", "material"]},
-            "remaining_issue_severity_score": {"type": "integer", "minimum": 0, "maximum": 100},
-            "verification_reason": {"type": "string"},
-            "remaining_problem_quarters": {
-              "type": "array",
-              "items": {"type": "integer", "minimum": 1, "maximum": 20},
-            },
-            "next_required_lever_ids": {
-              "type": "array",
-              "items": {"type": "string", "enum": allowed_lever_ids or [""]},
-            },
-            "observed_improvement_summary": {"type": "string"},
-          },
-          "required": [
-            "issue_code",
-            "status",
-            "remaining_issue_materiality",
-            "remaining_issue_severity_score",
-            "verification_reason",
-            "remaining_problem_quarters",
-            "next_required_lever_ids",
-            "observed_improvement_summary",
-          ],
-        },
-      },
+  return _post_intake_contract_schema(
+    "unified_convergence_verification",
+    array_item_schema_overrides={
+      "remaining_problem_quarters": {"type": "integer", "minimum": 1, "maximum": 20},
+      "issue_results[].remaining_problem_quarters": {"type": "integer", "minimum": 1, "maximum": 20},
+      "next_required_lever_ids": {"type": "string", "enum": allowed_lever_ids or [""]},
+      "issue_results[].next_required_lever_ids": {"type": "string", "enum": allowed_lever_ids or [""]},
     },
-    "required": ["overall_assessment", "executive_summary", "issue_results"],
-  }
+  )
 
 
 def _active_issue_codes_from_memo(realism_memo_before_resolution: Optional[Dict[str, Any]]) -> List[str]:
@@ -15528,6 +15431,7 @@ def _run_realism_verification_openai(
   user_context = {
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("unified_convergence_verification"),
     "required_numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
     "verification_scope": _realism_verification_scope_payload(
       strategy_recheck_context=strategy_recheck_context,
@@ -15595,6 +15499,23 @@ def _run_realism_verification_openai(
       prompt_file=prompt_file,
       status="failed_parse",
       detail="Unable to parse realism verification JSON.",
+    )
+  parsed = _normalize_post_intake_contract_payload(
+    contract_name="unified_convergence_verification",
+    payload=parsed,
+  )
+  table_contract_errors = _post_intake_contract_payload_errors(
+    contract_name="unified_convergence_verification",
+    payload=parsed,
+  )
+  if table_contract_errors:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_table_contract",
+      detail=(
+        "unified_convergence_verification_table_contract_invalid: "
+        + "; ".join(str(item) for item in table_contract_errors[:20])
+      ),
     )
   return {
     "contract_version": "unified_convergence_verification_v1",
@@ -15860,6 +15781,7 @@ def _run_cash_strategy_review_openai(
   user_context = {
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("cash_strategy_review"),
     "planning_mode_context": _build_planning_mode_context(
       planning_mode=planning_mode,
       planning_mode_reason=planning_mode_reason,
@@ -15956,6 +15878,10 @@ def _run_cash_strategy_review_openai(
   parsed = _normalize_cash_strategy_review_decision_from_funding_plan(
     parsed=parsed,
     cash_strategy_review_context=context_payload,
+  )
+  parsed = _normalize_post_intake_contract_payload(
+    contract_name="cash_strategy_review",
+    payload=parsed,
   )
   contract_error = _cash_strategy_review_decision_contract_error(
     parsed=parsed,
@@ -16079,6 +16005,10 @@ def _run_cash_strategy_review_openai(
     parsed_retry = _normalize_cash_strategy_review_decision_from_funding_plan(
       parsed=parsed_retry,
       cash_strategy_review_context=context_payload,
+    )
+    parsed_retry = _normalize_post_intake_contract_payload(
+      contract_name="cash_strategy_review",
+      payload=parsed_retry,
     )
     retry_contract_error = _cash_strategy_review_decision_contract_error(
       parsed=parsed_retry,
@@ -16505,6 +16435,9 @@ def _run_unified_convergence_openai(
       "decision": {},
       "full_horizon_model_input_repair_contract": copy.deepcopy(full_horizon_model_input_repair_contract),
     }
+  planner_input_packet["gpt_contract_field_spec"] = _post_intake_contract_prompt_spec(
+    "unified_convergence_decision"
+  )
   locked_target_value_options = sorted(
     {
       int(round(float(value)))
@@ -16585,6 +16518,28 @@ def _run_unified_convergence_openai(
       "review_status": "not_completed",
       "detail": "Unable to parse unified convergence JSON.",
       "decision": {},
+    }
+  parsed = _normalize_post_intake_contract_payload(
+    contract_name="unified_convergence_decision",
+    payload=parsed,
+  )
+  table_contract_errors = _post_intake_contract_payload_errors(
+    contract_name="unified_convergence_decision",
+    payload=parsed,
+  )
+  if table_contract_errors:
+    return {
+      "contract_version": "unified_convergence_decision_v1",
+      "status": "failed_table_contract",
+      "prompt_file": prompt_file,
+      "selected_cash_strategy": selected_cash_strategy,
+      "review_status": "not_completed",
+      "detail": (
+        "unified_convergence_decision_table_contract_invalid: "
+        + "; ".join(str(item) for item in table_contract_errors[:20])
+      ),
+      "decision": copy.deepcopy(parsed),
+      "gpt_contract_field_spec": _post_intake_contract_prompt_spec("unified_convergence_decision"),
     }
   primary_metric_contract_error = _auto_repair_unified_primary_metric_coverage(
     parsed=parsed,

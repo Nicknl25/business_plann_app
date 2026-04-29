@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 import copy
+import json
 from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Set
 
@@ -15,12 +16,15 @@ except Exception:  # pragma: no cover - supports legacy sys.path imports
 
 _MAPPING_TABLE_NAME = "post_intak_mapping_lookup"
 _CASH_POLICY_TABLE_NAME = "post_intake_cash_policy_lookup"
+_GPT_CONTRACT_TABLE_NAME = "post_intake_gpt_contract_lookup"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
 _REVENUE_PATTERN_PREFIX = "revenue::*::*::"
 _ENSURE_MAPPING_TABLE_READY = False
 _ENSURE_CASH_POLICY_TABLE_READY = False
+_ENSURE_GPT_CONTRACT_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
 _ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
+_ENSURE_GPT_CONTRACT_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
 
@@ -136,6 +140,234 @@ _DEFAULT_CASH_POLICY_ROWS: List[Dict[str, Any]] = [
 ]
 
 
+def _gpt_contract_row(
+  contract_name: str,
+  grid_name: str,
+  field_path: str,
+  field_name: str,
+  field_type: str,
+  *,
+  required: bool = True,
+  strict_required: Optional[bool] = None,
+  allow_null: bool = False,
+  allow_empty: bool = False,
+  is_array_item: bool = False,
+  parent_field_path: str = "",
+  json_schema_type: str = "",
+  min_value: Optional[float] = None,
+  max_value: Optional[float] = None,
+  min_items: Optional[int] = None,
+  max_items: Optional[int] = None,
+  item_contract_grid_name: str = "",
+  additional_properties_allowed: bool = False,
+  gpt_owned: bool = True,
+  python_owned: bool = False,
+  editable: bool = True,
+  must_match_lookup: Optional[bool] = None,
+  contract_phase: str = "",
+  horizon_rule: str = "",
+  normalization_kind: str = "none",
+  rounding_kind: str = "",
+  decimal_places: Optional[int] = None,
+  validation_kind: str = "schema_only",
+  lookup_source: str = "none",
+  enum_values: Optional[List[str]] = None,
+  allowed_aliases: Optional[List[str]] = None,
+  prompt_required_instruction: str = "",
+  prompt_label: str = "",
+  failure_code: str = "",
+  notes: str = "",
+) -> Dict[str, Any]:
+  normalized_type = str(field_type or "").strip().lower()
+  normalized_normalizer = str(normalization_kind or "").strip().lower() or "none"
+  resolved_rounding_kind = str(rounding_kind or "").strip().lower()
+  resolved_decimal_places = decimal_places
+  if not resolved_rounding_kind:
+    if normalized_type == "integer_currency" or normalized_normalizer == "integer_currency":
+      resolved_rounding_kind = "nearest_dollar"
+      resolved_decimal_places = 0 if resolved_decimal_places is None else resolved_decimal_places
+    elif normalized_type == "ratio_2dp" or normalized_normalizer == "ratio_2dp":
+      resolved_rounding_kind = "nearest_decimal"
+      resolved_decimal_places = 2 if resolved_decimal_places is None else resolved_decimal_places
+    elif normalized_type in {"integer", "integer_or_negative_one"} or normalized_normalizer == "integer":
+      resolved_rounding_kind = "nearest_integer"
+      resolved_decimal_places = 0 if resolved_decimal_places is None else resolved_decimal_places
+    else:
+      resolved_rounding_kind = "none"
+  resolved_json_schema_type = str(json_schema_type or "").strip().lower()
+  if not resolved_json_schema_type:
+    if normalized_type in {"integer", "integer_currency", "integer_or_negative_one"}:
+      resolved_json_schema_type = "integer"
+    elif normalized_type in {"number", "ratio_2dp"}:
+      resolved_json_schema_type = "number"
+    elif normalized_type == "boolean":
+      resolved_json_schema_type = "boolean"
+    elif normalized_type == "array":
+      resolved_json_schema_type = "array"
+    elif normalized_type == "object":
+      resolved_json_schema_type = "object"
+    else:
+      resolved_json_schema_type = "string"
+  resolved_must_match_lookup = must_match_lookup
+  if resolved_must_match_lookup is None:
+    resolved_must_match_lookup = bool(str(lookup_source or "").strip().lower() not in {"", "none"})
+  resolved_strict_required = required if strict_required is None else strict_required
+  resolved_failure_code = str(failure_code or "").strip().lower()
+  if not resolved_failure_code:
+    safe_path = str(field_path or "").strip().lower().replace("[]", "").replace(".", "_")
+    resolved_failure_code = f"{str(contract_name or '').strip().lower()}_{safe_path}_contract_invalid"
+  return {
+    "contract_name": contract_name,
+    "grid_name": grid_name,
+    "field_path": field_path,
+    "field_name": field_name,
+    "field_type": field_type,
+    "required": required,
+    "strict_required": bool(resolved_strict_required),
+    "allow_null": allow_null,
+    "allow_empty": allow_empty,
+    "is_array_item": is_array_item,
+    "parent_field_path": parent_field_path,
+    "json_schema_type": resolved_json_schema_type,
+    "min_value": min_value,
+    "max_value": max_value,
+    "min_items": min_items,
+    "max_items": max_items,
+    "item_contract_grid_name": item_contract_grid_name,
+    "additional_properties_allowed": additional_properties_allowed,
+    "gpt_owned": gpt_owned,
+    "python_owned": python_owned,
+    "editable": editable,
+    "must_match_lookup": bool(resolved_must_match_lookup),
+    "contract_phase": contract_phase,
+    "horizon_rule": horizon_rule,
+    "normalization_kind": normalization_kind,
+    "rounding_kind": resolved_rounding_kind,
+    "decimal_places": resolved_decimal_places,
+    "validation_kind": validation_kind,
+    "lookup_source": lookup_source,
+    "enum_values": enum_values or [],
+    "allowed_aliases": allowed_aliases or [],
+    "prompt_required_instruction": prompt_required_instruction,
+    "prompt_label": prompt_label,
+    "failure_code": resolved_failure_code,
+    "notes": notes,
+  }
+
+
+_STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].q", "q", "integer", is_array_item=True, parent_field_path="quarter_ramp_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_target", "rev_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["revenue_qoq_target"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_max", "rev_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["revenue_qoq_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_spike", "rev_spike", "boolean", is_array_item=True, parent_field_path="quarter_ramp_grid"),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_spike_max", "rev_spike_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["revenue_qoq_spike_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_target", "fte_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_target"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_max", "fte_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike", "fte_spike", "boolean", is_array_item=True, parent_field_path="quarter_ramp_grid"),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike_max", "fte_spike_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_spike_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].max_util", "max_util", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["utilization_cap"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_target", "cogs_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_target"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_max", "cogs_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].marketing_max", "marketing_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["marketing_percent_of_revenue_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rd_max", "rd_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["rd_percent_of_revenue_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].ga_max", "ga_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["g_and_a_percent_of_revenue_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].lease_max", "lease_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["lease_percent_of_revenue_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].ni_floor", "ni_floor", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["net_income_margin_floor"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].posture", "posture", "enum", is_array_item=True, parent_field_path="quarter_ramp_grid", validation_kind="enum", enum_values=["loss_allowed", "improving_losses", "near_breakeven", "positive"], allowed_aliases=["profitability_posture"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].why", "why", "string", is_array_item=True, parent_field_path="quarter_ramp_grid", allowed_aliases=["ramp_reason"]),
+]
+
+
+_DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
+  _gpt_contract_row("maintenance_capex_percent", "root", "maintenance_capex_percent", "maintenance_capex_percent", "ratio_2dp", min_value=2.00, max_value=15.00, normalization_kind="ratio_2dp", validation_kind="maintenance_capex_percent_range", contract_phase="pre_forecast"),
+  _gpt_contract_row("stage_ramp_contract", "root", "stage_family", "stage_family", "enum", validation_kind="enum", enum_values=["startup", "early", "operational"]),
+  _gpt_contract_row("stage_ramp_contract", "root", "utilization_high_watermark", "utilization_high_watermark", "ratio_2dp", min_value=0.50, max_value=0.98, normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric"),
+  _gpt_contract_row("stage_ramp_contract", "root", "fte_spike_small_base_threshold", "fte_spike_small_base_threshold", "integer_or_negative_one", normalization_kind="integer"),
+  _gpt_contract_row("stage_ramp_contract", "root", "quarter_ramp_grid", "quarter_ramp_grid", "array", min_items=20, max_items=20, item_contract_grid_name="quarter_ramp_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="required_20q_grid"),
+  _gpt_contract_row("stage_ramp_contract", "root", "rationale", "rationale", "string"),
+  *_STAGE_RAMP_GRID_FIELDS,
+  _gpt_contract_row("r_and_d_applicability", "root", "r_and_d_enabled", "r_and_d_enabled", "boolean", validation_kind="boolean"),
+  _gpt_contract_row("r_and_d_applicability", "root", "rationale", "rationale", "string"),
+  _gpt_contract_row("unified_convergence_decision", "root", "strategy_class", "strategy_class", "string"),
+  _gpt_contract_row("unified_convergence_decision", "root", "change_type", "change_type", "string"),
+  _gpt_contract_row("unified_convergence_decision", "root", "progress_expectation", "progress_expectation", "string"),
+  _gpt_contract_row("unified_convergence_decision", "root", "strategy_rationale", "strategy_rationale", "string"),
+  _gpt_contract_row("unified_convergence_decision", "root", "retry_reason", "retry_reason", "string", allow_empty=True),
+  _gpt_contract_row("unified_convergence_decision", "root", "lever_selection", "lever_selection", "array", min_items=1, validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "root", "primary_target_metric_names", "primary_target_metric_names", "array", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "root", "targets_by_quarter", "targets_by_quarter", "array", min_items=1, item_contract_grid_name="targets_by_quarter", horizon_rule="q1_to_q20_targeted_rows", validation_kind="quarter_target_grid"),
+  _gpt_contract_row("unified_convergence_decision", "root", "target_tolerances", "target_tolerances", "array", item_contract_grid_name="target_tolerances", validation_kind="target_tolerance_grid"),
+  _gpt_contract_row("unified_convergence_decision", "root", "model_input_repair_cells", "model_input_repair_cells", "array", item_contract_grid_name="model_input_repair_cells", horizon_rule="q1_to_q20_editable_cells", validation_kind="locked_grid_cell_member"),
+  _gpt_contract_row("unified_convergence_decision", "root", "lever_adjustments", "lever_adjustments", "array", item_contract_grid_name="lever_adjustments", validation_kind="lever_adjustment_grid"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="lever_adjustments", validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].section", "section", "string", is_array_item=True, parent_field_path="lever_adjustments"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].direction", "direction", "enum", is_array_item=True, parent_field_path="lever_adjustments", validation_kind="enum", enum_values=["increase", "decrease", "hold", "retime", "either"]),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].value_mode", "value_mode", "enum", is_array_item=True, parent_field_path="lever_adjustments", validation_kind="enum", enum_values=["exact", "band"]),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].exact_value", "exact_value", "number", is_array_item=True, parent_field_path="lever_adjustments", allow_null=True, normalization_kind="field_type_numeric_contract", json_schema_type="number"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].min_value", "min_value", "number", is_array_item=True, parent_field_path="lever_adjustments", allow_null=True, normalization_kind="field_type_numeric_contract", json_schema_type="number"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].max_value", "max_value", "number", is_array_item=True, parent_field_path="lever_adjustments", allow_null=True, normalization_kind="field_type_numeric_contract", json_schema_type="number"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].timing_start_q", "timing_start_q", "integer", is_array_item=True, parent_field_path="lever_adjustments", min_value=1, max_value=20, validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].timing_end_q", "timing_end_q", "integer", is_array_item=True, parent_field_path="lever_adjustments", min_value=1, max_value=20, validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].shape_type", "shape_type", "string", is_array_item=True, parent_field_path="lever_adjustments", allow_null=True),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].trajectory_values", "trajectory_values", "array", is_array_item=True, parent_field_path="lever_adjustments", item_contract_grid_name="trajectory_values"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].values", "values", "array", is_array_item=True, parent_field_path="lever_adjustments", item_contract_grid_name="trajectory_values"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].trajectory_rationale", "trajectory_rationale", "string", is_array_item=True, parent_field_path="lever_adjustments"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].rationale", "rationale", "string", is_array_item=True, parent_field_path="lever_adjustments"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].business_reason", "business_reason", "string", is_array_item=True, parent_field_path="lever_adjustments"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].linked_action_effect", "linked_action_effect", "string", is_array_item=True, parent_field_path="lever_adjustments"),
+  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].mapped_repair_targets", "mapped_repair_targets", "array", is_array_item=True, parent_field_path="lever_adjustments", item_contract_grid_name="mapped_repair_targets", validation_kind="mapping_table_target_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "trajectory_values", "trajectory_values[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="trajectory_values", min_value=1, max_value=20, validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("unified_convergence_decision", "trajectory_values", "trajectory_values[].value", "value", "number", is_array_item=True, parent_field_path="trajectory_values", normalization_kind="field_type_numeric_contract"),
+  _gpt_contract_row("unified_convergence_decision", "mapped_repair_targets", "mapped_repair_targets[].issue_code", "issue_code", "string", is_array_item=True, parent_field_path="mapped_repair_targets", validation_kind="issue_code_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "mapped_repair_targets", "mapped_repair_targets[].target_metric_name", "target_metric_name", "string", is_array_item=True, parent_field_path="mapped_repair_targets", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "mapped_repair_targets", "mapped_repair_targets[].target_quarters", "target_quarters", "array", is_array_item=True, parent_field_path="mapped_repair_targets", horizon_rule="q1_to_q20_subset", validation_kind="quarter_index_array"),
+  _gpt_contract_row("unified_convergence_decision", "targets_by_quarter", "targets_by_quarter[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="targets_by_quarter", validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("unified_convergence_decision", "targets_by_quarter", "targets_by_quarter[].metric_targets", "metric_targets", "array", is_array_item=True, parent_field_path="targets_by_quarter", item_contract_grid_name="metric_targets", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "metric_targets", "metric_targets[].metric_name", "metric_name", "string", is_array_item=True, parent_field_path="metric_targets", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "metric_targets", "metric_targets[].target_value", "target_value", "integer_currency", is_array_item=True, parent_field_path="metric_targets", normalization_kind="integer_currency"),
+  _gpt_contract_row("unified_convergence_decision", "target_tolerances", "target_tolerances[].metric_name", "metric_name", "string", is_array_item=True, parent_field_path="target_tolerances", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "target_tolerances", "target_tolerances[].relative_tolerance_pct", "relative_tolerance_pct", "number", is_array_item=True, parent_field_path="target_tolerances", allow_null=True, normalization_kind="ratio_2dp"),
+  _gpt_contract_row("unified_convergence_decision", "target_tolerances", "target_tolerances[].absolute_tolerance", "absolute_tolerance", "integer_currency", is_array_item=True, parent_field_path="target_tolerances", allow_null=True, normalization_kind="integer_currency"),
+  _gpt_contract_row("unified_convergence_decision", "target_tolerances", "target_tolerances[].tolerance_reason", "tolerance_reason", "string", is_array_item=True, parent_field_path="target_tolerances"),
+  _gpt_contract_row("unified_convergence_decision", "model_input_repair_cells", "model_input_repair_cells[].cell_id", "cell_id", "string", is_array_item=True, parent_field_path="model_input_repair_cells", validation_kind="locked_grid_cell_member"),
+  _gpt_contract_row("unified_convergence_decision", "model_input_repair_cells", "model_input_repair_cells[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="model_input_repair_cells", validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_decision", "model_input_repair_cells", "model_input_repair_cells[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="model_input_repair_cells", validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("unified_convergence_decision", "model_input_repair_cells", "model_input_repair_cells[].value", "value", "number", is_array_item=True, parent_field_path="model_input_repair_cells", normalization_kind="field_type_numeric_contract"),
+  _gpt_contract_row("unified_convergence_decision", "model_input_repair_cells", "model_input_repair_cells[].rationale", "rationale", "string", is_array_item=True, parent_field_path="model_input_repair_cells"),
+  _gpt_contract_row("cash_strategy_review", "root", "recommendation_mode", "recommendation_mode", "enum", validation_kind="enum", enum_values=["maintain", "adjust"]),
+  _gpt_contract_row("cash_strategy_review", "root", "executive_summary", "executive_summary", "string"),
+  _gpt_contract_row("cash_strategy_review", "root", "capital_posture_summary", "capital_posture_summary", "string"),
+  _gpt_contract_row("cash_strategy_review", "root", "funding_mix_summary", "funding_mix_summary", "string"),
+  _gpt_contract_row("cash_strategy_review", "root", "confidence", "confidence", "enum", validation_kind="enum", enum_values=["low", "medium", "high"]),
+  _gpt_contract_row("cash_strategy_review", "root", "quarter_funding_plan", "quarter_funding_plan", "array", item_contract_grid_name="quarter_funding_plan", horizon_rule="q1_to_q20_required_funding_rows", validation_kind="cash_policy_grid", lookup_source="post_intake_cash_policy_lookup"),
+  _gpt_contract_row("cash_strategy_review", "root", "recommended_adjustments", "recommended_adjustments", "array", item_contract_grid_name="recommended_adjustments", horizon_rule="q1_to_q20_cash_review_rows", validation_kind="cash_adjustment_grid", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="recommended_adjustments", validation_kind="cash_adjustment_lever_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].timing_start_q", "timing_start_q", "integer", is_array_item=True, parent_field_path="recommended_adjustments", validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].timing_end_q", "timing_end_q", "integer", is_array_item=True, parent_field_path="recommended_adjustments", validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].exact_value", "exact_value", "integer_currency", is_array_item=True, parent_field_path="recommended_adjustments", normalization_kind="integer_currency"),
+  _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].business_reason", "business_reason", "string", is_array_item=True, parent_field_path="recommended_adjustments"),
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="quarter_funding_plan", validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].required_funding_gap", "required_funding_gap", "integer_currency", is_array_item=True, parent_field_path="quarter_funding_plan", normalization_kind="integer_currency"),
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].expected_buffer", "expected_buffer", "integer_currency", is_array_item=True, parent_field_path="quarter_funding_plan", normalization_kind="integer_currency"),
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].expected_ending_cash_after_actions", "expected_ending_cash_after_actions", "integer_currency", is_array_item=True, parent_field_path="quarter_funding_plan", normalization_kind="integer_currency"),
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].funding_sources", "funding_sources", "array", is_array_item=True, parent_field_path="quarter_funding_plan", min_items=1, max_items=1, item_contract_grid_name="funding_sources", validation_kind="cash_funding_source_grid", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].business_reason", "business_reason", "string", is_array_item=True, parent_field_path="quarter_funding_plan"),
+  _gpt_contract_row("cash_strategy_review", "funding_sources", "funding_sources[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="funding_sources", validation_kind="cash_funding_lever_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("cash_strategy_review", "funding_sources", "funding_sources[].amount", "amount", "integer_currency", is_array_item=True, parent_field_path="funding_sources", normalization_kind="integer_currency"),
+  _gpt_contract_row("unified_convergence_verification", "root", "overall_assessment", "overall_assessment", "enum", validation_kind="enum", enum_values=["all_resolved", "partially_resolved", "not_resolved"]),
+  _gpt_contract_row("unified_convergence_verification", "root", "executive_summary", "executive_summary", "string"),
+  _gpt_contract_row("unified_convergence_verification", "root", "issue_results", "issue_results", "array", min_items=1, item_contract_grid_name="issue_results"),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].issue_code", "issue_code", "string", is_array_item=True, parent_field_path="issue_results"),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].status", "status", "enum", is_array_item=True, parent_field_path="issue_results", validation_kind="enum", enum_values=["resolved", "partially_resolved", "not_resolved"]),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].remaining_issue_materiality", "remaining_issue_materiality", "enum", is_array_item=True, parent_field_path="issue_results", validation_kind="enum", enum_values=["immaterial", "material"]),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].remaining_issue_severity_score", "remaining_issue_severity_score", "integer", is_array_item=True, parent_field_path="issue_results", min_value=0, max_value=100),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].verification_reason", "verification_reason", "string", is_array_item=True, parent_field_path="issue_results"),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].remaining_problem_quarters", "remaining_problem_quarters", "array", is_array_item=True, parent_field_path="issue_results", horizon_rule="q1_to_q20_subset"),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].next_required_lever_ids", "next_required_lever_ids", "array", is_array_item=True, parent_field_path="issue_results", validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].observed_improvement_summary", "observed_improvement_summary", "string", is_array_item=True, parent_field_path="issue_results"),
+]
+
+
 def _clean_text(value: Any) -> str:
   return str(value or "").strip()
 
@@ -153,6 +385,25 @@ def _split_tokens(value: Any) -> List[str]:
     return []
   normalized = raw.replace(";", "|").replace(",", "|")
   return [item.strip() for item in normalized.split("|") if item.strip()]
+
+
+def _json_list(value: Any) -> List[str]:
+  if isinstance(value, list):
+    return [_clean_text(item) for item in value if _clean_text(item)]
+  raw = _clean_text(value)
+  if not raw:
+    return []
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    return _split_tokens(raw)
+  if not isinstance(parsed, list):
+    return []
+  return [_clean_text(item) for item in parsed if _clean_text(item)]
+
+
+def _json_dumps_list(value: Any) -> str:
+  return json.dumps(_json_list(value), ensure_ascii=True, separators=(",", ":"))
 
 
 def stage_planning_ramp_policy(
@@ -435,6 +686,308 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
         pass
 
 
+def _ensure_gpt_contract_lookup_table(conn) -> None:
+  global _ENSURE_GPT_CONTRACT_TABLE_READY
+  if _ENSURE_GPT_CONTRACT_TABLE_READY:
+    return
+  with _ENSURE_GPT_CONTRACT_TABLE_LOCK:
+    if _ENSURE_GPT_CONTRACT_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_GPT_CONTRACT_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          contract_name VARCHAR(128) NOT NULL,
+          grid_name VARCHAR(128) NOT NULL,
+          field_path VARCHAR(255) NOT NULL,
+          field_name VARCHAR(128) NOT NULL,
+          field_type VARCHAR(64) NOT NULL,
+          required TINYINT(1) NOT NULL DEFAULT 1,
+          strict_required TINYINT(1) NOT NULL DEFAULT 1,
+          allow_null TINYINT(1) NOT NULL DEFAULT 0,
+          allow_empty TINYINT(1) NOT NULL DEFAULT 0,
+          is_array_item TINYINT(1) NOT NULL DEFAULT 0,
+          parent_field_path VARCHAR(255) NULL,
+          json_schema_type VARCHAR(64) NOT NULL DEFAULT 'string',
+          min_value DECIMAL(20,6) NULL,
+          max_value DECIMAL(20,6) NULL,
+          min_items INT NULL,
+          max_items INT NULL,
+          item_contract_grid_name VARCHAR(128) NULL,
+          additional_properties_allowed TINYINT(1) NOT NULL DEFAULT 0,
+          gpt_owned TINYINT(1) NOT NULL DEFAULT 1,
+          python_owned TINYINT(1) NOT NULL DEFAULT 0,
+          editable TINYINT(1) NOT NULL DEFAULT 1,
+          must_match_lookup TINYINT(1) NOT NULL DEFAULT 0,
+          contract_phase VARCHAR(64) NULL,
+          horizon_rule VARCHAR(128) NULL,
+          normalization_kind VARCHAR(128) NOT NULL DEFAULT 'none',
+          rounding_kind VARCHAR(64) NOT NULL DEFAULT 'none',
+          decimal_places INT NULL,
+          validation_kind VARCHAR(128) NOT NULL DEFAULT 'schema_only',
+          lookup_source VARCHAR(128) NOT NULL DEFAULT 'none',
+          enum_values LONGTEXT NULL,
+          allowed_aliases LONGTEXT NULL,
+          prompt_required_instruction LONGTEXT NULL,
+          prompt_label VARCHAR(255) NULL,
+          failure_code VARCHAR(255) NULL,
+          contract_status VARCHAR(32) NOT NULL DEFAULT 'active',
+          notes LONGTEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_post_intake_gpt_contract_field (contract_name, grid_name, field_path),
+          KEY idx_post_intake_gpt_contract_name (contract_name),
+          KEY idx_post_intake_gpt_contract_grid (grid_name),
+          KEY idx_post_intake_gpt_contract_status (contract_status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      for alter_sql in (
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN strict_required TINYINT(1) NOT NULL DEFAULT 1
+        AFTER required
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN json_schema_type VARCHAR(64) NOT NULL DEFAULT 'string'
+        AFTER parent_field_path
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN min_value DECIMAL(20,6) NULL
+        AFTER json_schema_type
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN max_value DECIMAL(20,6) NULL
+        AFTER min_value
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN min_items INT NULL
+        AFTER max_value
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN max_items INT NULL
+        AFTER min_items
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN item_contract_grid_name VARCHAR(128) NULL
+        AFTER max_items
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN additional_properties_allowed TINYINT(1) NOT NULL DEFAULT 0
+        AFTER item_contract_grid_name
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN gpt_owned TINYINT(1) NOT NULL DEFAULT 1
+        AFTER additional_properties_allowed
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN python_owned TINYINT(1) NOT NULL DEFAULT 0
+        AFTER gpt_owned
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN editable TINYINT(1) NOT NULL DEFAULT 1
+        AFTER python_owned
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN must_match_lookup TINYINT(1) NOT NULL DEFAULT 0
+        AFTER editable
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN contract_phase VARCHAR(64) NULL
+        AFTER must_match_lookup
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN rounding_kind VARCHAR(64) NOT NULL DEFAULT 'none'
+        AFTER normalization_kind
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN decimal_places INT NULL
+        AFTER rounding_kind
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN prompt_required_instruction LONGTEXT NULL
+        AFTER allowed_aliases
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN failure_code VARCHAR(255) NULL
+        AFTER prompt_label
+        """,
+      ):
+        try:
+          cur.execute(alter_sql)
+        except Exception:
+          pass
+      for row in _DEFAULT_GPT_CONTRACT_ROWS:
+        cur.execute(
+          f"""
+          INSERT INTO {_GPT_CONTRACT_TABLE_NAME} (
+            contract_name,
+            grid_name,
+            field_path,
+            field_name,
+            field_type,
+            required,
+            strict_required,
+            allow_null,
+            allow_empty,
+            is_array_item,
+            parent_field_path,
+            json_schema_type,
+            min_value,
+            max_value,
+            min_items,
+            max_items,
+            item_contract_grid_name,
+            additional_properties_allowed,
+            gpt_owned,
+            python_owned,
+            editable,
+            must_match_lookup,
+            contract_phase,
+            horizon_rule,
+            normalization_kind,
+            rounding_kind,
+            decimal_places,
+            validation_kind,
+            lookup_source,
+            enum_values,
+            allowed_aliases,
+            prompt_required_instruction,
+            prompt_label,
+            failure_code,
+            contract_status,
+            notes
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ON DUPLICATE KEY UPDATE
+            field_name = VALUES(field_name),
+            field_type = VALUES(field_type),
+            required = VALUES(required),
+            strict_required = VALUES(strict_required),
+            allow_null = VALUES(allow_null),
+            allow_empty = VALUES(allow_empty),
+            is_array_item = VALUES(is_array_item),
+            parent_field_path = VALUES(parent_field_path),
+            json_schema_type = VALUES(json_schema_type),
+            min_value = VALUES(min_value),
+            max_value = VALUES(max_value),
+            min_items = VALUES(min_items),
+            max_items = VALUES(max_items),
+            item_contract_grid_name = VALUES(item_contract_grid_name),
+            additional_properties_allowed = VALUES(additional_properties_allowed),
+            gpt_owned = VALUES(gpt_owned),
+            python_owned = VALUES(python_owned),
+            editable = VALUES(editable),
+            must_match_lookup = VALUES(must_match_lookup),
+            contract_phase = VALUES(contract_phase),
+            horizon_rule = VALUES(horizon_rule),
+            normalization_kind = VALUES(normalization_kind),
+            rounding_kind = VALUES(rounding_kind),
+            decimal_places = VALUES(decimal_places),
+            validation_kind = VALUES(validation_kind),
+            lookup_source = VALUES(lookup_source),
+            enum_values = VALUES(enum_values),
+            allowed_aliases = VALUES(allowed_aliases),
+            prompt_required_instruction = VALUES(prompt_required_instruction),
+            prompt_label = VALUES(prompt_label),
+            failure_code = VALUES(failure_code),
+            contract_status = VALUES(contract_status),
+            notes = VALUES(notes)
+          """,
+          (
+            _clean_text(row.get("contract_name")).lower(),
+            _clean_text(row.get("grid_name")).lower(),
+            _clean_text(row.get("field_path")),
+            _clean_text(row.get("field_name")),
+            _clean_text(row.get("field_type")).lower(),
+            1 if _clean_bool(row.get("required"), default=True) else 0,
+            1 if _clean_bool(row.get("strict_required"), default=True) else 0,
+            1 if _clean_bool(row.get("allow_null")) else 0,
+            1 if _clean_bool(row.get("allow_empty")) else 0,
+            1 if _clean_bool(row.get("is_array_item")) else 0,
+            _clean_text(row.get("parent_field_path")),
+            _clean_text(row.get("json_schema_type")).lower() or "string",
+            row.get("min_value"),
+            row.get("max_value"),
+            row.get("min_items"),
+            row.get("max_items"),
+            _clean_text(row.get("item_contract_grid_name")).lower(),
+            1 if _clean_bool(row.get("additional_properties_allowed")) else 0,
+            1 if _clean_bool(row.get("gpt_owned"), default=True) else 0,
+            1 if _clean_bool(row.get("python_owned")) else 0,
+            1 if _clean_bool(row.get("editable"), default=True) else 0,
+            1 if _clean_bool(row.get("must_match_lookup")) else 0,
+            _clean_text(row.get("contract_phase")).lower(),
+            _clean_text(row.get("horizon_rule")).lower(),
+            _clean_text(row.get("normalization_kind")).lower() or "none",
+            _clean_text(row.get("rounding_kind")).lower() or "none",
+            row.get("decimal_places"),
+            _clean_text(row.get("validation_kind")).lower() or "schema_only",
+            _clean_text(row.get("lookup_source")).lower() or "none",
+            _json_dumps_list(row.get("enum_values")),
+            _json_dumps_list(row.get("allowed_aliases")),
+            _clean_text(row.get("prompt_required_instruction")),
+            _clean_text(row.get("prompt_label")),
+            _clean_text(row.get("failure_code")),
+            _clean_text(row.get("notes")),
+          ),
+        )
+      default_keys = [
+        (
+          _clean_text(row.get("contract_name")).lower(),
+          _clean_text(row.get("grid_name")).lower(),
+          _clean_text(row.get("field_path")),
+        )
+        for row in _DEFAULT_GPT_CONTRACT_ROWS
+      ]
+      default_contracts = sorted({key[0] for key in default_keys if key[0]})
+      if default_contracts:
+        placeholders = ",".join(["%s"] * len(default_contracts))
+        cur.execute(
+          f"""
+          UPDATE {_GPT_CONTRACT_TABLE_NAME}
+          SET contract_status = 'retired'
+          WHERE contract_name IN ({placeholders})
+          """,
+          tuple(default_contracts),
+        )
+        for contract_name, grid_name, field_path in default_keys:
+          cur.execute(
+            f"""
+            UPDATE {_GPT_CONTRACT_TABLE_NAME}
+            SET contract_status = 'active'
+            WHERE contract_name = %s
+              AND grid_name = %s
+              AND field_path = %s
+            """,
+            (contract_name, grid_name, field_path),
+          )
+      conn.commit()
+      _ENSURE_GPT_CONTRACT_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
 @lru_cache(maxsize=1)
 def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
   rows: List[Dict[str, Any]] = []
@@ -588,6 +1141,123 @@ def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
     )
   if not rows:
     raise RuntimeError(f"{_CASH_POLICY_TABLE_NAME}_empty: cash policy lookup table has no rows")
+  return rows
+
+
+@lru_cache(maxsize=1)
+def load_post_intake_gpt_contract_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_gpt_contract_lookup_table(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          contract_name,
+          grid_name,
+          field_path,
+          field_name,
+          field_type,
+          required,
+          strict_required,
+          allow_null,
+          allow_empty,
+          is_array_item,
+          parent_field_path,
+          json_schema_type,
+          min_value,
+          max_value,
+          min_items,
+          max_items,
+          item_contract_grid_name,
+          additional_properties_allowed,
+          gpt_owned,
+          python_owned,
+          editable,
+          must_match_lookup,
+          contract_phase,
+          horizon_rule,
+          normalization_kind,
+          rounding_kind,
+          decimal_places,
+          validation_kind,
+          lookup_source,
+          enum_values,
+          allowed_aliases,
+          prompt_required_instruction,
+          prompt_label,
+          failure_code,
+          contract_status,
+          notes
+        FROM {_GPT_CONTRACT_TABLE_NAME}
+        ORDER BY contract_name ASC, grid_name ASC, id ASC
+        """
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  for raw_row in raw_rows:
+    if not isinstance(raw_row, dict):
+      continue
+    contract_name = _clean_text(raw_row.get("contract_name")).lower()
+    grid_name = _clean_text(raw_row.get("grid_name")).lower()
+    field_path = _clean_text(raw_row.get("field_path"))
+    field_name = _clean_text(raw_row.get("field_name"))
+    if not contract_name or not grid_name or not field_path or not field_name:
+      continue
+    rows.append(
+      {
+        "contract_name": contract_name,
+        "grid_name": grid_name,
+        "field_path": field_path,
+        "field_name": field_name,
+        "field_type": _clean_text(raw_row.get("field_type")).lower(),
+        "required": _clean_bool(raw_row.get("required"), default=True),
+        "strict_required": _clean_bool(raw_row.get("strict_required"), default=True),
+        "allow_null": _clean_bool(raw_row.get("allow_null")),
+        "allow_empty": _clean_bool(raw_row.get("allow_empty")),
+        "is_array_item": _clean_bool(raw_row.get("is_array_item")),
+        "parent_field_path": _clean_text(raw_row.get("parent_field_path")),
+        "json_schema_type": _clean_text(raw_row.get("json_schema_type")).lower() or "string",
+        "min_value": float(raw_row.get("min_value")) if raw_row.get("min_value") is not None else None,
+        "max_value": float(raw_row.get("max_value")) if raw_row.get("max_value") is not None else None,
+        "min_items": int(raw_row.get("min_items")) if raw_row.get("min_items") is not None else None,
+        "max_items": int(raw_row.get("max_items")) if raw_row.get("max_items") is not None else None,
+        "item_contract_grid_name": _clean_text(raw_row.get("item_contract_grid_name")).lower(),
+        "additional_properties_allowed": _clean_bool(raw_row.get("additional_properties_allowed")),
+        "gpt_owned": _clean_bool(raw_row.get("gpt_owned"), default=True),
+        "python_owned": _clean_bool(raw_row.get("python_owned")),
+        "editable": _clean_bool(raw_row.get("editable"), default=True),
+        "must_match_lookup": _clean_bool(raw_row.get("must_match_lookup")),
+        "contract_phase": _clean_text(raw_row.get("contract_phase")).lower(),
+        "horizon_rule": _clean_text(raw_row.get("horizon_rule")).lower(),
+        "normalization_kind": _clean_text(raw_row.get("normalization_kind")).lower() or "none",
+        "rounding_kind": _clean_text(raw_row.get("rounding_kind")).lower() or "none",
+        "decimal_places": int(raw_row.get("decimal_places")) if raw_row.get("decimal_places") is not None else None,
+        "validation_kind": _clean_text(raw_row.get("validation_kind")).lower() or "schema_only",
+        "lookup_source": _clean_text(raw_row.get("lookup_source")).lower() or "none",
+        "enum_values": _json_list(raw_row.get("enum_values")),
+        "allowed_aliases": _json_list(raw_row.get("allowed_aliases")),
+        "prompt_required_instruction": _clean_text(raw_row.get("prompt_required_instruction")),
+        "prompt_label": _clean_text(raw_row.get("prompt_label")),
+        "failure_code": _clean_text(raw_row.get("failure_code")),
+        "contract_status": _clean_text(raw_row.get("contract_status")).lower() or "active",
+        "notes": _clean_text(raw_row.get("notes")),
+      }
+    )
+  if not rows:
+    raise RuntimeError(f"{_GPT_CONTRACT_TABLE_NAME}_empty: GPT contract lookup table has no rows")
   return rows
 
 
@@ -1031,6 +1701,551 @@ class PostIntakeCashPolicyLookup:
     return errors
 
 
+class PostIntakeGptContractLookup:
+  """Single gateway for SQL-backed GPT contract field definitions."""
+
+  def __init__(self, rows: Iterable[Dict[str, Any]]) -> None:
+    self._rows = [
+      dict(row)
+      for row in rows
+      if isinstance(row, dict)
+      and _clean_text(row.get("contract_status")).lower() == "active"
+    ]
+
+  def rows(
+    self,
+    *,
+    contract_name: Any = None,
+    grid_name: Any = None,
+    active_only: bool = True,
+  ) -> List[Dict[str, Any]]:
+    contract = _clean_text(contract_name).lower()
+    grid = _clean_text(grid_name).lower()
+    return [
+      dict(row)
+      for row in self._rows
+      if (not contract or _clean_text(row.get("contract_name")).lower() == contract)
+      and (not grid or _clean_text(row.get("grid_name")).lower() == grid)
+      and (not active_only or _clean_text(row.get("contract_status")).lower() == "active")
+    ]
+
+  def contract_names(self) -> List[str]:
+    return sorted(
+      {
+        _clean_text(row.get("contract_name")).lower()
+        for row in self._rows
+        if _clean_text(row.get("contract_name"))
+      }
+    )
+
+  def grid_names(self, contract_name: Any) -> List[str]:
+    contract = _clean_text(contract_name).lower()
+    return sorted(
+      {
+        _clean_text(row.get("grid_name")).lower()
+        for row in self._rows
+        if _clean_text(row.get("contract_name")).lower() == contract
+      }
+    )
+
+  def field_for_path(
+    self,
+    *,
+    contract_name: Any,
+    field_path: Any,
+    grid_name: Any = None,
+    required: bool = True,
+  ) -> Optional[Dict[str, Any]]:
+    contract = _clean_text(contract_name).lower()
+    path = _clean_text(field_path)
+    grid = _clean_text(grid_name).lower()
+    for row in self.rows(contract_name=contract, grid_name=grid or None):
+      if _clean_text(row.get("field_path")) == path:
+        return dict(row)
+    if required:
+      raise RuntimeError(
+        "post_intake_gpt_contract_field_missing: "
+        f"contract_name={contract or 'missing'} grid_name={grid or '*'} field_path={path or 'missing'}"
+      )
+    return None
+
+  def fields_for_grid(
+    self,
+    *,
+    contract_name: Any,
+    grid_name: Any,
+    required: bool = True,
+  ) -> List[Dict[str, Any]]:
+    rows = self.rows(contract_name=contract_name, grid_name=grid_name)
+    if required and not rows:
+      raise RuntimeError(
+        "post_intake_gpt_contract_grid_missing: "
+        f"contract_name={_clean_text(contract_name).lower() or 'missing'} grid_name={_clean_text(grid_name).lower() or 'missing'}"
+      )
+    return rows
+
+  def required_field_names(
+    self,
+    *,
+    contract_name: Any,
+    grid_name: Any,
+  ) -> List[str]:
+    return [
+      _clean_text(row.get("field_name"))
+      for row in self.fields_for_grid(contract_name=contract_name, grid_name=grid_name)
+      if bool(row.get("required")) and _clean_text(row.get("field_name"))
+    ]
+
+  def alias_to_field_name(
+    self,
+    *,
+    contract_name: Any,
+    grid_name: Any,
+  ) -> Dict[str, str]:
+    aliases: Dict[str, str] = {}
+    for row in self.fields_for_grid(contract_name=contract_name, grid_name=grid_name):
+      field_name = _clean_text(row.get("field_name"))
+      if not field_name:
+        continue
+      aliases[field_name] = field_name
+      for alias in row.get("allowed_aliases") or []:
+        alias_name = _clean_text(alias)
+        if alias_name:
+          aliases[alias_name] = field_name
+    return aliases
+
+  def _field_schema(
+    self,
+    row: Dict[str, Any],
+    *,
+    field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  ) -> Dict[str, Any]:
+    overrides = field_schema_overrides if isinstance(field_schema_overrides, dict) else {}
+    item_overrides = array_item_schema_overrides if isinstance(array_item_schema_overrides, dict) else {}
+    field_path = _clean_text(row.get("field_path"))
+    field_name = _clean_text(row.get("field_name"))
+    if field_path in overrides:
+      return copy.deepcopy(overrides[field_path])
+    if field_name in overrides:
+      return copy.deepcopy(overrides[field_name])
+    schema_type = _clean_text(row.get("json_schema_type")).lower() or "string"
+    schema: Dict[str, Any] = {"type": schema_type}
+    if bool(row.get("allow_null")):
+      schema["type"] = [schema_type, "null"]
+    enum_values = _json_list(row.get("enum_values"))
+    if enum_values:
+      schema["enum"] = enum_values + ([None] if bool(row.get("allow_null")) else [])
+    min_value = row.get("min_value")
+    max_value = row.get("max_value")
+    if min_value is not None and schema_type in {"integer", "number"}:
+      schema["minimum"] = int(min_value) if schema_type == "integer" else float(min_value)
+    if max_value is not None and schema_type in {"integer", "number"}:
+      schema["maximum"] = int(max_value) if schema_type == "integer" else float(max_value)
+    if schema_type == "array":
+      min_items = row.get("min_items")
+      max_items = row.get("max_items")
+      if min_items is not None:
+        schema["minItems"] = int(min_items)
+      if max_items is not None:
+        schema["maxItems"] = int(max_items)
+      item_grid = _clean_text(row.get("item_contract_grid_name")).lower()
+      if field_path in item_overrides:
+        schema["items"] = copy.deepcopy(item_overrides[field_path])
+      elif field_name in item_overrides:
+        schema["items"] = copy.deepcopy(item_overrides[field_name])
+      elif item_grid:
+        schema["items"] = self.object_schema_for_grid(
+          contract_name=row.get("contract_name"),
+          grid_name=item_grid,
+          field_schema_overrides=overrides,
+          array_item_schema_overrides=item_overrides,
+        )
+      else:
+        schema["items"] = {"type": "string"}
+    if schema_type == "object":
+      schema["additionalProperties"] = bool(row.get("additional_properties_allowed"))
+      schema.setdefault("properties", {})
+      schema.setdefault("required", [])
+    return schema
+
+  def object_schema_for_grid(
+    self,
+    *,
+    contract_name: Any,
+    grid_name: Any = "root",
+    field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  ) -> Dict[str, Any]:
+    rows = self.fields_for_grid(contract_name=contract_name, grid_name=grid_name)
+    properties: Dict[str, Any] = {}
+    required: List[str] = []
+    for row in rows:
+      field_name = _clean_text(row.get("field_name"))
+      if not field_name:
+        continue
+      properties[field_name] = self._field_schema(
+        row,
+        field_schema_overrides=field_schema_overrides,
+        array_item_schema_overrides=array_item_schema_overrides,
+      )
+      if bool(row.get("strict_required")):
+        required.append(field_name)
+    return {
+      "type": "object",
+      "additionalProperties": False,
+      "properties": properties,
+      "required": required,
+    }
+
+  def openai_schema(
+    self,
+    *,
+    contract_name: Any,
+    field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  ) -> Dict[str, Any]:
+    return self.object_schema_for_grid(
+      contract_name=contract_name,
+      grid_name="root",
+      field_schema_overrides=field_schema_overrides,
+      array_item_schema_overrides=array_item_schema_overrides,
+    )
+
+  def prompt_field_spec(self, contract_name: Any) -> Dict[str, Any]:
+    contract = _clean_text(contract_name).lower()
+    rows = self.rows(contract_name=contract)
+    return {
+      "contract_name": contract,
+      "contract_table": _GPT_CONTRACT_TABLE_NAME,
+      "source_of_truth": "sql.post_intake_gpt_contract_lookup",
+      "fields": [
+        {
+          "grid_name": row.get("grid_name"),
+          "field_path": row.get("field_path"),
+          "field_name": row.get("field_name"),
+          "field_type": row.get("field_type"),
+          "required": bool(row.get("required")),
+          "strict_required": bool(row.get("strict_required")),
+          "normalization_kind": row.get("normalization_kind"),
+          "rounding_kind": row.get("rounding_kind"),
+          "decimal_places": row.get("decimal_places"),
+          "horizon_rule": row.get("horizon_rule"),
+          "validation_kind": row.get("validation_kind"),
+          "lookup_source": row.get("lookup_source"),
+          "allowed_aliases": copy.deepcopy(row.get("allowed_aliases") or []),
+          "enum_values": copy.deepcopy(row.get("enum_values") or []),
+          "gpt_owned": bool(row.get("gpt_owned")),
+          "python_owned": bool(row.get("python_owned")),
+          "editable": bool(row.get("editable")),
+          "failure_code": row.get("failure_code"),
+        }
+        for row in rows
+      ],
+    }
+
+  def _normalize_scalar_value(self, row: Dict[str, Any], value: Any) -> Any:
+    if value is None:
+      return None
+    rounding_kind = _clean_text(row.get("rounding_kind")).lower()
+    decimal_places = row.get("decimal_places")
+    field_type = _clean_text(row.get("field_type")).lower()
+    if rounding_kind in {"nearest_dollar", "nearest_integer"} or field_type in {"integer", "integer_currency", "integer_or_negative_one"}:
+      try:
+        return int(round(float(value)))
+      except Exception:
+        return value
+    if rounding_kind == "nearest_decimal" and decimal_places is not None:
+      try:
+        return round(float(value), int(decimal_places))
+      except Exception:
+        return value
+    if field_type == "enum":
+      return _clean_text(value).lower()
+    return value
+
+  def normalize_payload_grid(
+    self,
+    *,
+    contract_name: Any,
+    grid_name: Any,
+    payload: Any,
+  ) -> Any:
+    if not isinstance(payload, dict):
+      return payload
+    contract = _clean_text(contract_name).lower()
+    grid = _clean_text(grid_name).lower() or "root"
+    alias_map = self.alias_to_field_name(contract_name=contract, grid_name=grid)
+    rows_by_field = {
+      _clean_text(row.get("field_name")): row
+      for row in self.fields_for_grid(contract_name=contract, grid_name=grid)
+      if _clean_text(row.get("field_name"))
+    }
+    normalized: Dict[str, Any] = {}
+    for key, value in payload.items():
+      canonical_key = alias_map.get(_clean_text(key), _clean_text(key))
+      row = rows_by_field.get(canonical_key)
+      if not isinstance(row, dict):
+        normalized[canonical_key] = copy.deepcopy(value)
+        continue
+      if _clean_text(row.get("json_schema_type")).lower() == "array" and isinstance(value, list):
+        item_grid = _clean_text(row.get("item_contract_grid_name")).lower()
+        if item_grid:
+          normalized[canonical_key] = [
+            self.normalize_payload_grid(
+              contract_name=contract,
+              grid_name=item_grid,
+              payload=item,
+            )
+            if isinstance(item, dict)
+            else copy.deepcopy(item)
+            for item in value
+          ]
+        else:
+          normalized[canonical_key] = copy.deepcopy(value)
+      else:
+        normalized[canonical_key] = self._normalize_scalar_value(row, value)
+    return normalized
+
+  def normalize_payload(self, *, contract_name: Any, payload: Any) -> Any:
+    return self.normalize_payload_grid(
+      contract_name=contract_name,
+      grid_name="root",
+      payload=payload,
+    )
+
+  def payload_errors_for_grid(
+    self,
+    *,
+    contract_name: Any,
+    grid_name: Any,
+    payload: Any,
+  ) -> List[str]:
+    if not isinstance(payload, dict):
+      return [f"{_clean_text(contract_name).lower()}/{_clean_text(grid_name).lower()} payload must be an object"]
+    rows = self.fields_for_grid(contract_name=contract_name, grid_name=grid_name)
+    fields = {_clean_text(row.get("field_name")): row for row in rows}
+    errors: List[str] = []
+    extra = sorted([key for key in payload.keys() if key not in fields])
+    if extra:
+      errors.append(
+        f"{_clean_text(contract_name).lower()}/{_clean_text(grid_name).lower()} contains undeclared fields {extra}"
+      )
+    for field_name, row in fields.items():
+      if bool(row.get("required")) and field_name not in payload:
+        errors.append(str(row.get("failure_code") or f"{field_name}_missing"))
+        continue
+      if field_name not in payload:
+        continue
+      value = payload.get(field_name)
+      if value is None:
+        if not bool(row.get("allow_null")):
+          errors.append(f"{field_name} cannot be null")
+        continue
+      schema_type = _clean_text(row.get("json_schema_type")).lower()
+      if schema_type == "array":
+        if not isinstance(value, list):
+          errors.append(f"{field_name} must be an array")
+          continue
+        min_items = row.get("min_items")
+        max_items = row.get("max_items")
+        if min_items is not None and len(value) < int(min_items):
+          errors.append(f"{field_name} must contain at least {int(min_items)} rows")
+        if max_items is not None and len(value) > int(max_items):
+          errors.append(f"{field_name} must contain no more than {int(max_items)} rows")
+        item_grid = _clean_text(row.get("item_contract_grid_name")).lower()
+        if item_grid:
+          for item in value:
+            if isinstance(item, dict):
+              errors.extend(
+                self.payload_errors_for_grid(
+                  contract_name=contract_name,
+                  grid_name=item_grid,
+                  payload=item,
+                )
+              )
+      elif schema_type == "object" and not isinstance(value, dict):
+        errors.append(f"{field_name} must be an object")
+      elif schema_type == "boolean" and not isinstance(value, bool):
+        errors.append(f"{field_name} must be a boolean")
+      elif schema_type == "integer":
+        try:
+          int(round(float(value)))
+        except Exception:
+          errors.append(f"{field_name} must be integer-compatible")
+      elif schema_type == "number":
+        try:
+          float(value)
+        except Exception:
+          errors.append(f"{field_name} must be numeric")
+      enum_values = _json_list(row.get("enum_values"))
+      if enum_values and value is not None and _clean_text(value).lower() not in {item.lower() for item in enum_values}:
+        errors.append(f"{field_name} must be one of {enum_values}")
+    return errors
+
+  def payload_errors(self, *, contract_name: Any, payload: Any) -> List[str]:
+    return self.payload_errors_for_grid(
+      contract_name=contract_name,
+      grid_name="root",
+      payload=payload,
+    )
+
+  def contract_summary(self, contract_name: Any) -> Dict[str, Any]:
+    contract = _clean_text(contract_name).lower()
+    rows = self.rows(contract_name=contract)
+    grids: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+      grids.setdefault(_clean_text(row.get("grid_name")).lower(), []).append(dict(row))
+    return {
+      "contract_name": contract,
+      "grid_names": sorted(grids.keys()),
+      "field_count": len(rows),
+      "required_field_count": sum(1 for row in rows if bool(row.get("required"))),
+      "lookup_sources": sorted(
+        {
+          _clean_text(row.get("lookup_source")).lower()
+          for row in rows
+          if _clean_text(row.get("lookup_source")).lower() not in {"", "none"}
+        }
+      ),
+      "horizon_rules": sorted(
+        {
+          _clean_text(row.get("horizon_rule")).lower()
+          for row in rows
+          if _clean_text(row.get("horizon_rule"))
+        }
+      ),
+    }
+
+  def validation_errors(self) -> List[str]:
+    errors: List[str] = []
+    valid_field_types = {
+      "array",
+      "boolean",
+      "enum",
+      "integer",
+      "integer_currency",
+      "integer_or_negative_one",
+      "number",
+      "object",
+      "ratio_2dp",
+      "string",
+    }
+    valid_lookup_sources = {
+      "none",
+      "post_intak_mapping_lookup",
+      "post_intake_cash_policy_lookup",
+    }
+    valid_normalizers = {
+      "none",
+      "integer",
+      "integer_currency",
+      "ratio_2dp",
+      "enum_lowercase",
+      "field_type_numeric_contract",
+    }
+    valid_rounding_kinds = {
+      "none",
+      "nearest_decimal",
+      "nearest_dollar",
+      "nearest_integer",
+    }
+    valid_json_schema_types = {
+      "array",
+      "boolean",
+      "integer",
+      "number",
+      "object",
+      "string",
+    }
+    seen: Set[tuple[str, str, str]] = set()
+    contracts_seen: Set[str] = set()
+    for row in self._rows:
+      contract = _clean_text(row.get("contract_name")).lower()
+      grid = _clean_text(row.get("grid_name")).lower()
+      path = _clean_text(row.get("field_path"))
+      field_name = _clean_text(row.get("field_name"))
+      field_type = _clean_text(row.get("field_type")).lower()
+      contracts_seen.add(contract)
+      key = (contract, grid, path)
+      if not contract:
+        errors.append("contract row missing contract_name")
+      if not grid:
+        errors.append(f"{contract or 'missing'} contract row missing grid_name")
+      if not path:
+        errors.append(f"{contract or 'missing'}/{grid or 'missing'} contract row missing field_path")
+      if not field_name:
+        errors.append(f"{contract or 'missing'}/{grid or 'missing'}/{path or 'missing'} row missing field_name")
+      if key in seen:
+        errors.append(f"duplicate GPT contract field row for {contract}/{grid}/{path}")
+      seen.add(key)
+      if field_type not in valid_field_types:
+        errors.append(f"{contract}/{grid}/{path} has unsupported field_type {field_type or 'missing'}")
+      schema_type = _clean_text(row.get("json_schema_type")).lower() or "string"
+      if schema_type not in valid_json_schema_types:
+        errors.append(f"{contract}/{grid}/{path} has unsupported json_schema_type {schema_type}")
+      if field_type == "array" and schema_type != "array":
+        errors.append(f"{contract}/{grid}/{path} array field must use json_schema_type=array")
+      if field_type == "object" and schema_type != "object":
+        errors.append(f"{contract}/{grid}/{path} object field must use json_schema_type=object")
+      if field_type in {"integer", "integer_currency", "integer_or_negative_one"} and schema_type != "integer":
+        errors.append(f"{contract}/{grid}/{path} integer-like field must use json_schema_type=integer")
+      if field_type == "ratio_2dp" and schema_type != "number":
+        errors.append(f"{contract}/{grid}/{path} ratio_2dp must use json_schema_type=number")
+      if bool(row.get("required")) and not bool(row.get("strict_required")):
+        errors.append(f"{contract}/{grid}/{path} required fields must also be strict_required")
+      lookup_source = _clean_text(row.get("lookup_source")).lower() or "none"
+      if lookup_source not in valid_lookup_sources:
+        errors.append(f"{contract}/{grid}/{path} has unsupported lookup_source {lookup_source}")
+      if bool(row.get("must_match_lookup")) and lookup_source == "none":
+        errors.append(f"{contract}/{grid}/{path} must_match_lookup requires a real lookup_source")
+      normalizer = _clean_text(row.get("normalization_kind")).lower() or "none"
+      if normalizer not in valid_normalizers:
+        errors.append(f"{contract}/{grid}/{path} has unsupported normalization_kind {normalizer}")
+      rounding_kind = _clean_text(row.get("rounding_kind")).lower() or "none"
+      if rounding_kind not in valid_rounding_kinds:
+        errors.append(f"{contract}/{grid}/{path} has unsupported rounding_kind {rounding_kind}")
+      decimal_places = row.get("decimal_places")
+      if field_type == "integer_currency":
+        if rounding_kind != "nearest_dollar" or decimal_places != 0:
+          errors.append(f"{contract}/{grid}/{path} integer_currency must round nearest_dollar with decimal_places=0")
+      if field_type == "ratio_2dp":
+        if rounding_kind != "nearest_decimal" or decimal_places != 2:
+          errors.append(f"{contract}/{grid}/{path} ratio_2dp must round nearest_decimal with decimal_places=2")
+      if field_type in {"integer", "integer_or_negative_one"}:
+        if rounding_kind != "nearest_integer" or decimal_places != 0:
+          errors.append(f"{contract}/{grid}/{path} integer fields must round nearest_integer with decimal_places=0")
+      if decimal_places is not None and int(decimal_places) < 0:
+        errors.append(f"{contract}/{grid}/{path} decimal_places cannot be negative")
+      min_value = row.get("min_value")
+      max_value = row.get("max_value")
+      if min_value is not None and max_value is not None and float(min_value) > float(max_value):
+        errors.append(f"{contract}/{grid}/{path} min_value cannot exceed max_value")
+      min_items = row.get("min_items")
+      max_items = row.get("max_items")
+      if min_items is not None and max_items is not None and int(min_items) > int(max_items):
+        errors.append(f"{contract}/{grid}/{path} min_items cannot exceed max_items")
+      if field_type == "array" and bool(row.get("required")) and not _clean_text(row.get("item_contract_grid_name")) and path.endswith("_grid"):
+        errors.append(f"{contract}/{grid}/{path} grid arrays should declare item_contract_grid_name")
+      if not _clean_text(row.get("failure_code")):
+        errors.append(f"{contract}/{grid}/{path} requires failure_code")
+      if field_type == "enum" and not _json_list(row.get("enum_values")):
+        errors.append(f"{contract}/{grid}/{path} enum field requires enum_values")
+      if bool(row.get("is_array_item")) and not _clean_text(row.get("parent_field_path")):
+        errors.append(f"{contract}/{grid}/{path} array item field requires parent_field_path")
+    for required_contract in {
+      "maintenance_capex_percent",
+      "stage_ramp_contract",
+      "unified_convergence_decision",
+      "cash_strategy_review",
+      "r_and_d_applicability",
+      "unified_convergence_verification",
+    }:
+      if required_contract not in contracts_seen:
+        errors.append(f"missing GPT contract rows for {required_contract}")
+    return errors
+
+
 @lru_cache(maxsize=1)
 def post_intake_mapping_lookup() -> PostIntakeMappingLookup:
   return PostIntakeMappingLookup(load_post_intake_driver_target_mapping_rows())
@@ -1039,6 +2254,11 @@ def post_intake_mapping_lookup() -> PostIntakeMappingLookup:
 @lru_cache(maxsize=1)
 def post_intake_cash_policy_lookup() -> PostIntakeCashPolicyLookup:
   return PostIntakeCashPolicyLookup(load_post_intake_cash_policy_rows())
+
+
+@lru_cache(maxsize=1)
+def post_intake_gpt_contract_lookup() -> PostIntakeGptContractLookup:
+  return PostIntakeGptContractLookup(load_post_intake_gpt_contract_rows())
 
 
 @lru_cache(maxsize=1)
@@ -1201,3 +2421,111 @@ def post_intake_cash_policy_rows(*, cash_strategy: Any = None) -> List[Dict[str,
 
 def post_intake_cash_policy_errors() -> List[str]:
   return post_intake_cash_policy_lookup().validation_errors()
+
+
+def post_intake_gpt_contract_rows(
+  *,
+  contract_name: Any = None,
+  grid_name: Any = None,
+) -> List[Dict[str, Any]]:
+  return post_intake_gpt_contract_lookup().rows(
+    contract_name=contract_name,
+    grid_name=grid_name,
+  )
+
+
+def post_intake_gpt_contract_fields_for_grid(
+  *,
+  contract_name: Any,
+  grid_name: Any,
+  required: bool = True,
+) -> List[Dict[str, Any]]:
+  return post_intake_gpt_contract_lookup().fields_for_grid(
+    contract_name=contract_name,
+    grid_name=grid_name,
+    required=required,
+  )
+
+
+def post_intake_gpt_contract_field_for_path(
+  *,
+  contract_name: Any,
+  field_path: Any,
+  grid_name: Any = None,
+  required: bool = True,
+) -> Optional[Dict[str, Any]]:
+  return post_intake_gpt_contract_lookup().field_for_path(
+    contract_name=contract_name,
+    grid_name=grid_name,
+    field_path=field_path,
+    required=required,
+  )
+
+
+def post_intake_gpt_contract_required_field_names(
+  *,
+  contract_name: Any,
+  grid_name: Any,
+) -> List[str]:
+  return post_intake_gpt_contract_lookup().required_field_names(
+    contract_name=contract_name,
+    grid_name=grid_name,
+  )
+
+
+def post_intake_gpt_contract_alias_to_field_name(
+  *,
+  contract_name: Any,
+  grid_name: Any,
+) -> Dict[str, str]:
+  return post_intake_gpt_contract_lookup().alias_to_field_name(
+    contract_name=contract_name,
+    grid_name=grid_name,
+  )
+
+
+def post_intake_gpt_contract_summary(contract_name: Any) -> Dict[str, Any]:
+  return post_intake_gpt_contract_lookup().contract_summary(contract_name)
+
+
+def post_intake_gpt_contract_errors() -> List[str]:
+  return post_intake_gpt_contract_lookup().validation_errors()
+
+
+def post_intake_gpt_contract_openai_schema(
+  *,
+  contract_name: Any,
+  field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+  return post_intake_gpt_contract_lookup().openai_schema(
+    contract_name=contract_name,
+    field_schema_overrides=field_schema_overrides,
+    array_item_schema_overrides=array_item_schema_overrides,
+  )
+
+
+def post_intake_gpt_contract_prompt_field_spec(contract_name: Any) -> Dict[str, Any]:
+  return post_intake_gpt_contract_lookup().prompt_field_spec(contract_name)
+
+
+def post_intake_gpt_contract_normalize_payload(
+  *,
+  contract_name: Any,
+  payload: Any,
+) -> Any:
+  return post_intake_gpt_contract_lookup().normalize_payload(
+    contract_name=contract_name,
+    payload=payload,
+  )
+
+
+def post_intake_gpt_contract_payload_errors(
+  *,
+  contract_name: Any,
+  payload: Any,
+) -> List[str]:
+  return post_intake_gpt_contract_lookup().payload_errors(
+    contract_name=contract_name,
+    payload=payload,
+  )
