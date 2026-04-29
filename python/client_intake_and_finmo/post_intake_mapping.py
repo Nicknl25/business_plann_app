@@ -140,6 +140,154 @@ _DEFAULT_CASH_POLICY_ROWS: List[Dict[str, Any]] = [
 ]
 
 
+_DEFAULT_CASH_DEBT_SCHEDULE_POLICY: Dict[str, Any] = {
+  "debt_schedule_method": "straight_line_minimum_principal",
+  "debt_schedule_required": True,
+  "debt_schedule_horizon_quarters": 20,
+  "debt_minimum_payment_frequency": "quarterly",
+  "debt_min_principal_source_priority": [
+    "financials.annual_principal_payment",
+    "financials.other_monthly_debt_payments_minus_annual_interest_payment",
+  ],
+  "debt_extra_paydown_policy": "cash_strategy_surplus_only",
+  "debt_interest_rate_source_required": "sba_loan_7a_raw",
+  "debt_interest_rate_fallback_allowed": False,
+  "debt_schedule_notes": (
+    "Python owns contractual minimum debt service. Cash strategy may add extra principal "
+    "paydown above the scheduled minimum, but may not skip required minimum principal while debt is outstanding."
+  ),
+}
+
+
+_DEFAULT_CASH_PASS_PHASE_SEQUENCE: List[Dict[str, Any]] = [
+  {
+    "phase_code": "cash_debt_schedule_seed",
+    "phase_order": 5,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "minimum_debt_schedule_seeded",
+    "notes": "Apply SQL cash-policy minimum debt schedule before cash review so scheduled principal is not optional.",
+  },
+  {
+    "phase_code": "cash_short_term_debt_seed",
+    "phase_order": 10,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "seed_short_term_debt_current_portion",
+    "notes": "Normalize current debt portion semantics before building the cash review envelope.",
+  },
+  {
+    "phase_code": "cash_review_context_build",
+    "phase_order": 20,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": False,
+    "validation_gate": "full_20q_cash_envelope_built",
+    "notes": "Build the full 20-quarter cash envelope, strategy policy, debt snapshot, and bounded cash lever grid.",
+  },
+  {
+    "phase_code": "cash_gpt_review",
+    "phase_order": 30,
+    "phase_owner": "gpt",
+    "required": True,
+    "requires_finmo_rebuild_after": False,
+    "validation_gate": "cash_strategy_review_contract_valid",
+    "notes": "GPT fills only the cash strategy decision contract generated from SQL contract lookup rows.",
+  },
+  {
+    "phase_code": "cash_translation_plan",
+    "phase_order": 40,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": False,
+    "validation_gate": "cash_adjustments_translated_to_model_input_updates",
+    "notes": "Translate GPT funding and policy decisions into exact mapped model-input driver updates.",
+  },
+  {
+    "phase_code": "cash_apply_exact_updates",
+    "phase_order": 50,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "cash_updates_applied_and_finmo_rebuilt",
+    "notes": "Apply cash strategy exact updates to model_input_json and rebuild FINMO.",
+  },
+  {
+    "phase_code": "cash_debt_schedule_rebuild",
+    "phase_order": 55,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "minimum_debt_schedule_floor_preserved_after_cash_updates",
+    "notes": "Reapply the minimum debt schedule floor after cash strategy updates while preserving extra paydown.",
+  },
+  {
+    "phase_code": "cash_short_term_debt_current_portion",
+    "phase_order": 60,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "short_term_debt_current_portion_applied",
+    "notes": "Apply current portion of long-term debt after cash updates and rebuild FINMO.",
+  },
+  {
+    "phase_code": "cash_surplus_cleanup",
+    "phase_order": 70,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "surplus_above_policy_ceiling_deployed",
+    "notes": "Deploy residual surplus above the SQL cash policy ceiling using mapped cash levers.",
+  },
+  {
+    "phase_code": "cash_post_validation",
+    "phase_order": 80,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": False,
+    "validation_gate": "cash_post_pass_validation",
+    "notes": "Validate cash-pass-owned issues and hard cash rules on the post-action state.",
+  },
+  {
+    "phase_code": "cash_final_finmo_rebuild",
+    "phase_order": 90,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": True,
+    "validation_gate": "fresh_final_finmo_from_model_input",
+    "notes": "Rebuild FINMO from final model_input_json before terminal hard gates.",
+  },
+  {
+    "phase_code": "cash_final_liquidity_gate",
+    "phase_order": 100,
+    "phase_owner": "python",
+    "required": True,
+    "requires_finmo_rebuild_after": False,
+    "validation_gate": "ending_cash_gte_required_buffer_all_20q",
+    "notes": "Hard fail if any live quarter remains below the required cash buffer.",
+  },
+]
+
+
+def _json_dumps_value(value: Any) -> str:
+  return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+
+
+def _json_value(value: Any, default: Any = None) -> Any:
+  if isinstance(value, (dict, list)):
+    return copy.deepcopy(value)
+  raw = str(value or "").strip()
+  if not raw:
+    return copy.deepcopy(default)
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    return copy.deepcopy(default)
+  return parsed
+
+
 def _gpt_contract_row(
   contract_name: str,
   grid_name: str,
@@ -608,6 +756,15 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
           debt_paydown_weight DECIMAL(10,4) NOT NULL,
           retain_weight DECIMAL(10,4) NOT NULL,
           deploy_above_ceiling_required TINYINT(1) NOT NULL DEFAULT 1,
+          debt_schedule_method VARCHAR(64) NOT NULL DEFAULT 'straight_line_minimum_principal',
+          debt_schedule_required TINYINT(1) NOT NULL DEFAULT 1,
+          debt_schedule_horizon_quarters INT NOT NULL DEFAULT 20,
+          debt_minimum_payment_frequency VARCHAR(32) NOT NULL DEFAULT 'quarterly',
+          debt_min_principal_source_priority_json LONGTEXT NOT NULL,
+          debt_extra_paydown_policy VARCHAR(64) NOT NULL DEFAULT 'cash_strategy_surplus_only',
+          debt_interest_rate_source_required VARCHAR(128) NOT NULL DEFAULT 'sba_loan_7a_raw',
+          debt_interest_rate_fallback_allowed TINYINT(1) NOT NULL DEFAULT 0,
+          cash_phase_sequence_json LONGTEXT NOT NULL,
           policy_label VARCHAR(255) NOT NULL,
           policy_status VARCHAR(32) NOT NULL DEFAULT 'active',
           notes LONGTEXT NULL,
@@ -629,6 +786,35 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
         )
       except Exception:
         pass
+      try:
+        cur.execute(
+          f"""
+          ALTER TABLE {_CASH_POLICY_TABLE_NAME}
+          ADD COLUMN cash_phase_sequence_json LONGTEXT NULL
+          AFTER deploy_above_ceiling_required
+          """
+        )
+      except Exception:
+        pass
+      for column_sql in [
+        "ADD COLUMN debt_schedule_method VARCHAR(64) NOT NULL DEFAULT 'straight_line_minimum_principal' AFTER deploy_above_ceiling_required",
+        "ADD COLUMN debt_schedule_required TINYINT(1) NOT NULL DEFAULT 1 AFTER debt_schedule_method",
+        "ADD COLUMN debt_schedule_horizon_quarters INT NOT NULL DEFAULT 20 AFTER debt_schedule_required",
+        "ADD COLUMN debt_minimum_payment_frequency VARCHAR(32) NOT NULL DEFAULT 'quarterly' AFTER debt_schedule_horizon_quarters",
+        "ADD COLUMN debt_min_principal_source_priority_json LONGTEXT NULL AFTER debt_minimum_payment_frequency",
+        "ADD COLUMN debt_extra_paydown_policy VARCHAR(64) NOT NULL DEFAULT 'cash_strategy_surplus_only' AFTER debt_min_principal_source_priority_json",
+        "ADD COLUMN debt_interest_rate_source_required VARCHAR(128) NOT NULL DEFAULT 'sba_loan_7a_raw' AFTER debt_extra_paydown_policy",
+        "ADD COLUMN debt_interest_rate_fallback_allowed TINYINT(1) NOT NULL DEFAULT 0 AFTER debt_interest_rate_source_required",
+      ]:
+        try:
+          cur.execute(
+            f"""
+            ALTER TABLE {_CASH_POLICY_TABLE_NAME}
+            {column_sql}
+            """
+          )
+        except Exception:
+          pass
       for row in _DEFAULT_CASH_POLICY_ROWS:
         cur.execute(
           f"""
@@ -643,10 +829,19 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
             debt_paydown_weight,
             retain_weight,
             deploy_above_ceiling_required,
+            debt_schedule_method,
+            debt_schedule_required,
+            debt_schedule_horizon_quarters,
+            debt_minimum_payment_frequency,
+            debt_min_principal_source_priority_json,
+            debt_extra_paydown_policy,
+            debt_interest_rate_source_required,
+            debt_interest_rate_fallback_allowed,
+            cash_phase_sequence_json,
             policy_label,
             policy_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, 1, %s, %s, %s, %s, %s, 0, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             debt_to_equity_min = VALUES(debt_to_equity_min),
             debt_to_equity_max = VALUES(debt_to_equity_max),
@@ -656,6 +851,15 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
             debt_paydown_weight = VALUES(debt_paydown_weight),
             retain_weight = VALUES(retain_weight),
             deploy_above_ceiling_required = VALUES(deploy_above_ceiling_required),
+            debt_schedule_method = VALUES(debt_schedule_method),
+            debt_schedule_required = VALUES(debt_schedule_required),
+            debt_schedule_horizon_quarters = VALUES(debt_schedule_horizon_quarters),
+            debt_minimum_payment_frequency = VALUES(debt_minimum_payment_frequency),
+            debt_min_principal_source_priority_json = VALUES(debt_min_principal_source_priority_json),
+            debt_extra_paydown_policy = VALUES(debt_extra_paydown_policy),
+            debt_interest_rate_source_required = VALUES(debt_interest_rate_source_required),
+            debt_interest_rate_fallback_allowed = VALUES(debt_interest_rate_fallback_allowed),
+            cash_phase_sequence_json = VALUES(cash_phase_sequence_json),
             policy_label = VALUES(policy_label),
             policy_status = VALUES(policy_status),
             notes = VALUES(notes)
@@ -670,6 +874,13 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
             float(row.get("distribution_weight") or 0.0),
             float(row.get("debt_paydown_weight") or 0.0),
             float(row.get("retain_weight") or 0.0),
+            str(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_schedule_method") or ""),
+            int(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_schedule_horizon_quarters") or 20),
+            str(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_minimum_payment_frequency") or ""),
+            _json_dumps_value(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_min_principal_source_priority") or []),
+            str(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_extra_paydown_policy") or ""),
+            str(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_interest_rate_source_required") or ""),
+            _json_dumps_value(_DEFAULT_CASH_PASS_PHASE_SEQUENCE),
             _clean_text(row.get("policy_label")),
             (
               "Debt position uses debt_to_equity = total_debt / total_equity. "
@@ -1095,6 +1306,15 @@ def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
           debt_paydown_weight,
           retain_weight,
           deploy_above_ceiling_required,
+          debt_schedule_method,
+          debt_schedule_required,
+          debt_schedule_horizon_quarters,
+          debt_minimum_payment_frequency,
+          debt_min_principal_source_priority_json,
+          debt_extra_paydown_policy,
+          debt_interest_rate_source_required,
+          debt_interest_rate_fallback_allowed,
+          cash_phase_sequence_json,
           policy_label,
           policy_status,
           notes
@@ -1122,6 +1342,8 @@ def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
     position = _clean_text(raw_row.get("debt_position")).lower()
     if not strategy or not position:
       continue
+    phase_sequence = _json_value(raw_row.get("cash_phase_sequence_json"), [])
+    principal_source_priority = _json_value(raw_row.get("debt_min_principal_source_priority_json"), [])
     rows.append(
       {
         "cash_strategy": strategy,
@@ -1134,6 +1356,15 @@ def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
         "debt_paydown_weight": float(raw_row.get("debt_paydown_weight") or 0.0),
         "retain_weight": float(raw_row.get("retain_weight") or 0.0),
         "deploy_above_ceiling_required": _clean_bool(raw_row.get("deploy_above_ceiling_required"), default=True),
+        "debt_schedule_method": _clean_text(raw_row.get("debt_schedule_method")).lower(),
+        "debt_schedule_required": _clean_bool(raw_row.get("debt_schedule_required"), default=True),
+        "debt_schedule_horizon_quarters": int(float(raw_row.get("debt_schedule_horizon_quarters") or 0)),
+        "debt_minimum_payment_frequency": _clean_text(raw_row.get("debt_minimum_payment_frequency")).lower(),
+        "debt_min_principal_source_priority": principal_source_priority if isinstance(principal_source_priority, list) else [],
+        "debt_extra_paydown_policy": _clean_text(raw_row.get("debt_extra_paydown_policy")).lower(),
+        "debt_interest_rate_source_required": _clean_text(raw_row.get("debt_interest_rate_source_required")),
+        "debt_interest_rate_fallback_allowed": _clean_bool(raw_row.get("debt_interest_rate_fallback_allowed")),
+        "cash_phase_sequence": phase_sequence if isinstance(phase_sequence, list) else [],
         "policy_label": _clean_text(raw_row.get("policy_label")),
         "policy_status": _clean_text(raw_row.get("policy_status")).lower() or "active",
         "notes": _clean_text(raw_row.get("notes")),
@@ -1616,6 +1847,29 @@ class PostIntakeCashPolicyLookup:
       and _clean_text(row.get("policy_status")).lower() == "active"
     ]
 
+  def _normalized_phase_sequence(self, value: Any) -> List[Dict[str, Any]]:
+    raw_sequence = value if isinstance(value, list) else []
+    normalized: List[Dict[str, Any]] = []
+    for item in raw_sequence:
+      if not isinstance(item, dict):
+        continue
+      phase_code = _clean_text(item.get("phase_code")).lower()
+      if not phase_code:
+        continue
+      normalized.append(
+        {
+          "phase_code": phase_code,
+          "phase_order": int(float(item.get("phase_order") or 0)),
+          "phase_owner": _clean_text(item.get("phase_owner")).lower() or "python",
+          "required": _clean_bool(item.get("required"), default=True),
+          "requires_finmo_rebuild_after": _clean_bool(item.get("requires_finmo_rebuild_after")),
+          "validation_gate": _clean_text(item.get("validation_gate")).lower(),
+          "notes": _clean_text(item.get("notes")),
+        }
+      )
+    normalized.sort(key=lambda row: int(row.get("phase_order") or 0))
+    return normalized
+
   def rows(self, *, cash_strategy: Any = None) -> List[Dict[str, Any]]:
     strategy = _clean_text(cash_strategy).lower()
     return [
@@ -1659,10 +1913,65 @@ class PostIntakeCashPolicyLookup:
       )
     return None
 
+  def phase_sequence(self, *, cash_strategy: Any = None, required: bool = True) -> List[Dict[str, Any]]:
+    strategy = _clean_text(cash_strategy).lower()
+    candidate_rows = self.rows(cash_strategy=strategy) if strategy else self.rows()
+    for row in candidate_rows:
+      sequence = self._normalized_phase_sequence(row.get("cash_phase_sequence"))
+      if sequence:
+        return sequence
+    if required:
+      raise RuntimeError(
+        "post_intake_cash_policy_phase_sequence_missing: "
+        f"cash_strategy={strategy or '*'}"
+      )
+    return []
+
+  def debt_schedule_policy(
+    self,
+    *,
+    cash_strategy: Any,
+    debt_to_equity: Any = None,
+    debt_position: Any = None,
+    required: bool = True,
+  ) -> Optional[Dict[str, Any]]:
+    row = self.policy_for(
+      cash_strategy=cash_strategy,
+      debt_to_equity=debt_to_equity or 0.0,
+      debt_position=debt_position,
+      required=required,
+    )
+    if not row:
+      return None
+    return {
+      "source_of_truth": "sql.post_intake_cash_policy_lookup",
+      "lookup_function": "post_intake_cash_debt_schedule_policy",
+      "cash_strategy": _clean_text(row.get("cash_strategy")).lower(),
+      "debt_position": _clean_text(row.get("debt_position")).lower(),
+      "debt_schedule_method": _clean_text(row.get("debt_schedule_method")).lower(),
+      "debt_schedule_required": _clean_bool(row.get("debt_schedule_required"), default=True),
+      "debt_schedule_horizon_quarters": int(float(row.get("debt_schedule_horizon_quarters") or 0)),
+      "debt_minimum_payment_frequency": _clean_text(row.get("debt_minimum_payment_frequency")).lower(),
+      "debt_min_principal_source_priority": [
+        _clean_text(item)
+        for item in (row.get("debt_min_principal_source_priority") or [])
+        if _clean_text(item)
+      ],
+      "debt_extra_paydown_policy": _clean_text(row.get("debt_extra_paydown_policy")).lower(),
+      "debt_interest_rate_source_required": _clean_text(row.get("debt_interest_rate_source_required")),
+      "debt_interest_rate_fallback_allowed": _clean_bool(row.get("debt_interest_rate_fallback_allowed")),
+    }
+
   def validation_errors(self) -> List[str]:
     errors: List[str] = []
     valid_strategies = {"shareholder_return", "balanced", "preserve_cash"}
     valid_positions = {"low_debt", "healthy_debt", "high_debt"}
+    required_phase_codes = [
+      _clean_text(item.get("phase_code")).lower()
+      for item in _DEFAULT_CASH_PASS_PHASE_SEQUENCE
+      if _clean_text(item.get("phase_code"))
+    ]
+    canonical_phase_codes: Optional[List[str]] = None
     seen: Set[tuple[str, str]] = set()
     for row in self._rows:
       strategy = _clean_text(row.get("cash_strategy")).lower()
@@ -1694,6 +2003,54 @@ class PostIntakeCashPolicyLookup:
         errors.append(f"{strategy}/{position} must provide distribution or debt paydown weight when surplus deployment is required")
       if deploy_required and retain_weight > 0:
         errors.append(f"{strategy}/{position} retain_weight must be 0.0 when surplus deployment above ceiling is required")
+      debt_method = _clean_text(row.get("debt_schedule_method")).lower()
+      if debt_method != "straight_line_minimum_principal":
+        errors.append(f"{strategy}/{position} unsupported debt_schedule_method {debt_method or 'missing'}")
+      if int(float(row.get("debt_schedule_horizon_quarters") or 0)) != 20:
+        errors.append(f"{strategy}/{position} debt_schedule_horizon_quarters must be 20")
+      if _clean_text(row.get("debt_minimum_payment_frequency")).lower() != "quarterly":
+        errors.append(f"{strategy}/{position} debt_minimum_payment_frequency must be quarterly")
+      if _clean_text(row.get("debt_extra_paydown_policy")).lower() != "cash_strategy_surplus_only":
+        errors.append(f"{strategy}/{position} debt_extra_paydown_policy must be cash_strategy_surplus_only")
+      source_priority = [
+        _clean_text(item)
+        for item in (row.get("debt_min_principal_source_priority") or [])
+        if _clean_text(item)
+      ]
+      if "financials.annual_principal_payment" not in source_priority:
+        errors.append(f"{strategy}/{position} debt_min_principal_source_priority must include financials.annual_principal_payment")
+      if not _clean_text(row.get("debt_interest_rate_source_required")):
+        errors.append(f"{strategy}/{position} debt_interest_rate_source_required must not be empty")
+      if _clean_bool(row.get("debt_interest_rate_fallback_allowed")):
+        errors.append(f"{strategy}/{position} debt_interest_rate_fallback_allowed must be false")
+      phase_sequence = self._normalized_phase_sequence(row.get("cash_phase_sequence"))
+      phase_codes = [_clean_text(item.get("phase_code")).lower() for item in phase_sequence]
+      if not phase_codes:
+        errors.append(f"{strategy}/{position} cash_phase_sequence must not be empty")
+      if phase_codes != required_phase_codes:
+        errors.append(
+          f"{strategy}/{position} cash_phase_sequence must match required cash pass phase order; "
+          f"got={phase_codes} expected={required_phase_codes}"
+        )
+      if canonical_phase_codes is None:
+        canonical_phase_codes = list(phase_codes)
+      elif phase_codes != canonical_phase_codes:
+        errors.append(f"{strategy}/{position} cash_phase_sequence differs from other active cash policy rows")
+      seen_phase_codes: Set[str] = set()
+      prior_order = -1
+      for phase in phase_sequence:
+        phase_code = _clean_text(phase.get("phase_code")).lower()
+        phase_order = int(phase.get("phase_order") or 0)
+        if phase_code in seen_phase_codes:
+          errors.append(f"{strategy}/{position} duplicate cash phase {phase_code}")
+        seen_phase_codes.add(phase_code)
+        if phase_order <= prior_order:
+          errors.append(f"{strategy}/{position} cash_phase_sequence must be strictly ordered")
+        prior_order = phase_order
+        if _clean_text(phase.get("phase_owner")).lower() not in {"python", "gpt"}:
+          errors.append(f"{strategy}/{position} cash phase {phase_code} has unsupported phase_owner")
+        if bool(phase.get("required")) is not True:
+          errors.append(f"{strategy}/{position} cash phase {phase_code} must be required")
     for strategy in sorted(valid_strategies):
       for position in sorted(valid_positions):
         if (strategy, position) not in seen:
@@ -2417,6 +2774,32 @@ def post_intake_cash_policy_for(
 
 def post_intake_cash_policy_rows(*, cash_strategy: Any = None) -> List[Dict[str, Any]]:
   return post_intake_cash_policy_lookup().rows(cash_strategy=cash_strategy)
+
+
+def post_intake_cash_policy_phase_sequence(
+  *,
+  cash_strategy: Any = None,
+  required: bool = True,
+) -> List[Dict[str, Any]]:
+  return post_intake_cash_policy_lookup().phase_sequence(
+    cash_strategy=cash_strategy,
+    required=required,
+  )
+
+
+def post_intake_cash_debt_schedule_policy(
+  *,
+  cash_strategy: Any,
+  debt_to_equity: Any = None,
+  debt_position: Any = None,
+  required: bool = True,
+) -> Optional[Dict[str, Any]]:
+  return post_intake_cash_policy_lookup().debt_schedule_policy(
+    cash_strategy=cash_strategy,
+    debt_to_equity=debt_to_equity,
+    debt_position=debt_position,
+    required=required,
+  )
 
 
 def post_intake_cash_policy_errors() -> List[str]:

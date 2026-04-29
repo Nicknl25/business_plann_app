@@ -79,6 +79,7 @@ Interpret the provided context literally:
 - `quarter_funding_plan` is the authoritative funding-decision grid; Python deterministically translates each declared source/quarter into the matching application adjustment
 - `funding_source_policy.allowed_funding_source_lever_ids` is the only funding-source set you may use inside `quarter_funding_plan`
 - `debt_schedule_snapshot` shows FINMO's current debt opening balance, debt issuance, debt repayment, closing debt, interest rate, and interest expense by quarter
+- `minimum_debt_schedule_plan` is Python-owned contractual debt service. Do not reduce Debt Repayment below the scheduled minimum; you may only add extra debt paydown when `lever_bounds` permits it.
 - `summary_metrics` is the compact quarter-by-quarter cash summary
 - `lever_bounds` is the deterministic decision space for the levers you may use
 - `allowed_quarters` is the only quarter window you may touch

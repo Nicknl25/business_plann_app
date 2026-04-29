@@ -81,7 +81,9 @@ try:
     post_intake_issue_candidate_lever_ids,
     post_intake_issue_mapping_contract,
     post_intake_cash_policy_errors,
+    post_intake_cash_debt_schedule_policy,
     post_intake_cash_policy_for,
+    post_intake_cash_policy_phase_sequence,
     post_intake_gpt_contract_errors,
     post_intake_gpt_contract_normalize_payload,
     post_intake_gpt_contract_openai_schema,
@@ -105,7 +107,9 @@ except Exception:
     post_intake_issue_candidate_lever_ids,
     post_intake_issue_mapping_contract,
     post_intake_cash_policy_errors,
+    post_intake_cash_debt_schedule_policy,
     post_intake_cash_policy_for,
+    post_intake_cash_policy_phase_sequence,
     post_intake_gpt_contract_errors,
     post_intake_gpt_contract_normalize_payload,
     post_intake_gpt_contract_openai_schema,
@@ -2740,6 +2744,273 @@ def _cash_strategy_debt_schedule_snapshot(
   }
 
 
+def _cash_strategy_debt_schedule_policy_for_state(
+  *,
+  selected_cash_strategy: Any,
+  finmo_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  rows = _cash_strategy_live_quarter_rows(finmo_payload)
+  first_row = rows[0] if rows else {}
+  capital_structure = _cash_strategy_capital_structure_snapshot(first_row)
+  return post_intake_cash_debt_schedule_policy(
+    cash_strategy=_canonical_cash_strategy_value(selected_cash_strategy) or "balanced",
+    debt_to_equity=capital_structure.get("debt_to_equity"),
+    debt_position=capital_structure.get("debt_position"),
+    required=True,
+  ) or {}
+
+
+def _cash_strategy_debt_opening_seed(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_payload: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+) -> int:
+  model_input = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = model_input.get("sections") if isinstance(model_input.get("sections"), dict) else {}
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  seed = _safe_float(schedules.get("debt_opening_balance_seed"))
+  if seed is not None:
+    return int(round(max(0.0, float(seed))))
+  rows = _cash_strategy_live_quarter_rows(finmo_payload)
+  if rows:
+    opening = _safe_float(rows[0].get("debt_opening_balance"))
+    if opening is not None:
+      return int(round(max(0.0, float(opening))))
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  return int(round(max(0.0, float(_safe_float(financials.get("total_debt_outstanding")) or 0.0))))
+
+
+def _cash_strategy_annual_principal_from_financials(
+  *,
+  financials_json: Optional[Dict[str, Any]],
+  policy: Optional[Dict[str, Any]],
+  opening_debt: int,
+) -> Tuple[int, str]:
+  if int(opening_debt or 0) <= 0:
+    return 0, "no_opening_debt"
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  policy_payload = policy if isinstance(policy, dict) else {}
+  source_priority = [
+    str(item or "").strip()
+    for item in (policy_payload.get("debt_min_principal_source_priority") or [])
+    if str(item or "").strip()
+  ] or ["financials.annual_principal_payment"]
+  for source in source_priority:
+    if source == "financials.annual_principal_payment":
+      value = int(round(max(0.0, float(_safe_float(financials.get("annual_principal_payment")) or 0.0))))
+      if value > 0:
+        return value, source
+    if source == "financials.other_monthly_debt_payments_minus_annual_interest_payment":
+      monthly_payment = max(0.0, float(_safe_float(financials.get("other_monthly_debt_payments")) or 0.0))
+      annual_interest = max(0.0, float(_safe_float(financials.get("annual_interest_payment")) or 0.0))
+      value = int(round(max(0.0, monthly_payment * 12.0 - annual_interest)))
+      if value > 0:
+        return value, source
+  raise RuntimeError(
+    "cash_debt_schedule_minimum_principal_missing: "
+    "opening debt exists, but no positive annual principal source was available. "
+    f"opening_debt={int(opening_debt)} source_priority={source_priority}"
+  )
+
+
+def _cash_pass_minimum_debt_schedule_plan(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_payload: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  selected_cash_strategy: Any,
+) -> Dict[str, Any]:
+  policy = _cash_strategy_debt_schedule_policy_for_state(
+    selected_cash_strategy=selected_cash_strategy,
+    finmo_payload=finmo_payload,
+  )
+  if str(policy.get("debt_schedule_method") or "").strip().lower() != "straight_line_minimum_principal":
+    raise RuntimeError(
+      "cash_debt_schedule_policy_invalid: debt_schedule_method must be straight_line_minimum_principal"
+    )
+  if not bool(policy.get("debt_schedule_required", True)):
+    raise RuntimeError(
+      "cash_debt_schedule_policy_invalid: debt_schedule_required must be true"
+    )
+  if int(_safe_float(policy.get("debt_schedule_horizon_quarters")) or 0) != 20:
+    raise RuntimeError(
+      "cash_debt_schedule_policy_invalid: debt_schedule_horizon_quarters must be 20"
+    )
+  opening_debt_seed = _cash_strategy_debt_opening_seed(
+    model_input_json=model_input_json,
+    finmo_payload=finmo_payload,
+    financials_json=financials_json,
+  )
+  lever_map = _solved_lever_value_map(model_input_json)
+  debt_issuance_series = [
+    int(round(max(0.0, float(_safe_float(value) or 0.0))))
+    for value in (lever_map.get(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID) or [])
+  ]
+  current_repayment_series = [
+    int(round(max(0.0, float(_safe_float(value) or 0.0))))
+    for value in (lever_map.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
+  ]
+  interest_rate_series = [
+    round(max(0.0, float(_safe_float(value) or 0.0)), 6)
+    for value in (lever_map.get("expenses::Interest Rate") or [])
+  ]
+  rows: List[Dict[str, Any]] = []
+  exact_updates: List[Dict[str, Any]] = []
+  if opening_debt_seed <= 0 and not any(debt_issuance_series):
+    return {
+      "contract_version": "cash_debt_schedule_plan_v2",
+      "status": "skipped_no_debt",
+      "source_of_truth": policy.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
+      "lookup_function": policy.get("lookup_function") or "post_intake_cash_debt_schedule_policy",
+      "policy": copy.deepcopy(policy),
+      "opening_debt_seed": 0,
+      "annual_principal_payment": 0,
+      "quarterly_minimum_principal": 0,
+      "rows": rows,
+      "exact_updates": exact_updates,
+    }
+  annual_principal, annual_principal_source = _cash_strategy_annual_principal_from_financials(
+    financials_json=financials_json,
+    policy=policy,
+    opening_debt=opening_debt_seed,
+  )
+  quarterly_minimum = int(round(max(0.0, float(annual_principal)) / 4.0))
+  if quarterly_minimum <= 0 and opening_debt_seed > 0:
+    raise RuntimeError(
+      "cash_debt_schedule_quarterly_minimum_zero: opening debt exists but computed quarterly principal is zero"
+    )
+  opening_debt = int(opening_debt_seed)
+  for quarter_index in range(1, 21):
+    current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
+    current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
+    available_debt = int(max(0, opening_debt + current_issuance))
+    minimum_principal = int(min(available_debt, quarterly_minimum if available_debt > 0 else 0))
+    scheduled_principal = int(max(current_repayment, minimum_principal))
+    scheduled_principal = int(min(available_debt, scheduled_principal))
+    closing_debt = int(max(0, available_debt - scheduled_principal))
+    interest_rate = round(
+      float(interest_rate_series[quarter_index - 1] if quarter_index - 1 < len(interest_rate_series) else 0.0),
+      6,
+    )
+    if available_debt > 0 and interest_rate <= 0.0:
+      raise RuntimeError(
+        "cash_debt_schedule_interest_rate_missing: "
+        f"Q{quarter_index} has debt outstanding but expenses::Interest Rate is not positive"
+      )
+    interest_estimate = int(round(((opening_debt + closing_debt) / 2.0) * interest_rate))
+    exact_updates.append(
+      {
+        "lever_id": _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
+        "quarter_index": quarter_index,
+        "exact_value": scheduled_principal,
+        "issue_codes": ["funding_structure_mismatch"],
+        "rationale": "SQL cash-policy minimum debt schedule floor; cash strategy may add extra paydown but may not skip required principal.",
+      }
+    )
+    if interest_rate > 0.0:
+      exact_updates.append(
+        {
+          "lever_id": "expenses::Interest Rate",
+          "quarter_index": quarter_index,
+          "exact_value": interest_rate,
+          "issue_codes": ["funding_structure_mismatch"],
+          "rationale": "Preserve table-required debt interest-rate driver across the 20-quarter debt schedule.",
+        }
+      )
+    rows.append(
+      {
+        "quarter_index": quarter_index,
+        "opening_debt": opening_debt,
+        "new_borrowing": current_issuance,
+        "minimum_principal_payment": minimum_principal,
+        "extra_principal_payment": int(max(0, scheduled_principal - minimum_principal)),
+        "total_principal_payment": scheduled_principal,
+        "closing_debt": closing_debt,
+        "annual_interest_rate": interest_rate,
+        "estimated_interest_expense": interest_estimate,
+        "principal_source": annual_principal_source,
+      }
+    )
+    opening_debt = closing_debt
+  return {
+    "contract_version": "cash_debt_schedule_plan_v2",
+    "status": "ready",
+    "source_of_truth": policy.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
+    "lookup_function": policy.get("lookup_function") or "post_intake_cash_debt_schedule_policy",
+    "policy": copy.deepcopy(policy),
+    "opening_debt_seed": int(opening_debt_seed),
+    "annual_principal_payment": int(annual_principal),
+    "annual_principal_source": annual_principal_source,
+    "quarterly_minimum_principal": int(quarterly_minimum),
+    "model_input_rows_written": [
+      _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
+      "expenses::Interest Rate",
+    ],
+    "rows": rows,
+    "exact_updates": exact_updates,
+  }
+
+
+def _apply_cash_pass_minimum_debt_schedule(
+  *,
+  cash_strategy_result: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  result = copy.deepcopy(cash_strategy_result if isinstance(cash_strategy_result, dict) else {})
+  model_input_json = result.get("updated_model_input_json") if isinstance(result.get("updated_model_input_json"), dict) else {}
+  finmo_json = result.get("updated_finmo_json") if isinstance(result.get("updated_finmo_json"), dict) else {}
+  if not model_input_json or not finmo_json:
+    return result
+  try:
+    from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
+  except Exception:
+    from numeric_execution import execute_numeric_plan  # type: ignore
+  selected_cash_strategy = _resolved_cash_strategy(financials_json)
+  schedule_plan = _cash_pass_minimum_debt_schedule_plan(
+    model_input_json=copy.deepcopy(model_input_json),
+    finmo_payload=copy.deepcopy(finmo_json),
+    financials_json=copy.deepcopy(financials_json or {}),
+    selected_cash_strategy=selected_cash_strategy,
+  )
+  exact_updates = [
+    copy.deepcopy(item)
+    for item in (schedule_plan.get("exact_updates") or [])
+    if isinstance(item, dict)
+  ]
+  if not exact_updates:
+    result["minimum_debt_schedule_policy"] = copy.deepcopy(schedule_plan)
+    return result
+  execution_result = execute_numeric_plan(
+    model_input_json=copy.deepcopy(model_input_json),
+    exact_updates=copy.deepcopy(exact_updates),
+    numeric_solver_contract={
+      "pass_name": "cash_strategy_review",
+      "contract_scope": "cash_pass_minimum_debt_schedule",
+      "solver_phase_status": "phase_6_cash_strategy_solver_live",
+      "solver_settings": {"max_solver_attempts_per_pass": 1},
+    },
+    review_plan=None,
+    phase_status="phase_6_cash_strategy_solver_live",
+    executor_context={
+      "source": "_apply_cash_pass_minimum_debt_schedule",
+      "execution_mode": "deterministic_minimum_debt_schedule",
+    },
+  )
+  result["updated_model_input_json"] = execution_result.get("updated_model_input_json") or model_input_json
+  result["updated_finmo_json"] = execution_result.get("updated_finmo_json") or finmo_json
+  result["minimum_debt_schedule_policy"] = copy.deepcopy(schedule_plan)
+  applied_updates = [
+    copy.deepcopy(item)
+    for item in (result.get("applied_updates") or [])
+    if isinstance(item, dict)
+  ]
+  result["applied_updates"] = applied_updates + copy.deepcopy(exact_updates)
+  result["applied_update_count"] = len(result["applied_updates"])
+  result["applied_control_count"] = len(result["applied_updates"])
+  return result
+
+
 def _cash_strategy_buffer_components(
   row: Optional[Dict[str, Any]],
   *,
@@ -2784,11 +3055,141 @@ def _cash_strategy_debt_cash_support_multiplier(
   return round(max(0.0, 1.0 - (normalized_rate / 2.0)), 6)
 
 
+def _cash_pass_phase_contract(
+  *,
+  financials_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  selected_cash_strategy = _resolved_cash_strategy(financials_json)
+  cash_policy_errors = post_intake_cash_policy_errors()
+  if cash_policy_errors:
+    raise RuntimeError(
+      "post_intake_cash_policy_invalid: " + "; ".join(str(item) for item in cash_policy_errors[:10])
+    )
+  phase_sequence = post_intake_cash_policy_phase_sequence(
+    cash_strategy=selected_cash_strategy,
+    required=True,
+  )
+  phase_codes = [
+    str(item.get("phase_code") or "").strip().lower()
+    for item in phase_sequence
+    if str(item.get("phase_code") or "").strip()
+  ]
+  if not phase_codes:
+    raise RuntimeError(
+      f"post_intake_cash_policy_phase_sequence_missing: cash_strategy={selected_cash_strategy}"
+    )
+  return {
+    "contract_version": "cash_pass_phase_contract_v1",
+    "source_of_truth": "sql.post_intake_cash_policy_lookup",
+    "lookup_function": "post_intake_cash_policy_phase_sequence",
+    "selected_cash_strategy": selected_cash_strategy,
+    "phase_codes": phase_codes,
+    "phase_sequence": copy.deepcopy(phase_sequence),
+    "required_phase_count": len(phase_codes),
+  }
+
+
+def _new_cash_pass_phase_trace(phase_contract: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  contract = phase_contract if isinstance(phase_contract, dict) else {}
+  return {
+    "contract_version": "cash_pass_phase_trace_v1",
+    "source_of_truth": contract.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
+    "lookup_function": contract.get("lookup_function") or "post_intake_cash_policy_phase_sequence",
+    "selected_cash_strategy": contract.get("selected_cash_strategy"),
+    "expected_phase_codes": copy.deepcopy(contract.get("phase_codes") or []),
+    "completed_phase_codes": [],
+    "events": [],
+  }
+
+
+def _record_cash_pass_phase(
+  phase_trace: Dict[str, Any],
+  phase_contract: Dict[str, Any],
+  phase_code: str,
+  *,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+  detail: str = "",
+) -> Dict[str, Any]:
+  trace = phase_trace if isinstance(phase_trace, dict) else _new_cash_pass_phase_trace(phase_contract)
+  contract = phase_contract if isinstance(phase_contract, dict) else {}
+  phase_sequence = [
+    item for item in (contract.get("phase_sequence") or [])
+    if isinstance(item, dict)
+  ]
+  completed = [
+    str(item or "").strip().lower()
+    for item in (trace.get("completed_phase_codes") or [])
+    if str(item or "").strip()
+  ]
+  current_code = str(phase_code or "").strip().lower()
+  if not current_code:
+    raise RuntimeError("cash_pass_phase_sequence_violation: missing phase_code")
+  expected_phase = phase_sequence[len(completed)] if len(completed) < len(phase_sequence) else {}
+  expected_code = str(expected_phase.get("phase_code") or "").strip().lower()
+  if current_code != expected_code:
+    raise RuntimeError(
+      "cash_pass_phase_sequence_violation: "
+      f"expected={expected_code or 'none'} actual={current_code} "
+      f"completed={completed}"
+    )
+  requires_finmo = bool(expected_phase.get("requires_finmo_rebuild_after"))
+  if requires_finmo:
+    if not isinstance(model_input_json, dict) or not model_input_json:
+      raise RuntimeError(
+        f"cash_pass_phase_state_invalid: phase={current_code} requires updated_model_input_json"
+      )
+    if not isinstance(finmo_json, dict) or not (finmo_json.get("quarter_rows") or []):
+      raise RuntimeError(
+        f"cash_pass_phase_state_invalid: phase={current_code} requires rebuilt updated_finmo_json"
+      )
+  event = {
+    "phase_code": current_code,
+    "phase_order": expected_phase.get("phase_order"),
+    "phase_owner": expected_phase.get("phase_owner"),
+    "requires_finmo_rebuild_after": requires_finmo,
+    "validation_gate": expected_phase.get("validation_gate"),
+    "detail": str(detail or "").strip(),
+    "model_input_present": isinstance(model_input_json, dict) and bool(model_input_json),
+    "finmo_present": isinstance(finmo_json, dict) and bool(finmo_json.get("quarter_rows") if isinstance(finmo_json, dict) else False),
+  }
+  completed.append(current_code)
+  trace["completed_phase_codes"] = completed
+  trace.setdefault("events", [])
+  if isinstance(trace.get("events"), list):
+    trace["events"].append(event)
+  return trace
+
+
+def _assert_cash_pass_phase_trace_complete(
+  phase_trace: Optional[Dict[str, Any]],
+  phase_contract: Optional[Dict[str, Any]],
+) -> None:
+  trace = phase_trace if isinstance(phase_trace, dict) else {}
+  contract = phase_contract if isinstance(phase_contract, dict) else {}
+  expected = [
+    str(item or "").strip().lower()
+    for item in (contract.get("phase_codes") or [])
+    if str(item or "").strip()
+  ]
+  completed = [
+    str(item or "").strip().lower()
+    for item in (trace.get("completed_phase_codes") or [])
+    if str(item or "").strip()
+  ]
+  if completed != expected:
+    raise RuntimeError(
+      "cash_pass_phase_sequence_incomplete: "
+      f"expected={expected} completed={completed}"
+    )
+
+
 def _cash_strategy_violation_envelope(
   *,
   selected_cash_strategy: Any,
   finmo_payload: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
+  simulate_surplus_deployment_carryforward: bool = True,
 ) -> Dict[str, Any]:
   rows_by_quarter = {
     int(_safe_float(row.get("quarter_index")) or 0): row
@@ -2993,7 +3394,10 @@ def _cash_strategy_violation_envelope(
     effective_before_prior_deployment = int(round(float(_safe_float(
       quarter_payload.get("ending_cash_after_hard_rules_before_prior_surplus_deployment")
     ) or _safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0)))
-    effective_ending_cash = int(effective_before_prior_deployment - cumulative_prior_surplus_deployment)
+    effective_ending_cash = int(
+      effective_before_prior_deployment
+      - (cumulative_prior_surplus_deployment if simulate_surplus_deployment_carryforward else 0)
+    )
     buffer_required = int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0)))
     cash_ceiling = int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or buffer_required)))
     residual_funding_gap = int(max(0, buffer_required - effective_ending_cash))
@@ -3004,6 +3408,7 @@ def _cash_strategy_violation_envelope(
         )
       )
       - cumulative_prior_surplus_deployment
+      + (0 if simulate_surplus_deployment_carryforward else cumulative_prior_surplus_deployment)
       - int(round(float(_safe_float(future_payload.get("buffer")) or 0.0)))
       for future_payload in quarter_envelopes[idx:]
       if isinstance(future_payload, dict)
@@ -3021,7 +3426,8 @@ def _cash_strategy_violation_envelope(
     )
     if deployable_surplus_above_ceiling > 0:
       surplus_deployment_quarters.append(int(quarter_payload.get("quarter_index") or 0))
-      cumulative_prior_surplus_deployment = int(cumulative_prior_surplus_deployment + deployable_surplus_above_ceiling)
+      if simulate_surplus_deployment_carryforward:
+        cumulative_prior_surplus_deployment = int(cumulative_prior_surplus_deployment + deployable_surplus_above_ceiling)
     if bool(quarter_payload.get("buffer_violation")) or bool(quarter_payload.get("distribution_violation")) or quarter_payload.get("hard_rule_actions"):
       violation_quarters.append(int(quarter_payload.get("quarter_index") or 0))
     if residual_funding_gap > 0:
@@ -3307,7 +3713,7 @@ def _cash_strategy_lever_bounds(
       {
         "quarter_index": quarter_index,
         "current_value": debt_repayment_current,
-        "min_value": 0,
+        "min_value": debt_repayment_current,
         "max_value": int(debt_repayment_current + max_additional_debt_paydown),
         "supporting_metrics": {
           "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
@@ -3321,7 +3727,7 @@ def _cash_strategy_lever_bounds(
             6,
           ),
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
-          "allowed_action": "reduce_repayment_for_liquidity_or_increase_repayment_for_surplus_deployment",
+          "allowed_action": "increase_repayment_for_surplus_deployment_only; minimum scheduled debt service is Python-owned and cannot be reduced by cash strategy",
           "cash_policy": copy.deepcopy(cash_policy),
         },
       }
@@ -4689,6 +5095,7 @@ def _build_cash_strategy_review_context_payload(
   model_input = solved_model_input_json if isinstance(solved_model_input_json, dict) else {}
   finmo = solved_finmo_json if isinstance(solved_finmo_json, dict) else {}
   selected_cash_strategy = _resolved_cash_strategy(financials)
+  cash_pass_phase_contract = _cash_pass_phase_contract(financials_json=financials)
   lever_catalog = _cash_strategy_financing_review_catalog(model_input)
   lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
   section_counts: Dict[str, int] = {}
@@ -4716,6 +5123,12 @@ def _build_cash_strategy_review_context_payload(
     finmo_payload=copy.deepcopy(finmo),
     model_input_json=copy.deepcopy(model_input),
   )
+  minimum_debt_schedule_plan = _cash_pass_minimum_debt_schedule_plan(
+    model_input_json=copy.deepcopy(model_input),
+    finmo_payload=copy.deepcopy(finmo),
+    financials_json=copy.deepcopy(financials),
+    selected_cash_strategy=selected_cash_strategy,
+  )
   funding_source_policy = _cash_strategy_funding_source_policy(
     violation_envelope=copy.deepcopy(violation_envelope),
     debt_schedule_snapshot=copy.deepcopy(debt_schedule_snapshot),
@@ -4737,6 +5150,7 @@ def _build_cash_strategy_review_context_payload(
     "planning_mode_reason": str(planning_mode_reason or "").strip(),
     "prompt_file": str(prompt_file or "").strip(),
     "selected_cash_strategy": selected_cash_strategy,
+    "cash_pass_phase_contract": copy.deepcopy(cash_pass_phase_contract),
     "business_snapshot": {
       "business_name": str(business.get("name") or business.get("business_name") or "").strip(),
       "business_type": str(ops.get("business_type") or "").strip(),
@@ -4763,6 +5177,7 @@ def _build_cash_strategy_review_context_payload(
     "funding_source_policy": copy.deepcopy(funding_source_policy),
     "cash_violation_envelope": copy.deepcopy(violation_envelope),
     "debt_schedule_snapshot": copy.deepcopy(debt_schedule_snapshot),
+    "minimum_debt_schedule_plan": copy.deepcopy(minimum_debt_schedule_plan),
     "required_funding_quarters": _cash_strategy_required_funding_quarters(
       copy.deepcopy(violation_envelope)
     ),
@@ -12171,13 +12586,61 @@ def _estimate_stage_ramp_contract_with_gpt(
   finmo_rows = [
     row for row in ((finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
   ]
+  ramp_contract_spec = _post_intake_contract_prompt_spec("stage_ramp_contract")
+  compact_ramp_contract_spec = {
+    "source_of_truth": (ramp_contract_spec or {}).get("source_of_truth"),
+    "contract_name": (ramp_contract_spec or {}).get("contract_name"),
+    "grid_names": (ramp_contract_spec or {}).get("grid_names"),
+    "horizon_rules": (ramp_contract_spec or {}).get("horizon_rules"),
+    "normalization_rules": (ramp_contract_spec or {}).get("normalization_rules"),
+    "field_count": len((ramp_contract_spec or {}).get("fields") or []),
+    "required_response_shape": {
+      "root_fields": [
+        "stage_family",
+        "utilization_high_watermark",
+        "fte_spike_small_base_threshold",
+        "quarter_ramp_grid",
+        "rationale",
+      ],
+      "quarter_ramp_grid_fields": [
+        "q",
+        "rev_target",
+        "rev_max",
+        "rev_spike",
+        "rev_spike_max",
+        "fte_target",
+        "fte_max",
+        "fte_spike",
+        "fte_spike_max",
+        "max_util",
+        "cogs_target",
+        "cogs_max",
+        "marketing_max",
+        "rd_max",
+        "ga_max",
+        "lease_max",
+        "ni_floor",
+        "posture",
+        "why",
+      ],
+      "quarter_ramp_grid_row_count": 20,
+    },
+  }
+  stage_policy_context = {
+    "policy_version": stage_policy.get("policy_version"),
+    "stage_family": stage_policy.get("stage_family"),
+    "planning_mode": stage_policy.get("planning_mode"),
+    "explicit_distress_context": stage_policy.get("explicit_distress_context"),
+    "profitability_postures": stage_policy.get("profitability_postures"),
+    "validator_rules": stage_policy.get("validator_rules"),
+  }
   user_context = {
     "task": (
       "Return one binding 20-quarter business maturity grid for post-intake planning. "
       "The grid replaces static hardcoded ramp percentages and late profitability repairs. "
       "Python will enforce it before convergence by shaping revenue/FTE movement and cost/profitability guardrails."
     ),
-    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("stage_ramp_contract"),
+    "gpt_contract_field_spec": compact_ramp_contract_spec,
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
       "business_type": ops.get("business_type"),
@@ -12214,20 +12677,20 @@ def _estimate_stage_ramp_contract_with_gpt(
       for key, value in rd_decision.items()
       if key not in {"prompt_context", "raw_openai_response"}
     },
-    "stage_profitability_policy": stage_policy,
+    "stage_profitability_policy": stage_policy_context,
     "current_model_snapshot": {
-      "revenue_driver_states_first_8_quarters": {
+      "revenue_driver_states_first_4_quarters": {
         int(key): value
         for key, value in sorted(revenue_driver_states.items())
-        if int(key) <= 8
+        if int(key) <= 4
       },
-      "finmo_revenue_first_8_quarters": [
+      "finmo_revenue_first_4_quarters": [
         {
           "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
           "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
           "net_income": int(round(float(_safe_float(row.get("net_income")) or 0.0))),
         }
-        for row in finmo_rows[:8]
+        for row in finmo_rows[:4]
       ],
     },
     "hard_rules": [
@@ -12307,72 +12770,20 @@ def _estimate_stage_ramp_contract_with_gpt(
     parsed = _parse_responses_json_dict(raw_openai_response)
     if not isinstance(parsed, dict):
       raise RuntimeError("stage_ramp_contract_parse_failed: GPT did not return a JSON object.")
-    contract: Dict[str, Any] = {}
-    current_parsed = copy.deepcopy(parsed)
-    for repair_attempt in range(0, 2):
-      try:
-        contract = _validate_stage_ramp_contract_payload(
-          payload=current_parsed,
-          expected_stage_family=expected_family,
-          business_stage=stage,
-          planning_mode=planning_mode,
-          planning_mode_reason=planning_mode_reason,
-          r_and_d_enabled=rd_enabled,
-        )
-        break
-      except RuntimeError as exc:
-        if repair_attempt >= 1:
-          raise RuntimeError(
-            f"{str(exc)}; invalid_stage_ramp_response={json.dumps(current_parsed, ensure_ascii=False)[:4000]}"
-          ) from exc
-        repair_payload = copy.deepcopy(payload)
-        repair_payload["input"] = list(repair_payload.get("input") or []) + [
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "input_text",
-                "text": json.dumps(
-                  {
-                    "repair_contract_violation": str(exc),
-                    "invalid_response_to_repair": copy.deepcopy(current_parsed),
-                    "stage_family_required": expected_family,
-                    "instruction": (
-                      "Repair the business maturity grid directly. Return only a valid JSON object matching the schema. "
-                      "Keep the same business context and stage_family. Because Payroll/FTE is revenue-derived, "
-                      "each row's fte_max must be at least rev_max and fte_spike_max must be at least rev_spike_max. "
-                      "max_util is a maximum achievable utilization ceiling, not current utilization. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth. "
-                      "Every row must include realistic cost maturity fields, posture, and ni_floor. "
-                      "cogs_max must be >= 0.20. "
-                      "Business stage controls profitability posture. For operational stage without explicit distress, "
-                      "Q1-Q20 ni_floor must be >= 0.00, Q5-Q20 ni_floor must be >= 0.02, Q1-Q4 posture must be near_breakeven or positive, "
-                      "and Q5-Q20 posture must be positive. For early stage, loss_allowed posture is not allowed after Q8. "
-                      "Q10 ni_floor must be >= -0.02 and Q11-Q20 must be >= 0.00. "
-                      "Do not make Marketing and R&D identical unless the business context truly supports it. "
-                      "quarter_ramp_grid must contain exactly 20 active rows. Q1 is part of the forecast and must not be zeroed out as a placeholder. "
-                      "Use decimal ratios with at most two decimals, where 0.25 means 25%. "
-                      "Do not use three-decimal values like 0.901. Use 0.90 or 0.91. "
-                      "Use fte_spike_small_base_threshold=-1 when no small-base threshold applies."
-                    ),
-                  },
-                  ensure_ascii=False,
-                ),
-              }
-            ],
-          }
-        ]
-        retry_resp = _post_openai(
-          url="https://api.openai.com/v1/responses",
-          headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-          payload=repair_payload,
-        )
-        if retry_resp.status_code >= 400:
-          raise RuntimeError(f"stage_ramp_contract_repair_openai_status: {retry_resp.text[:1200]}") from exc
-        raw_openai_response = retry_resp.json() if isinstance(retry_resp.json(), dict) else {"response": retry_resp.text[:4000]}
-        parsed_retry = _parse_responses_json_dict(raw_openai_response)
-        if not isinstance(parsed_retry, dict):
-          raise RuntimeError("stage_ramp_contract_repair_parse_failed: GPT did not return a JSON object.") from exc
-        current_parsed = parsed_retry
+    try:
+      contract = _validate_stage_ramp_contract_payload(
+        payload=parsed,
+        expected_stage_family=expected_family,
+        business_stage=stage,
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        r_and_d_enabled=rd_enabled,
+      )
+    except RuntimeError as exc:
+      raise RuntimeError(
+        "stage_ramp_contract_invalid_fail_fast: "
+        f"{str(exc)}; raw_stage_ramp_response={json.dumps(parsed, ensure_ascii=False)[:8000]}"
+      ) from exc
   except TimeoutError as exc:
     raise RuntimeError(
       f"stage_ramp_contract_timeout: GPT ramp selection exceeded {ramp_timeout_seconds:.0f}s before convergence."
@@ -15919,6 +16330,7 @@ def _run_cash_strategy_review_openai(
     "planning_mode": str(context_payload.get("planning_mode") or "").strip(),
     "planning_mode_reason": str(context_payload.get("planning_mode_reason") or "").strip(),
     "selected_cash_strategy": str(context_payload.get("selected_cash_strategy") or "").strip(),
+    "cash_pass_phase_contract": copy.deepcopy(context_payload.get("cash_pass_phase_contract") or {}),
     "business_snapshot": copy.deepcopy(context_payload.get("business_snapshot") or {}),
     "cash_profile_summary": copy.deepcopy(context_payload.get("cash_profile_summary") or {}),
     "strategy_policy": copy.deepcopy(context_payload.get("strategy_policy") or {}),
@@ -22222,6 +22634,7 @@ def _apply_cash_policy_surplus_cleanup(
       selected_cash_strategy=selected_cash_strategy,
       finmo_payload=copy.deepcopy(finmo_json),
       model_input_json=copy.deepcopy(model_input_json),
+      simulate_surplus_deployment_carryforward=False,
     )
     lever_values = _solved_lever_value_map(model_input_json)
     distribution_values = [
@@ -22376,6 +22789,7 @@ def _validate_cash_strategy_post_pass(
     selected_cash_strategy=_resolved_cash_strategy(financials_json),
     finmo_payload=copy.deepcopy(candidate_finmo_json or {}),
     model_input_json=copy.deepcopy(candidate_model_input_json or {}),
+    simulate_surplus_deployment_carryforward=False,
   )
   cash_buffer_violations = [
     {
@@ -22442,6 +22856,21 @@ def _validate_cash_strategy_post_pass(
     finmo_payload=copy.deepcopy(candidate_finmo_json or {}),
     model_input_json=copy.deepcopy(candidate_model_input_json or {}),
   )
+  minimum_debt_schedule_plan: Dict[str, Any] = {}
+  try:
+    minimum_debt_schedule_plan = _cash_pass_minimum_debt_schedule_plan(
+      model_input_json=copy.deepcopy(candidate_model_input_json or {}),
+      finmo_payload=copy.deepcopy(candidate_finmo_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      selected_cash_strategy=selected_strategy,
+    )
+  except Exception as exc:
+    cash_contract_failures.append(
+      {
+        "error": "cash_debt_schedule_minimum_plan_failed",
+        "reason": str(exc),
+      }
+    )
   debt_schedule_rows = [
     item for item in (debt_schedule.get("rows") or [])
     if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
@@ -22520,6 +22949,34 @@ def _validate_cash_strategy_post_pass(
         "violating_quarters": copy.deepcopy(missing_short_term_current_portion_rows),
       }
     )
+  minimum_repayment_rows = {
+    int(_safe_float(item.get("quarter_index")) or 0): int(round(float(_safe_float(item.get("minimum_principal_payment")) or 0.0)))
+    for item in (minimum_debt_schedule_plan.get("rows") or [])
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  }
+  under_scheduled_debt_rows = []
+  for quarter_index, required_minimum in sorted(minimum_repayment_rows.items()):
+    actual_repayment = (
+      int(round(float(debt_repayment_values[quarter_index - 1])))
+      if quarter_index - 1 < len(debt_repayment_values)
+      else 0
+    )
+    if required_minimum > 0 and actual_repayment < required_minimum:
+      under_scheduled_debt_rows.append(
+        {
+          "quarter_index": int(quarter_index),
+          "minimum_principal_payment": int(required_minimum),
+          "actual_debt_repayment": int(actual_repayment),
+        }
+      )
+  if under_scheduled_debt_rows:
+    cash_contract_failures.append(
+      {
+        "error": "cash_debt_schedule_minimum_principal_not_applied",
+        "reason": "Every quarter with scheduled debt service must keep at least the SQL cash-policy minimum principal payment.",
+        "violating_quarters": copy.deepcopy(under_scheduled_debt_rows),
+      }
+    )
   cash_failed_rule_codes: List[str] = []
   if cash_buffer_violations:
     cash_failed_rule_codes.append("liquidity_failure")
@@ -22582,6 +23039,7 @@ def _validate_cash_strategy_post_pass(
     "cash_validation_envelope": copy.deepcopy(cash_validation_envelope),
     "cash_contract_failures": copy.deepcopy(cash_contract_failures),
     "debt_schedule_snapshot": copy.deepcopy(debt_schedule),
+    "minimum_debt_schedule_plan": copy.deepcopy(minimum_debt_schedule_plan),
     "cash_buffer_violations": copy.deepcopy(cash_buffer_violations),
     "cash_distribution_violations": copy.deepcopy(cash_distribution_violations),
     "cash_surplus_ceiling_violations": copy.deepcopy(cash_surplus_ceiling_violations),
@@ -22602,6 +23060,7 @@ def _raise_cash_pass_unresolved_liquidity_if_needed(
     selected_cash_strategy=_resolved_cash_strategy(financials_json),
     finmo_payload=copy.deepcopy(final_finmo_json or {}),
     model_input_json=copy.deepcopy(final_model_input_json or {}),
+    simulate_surplus_deployment_carryforward=False,
   )
   violations = [
     {
@@ -29596,11 +30055,39 @@ def _run_unified_post_grid_system_run(
   pre_cash_realism_memo_json = copy.deepcopy(realism_memo_json)
   pre_cash_controller_resolution_state = copy.deepcopy(controller_resolution_state)
   pre_cash_hard_rule_assessment = copy.deepcopy(hard_rule_assessment)
-  pre_cash_debt_semantics_seed = _apply_cash_pass_short_term_debt_current_portion(
+  cash_pass_phase_contract = _cash_pass_phase_contract(financials_json=copy.deepcopy(financials_json or {}))
+  cash_pass_phase_trace = _new_cash_pass_phase_trace(cash_pass_phase_contract)
+  pre_cash_debt_schedule_seed = _apply_cash_pass_minimum_debt_schedule(
     cash_strategy_result={
       "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
       "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
       "applied_updates": [],
+    },
+    financials_json=copy.deepcopy(financials_json or {}),
+  )
+  pre_cash_model_input_json = copy.deepcopy(
+    pre_cash_debt_schedule_seed.get("updated_model_input_json")
+    if isinstance(pre_cash_debt_schedule_seed.get("updated_model_input_json"), dict)
+    else pre_cash_model_input_json
+  )
+  pre_cash_finmo_json = copy.deepcopy(
+    pre_cash_debt_schedule_seed.get("updated_finmo_json")
+    if isinstance(pre_cash_debt_schedule_seed.get("updated_finmo_json"), dict)
+    else pre_cash_finmo_json
+  )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_debt_schedule_seed",
+    model_input_json=copy.deepcopy(pre_cash_model_input_json),
+    finmo_json=copy.deepcopy(pre_cash_finmo_json),
+    detail="Applied SQL cash-policy minimum debt schedule before cash review context.",
+  )
+  pre_cash_debt_semantics_seed = _apply_cash_pass_short_term_debt_current_portion(
+    cash_strategy_result={
+      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+      "applied_updates": copy.deepcopy(pre_cash_debt_schedule_seed.get("applied_updates") or []),
     }
   )
   pre_cash_model_input_json = copy.deepcopy(
@@ -29612,6 +30099,14 @@ def _run_unified_post_grid_system_run(
     pre_cash_debt_semantics_seed.get("updated_finmo_json")
     if isinstance(pre_cash_debt_semantics_seed.get("updated_finmo_json"), dict)
     else pre_cash_finmo_json
+  )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_short_term_debt_seed",
+    model_input_json=copy.deepcopy(pre_cash_model_input_json),
+    finmo_json=copy.deepcopy(pre_cash_finmo_json),
+    detail="Applied current portion debt seed before cash review context.",
   )
 
   def _persist_cash_pass_stage(
@@ -29667,6 +30162,17 @@ def _run_unified_post_grid_system_run(
     controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
     prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
   )
+  cash_strategy_review_context["cash_pass_phase_contract"] = copy.deepcopy(cash_pass_phase_contract)
+  cash_strategy_review_context["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_review_context_build",
+    model_input_json=copy.deepcopy(pre_cash_model_input_json),
+    finmo_json=copy.deepcopy(pre_cash_finmo_json),
+    detail="Built full 20Q cash strategy review context from SQL cash policy and mapping lookups.",
+  )
+  cash_strategy_review_context["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_pass_review_controller_state = _build_cash_pass_controller_resolution_state(
     phase="cash_pass_review_running",
     base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
@@ -29692,6 +30198,15 @@ def _run_unified_post_grid_system_run(
     prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
     controller_retry_context={},
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_gpt_review",
+    detail="Cash strategy GPT review returned a response for the SQL contract-backed grid.",
+  )
+  cash_strategy_review_context["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
+  if isinstance(cash_strategy_review_decision, dict):
+    cash_strategy_review_decision["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_review_failure_flags = _cash_strategy_fail_flags_from_review_payload(cash_strategy_review_decision)
   review_payload_with_context = copy.deepcopy(cash_strategy_review_decision)
   review_payload_with_context["cash_strategy_review_context"] = copy.deepcopy(cash_strategy_review_context)
@@ -29745,6 +30260,14 @@ def _run_unified_post_grid_system_run(
       else {}
     ),
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_translation_plan",
+    detail="Translated cash GPT decision into exact mapped model-input update plan.",
+  )
+  cash_strategy_second_pass_plan["cash_pass_phase_contract"] = copy.deepcopy(cash_pass_phase_contract)
+  cash_strategy_second_pass_plan["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_plan_fail_flags = [
     str(item).strip()
     for item in (cash_strategy_second_pass_plan.get("translation_fail_flags") or [])
@@ -29795,13 +30318,54 @@ def _run_unified_post_grid_system_run(
     current_model_input_json=copy.deepcopy(pre_cash_model_input_json),
     current_finmo_json=copy.deepcopy(pre_cash_finmo_json),
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_apply_exact_updates",
+    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+    finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+    detail="Applied cash strategy exact updates and rebuilt FINMO.",
+  )
+  cash_strategy_second_pass_result["cash_pass_phase_contract"] = copy.deepcopy(cash_pass_phase_contract)
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
+  cash_strategy_second_pass_result = _apply_cash_pass_minimum_debt_schedule(
+    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+    financials_json=copy.deepcopy(financials_json or {}),
+  )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_debt_schedule_rebuild",
+    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+    finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+    detail="Reapplied SQL cash-policy minimum debt schedule floor after cash strategy updates.",
+  )
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_strategy_second_pass_result = _apply_cash_pass_short_term_debt_current_portion(
     cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result)
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_short_term_debt_current_portion",
+    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+    finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+    detail="Applied post-cash current portion debt semantics and rebuilt FINMO.",
+  )
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_strategy_second_pass_result = _apply_cash_policy_surplus_cleanup(
     cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
     financials_json=copy.deepcopy(financials_json or {}),
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_surplus_cleanup",
+    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+    finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+    detail="Applied deterministic SQL cash policy surplus cleanup and rebuilt FINMO.",
+  )
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_validation_iteration = max(
     int(_safe_float(pre_cash_controller_resolution_state.get("last_review_iteration")) or unified_convergence_cycle_count),
     unified_convergence_cycle_count,
@@ -29814,7 +30378,16 @@ def _run_unified_post_grid_system_run(
     candidate_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
     iteration=cash_validation_iteration,
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_post_validation",
+    model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+    finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+    detail="Ran cash post-pass validation against the post-action state.",
+  )
   cash_strategy_second_pass_result["post_validation"] = copy.deepcopy(cash_post_validation)
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   cash_pass_validation_controller_state = _build_cash_pass_controller_resolution_state(
     phase="cash_pass_validation_running",
     base_controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
@@ -29924,6 +30497,15 @@ def _run_unified_post_grid_system_run(
         "post_cash_final_finmo_rebuild_unavailable: final hard gates require a fresh FINMO rebuild from the latest model_input_json."
       ) from exc
   final_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(final_model_input_json))
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_final_finmo_rebuild",
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    detail="Rebuilt final FINMO from final model_input_json before hard cash gate.",
+  )
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   _raise_cash_pass_unresolved_liquidity_if_needed(
     financials_json=copy.deepcopy(financials_json or {}),
     final_model_input_json=copy.deepcopy(final_model_input_json),
@@ -29933,6 +30515,16 @@ def _run_unified_post_grid_system_run(
     cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
     cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
   )
+  cash_pass_phase_trace = _record_cash_pass_phase(
+    cash_pass_phase_trace,
+    cash_pass_phase_contract,
+    "cash_final_liquidity_gate",
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    detail="Final hard liquidity gate passed across all live quarters.",
+  )
+  _assert_cash_pass_phase_trace_complete(cash_pass_phase_trace, cash_pass_phase_contract)
+  cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   _raise_p_and_l_flatline_if_needed(
     final_model_input_json=copy.deepcopy(final_model_input_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
