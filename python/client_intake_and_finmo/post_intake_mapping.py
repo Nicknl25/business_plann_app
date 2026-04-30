@@ -431,7 +431,19 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("stage_ramp_contract", "root", "stage_family", "stage_family", "enum", validation_kind="enum", enum_values=["startup", "early", "operational"]),
   _gpt_contract_row("stage_ramp_contract", "root", "utilization_high_watermark", "utilization_high_watermark", "ratio_2dp", min_value=0.50, max_value=0.98, normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric"),
   _gpt_contract_row("stage_ramp_contract", "root", "fte_spike_small_base_threshold", "fte_spike_small_base_threshold", "integer_or_negative_one", normalization_kind="integer"),
-  _gpt_contract_row("stage_ramp_contract", "root", "quarter_ramp_grid", "quarter_ramp_grid", "array", min_items=20, max_items=20, item_contract_grid_name="quarter_ramp_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="required_20q_grid"),
+  _gpt_contract_row(
+    "stage_ramp_contract",
+    "root",
+    "quarter_ramp_grid",
+    "quarter_ramp_grid",
+    "array",
+    min_items=20,
+    max_items=20,
+    item_contract_grid_name="quarter_ramp_grid",
+    horizon_rule="q1_to_q20_exactly_once",
+    validation_kind="required_20q_grid",
+    prompt_required_instruction="Provide exactly one stage-ramp row for each forecast quarter Q1 through Q20. The ramp GPT decides the values; Python validates the full 20-quarter grid from this contract table.",
+  ),
   _gpt_contract_row("stage_ramp_contract", "root", "rationale", "rationale", "string"),
   *_STAGE_RAMP_GRID_FIELDS,
   _gpt_contract_row("r_and_d_applicability", "root", "r_and_d_enabled", "r_and_d_enabled", "boolean", validation_kind="boolean"),
@@ -443,9 +455,31 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("unified_convergence_decision", "root", "retry_reason", "retry_reason", "string", allow_empty=True),
   _gpt_contract_row("unified_convergence_decision", "root", "lever_selection", "lever_selection", "array", min_items=1, validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("unified_convergence_decision", "root", "primary_target_metric_names", "primary_target_metric_names", "array", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
-  _gpt_contract_row("unified_convergence_decision", "root", "targets_by_quarter", "targets_by_quarter", "array", min_items=1, item_contract_grid_name="targets_by_quarter", horizon_rule="q1_to_q20_targeted_rows", validation_kind="quarter_target_grid"),
+  _gpt_contract_row(
+    "unified_convergence_decision",
+    "root",
+    "targets_by_quarter",
+    "targets_by_quarter",
+    "array",
+    min_items=20,
+    max_items=20,
+    item_contract_grid_name="targets_by_quarter",
+    horizon_rule="q1_to_q20_exactly_once",
+    validation_kind="required_20q_grid",
+    prompt_required_instruction="Convergence decisions must provide exactly one targets_by_quarter row for every forecast quarter Q1 through Q20. No partial horizon, focus-window, or single-quarter target set is valid.",
+  ),
   _gpt_contract_row("unified_convergence_decision", "root", "target_tolerances", "target_tolerances", "array", item_contract_grid_name="target_tolerances", validation_kind="target_tolerance_grid"),
-  _gpt_contract_row("unified_convergence_decision", "root", "model_input_repair_cells", "model_input_repair_cells", "array", item_contract_grid_name="model_input_repair_cells", horizon_rule="q1_to_q20_editable_cells", validation_kind="locked_grid_cell_member"),
+  _gpt_contract_row(
+    "unified_convergence_decision",
+    "root",
+    "model_input_repair_cells",
+    "model_input_repair_cells",
+    "array",
+    item_contract_grid_name="model_input_repair_cells",
+    horizon_rule="q1_to_q20_editable_cells",
+    validation_kind="locked_grid_cell_member",
+    prompt_required_instruction="Convergence may only change locked editable model_input cells, but the editable-cell contract must cover the full Q1 through Q20 state.",
+  ),
   _gpt_contract_row("unified_convergence_decision", "root", "lever_adjustments", "lever_adjustments", "array", item_contract_grid_name="lever_adjustments", validation_kind="lever_adjustment_grid"),
   _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="lever_adjustments", validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].section", "section", "string", is_array_item=True, parent_field_path="lever_adjustments"),
@@ -487,8 +521,30 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("cash_strategy_review", "root", "capital_posture_summary", "capital_posture_summary", "string"),
   _gpt_contract_row("cash_strategy_review", "root", "funding_mix_summary", "funding_mix_summary", "string"),
   _gpt_contract_row("cash_strategy_review", "root", "confidence", "confidence", "enum", validation_kind="enum", enum_values=["low", "medium", "high"]),
-  _gpt_contract_row("cash_strategy_review", "root", "quarter_funding_plan", "quarter_funding_plan", "array", item_contract_grid_name="quarter_funding_plan", horizon_rule="q1_to_q20_required_funding_rows", validation_kind="cash_policy_grid", lookup_source="post_intake_cash_policy_lookup"),
-  _gpt_contract_row("cash_strategy_review", "root", "recommended_adjustments", "recommended_adjustments", "array", item_contract_grid_name="recommended_adjustments", horizon_rule="q1_to_q20_cash_review_rows", validation_kind="cash_adjustment_grid", lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row(
+    "cash_strategy_review",
+    "root",
+    "quarter_funding_plan",
+    "quarter_funding_plan",
+    "array",
+    item_contract_grid_name="quarter_funding_plan",
+    horizon_rule="q1_to_q20_required_funding_rows",
+    validation_kind="cash_policy_grid",
+    lookup_source="post_intake_cash_policy_lookup",
+    prompt_required_instruction="Cash GPT only fills quarters with required funding gaps; validation still evaluates the full Q1 through Q20 cash horizon.",
+  ),
+  _gpt_contract_row(
+    "cash_strategy_review",
+    "root",
+    "recommended_adjustments",
+    "recommended_adjustments",
+    "array",
+    item_contract_grid_name="recommended_adjustments",
+    horizon_rule="q1_to_q20_cash_review_rows",
+    validation_kind="cash_adjustment_grid",
+    lookup_source="post_intak_mapping_lookup",
+    prompt_required_instruction="Cash adjustment rows may be a Q1 through Q20 subset, and every row must use cash-authorized mapping-table levers only.",
+  ),
   _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="recommended_adjustments", validation_kind="cash_adjustment_lever_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].timing_start_q", "timing_start_q", "integer", is_array_item=True, parent_field_path="recommended_adjustments", validation_kind="quarter_index_1_to_20"),
   _gpt_contract_row("cash_strategy_review", "recommended_adjustments", "recommended_adjustments[].timing_end_q", "timing_end_q", "integer", is_array_item=True, parent_field_path="recommended_adjustments", validation_kind="quarter_index_1_to_20"),
@@ -2276,6 +2332,20 @@ class PostIntakeGptContractLookup:
       "contract_name": contract,
       "contract_table": _GPT_CONTRACT_TABLE_NAME,
       "source_of_truth": "sql.post_intake_gpt_contract_lookup",
+      "horizon_rules": sorted(
+        {
+          _clean_text(row.get("horizon_rule")).lower()
+          for row in rows
+          if _clean_text(row.get("horizon_rule"))
+        }
+      ),
+      "normalization_rules": sorted(
+        {
+          _clean_text(row.get("normalization_kind")).lower()
+          for row in rows
+          if _clean_text(row.get("normalization_kind")).lower() not in {"", "none"}
+        }
+      ),
       "fields": [
         {
           "grid_name": row.get("grid_name"),
@@ -2284,6 +2354,9 @@ class PostIntakeGptContractLookup:
           "field_type": row.get("field_type"),
           "required": bool(row.get("required")),
           "strict_required": bool(row.get("strict_required")),
+          "min_items": row.get("min_items"),
+          "max_items": row.get("max_items"),
+          "item_contract_grid_name": row.get("item_contract_grid_name"),
           "normalization_kind": row.get("normalization_kind"),
           "rounding_kind": row.get("rounding_kind"),
           "decimal_places": row.get("decimal_places"),
@@ -2295,7 +2368,10 @@ class PostIntakeGptContractLookup:
           "gpt_owned": bool(row.get("gpt_owned")),
           "python_owned": bool(row.get("python_owned")),
           "editable": bool(row.get("editable")),
+          "prompt_required_instruction": row.get("prompt_required_instruction"),
+          "prompt_label": row.get("prompt_label"),
           "failure_code": row.get("failure_code"),
+          "notes": row.get("notes"),
         }
         for row in rows
       ],
@@ -2446,6 +2522,88 @@ class PostIntakeGptContractLookup:
       grid_name="root",
       payload=payload,
     )
+
+  def _quarter_value_from_payload(self, payload: Dict[str, Any]) -> Optional[int]:
+    for key in ("q", "quarter_index", "quarter"):
+      if key not in payload:
+        continue
+      try:
+        quarter_value = int(round(float(payload.get(key))))
+      except Exception:
+        return None
+      return quarter_value
+    return None
+
+  def _quarter_set_from_array(self, rows: List[Any]) -> Set[int]:
+    quarters: Set[int] = set()
+    for item in rows:
+      if not isinstance(item, dict):
+        continue
+      quarter_value = self._quarter_value_from_payload(item)
+      if quarter_value is not None:
+        quarters.add(int(quarter_value))
+    return quarters
+
+  def horizon_errors_for_payload(
+    self,
+    *,
+    contract_name: Any,
+    payload: Any,
+  ) -> List[str]:
+    contract = _clean_text(contract_name).lower()
+    if not isinstance(payload, dict):
+      return [f"{contract or 'unknown'} payload must be an object before horizon validation"]
+    errors: List[str] = []
+    expected_20q = set(range(1, 21))
+    for row in self.rows(contract_name=contract, grid_name="root"):
+      horizon_rule = _clean_text(row.get("horizon_rule")).lower()
+      if not horizon_rule:
+        continue
+      field_name = _clean_text(row.get("field_name"))
+      if not field_name:
+        continue
+      value = payload.get(field_name)
+      if horizon_rule == "q1_to_q20_exactly_once":
+        if not isinstance(value, list):
+          errors.append(f"{contract}.{field_name} must be an array with Q1-Q20")
+          continue
+        quarters = self._quarter_set_from_array(value)
+        missing = sorted(expected_20q - quarters)
+        extra = sorted(quarter for quarter in quarters if quarter not in expected_20q)
+        if len(value) != 20 or missing or extra:
+          errors.append(
+            f"{contract}.{field_name} must contain exactly one row for every forecast quarter Q1-Q20; "
+            f"row_count={len(value)} missing={missing} extra={extra}"
+          )
+      elif horizon_rule == "q1_to_q20_editable_cells":
+        if not isinstance(value, list):
+          errors.append(f"{contract}.{field_name} must be an array of editable cells")
+          continue
+        quarters = self._quarter_set_from_array(value)
+        missing = sorted(expected_20q - quarters)
+        extra = sorted(quarter for quarter in quarters if quarter not in expected_20q)
+        if missing or extra:
+          errors.append(
+            f"{contract}.{field_name} must include editable-cell coverage across Q1-Q20; "
+            f"missing={missing} extra={extra}"
+          )
+      elif horizon_rule in {
+        "q1_to_q20_subset",
+        "q1_to_q20_cash_review_rows",
+        "q1_to_q20_required_funding_rows",
+      }:
+        if value is None:
+          continue
+        if not isinstance(value, list):
+          errors.append(f"{contract}.{field_name} must be an array")
+          continue
+        for item in value:
+          if not isinstance(item, dict):
+            continue
+          quarter_value = self._quarter_value_from_payload(item)
+          if quarter_value is not None and quarter_value not in expected_20q:
+            errors.append(f"{contract}.{field_name} contains out-of-horizon quarter {quarter_value}; allowed Q1-Q20")
+    return errors
 
   def contract_summary(self, contract_name: Any) -> Dict[str, Any]:
     contract = _clean_text(contract_name).lower()
@@ -2909,6 +3067,17 @@ def post_intake_gpt_contract_payload_errors(
   payload: Any,
 ) -> List[str]:
   return post_intake_gpt_contract_lookup().payload_errors(
+    contract_name=contract_name,
+    payload=payload,
+  )
+
+
+def post_intake_gpt_contract_horizon_errors(
+  *,
+  contract_name: Any,
+  payload: Any,
+) -> List[str]:
+  return post_intake_gpt_contract_lookup().horizon_errors_for_payload(
     contract_name=contract_name,
     payload=payload,
   )

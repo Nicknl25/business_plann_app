@@ -65,17 +65,17 @@ Decision rules:
 - If Python says there are no violations, you may return `recommendation_mode = "maintain"` and no adjustments.
 - If Python says violations exist, you must return `recommendation_mode = "adjust"`.
 - If hard rules alone resolve the problem, still return `recommendation_mode = "adjust"` with an empty `recommended_adjustments` array and explain that no extra financing move is needed beyond the Python-applied hard rules.
-- If Python lists `surplus_deployment_quarters`, use the mapped Distributions and/or Debt Repayment levers inside `lever_bounds` to deploy excess cash above the strategy ceiling.
-- Surplus deployment is mandatory when Python lists `surplus_deployment_quarters`: use Distributions and/or Debt Repayment inside Python's max bounds to reduce ending cash to the strategy cash ceiling. Do not leave cash above the ceiling.
-- For `shareholder_return`, distributions should be the primary surplus use, with debt paydown used alongside it when debt exists.
-- For `balanced`, debt paydown should generally receive more emphasis, with modest distributions where reasonable.
-- For `preserve_cash`, retain the larger policy cash floor/ceiling, but do not let cash above the ceiling accumulate without a clear policy-backed reason.
+- Surplus deployment is Python-owned after FINMO is rebuilt. Do not use `recommended_adjustments` to deploy surplus cash above the strategy ceiling.
+- If Python lists only `surplus_deployment_quarters` and no `required_funding_quarters`, return `recommendation_mode = "adjust"`, an empty `quarter_funding_plan`, and an empty `recommended_adjustments` array. Python will deploy actual post-action surplus sequentially using the SQL cash policy.
+- For `shareholder_return`, Python's surplus cleanup uses distributions as the primary surplus use, with debt paydown used alongside it when debt exists.
+- For `balanced`, Python's surplus cleanup generally emphasizes debt paydown, with modest distributions where reasonable.
+- For `preserve_cash`, Python's surplus cleanup retains the larger policy cash floor/ceiling while preventing cash above the ceiling from accumulating.
 
 Interpret the provided context literally:
 - `cash_violation_envelope` is the primary source of truth
 - `required_funding_quarters` is the mandatory incremental funding contract
-- `surplus_deployment_quarters` is the bounded surplus deployment contract
-- `required_surplus_deployment_quarters` is the mandatory surplus deployment grid; every listed row must be covered by Distributions and/or Debt Repayment adjustments
+- `surplus_deployment_quarters` is diagnostic context only for GPT; Python owns actual surplus deployment after rebuilding FINMO
+- `required_surplus_deployment_quarters` is Python-owned cleanup context, not a GPT adjustment requirement
 - `quarter_funding_plan` is the authoritative funding-decision grid; Python deterministically translates each declared source/quarter into the matching application adjustment
 - `funding_source_policy.allowed_funding_source_lever_ids` is the only funding-source set you may use inside `quarter_funding_plan`
 - `debt_schedule_snapshot` shows FINMO's current debt opening balance, debt issuance, debt repayment, closing debt, interest rate, and interest expense by quarter
@@ -131,7 +131,7 @@ Required output discipline when violations exist:
 - recommended_adjustments must mirror quarter_funding_plan; Python will normalize duplicate application rows from the authoritative quarter funding grid
 - if any required funding quarter is left underfunded, the run will fail
 - do not raise extra cash before it is needed and do not intentionally overfund above the required incremental gap
-- do not use `quarter_funding_plan` for surplus deployment; use `recommended_adjustments` against bounded Distributions and Debt Repayment rows
+- do not use `quarter_funding_plan` or `recommended_adjustments` for surplus deployment; Python handles surplus deployment after funding actions and FINMO rebuild
 - do not increase Distributions in any quarter that has a positive residual funding gap
 
 Return only JSON matching the schema.
