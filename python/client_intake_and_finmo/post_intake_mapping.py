@@ -8,23 +8,23 @@ from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 
-try:
-  from .intake_submission import get_mysql_connection
-except Exception:  # pragma: no cover - supports legacy sys.path imports
-  from intake_submission import get_mysql_connection  # type: ignore
+from client_intake_and_finmo.intake_submission import get_mysql_connection
 
 
 _MAPPING_TABLE_NAME = "post_intak_mapping_lookup"
 _CASH_POLICY_TABLE_NAME = "post_intake_cash_policy_lookup"
 _GPT_CONTRACT_TABLE_NAME = "post_intake_gpt_contract_lookup"
+_GPT_CONTEXT_TABLE_NAME = "post_intake_gpt_context_lookup"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
 _REVENUE_PATTERN_PREFIX = "revenue::*::*::"
 _ENSURE_MAPPING_TABLE_READY = False
 _ENSURE_CASH_POLICY_TABLE_READY = False
 _ENSURE_GPT_CONTRACT_TABLE_READY = False
+_ENSURE_GPT_CONTEXT_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
 _ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
 _ENSURE_GPT_CONTRACT_TABLE_LOCK = threading.Lock()
+_ENSURE_GPT_CONTEXT_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
 
@@ -403,6 +403,45 @@ def _gpt_contract_row(
   }
 
 
+def _gpt_context_row(
+  contract_name: str,
+  context_key: str,
+  *,
+  context_group: str = "",
+  source_kind: str = "runtime",
+  source_path: str = "",
+  transform_kind: str = "copy",
+  include_phase: str = "planner",
+  required: bool = True,
+  include_in_prompt: bool = True,
+  max_items: Optional[int] = None,
+  max_chars: Optional[int] = None,
+  failure_code: str = "",
+  notes: str = "",
+) -> Dict[str, Any]:
+  normalized_contract = str(contract_name or "").strip().lower()
+  normalized_key = str(context_key or "").strip()
+  normalized_failure = str(failure_code or "").strip().lower()
+  if not normalized_failure:
+    safe_key = normalized_key.lower().replace(".", "_").replace("[]", "").replace("-", "_")
+    normalized_failure = f"{normalized_contract}_{safe_key}_context_invalid"
+  return {
+    "contract_name": normalized_contract,
+    "context_key": normalized_key,
+    "context_group": context_group,
+    "source_kind": source_kind,
+    "source_path": source_path,
+    "transform_kind": transform_kind,
+    "include_phase": include_phase,
+    "required": bool(required),
+    "include_in_prompt": bool(include_in_prompt),
+    "max_items": max_items,
+    "max_chars": max_chars,
+    "failure_code": normalized_failure,
+    "notes": notes,
+  }
+
+
 _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].q", "q", "integer", is_array_item=True, parent_field_path="quarter_ramp_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_target", "rev_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["revenue_qoq_target"]),
@@ -413,6 +452,8 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_max", "fte_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_max"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike", "fte_spike", "boolean", is_array_item=True, parent_field_path="quarter_ramp_grid"),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike_max", "fte_spike_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_spike_max"]),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].payroll_growth_target", "payroll_growth_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", contract_phase="pre_convergence_derived_driver", normalization_kind="ratio_2dp", validation_kind="payroll_growth_contract", lookup_source="post_intake_derived_drivers.payroll", allowed_aliases=["payroll_qoq_growth_target"], prompt_label="Payroll QoQ growth target", prompt_required_instruction="This is the GPT-selected payroll-growth target Python applies through the OEWS/FTE payroll derived-driver module. Do not output payroll dollars.", notes="Owned by post_intake_derived_drivers.payroll; model_input Payroll remains non-writable and FINMO formula remains unchanged."),
+  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].payroll_growth_max", "payroll_growth_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", contract_phase="pre_convergence_derived_driver", normalization_kind="ratio_2dp", validation_kind="payroll_growth_contract", lookup_source="post_intake_derived_drivers.payroll", allowed_aliases=["payroll_qoq_growth_max"], prompt_label="Payroll QoQ growth maximum", prompt_required_instruction="This is the hard upper payroll-growth realism boundary Python validates against the derived payroll row. It must be at least payroll_growth_target.", notes="Owned by post_intake_derived_drivers.payroll; this replaces legacy hardcoded payroll/FTE cap behavior."),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].max_util", "max_util", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["utilization_cap"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_target", "cogs_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_target"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_max", "cogs_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_max"]),
@@ -497,12 +538,8 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].rationale", "rationale", "string", is_array_item=True, parent_field_path="lever_adjustments"),
   _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].business_reason", "business_reason", "string", is_array_item=True, parent_field_path="lever_adjustments"),
   _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].linked_action_effect", "linked_action_effect", "string", is_array_item=True, parent_field_path="lever_adjustments"),
-  _gpt_contract_row("unified_convergence_decision", "lever_adjustments", "lever_adjustments[].mapped_repair_targets", "mapped_repair_targets", "array", is_array_item=True, parent_field_path="lever_adjustments", item_contract_grid_name="mapped_repair_targets", validation_kind="mapping_table_target_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("unified_convergence_decision", "trajectory_values", "trajectory_values[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="trajectory_values", min_value=1, max_value=20, validation_kind="quarter_index_1_to_20"),
   _gpt_contract_row("unified_convergence_decision", "trajectory_values", "trajectory_values[].value", "value", "number", is_array_item=True, parent_field_path="trajectory_values", normalization_kind="field_type_numeric_contract"),
-  _gpt_contract_row("unified_convergence_decision", "mapped_repair_targets", "mapped_repair_targets[].issue_code", "issue_code", "string", is_array_item=True, parent_field_path="mapped_repair_targets", validation_kind="issue_code_member", lookup_source="post_intak_mapping_lookup"),
-  _gpt_contract_row("unified_convergence_decision", "mapped_repair_targets", "mapped_repair_targets[].target_metric_name", "target_metric_name", "string", is_array_item=True, parent_field_path="mapped_repair_targets", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
-  _gpt_contract_row("unified_convergence_decision", "mapped_repair_targets", "mapped_repair_targets[].target_quarters", "target_quarters", "array", is_array_item=True, parent_field_path="mapped_repair_targets", horizon_rule="q1_to_q20_subset", validation_kind="quarter_index_array"),
   _gpt_contract_row("unified_convergence_decision", "targets_by_quarter", "targets_by_quarter[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="targets_by_quarter", validation_kind="quarter_index_1_to_20"),
   _gpt_contract_row("unified_convergence_decision", "targets_by_quarter", "targets_by_quarter[].metric_targets", "metric_targets", "array", is_array_item=True, parent_field_path="targets_by_quarter", item_contract_grid_name="metric_targets", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("unified_convergence_decision", "metric_targets", "metric_targets[].metric_name", "metric_name", "string", is_array_item=True, parent_field_path="metric_targets", validation_kind="mapping_table_target_metric_member", lookup_source="post_intak_mapping_lookup"),
@@ -569,6 +606,108 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].remaining_problem_quarters", "remaining_problem_quarters", "array", is_array_item=True, parent_field_path="issue_results", horizon_rule="q1_to_q20_subset"),
   _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].next_required_lever_ids", "next_required_lever_ids", "array", is_array_item=True, parent_field_path="issue_results", validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("unified_convergence_verification", "issue_results", "issue_results[].observed_improvement_summary", "observed_improvement_summary", "string", is_array_item=True, parent_field_path="issue_results"),
+]
+
+
+_DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "__openai_request_budget__",
+    context_group="budget",
+    source_kind="policy",
+    transform_kind="request_char_budget",
+    include_phase="planner",
+    required=True,
+    include_in_prompt=False,
+    max_chars=450000,
+    failure_code="unified_convergence_gpt_context_payload_budget_exceeded",
+    notes="Hard pre-OpenAI request budget. This prevents large strict convergence payloads from burning the full cycle timeout.",
+  ),
+  _gpt_context_row("unified_convergence_decision", "contract_version", context_group="identity"),
+  _gpt_context_row("unified_convergence_decision", "packet_role", context_group="identity"),
+  _gpt_context_row("unified_convergence_decision", "draft_id", context_group="identity"),
+  _gpt_context_row("unified_convergence_decision", "business_name", context_group="identity"),
+  _gpt_context_row("unified_convergence_decision", "convergence_engine_contract", context_group="contract"),
+  _gpt_context_row("unified_convergence_decision", "convergence_contract_policy", context_group="contract"),
+  _gpt_context_row("unified_convergence_decision", "planning_mode_context", context_group="business_world"),
+  _gpt_context_row("unified_convergence_decision", "selected_cash_strategy", context_group="business_world"),
+  _gpt_context_row("unified_convergence_decision", "convergence_scorecard", context_group="diagnostics", required=False),
+  _gpt_context_row("unified_convergence_decision", "deterministic_issue_packets", context_group="issues", max_items=4),
+  _gpt_context_row("unified_convergence_decision", "repair_envelope_packets", context_group="issues", max_items=4),
+  _gpt_context_row("unified_convergence_decision", "retry_packet", context_group="retry", required=False),
+  _gpt_context_row("unified_convergence_decision", "retry_scope_payload", context_group="retry", required=False),
+  _gpt_context_row("unified_convergence_decision", "required_target_quarters", context_group="horizon", max_items=20),
+  _gpt_context_row("unified_convergence_decision", "locked_target_fill_grid", context_group="locked_grid"),
+  _gpt_context_row("unified_convergence_decision", "locked_targets_by_quarter_response_template", context_group="locked_grid"),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "locked_lever_control_fill_grid",
+    context_group="locked_grid",
+    transform_kind="compact_locked_lever_grid",
+    max_items=12,
+  ),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "full_horizon_model_input_repair_contract",
+    context_group="locked_grid",
+    transform_kind="compact_full_horizon_repair_contract",
+    max_items=240,
+    notes="Authoritative full-horizon editable cell contract. Runtime compacts rows but keeps every required editable cell.",
+  ),
+  _gpt_context_row("unified_convergence_decision", "issue_mapping_gate", context_group="mapping"),
+  _gpt_context_row("unified_convergence_decision", "prior_numeric_solver_feedback", context_group="feedback", required=False),
+  _gpt_context_row("unified_convergence_decision", "numeric_solver_contract", context_group="solver"),
+  _gpt_context_row("unified_convergence_decision", "recommended_primary_target_metric_keys", context_group="solver", required=False),
+  _gpt_context_row("unified_convergence_decision", "writable_lever_catalog", context_group="mapping"),
+  _gpt_context_row("unified_convergence_decision", "planner_model_input_packet", context_group="model_input"),
+  _gpt_context_row("unified_convergence_decision", "planner_finmo_quarter_view", context_group="finmo_view", required=False),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "gpt_contract_field_spec",
+    context_group="contract",
+    required=False,
+    include_in_prompt=False,
+    notes="The strict OpenAI schema and SQL contract table are authoritative; do not duplicate the full field spec into the prompt payload.",
+  ),
+  _gpt_context_row("unified_convergence_decision", "payload_size_summary", context_group="diagnostics", required=False, include_in_prompt=False),
+
+  _gpt_context_row(
+    "stage_ramp_contract",
+    "__openai_request_budget__",
+    context_group="budget",
+    source_kind="policy",
+    transform_kind="request_char_budget",
+    include_phase="pre_convergence",
+    include_in_prompt=False,
+    max_chars=180000,
+    failure_code="stage_ramp_gpt_context_payload_budget_exceeded",
+  ),
+  _gpt_context_row("stage_ramp_contract", "business_identity", context_group="business_world", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "business_context", context_group="business_world", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "financial_context", context_group="financials", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "r_and_d_applicability", context_group="policy", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "stage_profitability_policy", context_group="policy", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "contract_field_spec", context_group="contract", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "required_response_shape", context_group="contract", include_phase="pre_convergence"),
+
+  _gpt_context_row(
+    "cash_strategy_review",
+    "__openai_request_budget__",
+    context_group="budget",
+    source_kind="policy",
+    transform_kind="request_char_budget",
+    include_phase="cash_pass",
+    include_in_prompt=False,
+    max_chars=260000,
+    failure_code="cash_strategy_gpt_context_payload_budget_exceeded",
+  ),
+  _gpt_context_row("cash_strategy_review", "cash_policy", context_group="cash_policy", include_phase="cash_pass", required=False),
+  _gpt_context_row("cash_strategy_review", "cash_envelope", context_group="cash_envelope", include_phase="cash_pass", required=False),
+  _gpt_context_row("cash_strategy_review", "liquidity_violation_grid", context_group="cash_envelope", include_phase="cash_pass", required=False),
+  _gpt_context_row("cash_strategy_review", "debt_schedule_summary", context_group="debt_schedule", include_phase="cash_pass", required=False),
+  _gpt_context_row("cash_strategy_review", "funding_action_cells", context_group="locked_grid", include_phase="cash_pass", required=False),
+  _gpt_context_row("cash_strategy_review", "gpt_contract_field_spec", context_group="contract", include_phase="cash_pass", required=False),
 ]
 
 
@@ -651,7 +790,7 @@ def stage_planning_ramp_policy(
       "Do not start Q1 at or near the late-horizon revenue, utilization, or capacity run-rate.",
       "Capacity may exist ahead of demand, but revenue should come from staged utilization and price realization rather than instant full-scale operations.",
       "Revenue, utilization, capacity, staffing support, capex, and profitability must ramp together.",
-      "Because Payroll is derived from revenue using OEWS/FTE logic, revenue must not ramp faster than the deterministic stage_ramp_contract allows.",
+      "Because Payroll is derived through OEWS/FTE logic, revenue, utilization, capacity, and the GPT-selected payroll growth grid must stay coherent.",
       "Early losses or modest profitability may be realistic; instant mature profitability is not the goal.",
     ]
     policy["early_revenue_share_ceiling_of_late_run_rate"] = {
@@ -1255,6 +1394,129 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
         pass
 
 
+def _ensure_gpt_context_lookup_table(conn) -> None:
+  global _ENSURE_GPT_CONTEXT_TABLE_READY
+  if _ENSURE_GPT_CONTEXT_TABLE_READY:
+    return
+  with _ENSURE_GPT_CONTEXT_TABLE_LOCK:
+    if _ENSURE_GPT_CONTEXT_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_GPT_CONTEXT_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          contract_name VARCHAR(128) NOT NULL,
+          context_key VARCHAR(128) NOT NULL,
+          context_group VARCHAR(128) NOT NULL DEFAULT '',
+          source_kind VARCHAR(64) NOT NULL DEFAULT 'runtime',
+          source_path VARCHAR(512) NOT NULL DEFAULT '',
+          transform_kind VARCHAR(128) NOT NULL DEFAULT 'copy',
+          include_phase VARCHAR(64) NOT NULL DEFAULT '',
+          required TINYINT(1) NOT NULL DEFAULT 1,
+          include_in_prompt TINYINT(1) NOT NULL DEFAULT 1,
+          max_items INT NULL,
+          max_chars INT NULL,
+          failure_code VARCHAR(255) NULL,
+          context_status VARCHAR(32) NOT NULL DEFAULT 'active',
+          notes LONGTEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_post_intake_gpt_context_key (contract_name, context_key, include_phase),
+          KEY idx_post_intake_gpt_context_contract (contract_name),
+          KEY idx_post_intake_gpt_context_group (context_group),
+          KEY idx_post_intake_gpt_context_status (context_status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      for row in _DEFAULT_GPT_CONTEXT_ROWS:
+        cur.execute(
+          f"""
+          INSERT INTO {_GPT_CONTEXT_TABLE_NAME} (
+            contract_name,
+            context_key,
+            context_group,
+            source_kind,
+            source_path,
+            transform_kind,
+            include_phase,
+            required,
+            include_in_prompt,
+            max_items,
+            max_chars,
+            failure_code,
+            context_status,
+            notes
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ON DUPLICATE KEY UPDATE
+            context_group = VALUES(context_group),
+            source_kind = VALUES(source_kind),
+            source_path = VALUES(source_path),
+            transform_kind = VALUES(transform_kind),
+            required = VALUES(required),
+            include_in_prompt = VALUES(include_in_prompt),
+            max_items = VALUES(max_items),
+            max_chars = VALUES(max_chars),
+            failure_code = VALUES(failure_code),
+            context_status = VALUES(context_status),
+            notes = VALUES(notes)
+          """,
+          (
+            _clean_text(row.get("contract_name")).lower(),
+            _clean_text(row.get("context_key")),
+            _clean_text(row.get("context_group")).lower(),
+            _clean_text(row.get("source_kind")).lower() or "runtime",
+            _clean_text(row.get("source_path")),
+            _clean_text(row.get("transform_kind")).lower() or "copy",
+            _clean_text(row.get("include_phase")).lower(),
+            1 if bool(row.get("required")) else 0,
+            1 if bool(row.get("include_in_prompt")) else 0,
+            row.get("max_items"),
+            row.get("max_chars"),
+            _clean_text(row.get("failure_code")),
+            _clean_text(row.get("notes")),
+          ),
+        )
+      default_keys = [
+        (
+          _clean_text(row.get("contract_name")).lower(),
+          _clean_text(row.get("context_key")),
+          _clean_text(row.get("include_phase")).lower(),
+        )
+        for row in _DEFAULT_GPT_CONTEXT_ROWS
+      ]
+      default_contracts = sorted({key[0] for key in default_keys if key[0]})
+      if default_contracts:
+        placeholders = ",".join(["%s"] * len(default_contracts))
+        cur.execute(
+          f"""
+          UPDATE {_GPT_CONTEXT_TABLE_NAME}
+          SET context_status = 'retired'
+          WHERE contract_name IN ({placeholders})
+          """,
+          tuple(default_contracts),
+        )
+        for contract_name, context_key, include_phase in default_keys:
+          cur.execute(
+            f"""
+            UPDATE {_GPT_CONTEXT_TABLE_NAME}
+            SET context_status = 'active'
+            WHERE contract_name = %s
+              AND context_key = %s
+              AND include_phase = %s
+            """,
+            (contract_name, context_key, include_phase),
+          )
+      conn.commit()
+      _ENSURE_GPT_CONTEXT_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
 @lru_cache(maxsize=1)
 def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
   rows: List[Dict[str, Any]] = []
@@ -1545,6 +1807,77 @@ def load_post_intake_gpt_contract_rows() -> List[Dict[str, Any]]:
     )
   if not rows:
     raise RuntimeError(f"{_GPT_CONTRACT_TABLE_NAME}_empty: GPT contract lookup table has no rows")
+  return rows
+
+
+@lru_cache(maxsize=1)
+def load_post_intake_gpt_context_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_gpt_context_lookup_table(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          contract_name,
+          context_key,
+          context_group,
+          source_kind,
+          source_path,
+          transform_kind,
+          include_phase,
+          required,
+          include_in_prompt,
+          max_items,
+          max_chars,
+          failure_code,
+          context_status,
+          notes
+        FROM {_GPT_CONTEXT_TABLE_NAME}
+        ORDER BY contract_name ASC, include_phase ASC, id ASC
+        """
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  for raw_row in raw_rows:
+    if not isinstance(raw_row, dict):
+      continue
+    contract_name = _clean_text(raw_row.get("contract_name")).lower()
+    context_key = _clean_text(raw_row.get("context_key"))
+    if not contract_name or not context_key:
+      continue
+    rows.append(
+      {
+        "contract_name": contract_name,
+        "context_key": context_key,
+        "context_group": _clean_text(raw_row.get("context_group")).lower(),
+        "source_kind": _clean_text(raw_row.get("source_kind")).lower() or "runtime",
+        "source_path": _clean_text(raw_row.get("source_path")),
+        "transform_kind": _clean_text(raw_row.get("transform_kind")).lower() or "copy",
+        "include_phase": _clean_text(raw_row.get("include_phase")).lower(),
+        "required": bool(int(raw_row.get("required"))) if raw_row.get("required") is not None else True,
+        "include_in_prompt": bool(int(raw_row.get("include_in_prompt"))) if raw_row.get("include_in_prompt") is not None else True,
+        "max_items": int(raw_row.get("max_items")) if raw_row.get("max_items") is not None else None,
+        "max_chars": int(raw_row.get("max_chars")) if raw_row.get("max_chars") is not None else None,
+        "failure_code": _clean_text(raw_row.get("failure_code")),
+        "context_status": _clean_text(raw_row.get("context_status")).lower() or "active",
+        "notes": _clean_text(raw_row.get("notes")),
+      }
+    )
+  if not rows:
+    raise RuntimeError(f"{_GPT_CONTEXT_TABLE_NAME}_empty: GPT context lookup table has no rows")
   return rows
 
 
@@ -2650,6 +2983,7 @@ class PostIntakeGptContractLookup:
       "none",
       "post_intak_mapping_lookup",
       "post_intake_cash_policy_lookup",
+      "post_intake_derived_drivers.payroll",
     }
     valid_normalizers = {
       "none",
@@ -2761,6 +3095,163 @@ class PostIntakeGptContractLookup:
     return errors
 
 
+class PostIntakeGptContextLookup:
+  """Single gateway for SQL-backed GPT input-context definitions."""
+
+  def __init__(self, rows: Iterable[Dict[str, Any]]) -> None:
+    self._rows = [
+      dict(row)
+      for row in rows
+      if isinstance(row, dict)
+      and _clean_text(row.get("context_status")).lower() == "active"
+    ]
+
+  def rows(
+    self,
+    *,
+    contract_name: Any = None,
+    include_phase: Any = None,
+    include_in_prompt: Optional[bool] = None,
+  ) -> List[Dict[str, Any]]:
+    contract = _clean_text(contract_name).lower()
+    phase = _clean_text(include_phase).lower()
+    result: List[Dict[str, Any]] = []
+    for row in self._rows:
+      row_contract = _clean_text(row.get("contract_name")).lower()
+      row_phase = _clean_text(row.get("include_phase")).lower()
+      if contract and row_contract != contract:
+        continue
+      if phase and row_phase and row_phase != phase:
+        continue
+      if include_in_prompt is not None and bool(row.get("include_in_prompt")) != bool(include_in_prompt):
+        continue
+      result.append(dict(row))
+    return result
+
+  def prompt_rows(
+    self,
+    *,
+    contract_name: Any,
+    include_phase: Any = None,
+  ) -> List[Dict[str, Any]]:
+    return self.rows(
+      contract_name=contract_name,
+      include_phase=include_phase,
+      include_in_prompt=True,
+    )
+
+  def allowed_context_keys(
+    self,
+    *,
+    contract_name: Any,
+    include_phase: Any = None,
+  ) -> List[str]:
+    return [
+      _clean_text(row.get("context_key"))
+      for row in self.prompt_rows(contract_name=contract_name, include_phase=include_phase)
+      if _clean_text(row.get("context_key"))
+    ]
+
+  def request_char_budget(
+    self,
+    *,
+    contract_name: Any,
+    include_phase: Any = None,
+    default: Optional[int] = None,
+  ) -> Optional[int]:
+    budgets = [
+      int(row.get("max_chars"))
+      for row in self.rows(contract_name=contract_name, include_phase=include_phase)
+      if _clean_text(row.get("transform_kind")).lower() == "request_char_budget"
+      and row.get("max_chars") is not None
+    ]
+    if not budgets:
+      return default
+    return min(budgets)
+
+  def filter_payload(
+    self,
+    *,
+    contract_name: Any,
+    payload: Any,
+    include_phase: Any = None,
+  ) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+      raise RuntimeError(
+        "post_intake_gpt_context_payload_invalid: payload must be a dict"
+      )
+    rows = self.prompt_rows(contract_name=contract_name, include_phase=include_phase)
+    if not rows:
+      raise RuntimeError(
+        "post_intake_gpt_context_rows_missing: "
+        f"contract_name={_clean_text(contract_name).lower() or 'missing'} "
+        f"include_phase={_clean_text(include_phase).lower() or '*'}"
+      )
+    filtered: Dict[str, Any] = {}
+    missing_required: List[str] = []
+    for row in rows:
+      key = _clean_text(row.get("context_key"))
+      if not key:
+        continue
+      if key in payload:
+        value = copy.deepcopy(payload.get(key))
+        max_items = row.get("max_items")
+        if isinstance(value, list) and max_items is not None:
+          value = value[: int(max_items)]
+        filtered[key] = value
+      elif bool(row.get("required")):
+        missing_required.append(key)
+    if missing_required:
+      raise RuntimeError(
+        "post_intake_gpt_context_required_keys_missing: "
+        + ", ".join(missing_required)
+      )
+    return filtered
+
+  def contract_summary(self, contract_name: Any) -> Dict[str, Any]:
+    contract = _clean_text(contract_name).lower()
+    rows = self.rows(contract_name=contract)
+    return {
+      "contract_name": contract,
+      "context_table": _GPT_CONTEXT_TABLE_NAME,
+      "source_of_truth": "sql.post_intake_gpt_context_lookup",
+      "prompt_context_keys": [
+        _clean_text(row.get("context_key"))
+        for row in rows
+        if bool(row.get("include_in_prompt")) and _clean_text(row.get("context_key"))
+      ],
+      "request_char_budget": self.request_char_budget(contract_name=contract),
+      "context_count": len(rows),
+    }
+
+  def validation_errors(self) -> List[str]:
+    errors: List[str] = []
+    contracts_seen = {
+      _clean_text(row.get("contract_name")).lower()
+      for row in self._rows
+      if _clean_text(row.get("contract_name"))
+    }
+    for row in self._rows:
+      contract = _clean_text(row.get("contract_name")).lower()
+      key = _clean_text(row.get("context_key"))
+      if not contract:
+        errors.append("GPT context row missing contract_name")
+      if not key:
+        errors.append(f"{contract or 'unknown'} context row missing context_key")
+      if not _clean_text(row.get("failure_code")):
+        errors.append(f"{contract}/{key} requires failure_code")
+      if _clean_text(row.get("transform_kind")).lower() == "request_char_budget" and row.get("max_chars") is None:
+        errors.append(f"{contract}/{key} request budget row requires max_chars")
+    for required_contract in {
+      "stage_ramp_contract",
+      "unified_convergence_decision",
+      "cash_strategy_review",
+    }:
+      if required_contract not in contracts_seen:
+        errors.append(f"missing GPT context rows for {required_contract}")
+    return errors
+
+
 @lru_cache(maxsize=1)
 def post_intake_mapping_lookup() -> PostIntakeMappingLookup:
   return PostIntakeMappingLookup(load_post_intake_driver_target_mapping_rows())
@@ -2774,6 +3265,11 @@ def post_intake_cash_policy_lookup() -> PostIntakeCashPolicyLookup:
 @lru_cache(maxsize=1)
 def post_intake_gpt_contract_lookup() -> PostIntakeGptContractLookup:
   return PostIntakeGptContractLookup(load_post_intake_gpt_contract_rows())
+
+
+@lru_cache(maxsize=1)
+def post_intake_gpt_context_lookup() -> PostIntakeGptContextLookup:
+  return PostIntakeGptContextLookup(load_post_intake_gpt_context_rows())
 
 
 @lru_cache(maxsize=1)
@@ -3081,3 +3577,61 @@ def post_intake_gpt_contract_horizon_errors(
     contract_name=contract_name,
     payload=payload,
   )
+
+
+def post_intake_gpt_context_rows(
+  *,
+  contract_name: Any = None,
+  include_phase: Any = None,
+  include_in_prompt: Optional[bool] = None,
+) -> List[Dict[str, Any]]:
+  return post_intake_gpt_context_lookup().rows(
+    contract_name=contract_name,
+    include_phase=include_phase,
+    include_in_prompt=include_in_prompt,
+  )
+
+
+def post_intake_gpt_context_allowed_keys(
+  *,
+  contract_name: Any,
+  include_phase: Any = None,
+) -> List[str]:
+  return post_intake_gpt_context_lookup().allowed_context_keys(
+    contract_name=contract_name,
+    include_phase=include_phase,
+  )
+
+
+def post_intake_gpt_context_filter_payload(
+  *,
+  contract_name: Any,
+  payload: Any,
+  include_phase: Any = None,
+) -> Dict[str, Any]:
+  return post_intake_gpt_context_lookup().filter_payload(
+    contract_name=contract_name,
+    payload=payload,
+    include_phase=include_phase,
+  )
+
+
+def post_intake_gpt_context_request_char_budget(
+  *,
+  contract_name: Any,
+  include_phase: Any = None,
+  default: Optional[int] = None,
+) -> Optional[int]:
+  return post_intake_gpt_context_lookup().request_char_budget(
+    contract_name=contract_name,
+    include_phase=include_phase,
+    default=default,
+  )
+
+
+def post_intake_gpt_context_summary(contract_name: Any) -> Dict[str, Any]:
+  return post_intake_gpt_context_lookup().contract_summary(contract_name)
+
+
+def post_intake_gpt_context_errors() -> List[str]:
+  return post_intake_gpt_context_lookup().validation_errors()

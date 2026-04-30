@@ -11,29 +11,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
-try:
-  from openai_http import post_openai_with_retries  # type: ignore
-except Exception:
-  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
+from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
 from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
 
-try:
-  from realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
-except Exception:
-  try:
-    from client_intake_and_finmo.realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
-  except Exception:
-    def load_realism_memo_grid_advisory_prompt() -> str:
-      return "The realism memo is additional context only."
-
-    def normalize_realism_memo_payload(payload: Any) -> Dict[str, Any]:
-      return {"status": "not_generated", "issues": []}
-
-try:
-  from post_intake_mapping import stage_planning_ramp_policy  # type: ignore
-except Exception:
-  from client_intake_and_finmo.post_intake_mapping import stage_planning_ramp_policy  # type: ignore
+from client_intake_and_finmo.realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
+from client_intake_and_finmo.post_intake_mapping import stage_planning_ramp_policy  # type: ignore
 
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
@@ -890,7 +873,7 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
         "- pre-revenue businesses must not begin Q1 at mature run-rate revenue, utilization, capacity deployment, staffing support, or profitability",
         "- use a launch/ramp curve in Q1-Q4 unless explicit operating facts prove an already-contracted backlog",
         "- revenue may become strong later, but Q1 must look like a launch period rather than an established mature business",
-        "- keep revenue growth paced enough that the OEWS/FTE-derived Payroll row can staff it under the stage_ramp_contract",
+        "- keep revenue, utilization, capacity, and the GPT-selected payroll_growth_target grid coherent so Python can back payroll through the existing OEWS/FTE formula",
       ]
     )
   elif str(context.get("stage_family") or "").strip().lower() == "early":
@@ -919,6 +902,8 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
       "rev_spike": row.get("revenue_qoq_spike_allowed"),
       "rev_spike_max": row.get("revenue_qoq_spike_max"),
       "fte_max": row.get("fte_qoq_max"),
+      "payroll_growth_target": row.get("payroll_growth_target"),
+      "payroll_growth_max": row.get("payroll_growth_max"),
       "util_cap": row.get("utilization_cap"),
       "cogs_target": row.get("cogs_percent_of_revenue_target"),
       "cogs_max": row.get("cogs_percent_of_revenue_max"),
@@ -940,6 +925,8 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
     "revenue_qoq_max_spike": payload.get("revenue_qoq_max_spike"),
     "fte_qoq_max": payload.get("fte_qoq_max"),
     "fte_qoq_max_spike": payload.get("fte_qoq_max_spike"),
+    "payroll_growth_qoq_default": payload.get("payroll_growth_qoq_default"),
+    "payroll_growth_qoq_max": payload.get("payroll_growth_qoq_max"),
     "utilization_high_watermark": payload.get("utilization_high_watermark"),
     "cost_maturity_caps": copy.deepcopy(payload.get("cost_maturity_caps") or {}),
     "profitability_floor_by_quarter": copy.deepcopy(payload.get("profitability_floor_by_quarter") or {}),
@@ -1526,10 +1513,7 @@ def apply_exact_lever_updates_to_model_input(
   model_input_json: Dict[str, Any],
   exact_updates: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  try:
-    from client_intake_and_finmo.finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
-  except Exception:
-    from finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
+  from client_intake_and_finmo.finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
   next_model_input = json.loads(json.dumps(model_input_json if isinstance(model_input_json, dict) else {}))
   lever_rows = _lever_row_map(next_model_input)
   nonnegative_only_levers = {

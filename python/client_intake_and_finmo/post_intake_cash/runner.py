@@ -1797,23 +1797,7 @@ def _unified_convergence_schema(
   allowed_model_input_repair_quarters: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
   metric_enum = list(allowed_target_metric_names or _UNIFIED_ALLOWED_TARGET_METRIC_KEYS) or [""]
-  mapped_target_quarter_values = sorted(
-    {
-      int(_safe_float(item) or 0)
-      for item in (allowed_mapped_target_quarters or [])
-      if int(_safe_float(item) or 0) >= 1
-    }
-  )
-  mapped_target_quarter_schema: Dict[str, Any] = {
-    "type": "integer",
-    "minimum": 1,
-    "maximum": 20,
-  }
-  if mapped_target_quarter_values:
-    mapped_target_quarter_schema = {
-      "type": "integer",
-      "enum": mapped_target_quarter_values,
-    }
+  _ = allowed_mapped_target_quarters
   return _post_intake_contract_schema(
     "unified_convergence_decision",
     field_schema_overrides={
@@ -1858,12 +1842,6 @@ def _unified_convergence_schema(
       "lever_adjustments[].shape_type": {
         "type": ["string", "null"],
         "enum": [*list(_SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES), None],
-      },
-      "mapped_repair_targets[].target_metric_name": {"type": "string", "enum": metric_enum},
-      "mapped_repair_targets[].target_quarters": {
-        "type": "array",
-        "minItems": 1,
-        "items": mapped_target_quarter_schema,
       },
       "model_input_repair_cells": _model_input_repair_cell_schema(
         allowed_cell_ids=allowed_model_input_repair_cell_ids,
@@ -3433,12 +3411,8 @@ def _apply_followup_exact_updates(
     if isinstance(item, dict)
   ]
   if full_horizon_exact_updates:
-    try:
-      from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
-      from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
-    except Exception:
-      from quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
-      from finmo_bridge import build_python_finmo_json  # type: ignore
+    from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
+    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
     updated_model_input_json = apply_exact_lever_updates_to_model_input(
       model_input_json=current_model_input_json if isinstance(current_model_input_json, dict) else {},
       exact_updates=copy.deepcopy(full_horizon_exact_updates),

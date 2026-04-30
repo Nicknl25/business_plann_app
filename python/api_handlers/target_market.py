@@ -34,7 +34,7 @@ def post_target_market_session_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft as get_consult_draft  # type: ignore
     from target_market_draft import create_draft  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import target market draft helpers: %s", exc)
@@ -128,7 +128,7 @@ def post_target_market_consult_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft as get_consult_draft  # type: ignore
     from target_market_draft import (  # type: ignore
       append_messages,
       create_draft,

@@ -354,8 +354,6 @@ def _compact_convergence_state_runtime_payload(payload: Optional[Dict[str, Any]]
     "failed_quarters": copy.deepcopy(retry_state.get("failed_quarters") or []),
     "failed_metrics": copy.deepcopy(retry_state.get("failed_metrics") or []),
     "progress_status": str(retry_state.get("progress_status") or "").strip() or None,
-    "escalation_active": bool(retry_state.get("escalation_active")),
-    "required_change_magnitude": str(retry_state.get("required_change_magnitude") or "").strip() or None,
     "solver_invoked": bool(numeric_state.get("solver_invoked")),
     "solver_execution_state": str(numeric_state.get("solver_execution_state") or "").strip() or None,
     "quarters_with_target_misses": numeric_state.get("quarters_with_target_misses"),
@@ -559,11 +557,6 @@ def _build_planning_runtime_payload(
     if isinstance(planning_payload.get("unified_convergence_context"), dict)
     else {}
   )
-  escalation_packet = (
-    unified_context.get("controller_escalation_packet")
-    if isinstance(unified_context.get("controller_escalation_packet"), dict)
-    else {}
-  )
   convergence_state = _build_convergence_state_payload(
     planning_run_json=planning_payload,
     numeric_solver_feedback_json=feedback_payload,
@@ -607,20 +600,6 @@ def _build_planning_runtime_payload(
       "solver_invoked": bool(heartbeat.get("solver_invoked")),
       "solver_execution_state": str(heartbeat.get("solver_execution_state") or "").strip() or None,
       "quarters_with_target_misses": heartbeat.get("quarters_with_target_misses"),
-    },
-    "controller_escalation_packet": {
-      "escalation_active": bool(escalation_packet.get("escalation_active")),
-      "progress_status": str(escalation_packet.get("progress_status") or "").strip() or None,
-      "required_change_magnitude": str(escalation_packet.get("required_change_magnitude") or "").strip() or None,
-      "minimum_new_lever_count": escalation_packet.get("minimum_new_lever_count"),
-      "minimum_primary_metric_coverage_count": escalation_packet.get("minimum_primary_metric_coverage_count"),
-      "must_change_strategy_class": bool(escalation_packet.get("must_change_strategy_class")),
-      "required_lever_families": copy.deepcopy(escalation_packet.get("required_lever_families") or []),
-      "required_primary_metric_candidates": copy.deepcopy(
-        escalation_packet.get("required_primary_metric_candidates") or []
-      ),
-      "required_failed_quarters": copy.deepcopy(escalation_packet.get("required_failed_quarters") or []),
-      "last_failure_reason": str(escalation_packet.get("last_failure_reason") or "").strip() or None,
     },
     "latest_cycle": _compact_iteration_runtime_payload(latest_iteration),
     "numeric_feedback": _compact_numeric_feedback_runtime_payload(feedback_payload),
@@ -808,8 +787,6 @@ def _build_planning_convergence_payload(
     "convergence_score_delta": convergence_scorecard.get("score_delta"),
     "all_hard_rules_cleared": all_hard_rules_cleared,
     "failing_quarters": copy.deepcopy(issue_state.get("failing_quarters") or controller.get("failing_quarters") or []),
-    "escalation_active": bool(retry_state.get("escalation_active")),
-    "required_change_magnitude": str(retry_state.get("required_change_magnitude") or "").strip() or None,
     "solver_invoked": bool(numeric_state.get("solver_invoked") or feedback_data.get("solver_invoked")),
     "solver_execution_state": str(
       numeric_state.get("solver_execution_state")

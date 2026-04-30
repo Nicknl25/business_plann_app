@@ -858,14 +858,8 @@ def execute_core_model_updates(
   phase_status: Optional[str] = None,
   executor_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  try:
-    from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
-  except Exception:
-    from quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
-  try:
-    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
-  except Exception:
-    from finmo_bridge import build_python_finmo_json  # type: ignore
+  from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
+  from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
 
   updated_model_input_json = apply_exact_lever_updates_to_model_input(
     model_input_json=model_input_json if isinstance(model_input_json, dict) else {},

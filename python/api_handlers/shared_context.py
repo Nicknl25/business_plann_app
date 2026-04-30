@@ -47,7 +47,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
 
   # Preferred: unified draft table (single canonical model).
   try:
-    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft as get_consult_draft  # type: ignore
 
     consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
     operating_model = _parse_json_maybe(consult.get("operating_model_json"))
@@ -68,7 +68,7 @@ def build_shared_context(conn, *, draft_id: str) -> Dict[str, Any]:
     finmo_json = {}
 
   try:
-    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft as get_consult_draft  # type: ignore
 
     consult = get_consult_draft(conn, draft_id=str(draft_id).strip())
     # Legacy fallback: operating_model_json is still stored in intake_consult_drafts.

@@ -15,12 +15,12 @@ def post_financials_handler(*, app, request):
   app.logger.info("Intake payload received: %s", payload)
   print("Intake payload received:", payload)
   try:
-    from intake_submit_service import (  # type: ignore
+    from client_intake_and_finmo.intake_submit_service import (  # type: ignore
       IntakeValidationError,
       process_intake_submission,
     )
-    from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft, mark_submitted  # type: ignore
+    from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft, mark_submitted  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import intake pipeline: %s", exc)
     return (jsonify({"error": "server_error", "detail": "pipeline unavailable"}), 500)

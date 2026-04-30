@@ -10,16 +10,10 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional
 
-try:
-  from ..post_intake_mapping import (
-    post_intake_gpt_contract_horizon_errors,
-    post_intake_gpt_contract_prompt_field_spec,
-  )
-except Exception:  # pragma: no cover - supports legacy sys.path imports
-  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-    post_intake_gpt_contract_horizon_errors,
-    post_intake_gpt_contract_prompt_field_spec,
-  )
+from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_gpt_contract_horizon_errors,
+  post_intake_gpt_contract_prompt_field_spec,
+)
 
 
 _UNIFIED_CONVERGENCE_CONTRACT_NAME = "unified_convergence_decision"
@@ -71,7 +65,6 @@ def build_unified_convergence_contract_policy() -> Dict[str, Any]:
   ]
   target_grid_rule = _field_for_path(fields, "targets_by_quarter")
   repair_cell_rule = _field_for_path(fields, "model_input_repair_cells")
-  mapped_target_rule = _field_for_path(fields, "mapped_repair_targets[].target_quarters")
   instruction_rows = _contract_instruction_rows(fields)
   return {
     "contract_name": _UNIFIED_CONVERGENCE_CONTRACT_NAME,
@@ -94,10 +87,10 @@ def build_unified_convergence_contract_policy() -> Dict[str, Any]:
       "validation_kind": repair_cell_rule.get("validation_kind"),
       "instruction": repair_cell_rule.get("prompt_required_instruction"),
     },
-    "mapped_repair_target_quarter_rule": {
-      "field_path": mapped_target_rule.get("field_path") or "mapped_repair_targets[].target_quarters",
-      "horizon_rule": mapped_target_rule.get("horizon_rule"),
-      "validation_kind": mapped_target_rule.get("validation_kind"),
+    "mapping_rule": {
+      "owner": "python",
+      "source_of_truth": "sql.post_intak_mapping_lookup",
+      "rule": "GPT chooses levers/cells; Python derives and validates issue/target mapping from the SQL mapping lookup table.",
     },
     "contract_instruction_rows": instruction_rows,
     "constraints": [row["instruction"] for row in instruction_rows],

@@ -1,16 +1,10 @@
 import copy
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-    post_intake_cash_policy_errors,
-    post_intake_cash_policy_for,
-  )
-except Exception:
-  from post_intake_mapping import (  # type: ignore
-    post_intake_cash_policy_errors,
-    post_intake_cash_policy_for,
-  )
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_cash_policy_errors,
+  post_intake_cash_policy_for,
+)
 
 from .common import (
   buffer_components,

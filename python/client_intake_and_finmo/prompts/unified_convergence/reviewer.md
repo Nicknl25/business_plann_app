@@ -28,7 +28,7 @@ Important principles:
 - Intake numbers are not binding. Deviate early if realism and viability require it.
 - Realism beats intake except for legitimate beginning-balance / stub-period facts.
 - The goal is a viable, coherent, realistic ongoing-concern business, not fake precision.
-- Use only direct primary target lines backed by `driver_target_mapping_lookup`. Everything else is a guardrail, not a direct target.
+- Use only direct primary target lines backed by the SQL mapping lookup surfaced in the locked target/cell grids. Everything else is a guardrail, not a direct target.
 - `required_target_quarters` is the full Q1-Q20 forecast horizon. Every listed quarter requires explicit target coverage.
 - If you select a shape-sensitive lever, you must extend the path from the first affected quarter through the end of horizon.
 - No partial edits are allowed for shape-sensitive levers. No isolated quarter patches.
@@ -39,7 +39,7 @@ Important principles:
 - Do not split the work into old separate stage roles. Treat realism, operating coherence, cash posture, and hard-rule viability as simultaneous context inside one loop.
 
 How to use the Python contract envelope:
-- `recommended_primary_target_metric_keys` is your default starting target set. Use it unless you have a clearly stronger realism reason to replace one of those metrics with a better direct mapped target row from `driver_target_mapping_lookup`.
+- `recommended_primary_target_metric_keys` is your default starting target set. Use it unless you have a clearly stronger realism reason to replace one of those metrics with a better direct mapped target row from the locked target grid.
 - If `required_primary_metric_candidates` is present, that candidate list is a hard Python coverage requirement. Your `primary_target_metric_names` must include at least `minimum_primary_metric_coverage_count` metrics from that list.
 - If `required_primary_metric_candidates` is present, those are the direct mapped target rows Python expects you to cover for this cycle. Do not invent substitute metrics outside that direct-mapping surface.
 - `locked_target_fill_grid` is the strict target grid for this cycle. Python owns its quarters and allowed metrics; you only choose from those allowed metric cells and fill numeric target values.
@@ -48,16 +48,16 @@ How to use the Python contract envelope:
 - Each `full_horizon_model_input_repair_contract.editable_cells` row is one legal model-input cell. Copy `cell_id`, `lever_id`, and `quarter_index` exactly, then choose `value` inside that row's `min_value` / `max_value` and explain it briefly in `rationale`.
 - Never emit cells outside `full_horizon_model_input_repair_contract.editable_cells`. Never edit rows marked locked or derived. Payroll, derived capex, and depreciation are Python-derived model-input rows unless Python explicitly makes them editable.
 - The full-horizon cell contract does not mean you can change everything. It means Python shows the whole business state, but only approved editable cells can be changed.
-- If `locked_lever_control_fill_grid.stage_ramp_rule` is present, it is binding. Revenue lever trajectories must keep composite revenue within that rule across the whole selected control horizon. Because payroll is derived from revenue, an over-fast revenue path is also a payroll/FTE failure.
+- If `locked_lever_control_fill_grid.stage_ramp_rule` is present, it is binding. Revenue lever trajectories must keep composite revenue within that rule across the whole selected control horizon. Payroll itself remains Python-derived from the GPT-selected payroll growth grid, OEWS wages, and revenue.
 - `deterministic_issue_packets` and `quarter_target_grid` tell you which issues are driving which quarters and which lever families are relevant.
 - `repair_envelope_packets` are the authoritative issue-level repair layer for this cycle. Use them first. They tell you what each open issue materially requires to close: priority, severity, quarter-aware repair targets, explicit gap, repair envelope, driver paths, and spillover flags.
 - `deterministic_numeric_guidance.metric_pressure_packets` tell you the current value, target floor or ceiling, acceptable zone, gap, and repair envelope for each pressured metric-quarter pair.
-- `deterministic_numeric_guidance.driver_target_mapping_lookup` is the direct mapping source of truth for this cycle. It tells you exactly which direct FINMO target row each writable lever owns.
+- Python owns deterministic mapping through SQL. You choose levers and bounded model-input cells; Python derives and validates issue/target mapping from the mapping lookup table.
 - `locked_target_fill_grid.rows[].minimum_target_value` and `maximum_target_value` are hard deterministic repair-envelope bounds. Your `targets_by_quarter.metric_targets[].target_value` must sit inside those bounds when they are present; do not choose the current value as a hold target when the row direction requires increase or decrease.
 - When `locked_target_fill_grid.rows[].recommended_target_value` is present, copy that exact integer into `target_value`. Do not pretty-round it. Do not round up above a maximum or round down below a minimum.
 - Do not pair a target value from one metric/quarter grid cell with a different metric or quarter. Metric/quarter/value must stay together exactly as shown in `locked_targets_by_quarter_response_template`.
 - If the active issue is `capacity_support_mismatch`, the selected `planning_mode`, `business_stage`, and stage ramp grid are binding operating-world rules, not background context. Stage the revenue path through mapped Capacity, Unit Price, and Utilization inside the locked grid; do not create throughput the business cannot support.
-- `business_world_contract.stage_ramp_contract.quarter_ramp_grid` is the binding quarter-by-quarter business maturity grid. Q1 is an active forecast-quarter row, not a placeholder. For Q2-Q20, row `quarter_index=N` is the hard revenue/FTE growth boundary from Q(N-1) into QN. The same row also carries cost-ratio caps and profitability posture for that quarter. Do not use the summary percentages to override the grid.
+- `business_world_contract.stage_ramp_contract.quarter_ramp_grid` is the binding quarter-by-quarter business maturity grid. Q1 is an active forecast-quarter row, not a placeholder. Q1 carries the starting operating posture and payroll-growth shape; for Q2-Q20, row `quarter_index=N` is the hard revenue growth boundary from Q(N-1) into QN and the payroll growth shape Python uses in the derived payroll formula. The same row also carries cost-ratio caps and profitability posture for that quarter. Do not use the summary percentages to override the grid.
 - The stage maturity cost fields are upstream guardrails, not late repair targets. When cost rows are editable, keep COGS, Marketing, R&D, G&A, and Lease inside their row envelopes and make them read like distinct operating levers, not one artificial plug.
 - If the net income path is weak late in the horizon, first check whether the current model-input cells violate the stage maturity grid. Do not invent an unmapped profitability target and do not fight the revenue ramp by forcing revenue above the GPT-selected maturity contract.
 - If a target row says `stage_ramp_capped_target_floor=true` or `ramp_interaction_rule=profitability_repair_must_use_direct_cost_targets_when_revenue_floor_is_ramp_capped`, revenue growth is not an available fix for that gap. Use the mapped cost target rows Python provides. Do not fight the ramp contract by inventing a larger revenue target.
@@ -70,7 +70,7 @@ How to use the Python contract envelope:
 - For currency levers, use integers only.
 - For throughput repairs using Capacity and Utilization, treat Utilization as bounded operating efficiency, not infinite capacity. If the required throughput cannot be met inside the Utilization row's scaffold max, increase Capacity instead; never emit `1.00` utilization unless that exact value is inside the locked row bounds.
 - Prefer levers with direct `driver_paths` for the active closure metric. Do not select weak or unsupported side levers unless they are clearly secondary support moves inside the same valid bound system.
-- If an issue was detected through a ratio or relationship metric, do not target that ratio directly. Choose the direct FINMO target rows exposed by `driver_target_mapping_lookup`.
+- If an issue was detected through a ratio or relationship metric, do not target that ratio directly. Choose the direct FINMO target rows exposed by the locked target grid.
 - `planner_model_input_packet` is the compact Python translation of the current writable model-input state for this cycle.
 - `planner_finmo_quarter_view` is the compact Python translation of the current quarter-by-quarter finmo outputs for this cycle.
 - `shape_sensitive_contract` is the direct Python rule set for structural levers. Read it explicitly before choosing levers.
@@ -140,7 +140,7 @@ Targeting guidance:
 - For shape-sensitive levers, `targets_by_quarter` must still cover the full required horizon.
 - The full-horizon requirement applies to both the target grid and the selected lever path itself: own the full trajectory or do not select that lever.
 - Do not over-target every line.
-- Start from `recommended_primary_target_metric_keys`, then fill `locked_targets_by_quarter_response_template` using only direct mapped target rows from `driver_target_mapping_lookup`.
+- Start from `recommended_primary_target_metric_keys`, then fill `locked_targets_by_quarter_response_template` using only direct mapped target rows from the locked target grid.
 - Every targeted quarter must be explicitly present in `targets_by_quarter`.
 - Every `targets_by_quarter.metric_targets.target_value` must be a whole-dollar integer.
 - Every `target_tolerances.absolute_tolerance` must be a whole-dollar integer.

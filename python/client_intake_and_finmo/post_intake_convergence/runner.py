@@ -1631,15 +1631,7 @@ def _run_unified_post_grid_system_run(
         detail="cash_strategy_second_pass_execution_failed",
       )
     )
-  try:
-    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
-  except Exception:
-    try:
-      from finmo_bridge import build_python_finmo_json  # type: ignore
-    except Exception as exc:
-      raise RuntimeError(
-        "post_cash_final_finmo_rebuild_unavailable: final hard gates require a fresh FINMO rebuild from the latest model_input_json."
-      ) from exc
+  from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
   final_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(final_model_input_json))
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,

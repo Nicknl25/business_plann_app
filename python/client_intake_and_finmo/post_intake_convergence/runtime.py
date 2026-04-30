@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_gpt_context_filter_payload,
+  post_intake_gpt_context_request_char_budget,
+)
 
 _CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
@@ -1048,15 +1052,7 @@ def _planning_mode_prompt_text(planning_mode: Any) -> str:
   mode = str(planning_mode or "").strip().lower()
   if not mode:
     return ""
-  try:
-    from client_intake_and_finmo.quarter_grid import planning_mode_text  # type: ignore
-  except Exception:
-    try:
-      from quarter_grid import planning_mode_text  # type: ignore
-    except Exception:
-      planning_mode_text = None  # type: ignore
-  if planning_mode_text is None:
-    return ""
+  from client_intake_and_finmo.quarter_grid import planning_mode_text  # type: ignore
   try:
     return str(planning_mode_text(mode) or "").strip()
   except Exception:
@@ -1670,6 +1666,103 @@ def _lever_allowed_mapped_repair_targets(
     )
   return lever_mapping_map
 
+def _compact_locked_lever_control_grid_for_prompt(grid: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  source = grid if isinstance(grid, dict) else {}
+  compact_rows: List[Dict[str, Any]] = []
+  for row in source.get("rows") or []:
+    if not isinstance(row, dict):
+      continue
+    compact_rows.append(
+      {
+        "lever_id": row.get("lever_id"),
+        "direct_target_metric_name": row.get("direct_target_metric_name"),
+        "target_driver": row.get("target_driver"),
+        "driver_value_unit": row.get("driver_value_unit"),
+        "numeric_precision_rule": row.get("numeric_precision_rule"),
+        "suggested_min_value": row.get("suggested_min_value"),
+        "suggested_max_value": row.get("suggested_max_value"),
+        "shape_sensitive_class": row.get("shape_sensitive_class"),
+        "required_control_quarters": copy.deepcopy(row.get("required_control_quarters") or []),
+        "lever_adjustment_template": {
+          "lever_id": row.get("lever_id"),
+          "value_mode": "band",
+          "timing_start_q": (
+            min(row.get("required_control_quarters") or [])
+            if row.get("required_control_quarters")
+            else None
+          ),
+          "timing_end_q": (
+            max(row.get("required_control_quarters") or [])
+            if row.get("required_control_quarters")
+            else None
+          ),
+          "control_quarters_to_fill": copy.deepcopy(row.get("required_control_quarters") or []),
+          "shape_rule": (
+            "If shape_sensitive_class is remaining_horizon_required, include values or trajectory_values "
+            "for every control_quarters_to_fill quarter."
+          ),
+        },
+        "stage_ramp_rule": copy.deepcopy(row.get("stage_ramp_rule") or {}),
+      }
+    )
+  return {
+    "contract_version": source.get("contract_version"),
+    "grid_rule": source.get("grid_rule"),
+    "stage_ramp_rule": copy.deepcopy(source.get("stage_ramp_rule") or {}),
+    "rows": compact_rows,
+  }
+
+def _compact_full_horizon_repair_contract_for_prompt(contract: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  source = contract if isinstance(contract, dict) else {}
+  editable_cells: List[Dict[str, Any]] = []
+  for row in source.get("editable_cells") or []:
+    if not isinstance(row, dict):
+      continue
+    editable_cells.append(
+      {
+        "cell_id": row.get("cell_id"),
+        "lever_id": row.get("lever_id"),
+        "quarter_index": row.get("quarter_index"),
+        "current_value": row.get("current_value"),
+        "min_value": row.get("min_value"),
+        "max_value": row.get("max_value"),
+        "numeric_precision_rule": row.get("numeric_precision_rule"),
+      }
+    )
+  return {
+    "contract_version": source.get("contract_version"),
+    "state_rule": source.get("state_rule"),
+    "horizon_quarters": copy.deepcopy(source.get("horizon_quarters") or []),
+    "cell_rule": source.get("cell_rule"),
+    "required_response_rule": source.get("required_response_rule"),
+    "editable_lever_ids": copy.deepcopy(source.get("editable_lever_ids") or []),
+    "required_editable_cell_ids": copy.deepcopy(source.get("required_editable_cell_ids") or []),
+    "editable_cell_count": source.get("editable_cell_count"),
+    "editable_cells": editable_cells,
+  }
+
+def _apply_gpt_context_lookup_to_unified_convergence_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
+  context_packet = copy.deepcopy(packet if isinstance(packet, dict) else {})
+  if isinstance(context_packet.get("locked_lever_control_fill_grid"), dict):
+    context_packet["locked_lever_control_fill_grid"] = _compact_locked_lever_control_grid_for_prompt(
+      context_packet.get("locked_lever_control_fill_grid")
+    )
+  if isinstance(context_packet.get("full_horizon_model_input_repair_contract"), dict):
+    context_packet["full_horizon_model_input_repair_contract"] = _compact_full_horizon_repair_contract_for_prompt(
+      context_packet.get("full_horizon_model_input_repair_contract")
+    )
+  return post_intake_gpt_context_filter_payload(
+    contract_name="unified_convergence_decision",
+    include_phase="planner",
+    payload=context_packet,
+  )
+
+def _gpt_request_char_count(payload: Dict[str, Any]) -> int:
+  try:
+    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+  except Exception:
+    return len(str(payload or ""))
+
 def _run_unified_convergence_openai(
   *,
   draft_id: str,
@@ -2037,6 +2130,20 @@ def _run_unified_convergence_openai(
   planner_input_packet["gpt_contract_field_spec"] = _post_intake_contract_prompt_spec(
     "unified_convergence_decision"
   )
+  try:
+    planner_input_packet = _apply_gpt_context_lookup_to_unified_convergence_packet(
+      planner_input_packet
+    )
+  except Exception as exc:
+    return {
+      "contract_version": "unified_convergence_decision_v1",
+      "status": "failed_gpt_context_contract",
+      "prompt_file": prompt_file,
+      "selected_cash_strategy": selected_cash_strategy,
+      "review_status": "not_completed",
+      "detail": f"unified_convergence_gpt_context_lookup_failed: {exc}",
+      "decision": {},
+    }
   locked_target_value_options = sorted(
     {
       int(round(float(value)))
@@ -2081,6 +2188,34 @@ def _run_unified_convergence_openai(
       }
     },
   }
+  request_chars = _gpt_request_char_count(payload)
+  request_budget = post_intake_gpt_context_request_char_budget(
+    contract_name="unified_convergence_decision",
+    include_phase="planner",
+    default=450000,
+  )
+  if request_budget is not None and request_chars > int(request_budget):
+    return {
+      "contract_version": "unified_convergence_decision_v1",
+      "status": "failed_gpt_context_payload_budget",
+      "prompt_file": prompt_file,
+      "selected_cash_strategy": selected_cash_strategy,
+      "review_status": "not_completed",
+      "detail": (
+        "unified_convergence_gpt_context_payload_budget_exceeded: "
+        f"request_chars={request_chars} budget={int(request_budget)} "
+        f"prompt_packet_chars={_gpt_request_char_count(planner_input_packet)}"
+      ),
+      "decision": {},
+      "payload_size_summary": {
+        "request_chars": request_chars,
+        "request_budget": int(request_budget),
+        "prompt_packet_chars": _gpt_request_char_count(planner_input_packet),
+        "required_editable_cell_count": len(required_model_input_repair_cell_ids),
+        "allowed_lever_count": len(allowed_lever_ids),
+        "required_target_quarter_count": len(required_target_quarters),
+      },
+    }
   try:
     resp = _post_openai(
       url="https://api.openai.com/v1/responses",
@@ -2181,6 +2316,12 @@ def _run_unified_convergence_openai(
   )
   if contract_error:
     retry_payload = copy.deepcopy(payload)
+    compact_retry_contract = _compact_full_horizon_repair_contract_for_prompt(
+      copy.deepcopy(full_horizon_model_input_repair_contract)
+    )
+    compact_retry_lever_grid = _compact_locked_lever_control_grid_for_prompt(
+      copy.deepcopy(locked_lever_control_fill_grid)
+    )
     retry_payload["input"] = list(retry_payload.get("input") or []) + [
       {
         "role": "user",
@@ -2193,8 +2334,8 @@ def _run_unified_convergence_openai(
                 "required_target_quarters": copy.deepcopy(required_target_quarters),
                 "required_quarter_target_scaffold": copy.deepcopy(required_quarter_target_scaffold),
                 "locked_target_fill_grid": copy.deepcopy(locked_target_fill_grid),
-                "locked_lever_control_fill_grid": copy.deepcopy(locked_lever_control_fill_grid),
-                "full_horizon_model_input_repair_contract": copy.deepcopy(full_horizon_model_input_repair_contract),
+                "locked_lever_control_fill_grid": copy.deepcopy(compact_retry_lever_grid),
+                "full_horizon_model_input_repair_contract": copy.deepcopy(compact_retry_contract),
                 "recommended_primary_target_metric_keys": copy.deepcopy(
                   (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
                 ),
@@ -2212,7 +2353,9 @@ def _run_unified_convergence_openai(
                   "provide numeric targets only for locked_target_fill_grid.required_target_quarters, and include target_tolerances for "
                   "every chosen primary target metric. Fill model_input_repair_cells exactly from "
                   "full_horizon_model_input_repair_contract.required_editable_cell_ids; those cells are the execution contract. "
-                  "Use deterministic_numeric_guidance.driver_target_mapping_lookup as read-only driver-to-target context. "
+                  "Use only cell_id, lever_id, quarter_index, min_value, max_value, and numeric_precision_rule from "
+                  "full_horizon_model_input_repair_contract.editable_cells. "
+                  "Python owns deterministic issue/target mapping through the SQL mapping lookup; do not emit mapping metadata. "
                   "Keep realism, cash posture, and planning mode active as "
                   "guardrails, not as extra exact target lines. "
                   "The active issue in issue_coverage_requirements must still have direct "
@@ -2234,6 +2377,31 @@ def _run_unified_convergence_openai(
         ],
       }
     ]
+    retry_request_chars = _gpt_request_char_count(retry_payload)
+    retry_budget = post_intake_gpt_context_request_char_budget(
+      contract_name="unified_convergence_decision",
+      include_phase="planner",
+      default=None,
+    )
+    if retry_budget is not None and retry_request_chars > int(retry_budget):
+      return {
+        "contract_version": "unified_convergence_decision_v1",
+        "status": "failed_gpt_context_payload_budget",
+        "prompt_file": prompt_file,
+        "selected_cash_strategy": selected_cash_strategy,
+        "review_status": "not_completed",
+        "detail": (
+          "unified_convergence_gpt_context_retry_payload_budget_exceeded: "
+          f"request_chars={retry_request_chars} budget={int(retry_budget)} "
+          f"violation={str(contract_error).strip()}"
+        ),
+        "decision": {},
+        "payload_size_summary": {
+          "request_chars": retry_request_chars,
+          "budget": int(retry_budget),
+          "prompt_packet_chars": _gpt_request_char_count(compact_retry_contract),
+        },
+      }
     try:
       retry_resp = _post_openai(
         url="https://api.openai.com/v1/responses",
@@ -2262,14 +2430,19 @@ def _run_unified_convergence_openai(
       }
     parsed_retry = _parse_responses_json_dict(retry_resp.json())
     if not isinstance(parsed_retry, dict):
+      retry_raw_response = retry_resp.json() if isinstance(retry_resp.json(), dict) else {"response": retry_resp.text[:4000]}
       return {
         "contract_version": "unified_convergence_decision_v1",
         "status": "failed_contract_retry_parse",
         "prompt_file": prompt_file,
         "selected_cash_strategy": selected_cash_strategy,
         "review_status": "not_completed",
-        "detail": f"{contract_error} Retry parse failed.",
+        "detail": (
+          f"{contract_error} Retry parse failed. "
+          f"Retry response text prefix: {_parse_responses_text(retry_raw_response)[:800]}"
+        ),
         "decision": {},
+        "raw_openai_response": copy.deepcopy(retry_raw_response),
       }
     parsed_retry = _normalize_post_intake_contract_payload(
       contract_name="unified_convergence_decision",
@@ -2782,6 +2955,14 @@ def _build_unified_convergence_pass_plan(
     )
   ]
   effective_lever_adjustments = explicit_lever_adjustments + auto_lever_adjustments
+  sql_mapped_repair_targets_by_lever = _lever_allowed_mapped_repair_targets(guidance_packet)
+  for adjustment in effective_lever_adjustments:
+    if not isinstance(adjustment, dict):
+      continue
+    lever_id = str(adjustment.get("lever_id") or "").strip()
+    adjustment["mapped_repair_targets"] = copy.deepcopy(
+      sql_mapped_repair_targets_by_lever.get(lever_id) or []
+    )
   shape_sensitive_requirements = _shape_sensitive_remaining_horizon_requirements(
     selected_lever_ids=copy.deepcopy(lever_selection),
     targeted_quarters=copy.deepcopy(targeted_quarters),

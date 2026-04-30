@@ -2606,19 +2606,20 @@ def _unified_lever_control_fill_grid(
   stage_ramp_rule = {}
   if stage_ramp_contract:
     stage_ramp_rule = {
-      "applies_to": "composite_revenue_and_revenue_derived_payroll",
+      "applies_to": "composite_revenue_and_gpt_selected_payroll_growth_policy",
       "composite_revenue_formula": "sum(Capacity * Unit Price * Utilization) across all product rows",
       "ordinary_revenue_qoq_max": _safe_float(stage_ramp_contract.get("revenue_qoq_growth_target_max")),
       "revenue_qoq_spike_max": _safe_float(stage_ramp_contract.get("revenue_qoq_max_spike")),
       "spike_from_quarters": copy.deepcopy(stage_ramp_contract.get("revenue_spike_window_quarters") or []),
       "max_spike_count": int(_safe_float(stage_ramp_contract.get("max_spike_count")) or 0),
-      "fte_qoq_max": _safe_float(stage_ramp_contract.get("fte_qoq_max")),
+      "payroll_growth_qoq_default": _safe_float(stage_ramp_contract.get("payroll_growth_qoq_default")),
+      "payroll_growth_qoq_max": _safe_float(stage_ramp_contract.get("payroll_growth_qoq_max")),
       "quarter_ramp_grid": copy.deepcopy(_stage_ramp_grid_rows(stage_ramp_contract)),
-      "grid_rule": "Q1 is an active forecast-quarter row. For Q2-Q20, use quarter_ramp_grid row quarter_index=N as the hard QoQ boundary from Q(N-1) into QN.",
+      "grid_rule": "Q1 is an active forecast-quarter row. For Q2-Q20, use quarter_ramp_grid row quarter_index=N as the hard revenue QoQ boundary from Q(N-1) into QN and as the payroll-growth row Python applies through OEWS/FTE payroll derivation.",
       "rule": (
         "When selecting revenue levers, the combined product revenue path created by all Capacity, Unit Price, "
-        "and Utilization trajectories must stay inside this ramp contract. Payroll is derived from revenue, "
-        "so a revenue path that violates the ramp also violates payroll/FTE realism."
+        "and Utilization trajectories must stay inside this ramp contract. Payroll remains Python-derived, but its growth "
+        "must follow the GPT-selected payroll_growth_target/payroll_growth_max grid instead of a hardcoded FTE cap."
       ),
     }
   rows: List[Dict[str, Any]] = []
@@ -2679,12 +2680,6 @@ def _unified_lever_control_fill_grid(
         ),
         "suggested_min_value": suggested_min_value,
         "suggested_max_value": suggested_max_value,
-        "allowed_mapped_repair_targets": copy.deepcopy(allowed_mapping_by_lever.get(lever_id) or []),
-        "mapped_repair_targets_copy_rule": (
-          "Copy mapped_repair_targets from mapped_repair_targets_copy_options exactly. "
-          "Do not compose, infer, rename, omit target_quarters, or attach this lever to any other issue/metric."
-        ),
-        "mapped_repair_targets_copy_options": copy.deepcopy(allowed_mapping_by_lever.get(lever_id) or []),
         "shape_sensitive_class": shape_class or "local",
         "required_control_quarters": copy.deepcopy(required_quarters),
         "lever_adjustment_template": {
@@ -2696,18 +2691,12 @@ def _unified_lever_control_fill_grid(
           "timing_start_q": min(required_quarters) if required_quarters else None,
           "timing_end_q": max(required_quarters) if required_quarters else None,
           "control_quarters_to_fill": copy.deepcopy(required_quarters),
-          "mapped_repair_targets_to_copy_exactly": copy.deepcopy(allowed_mapping_by_lever.get(lever_id) or []),
-          "mapped_repair_targets": copy.deepcopy(allowed_mapping_by_lever.get(lever_id) or []),
           "values_to_fill": [
             "value_mode",
             "timing_start_q",
             "timing_end_q",
             "exact_value_or_min_value_and_max_value_already_prefilled_from_locked_bounds",
             "shape_type_or_trajectory_values_when_required",
-          ],
-          "do_not_fill": [
-            "mapped_repair_targets",
-            "mapped_repair_targets.target_quarters",
           ],
         },
         "current_values": {
@@ -2725,9 +2714,8 @@ def _unified_lever_control_fill_grid(
     "contract_version": "unified_convergence_locked_lever_control_fill_grid_v1",
     "grid_rule": (
       "If GPT selects a lever, copy that row's lever_adjustment_template into lever_adjustments, "
-      "fill only the value fields and timing fields, use control_quarters_to_fill for any values/trajectory_values, "
-      "and copy mapped_repair_targets exactly from mapped_repair_targets_copy_options. "
-      "mapped_repair_targets.target_quarters are issue target quarters, not control quarters."
+      "and fill only the value fields and timing fields. Use control_quarters_to_fill for any values/trajectory_values. "
+      "Do not provide mapping metadata; Python derives issue/target mapping from the SQL mapping lookup."
     ),
     "stage_ramp_rule": copy.deepcopy(stage_ramp_rule),
     "rows": rows,

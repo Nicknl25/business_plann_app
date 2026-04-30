@@ -14,16 +14,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.optimize import minimize  # type: ignore
-try:
-  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-    post_intake_direct_target_metric_for_lever,
-    post_intake_driver_target_metric_ids,
-  )
-except Exception:
-  from post_intake_mapping import (  # type: ignore
-    post_intake_direct_target_metric_for_lever,
-    post_intake_driver_target_metric_ids,
-  )
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_direct_target_metric_for_lever,
+  post_intake_driver_target_metric_ids,
+)
 
 try:
   from financial_model_engine.model_inputs import QUARTER_COUNT  # type: ignore
@@ -47,14 +41,8 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 def _load_numeric_apply_helpers() -> Tuple[Any, Any]:
-  try:
-    from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
-  except Exception:
-    from quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
-  try:
-    from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
-  except Exception:
-    from finmo_bridge import build_python_finmo_json  # type: ignore
+  from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
+  from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
   return apply_exact_lever_updates_to_model_input, build_python_finmo_json
 
 

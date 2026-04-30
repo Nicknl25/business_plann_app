@@ -7,6 +7,7 @@ import re
 import time
 import calendar
 import logging
+import requests
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -24,6 +25,119 @@ _UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR
 R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
 R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
 
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_gpt_contract_errors,
+  post_intake_gpt_contract_horizon_errors,
+  post_intake_gpt_contract_normalize_payload,
+  post_intake_gpt_contract_openai_schema,
+  post_intake_gpt_contract_payload_errors,
+  post_intake_gpt_contract_prompt_field_spec,
+  stage_planning_ramp_policy,
+)
+
+
+def _safe_float(value: Any) -> Optional[float]:
+  try:
+    if value is None or value == "":
+      return None
+    return float(value)
+  except Exception:
+    return None
+
+
+def _safe_ratio(value: Any) -> Optional[float]:
+  parsed = _safe_float(value)
+  if parsed is None:
+    return None
+  if abs(parsed) > 1.0 and abs(parsed) <= 100.0:
+    return parsed / 100.0
+  return parsed
+
+
+def _parse_date(value: Any) -> Optional[date]:
+  if isinstance(value, date) and not isinstance(value, datetime):
+    return value
+  if isinstance(value, datetime):
+    return value.date()
+  raw = str(value or "").strip()
+  if not raw:
+    return None
+  try:
+    return datetime.fromisoformat(raw).date()
+  except ValueError:
+    pass
+  for fmt in ("%m/%d/%Y", "%m-%d-%Y"):
+    try:
+      return datetime.strptime(raw, fmt).date()
+    except ValueError:
+      continue
+  return None
+
+
+def _whole_months_between(start_date: date, end_date: date) -> int:
+  months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+  if end_date.day < start_date.day:
+    months -= 1
+  return int(months)
+
+
+def _infer_business_stage(start_date_raw: Any, current_date: Optional[date] = None) -> Optional[str]:
+  start_date = _parse_date(start_date_raw)
+  if start_date is None:
+    return None
+  today = current_date or datetime.utcnow().date()
+  if start_date > today:
+    return "pre-revenue"
+  delta_days = (today - start_date).days
+  if delta_days <= 365:
+    return "early-stage"
+  return "operating"
+
+
+def _openai_key() -> Optional[str]:
+  key = (os.getenv("OPENAI_API_KEY") or "").strip()
+  return key or None
+
+
+def _openai_model() -> str:
+  return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
+
+
+def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]):
+  return requests.post(url, headers=headers, json=payload, timeout=180)
+
+
+def _parse_responses_text(data: Dict[str, Any]) -> str:
+  if not isinstance(data, dict):
+    return ""
+  text = data.get("output_text")
+  if isinstance(text, str):
+    return text
+  output = data.get("output") or []
+  chunks: List[str] = []
+  for item in output:
+    if not isinstance(item, dict):
+      continue
+    for part in item.get("content", []) or []:
+      if isinstance(part, dict) and part.get("type") in {"output_text", "text"}:
+        chunks.append(str(part.get("text") or ""))
+  return "\n".join(chunk for chunk in chunks if chunk)
+
+
+def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+  output = data.get("output") or [] if isinstance(data, dict) else []
+  for item in output:
+    if not isinstance(item, dict):
+      continue
+    for part in item.get("content", []) or []:
+      if isinstance(part, dict) and part.get("type") == "output_json" and isinstance(part.get("json"), dict):
+        return part["json"]
+  try:
+    parsed = json.loads(_parse_responses_text(data))
+  except Exception:
+    return None
+  return parsed if isinstance(parsed, dict) else None
+
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
@@ -33,6 +147,34 @@ def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
     for key, value in dependencies.items()
     if key != "bind_runtime_dependencies"
   })
+
+
+def _openai_strict_json_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+  """Normalize local schemas to OpenAI strict structured-output requirements."""
+  normalized = copy.deepcopy(schema if isinstance(schema, dict) else {})
+
+  def _visit(node: Any) -> None:
+    if isinstance(node, dict):
+      properties = node.get("properties")
+      if isinstance(properties, dict):
+        node["additionalProperties"] = False
+        node["required"] = list(properties.keys())
+        for child in properties.values():
+          _visit(child)
+      items = node.get("items")
+      if isinstance(items, dict):
+        _visit(items)
+      for key in ("anyOf", "oneOf", "allOf"):
+        variants = node.get(key)
+        if isinstance(variants, list):
+          for variant in variants:
+            _visit(variant)
+    elif isinstance(node, list):
+      for item in node:
+        _visit(item)
+
+  _visit(normalized)
+  return normalized
 
 
 __all__ = [
@@ -361,6 +503,8 @@ def _validate_stage_ramp_contract_payload(
     "fte_qoq_target": "fte_target",
     "fte_qoq_max": "fte_max",
     "fte_qoq_spike_max": "fte_spike_max",
+    "payroll_growth_target": "payroll_growth_target",
+    "payroll_growth_max": "payroll_growth_max",
     "utilization_cap": "max_util",
     "cogs_percent_of_revenue_target": "cogs_target",
     "cogs_percent_of_revenue_max": "cogs_max",
@@ -388,6 +532,8 @@ def _validate_stage_ramp_contract_payload(
       "fte_qoq_target",
       "fte_qoq_max",
       "fte_qoq_spike_max",
+      "payroll_growth_target",
+      "payroll_growth_max",
       "utilization_cap",
       "cogs_percent_of_revenue_target",
       "cogs_percent_of_revenue_max",
@@ -433,6 +579,8 @@ def _validate_stage_ramp_contract_payload(
       errors.append(f"quarter_ramp_grid Q{quarter_index} fte_qoq_target cannot exceed fte_qoq_max")
     if fte_spike_allowed and parsed.get("fte_qoq_spike_max", 0.0) < parsed.get("fte_qoq_max", 0.0) - 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} fte_qoq_spike_max must be >= fte_qoq_max")
+    if parsed.get("payroll_growth_target", 0.0) > parsed.get("payroll_growth_max", 0.0) + 1e-9:
+      errors.append(f"quarter_ramp_grid Q{quarter_index} payroll_growth_target cannot exceed payroll_growth_max")
     if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
     if parsed.get("cogs_percent_of_revenue_max", 0.0) < 0.20:
@@ -482,6 +630,8 @@ def _validate_stage_ramp_contract_payload(
       "fte_qoq_max": round(float(parsed.get("fte_qoq_max") or 0.0), 2),
       "fte_qoq_spike_allowed": fte_spike_allowed,
       "fte_qoq_spike_max": round(float(parsed.get("fte_qoq_spike_max") or 0.0), 2),
+      "payroll_growth_target": round(float(parsed.get("payroll_growth_target") or 0.0), 2),
+      "payroll_growth_max": round(float(parsed.get("payroll_growth_max") or 0.0), 2),
       "utilization_cap": round(float(parsed.get("utilization_cap") or 0.0), 2),
       "cogs_percent_of_revenue_target": round(float(parsed.get("cogs_percent_of_revenue_target") or 0.0), 2),
       "cogs_percent_of_revenue_max": round(float(parsed.get("cogs_percent_of_revenue_max") or 0.0), 2),
@@ -581,6 +731,8 @@ def _validate_stage_ramp_contract_payload(
     for row in live_rows
     if bool(row.get("fte_qoq_spike_allowed"))
   ]
+  payroll_growth_targets = [float(row.get("payroll_growth_target") or 0.0) for row in live_rows]
+  payroll_growth_maxes = [float(row.get("payroll_growth_max") or 0.0) for row in live_rows]
   revenue_spike_window = [
     int(row.get("prior_quarter_index") or 0)
     for row in live_rows
@@ -621,6 +773,8 @@ def _validate_stage_ramp_contract_payload(
     "fte_qoq_default": round(sum(fte_targets) / max(len(fte_targets), 1), 2),
     "fte_qoq_max": round(max(fte_maxes or [0.0]), 2),
     "fte_qoq_max_spike": round(max(fte_spikes or fte_maxes or [0.0]), 2),
+    "payroll_growth_qoq_default": round(sum(payroll_growth_targets) / max(len(payroll_growth_targets), 1), 2),
+    "payroll_growth_qoq_max": round(max(payroll_growth_maxes or [0.0]), 2),
     "fte_spike_small_base_threshold": (
       None
       if small_base_threshold is not None and float(small_base_threshold) < 0
@@ -1145,6 +1299,8 @@ def _estimate_stage_ramp_contract_with_gpt(
         "fte_max",
         "fte_spike",
         "fte_spike_max",
+        "payroll_growth_target",
+        "payroll_growth_max",
         "max_util",
         "cogs_target",
         "cogs_max",
@@ -1171,7 +1327,7 @@ def _estimate_stage_ramp_contract_with_gpt(
     "task": (
       "Return one binding 20-quarter business maturity grid for post-intake planning. "
       "The grid replaces static hardcoded ramp percentages and late profitability repairs. "
-      "Python will enforce it before convergence by shaping revenue/FTE movement and cost/profitability guardrails."
+      "Python will enforce it before convergence by shaping revenue movement, payroll growth through the OEWS/FTE formula, and cost/profitability guardrails."
     ),
     "gpt_contract_field_spec": compact_ramp_contract_spec,
     "business_identity": {
@@ -1231,7 +1387,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       "All rate values must use at most two decimal places.",
       "stage_family must exactly equal stage_family_required.",
       "quarter_ramp_grid must contain exactly 20 rows, one for every forecast quarter Q1 through Q20.",
-      "Use the compact row field names required by the schema: q, rev_target, rev_max, rev_spike, rev_spike_max, fte_target, fte_max, fte_spike, fte_spike_max, max_util, cogs_target, cogs_max, marketing_max, rd_max, ga_max, lease_max, ni_floor, posture, why.",
+      "Use the compact row field names required by the schema: q, rev_target, rev_max, rev_spike, rev_spike_max, fte_target, fte_max, fte_spike, fte_spike_max, payroll_growth_target, payroll_growth_max, max_util, cogs_target, cogs_max, marketing_max, rd_max, ga_max, lease_max, ni_floor, posture, why.",
       "Q1 is an active forecast-quarter ramp row. Do not zero it out.",
       "For Q1, the row describes the first forecast quarter's realistic ramp posture and max allowed first-quarter operating move.",
       "For Q2 through Q20, each row describes the maximum movement from the prior forecast quarter into that row's quarter.",
@@ -1239,6 +1395,8 @@ def _estimate_stage_ramp_contract_with_gpt(
       "Set spike flags only for specific quarters where the business type and stage can realistically support a one-time or discrete expansion jump.",
       "Use fte_spike_small_base_threshold=-1 when no small-base spike threshold applies.",
       "FTE growth does not need to equal revenue growth. Revenue can grow through utilization, price, mix, or productivity, so choose fte_max and fte_spike_max as realistic staffing constraints for the business type. If fte_spike is false, set fte_spike_max equal to fte_max, not 0.",
+      "payroll_growth_target is the realistic quarter-over-quarter payroll growth shape Python will apply through the OEWS/FTE payroll formula. payroll_growth_max is the upper business-realism boundary for that same quarter and must be at least payroll_growth_target.",
+      "Do not output payroll dollars or FTE counts. Payroll remains Python-derived from revenue, OEWS wages, and the payroll growth grid.",
       "max_util is a maximum achievable utilization ceiling, not the current utilization target. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth.",
       "Every row must include COGS, marketing, rd_max, G&A, lease, net income margin floor, and profitability posture maturity fields because the schema requires those fields.",
       rd_cost_rule,
@@ -1265,7 +1423,7 @@ def _estimate_stage_ramp_contract_with_gpt(
     "This is not a forecast and not a repair plan; it is the operating-world maturity grid Python will enforce. "
     "Fill exactly one active row per forecast quarter Q1 through Q20. Q1 is part of the forecast and must have "
     "realistic non-placeholder ramp limits for the first forecast quarter. For Q2-Q20, choose realistic revenue "
-    "and FTE QoQ ramp limits from the prior forecast quarter into that quarter. Also choose realistic cost-ratio "
+    "and payroll QoQ growth from the prior forecast quarter into that quarter. Also choose realistic cost-ratio "
     "caps and net-income margin floors so the initial plan matures naturally rather than needing a late repair pass. "
     "max_util is the maximum achievable utilization ceiling for the quarter and must never decline; it is not the "
     "current utilization target. Be strict enough to prevent fantasy growth, fake instant profitability, and "
@@ -2823,29 +2981,29 @@ def _unified_convergence_decision_contract_error(
   )
   if numeric_contract_error:
     return numeric_contract_error
-  declared_issue_metric_coverage: Dict[str, set[str]] = {}
-  declared_issue_quarter_coverage: Dict[str, set[int]] = {}
-  for adjustment in lever_adjustments:
-    if not isinstance(adjustment, dict):
-      continue
-    lever_id = str(adjustment.get("lever_id") or "").strip()
-    if not lever_id:
-      continue
-    for mapping in _normalize_unified_mapped_repair_targets(
-      adjustment.get("mapped_repair_targets") or []
+  sql_derived_issue_metric_coverage: Dict[str, set[str]] = {}
+  sql_derived_issue_quarter_coverage: Dict[str, set[int]] = {}
+  for lever_id in lever_selection:
+    for mapping in _autofill_unified_mapped_repair_targets_for_lever(
+      lever_id=lever_id,
+      deterministic_numeric_guidance=copy.deepcopy(
+        deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+      ),
+      primary_target_metric_names=copy.deepcopy(primary_target_metric_names),
+      targeted_quarters=copy.deepcopy(target_quarters),
     ):
       issue_code = str(mapping.get("issue_code") or "").strip().lower()
       metric_name = str(mapping.get("target_metric_name") or "").strip().lower()
       if not issue_code:
         continue
       if metric_name:
-        declared_issue_metric_coverage.setdefault(issue_code, set()).add(metric_name)
+        sql_derived_issue_metric_coverage.setdefault(issue_code, set()).add(metric_name)
       for quarter_index in (
         int(_safe_float(item) or 0)
         for item in (mapping.get("target_quarters") or [])
       ):
         if quarter_index >= 1:
-          declared_issue_quarter_coverage.setdefault(issue_code, set()).add(int(quarter_index))
+          sql_derived_issue_quarter_coverage.setdefault(issue_code, set()).add(int(quarter_index))
   for requirement in [item for item in (retry_context.get("issue_coverage_requirements") or []) if isinstance(item, dict)]:
     issue_code = str(requirement.get("issue_code") or "").strip().lower()
     metric_candidates = {
@@ -2858,10 +3016,10 @@ def _unified_convergence_decision_contract_error(
         "Unified convergence requires direct target coverage for each open issue. "
         f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no covered primary metric."
       )
-    if metric_candidates and not (declared_issue_metric_coverage.get(issue_code) or set()) & metric_candidates:
+    if metric_candidates and not (sql_derived_issue_metric_coverage.get(issue_code) or set()) & metric_candidates:
       return (
-        "Unified convergence requires each open issue to have a declared mapped repair target, not just broad metric overlap. "
-        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no mapped lever adjustment covering {sorted(metric_candidates)}."
+        "Unified convergence requires each open issue to have a SQL-mapped selected lever, not just broad metric overlap. "
+        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no selected mapping-table lever covering {sorted(metric_candidates)}."
       )
     relevant_quarters = {
       int(_safe_float(item) or 0)
@@ -2872,10 +3030,10 @@ def _unified_convergence_decision_contract_error(
       )
       if int(_safe_float(item) or 0) >= 1
     }
-    if relevant_quarters and not ((declared_issue_quarter_coverage.get(issue_code) or set()) & relevant_quarters):
+    if relevant_quarters and not ((sql_derived_issue_quarter_coverage.get(issue_code) or set()) & relevant_quarters):
       return (
-        "Unified convergence requires declared mapped repair targets to cover the issue's active quarters. "
-        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no mapped quarter overlap with {sorted(relevant_quarters)}."
+        "Unified convergence requires selected mapping-table levers to cover the issue's active quarters. "
+        f"Issue {str(requirement.get('issue_code') or '').strip() or 'unknown'} has no SQL-derived mapped quarter overlap with {sorted(relevant_quarters)}."
       )
   return None
 
@@ -3152,337 +3310,12 @@ def _validate_payroll_derivation_contract(
   model_input_json: Optional[Dict[str, Any]],
   business_world_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  payload = copy.deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
-  details: List[Dict[str, Any]] = []
-  try:
-    from client_intake_and_finmo.finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
-  except Exception:
-    try:
-      from finmo_bridge import apply_derived_driver_policies_to_model_input  # type: ignore
-    except Exception:
-      apply_derived_driver_policies_to_model_input = None  # type: ignore
-  if not callable(apply_derived_driver_policies_to_model_input):
-    details.append(
-      {
-        "error": "payroll_derivation_validator_unavailable",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": None,
-        "current_value": None,
-        "reason": "Payroll derivation validator could not import the deterministic model-input payroll derivation helper.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-    return {
-      "status": "failed",
-      "details": details,
-      "current_policy": {},
-      "current_runtime": {},
-      "expected_runtime": {},
-    }
+  from client_intake_and_finmo.post_intake_derived_drivers.payroll import validate_payroll_derivation_contract  # type: ignore
 
-  current_row = _payroll_row_from_model_input(payload)
-  if not isinstance(current_row, dict):
-    details.append(
-      {
-        "error": "payroll_row_missing",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": None,
-        "current_value": None,
-        "reason": "Model input is missing the Payroll row in sections.expenses.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-    return {
-      "status": "failed",
-      "details": details,
-      "current_policy": {},
-      "current_runtime": {},
-      "expected_runtime": {},
-    }
-
-  current_values = list(current_row.get("values") or [])
-  live_count = max(
-    0,
-    len(
-      [
-        item for item in (payload.get("periods") or [])
-        if isinstance(item, dict) and not bool(item.get("is_stub"))
-      ]
-    )
-    or (len(current_values) - 1 if len(current_values) >= 1 else 0),
+  return validate_payroll_derivation_contract(
+    model_input_json=model_input_json,
+    business_world_contract=business_world_contract,
   )
-  if len(current_values) < live_count + 1:
-    details.append(
-      {
-        "error": "payroll_stub_missing",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": None,
-        "current_value": None,
-        "reason": "Payroll values must include a Q0 stub plus all live forecast quarters.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-  stub_value = _safe_float(current_values[0] if current_values else None)
-  if bool(current_row.get("controller_write", True)):
-    details.append(
-      {
-        "error": "payroll_row_should_not_be_writable",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": stub_value,
-        "current_value": stub_value,
-        "reason": "Payroll must not remain controller-writable once payroll is revenue/OEWS-derived.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-  if str(current_row.get("derived_driver") or "").strip() != "revenue_oews_derived":
-    details.append(
-      {
-        "error": "payroll_row_missing_derived_driver_marker",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": stub_value,
-        "current_value": stub_value,
-        "reason": "Payroll row must be marked with derived_driver='revenue_oews_derived'.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-  if any(
-    isinstance(item, dict) and str(item.get("lever_id") or "").strip() == "expenses::Payroll"
-    for item in (payload.get("controller_write_levers") or [])
-  ):
-    details.append(
-      {
-        "error": "payroll_lever_still_writable_catalog",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": stub_value,
-        "current_value": stub_value,
-        "reason": "Payroll must not remain in controller_write_levers once it becomes derived.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-  lever_catalog = payload.get("lever_catalog") if isinstance(payload.get("lever_catalog"), dict) else {}
-  if isinstance(lever_catalog, dict) and "expenses::Payroll" in lever_catalog:
-    details.append(
-      {
-        "error": "payroll_lever_still_writable_catalog",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": stub_value,
-        "current_value": stub_value,
-        "reason": "Payroll must not remain in lever_catalog once it becomes derived.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-
-  current_policy = (
-    ((payload.get("derived_driver_policies") or {}).get("expenses::Payroll"))
-    if isinstance(payload.get("derived_driver_policies"), dict)
-    else {}
-  )
-  current_runtime = (
-    ((payload.get("derived_driver_runtime") or {}).get("expenses::Payroll"))
-    if isinstance(payload.get("derived_driver_runtime"), dict)
-    else {}
-  )
-  if not isinstance(current_policy, dict) or not current_policy:
-    details.append(
-      {
-        "error": "payroll_derivation_policy_missing",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": stub_value,
-        "current_value": stub_value,
-        "reason": "Derived payroll policy metadata is missing from model_input_json.derived_driver_policies.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-  if not isinstance(current_runtime, dict) or not current_runtime:
-    details.append(
-      {
-        "error": "payroll_derivation_runtime_missing",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": stub_value,
-        "current_value": stub_value,
-        "reason": "Derived payroll runtime metadata is missing from model_input_json.derived_driver_runtime.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-
-  expected_payload = apply_derived_driver_policies_to_model_input(copy.deepcopy(payload))
-  expected_row = _payroll_row_from_model_input(expected_payload)
-  expected_runtime = (
-    ((expected_payload.get("derived_driver_runtime") or {}).get("expenses::Payroll"))
-    if isinstance(expected_payload.get("derived_driver_runtime"), dict)
-    else {}
-  )
-  expected_values = list((expected_row or {}).get("values") or [])
-  if len(expected_values) >= live_count + 1 and len(current_values) >= live_count + 1:
-    for quarter_index in range(1, live_count + 1):
-      current_value = _safe_float(current_values[quarter_index])
-      expected_value = _safe_float(expected_values[quarter_index])
-      tolerance = max(1e-6, abs(float(expected_value or 0.0)) * 1e-6)
-      if current_value is None or expected_value is None or abs(float(current_value) - float(expected_value)) > tolerance:
-        details.append(
-          {
-            "error": "payroll_values_not_fully_derived",
-            "lever_id": "expenses::Payroll",
-            "quarter": quarter_index,
-            "previous_value": expected_value,
-            "current_value": current_value,
-            "reason": "Payroll forecast values must exactly match the deterministic revenue/OEWS-derived recomputation from current revenue drivers.",
-            "validation_category": "payroll_derivation",
-          }
-        )
-        break
-
-  current_logs = list((current_runtime or {}).get("quarter_logs") or []) if isinstance(current_runtime, dict) else []
-  expected_logs = list((expected_runtime or {}).get("quarter_logs") or []) if isinstance(expected_runtime, dict) else []
-  if live_count and len(current_logs) != live_count:
-    details.append(
-      {
-        "error": "payroll_derivation_log_count_mismatch",
-        "lever_id": "expenses::Payroll",
-        "quarter": 0,
-        "previous_value": float(live_count),
-        "current_value": float(len(current_logs)),
-        "reason": "Payroll derivation runtime must log one derived record per live forecast quarter.",
-        "validation_category": "payroll_derivation",
-      }
-    )
-  for quarter_index in range(1, min(len(current_logs), len(expected_logs)) + 1):
-    current_log = current_logs[quarter_index - 1] if isinstance(current_logs[quarter_index - 1], dict) else {}
-    expected_log = expected_logs[quarter_index - 1] if isinstance(expected_logs[quarter_index - 1], dict) else {}
-    current_implied_fte = _safe_float(current_log.get("implied_fte_raw"))
-    expected_implied_fte = _safe_float(expected_log.get("implied_fte_raw"))
-    current_payroll = _safe_float(current_log.get("derived_payroll"))
-    expected_payroll = _safe_float(expected_log.get("derived_payroll"))
-    current_quarter_revenue = _safe_float(current_log.get("quarter_revenue"))
-    expected_quarter_revenue = _safe_float(expected_log.get("quarter_revenue"))
-    current_payroll_ratio = _safe_float(current_log.get("payroll_to_revenue"))
-    expected_payroll_ratio = _safe_float(expected_log.get("payroll_to_revenue"))
-    if (
-      current_implied_fte is None
-      or expected_implied_fte is None
-      or abs(float(current_implied_fte) - float(expected_implied_fte)) > max(1e-6, abs(float(expected_implied_fte)) * 1e-6)
-      or current_payroll is None
-      or expected_payroll is None
-      or abs(float(current_payroll) - float(expected_payroll)) > max(1e-6, abs(float(expected_payroll)) * 1e-6)
-      or current_quarter_revenue is None
-      or expected_quarter_revenue is None
-      or abs(float(current_quarter_revenue) - float(expected_quarter_revenue)) > max(1e-6, abs(float(expected_quarter_revenue)) * 1e-6)
-      or current_payroll_ratio is None
-      or expected_payroll_ratio is None
-      or abs(float(current_payroll_ratio) - float(expected_payroll_ratio)) > max(1e-6, abs(float(expected_payroll_ratio)) * 1e-6)
-    ):
-      details.append(
-        {
-          "error": "payroll_derivation_log_inconsistent",
-          "lever_id": "expenses::Payroll",
-          "quarter": quarter_index,
-          "previous_value": expected_payroll,
-          "current_value": current_payroll,
-          "reason": "Payroll derivation runtime log is inconsistent with the deterministic revenue/OEWS payroll recomputation.",
-          "validation_category": "payroll_derivation",
-        }
-      )
-      break
-
-  ratio_floor = max(0.0, _safe_float((current_policy or {}).get("payroll_ratio_floor")) or 0.05)
-  ratio_ceiling = max(ratio_floor, _safe_float((current_policy or {}).get("payroll_ratio_ceiling")) or 0.50)
-  base_max_fte_growth = max(0.0, _safe_float((current_policy or {}).get("max_fte_growth_per_quarter")) or 0.50)
-  stage_contract = business_world_contract if isinstance(business_world_contract, dict) else {}
-  stage_ramp_contract = (
-    stage_contract.get("stage_ramp_contract")
-    if isinstance(stage_contract.get("stage_ramp_contract"), dict)
-    else {}
-  )
-  max_fte_growth = max(base_max_fte_growth, float(_safe_float(stage_ramp_contract.get("fte_qoq_max")) or 0.0))
-  revenue_driver_states = _model_input_revenue_driver_quarter_states(payload)
-  high_watermark = float(_safe_float(stage_ramp_contract.get("utilization_high_watermark")) or 0.85)
-  prior_implied_fte: Optional[float] = None
-  fte_spike_count_used = 0
-  for quarter_index in range(1, len(current_logs) + 1):
-    current_log = current_logs[quarter_index - 1] if isinstance(current_logs[quarter_index - 1], dict) else {}
-    quarter_revenue = _safe_float(current_log.get("quarter_revenue")) or 0.0
-    payroll_ratio = _safe_float(current_log.get("payroll_to_revenue"))
-    implied_fte = _safe_float(current_log.get("implied_fte_raw")) or 0.0
-    if quarter_revenue > 0.0 and (payroll_ratio is None or payroll_ratio < ratio_floor or payroll_ratio > ratio_ceiling):
-      details.append(
-        {
-          "error": "payroll_ratio_outside_sanity_band",
-          "lever_id": "expenses::Payroll",
-          "quarter": quarter_index,
-          "previous_value": ratio_floor,
-          "current_value": payroll_ratio,
-          "reason": "Revenue-derived payroll must stay within the deterministic payroll-to-revenue sanity band.",
-          "validation_category": "payroll_derivation",
-        }
-      )
-      break
-    if prior_implied_fte is not None and prior_implied_fte > 0.0:
-      growth = (implied_fte - prior_implied_fte) / prior_implied_fte
-      if stage_ramp_contract:
-        support = _growth_supported_by_capacity_or_utilization(
-          previous_state=revenue_driver_states.get(quarter_index - 1),
-          current_state=revenue_driver_states.get(quarter_index),
-          high_watermark=high_watermark,
-        )
-        growth_result = _allowed_stage_growth_result(
-          growth=growth,
-          policy=stage_ramp_contract,
-          metric_prefix="fte",
-          from_quarter=quarter_index - 1,
-          prior_fte=prior_implied_fte,
-          support=support,
-          spike_count_used=fte_spike_count_used,
-        )
-        if bool(growth_result.get("used_spike")):
-          fte_spike_count_used += 1
-        if not bool(growth_result.get("allowed")):
-          details.append(
-            {
-              "error": "payroll_fte_growth_exceeds_stage_ramp_contract",
-              "lever_id": "expenses::Payroll",
-              "quarter": quarter_index,
-              "previous_value": prior_implied_fte,
-              "current_value": implied_fte,
-              "growth_qoq": growth,
-              "allowed_growth_qoq": growth_result.get("allowed_growth"),
-              "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
-              "ramp_support": copy.deepcopy(support),
-              "reason": "Implied FTE growth from revenue-derived payroll violates the deterministic stage ramp contract.",
-              "validation_category": "payroll_derivation",
-            }
-          )
-          break
-      elif growth > max_fte_growth:
-        details.append(
-          {
-            "error": "payroll_fte_growth_exceeds_guardrail",
-            "lever_id": "expenses::Payroll",
-            "quarter": quarter_index,
-            "previous_value": prior_implied_fte,
-            "current_value": implied_fte,
-            "reason": "Implied FTE growth from revenue-derived payroll exceeds the deterministic quarter-over-quarter guardrail.",
-            "validation_category": "payroll_derivation",
-          }
-        )
-        break
-    prior_implied_fte = implied_fte
-
-  return {
-    "status": "failed" if details else "passed",
-    "details": copy.deepcopy(details),
-    "current_policy": copy.deepcopy(current_policy) if isinstance(current_policy, dict) else {},
-    "current_runtime": copy.deepcopy(current_runtime) if isinstance(current_runtime, dict) else {},
-    "expected_runtime": copy.deepcopy(expected_runtime) if isinstance(expected_runtime, dict) else {},
-  }
 
 def _normalize_retry_requirements_to_allowed_scope(
   *,
@@ -5994,6 +5827,10 @@ def _build_convergence_retry_focus_packet(
     max(1, min(3, len(issue_coverage_requirements) + 1)),
   )
 
+  quarter_count = max(
+    int(_CONVERGENCE_DEFAULT_QUARTER_COUNT or 20),
+    int(_solver_contract_quarter_count(contract) or 20),
+  )
   full_horizon_quarters = convergence_full_horizon_quarters(quarter_count)
   return {
     "progress_status": progress_status,
@@ -6264,7 +6101,7 @@ def _business_world_contract(
     "profitability_maturity_month": 30,
     "rule_summary": (
       "Planning mode is the canonical operating posture. Business stage and age are binding lifecycle limiters. "
-      "The GPT-selected stage maturity grid is binding before convergence: revenue, utilization, FTE, cost-ratio caps, "
+      "The GPT-selected stage maturity grid is binding before convergence: revenue, utilization, payroll growth, cost-ratio caps, "
       "and profitability posture must mature together. Negative net income may be stage-appropriate early, but chronic "
       "mature losses or late losses caused by unsupported operating economics are not coherent."
     ),

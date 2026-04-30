@@ -63,30 +63,15 @@ def prepare_initial_grid_for_draft(
   if not active_planning_run_id:
     raise RuntimeError("planning_run_start_failed")
 
-  try:
-    from financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
-  try:
-    from financials_year1 import assemble_financials_year1  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
-  try:
-    from finmo_bridge import (  # type: ignore
-      apply_r_and_d_applicability_policy_to_model_input,
-      build_python_finmo_json,
-      sync_planning_state_to_finmo,
-    )
-  except Exception:
-    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
-      apply_r_and_d_applicability_policy_to_model_input,
-      build_python_finmo_json,
-      sync_planning_state_to_finmo,
-    )
-  try:
-    from quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
-  except Exception:
-    from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
+  from client_intake_and_finmo.financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
+  from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
+  from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+    apply_r_and_d_applicability_policy_to_model_input,
+    build_python_finmo_json,
+    sync_planning_state_to_finmo,
+  )
+  from client_intake_and_finmo.post_intake_derived_drivers.payroll import apply_stage_ramp_payroll_growth_contract_to_model_input  # type: ignore
+  from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
 
   ops_json = parse_json_dict(draft.get("operating_model_json"))
   market_json = parse_json_dict(draft.get("target_market_json"))
@@ -384,6 +369,20 @@ def prepare_initial_grid_for_draft(
     model_input_json=copy.deepcopy(model_input_json or {}),
     finmo_json=copy.deepcopy(finmo_json or {}),
     r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
+  )
+  model_input_json = apply_stage_ramp_payroll_growth_contract_to_model_input(
+    copy.deepcopy(model_input_json),
+    copy.deepcopy(stage_ramp_contract),
+  )
+  finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(model_input_json))
+  persist_system_stage(
+    stage="stage_ramp_contract_applied",
+    status="running",
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
+    model_input_payload=model_input_json,
+    finmo_payload=finmo_json,
   )
   shared_context["stage_ramp_contract_decision"] = {
     key: copy.deepcopy(value)

@@ -15,7 +15,7 @@ from flask import jsonify
 
 logger = logging.getLogger(__name__)
 import requests
-from intake_consult_draft import (
+from client_intake_and_finmo.intake_consult_draft import (
   append_messages,
   begin_planning_run,
   clear_planning_run_action,
@@ -28,191 +28,77 @@ from intake_consult_draft import (
   persist_post_intake_execution_state,
   request_planning_run_action,
 )
+from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
 try:
-  from openai_http import post_openai_with_retries  # type: ignore
+  from api_handlers.shared_context import build_shared_context  # type: ignore
 except Exception:
-  from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
-try:
-  from shared_context import build_shared_context  # type: ignore
-except Exception:
-  try:
-    from api_handlers.shared_context import build_shared_context  # type: ignore
-  except Exception:
-    build_shared_context = None  # type: ignore
-try:
-  from fact_templates import sanitize_fact_template  # type: ignore
-except Exception:
-  try:
-    from client_intake_and_finmo.fact_templates import sanitize_fact_template  # type: ignore
-  except Exception:
-    def sanitize_fact_template(value: str) -> str:
-      return str(value or "")
-try:
-  from realism_memo import generate_realism_memo_payload_safe  # type: ignore
-except Exception:
-  try:
-    from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
-  except Exception:
-    def generate_realism_memo_payload_safe(
-      *,
-      ops_json: Dict[str, Any],
-      financials_json: Dict[str, Any],
-      solved_model_input_json: Optional[Dict[str, Any]] = None,
-      solved_finmo_json: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-      del solved_model_input_json, solved_finmo_json
-      return {
-        "status": "failed",
-        "issues": [],
-      }
-try:
-  from post_intake_mapping import (  # type: ignore
-    post_intake_direct_target_metric_for_lever,
-    post_intake_direct_target_metric_names_for_levers,
-    post_intake_compact_mapping_lookup_for_levers,
-    post_intake_driver_target_lever_ids_for_issue,
-    post_intake_driver_target_lever_allowed_for_issue,
-    post_intake_driver_target_lever_ids_for_cash_roles,
-    post_intake_driver_target_lever_ids_for_target_drivers,
-    post_intake_driver_target_mapping_entry,
-    post_intake_driver_target_mapping_errors,
-    post_intake_driver_target_metric_ids,
-    post_intake_driver_target_single_lever_id_for_target_driver,
-    post_intake_issue_candidate_lever_ids,
-    post_intake_issue_mapping_contract,
-    post_intake_cash_policy_errors,
-    post_intake_cash_debt_schedule_policy,
-    post_intake_cash_policy_for,
-    post_intake_cash_policy_phase_sequence,
-    post_intake_gpt_contract_errors,
-    post_intake_gpt_contract_horizon_errors,
-    post_intake_gpt_contract_normalize_payload,
-    post_intake_gpt_contract_openai_schema,
-    post_intake_gpt_contract_payload_errors,
-    post_intake_gpt_contract_prompt_field_spec,
-    stage_planning_ramp_policy,
-  )
-except Exception:
-  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-    post_intake_direct_target_metric_for_lever,
-    post_intake_direct_target_metric_names_for_levers,
-    post_intake_compact_mapping_lookup_for_levers,
-    post_intake_driver_target_lever_ids_for_issue,
-    post_intake_driver_target_lever_allowed_for_issue,
-    post_intake_driver_target_lever_ids_for_cash_roles,
-    post_intake_driver_target_lever_ids_for_target_drivers,
-    post_intake_driver_target_mapping_entry,
-    post_intake_driver_target_mapping_errors,
-    post_intake_driver_target_metric_ids,
-    post_intake_driver_target_single_lever_id_for_target_driver,
-    post_intake_issue_candidate_lever_ids,
-    post_intake_issue_mapping_contract,
-    post_intake_cash_policy_errors,
-    post_intake_cash_debt_schedule_policy,
-    post_intake_cash_policy_for,
-    post_intake_cash_policy_phase_sequence,
-    post_intake_gpt_contract_errors,
-    post_intake_gpt_contract_horizon_errors,
-    post_intake_gpt_contract_normalize_payload,
-    post_intake_gpt_contract_openai_schema,
-    post_intake_gpt_contract_payload_errors,
-    post_intake_gpt_contract_prompt_field_spec,
-    stage_planning_ramp_policy,
-  )
-
-try:
-  from client_intake_and_finmo.post_intake_cash import (  # type: ignore
-    assert_cash_envelope_lifecycle,
-    build_cash_planning_envelope,
-    build_cash_validation_envelope,
-  )
-  from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_cash_runtime_dependencies,
-  )
-  from client_intake_and_finmo.post_intake_cash.runner import *  # type: ignore
-except Exception:
-  from post_intake_cash import (  # type: ignore
-    assert_cash_envelope_lifecycle,
-    build_cash_planning_envelope,
-    build_cash_validation_envelope,
-  )
-  from post_intake_cash.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_cash_runtime_dependencies,
-  )
-  from post_intake_cash.runner import *  # type: ignore
-
-try:
-  from client_intake_and_finmo.post_intake_issues.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_issue_runtime_dependencies,
-  )
-  from client_intake_and_finmo.post_intake_issues.runner import *  # type: ignore
-except Exception:
-  from post_intake_issues.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_issue_runtime_dependencies,
-  )
-  from post_intake_issues.runner import *  # type: ignore
-
-try:
-  from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_contract_runtime_dependencies,
-  )
-  from client_intake_and_finmo.post_intake_contracts.runner import *  # type: ignore
-except Exception:
-  from post_intake_contracts.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_contract_runtime_dependencies,
-  )
-  from post_intake_contracts.runner import *  # type: ignore
-
-try:
-  from client_intake_and_finmo.post_intake_initial_grid import prepare_initial_grid_for_draft  # type: ignore
-except Exception:
-  from post_intake_initial_grid import prepare_initial_grid_for_draft  # type: ignore
-
-try:
-  from client_intake_and_finmo.post_intake_state.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_state_runtime_dependencies,
-  )
-  from client_intake_and_finmo.post_intake_state.runner import *  # type: ignore
-except Exception:
-  from post_intake_state.runner import (  # type: ignore
-    bind_runtime_dependencies as bind_state_runtime_dependencies,
-  )
-  from post_intake_state.runner import *  # type: ignore
-
-try:
-  from client_intake_and_finmo.post_intake_convergence import (  # type: ignore
-    bind_runtime_dependencies as bind_convergence_runtime_dependencies,
-    bind_convergence_runtime_dependencies as bind_convergence_execution_runtime_dependencies,
-    build_retry_scope_payload as convergence_build_retry_scope_payload,
-    build_unified_convergence_contract_policy,
-    evaluate_retry_improvement as convergence_evaluate_retry_improvement,
-    full_horizon_quarters as convergence_full_horizon_quarters,
-    full_horizon_retry_scope_mode as convergence_full_horizon_retry_scope_mode,
-    retry_scope_lever_ids as convergence_retry_scope_lever_ids,
-    retry_scope_quarters as convergence_retry_scope_quarters,
-    run_unified_post_grid_system_run,
-    subset_numeric_solver_contract as convergence_subset_numeric_solver_contract,
-    unified_convergence_contract_constraints,
-    validate_unified_convergence_contract_horizon,
-  )
-  from client_intake_and_finmo.post_intake_convergence.runtime import *  # type: ignore
-except Exception:
-  from post_intake_convergence import (  # type: ignore
-    bind_runtime_dependencies as bind_convergence_runtime_dependencies,
-    bind_convergence_runtime_dependencies as bind_convergence_execution_runtime_dependencies,
-    build_retry_scope_payload as convergence_build_retry_scope_payload,
-    build_unified_convergence_contract_policy,
-    evaluate_retry_improvement as convergence_evaluate_retry_improvement,
-    full_horizon_quarters as convergence_full_horizon_quarters,
-    full_horizon_retry_scope_mode as convergence_full_horizon_retry_scope_mode,
-    retry_scope_lever_ids as convergence_retry_scope_lever_ids,
-    retry_scope_quarters as convergence_retry_scope_quarters,
-    run_unified_post_grid_system_run,
-    subset_numeric_solver_contract as convergence_subset_numeric_solver_contract,
-    unified_convergence_contract_constraints,
-    validate_unified_convergence_contract_horizon,
-  )
-  from post_intake_convergence.runtime import *  # type: ignore
+  build_shared_context = None  # type: ignore
+from client_intake_and_finmo.fact_templates import sanitize_fact_template  # type: ignore
+from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_direct_target_metric_for_lever,
+  post_intake_direct_target_metric_names_for_levers,
+  post_intake_compact_mapping_lookup_for_levers,
+  post_intake_driver_target_lever_ids_for_issue,
+  post_intake_driver_target_lever_allowed_for_issue,
+  post_intake_driver_target_lever_ids_for_cash_roles,
+  post_intake_driver_target_lever_ids_for_target_drivers,
+  post_intake_driver_target_mapping_entry,
+  post_intake_driver_target_mapping_errors,
+  post_intake_driver_target_metric_ids,
+  post_intake_driver_target_single_lever_id_for_target_driver,
+  post_intake_issue_candidate_lever_ids,
+  post_intake_issue_mapping_contract,
+  post_intake_cash_policy_errors,
+  post_intake_cash_debt_schedule_policy,
+  post_intake_cash_policy_for,
+  post_intake_cash_policy_phase_sequence,
+  post_intake_gpt_contract_errors,
+  post_intake_gpt_contract_horizon_errors,
+  post_intake_gpt_contract_normalize_payload,
+  post_intake_gpt_contract_openai_schema,
+  post_intake_gpt_contract_payload_errors,
+  post_intake_gpt_contract_prompt_field_spec,
+  stage_planning_ramp_policy,
+)
+from client_intake_and_finmo.post_intake_cash import (  # type: ignore
+  assert_cash_envelope_lifecycle,
+  build_cash_planning_envelope,
+  build_cash_validation_envelope,
+)
+from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
+  bind_runtime_dependencies as bind_cash_runtime_dependencies,
+)
+from client_intake_and_finmo.post_intake_cash.runner import *  # type: ignore
+from client_intake_and_finmo.post_intake_issues.runner import (  # type: ignore
+  bind_runtime_dependencies as bind_issue_runtime_dependencies,
+)
+from client_intake_and_finmo.post_intake_issues.runner import *  # type: ignore
+from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
+  bind_runtime_dependencies as bind_contract_runtime_dependencies,
+)
+from client_intake_and_finmo.post_intake_contracts.runner import *  # type: ignore
+from client_intake_and_finmo.post_intake_initial_grid import prepare_initial_grid_for_draft  # type: ignore
+from client_intake_and_finmo.post_intake_state.runner import (  # type: ignore
+  bind_runtime_dependencies as bind_state_runtime_dependencies,
+)
+from client_intake_and_finmo.post_intake_state.runner import *  # type: ignore
+from client_intake_and_finmo.post_intake_convergence import (  # type: ignore
+  bind_runtime_dependencies as bind_convergence_runtime_dependencies,
+  bind_convergence_runtime_dependencies as bind_convergence_execution_runtime_dependencies,
+  build_retry_scope_payload as convergence_build_retry_scope_payload,
+  build_unified_convergence_contract_policy,
+  evaluate_retry_improvement as convergence_evaluate_retry_improvement,
+  full_horizon_quarters as convergence_full_horizon_quarters,
+  full_horizon_retry_scope_mode as convergence_full_horizon_retry_scope_mode,
+  retry_scope_lever_ids as convergence_retry_scope_lever_ids,
+  retry_scope_quarters as convergence_retry_scope_quarters,
+  run_unified_post_grid_system_run,
+  subset_numeric_solver_contract as convergence_subset_numeric_solver_contract,
+  unified_convergence_contract_constraints,
+  validate_unified_convergence_contract_horizon,
+)
+from client_intake_and_finmo.post_intake_convergence.runtime import *  # type: ignore
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
 OPS_MILESTONE_QUESTION = (
@@ -418,8 +304,11 @@ _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS = {
   "payroll_derivation_log_inconsistent",
   "payroll_values_not_fully_derived",
   "payroll_ratio_outside_sanity_band",
-  "payroll_fte_growth_exceeds_guardrail",
-  "payroll_fte_growth_exceeds_stage_ramp_contract",
+  "payroll_growth_contract_source_missing",
+  "payroll_growth_contract_missing_full_horizon",
+  "payroll_growth_stage_ramp_contract_missing_full_horizon",
+  "payroll_growth_contract_mismatch",
+  "payroll_growth_exceeds_gpt_stage_ramp_contract",
 }
 _TRANSLATION_TEST_MODE_FAIL_FLAGS = {
   "metric_to_lever_translation_failed",
@@ -6865,7 +6754,7 @@ def post_intake_consult_session_handler(*, app, request):
 
   try:
     from intake_submission import generate_client_id, get_mysql_connection  # type: ignore
-    from intake_consult_draft import create_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import create_draft  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import intake consult draft helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
@@ -6902,7 +6791,7 @@ def get_intake_consult_draft_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import MySQL helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
@@ -7425,7 +7314,7 @@ def get_intake_consult_debug_state_handler(*, app, request, draft_id: str):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import MySQL helpers: %s", exc)
     return (jsonify({"error": "server_error"}), 500)
@@ -7479,7 +7368,7 @@ def post_intake_consult_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import append_messages, get_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import append_messages, get_draft  # type: ignore
     from api_handlers.shared_context import build_shared_context  # type: ignore
     from fact_templates import sanitize_fact_template  # type: ignore
     from intent_router import route_intent  # type: ignore

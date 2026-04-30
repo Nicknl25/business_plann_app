@@ -75,7 +75,7 @@ def post_people_capability_session_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import get_draft as get_consult_draft  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import get_draft as get_consult_draft  # type: ignore
     from people_capability_draft import create_draft  # type: ignore
   except Exception as exc:
     app.logger.exception("Failed to import people draft helpers: %s", exc)
@@ -172,7 +172,7 @@ def post_people_capability_handler(*, app, request):
 
   try:
     from intake_submission import get_mysql_connection  # type: ignore
-    from intake_consult_draft import (  # type: ignore
+    from client_intake_and_finmo.intake_consult_draft import (  # type: ignore
       append_messages as append_consult_messages,
       get_draft as get_consult_draft,
     )
