@@ -20,10 +20,10 @@ except Exception:
   from financial_model_engine.model_inputs import FinancialModelInputs
 
 from client_intake_and_finmo.post_intake_derived_drivers.payroll import (  # type: ignore
-  PAYROLL_DERIVATION_LEVER_ID as _PAYROLL_DERIVATION_LEVER_ID,
-  PAYROLL_DERIVATION_SOURCE as _PAYROLL_DERIVATION_SOURCE,
-  apply_payroll_derivation_policy_to_model_input,
-  default_payroll_derivation_policy,
+  PAYROLL_HEADCOUNT_LEVER_ID as _PAYROLL_HEADCOUNT_LEVER_ID,
+  PAYROLL_HEADCOUNT_SOURCE as _PAYROLL_HEADCOUNT_SOURCE,
+  apply_payroll_headcount_policy_to_model_input,
+  default_payroll_headcount_policy,
 )
 
 
@@ -1847,7 +1847,7 @@ def apply_derived_driver_policies_to_model_input(
   if isinstance(next_payload.get("derived_driver_runtime"), dict):
     next_payload["derived_driver_runtime"]["capacity_shaping"] = deepcopy(capacity_shaping_runtime)
 
-  next_payload = apply_payroll_derivation_policy_to_model_input(
+  next_payload = apply_payroll_headcount_policy_to_model_input(
     next_payload,
     live_count=live_count,
   )
@@ -2678,7 +2678,7 @@ def _python_model_input_template(
   for row in expense_rows:
     if str(row.get("label") or "").strip() == "Payroll":
       row["controller_write"] = False
-      row["derived_driver"] = _PAYROLL_DERIVATION_SOURCE
+      row["derived_driver"] = _PAYROLL_HEADCOUNT_SOURCE
       continue
     _register_lever(
       {
@@ -2973,6 +2973,10 @@ def _build_model_input_overlay(
     ) - (lease_amount * 4.0)
   )
   g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
+  intake_interest_rate_stub = _ratio(
+    (financials_json or {}).get("annual_interest_payment"),
+    (financials_json or {}).get("total_debt_outstanding"),
+  )
   interest_rate_baseline, interest_rate_source = _sba_business_loan_interest_rate_and_source(
     ops_json,
     financials_json,
@@ -2995,7 +2999,7 @@ def _build_model_input_overlay(
     elif label == "General & Administrative":
       intake_stub_value = round(max(0.0, g_and_a_ratio_baseline), 6)
     elif label == "Interest Rate":
-      intake_stub_value = round(interest_rate_baseline, 6)
+      intake_stub_value = round(intake_interest_rate_stub, 6)
     elif label == "Taxes":
       intake_stub_value = round(_safe_ratio((financials_json or {}).get("taxes_percent")) or base_stub_value or 0.0, 6)
     values: List[float] = []
@@ -3179,7 +3183,7 @@ def _build_model_input_overlay(
   sections["schedules"] = schedules
   next_payload.setdefault("derived_driver_policies", {})
   if isinstance(next_payload.get("derived_driver_policies"), dict):
-    next_payload["derived_driver_policies"][_PAYROLL_DERIVATION_LEVER_ID] = default_payroll_derivation_policy(
+    next_payload["derived_driver_policies"][_PAYROLL_HEADCOUNT_LEVER_ID] = default_payroll_headcount_policy(
       financials_json=financials_json,
       ops_json=ops_json,
     )

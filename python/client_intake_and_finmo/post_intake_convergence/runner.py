@@ -8,6 +8,25 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_contract_forecast_horizon_quarter_count,
+)
+
+
+def _contract_forecast_quarter_count() -> int:
+  try:
+    return max(
+      1,
+      int(
+        post_intake_contract_forecast_horizon_quarter_count(
+          contract_name="unified_convergence_decision",
+        )
+        or 0
+      ),
+    )
+  except Exception:
+    return 20
+
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   """Bind handler/runtime helpers used by the extracted convergence loop."""
@@ -50,16 +69,17 @@ def _run_unified_post_grid_system_run(
   if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
     raise RuntimeError(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
-    )
-  final_finmo_json = copy.deepcopy(applied_finmo_json or {})
-  realism_memo_before_resolution = generate_realism_memo_payload_safe(
-    ops_json=ops_json,
-    financials_json=financials_json,
-    solved_model_input_json=copy.deepcopy(final_model_input_json),
-    solved_finmo_json=copy.deepcopy(final_finmo_json),
   )
-  realism_issue_ledger = _build_issue_status_records_from_issue_list(
-    current_issues=_memo_issue_records(copy.deepcopy(realism_memo_before_resolution), "remaining_issues", "issues"),
+  final_finmo_json = copy.deepcopy(applied_finmo_json or {})
+  realism_memo_before_resolution = {
+    "contract_version": "post_intake_deterministic_issue_detection_v1",
+    "status": "ready",
+    "source_of_truth": "deterministic_table_backed_issue_detectors",
+    "issues": [],
+    "remaining_issues": [],
+  }
+  capacity_support_issue_ledger = _build_capacity_support_issue_status_records(
+    finmo_json=copy.deepcopy(final_finmo_json),
     iteration=0,
   )
   flatline_issue_ledger = _build_p_and_l_flatline_issue_status_records(
@@ -76,7 +96,7 @@ def _run_unified_post_grid_system_run(
   realism_issue_ledger = _refresh_issue_status_records_from_scan(
     existing_issue_status_records=[],
     scanned_issue_status_records=(
-      copy.deepcopy(realism_issue_ledger)
+      copy.deepcopy(capacity_support_issue_ledger)
       + copy.deepcopy(flatline_issue_ledger)
       + copy.deepcopy(stage_maturity_issue_ledger)
     ),
@@ -441,10 +461,7 @@ def _run_unified_post_grid_system_run(
       controller_resolution_state=copy.deepcopy(baseline_controller_resolution_state),
       controller_retry_context=copy.deepcopy(controller_retry_context),
       unified_convergence_context=copy.deepcopy(unified_convergence_context),
-      quarter_count=max(
-        _CONVERGENCE_DEFAULT_QUARTER_COUNT,
-        len((((unified_convergence_context or {}).get("current_finmo_json") or {}) if isinstance((unified_convergence_context or {}).get("current_finmo_json"), dict) else {}).get("quarter_rows") or []),
-      ),
+      quarter_count=_contract_forecast_quarter_count(),
     )
     previous_openai_deadline = _set_active_openai_deadline(cycle_deadline)
     try:
@@ -547,7 +564,7 @@ def _run_unified_post_grid_system_run(
           )
         )
         if str(item).strip()
-      } & _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS
+      } & _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS
       if _convergence_test_mode_enabled() and critical_payroll_fail_flags:
         raise StructuredSystemRunFailure(
           detail=_structured_system_run_failure_detail(
@@ -763,7 +780,7 @@ def _run_unified_post_grid_system_run(
       if isinstance(stage_ramp_contract, dict)
       else None,
     )
-    post_solver_payroll_validation = _validate_payroll_derivation_contract(
+    post_solver_payroll_validation = _validate_payroll_headcount_contract(
       model_input_json=copy.deepcopy(final_model_input_json or {}),
       business_world_contract=copy.deepcopy(post_solver_business_world_contract),
     )
@@ -789,7 +806,7 @@ def _run_unified_post_grid_system_run(
           "planner_plan_status": str(plan_status or "").strip() or None,
           "focus_issue_codes": copy.deepcopy(controller_retry_context.get("focus_issue_codes") or []),
           "lever_selection": copy.deepcopy((unified_convergence_plan or {}).get("lever_selection") or []),
-          "payroll_derivation_validation": copy.deepcopy(post_solver_payroll_validation),
+          "payroll_headcount_validation": copy.deepcopy(post_solver_payroll_validation),
           "numeric_solver_result": copy.deepcopy(unified_convergence_result.get("numeric_solver_result") or {}),
           "target_verification": copy.deepcopy(unified_convergence_result.get("target_verification") or {}),
         },
@@ -799,7 +816,7 @@ def _run_unified_post_grid_system_run(
           "flags": list(
             dict.fromkeys(
               [
-                "payroll_derivation_failed",
+                "payroll_headcount_failed",
                 *[
                   str(item.get("error") or "").strip()
                   for item in post_solver_payroll_errors
@@ -976,14 +993,15 @@ def _run_unified_post_grid_system_run(
         allowed_issue_keys=copy.deepcopy(verification_allowed_issue_keys),
         allow_new_records=False,
       )
-      scan_memo = generate_realism_memo_payload_safe(
-        ops_json=ops_json,
-        financials_json=financials_json,
-        solved_model_input_json=copy.deepcopy(final_model_input_json),
-        solved_finmo_json=copy.deepcopy(final_finmo_json),
-      )
-      scan_issue_set = _build_issue_status_records_from_issue_list(
-        current_issues=_memo_issue_records(copy.deepcopy(scan_memo), "remaining_issues", "issues"),
+      scan_memo = {
+        "contract_version": "post_intake_deterministic_issue_detection_v1",
+        "status": "ready",
+        "source_of_truth": "deterministic_table_backed_issue_detectors",
+        "issues": [],
+        "remaining_issues": [],
+      }
+      capacity_support_scan_issue_set = _build_capacity_support_issue_status_records(
+        finmo_json=copy.deepcopy(final_finmo_json),
         iteration=next_iteration,
       )
       flatline_scan_issue_set = _build_p_and_l_flatline_issue_status_records(
@@ -997,16 +1015,15 @@ def _run_unified_post_grid_system_run(
         stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
         iteration=next_iteration,
       )
-      if flatline_scan_issue_set or stage_maturity_scan_issue_set:
-        scan_issue_set = _refresh_issue_status_records_from_scan(
-          existing_issue_status_records=[],
-          scanned_issue_status_records=(
-            copy.deepcopy(scan_issue_set)
-            + copy.deepcopy(flatline_scan_issue_set)
-            + copy.deepcopy(stage_maturity_scan_issue_set)
-          ),
-          iteration=next_iteration,
-        )
+      scan_issue_set = _refresh_issue_status_records_from_scan(
+        existing_issue_status_records=[],
+        scanned_issue_status_records=(
+          copy.deepcopy(capacity_support_scan_issue_set)
+          + copy.deepcopy(flatline_scan_issue_set)
+          + copy.deepcopy(stage_maturity_scan_issue_set)
+        ),
+        iteration=next_iteration,
+      )
       realism_issue_ledger = _merge_new_scan_detected_issues(
         existing_issue_status_records=copy.deepcopy(verified_issue_ledger),
         scanned_issue_status_records=copy.deepcopy(scan_issue_set),
@@ -1666,6 +1683,14 @@ def _run_unified_post_grid_system_run(
     final_finmo_json=copy.deepcopy(final_finmo_json),
     stage="post_cash_pass_final",
   )
+  final_debt_schedule_payload = _cash_strategy_debt_schedule_snapshot(
+    finmo_payload=copy.deepcopy(final_finmo_json),
+    model_input_json=copy.deepcopy(final_model_input_json),
+  )
+  if isinstance(final_debt_schedule_payload, dict):
+    final_debt_schedule_payload["selected_cash_strategy"] = _resolved_cash_strategy(financials_json)
+    final_debt_schedule_payload["source_stage"] = "cash_pass_completed"
+    final_debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
   cash_strategy_effect_summary = _build_cash_strategy_effect_summary(
     financials_json=copy.deepcopy(financials_json or {}),
     review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
@@ -1687,6 +1712,7 @@ def _run_unified_post_grid_system_run(
     "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan),
     "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
     "cash_strategy_effect_summary": copy.deepcopy(cash_strategy_effect_summary),
+    "debt_schedule": copy.deepcopy(final_debt_schedule_payload),
     "cost_telemetry": _openai_call_telemetry_snapshot(),
   }
   next_planning_run_json = _build_planning_run_payload(
@@ -1706,6 +1732,7 @@ def _run_unified_post_grid_system_run(
     cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
     cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
     cash_strategy_effect_summary=copy.deepcopy(cash_strategy_effect_summary),
+    debt_schedule=copy.deepcopy(final_debt_schedule_payload),
     unified_convergence_context=copy.deepcopy(unified_convergence_context),
     unified_convergence_decision=copy.deepcopy(unified_convergence_decision),
     unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
@@ -1757,6 +1784,7 @@ def _run_unified_post_grid_system_run(
     fulfillment_json=fulfillment_json,
     model_input_json=final_model_input_json,
     finmo_json=final_finmo_json,
+    debt_schedule=copy.deepcopy(final_debt_schedule_payload),
     planning_run_json=next_planning_run_json,
     numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
@@ -1800,6 +1828,7 @@ def _run_unified_post_grid_system_run(
     "realism_memo_json": persisted_realism_memo,
     "model_input_json": final_model_input_json,
     "finmo_json": final_finmo_json,
+    "debt_schedule": copy.deepcopy(final_debt_schedule_payload),
   }
 
 

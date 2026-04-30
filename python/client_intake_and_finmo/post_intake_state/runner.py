@@ -89,6 +89,7 @@ def _build_planning_run_payload(
   cash_strategy_second_pass_plan: Optional[Dict[str, Any]] = None,
   cash_strategy_second_pass_result: Optional[Dict[str, Any]] = None,
   cash_strategy_effect_summary: Optional[Dict[str, Any]] = None,
+  debt_schedule: Optional[Dict[str, Any]] = None,
   unified_convergence_context: Optional[Dict[str, Any]] = None,
   unified_convergence_decision: Optional[Dict[str, Any]] = None,
   unified_convergence_plan: Optional[Dict[str, Any]] = None,
@@ -235,6 +236,7 @@ def _build_planning_run_payload(
     "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan or {}),
     "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result or {}),
     "cash_strategy_effect_summary": copy.deepcopy(cash_strategy_effect_summary or {}),
+    "debt_schedule": copy.deepcopy(debt_schedule or {}),
     "unified_convergence_context": convergence_context_payload,
     "unified_convergence_decision": _compact_unified_convergence_decision_for_storage(
       copy.deepcopy(unified_convergence_decision or {})

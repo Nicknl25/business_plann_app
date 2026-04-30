@@ -70,7 +70,10 @@ def prepare_initial_grid_for_draft(
     build_python_finmo_json,
     sync_planning_state_to_finmo,
   )
-  from client_intake_and_finmo.post_intake_derived_drivers.payroll import apply_stage_ramp_payroll_growth_contract_to_model_input  # type: ignore
+  from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
+    apply_payroll_headcount_payload_to_model_input,
+    build_payroll_headcount_payload_from_stage_ramp_contract,
+  )
   from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
 
   ops_json = parse_json_dict(draft.get("operating_model_json"))
@@ -144,6 +147,7 @@ def prepare_initial_grid_for_draft(
     grid_application_summary: Optional[Dict[str, Any]] = None,
     model_input_payload: Optional[Dict[str, Any]] = None,
     finmo_payload: Optional[Dict[str, Any]] = None,
+    payroll_headcount_payload: Optional[Dict[str, Any]] = None,
   ) -> Dict[str, Any]:
     payload = build_planning_run_payload(
       stage=stage,
@@ -165,6 +169,7 @@ def prepare_initial_grid_for_draft(
       planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
       model_input_json=model_input_payload,
       finmo_json=finmo_payload,
+      payroll_headcount=payroll_headcount_payload,
       planning_run_json=payload,
       numeric_solver_feedback_json=extract_numeric_solver_feedback_for_persistence(
         planning_run_payload=payload
@@ -370,9 +375,15 @@ def prepare_initial_grid_for_draft(
     finmo_json=copy.deepcopy(finmo_json or {}),
     r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
   )
-  model_input_json = apply_stage_ramp_payroll_growth_contract_to_model_input(
-    copy.deepcopy(model_input_json),
+  payroll_headcount_payload = build_payroll_headcount_payload_from_stage_ramp_contract(
     copy.deepcopy(stage_ramp_contract),
+    draft_id=normalized_draft_id,
+    client_id=str(draft.get("client_id") or "").strip(),
+  )
+  model_input_json = apply_payroll_headcount_payload_to_model_input(
+    copy.deepcopy(model_input_json),
+    copy.deepcopy(payroll_headcount_payload),
+    live_count=20,
   )
   finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(model_input_json))
   persist_system_stage(
@@ -383,6 +394,7 @@ def prepare_initial_grid_for_draft(
     prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
     model_input_payload=model_input_json,
     finmo_payload=finmo_json,
+    payroll_headcount_payload=payroll_headcount_payload,
   )
   shared_context["stage_ramp_contract_decision"] = {
     key: copy.deepcopy(value)
@@ -394,6 +406,11 @@ def prepare_initial_grid_for_draft(
       key: copy.deepcopy(value)
       for key, value in stage_ramp_contract.items()
       if key not in {"prompt_context", "raw_openai_response"}
+    }
+    planning_context_summary_json["payroll_headcount"] = {
+      key: copy.deepcopy(value)
+      for key, value in payroll_headcount_payload.items()
+      if key in {"contract_version", "schedule_horizon_quarters", "quarter_totals"}
     }
 
   if resume_from_checkpoint_state:
@@ -422,6 +439,7 @@ def prepare_initial_grid_for_draft(
       grid_application_summary=copy.deepcopy(grid_application_summary or {}),
       model_input_payload=applied_model_input_json,
       finmo_payload=applied_finmo_json,
+      payroll_headcount_payload=payroll_headcount_payload,
     )
   else:
     persist_system_stage(
@@ -432,6 +450,7 @@ def prepare_initial_grid_for_draft(
       prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
       model_input_payload=model_input_json,
       finmo_payload=finmo_json,
+      payroll_headcount_payload=payroll_headcount_payload,
     )
     planning_result = generate_live_quarter_grid_plan(
       business_name=str(business_facts.get("name") or "").strip(),
@@ -467,6 +486,7 @@ def prepare_initial_grid_for_draft(
       gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
       model_input_payload=model_input_json,
       finmo_payload=finmo_json,
+      payroll_headcount_payload=payroll_headcount_payload,
     )
     assert_r_and_d_applicability_policy_applied(
       model_input_json=model_input_json,
@@ -519,5 +539,6 @@ def prepare_initial_grid_for_draft(
     "applied_model_input_json": copy.deepcopy(applied_model_input_json),
     "applied_finmo_json": copy.deepcopy(applied_finmo_json),
     "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
+    "payroll_headcount": copy.deepcopy(payroll_headcount_payload),
     "shared_context": copy.deepcopy(shared_context or {}),
   }

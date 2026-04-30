@@ -11,6 +11,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_contract_forecast_horizon_quarter_count,
+)
+
 logger = logging.getLogger(__name__)
 
 _CONVERGENCE_ISSUE_PASS_SCORE_PCT = 80
@@ -38,6 +42,56 @@ _CASH_PASS_OWNED_ISSUE_CODES = {
 }
 
 
+def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_decision") -> int:
+  try:
+    count = int(
+      post_intake_contract_forecast_horizon_quarter_count(
+        contract_name=contract_name,
+      )
+      or 0
+    )
+  except Exception:
+    count = 0
+  return max(1, count or _CONVERGENCE_DEFAULT_QUARTER_COUNT)
+
+
+def _local_safe_int(value: Any) -> int:
+  try:
+    return int(round(float(value)))
+  except Exception:
+    return 0
+
+
+def _assert_issue_quarter_in_contract_horizon(
+  *,
+  quarter_index: Any,
+  issue_code: Any,
+  source: str,
+  quarter_count: Optional[int] = None,
+) -> int:
+  parsed = _local_safe_int(quarter_index)
+  horizon_count = max(
+    1,
+    int(quarter_count or _contract_forecast_quarter_count()),
+  )
+  if parsed < 1 or parsed > horizon_count:
+    raise RuntimeError(
+      "issue_detection_quarter_out_of_contract_horizon: "
+      + json.dumps(
+        {
+          "issue_code": str(issue_code or "").strip().lower(),
+          "quarter_index": parsed,
+          "allowed_quarters": list(range(1, horizon_count + 1)),
+          "source": str(source or "").strip(),
+          "contract_table": "post_intake_gpt_contract_lookup",
+          "detail": "Forecast horizon excludes stub Q0; issue detection must not emit Q0 or Q21+.",
+        },
+        ensure_ascii=False,
+      )
+    )
+  return parsed
+
+
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
@@ -56,7 +110,6 @@ __all__ = [
   "_touched_lever_ids_from_result",
   "_touched_issue_codes_from_result",
   "_normalized_issue_records",
-  "_memo_issue_records",
   "_issue_ledger_key",
   "_core_issue_record",
   "_merge_issue_identity_fields",
@@ -139,7 +192,6 @@ __all__ = [
   "_controller_issue_is_blocking",
   "_issue_needs_iteration",
   "_normalize_issue_record_to_controller_truth",
-  "_build_issue_status_records_from_issue_list",
   "_refresh_issue_status_records_from_scan",
   "_issue_keys_from_status_records",
   "_issue_keys_requiring_iteration",
@@ -162,7 +214,6 @@ __all__ = [
   "_build_realism_memo_from_issue_ledger",
   "_apply_realism_verification_to_issue_status_records",
   "_merge_new_scan_detected_issues",
-  "_active_issue_codes_from_memo",
   "_issue_severity_label_from_score",
   "_numeric_solver_contract_issue_packet_map",
   "_numeric_solver_contract_baseline_quarter_map",
@@ -179,6 +230,7 @@ __all__ = [
   "_issue_packet_declared_target_metric_names",
   "_preferred_issue_candidate_lever_ids",
   "_raise_p_and_l_flatline_if_needed",
+  "_build_capacity_support_issue_status_records",
   "_p_and_l_flatline_signals",
   "_build_p_and_l_flatline_issue_status_records",
   "_build_stage_maturity_cost_structure_issue_status_records",
@@ -248,14 +300,6 @@ def _normalized_issue_records(items: Any) -> List[Dict[str, str]]:
     record["issue_code"] = issue_code
     out.append(record)
   return out
-
-def _memo_issue_records(payload: Optional[Dict[str, Any]], *fields: str) -> List[Dict[str, str]]:
-  memo = payload if isinstance(payload, dict) else {}
-  for field in fields:
-    items = _normalized_issue_records(memo.get(field))
-    if items:
-      return items
-  return []
 
 def _issue_ledger_key(item: Dict[str, Any]) -> str:
   issue_code = str(item.get("issue_code") or "").strip().lower()
@@ -365,19 +409,30 @@ def _remaining_horizon_issue_quarters(
   base_quarters: Optional[List[int]],
   quarter_count: int,
 ) -> List[int]:
+  horizon_count = max(1, int(quarter_count or _contract_forecast_quarter_count()))
+  for item in (base_quarters or []):
+    parsed = int(_safe_float(item) or 0)
+    if parsed < 1:
+      continue
+    _assert_issue_quarter_in_contract_horizon(
+      quarter_index=parsed,
+      issue_code=issue_code,
+      source="remaining_horizon_issue_quarters.base_quarters",
+      quarter_count=horizon_count,
+    )
   normalized = sorted(
     {
       int(_safe_float(item) or 0)
       for item in (base_quarters or [])
-      if int(_safe_float(item) or 0) >= 1
+      if 1 <= int(_safe_float(item) or 0) <= horizon_count
     }
   )
   if not normalized:
-    normalized = list(range(1, max(1, int(quarter_count or _CONVERGENCE_DEFAULT_QUARTER_COUNT)) + 1))
+    normalized = list(range(1, horizon_count + 1))
   if not _issue_requires_remaining_horizon_scope(issue_code):
     return normalized
   anchor_quarter = min(normalized or [1])
-  return list(range(anchor_quarter, max(1, int(quarter_count or _CONVERGENCE_DEFAULT_QUARTER_COUNT)) + 1))
+  return list(range(anchor_quarter, horizon_count + 1))
 
 def _safe_int_in_range(value: Any, *, default: int, minimum: int, maximum: int) -> int:
   parsed = _safe_float(value)
@@ -865,20 +920,30 @@ def _issue_metric_specs_for_record(
   issue_code = str(item.get("issue_code") or "").strip().lower()
   if not issue_code or not isinstance(current_finmo_json, dict):
     return []
-  explicit_specs = [
-    copy.deepcopy(spec)
-    for spec in (item.get("metric_debug") or [])
-    if isinstance(spec, dict)
-    and str(spec.get("metric_name") or "").strip()
-    and _is_table_target_metric_name(spec.get("metric_name"))
-    and int(_safe_float(spec.get("quarter_index")) or 0) >= 1
-  ]
+  horizon_count = max(1, int(quarter_count or _contract_forecast_quarter_count()))
+  explicit_specs: List[Dict[str, Any]] = []
+  for spec in (item.get("metric_debug") or []):
+    if (
+      not isinstance(spec, dict)
+      or not str(spec.get("metric_name") or "").strip()
+      or not _is_table_target_metric_name(spec.get("metric_name"))
+    ):
+      continue
+    quarter_index = _assert_issue_quarter_in_contract_horizon(
+      quarter_index=spec.get("quarter_index"),
+      issue_code=issue_code,
+      source="issue_record.metric_debug",
+      quarter_count=horizon_count,
+    )
+    normalized_spec = copy.deepcopy(spec)
+    normalized_spec["quarter_index"] = int(quarter_index)
+    explicit_specs.append(normalized_spec)
   if explicit_specs:
     return explicit_specs
   finmo_rows = {
     int(_safe_float(row.get("quarter_index")) or 0): row
     for row in ((current_finmo_json.get("quarter_rows") or []) if isinstance(current_finmo_json.get("quarter_rows"), list) else [])
-    if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1
+    if isinstance(row, dict) and 1 <= int(_safe_float(row.get("quarter_index")) or 0) <= horizon_count
   }
   relevant_quarters = sorted(
     {
@@ -887,31 +952,38 @@ def _issue_metric_specs_for_record(
       if int(_safe_float(entry) or 0) >= 1
     }
   )
+  for quarter_index in relevant_quarters:
+    _assert_issue_quarter_in_contract_horizon(
+      quarter_index=quarter_index,
+      issue_code=issue_code,
+      source="issue_record.remaining_problem_quarters",
+      quarter_count=horizon_count,
+    )
   if relevant_quarters:
     relevant_quarters = _remaining_horizon_issue_quarters(
       issue_code=issue_code,
       base_quarters=relevant_quarters,
-      quarter_count=quarter_count,
+      quarter_count=horizon_count,
     )
   if not relevant_quarters:
-    fallback_quarters = sorted(finmo_rows.keys()) or list(range(1, max(1, int(quarter_count or _CONVERGENCE_DEFAULT_QUARTER_COUNT)) + 1))
+    fallback_quarters = sorted(finmo_rows.keys()) or list(range(1, horizon_count + 1))
     if _issue_requires_remaining_horizon_scope(issue_code):
       relevant_quarters = _remaining_horizon_issue_quarters(
         issue_code=issue_code,
         base_quarters=fallback_quarters,
-        quarter_count=quarter_count,
+        quarter_count=horizon_count,
       )
     else:
-      relevant_quarters = fallback_quarters[: max(1, min(_CONVERGENCE_MAX_FOCUS_QUARTERS, quarter_count))]
+      relevant_quarters = fallback_quarters[: max(1, min(_CONVERGENCE_MAX_FOCUS_QUARTERS, horizon_count))]
   if not relevant_quarters:
     if _issue_requires_remaining_horizon_scope(issue_code):
       relevant_quarters = _remaining_horizon_issue_quarters(
         issue_code=issue_code,
         base_quarters=[],
-        quarter_count=quarter_count,
+        quarter_count=horizon_count,
       )
     else:
-      relevant_quarters = list(range(1, max(1, int(quarter_count or _CONVERGENCE_DEFAULT_QUARTER_COUNT)) + 1))[: _CONVERGENCE_MAX_FOCUS_QUARTERS]
+      relevant_quarters = list(range(1, horizon_count + 1))[: _CONVERGENCE_MAX_FOCUS_QUARTERS]
   metric_specs: List[Dict[str, Any]] = []
   quarter_spec_map: Dict[int, List[Dict[str, Any]]] = {}
   for quarter_index in relevant_quarters:
@@ -2606,20 +2678,20 @@ def _unified_lever_control_fill_grid(
   stage_ramp_rule = {}
   if stage_ramp_contract:
     stage_ramp_rule = {
-      "applies_to": "composite_revenue_and_gpt_selected_payroll_growth_policy",
+      "applies_to": "composite_revenue_and_gpt_selected_payroll_headcount_schedule",
       "composite_revenue_formula": "sum(Capacity * Unit Price * Utilization) across all product rows",
       "ordinary_revenue_qoq_max": _safe_float(stage_ramp_contract.get("revenue_qoq_growth_target_max")),
       "revenue_qoq_spike_max": _safe_float(stage_ramp_contract.get("revenue_qoq_max_spike")),
       "spike_from_quarters": copy.deepcopy(stage_ramp_contract.get("revenue_spike_window_quarters") or []),
       "max_spike_count": int(_safe_float(stage_ramp_contract.get("max_spike_count")) or 0),
-      "payroll_growth_qoq_default": _safe_float(stage_ramp_contract.get("payroll_growth_qoq_default")),
-      "payroll_growth_qoq_max": _safe_float(stage_ramp_contract.get("payroll_growth_qoq_max")),
+      "payroll_headcount_schedule_required": bool(stage_ramp_contract.get("payroll_headcount_schedule_required")),
       "quarter_ramp_grid": copy.deepcopy(_stage_ramp_grid_rows(stage_ramp_contract)),
-      "grid_rule": "Q1 is an active forecast-quarter row. For Q2-Q20, use quarter_ramp_grid row quarter_index=N as the hard revenue QoQ boundary from Q(N-1) into QN and as the payroll-growth row Python applies through OEWS/FTE payroll derivation.",
+      "payroll_headcount_grid": copy.deepcopy(stage_ramp_contract.get("payroll_headcount_grid") or []),
+      "grid_rule": "Q1 is an active forecast-quarter row. For Q2-Q20, use quarter_ramp_grid row quarter_index=N as the hard revenue QoQ boundary from Q(N-1) into QN. Payroll is calculated from payroll_headcount_grid and is not a writable repair lever.",
       "rule": (
         "When selecting revenue levers, the combined product revenue path created by all Capacity, Unit Price, "
-        "and Utilization trajectories must stay inside this ramp contract. Payroll remains Python-derived, but its growth "
-        "must follow the GPT-selected payroll_growth_target/payroll_growth_max grid instead of a hardcoded FTE cap."
+        "and Utilization trajectories must stay inside this ramp contract. Payroll remains Python-calculated from the persisted "
+        "payroll headcount schedule."
       ),
     }
   rows: List[Dict[str, Any]] = []
@@ -3102,6 +3174,14 @@ def _convergence_issue_mapping_gate(
     for item in editable_cells
     if str(item.get("lever_id") or "").strip()
   }
+  contract_horizon_quarters = {
+    int(_safe_float(item) or 0)
+    for item in (contract.get("horizon_quarters") or [])
+    if int(_safe_float(item) or 0) >= 1
+  }
+  if not contract_horizon_quarters:
+    contract_horizon_quarters = set(range(1, _contract_forecast_quarter_count() + 1))
+  max_contract_quarter = max(contract_horizon_quarters or {0})
   errors: List[Dict[str, Any]] = []
   issue_summaries: List[Dict[str, Any]] = []
   if int(active_issue_count or 0) > 0 and not issue_packets:
@@ -3137,6 +3217,20 @@ def _convergence_issue_mapping_gate(
     for repair_target in repair_targets:
       quarter_index = int(_safe_float(repair_target.get("quarter")) or 0)
       target_metric_name = str(repair_target.get("metric") or "").strip().lower()
+      if quarter_index < 1 or quarter_index not in contract_horizon_quarters:
+        errors.append(
+          {
+            "error": "issue_detection_quarter_out_of_contract_horizon",
+            "issue_code": issue_code,
+            "target_metric_name": target_metric_name,
+            "quarter_index": quarter_index or None,
+            "allowed_quarters": sorted(contract_horizon_quarters),
+            "contract_table": "post_intake_gpt_contract_lookup",
+            "reason": "Issue repair target references a quarter outside the table-backed forecast horizon. Stub Q0 is not a forecast quarter.",
+            "expected": f"Issue detection must emit only Q1-Q{max_contract_quarter} repair targets.",
+          }
+        )
+        continue
       if target_metric_name and target_metric_name not in issue_target_metrics:
         issue_target_metrics.append(target_metric_name)
       driver_paths = [
@@ -4537,36 +4631,6 @@ def _normalize_issue_record_to_controller_truth(
   record.pop("resolved_iteration", None)
   return record
 
-def _build_issue_status_records_from_issue_list(
-  *,
-  current_issues: Optional[List[Dict[str, Any]]],
-  iteration: int,
-) -> List[Dict[str, Any]]:
-  records_by_key: Dict[str, Dict[str, Any]] = {}
-  order: List[str] = []
-  for item in (current_issues or []):
-    if not isinstance(item, dict):
-      continue
-    key = _issue_ledger_key(item)
-    if not key or key in records_by_key:
-      continue
-    record = {
-      "verifier_status": "not_resolved",
-      "first_detected_iteration": int(iteration),
-      "last_seen_iteration": int(iteration),
-    }
-    record = _merge_issue_identity_fields(record, item)
-    if str(item.get("candidate_kind") or "").strip():
-      record["candidate_kind"] = str(item.get("candidate_kind") or "").strip()
-    records_by_key[key] = record
-    order.append(key)
-
-  return [
-    _normalize_issue_record_to_controller_truth(records_by_key[key])
-    for key in order
-    if isinstance(records_by_key.get(key), dict)
-  ]
-
 def _refresh_issue_status_records_from_scan(
   *,
   existing_issue_status_records: Optional[List[Dict[str, Any]]],
@@ -4695,6 +4759,7 @@ def _filter_issue_status_records(
     for item in normalized_records
     if _issue_ledger_key(item) in allowed
   ]
+
 
 def _build_realism_planner_issue_state(
   *,
@@ -5387,20 +5452,6 @@ def _merge_new_scan_detected_issues(
     index_by_key[key] = len(out) - 1
   return [_normalize_issue_record_to_controller_truth(item) for item in out if isinstance(item, dict)]
 
-def _active_issue_codes_from_memo(realism_memo_before_resolution: Optional[Dict[str, Any]]) -> List[str]:
-  active_issues = _memo_issue_records(realism_memo_before_resolution, "remaining_issues", "issues")
-  codes: List[str] = []
-  seen = set()
-  for item in active_issues:
-    if not isinstance(item, dict):
-      continue
-    code = str(item.get("issue_code") or "").strip().lower()
-    if not code or code in seen:
-      continue
-    seen.add(code)
-    codes.append(code)
-  return codes
-
 def _issue_severity_label_from_score(score: Any) -> str:
   severity_score = int(_safe_float(score) or 0)
   if severity_score >= 85:
@@ -5481,11 +5532,7 @@ def _build_deterministic_issue_packets(
     if issue_code not in issue_order:
       issue_order.append(issue_code)
 
-  quarter_count = max(
-    _CONVERGENCE_DEFAULT_QUARTER_COUNT,
-    len((((current_finmo_json or {}).get("quarter_rows") or []) if isinstance(current_finmo_json, dict) else [])),
-    len(baseline_quarter_map),
-  )
+  quarter_count = _contract_forecast_quarter_count()
   packets: List[Dict[str, Any]] = []
   for issue_code in issue_order:
     record = issue_record_map.get(issue_code) or {}
@@ -6043,6 +6090,76 @@ def _raise_p_and_l_flatline_if_needed(
     detail="p_and_l_flatline",
     diagnostics=diagnostics,
   )
+
+
+def _build_capacity_support_issue_status_records(
+  *,
+  finmo_json: Optional[Dict[str, Any]],
+  iteration: int,
+) -> List[Dict[str, Any]]:
+  rows_by_q = _finmo_quarter_row_map(finmo_json)
+  if not rows_by_q:
+    return []
+  metric_specs: List[Dict[str, Any]] = []
+  problem_quarters: List[int] = []
+  for quarter_index in range(1, _contract_forecast_quarter_count() + 1):
+    quarter_specs = _issue_metric_specs_for_quarter(
+      issue_code="capacity_support_mismatch",
+      quarter_index=quarter_index,
+      quarter_row=rows_by_q.get(quarter_index) or {},
+    )
+    actionable_specs = [
+      copy.deepcopy(spec)
+      for spec in quarter_specs
+      if isinstance(spec, dict)
+      and str(spec.get("metric_name") or "").strip()
+      and (
+        not bool(spec.get("within_boundary"))
+        or abs(float(_safe_float(spec.get("gap_abs")) or 0.0)) > 1e-9
+      )
+      and (
+        _safe_float(spec.get("target_floor")) is not None
+        or _safe_float(spec.get("target_ceiling")) is not None
+      )
+    ]
+    if not actionable_specs:
+      continue
+    problem_quarters.append(quarter_index)
+    for spec in actionable_specs:
+      spec["quarter_index"] = int(quarter_index)
+      metric_specs.append(spec)
+  if not problem_quarters or not metric_specs:
+    return []
+  allowed_levers = post_intake_issue_candidate_lever_ids(
+    "capacity_support_mismatch",
+    phase="convergence",
+  )
+  if not allowed_levers:
+    raise RuntimeError(
+      "capacity_support_mismatch_mapping_failed: capacity support issue fired but no table-backed revenue levers are available."
+    )
+  return [
+    _normalize_issue_record_to_controller_truth(
+      {
+        "issue": "capacity_support_mismatch",
+        "issue_code": "capacity_support_mismatch",
+        "detail": (
+          "Capacity/revenue support intensity is outside the deterministic table-backed operating band. "
+          "Repair must use mapped revenue drivers only."
+        ),
+        "candidate_kind": "deterministic_capacity_support_detector",
+        "remaining_problem_quarters": sorted(set(problem_quarters)),
+        "remaining_issue_materiality": "material",
+        "remaining_issue_severity_score": 100,
+        "next_required_lever_ids": copy.deepcopy(allowed_levers),
+        "metric_debug": metric_specs,
+        "first_detected_iteration": max(1, int(iteration or 1)),
+        "last_seen_iteration": max(1, int(iteration or 1)),
+        "verifier_status": "not_resolved",
+      }
+    )
+  ]
+
 
 def _p_and_l_flatline_signals(finmo_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
   rows_by_q = _finmo_quarter_row_map(finmo_json)

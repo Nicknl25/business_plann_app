@@ -26,6 +26,7 @@ R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
 R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_contract_forecast_horizon_quarter_count,
   post_intake_gpt_contract_errors,
   post_intake_gpt_contract_horizon_errors,
   post_intake_gpt_contract_normalize_payload,
@@ -34,6 +35,7 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_contract_prompt_field_spec,
   stage_planning_ramp_policy,
 )
+from client_intake_and_finmo.post_intake_headcount import post_intake_headcount_policy_for  # type: ignore
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -43,6 +45,21 @@ def _safe_float(value: Any) -> Optional[float]:
     return float(value)
   except Exception:
     return None
+
+
+def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_decision") -> int:
+  try:
+    return max(
+      1,
+      int(
+        post_intake_contract_forecast_horizon_quarter_count(
+          contract_name=contract_name,
+        )
+        or 0
+      ),
+    )
+  except Exception:
+    return _CONVERGENCE_DEFAULT_QUARTER_COUNT
 
 
 def _safe_ratio(value: Any) -> Optional[float]:
@@ -218,7 +235,7 @@ __all__ = [
   "_target_miss_verification_fallback",
   "_realism_verification_scope_payload",
   "_run_realism_verification_openai",
-  "_validate_payroll_derivation_contract",
+  "_validate_payroll_headcount_contract",
   "_normalize_retry_requirements_to_allowed_scope",
   "_autofill_unified_mapped_repair_targets_for_lever",
   "_auto_repair_unified_primary_metric_coverage",
@@ -395,6 +412,11 @@ def _stage_ramp_contract_schema() -> Dict[str, Any]:
       "lease_max": {"type": "number", "minimum": 0, "maximum": 1},
       "ni_floor": margin_schema,
       "fte_spike_small_base_threshold": {"type": "number", "minimum": -1, "maximum": 1000},
+      "starting_fte": {"type": "number", "minimum": 0, "maximum": 100000},
+      "hires": {"type": "number", "minimum": 0, "maximum": 100000},
+      "ending_fte": {"type": "number", "minimum": 0, "maximum": 100000},
+      "avg_annual_wage": {"type": "integer", "minimum": 1, "maximum": 1000000},
+      "payroll_tax_benefits_pct": {"type": "number", "minimum": 0, "maximum": 1},
     },
   )
 
@@ -492,6 +514,12 @@ def _validate_stage_ramp_contract_payload(
     raw_grid = []
   if len(raw_grid) != 20:
     errors.append(f"quarter_ramp_grid must contain exactly 20 rows; received {len(raw_grid)}")
+  raw_headcount_grid = candidate.get("payroll_headcount_grid")
+  if not isinstance(raw_headcount_grid, list):
+    errors.append("payroll_headcount_grid must be a 20-row array")
+    raw_headcount_grid = []
+  if len(raw_headcount_grid) != 20:
+    errors.append(f"payroll_headcount_grid must contain exactly 20 rows; received {len(raw_headcount_grid)}")
 
   rows_by_quarter: Dict[int, Dict[str, Any]] = {}
   normalized_rows: List[Dict[str, Any]] = []
@@ -503,8 +531,6 @@ def _validate_stage_ramp_contract_payload(
     "fte_qoq_target": "fte_target",
     "fte_qoq_max": "fte_max",
     "fte_qoq_spike_max": "fte_spike_max",
-    "payroll_growth_target": "payroll_growth_target",
-    "payroll_growth_max": "payroll_growth_max",
     "utilization_cap": "max_util",
     "cogs_percent_of_revenue_target": "cogs_target",
     "cogs_percent_of_revenue_max": "cogs_max",
@@ -532,8 +558,6 @@ def _validate_stage_ramp_contract_payload(
       "fte_qoq_target",
       "fte_qoq_max",
       "fte_qoq_spike_max",
-      "payroll_growth_target",
-      "payroll_growth_max",
       "utilization_cap",
       "cogs_percent_of_revenue_target",
       "cogs_percent_of_revenue_max",
@@ -579,8 +603,6 @@ def _validate_stage_ramp_contract_payload(
       errors.append(f"quarter_ramp_grid Q{quarter_index} fte_qoq_target cannot exceed fte_qoq_max")
     if fte_spike_allowed and parsed.get("fte_qoq_spike_max", 0.0) < parsed.get("fte_qoq_max", 0.0) - 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} fte_qoq_spike_max must be >= fte_qoq_max")
-    if parsed.get("payroll_growth_target", 0.0) > parsed.get("payroll_growth_max", 0.0) + 1e-9:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} payroll_growth_target cannot exceed payroll_growth_max")
     if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
     if parsed.get("cogs_percent_of_revenue_max", 0.0) < 0.20:
@@ -630,8 +652,6 @@ def _validate_stage_ramp_contract_payload(
       "fte_qoq_max": round(float(parsed.get("fte_qoq_max") or 0.0), 2),
       "fte_qoq_spike_allowed": fte_spike_allowed,
       "fte_qoq_spike_max": round(float(parsed.get("fte_qoq_spike_max") or 0.0), 2),
-      "payroll_growth_target": round(float(parsed.get("payroll_growth_target") or 0.0), 2),
-      "payroll_growth_max": round(float(parsed.get("payroll_growth_max") or 0.0), 2),
       "utilization_cap": round(float(parsed.get("utilization_cap") or 0.0), 2),
       "cogs_percent_of_revenue_target": round(float(parsed.get("cogs_percent_of_revenue_target") or 0.0), 2),
       "cogs_percent_of_revenue_max": round(float(parsed.get("cogs_percent_of_revenue_max") or 0.0), 2),
@@ -651,6 +671,95 @@ def _validate_stage_ramp_contract_payload(
     errors.append(f"quarter_ramp_grid missing required quarter rows {missing_quarters}")
 
   normalized_rows = [rows_by_quarter[quarter] for quarter in sorted(rows_by_quarter)]
+  headcount_rows_by_quarter: Dict[int, Dict[str, Any]] = {}
+  normalized_headcount_rows: List[Dict[str, Any]] = []
+  prior_ending_fte: Optional[float] = None
+  for item in raw_headcount_grid:
+    if not isinstance(item, dict):
+      errors.append("payroll_headcount_grid entries must be objects")
+      continue
+    quarter_index = int(_safe_float(item.get("q") or item.get("quarter_index")) or 0)
+    if quarter_index < 1 or quarter_index > 20:
+      errors.append(f"payroll_headcount_grid has invalid q {item.get('q')!r}")
+      continue
+    if quarter_index in headcount_rows_by_quarter:
+      errors.append(f"payroll_headcount_grid contains duplicate quarter_index {quarter_index}")
+      continue
+    role_category = str(item.get("role_category") or "").strip()
+    if not role_category:
+      errors.append(f"payroll_headcount_grid Q{quarter_index} role_category is required")
+    wage_source = str(item.get("wage_source") or "").strip().lower()
+    if wage_source not in {"oews_role_match", "oews_naics_role_fallback", "gpt_business_role_wage"}:
+      errors.append(
+        f"payroll_headcount_grid Q{quarter_index} wage_source must be oews_role_match, oews_naics_role_fallback, or gpt_business_role_wage"
+      )
+    starting_fte = _safe_float(item.get("starting_fte"))
+    hires = _safe_float(item.get("hires"))
+    ending_fte = _safe_float(item.get("ending_fte"))
+    annual_wage = _safe_float(item.get("avg_annual_wage"))
+    tax_benefits = _safe_float(item.get("payroll_tax_benefits_pct"))
+    if starting_fte is None or starting_fte < 0.0:
+      errors.append(f"payroll_headcount_grid Q{quarter_index} starting_fte must be >= 0")
+      starting_fte = 0.0
+    if hires is None or hires < 0.0:
+      errors.append(f"payroll_headcount_grid Q{quarter_index} hires must be >= 0")
+      hires = 0.0
+    if ending_fte is None or ending_fte < 0.0:
+      errors.append(f"payroll_headcount_grid Q{quarter_index} ending_fte must be >= 0")
+      ending_fte = 0.0
+    if annual_wage is None or annual_wage <= 0.0:
+      errors.append(f"payroll_headcount_grid Q{quarter_index} avg_annual_wage must be > 0")
+      annual_wage = 1.0
+    if tax_benefits is None or tax_benefits < 0.0 or tax_benefits > 1.0:
+      errors.append(f"payroll_headcount_grid Q{quarter_index} payroll_tax_benefits_pct must be between 0.00 and 1.00")
+      tax_benefits = 0.0
+    starting_fte = round(float(starting_fte), 2)
+    hires = round(float(hires), 2)
+    ending_fte = round(float(ending_fte), 2)
+    if prior_ending_fte is not None and abs(starting_fte - prior_ending_fte) > 0.01:
+      errors.append(
+        f"payroll_headcount_grid Q{quarter_index} starting_fte must equal prior quarter ending_fte"
+      )
+    if abs((starting_fte + hires) - ending_fte) > 0.01:
+      errors.append(
+        f"payroll_headcount_grid Q{quarter_index} starting_fte + hires must equal ending_fte"
+      )
+    normalized_headcount_row = {
+      "quarter_index": quarter_index,
+      "role_category": role_category or "aggregate_staff",
+      "starting_fte": starting_fte,
+      "hires": hires,
+      "ending_fte": ending_fte,
+      "avg_annual_wage": int(round(float(annual_wage))),
+      "payroll_tax_benefits_pct": round(float(tax_benefits), 2),
+      "wage_source": wage_source or "gpt_business_role_wage",
+    }
+    headcount_rows_by_quarter[quarter_index] = normalized_headcount_row
+    normalized_headcount_rows.append(normalized_headcount_row)
+    prior_ending_fte = ending_fte
+  missing_headcount_quarters = [quarter for quarter in range(1, 21) if quarter not in headcount_rows_by_quarter]
+  if missing_headcount_quarters:
+    errors.append(f"payroll_headcount_grid missing required quarter rows {missing_headcount_quarters}")
+  normalized_headcount_rows = [headcount_rows_by_quarter[quarter] for quarter in sorted(headcount_rows_by_quarter)]
+  for quarter_index in range(2, 21):
+    headcount_row = headcount_rows_by_quarter.get(quarter_index) or {}
+    previous_headcount_row = headcount_rows_by_quarter.get(quarter_index - 1) or {}
+    ramp_row = rows_by_quarter.get(quarter_index) or {}
+    prior_fte = float(previous_headcount_row.get("ending_fte") or 0.0)
+    ending_fte = float(headcount_row.get("ending_fte") or 0.0)
+    if prior_fte <= 0.0:
+      continue
+    actual_fte_growth = (ending_fte - prior_fte) / prior_fte
+    allowed_fte_growth = (
+      float(ramp_row.get("fte_qoq_spike_max") or 0.0)
+      if bool(ramp_row.get("fte_qoq_spike_allowed"))
+      else float(ramp_row.get("fte_qoq_max") or 0.0)
+    )
+    if actual_fte_growth > allowed_fte_growth + 1e-9:
+      errors.append(
+        f"payroll_headcount_grid Q{quarter_index} FTE growth {round(actual_fte_growth, 6)} exceeds "
+        f"quarter_ramp_grid fte limit {round(allowed_fte_growth, 6)}"
+      )
   prior_utilization_cap: Optional[float] = None
   prior_margin_floor: Optional[float] = None
   for row in normalized_rows:
@@ -731,8 +840,6 @@ def _validate_stage_ramp_contract_payload(
     for row in live_rows
     if bool(row.get("fte_qoq_spike_allowed"))
   ]
-  payroll_growth_targets = [float(row.get("payroll_growth_target") or 0.0) for row in live_rows]
-  payroll_growth_maxes = [float(row.get("payroll_growth_max") or 0.0) for row in live_rows]
   revenue_spike_window = [
     int(row.get("prior_quarter_index") or 0)
     for row in live_rows
@@ -762,6 +869,7 @@ def _validate_stage_ramp_contract_payload(
     "decision_source": "gpt_pre_convergence",
     "stage_family": expected_family,
     "quarter_ramp_grid": copy.deepcopy(normalized_rows),
+    "payroll_headcount_grid": copy.deepcopy(normalized_headcount_rows),
     "revenue_qoq_growth_target_min": round(min(revenue_targets or [0.0]), 2),
     "revenue_qoq_growth_target_max": round(max(revenue_maxes or [0.0]), 2),
     "revenue_qoq_default": round(sum(revenue_targets) / max(len(revenue_targets), 1), 2),
@@ -773,8 +881,7 @@ def _validate_stage_ramp_contract_payload(
     "fte_qoq_default": round(sum(fte_targets) / max(len(fte_targets), 1), 2),
     "fte_qoq_max": round(max(fte_maxes or [0.0]), 2),
     "fte_qoq_max_spike": round(max(fte_spikes or fte_maxes or [0.0]), 2),
-    "payroll_growth_qoq_default": round(sum(payroll_growth_targets) / max(len(payroll_growth_targets), 1), 2),
-    "payroll_growth_qoq_max": round(max(payroll_growth_maxes or [0.0]), 2),
+    "payroll_headcount_schedule_required": True,
     "fte_spike_small_base_threshold": (
       None
       if small_base_threshold is not None and float(small_base_threshold) < 0
@@ -1287,6 +1394,7 @@ def _estimate_stage_ramp_contract_with_gpt(
         "utilization_high_watermark",
         "fte_spike_small_base_threshold",
         "quarter_ramp_grid",
+        "payroll_headcount_grid",
         "rationale",
       ],
       "quarter_ramp_grid_fields": [
@@ -1299,8 +1407,6 @@ def _estimate_stage_ramp_contract_with_gpt(
         "fte_max",
         "fte_spike",
         "fte_spike_max",
-        "payroll_growth_target",
-        "payroll_growth_max",
         "max_util",
         "cogs_target",
         "cogs_max",
@@ -1312,7 +1418,18 @@ def _estimate_stage_ramp_contract_with_gpt(
         "posture",
         "why",
       ],
+      "payroll_headcount_grid_fields": [
+        "q",
+        "role_category",
+        "starting_fte",
+        "hires",
+        "ending_fte",
+        "avg_annual_wage",
+        "payroll_tax_benefits_pct",
+        "wage_source",
+      ],
       "quarter_ramp_grid_row_count": 20,
+      "payroll_headcount_grid_row_count": 20,
     },
   }
   stage_policy_context = {
@@ -1323,11 +1440,12 @@ def _estimate_stage_ramp_contract_with_gpt(
     "profitability_postures": stage_policy.get("profitability_postures"),
     "validator_rules": stage_policy.get("validator_rules"),
   }
+  headcount_policy_context = post_intake_headcount_policy_for("default")
   user_context = {
     "task": (
       "Return one binding 20-quarter business maturity grid for post-intake planning. "
       "The grid replaces static hardcoded ramp percentages and late profitability repairs. "
-      "Python will enforce it before convergence by shaping revenue movement, payroll growth through the OEWS/FTE formula, and cost/profitability guardrails."
+      "Python will enforce it before convergence by shaping revenue movement, a real payroll headcount schedule, and cost/profitability guardrails."
     ),
     "gpt_contract_field_spec": compact_ramp_contract_spec,
     "business_identity": {
@@ -1360,6 +1478,9 @@ def _estimate_stage_ramp_contract_with_gpt(
       "cash_on_hand": financials.get("cash_on_hand"),
       "initial_assets": financials.get("initial_assets"),
       "total_debt_outstanding": financials.get("total_debt_outstanding"),
+      "client_reported_current_num_employees": financials.get("current_num_employees"),
+      "client_reported_payroll_total_year1": financials.get("payroll_total_year1"),
+      "client_reported_owner_compensation": financials.get("owner_compensation"),
     },
     "r_and_d_applicability": {
       key: copy.deepcopy(value)
@@ -1367,6 +1488,26 @@ def _estimate_stage_ramp_contract_with_gpt(
       if key not in {"prompt_context", "raw_openai_response"}
     },
     "stage_profitability_policy": stage_policy_context,
+    "payroll_headcount_policy": {
+      key: copy.deepcopy(value)
+      for key, value in (headcount_policy_context or {}).items()
+      if key in {
+        "policy_code",
+        "schedule_storage_table",
+        "schedule_storage_column",
+        "schedule_contract_version",
+        "schedule_horizon_quarters",
+        "model_input_driver",
+        "financial_model_field",
+        "headcount_source_priority",
+        "wage_source_priority",
+        "generic_oews_fallback_allowed",
+        "role_category_required",
+        "fte_math_required",
+        "currency_rounding",
+        "ratio_rounding",
+      }
+    },
     "current_model_snapshot": {
       "revenue_driver_states_first_4_quarters": {
         int(key): value
@@ -1387,7 +1528,8 @@ def _estimate_stage_ramp_contract_with_gpt(
       "All rate values must use at most two decimal places.",
       "stage_family must exactly equal stage_family_required.",
       "quarter_ramp_grid must contain exactly 20 rows, one for every forecast quarter Q1 through Q20.",
-      "Use the compact row field names required by the schema: q, rev_target, rev_max, rev_spike, rev_spike_max, fte_target, fte_max, fte_spike, fte_spike_max, payroll_growth_target, payroll_growth_max, max_util, cogs_target, cogs_max, marketing_max, rd_max, ga_max, lease_max, ni_floor, posture, why.",
+      "Use the compact quarter_ramp_grid field names required by the schema: q, rev_target, rev_max, rev_spike, rev_spike_max, fte_target, fte_max, fte_spike, fte_spike_max, max_util, cogs_target, cogs_max, marketing_max, rd_max, ga_max, lease_max, ni_floor, posture, why.",
+      "Use the compact payroll_headcount_grid field names required by the schema: q, role_category, starting_fte, hires, ending_fte, avg_annual_wage, payroll_tax_benefits_pct, wage_source.",
       "Q1 is an active forecast-quarter ramp row. Do not zero it out.",
       "For Q1, the row describes the first forecast quarter's realistic ramp posture and max allowed first-quarter operating move.",
       "For Q2 through Q20, each row describes the maximum movement from the prior forecast quarter into that row's quarter.",
@@ -1395,8 +1537,9 @@ def _estimate_stage_ramp_contract_with_gpt(
       "Set spike flags only for specific quarters where the business type and stage can realistically support a one-time or discrete expansion jump.",
       "Use fte_spike_small_base_threshold=-1 when no small-base spike threshold applies.",
       "FTE growth does not need to equal revenue growth. Revenue can grow through utilization, price, mix, or productivity, so choose fte_max and fte_spike_max as realistic staffing constraints for the business type. If fte_spike is false, set fte_spike_max equal to fte_max, not 0.",
-      "payroll_growth_target is the realistic quarter-over-quarter payroll growth shape Python will apply through the OEWS/FTE payroll formula. payroll_growth_max is the upper business-realism boundary for that same quarter and must be at least payroll_growth_target.",
-      "Do not output payroll dollars or FTE counts. Payroll remains Python-derived from revenue, OEWS wages, and the payroll growth grid.",
+      "Payroll is schedule-backed. GPT must provide one headcount row for every Q1-Q20 row; Python calculates payroll dollars from average FTE, annual wage, and payroll taxes/benefits.",
+      "For payroll_headcount_grid, starting_fte + hires must equal ending_fte, and each quarter's starting_fte must equal the prior quarter's ending_fte.",
+      "Do not output payroll dollars. Output staffing FTE and wage assumptions only; Python calculates the payroll model-input row and stores the schedule in intake_consult_drafts.payroll_headcount.",
       "max_util is a maximum achievable utilization ceiling, not the current utilization target. Adjacent max_util values must be non-decreasing and must not imply utilization growth above that row's allowed revenue growth.",
       "Every row must include COGS, marketing, rd_max, G&A, lease, net income margin floor, and profitability posture maturity fields because the schema requires those fields.",
       rd_cost_rule,
@@ -1423,7 +1566,7 @@ def _estimate_stage_ramp_contract_with_gpt(
     "This is not a forecast and not a repair plan; it is the operating-world maturity grid Python will enforce. "
     "Fill exactly one active row per forecast quarter Q1 through Q20. Q1 is part of the forecast and must have "
     "realistic non-placeholder ramp limits for the first forecast quarter. For Q2-Q20, choose realistic revenue "
-    "and payroll QoQ growth from the prior forecast quarter into that quarter. Also choose realistic cost-ratio "
+    "and staffing/headcount movement from the prior forecast quarter into that quarter. Also choose realistic cost-ratio "
     "caps and net-income margin floors so the initial plan matures naturally rather than needing a late repair pass. "
     "max_util is the maximum achievable utilization ceiling for the quarter and must never decline; it is not the "
     "current utilization target. Be strict enough to prevent fantasy growth, fake instant profitability, and "
@@ -3305,14 +3448,14 @@ def _run_realism_verification_openai(
     "verification": parsed,
   }
 
-def _validate_payroll_derivation_contract(
+def _validate_payroll_headcount_contract(
   *,
   model_input_json: Optional[Dict[str, Any]],
   business_world_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  from client_intake_and_finmo.post_intake_derived_drivers.payroll import validate_payroll_derivation_contract  # type: ignore
+  from client_intake_and_finmo.post_intake_derived_drivers.payroll import validate_payroll_headcount_contract  # type: ignore
 
-  return validate_payroll_derivation_contract(
+  return validate_payroll_headcount_contract(
     model_input_json=model_input_json,
     business_world_contract=business_world_contract,
   )
@@ -3867,11 +4010,7 @@ def _shape_sensitive_remaining_horizon_requirements(
     "materiality_triggered_lever_ids": copy.deepcopy(materiality_triggered_lever_ids),
     "required_target_quarters": _remaining_horizon_quarters(
       start_quarter=anchor_quarter,
-      quarter_count=max(
-        int(_safe_float(full_horizon_quarter_count) or 0),
-        _baseline_map_quarter_count(baseline_map),
-        _solver_contract_quarter_count(numeric_solver_contract),
-      ),
+      quarter_count=_contract_forecast_quarter_count(),
     ),
     "anchor_quarter": anchor_quarter,
   }
@@ -5827,10 +5966,7 @@ def _build_convergence_retry_focus_packet(
     max(1, min(3, len(issue_coverage_requirements) + 1)),
   )
 
-  quarter_count = max(
-    int(_CONVERGENCE_DEFAULT_QUARTER_COUNT or 20),
-    int(_solver_contract_quarter_count(contract) or 20),
-  )
+  quarter_count = _contract_forecast_quarter_count()
   full_horizon_quarters = convergence_full_horizon_quarters(quarter_count)
   return {
     "progress_status": progress_status,
@@ -6101,7 +6237,7 @@ def _business_world_contract(
     "profitability_maturity_month": 30,
     "rule_summary": (
       "Planning mode is the canonical operating posture. Business stage and age are binding lifecycle limiters. "
-      "The GPT-selected stage maturity grid is binding before convergence: revenue, utilization, payroll growth, cost-ratio caps, "
+      "The GPT-selected stage maturity grid is binding before convergence: revenue, utilization, payroll headcount schedule, cost-ratio caps, "
       "and profitability posture must mature together. Negative net income may be stage-appropriate early, but chronic "
       "mature losses or late losses caused by unsupported operating economics are not coherent."
     ),

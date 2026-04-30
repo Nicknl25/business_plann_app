@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_contract_forecast_horizon_quarter_count,
   post_intake_gpt_context_filter_payload,
   post_intake_gpt_context_request_char_budget,
 )
@@ -37,6 +38,21 @@ _CASH_PASS_OWNED_ISSUE_CODES = {"liquidity_failure", "working_capital_mismatch",
 _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple()
 _UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
 _UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.md"
+
+
+def _contract_forecast_quarter_count() -> int:
+  try:
+    return max(
+      1,
+      int(
+        post_intake_contract_forecast_horizon_quarter_count(
+          contract_name="unified_convergence_decision",
+        )
+        or 0
+      ),
+    )
+  except Exception:
+    return _CONVERGENCE_DEFAULT_QUARTER_COUNT
 
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
@@ -1471,10 +1487,7 @@ def _build_current_cycle_convergence_packet(
     controller_resolution_state=controller_state,
     controller_retry_context=retry_context,
     unified_convergence_context=convergence_context,
-    quarter_count=max(
-      _CONVERGENCE_DEFAULT_QUARTER_COUNT,
-      len(current_finmo_rows or []),
-    ),
+    quarter_count=_contract_forecast_quarter_count(),
   )
   repair_aware_issue_packets = _repair_aware_issue_packets(
     issue_packets=copy.deepcopy(convergence_context.get("deterministic_issue_packets") or []),
@@ -2986,24 +2999,24 @@ def _build_unified_convergence_pass_plan(
         baseline_map=baseline_map,
       )
     )
-  payroll_derivation_validation = _validate_payroll_derivation_contract(
+  payroll_headcount_validation = _validate_payroll_headcount_contract(
     model_input_json=copy.deepcopy(solved_model_input_json or {}),
     business_world_contract=copy.deepcopy(business_world_contract),
   )
   warnings: List[str] = []
   if payroll_selection_requested:
     warnings.append(
-      "unified_cycle: Payroll is revenue/OEWS-derived and must not be selected as a writable convergence lever."
+      "unified_cycle: Payroll is headcount-schedule-derived and must not be selected as a writable convergence lever."
     )
     lever_bound_validation_details.append(
       {
-        "error": "payroll_is_derived_not_writable",
+        "error": "payroll_headcount_schedule_not_writable",
         "lever_id": "expenses::Payroll",
         "quarter": None,
         "previous_value": None,
         "current_value": None,
         "reason": (
-          "Payroll is revenue/OEWS-derived in the model-input layer and must not be selected as a writable convergence lever."
+          "Payroll is derived from the persisted payroll headcount schedule in the model-input layer and must not be selected as a writable convergence lever."
         ),
         "validation_category": "internal_consistency",
       }
@@ -3212,13 +3225,13 @@ def _build_unified_convergence_pass_plan(
   elif not touched_lever_ids and not model_input_repair_exact_updates:
     status = "ready_no_valid_solver_contract"
     next_step = "review_unified_targets_levers_and_bands_before_solver"
-  elif payroll_derivation_validation.get("details"):
+  elif payroll_headcount_validation.get("details"):
     status = "ready_no_valid_solver_contract"
-    next_step = "fix_payroll_derivation_contract_before_solver"
+    next_step = "fix_payroll_headcount_contract_before_solver"
     warnings.extend(
       [
         f"unified_cycle: {str(item.get('reason') or '').strip()}"
-        for item in (payroll_derivation_validation.get("details") or [])
+        for item in (payroll_headcount_validation.get("details") or [])
         if isinstance(item, dict) and str(item.get("reason") or "").strip()
       ]
     )
@@ -3264,22 +3277,22 @@ def _build_unified_convergence_pass_plan(
         "validation_category": str(detail.get("validation_category") or "").strip() or None,
       }
     )
-  for detail in (payroll_derivation_validation.get("details") or []):
+  for detail in (payroll_headcount_validation.get("details") or []):
     if not isinstance(detail, dict):
       continue
-    pre_solver_validation_fail_flags.append("payroll_derivation_failed")
+    pre_solver_validation_fail_flags.append("payroll_headcount_failed")
     error_code = str(detail.get("error") or "").strip()
-    if error_code in _PAYROLL_DERIVATION_TEST_MODE_FAIL_FLAGS:
+    if error_code in _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS:
       pre_solver_validation_fail_flags.append(error_code)
     pre_solver_validation_errors.append(
       {
-        "error": error_code or "payroll_derivation_failed",
+        "error": error_code or "payroll_headcount_failed",
         "lever_id": str(detail.get("lever_id") or "").strip() or "expenses::Payroll",
         "quarter": int(_safe_float(detail.get("quarter")) or 0) or None,
         "previous_value": _safe_float(detail.get("previous_value")),
         "current_value": _safe_float(detail.get("current_value")),
         "reason": str(detail.get("reason") or "").strip() or None,
-        "validation_category": str(detail.get("validation_category") or "").strip() or "payroll_derivation",
+        "validation_category": str(detail.get("validation_category") or "").strip() or "payroll_headcount_schedule",
       }
     )
   for detail in (guidance_packet.get("translation_failures") or []):
@@ -3415,7 +3428,7 @@ def _build_unified_convergence_pass_plan(
     "auto_generated_lever_adjustment_count": len(auto_lever_adjustments),
     "shape_sensitive_requirements": copy.deepcopy(shape_sensitive_requirements),
     "pre_solver_validation": copy.deepcopy(pre_solver_validation),
-    "payroll_derivation_validation": copy.deepcopy(payroll_derivation_validation),
+    "payroll_headcount_validation": copy.deepcopy(payroll_headcount_validation),
     "translation_failures": copy.deepcopy(guidance_packet.get("translation_failures") or []),
     "deterministic_guidance_metric_count": len(guidance_packet.get("metric_pressure_packets") or []),
     "deterministic_guidance_lever_count": len(guidance_packet.get("lever_band_scaffold") or []),

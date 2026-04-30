@@ -70,6 +70,8 @@ def _safe_float(value: Any) -> Optional[float]:
 _ENGINE_JSON_COLUMNS = (
   "model_input_json",
   "finmo_json",
+  "payroll_headcount",
+  "debt_schedule",
   "planning_context_summary_json",
   "planning_run_json",
   "planning_runtime_json",
@@ -1038,6 +1040,8 @@ def _ensure_table_inner(conn) -> None:
         realism_memo_json LONGTEXT NULL,
         model_input_json LONGTEXT NULL,
         finmo_json LONGTEXT NULL,
+        payroll_headcount LONGTEXT NULL,
+        debt_schedule LONGTEXT NULL,
         planning_context_summary_json LONGTEXT NULL,
         planning_run_json LONGTEXT NULL,
         planning_runtime_json LONGTEXT NULL,
@@ -1251,6 +1255,10 @@ def _ensure_table_inner(conn) -> None:
     alterations.append("ADD COLUMN model_input_json LONGTEXT NULL")
   if "finmo_json" not in cols:
     alterations.append("ADD COLUMN finmo_json LONGTEXT NULL")
+  if "payroll_headcount" not in cols:
+    alterations.append("ADD COLUMN payroll_headcount LONGTEXT NULL")
+  if "debt_schedule" not in cols:
+    alterations.append("ADD COLUMN debt_schedule LONGTEXT NULL")
   if "planning_context_summary_json" not in cols:
     alterations.append("ADD COLUMN planning_context_summary_json LONGTEXT NULL")
   if "planning_run_json" not in cols:
@@ -1683,6 +1691,8 @@ def _render_messages_for_storage(
   numeric_solver_feedback_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
+  debt_schedule: Optional[Dict[str, Any]] = None,
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
   try:
@@ -1722,6 +1732,12 @@ def _render_messages_for_storage(
     ),
     "finmo_json": (
       finmo_json if finmo_json is not None else _parse_json_object(row.get("finmo_json"))
+    ),
+    "payroll_headcount": (
+      payroll_headcount if payroll_headcount is not None else _parse_json_object(row.get("payroll_headcount"))
+    ),
+    "debt_schedule": (
+      debt_schedule if debt_schedule is not None else _parse_json_object(row.get("debt_schedule"))
     ),
     "planning_run": (
       planning_run_json
@@ -1776,6 +1792,8 @@ def append_messages(
   financial_story: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
+  debt_schedule: Optional[Dict[str, Any]] = None,
   pending_ops_milestone_json: Optional[Any] = None,
   fulfillment_json: Optional[Dict[str, Any]] = None,
   active_focus: Optional[str] = None,
@@ -1817,6 +1835,8 @@ def append_messages(
       numeric_solver_feedback_json=numeric_solver_feedback_json,
       model_input_json=model_input_json,
       finmo_json=finmo_json,
+      payroll_headcount=payroll_headcount,
+      debt_schedule=debt_schedule,
       business_facts=business_facts,
     )
 
@@ -1867,6 +1887,14 @@ def append_messages(
   if finmo_json is not None:
     set_parts.append("finmo_json = %s")
     values.append(json.dumps(finmo_json, ensure_ascii=False))
+
+  if payroll_headcount is not None:
+    set_parts.append("payroll_headcount = %s")
+    values.append(json.dumps(payroll_headcount, ensure_ascii=False))
+
+  if debt_schedule is not None:
+    set_parts.append("debt_schedule = %s")
+    values.append(json.dumps(debt_schedule, ensure_ascii=False))
 
   if realism_memo_json is not None:
     set_parts.append("realism_memo_json = %s")
@@ -1986,6 +2014,8 @@ def append_messages(
       "realism_memo_json",
       "model_input_json",
       "finmo_json",
+      "payroll_headcount",
+      "debt_schedule",
       "planning_context_summary_json",
       "planning_run_json",
       "planning_runtime_json",
@@ -2611,6 +2641,8 @@ def persist_post_intake_execution_state(
   realism_memo_json: Optional[Dict[str, Any]] = None,
   model_input_json: Optional[Dict[str, Any]] = None,
   finmo_json: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
+  debt_schedule: Optional[Dict[str, Any]] = None,
   new_messages: Optional[List[Dict[str, str]]] = None,
   active_focus: Optional[str] = "done",
   status: Optional[str] = "in_progress",
@@ -2793,6 +2825,8 @@ def persist_post_intake_execution_state(
     fulfillment_json=fulfillment_json,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
+    payroll_headcount=payroll_headcount,
+    debt_schedule=debt_schedule,
     active_focus=active_focus,
     status=status,
     business_facts=business_facts,
@@ -3023,6 +3057,7 @@ def persist_post_intake_execution_state(
     "repair_guidance_json": repair_guidance_payload,
     "convergence_state_json": convergence_payload,
     "financial_story": financial_story_payload,
+    "debt_schedule": copy.deepcopy(debt_schedule or {}),
   }
 
 

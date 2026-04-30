@@ -669,6 +669,46 @@ def _cash_strategy_debt_schedule_policy_for_state(
     required=True,
   ) or {}
 
+def _cash_strategy_sba_forecast_interest_rate_policy(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  model_input = model_input_json if isinstance(model_input_json, dict) else {}
+  derived_policies = (
+    model_input.get("derived_driver_policies")
+    if isinstance(model_input.get("derived_driver_policies"), dict)
+    else {}
+  )
+  debt_rate_policy = (
+    derived_policies.get("debt_interest_rate_policy")
+    if isinstance(derived_policies.get("debt_interest_rate_policy"), dict)
+    else {}
+  )
+  debt_rate_source = (
+    debt_rate_policy.get("source_detail")
+    if isinstance(debt_rate_policy.get("source_detail"), dict)
+    else {}
+  )
+  if not debt_rate_policy:
+    raise RuntimeError(
+      "cash_debt_interest_rate_policy_missing: forecast Q1-Q20 interest rates must be backed by SBA 7(a) policy"
+    )
+  if str(debt_rate_source.get("source") or "").strip() != "sba_loan_7a_raw":
+    raise RuntimeError(
+      "cash_debt_interest_rate_policy_not_sba_backed: forecast Q1-Q20 interest rates must use sba_loan_7a_raw"
+    )
+  annual_rate = _safe_float(debt_rate_policy.get("annual_rate_decimal"))
+  if annual_rate is None:
+    annual_rate = _safe_float(debt_rate_source.get("annual_rate_decimal"))
+  if annual_rate is None or float(annual_rate) <= 0.0:
+    raise RuntimeError(
+      "cash_debt_interest_rate_policy_rate_missing: SBA-backed annual_rate_decimal must be positive"
+    )
+  return {
+    "policy": copy.deepcopy(debt_rate_policy),
+    "source_detail": copy.deepcopy(debt_rate_source),
+    "annual_rate_decimal": round(float(annual_rate), 6),
+  }
+
 def _cash_strategy_debt_opening_seed(
   *,
   model_input_json: Optional[Dict[str, Any]],
@@ -758,19 +798,28 @@ def _cash_pass_minimum_debt_schedule_plan(
     int(round(max(0.0, float(_safe_float(value) or 0.0))))
     for value in (lever_map.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
   ]
-  interest_rate_series = [
-    round(max(0.0, float(_safe_float(value) or 0.0)), 6)
-    for value in (lever_map.get("expenses::Interest Rate") or [])
-  ]
+  interest_rate_policy = _cash_strategy_sba_forecast_interest_rate_policy(model_input_json)
+  forecast_interest_rate = round(float(interest_rate_policy.get("annual_rate_decimal") or 0.0), 6)
   rows: List[Dict[str, Any]] = []
   exact_updates: List[Dict[str, Any]] = []
   if opening_debt_seed <= 0 and not any(debt_issuance_series):
+    for quarter_index in range(1, 21):
+      exact_updates.append(
+        {
+          "lever_id": "expenses::Interest Rate",
+          "quarter_index": quarter_index,
+          "exact_value": forecast_interest_rate,
+          "issue_codes": ["funding_structure_mismatch"],
+          "rationale": "Forecast Q1-Q20 interest-rate driver must use the SBA 7(a)-backed policy rate; stub Q0 remains intake history.",
+        }
+      )
     return {
       "contract_version": "cash_debt_schedule_plan_v2",
       "status": "skipped_no_debt",
       "source_of_truth": policy.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
       "lookup_function": policy.get("lookup_function") or "post_intake_cash_debt_schedule_policy",
       "policy": copy.deepcopy(policy),
+      "interest_rate_policy": copy.deepcopy(interest_rate_policy),
       "opening_debt_seed": 0,
       "annual_principal_payment": 0,
       "quarterly_minimum_principal": 0,
@@ -796,10 +845,7 @@ def _cash_pass_minimum_debt_schedule_plan(
     scheduled_principal = int(max(current_repayment, minimum_principal))
     scheduled_principal = int(min(available_debt, scheduled_principal))
     closing_debt = int(max(0, available_debt - scheduled_principal))
-    interest_rate = round(
-      float(interest_rate_series[quarter_index - 1] if quarter_index - 1 < len(interest_rate_series) else 0.0),
-      6,
-    )
+    interest_rate = forecast_interest_rate
     if available_debt > 0 and interest_rate <= 0.0:
       raise RuntimeError(
         "cash_debt_schedule_interest_rate_missing: "
@@ -817,14 +863,14 @@ def _cash_pass_minimum_debt_schedule_plan(
     )
     if interest_rate > 0.0:
       exact_updates.append(
-        {
-          "lever_id": "expenses::Interest Rate",
-          "quarter_index": quarter_index,
-          "exact_value": interest_rate,
-          "issue_codes": ["funding_structure_mismatch"],
-          "rationale": "Preserve table-required debt interest-rate driver across the 20-quarter debt schedule.",
-        }
-      )
+      {
+        "lever_id": "expenses::Interest Rate",
+        "quarter_index": quarter_index,
+        "exact_value": interest_rate,
+        "issue_codes": ["funding_structure_mismatch"],
+        "rationale": "Forecast Q1-Q20 interest-rate driver must use the SBA 7(a)-backed policy rate; stub Q0 remains intake history.",
+      }
+    )
     rows.append(
       {
         "quarter_index": quarter_index,
@@ -846,6 +892,7 @@ def _cash_pass_minimum_debt_schedule_plan(
     "source_of_truth": policy.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
     "lookup_function": policy.get("lookup_function") or "post_intake_cash_debt_schedule_policy",
     "policy": copy.deepcopy(policy),
+    "interest_rate_policy": copy.deepcopy(interest_rate_policy),
     "opening_debt_seed": int(opening_debt_seed),
     "annual_principal_payment": int(annual_principal),
     "annual_principal_source": annual_principal_source,
@@ -4322,16 +4369,13 @@ def _validate_cash_strategy_post_pass(
   candidate_finmo_json: Optional[Dict[str, Any]],
   iteration: int,
 ) -> Dict[str, Any]:
-  scan_memo = generate_realism_memo_payload_safe(
-    ops_json=ops_json if isinstance(ops_json, dict) else {},
-    financials_json=financials_json if isinstance(financials_json, dict) else {},
-    solved_model_input_json=copy.deepcopy(candidate_model_input_json or {}),
-    solved_finmo_json=copy.deepcopy(candidate_finmo_json or {}),
-  )
-  scan_issue_set = _build_issue_status_records_from_issue_list(
-    current_issues=_memo_issue_records(copy.deepcopy(scan_memo), "remaining_issues", "issues"),
-    iteration=iteration,
-  )
+  scan_memo = {
+    "contract_version": "post_intake_deterministic_cash_validation_v1",
+    "status": "ready",
+    "source_of_truth": "cash_policy_and_hard_rule_validators",
+    "issues": [],
+    "remaining_issues": [],
+  }
   # Cash pass owns liquidity, funding, debt/equity usage, and accounting gates.
   # It must not reopen convergence-owned issue classes after convergence cleared.
   refreshed_issue_ledger = copy.deepcopy(baseline_issue_ledger or [])
@@ -4430,6 +4474,51 @@ def _validate_cash_strategy_post_pass(
         "source_detail": copy.deepcopy(debt_rate_source),
       }
     )
+  else:
+    expected_sba_rate = _safe_float(debt_rate_policy.get("annual_rate_decimal"))
+    if expected_sba_rate is None:
+      expected_sba_rate = _safe_float(debt_rate_source.get("annual_rate_decimal"))
+    if expected_sba_rate is None or float(expected_sba_rate) <= 0.0:
+      cash_contract_failures.append(
+        {
+          "error": "cash_debt_interest_rate_policy_rate_missing",
+          "reason": "SBA-backed debt_interest_rate_policy must provide a positive annual_rate_decimal.",
+          "source_detail": copy.deepcopy(debt_rate_source),
+        }
+      )
+    else:
+      expected_sba_rate = round(float(expected_sba_rate), 6)
+      interest_rate_values = (
+        _solved_lever_value_map(candidate_model_input_json).get("expenses::Interest Rate")
+        or []
+      )
+      mismatched_forecast_rates = [
+        {
+          "quarter_index": index + 1,
+          "actual_interest_rate": round(float(_safe_float(value) or 0.0), 6),
+          "expected_sba_interest_rate": expected_sba_rate,
+        }
+        for index, value in enumerate(interest_rate_values[:20])
+        if round(float(_safe_float(value) or 0.0), 6) != expected_sba_rate
+      ]
+      if len(interest_rate_values) < 20:
+        mismatched_forecast_rates.append(
+          {
+            "quarter_index": "missing",
+            "actual_interest_rate": None,
+            "expected_sba_interest_rate": expected_sba_rate,
+            "received_forecast_rate_count": len(interest_rate_values),
+          }
+        )
+      if mismatched_forecast_rates:
+        cash_contract_failures.append(
+          {
+            "error": "cash_debt_interest_rate_forecast_mismatch",
+            "reason": "Stub Q0 may reflect intake, but every forecast quarter Q1-Q20 must equal the SBA-backed interest-rate policy.",
+            "violating_quarters": copy.deepcopy(mismatched_forecast_rates[:20]),
+            "source_detail": copy.deepcopy(debt_rate_source),
+          }
+        )
   debt_schedule = _cash_strategy_debt_schedule_snapshot(
     finmo_payload=copy.deepcopy(candidate_finmo_json or {}),
     model_input_json=copy.deepcopy(candidate_model_input_json or {}),
@@ -4603,13 +4692,7 @@ def _validate_cash_strategy_post_pass(
     "realism_memo_json": copy.deepcopy(realism_memo_json),
     "issue_ledger": copy.deepcopy(refreshed_issue_ledger),
     "cash_pass_scope": "cash_accounting_and_cash_contract_only",
-    "ignored_non_cash_scan_issue_codes": sorted(
-      {
-        str(item.get("issue_code") or "").strip().lower()
-        for item in scan_issue_set
-        if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
-      }
-    ),
+    "ignored_non_cash_scan_issue_codes": [],
     "controller_resolution_state": copy.deepcopy(controller_resolution_state),
     "hard_rule_assessment": copy.deepcopy(hard_rule_assessment),
     "remaining_issue_codes": remaining_issue_codes,

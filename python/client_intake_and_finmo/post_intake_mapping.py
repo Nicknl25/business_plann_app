@@ -452,8 +452,6 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_max", "fte_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_max"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike", "fte_spike", "boolean", is_array_item=True, parent_field_path="quarter_ramp_grid"),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike_max", "fte_spike_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_spike_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].payroll_growth_target", "payroll_growth_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", contract_phase="pre_convergence_derived_driver", normalization_kind="ratio_2dp", validation_kind="payroll_growth_contract", lookup_source="post_intake_derived_drivers.payroll", allowed_aliases=["payroll_qoq_growth_target"], prompt_label="Payroll QoQ growth target", prompt_required_instruction="This is the GPT-selected payroll-growth target Python applies through the OEWS/FTE payroll derived-driver module. Do not output payroll dollars.", notes="Owned by post_intake_derived_drivers.payroll; model_input Payroll remains non-writable and FINMO formula remains unchanged."),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].payroll_growth_max", "payroll_growth_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", contract_phase="pre_convergence_derived_driver", normalization_kind="ratio_2dp", validation_kind="payroll_growth_contract", lookup_source="post_intake_derived_drivers.payroll", allowed_aliases=["payroll_qoq_growth_max"], prompt_label="Payroll QoQ growth maximum", prompt_required_instruction="This is the hard upper payroll-growth realism boundary Python validates against the derived payroll row. It must be at least payroll_growth_target.", notes="Owned by post_intake_derived_drivers.payroll; this replaces legacy hardcoded payroll/FTE cap behavior."),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].max_util", "max_util", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["utilization_cap"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_target", "cogs_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_target"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_max", "cogs_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_max"]),
@@ -464,6 +462,17 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].ni_floor", "ni_floor", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["net_income_margin_floor"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].posture", "posture", "enum", is_array_item=True, parent_field_path="quarter_ramp_grid", validation_kind="enum", enum_values=["loss_allowed", "improving_losses", "near_breakeven", "positive"], allowed_aliases=["profitability_posture"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].why", "why", "string", is_array_item=True, parent_field_path="quarter_ramp_grid", allowed_aliases=["ramp_reason"]),
+]
+
+_STAGE_RAMP_PAYROLL_HEADCOUNT_GRID_FIELDS: List[Dict[str, Any]] = [
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].q", "q", "integer", is_array_item=True, parent_field_path="payroll_headcount_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].role_category", "role_category", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Role category", prompt_required_instruction="Use a concise staffing category. Use aggregate_staff only when detailed roles are not needed for realism."),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE"),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions"),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE"),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].avg_annual_wage", "avg_annual_wage", "integer_currency", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=1, max_value=1000000, normalization_kind="integer_currency", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Average annual wage"),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=1, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent"),
+  _gpt_contract_row("stage_ramp_contract", "payroll_headcount_grid", "payroll_headcount_grid[].wage_source", "wage_source", "enum", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="enum", enum_values=["oews_role_match", "oews_naics_role_fallback", "gpt_business_role_wage"], lookup_source="post_intake_headcount_policy_lookup", prompt_label="Wage source"),
 ]
 
 
@@ -485,8 +494,23 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     validation_kind="required_20q_grid",
     prompt_required_instruction="Provide exactly one stage-ramp row for each forecast quarter Q1 through Q20. The ramp GPT decides the values; Python validates the full 20-quarter grid from this contract table.",
   ),
+  _gpt_contract_row(
+    "stage_ramp_contract",
+    "root",
+    "payroll_headcount_grid",
+    "payroll_headcount_grid",
+    "array",
+    min_items=20,
+    max_items=20,
+    item_contract_grid_name="payroll_headcount_grid",
+    horizon_rule="q1_to_q20_exactly_once",
+    validation_kind="payroll_headcount_schedule",
+    lookup_source="post_intake_headcount_policy_lookup",
+    prompt_required_instruction="Provide exactly one payroll headcount row for every forecast quarter Q1 through Q20. GPT decides staffing FTE and wage assumptions; Python calculates payroll dollars and stores intake_consult_drafts.payroll_headcount.",
+  ),
   _gpt_contract_row("stage_ramp_contract", "root", "rationale", "rationale", "string"),
   *_STAGE_RAMP_GRID_FIELDS,
+  *_STAGE_RAMP_PAYROLL_HEADCOUNT_GRID_FIELDS,
   _gpt_contract_row("r_and_d_applicability", "root", "r_and_d_enabled", "r_and_d_enabled", "boolean", validation_kind="boolean"),
   _gpt_contract_row("r_and_d_applicability", "root", "rationale", "rationale", "string"),
   _gpt_contract_row("unified_convergence_decision", "root", "strategy_class", "strategy_class", "string"),
@@ -687,6 +711,7 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("stage_ramp_contract", "financial_context", context_group="financials", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "r_and_d_applicability", context_group="policy", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "stage_profitability_policy", context_group="policy", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "payroll_headcount_policy", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "contract_field_spec", context_group="contract", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "required_response_shape", context_group="contract", include_phase="pre_convergence"),
@@ -790,7 +815,7 @@ def stage_planning_ramp_policy(
       "Do not start Q1 at or near the late-horizon revenue, utilization, or capacity run-rate.",
       "Capacity may exist ahead of demand, but revenue should come from staged utilization and price realization rather than instant full-scale operations.",
       "Revenue, utilization, capacity, staffing support, capex, and profitability must ramp together.",
-      "Because Payroll is derived through OEWS/FTE logic, revenue, utilization, capacity, and the GPT-selected payroll growth grid must stay coherent.",
+      "Because Payroll is calculated through the GPT-selected headcount schedule, revenue, utilization, capacity, and staffed FTE must stay coherent.",
       "Early losses or modest profitability may be realistic; instant mature profitability is not the goal.",
     ]
     policy["early_revenue_share_ceiling_of_late_run_rate"] = {
@@ -2877,6 +2902,25 @@ class PostIntakeGptContractLookup:
         quarters.add(int(quarter_value))
     return quarters
 
+  def _expected_quarters_for_rule(self, horizon_rule: Any) -> Set[int]:
+    rule = _clean_text(horizon_rule).lower()
+    if not rule:
+      return set()
+    # Horizon ownership lives in SQL via strings such as q1_to_q20_exactly_once.
+    # Keep parsing deliberately narrow so a misspelled rule fails validation.
+    if not rule.startswith("q1_to_q20"):
+      return set()
+    return set(range(1, 21))
+
+  def forecast_horizon_quarters(self, *, contract_name: Any = None) -> List[int]:
+    rows = self.rows(contract_name=contract_name) if contract_name is not None else self.rows()
+    quarters: Set[int] = set()
+    for row in rows:
+      quarters.update(self._expected_quarters_for_rule(row.get("horizon_rule")))
+    if quarters:
+      return sorted(quarters)
+    return list(range(1, 21))
+
   def horizon_errors_for_payload(
     self,
     *,
@@ -2887,10 +2931,12 @@ class PostIntakeGptContractLookup:
     if not isinstance(payload, dict):
       return [f"{contract or 'unknown'} payload must be an object before horizon validation"]
     errors: List[str] = []
-    expected_20q = set(range(1, 21))
     for row in self.rows(contract_name=contract, grid_name="root"):
       horizon_rule = _clean_text(row.get("horizon_rule")).lower()
       if not horizon_rule:
+        continue
+      expected_quarters = self._expected_quarters_for_rule(horizon_rule)
+      if not expected_quarters:
         continue
       field_name = _clean_text(row.get("field_name"))
       if not field_name:
@@ -2901,9 +2947,9 @@ class PostIntakeGptContractLookup:
           errors.append(f"{contract}.{field_name} must be an array with Q1-Q20")
           continue
         quarters = self._quarter_set_from_array(value)
-        missing = sorted(expected_20q - quarters)
-        extra = sorted(quarter for quarter in quarters if quarter not in expected_20q)
-        if len(value) != 20 or missing or extra:
+        missing = sorted(expected_quarters - quarters)
+        extra = sorted(quarter for quarter in quarters if quarter not in expected_quarters)
+        if len(value) != len(expected_quarters) or missing or extra:
           errors.append(
             f"{contract}.{field_name} must contain exactly one row for every forecast quarter Q1-Q20; "
             f"row_count={len(value)} missing={missing} extra={extra}"
@@ -2913,8 +2959,8 @@ class PostIntakeGptContractLookup:
           errors.append(f"{contract}.{field_name} must be an array of editable cells")
           continue
         quarters = self._quarter_set_from_array(value)
-        missing = sorted(expected_20q - quarters)
-        extra = sorted(quarter for quarter in quarters if quarter not in expected_20q)
+        missing = sorted(expected_quarters - quarters)
+        extra = sorted(quarter for quarter in quarters if quarter not in expected_quarters)
         if missing or extra:
           errors.append(
             f"{contract}.{field_name} must include editable-cell coverage across Q1-Q20; "
@@ -2934,7 +2980,7 @@ class PostIntakeGptContractLookup:
           if not isinstance(item, dict):
             continue
           quarter_value = self._quarter_value_from_payload(item)
-          if quarter_value is not None and quarter_value not in expected_20q:
+          if quarter_value is not None and quarter_value not in expected_quarters:
             errors.append(f"{contract}.{field_name} contains out-of-horizon quarter {quarter_value}; allowed Q1-Q20")
     return errors
 
@@ -2984,6 +3030,7 @@ class PostIntakeGptContractLookup:
       "post_intak_mapping_lookup",
       "post_intake_cash_policy_lookup",
       "post_intake_derived_drivers.payroll",
+      "post_intake_headcount_policy_lookup",
     }
     valid_normalizers = {
       "none",
@@ -3577,6 +3624,25 @@ def post_intake_gpt_contract_horizon_errors(
     contract_name=contract_name,
     payload=payload,
   )
+
+
+def post_intake_contract_forecast_horizon_quarters(
+  *,
+  contract_name: Any = None,
+) -> List[int]:
+  return post_intake_gpt_contract_lookup().forecast_horizon_quarters(
+    contract_name=contract_name,
+  )
+
+
+def post_intake_contract_forecast_horizon_quarter_count(
+  *,
+  contract_name: Any = None,
+) -> int:
+  quarters = post_intake_contract_forecast_horizon_quarters(
+    contract_name=contract_name,
+  )
+  return max(quarters or [20])
 
 
 def post_intake_gpt_context_rows(

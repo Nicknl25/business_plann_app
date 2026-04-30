@@ -11,13 +11,13 @@ import copy
 from typing import Any, Dict, List, Optional
 
 from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_contract_forecast_horizon_quarters,
   post_intake_gpt_contract_horizon_errors,
   post_intake_gpt_contract_prompt_field_spec,
 )
 
 
 _UNIFIED_CONVERGENCE_CONTRACT_NAME = "unified_convergence_decision"
-_FULL_FORECAST_QUARTERS = list(range(1, 21))
 
 
 def _clean_text(value: Any) -> str:
@@ -58,6 +58,9 @@ def _contract_instruction_rows(fields: List[Dict[str, Any]]) -> List[Dict[str, A
 def build_unified_convergence_contract_policy() -> Dict[str, Any]:
   """Return the table-backed convergence policy payload used by post-intake."""
   spec = post_intake_gpt_contract_prompt_field_spec(_UNIFIED_CONVERGENCE_CONTRACT_NAME)
+  forecast_quarters = post_intake_contract_forecast_horizon_quarters(
+    contract_name=_UNIFIED_CONVERGENCE_CONTRACT_NAME,
+  )
   fields = [
     copy.deepcopy(item)
     for item in (spec.get("fields") or [])
@@ -70,7 +73,7 @@ def build_unified_convergence_contract_policy() -> Dict[str, Any]:
     "contract_name": _UNIFIED_CONVERGENCE_CONTRACT_NAME,
     "source_of_truth": spec.get("source_of_truth") or "sql.post_intake_gpt_contract_lookup",
     "contract_table": spec.get("contract_table") or "post_intake_gpt_contract_lookup",
-    "required_forecast_quarters": copy.deepcopy(_FULL_FORECAST_QUARTERS),
+    "required_forecast_quarters": copy.deepcopy(forecast_quarters),
     "horizon_rules": copy.deepcopy(spec.get("horizon_rules") or []),
     "normalization_rules": copy.deepcopy(spec.get("normalization_rules") or []),
     "target_grid_rule": {
