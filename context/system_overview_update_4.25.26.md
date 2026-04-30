@@ -790,3 +790,164 @@ At this checkpoint, current code changes include:
 - residual cash policy cleanup after cash-pass FINMO recalculation
 
 These changes have compile-level validation but the balanced cash strategy has not passed yet. Treat this commit as a checkpoint for recovery and continued stabilization, not as proof the cash system is finished.
+
+## Update 2026-04-30: Current Difficulties After Latest Save Point
+
+This section records the latest known difficulties after commit `8cf4d87` (`save current post intake work`). It is intentionally blunt so a future Codex session does not misread partial progress as stability.
+
+### Latest Commit State
+
+- Branch: `intake-stable`
+- Latest pushed checkpoint: `8cf4d87`
+- Commit message: `save current post intake work`
+- The commit saved the current app work but did not prove the system is stable.
+- Many temp/debug files remain untracked and were intentionally not committed.
+
+### Payroll Is Currently A Known Broken Class
+
+The most important discovered issue is payroll. Do not treat payroll as solved.
+
+Observed bad row:
+
+- Draft: `57319005e7ad4e26b6197f28724e6732`
+- Business: `ApexCloud Workflow Systems`
+- Problem: FINMO payroll was around `$30` to `$53` per quarter while revenue was around `$11M` to `$17M`.
+
+Concrete root causes found:
+
+- `financials_json.payroll_total_year1` was `118.0`.
+- `financials_json.current_num_employees` was also `118.0`.
+- The input phrase was effectively “Use 118 employees,” but the system let that value become both employee count and annual payroll dollars.
+- Stub payroll became `29.5`, which is `118 / 4`.
+- Payroll derivation then used this bad stub together with the GPT payroll growth grid and backed into an absurd `effective_revenue_per_employee` around `$25B`.
+- That produced near-zero implied FTE and tiny payroll.
+
+There was also a second-layer payroll issue:
+
+- The derived payroll fallback currently uses `DEFAULT_REVENUE_PER_EMPLOYEE = 650000`.
+- The wage source for that row was `oews_all_occupations_mean:000001`, not a software-specific role/staffing model.
+- The resulting recomputed payroll around 10.3% of revenue is not proven correct; it is just `67140 / 650000`.
+- The current 5%-50% payroll ratio band is a sanity band, not a real payroll model.
+
+Important: the last code change stopped GPT payroll growth from overriding the OEWS/FTE formula, but that only fixes the tiny-payroll mechanical bug. It does not solve the deeper payroll architecture problem.
+
+Payroll still needs a true class fix:
+
+- Intake parsing must separate headcount from payroll dollars.
+- “Use 118 employees” must only populate `current_num_employees`, not `payroll_total_year1`.
+- Payroll should be derived from actual FTE/headcount times wage when headcount exists.
+- OEWS should use role/business context where possible, not silently fall back to generic `000001 All Occupations`.
+- If realistic role/FTE/wage basis is unavailable, fail fast or request a structured staffing grid before convergence.
+- GPT may decide staffing structure, but Python must calculate payroll deterministically.
+
+The correct target architecture for payroll is:
+
+```text
+intake headcount / GPT staffing grid -> OEWS wages -> FTE x wage payroll -> model_input -> FINMO
+```
+
+Not:
+
+```text
+revenue / generic revenue-per-employee -> fake FTE -> payroll
+```
+
+And not:
+
+```text
+bad Q0 payroll x GPT growth percent
+```
+
+### Contract Table / Horizon Instability
+
+The SQL GPT contract lookup table exists and is being used, but horizon instability still surfaced.
+
+Recent failure:
+
+- Draft: `ac69417a85394506bc0e11b507c0a50d`
+- Error: `failed_table_horizon_contract`
+- Detail: `targets_by_quarter` had `row_count=20` but was missing unique Q2, Q3, Q4, Q6, Q7, Q8, Q10, Q11, Q13, Q14, Q15, Q17, Q18, Q19.
+
+Interpretation:
+
+- The contract requires exactly one row for each Q1-Q20.
+- The response apparently had 20 rows but duplicate or malformed quarter identifiers.
+- This should be treated as a contract-normalization/strict-schema/horizon class bug, not a business-model failure.
+
+Do not weaken the 20Q rule. The architecture still requires full Q1-Q20 contracts.
+
+### Mapping Metadata Ownership Was Corrected
+
+The old behavior requiring GPT to copy `mapped_repair_targets` was removed from the active contract surface.
+
+Current intended behavior:
+
+- GPT chooses levers/cells/values/rationale.
+- Python derives issue/target mapping from SQL `post_intak_mapping_lookup`.
+- Python must fail fast if a selected lever is not valid for the active issue.
+- GPT should not be required to copy deterministic mapping metadata.
+
+This is aligned with the user’s authority boundary:
+
+- GPT makes decisions.
+- Python owns deterministic structure, mapping, validation, and application.
+
+### Retry Path Was Partially Cleaned Up
+
+A legacy retry issue was found:
+
+- Initial planner prompt was compacted through the context lookup.
+- Retry prompt still used the old heavy/raw full contract scaffold.
+- That could reintroduce confusing or oversized contract surfaces after an initial failure.
+
+Current code now compacts the retry contract before sending it back to GPT and adds a retry-payload budget fail-fast.
+
+This was compile-checked and one ApexCloud run passed before the payroll/horizon issues were investigated, but it should still be treated as recent and under-tested.
+
+### OpenAI / Runtime Instability Remains Real
+
+Recent E2E attempt:
+
+- Scenario: `tmp_cash_sweep_scenario_balanced_commercial_landscaping.json`
+- Business: `IronOak Commercial Grounds`
+- Draft: `e7e2eb42a4bd4ff1a287abe71a0e61ec`
+- Failure: OpenAI read timeout in `_run_unified_convergence_openai`.
+- Detail included `model=gpt-5.1`, `timeout_seconds=120`, and active cycle deadline remaining around `56s`.
+
+This is external/request instability or payload/time pressure. Do not confuse it with a financial-model failure. Also do not increase the 180-second cycle limit or 10-cycle limit without explicit user permission.
+
+### Current Backend Procedure Still Stands
+
+Always use:
+
+```powershell
+.\context\ensure_5050_backend.ps1
+```
+
+If code changes need to take effect, use:
+
+```powershell
+.\context\ensure_5050_backend.ps1 -ForceRestart
+```
+
+The user does not want to be asked to restart the backend. Use the helper.
+
+### Immediate Next Technical Priorities
+
+1. Fix payroll as a class bug, not as a single-run patch.
+2. Add fail-fast detection that rejects payroll if employee count is accidentally stored as payroll dollars.
+3. Decide and implement the correct staffing/FTE source of truth for payroll.
+4. Keep payroll out of GPT freeform dollars; use GPT only for structured staffing decisions if needed.
+5. Fix the full-horizon `targets_by_quarter` duplicate/malformed-quarter issue without weakening the Q1-Q20 contract.
+6. Continue using SQL lookup tables as authorities: mapping, cash policy, GPT contract, GPT context.
+7. Do not increase cycle timeout or cycle count without user approval.
+
+### Do Not Do
+
+- Do not claim payroll is fixed because one mechanical tiny-payroll bug was patched.
+- Do not let `payroll_total_year1=118` survive as if it were dollars.
+- Do not reintroduce generic fallback behavior that silently creates plausible-looking but unsupported payroll.
+- Do not make FINMO formulas do payroll logic. Payroll belongs in model input / derived driver layer.
+- Do not make Python choose business staffing decisions that should belong to GPT or intake.
+- Do not let GPT output payroll dollars directly as the final authority.
+- Do not weaken the full 20-quarter convergence contract.
