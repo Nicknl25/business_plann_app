@@ -1,5 +1,9 @@
-The realism memo is an active correction instruction for this iteration.
+Use the supplied table-backed realism memo packet as grid context.
 
-Use the listed realism issues to materially change the quarter grid so those issues are addressed in the next recalculated model. Do not merely acknowledge the issues in narrative form. Make the operating plan different enough to give the direct model rewrite a real chance to resolve them.
+The memo packet is governed by:
+- `sql.post_intak_mapping_lookup` for issue codes, phase ownership, mapped targets, and repair ownership.
+- `sql.post_intake_gpt_contract_lookup` for required fields, schema shape, aliases, horizon rules, and numeric normalization rules.
+- `sql.post_intake_gpt_context_lookup` for prompt context keys and request scope.
+- `sql.post_intake_process_sequence_lookup` for process sequencing, horizon, handler, timeout, and required lookup dependencies.
 
-The memo does not authorize you to change client-stated facts, invent a different business, or ignore core feasibility. It does require you to rebuild the grid around a more believable operating path using the rows and levers already available in the model.
+Apply only the table-backed issue context, rows, levers, targets, horizons, and editable fields supplied by Python.

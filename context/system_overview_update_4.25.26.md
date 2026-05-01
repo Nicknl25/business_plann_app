@@ -951,3 +951,361 @@ The user does not want to be asked to restart the backend. Use the helper.
 - Do not make Python choose business staffing decisions that should belong to GPT or intake.
 - Do not let GPT output payroll dollars directly as the final authority.
 - Do not weaken the full 20-quarter convergence contract.
+
+## Update 2026-05-01: Table-Backed Post-Intake Architecture And Current Pickup Point
+
+This section is the current handoff. Read this first in a new Codex session before changing post-intake code.
+
+### Current Branch State And User Direction
+
+The user has moved the post-intake system toward a SQL lookup-table architecture. The intent is not cosmetic. The tables are supposed to define deterministic structure so the app stops fighting legacy code paths.
+
+Current user directives:
+
+- Tables are the source of truth for deterministic post-intake structure.
+- If code contradicts a table-backed authority, convert it to use the table or delete it.
+- Do not leave legacy code behind as hidden fallback, bypass, or alternate authority.
+- Prompt prose must reference table-backed packets where possible and must not carry standalone legacy rules.
+- Runners are intake simulators only. Runners must not tell post-intake how to behave.
+- Use `context/ensure_5050_backend.ps1` for backend lifecycle. Do not ask the user to restart.
+- Full convergence contracts are Q1-Q20. Do not weaken this to partial horizons.
+- Total convergence cycle time is capped at 180 seconds and max cycles is 10 unless the user explicitly approves a change.
+
+### Core Post-Intake Tables
+
+The current table infrastructure is:
+
+- `post_intak_mapping_lookup`
+- `post_intake_cash_policy_lookup`
+- `post_intake_gpt_context_lookup`
+- `post_intake_gpt_contract_lookup`
+- `post_intake_headcount_policy_lookup`
+- `post_intake_process_sequence_lookup`
+
+These tables are expected to be accessed through lookup functions, primarily in:
+
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+- `python/client_intake_and_finmo/post_intake_headcount/lookup.py`
+- cash-pass lookup helpers under `python/client_intake_and_finmo/post_intake_cash/`
+
+The mapping table name is intentionally misspelled as `post_intak_mapping_lookup` in SQL. Do not "fix" the spelling in code unless you also migrate SQL and every caller.
+
+### What Each Table Owns
+
+`post_intak_mapping_lookup` owns:
+
+- post-intake issue codes
+- phase ownership such as convergence, cash pass, or derived-only
+- allowed mapped drivers/levers
+- direct target metrics
+- FINMO/model field names
+- value kind and target value kind
+- driver bundles
+- targetability flags
+- cash strategy role where applicable
+
+`post_intake_cash_policy_lookup` owns:
+
+- cash strategy behavior
+- debt-position bands
+- distribution/debt-paydown allocation weights
+- retain weight
+- surplus deployment sequencing
+- cash buffer/floor/ceiling policy metadata
+- debt schedule policy metadata where applicable
+
+`post_intake_gpt_contract_lookup` owns:
+
+- contract names
+- required fields
+- schema generation metadata
+- aliases
+- horizon rules
+- numeric precision and normalization rules
+- table-backed validation expectations
+
+`post_intake_gpt_context_lookup` owns:
+
+- context packet names
+- which context keys are required for GPT calls
+- compact-vs-full context behavior
+- request-scope definitions
+
+`post_intake_headcount_policy_lookup` owns:
+
+- payroll/headcount policy
+- how structured headcount feeds payroll derivation
+- the boundary that GPT supplies staffing decisions while Python computes payroll deterministically
+
+`post_intake_process_sequence_lookup` owns:
+
+- post-intake step order
+- handler names
+- process horizon
+- timeout metadata
+- required lookup-table dependencies for each step
+
+### Prompt Cleanup
+
+Post-intake prompts were recently cleaned so they reference table-backed packets instead of carrying old behavior as independent instructions.
+
+Current prompt files:
+
+- `python/client_intake_and_finmo/prompts/unified_convergence/reviewer.md`
+- `python/client_intake_and_finmo/prompts/unified_convergence/verifier.md`
+- `python/client_intake_and_finmo/prompts/cash_strategy_review/reviewer.md`
+- `python/client_intake_and_finmo/prompts/realism_memo/reviewer.md`
+- `python/client_intake_and_finmo/prompts/realism_memo/grid_advisory.md`
+- `python/client_intake_and_finmo/prompts/quarter_grid/normalize.md`
+- `python/client_intake_and_finmo/prompts/quarter_grid/rebalance.md`
+- `python/client_intake_and_finmo/prompts/quarter_grid/turnaround.md`
+
+Prompt rule:
+
+- Prompts may describe the role.
+- Prompts may list which SQL tables own which authority.
+- Prompts should tell GPT to use the supplied table-backed packets.
+- Prompts should not hardcode old target lists, old issue lists, old horizon variants, legacy fallback behavior, or prose rules that compete with tables.
+
+If a future prompt needs a deterministic field/rule, put it in a lookup table and supply it in the packet rather than hardcoding it in markdown.
+
+### Current Post-Intake Shape
+
+The current target architecture is:
+
+```text
+intake facts
+  -> model_input_json Q1-Q20 full state
+  -> FINMO calculates finmo_json
+  -> table-backed issue detection across full 20Q state
+  -> table-backed convergence contract across full 20Q state
+  -> GPT fills only table-backed editable contract
+  -> Python validates through contract/mapping/context/sequence tables
+  -> Python applies model-input driver updates
+  -> FINMO recalculates
+  -> cash pass uses cash table and debt schedule
+  -> hard gates validate final viability
+```
+
+Important invariant:
+
+- `model_input_json` is the forecast state.
+- `finmo_json` is derived output.
+- Python changes model-input drivers.
+- FINMO formulas calculate outputs.
+- GPT chooses business decisions inside Python/table-defined contracts.
+
+### Current Issue Taxonomy
+
+The simplified issue set is intended to be table-backed.
+
+Convergence-owned:
+
+- `capacity_support_mismatch`
+- `cost_structure_mismatch`
+- `p_and_l_flatline`
+
+Cash-pass-owned:
+
+- `working_capital_mismatch`
+- `liquidity_failure`
+- `funding_structure_mismatch`
+
+Hard gates / non-mapped:
+
+- `accounting_integrity_failure`
+- `structural_impossibility`
+
+Do not bring back broad legacy issue families such as pricing-positioning mismatch, profitability cash shape, escalation, capex footprint mismatch, PPE ratio checks, or memo-only repair issues unless the user explicitly asks and they are represented in the lookup tables.
+
+### Current Cash Architecture
+
+Cash pass has been separated into its own folder/process area and should not be reabsorbed into `intake_consult.py`.
+
+Cash intent:
+
+- Cash strategies are `preserve_cash`, `balanced`, and `shareholder_return`.
+- `reinvest` was removed as a cash strategy.
+- Cash pass should not hoard cash indefinitely.
+- Cash pass should use buffer/floor/ceiling policy from `post_intake_cash_policy_lookup`.
+- Funding and surplus deployment should use table-backed cash policy and mapping-backed funding levers.
+- Cash validation must inspect all 20 forecast quarters.
+
+Debt schedule intent:
+
+- Debt schedule should be deterministic.
+- Interest rates for forecast debt should come from the business-loan/SBA rate table where available.
+- Stub/opening period uses intake facts; forecast periods use schedule logic.
+- Debt service should populate existing model-input/FINMO fields, not change FINMO formulas.
+- Debt schedule rows should be persisted so the user can pull them into Excel.
+
+Known cash problem class:
+
+- Planning envelope and validation envelope must be separate concerns.
+- Pre-action planning can simulate needed action.
+- Post-action validation must inspect actual final state and must not double-count simulated carryforward removals.
+- This was a real bug class and should not be patched locally in one scenario.
+
+### Current Payroll / Headcount Architecture
+
+Payroll was moved toward a real headcount system because the old payroll path produced capped or absurd payroll.
+
+Intent:
+
+- GPT decides staffing/headcount structure in a structured grid.
+- Python calculates payroll from headcount/FTE and wage logic.
+- OEWS/FTE-based payroll behavior should remain intact.
+- Payroll model-input rows receive the same type of payroll values as before; only the origin changes.
+- FINMO formulas do not change.
+- Persist final headcount schedule rows so Excel can consume them later.
+
+Important files/folders:
+
+- `python/client_intake_and_finmo/post_intake_headcount/`
+- `python/client_intake_and_finmo/post_intake_headcount/lookup.py`
+- `python/client_intake_and_finmo/post_intake_headcount/schedule.py`
+
+Known payroll problem class:
+
+- The app must not confuse employee count with payroll dollars.
+- The app must not cap payroll into unrealistic percentages.
+- The app must not silently use generic OEWS `000001` if a more specific business/staffing context is required and unavailable.
+- If payroll/headcount structure is missing, fail fast with actionable diagnostics rather than creating fake-looking payroll.
+
+### Current Ramp / Stage / Planning Mode Architecture
+
+Ramp is GPT-authored but table-bounded.
+
+Intent:
+
+- Python supplies business type, planning mode, stage, lifecycle, and table-backed contract/context.
+- GPT returns the full 20Q ramp/grid before convergence.
+- Convergence uses that ramp as part of the business-world contract.
+- Python must validate the ramp against table-backed contract rules.
+- Python should not choose ramp percentages itself.
+
+Known ramp problem class:
+
+- Ramp GPT and headcount/staffing GPT can produce internally inconsistent growth constraints.
+- This must be solved at the contract/table/context level, not by having the runner guide behavior.
+- The table-backed contract must make ramp/headcount compatibility explicit.
+
+### Current Full-Horizon Rule
+
+The convergence contract is full Q1-Q20.
+
+Important:
+
+- Stub Q0 is historical intake/state only.
+- Stub Q0 must not be counted as a forecast quarter.
+- Forecast horizon is Q1-Q20.
+- Cash validation still checks all 20 forecast quarters even when action is needed only in some quarters.
+- If a function produces Q21, it is counting stub Q0 incorrectly or bypassing the table-backed horizon contract.
+
+Known horizon problem class:
+
+- Legacy packet builders sometimes used partial horizons or counted Q0.
+- These must be converted to the table-backed horizon contract or deleted.
+- Do not patch one caller while leaving alternate horizon builders alive.
+
+### Current Envelope Problem Class
+
+Recent E2E failures showed an internally inconsistent envelope:
+
+- Issue detection said revenue needed to drop toward a lower target.
+- Editable cell bounds still forbade capacity below a high value.
+- Since revenue formula depends on capacity, unit price, and utilization, the envelope made the target mathematically impossible.
+
+Root interpretation:
+
+- Driver envelopes must derive from table-backed issue/driver bundles and formula relationships.
+- Formula-driver bounds must not contradict the issue target.
+- The mapping table already contains driver bundle and value kind metadata; use it.
+- If more metadata is needed, add columns to the lookup table, not hardcoded side logic.
+
+### Current Prompt/Context Payload Problem Class
+
+Recent OpenAI timeouts and contract failures indicate payload and schema pressure.
+
+Likely causes:
+
+- Some post-intake calls still pass too much bundled context after lookup.
+- Some retry paths may still include heavy or duplicate scaffold.
+- Contract rules exist in SQL but are not yet used to their fullest extent for every GPT call.
+
+What to do:
+
+- Use `post_intake_gpt_context_lookup` to decide what context each GPT call receives.
+- Use `post_intake_gpt_contract_lookup` to build/validate schema and normalization behavior.
+- Keep prompt markdown minimal and table-referential.
+- Do not add runner-level instructions to compensate.
+
+### Files To Inspect First Now
+
+Start here:
+
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+- `python/client_intake_and_finmo/post_intake_contracts/runner.py`
+- `python/client_intake_and_finmo/post_intake_convergence/`
+- `python/client_intake_and_finmo/post_intake_issues/`
+- `python/client_intake_and_finmo/post_intake_state/`
+- `python/client_intake_and_finmo/post_intake_cash/`
+- `python/client_intake_and_finmo/post_intake_headcount/`
+- `python/client_intake_and_finmo/post_intake_initial_grid/`
+- `python/client_intake_and_finmo/numeric_execution.py`
+- `python/client_intake_and_finmo/finmo_bridge.py`
+- `context/ensure_5050_backend.ps1`
+
+Also inspect these SQL lookup tables before changing behavior:
+
+- `post_intak_mapping_lookup`
+- `post_intake_cash_policy_lookup`
+- `post_intake_gpt_context_lookup`
+- `post_intake_gpt_contract_lookup`
+- `post_intake_headcount_policy_lookup`
+- `post_intake_process_sequence_lookup`
+
+### Required Backend / E2E Procedure
+
+Always use the helper:
+
+```powershell
+.\context\ensure_5050_backend.ps1
+```
+
+After prompt/code changes, force refresh:
+
+```powershell
+.\context\ensure_5050_backend.ps1 -ForceRestart
+```
+
+Preferred persisted-system runner:
+
+```powershell
+& '.\.venv\Scripts\python.exe' '.\Test Files\run_persisted_system_run.py' --draft-id <draft_id>
+```
+
+This runner must only pull intake/persisted draft data and trigger post-intake. It must not tell the app how to behave.
+
+### Immediate Pickup Task
+
+The current active task is to continue an E2E using the persisted runner, with backend managed by `ensure_5050_backend.ps1`.
+
+If it fails:
+
+- Do not patch the runner.
+- Do not weaken cycle time or cycle count.
+- Diagnose the first failure.
+- Convert/delete legacy code that bypasses lookup tables.
+- Add missing deterministic metadata to the relevant SQL table when needed.
+- Rerun after backend refresh if code/prompt changes were made.
+
+Success criteria for the next pass:
+
+- Table-backed process sequence is active.
+- Post-intake prompts reference table-backed packets rather than standalone legacy rules.
+- Full Q1-Q20 horizon is enforced without Q0 leakage.
+- Mapping-owned driver bundles determine which drivers are available for each issue.
+- Cash pass uses cash policy lookup and validates all 20 quarters.
+- Payroll/headcount uses the new headcount path and does not regress to capped/fake payroll.
+- Cycle timeout remains 180 seconds.
