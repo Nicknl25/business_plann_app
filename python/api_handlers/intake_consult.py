@@ -197,7 +197,7 @@ MARKET_CONFIRM_QUESTION = "Does this look right before we move on to Human Resou
 PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?"
 COMPETITIVE_ADVANTAGE_PREFIX = "Proposed competitive advantage:"
 COMPETITIVE_ADVANTAGE_QUESTION = "Does this accurately reflect what truly sets the business apart?"
-_RETRYABLE_STATUS = {429, 502, 503, 504}
+_RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 _CASH_STRATEGY_REVIEW_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "cash_strategy_review"
 _CASH_STRATEGY_REVIEW_PROMPT_PATH = _CASH_STRATEGY_REVIEW_PROMPTS_DIR / "reviewer.md"
 _UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "unified_convergence"
@@ -209,6 +209,7 @@ _PASS_INTERNAL_RETRY_MAX_ATTEMPTS = 4
 _PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO = 0.05
 _UNIFIED_CONVERGENCE_MAX_CYCLES = 10
 _UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS = 180.0
+_ACTIVE_OPENAI_DEADLINE_RETURN_GUARD_SECONDS = 8.0
 _UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
 _UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = 20
 _RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
@@ -5540,10 +5541,20 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   remaining = _active_openai_deadline_remaining_seconds()
   max_attempts = 3
   if remaining is not None:
-    if remaining <= 1.0:
-      raise TimeoutError("active OpenAI deadline expired before request could start")
-    timeout = max(1, int(math.floor(min(float(timeout or remaining), remaining))))
-    max_attempts = 1
+    guard_seconds = float(_ACTIVE_OPENAI_DEADLINE_RETURN_GUARD_SECONDS)
+    request_budget = float(remaining) - guard_seconds
+    if request_budget <= 1.0:
+      raise TimeoutError(
+        "active OpenAI deadline has insufficient guarded budget before request could start: "
+        f"remaining_seconds={round(float(remaining), 3)} guard_seconds={round(guard_seconds, 3)}"
+      )
+    # Small bounded GPT contracts need one full attempt more than two half-sized
+    # attempts. Splitting a 45s pre-convergence budget into ~18s attempts caused
+    # valid strict structured-output requests to fail before the model could
+    # complete, while still consuming the whole budget.
+    max_attempts = 2 if request_budget >= 100.0 else 1
+    per_attempt_budget = max(1.0, (request_budget - (0.75 if max_attempts > 1 else 0.0)) / max_attempts)
+    timeout = max(1, int(math.floor(min(float(timeout or per_attempt_budget), per_attempt_budget))))
   try:
     return post_openai_with_retries(
       url=url,

@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+import json
+import os
+import time
+import requests
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_gpt_contract_compact_prompt_field_spec,
+  post_intake_gpt_contract_horizon_errors,
+  post_intake_gpt_contract_normalize_payload,
+  post_intake_gpt_contract_openai_schema,
+  post_intake_gpt_contract_payload_errors,
+  post_intake_gpt_context_filter_payload,
+  post_intake_gpt_context_request_char_budget,
+)
 from .lookup import (
   PAYROLL_HEADCOUNT_DRAFT_COLUMN,
   post_intake_headcount_policy_for,
@@ -13,6 +26,7 @@ from .lookup import (
 PAYROLL_HEADCOUNT_SOURCE = "headcount_schedule_derived"
 PAYROLL_HEADCOUNT_POLICY_VERSION = "payroll_headcount_schedule_policy_v1"
 PAYROLL_HEADCOUNT_LEVER_ID = "expenses::Payroll"
+PAYROLL_HEADCOUNT_CONTRACT_NAME = "payroll_headcount_schedule"
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -66,8 +80,124 @@ def payroll_row_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> 
   return None
 
 
-def _stage_ramp_headcount_grid_rows(stage_ramp_contract: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-  payload = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
+def _live_count_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> int:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  periods = payload.get("periods") if isinstance(payload.get("periods"), list) else []
+  live_count = len([item for item in periods if isinstance(item, dict) and not bool(item.get("is_stub"))])
+  return live_count or 20
+
+
+def _schedule_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  runtime = payload.get("derived_driver_runtime") if isinstance(payload.get("derived_driver_runtime"), dict) else {}
+  runtime_entry = runtime.get(PAYROLL_HEADCOUNT_LEVER_ID) if isinstance(runtime.get(PAYROLL_HEADCOUNT_LEVER_ID), dict) else {}
+  schedule = runtime_entry.get("payroll_headcount") if isinstance(runtime_entry.get("payroll_headcount"), dict) else {}
+  if schedule:
+    return deepcopy(schedule)
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  policy_entry = policies.get(PAYROLL_HEADCOUNT_LEVER_ID) if isinstance(policies.get(PAYROLL_HEADCOUNT_LEVER_ID), dict) else {}
+  policy_schedule = policy_entry.get("payroll_headcount") if isinstance(policy_entry.get("payroll_headcount"), dict) else {}
+  return deepcopy(policy_schedule or {})
+
+
+def default_payroll_headcount_policy(
+  *,
+  financials_json: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  del financials_json, ops_json
+  policy = post_intake_headcount_policy_for("default")
+  return {
+    "policy_version": PAYROLL_HEADCOUNT_POLICY_VERSION,
+    "payroll_source": PAYROLL_HEADCOUNT_SOURCE,
+    "lever_id": PAYROLL_HEADCOUNT_LEVER_ID,
+    "driver_basis": "headcount_schedule",
+    "lookup_function": "post_intake_headcount_policy_for",
+    "policy": deepcopy(policy or {}),
+  }
+
+
+def normalized_payroll_headcount_policy(
+  model_input_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  schedule = _schedule_from_model_input(model_input_json)
+  policy = default_payroll_headcount_policy()
+  policy["payroll_headcount"] = deepcopy(schedule)
+  policy["schedule_present"] = bool(schedule)
+  return policy
+
+
+def apply_payroll_headcount_policy_to_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+) -> Dict[str, Any]:
+  payload = deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
+  schedule = _schedule_from_model_input(payload)
+  if not schedule:
+    return payload
+  return apply_payroll_headcount_payload_to_model_input(
+    payload,
+    schedule,
+    live_count=live_count,
+  )
+
+
+def validate_payroll_headcount_contract(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  business_world_contract: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  del business_world_contract
+  schedule = _schedule_from_model_input(model_input_json)
+  return validate_payroll_headcount_model_input_contract(
+    model_input_json=deepcopy(model_input_json if isinstance(model_input_json, dict) else {}),
+    payroll_headcount=schedule if schedule else None,
+  )
+
+
+def _openai_key() -> Optional[str]:
+  key = (os.getenv("OPENAI_API_KEY") or "").strip()
+  return key or None
+
+
+def _openai_model() -> str:
+  return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
+
+
+def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]):
+  return requests.post(url, headers=headers, json=payload, timeout=(10, 120))
+
+
+def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+  outputs = data.get("output")
+  if isinstance(outputs, list):
+    for item in outputs:
+      if not isinstance(item, dict):
+        continue
+      for content in item.get("content") or []:
+        if not isinstance(content, dict):
+          continue
+        text = content.get("text")
+        if isinstance(text, str) and text.strip():
+          try:
+            parsed = json.loads(text)
+          except Exception:
+            continue
+          if isinstance(parsed, dict):
+            return parsed
+  text = data.get("output_text")
+  if isinstance(text, str) and text.strip():
+    try:
+      parsed = json.loads(text)
+      return parsed if isinstance(parsed, dict) else None
+    except Exception:
+      return None
+  return None
+
+
+def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  payload = payroll_headcount_contract if isinstance(payroll_headcount_contract, dict) else {}
   raw_rows = payload.get("payroll_headcount_grid")
   if not isinstance(raw_rows, list):
     raw_rows = []
@@ -98,8 +228,58 @@ def _stage_ramp_headcount_grid_rows(stage_ramp_contract: Optional[Dict[str, Any]
   return [rows_by_quarter[quarter] for quarter in sorted(rows_by_quarter)]
 
 
-def build_payroll_headcount_payload_from_stage_ramp_contract(
-  stage_ramp_contract: Optional[Dict[str, Any]],
+def validate_payroll_headcount_contract_payload(
+  payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  candidate = post_intake_gpt_contract_normalize_payload(
+    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    payload=payload if isinstance(payload, dict) else {},
+  )
+  contract_errors = post_intake_gpt_contract_payload_errors(
+    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    payload=candidate,
+  )
+  if contract_errors:
+    raise RuntimeError(
+      "payroll_headcount_contract_table_validation_failed: "
+      + "; ".join(str(item) for item in contract_errors[:20])
+    )
+  horizon_errors = post_intake_gpt_contract_horizon_errors(
+    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    payload=candidate,
+  )
+  if horizon_errors:
+    raise RuntimeError(
+      "payroll_headcount_contract_horizon_violation: "
+      + "; ".join(str(item) for item in horizon_errors[:20])
+    )
+  rows = _payroll_headcount_grid_rows(candidate)
+  if len(rows) != 20 or {int(row.get("quarter_index") or 0) for row in rows} != set(range(1, 21)):
+    raise RuntimeError("payroll_headcount_contract_missing_full_horizon: payroll_headcount_grid must include Q1-Q20.")
+  previous_ending_fte: Optional[float] = None
+  for row in rows:
+    quarter_index = int(row.get("quarter_index") or 0)
+    starting_fte = round(float(row.get("starting_fte") or 0.0), 2)
+    hires = round(float(row.get("hires") or 0.0), 2)
+    ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
+    if previous_ending_fte is not None and abs(starting_fte - previous_ending_fte) > 0.01:
+      raise RuntimeError(f"payroll_headcount_contract_continuity_failed: Q{quarter_index} starting_fte must equal prior quarter ending_fte.")
+    if abs((starting_fte + hires) - ending_fte) > 0.01:
+      raise RuntimeError(f"payroll_headcount_contract_math_failed: Q{quarter_index} starting_fte + hires must equal ending_fte.")
+    previous_ending_fte = ending_fte
+  rationale = str(candidate.get("rationale") or "").strip()
+  if not rationale:
+    raise RuntimeError("payroll_headcount_contract_rationale_missing")
+  return {
+    "contract_version": "payroll_headcount_schedule_gpt_v1",
+    "decision_source": "gpt_pre_convergence",
+    "payroll_headcount_grid": rows,
+    "rationale": rationale,
+  }
+
+
+def build_payroll_headcount_payload_from_contract(
+  payroll_headcount_contract: Optional[Dict[str, Any]],
   *,
   draft_id: Any = "",
   client_id: Any = "",
@@ -109,10 +289,10 @@ def build_payroll_headcount_payload_from_stage_ramp_contract(
   horizon = int((policy or {}).get("schedule_horizon_quarters") or 20)
   if horizon != 20:
     raise RuntimeError("payroll_headcount_policy_invalid: schedule_horizon_quarters must be 20")
-  rows = _stage_ramp_headcount_grid_rows(stage_ramp_contract)
+  rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
   if len(rows) != horizon or {int(row.get("quarter_index") or 0) for row in rows} != set(range(1, horizon + 1)):
     raise RuntimeError(
-      "payroll_headcount_schedule_missing_full_horizon: stage_ramp_contract.payroll_headcount_grid must include Q1-Q20."
+      "payroll_headcount_schedule_missing_full_horizon: payroll_headcount_schedule.payroll_headcount_grid must include Q1-Q20."
     )
   normalized_rows: List[Dict[str, Any]] = []
   quarter_totals: List[Dict[str, Any]] = []
@@ -175,6 +355,164 @@ def build_payroll_headcount_payload_from_stage_ramp_contract(
   if validation_errors:
     raise RuntimeError("payroll_headcount_schedule_validation_failed: " + "; ".join(validation_errors[:20]))
   return payload
+
+
+def estimate_payroll_headcount_schedule_with_gpt(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  planning_mode: str,
+  planning_mode_reason: str,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  api_key = _openai_key()
+  if not api_key:
+    raise RuntimeError("payroll_headcount_contract_openai_key_missing: OPENAI_API_KEY is not configured.")
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  policy = post_intake_headcount_policy_for("default")
+  compact_contract_spec = post_intake_gpt_contract_compact_prompt_field_spec(PAYROLL_HEADCOUNT_CONTRACT_NAME)
+  finmo_rows = [
+    row for row in ((finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
+  ]
+  user_context = {
+    "business_identity": {
+      "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
+      "business_type": ops.get("business_type"),
+      "business_stage": ops.get("business_stage") or facts.get("business_stage"),
+      "planning_mode": str(planning_mode or "").strip().lower(),
+      "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    },
+    "business_context": {
+      "description": ops.get("business_description_summary") or ops.get("business_description"),
+      "growth_lever": ops.get("growth_lever"),
+      "capacity_driver": ops.get("capacity_driver"),
+      "unit_name": ops.get("unit_name"),
+      "fulfillment_summary": ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
+      "sales_modality": ops.get("sales_modality"),
+      "geographic_scope": ops.get("geographic_scope"),
+    },
+    "financial_context": {
+      "annual_revenue": (
+        year1.get("company_revenue_total_year1")
+        or year1.get("revenue_total_year1")
+        or financials.get("current_revenue")
+      ),
+      "client_reported_current_num_employees": financials.get("current_num_employees"),
+      "client_reported_payroll_total_year1": financials.get("payroll_total_year1"),
+      "client_reported_owner_compensation": financials.get("owner_compensation"),
+    },
+    "stage_ramp_contract": {
+      key: deepcopy(value)
+      for key, value in (stage_ramp_contract or {}).items()
+      if key in {
+        "contract_version",
+        "stage_family",
+        "quarter_ramp_grid",
+        "fte_qoq_default",
+        "fte_qoq_max",
+        "fte_qoq_max_spike",
+        "fte_spike_small_base_threshold",
+        "utilization_high_watermark",
+      }
+    },
+    "payroll_headcount_policy": {
+      key: deepcopy(value)
+      for key, value in (policy or {}).items()
+      if key in {
+        "policy_code",
+        "schedule_storage_table",
+        "schedule_storage_column",
+        "schedule_contract_version",
+        "schedule_horizon_quarters",
+        "model_input_driver",
+        "financial_model_field",
+        "headcount_source_priority",
+        "wage_source_priority",
+        "generic_oews_fallback_allowed",
+        "role_category_required",
+        "fte_math_required",
+        "currency_rounding",
+        "ratio_rounding",
+      }
+    },
+    "current_model_snapshot": {
+      "finmo_revenue_first_4_quarters": [
+        {
+          "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
+          "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
+          "payroll": int(round(float(_safe_float(row.get("payroll")) or 0.0))),
+        }
+        for row in finmo_rows[:4]
+      ],
+    },
+    "contract_field_spec": compact_contract_spec,
+    "required_response_shape": compact_contract_spec.get("required_response_shape"),
+  }
+  user_context = post_intake_gpt_context_filter_payload(
+    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    payload=user_context,
+    include_phase="pre_convergence",
+  )
+  context_budget = post_intake_gpt_context_request_char_budget(
+    contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    include_phase="pre_convergence",
+    default=None,
+  )
+  if context_budget is not None:
+    context_chars = len(json.dumps(user_context, ensure_ascii=False))
+    if context_chars > int(context_budget):
+      raise RuntimeError(
+        f"payroll_headcount_gpt_context_payload_budget_exceeded: chars={context_chars} budget={int(context_budget)}"
+      )
+  system_prompt = "Return only JSON matching the SQL-backed schema and table-provided contract/context."
+  payload = {
+    "model": _openai_model(),
+    "temperature": 0,
+    "input": [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ],
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": PAYROLL_HEADCOUNT_CONTRACT_NAME,
+        "schema": post_intake_gpt_contract_openai_schema(contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME),
+        "strict": True,
+      }
+    },
+  }
+  start = time.perf_counter()
+  resp = _post_openai(
+    url="https://api.openai.com/v1/responses",
+    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    payload=payload,
+  )
+  elapsed = time.perf_counter() - start
+  if elapsed > 120:
+    raise RuntimeError(f"payroll_headcount_contract_timeout: GPT headcount schedule exceeded 120s before convergence.")
+  if resp.status_code >= 400:
+    raise RuntimeError(f"payroll_headcount_contract_openai_status: {resp.text[:1200]}")
+  raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+  parsed = _parse_responses_json_dict(raw_openai_response)
+  if not isinstance(parsed, dict):
+    raise RuntimeError("payroll_headcount_contract_parse_failed: GPT did not return a JSON object.")
+  try:
+    contract = validate_payroll_headcount_contract_payload(parsed)
+  except RuntimeError as exc:
+    raise RuntimeError(
+      "payroll_headcount_contract_invalid_fail_fast: "
+      f"{exc}; raw_payroll_headcount_response={json.dumps(parsed, ensure_ascii=False)[:3000]}"
+    ) from exc
+  contract["prompt_context"] = user_context
+  contract["raw_openai_response"] = raw_openai_response
+  return contract
 
 
 def apply_payroll_headcount_payload_to_model_input(

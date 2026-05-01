@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
 $script:PythonExe = Join-Path $script:RepoRoot ".venv\Scripts\python.exe"
-$script:RunnerPath = Join-Path $script:RepoRoot "tmp_run_api_5050_single.py"
+$script:RunnerPath = Join-Path $script:RepoRoot "context\run_api_5050_single.py"
 $script:RuntimeProbeUrl = ($BaseUrl.TrimEnd("/") + "/api/runtime-probe")
 
 function Test-BackendHealth {

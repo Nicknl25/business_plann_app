@@ -13,6 +13,20 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_compact_mapping_lookup_for_levers,
+  post_intake_concrete_issue_lever_ids_from_catalog,
+  post_intake_direct_target_metric_for_lever,
+  post_intake_direct_target_metric_names_for_levers,
+  post_intake_driver_target_lever_allowed_for_issue,
+  post_intake_driver_target_mapping_entry,
+  post_intake_driver_target_mapping_errors,
+  post_intake_driver_target_metric_ids,
+  post_intake_issue_candidate_lever_ids,
+  post_intake_issue_codes_for_phase,
+  post_intake_issue_has_phase,
+  post_intake_issue_mapping_contract,
+  post_intake_target_metric_names_for_issue,
+  post_intake_target_value_kind_for_metric,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,7 +36,7 @@ _CONVERGENCE_ISSUE_WARN_SCORE_PCT = 70
 _CONVERGENCE_STRONG_SCORE_PCT = 90
 _CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
 _CONVERGENCE_MAX_FOCUS_ISSUES = 2
-_CONVERGENCE_MAX_FOCUS_QUARTERS = 4
+_CONVERGENCE_MAX_FOCUS_QUARTERS = _CONVERGENCE_DEFAULT_QUARTER_COUNT
 _CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES = 3
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
 _CONVERGENCE_MAX_FOCUS_DRIVER_PATHS = 12
@@ -35,11 +49,20 @@ _UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
 _UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = 20
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
-_CASH_PASS_OWNED_ISSUE_CODES = {
-  "liquidity_failure",
-  "working_capital_mismatch",
-  "funding_structure_mismatch",
-}
+try:
+  _CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
+except Exception:
+  _CASH_PASS_OWNED_ISSUE_CODES = {
+    "liquidity_failure",
+    "working_capital_mismatch",
+    "funding_structure_mismatch",
+  }
+try:
+  _REMAINING_HORIZON_ISSUE_CODES = set(
+    post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
+  )
+except Exception:
+  _REMAINING_HORIZON_ISSUE_CODES = set()
 
 
 def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_decision") -> int:
@@ -228,7 +251,7 @@ __all__ = [
   "_issue_packet_mapped_driver_lever_ids",
   "_deterministic_guidance_focus_issue_codes",
   "_issue_packet_declared_target_metric_names",
-  "_preferred_issue_candidate_lever_ids",
+  "_table_issue_candidate_lever_ids",
   "_raise_p_and_l_flatline_if_needed",
   "_build_capacity_support_issue_status_records",
   "_p_and_l_flatline_signals",
@@ -368,10 +391,22 @@ def _normalize_realism_lever_ids(value: Any) -> List[str]:
   ]
 
 def _issue_requires_remaining_horizon_scope(issue_code: Any) -> bool:
-  return str(issue_code or "").strip().lower() in _REMAINING_HORIZON_ISSUE_CODES
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    return False
+  try:
+    return post_intake_issue_has_phase(code, "convergence")
+  except Exception:
+    return code in _REMAINING_HORIZON_ISSUE_CODES
 
 def _is_cash_pass_owned_issue_code(issue_code: Any) -> bool:
-  return str(issue_code or "").strip().lower() in _CASH_PASS_OWNED_ISSUE_CODES
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    return False
+  try:
+    return post_intake_issue_has_phase(code, "cash_pass")
+  except Exception:
+    return code in _CASH_PASS_OWNED_ISSUE_CODES
 
 def _is_retired_convergence_issue_record(record: Optional[Dict[str, Any]]) -> bool:
   item = record if isinstance(record, dict) else {}
@@ -1036,6 +1071,44 @@ def _issue_is_hard_issue(
   if "structural impossib" in detail_blob:
     return True
   return False
+
+def _issue_mapping_contract_or_fail(
+  issue_code: Any,
+  *,
+  phase: Any = "convergence",
+  require_mapping: bool = True,
+) -> Dict[str, Any]:
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    return {}
+  if code in {"accounting_integrity_failure", "structural_impossibility"}:
+    return {
+      "issue_code": code,
+      "mapping_source": "hard_gate_no_repair_mapping",
+      "candidate_lever_ids": [],
+      "next_required_lever_ids": [],
+      "target_metric_names": [],
+      "metric_targets": [],
+      "mapping_rows": [],
+    }
+  if _is_cash_pass_owned_issue_code(code):
+    phase = "cash_pass"
+  contract = post_intake_issue_mapping_contract(
+    code,
+    phase=phase,
+    require=require_mapping,
+  )
+  if require_mapping and not (contract.get("candidate_lever_ids") or []):
+    raise RuntimeError(
+      "post_intake_issue_detection_mapping_required: "
+      f"{code} has no issue-to-driver mapping in post_intak_mapping_lookup."
+    )
+  if require_mapping and not (contract.get("target_metric_names") or contract.get("metric_targets") or []):
+    raise RuntimeError(
+      "post_intake_issue_detection_target_mapping_required: "
+      f"{code} has no issue-to-target mapping in post_intak_mapping_lookup."
+    )
+  return contract
 
 def _synthetic_controller_issue_completion_snapshot(
   item: Optional[Dict[str, Any]],
@@ -2492,8 +2565,15 @@ def _unified_target_fill_grid(
   required_target_quarters: Optional[List[int]],
   deterministic_numeric_guidance: Optional[Dict[str, Any]],
   baseline_finmo_rows: Optional[List[Dict[str, Any]]] = None,
+  business_world_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  world_contract = business_world_contract if isinstance(business_world_contract, dict) else {}
+  stage_ramp_contract = (
+    world_contract.get("stage_ramp_contract")
+    if isinstance(world_contract.get("stage_ramp_contract"), dict)
+    else {}
+  )
   quarters = [
     int(_safe_float(item) or 0)
     for item in (
@@ -2522,6 +2602,12 @@ def _unified_target_fill_grid(
     for row in (baseline_finmo_rows or [])
     if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1
   }
+  revenue_target_state_by_quarter: Dict[int, float] = {
+    quarter_index: max(0.0, float(_safe_float(row.get("revenue")) or 0.0))
+    for quarter_index, row in baseline_by_quarter.items()
+    if quarter_index >= 1
+  }
+  stage_ramp_state: Dict[str, Any] = {"spike_count_used": 0}
   repair_bounds_by_key: Dict[Tuple[int, str], Dict[str, Any]] = {}
   for issue_packet in (guidance.get("issue_repair_packets") or []):
     if not isinstance(issue_packet, dict):
@@ -2553,6 +2639,22 @@ def _unified_target_fill_grid(
         "direction_hint": str(repair_target.get("direction") or existing.get("direction_hint") or "").strip().lower() or None,
       }
   rows: List[Dict[str, Any]] = []
+
+  def _target_display_value(value: Any, *, metric_name: str, bound_side: str = "") -> Any:
+    parsed = _safe_float(value)
+    if parsed is None:
+      return None
+    target_kind = post_intake_target_value_kind_for_metric(metric_name, phase="convergence") or "number"
+    if target_kind == "currency" or target_kind == "count" or target_kind == "day_count":
+      if bound_side == "minimum":
+        return int(math.ceil(float(parsed)))
+      if bound_side == "maximum":
+        return int(math.floor(float(parsed)))
+      return int(round(float(parsed)))
+    if target_kind == "ratio":
+      return round(float(parsed), 2)
+    return float(parsed)
+
   for quarter in quarters:
     baseline = baseline_by_quarter.get(quarter) or {}
     for metric_name in allowed_metrics:
@@ -2568,25 +2670,65 @@ def _unified_target_fill_grid(
         recommended_target_value = float(minimum_target_value)
       elif current_value is not None:
         recommended_target_value = float(current_value)
+      if metric_name == "revenue":
+        previous_revenue = _safe_float(revenue_target_state_by_quarter.get(quarter - 1))
+        if previous_revenue is not None and previous_revenue > 0.0 and quarter > 1:
+          limit = _stage_ramp_revenue_growth_limit_for_target(
+            stage_ramp_contract=stage_ramp_contract,
+            quarter_index=quarter,
+            spike_count_used=int(_safe_float(stage_ramp_state.get("spike_count_used")) or 0),
+          )
+          if bool(limit.get("applies")):
+            ordinary_growth_max = float(_safe_float(limit.get("ordinary_growth_max")) or 0.0)
+            allowed_growth = float(_safe_float(limit.get("allowed_growth")) or ordinary_growth_max)
+            max_revenue = float(math.floor(max(0.0, float(previous_revenue) * (1.0 + allowed_growth))))
+            if minimum_target_value is not None and float(minimum_target_value) > max_revenue:
+              minimum_target_value = max_revenue
+            if maximum_target_value is not None and float(maximum_target_value) > max_revenue:
+              maximum_target_value = max_revenue
+            if recommended_target_value is not None and float(recommended_target_value) > max_revenue:
+              recommended_target_value = max_revenue
+            chosen_revenue = (
+              float(recommended_target_value)
+              if recommended_target_value is not None
+              else float(current_value)
+              if current_value is not None
+              else None
+            )
+            if chosen_revenue is not None:
+              growth = (float(chosen_revenue) - float(previous_revenue)) / max(float(previous_revenue), 1e-9)
+              if bool(limit.get("spike_available")) and growth > ordinary_growth_max + 1e-9:
+                stage_ramp_state["spike_count_used"] = int(_safe_float(stage_ramp_state.get("spike_count_used")) or 0) + 1
+        if recommended_target_value is not None:
+          revenue_target_state_by_quarter[quarter] = max(0.0, float(recommended_target_value))
+        elif current_value is not None:
+          revenue_target_state_by_quarter[quarter] = max(0.0, float(current_value))
       rows.append(
         {
           "quarter_index": quarter,
           "metric_name": metric_name,
-          "current_value": int(round(float(current_value))) if current_value is not None else None,
-          "minimum_target_value": (
-            int(round(float(minimum_target_value)))
-            if minimum_target_value is not None
-            else None
+          "target_value_kind": post_intake_target_value_kind_for_metric(metric_name, phase="convergence") or None,
+          "current_value": _target_display_value(current_value, metric_name=metric_name),
+          "minimum_target_value": _target_display_value(
+            minimum_target_value,
+            metric_name=metric_name,
+            bound_side="minimum",
           ),
-          "maximum_target_value": (
-            int(round(float(maximum_target_value)))
-            if maximum_target_value is not None
-            else None
+          "maximum_target_value": _target_display_value(
+            maximum_target_value,
+            metric_name=metric_name,
+            bound_side="maximum",
           ),
-          "recommended_target_value": (
-            int(round(float(recommended_target_value)))
-            if recommended_target_value is not None
-            else None
+          "recommended_target_value": _target_display_value(
+            recommended_target_value,
+            metric_name=metric_name,
+            bound_side=(
+              "minimum"
+              if direction_hint == "increase"
+              else "maximum"
+              if direction_hint == "decrease"
+              else ""
+            ),
           ),
           "target_value_copy_rule": (
             "copy recommended_target_value exactly; do not pretty-round above maximum_target_value or below minimum_target_value"
@@ -2684,10 +2826,8 @@ def _unified_lever_control_fill_grid(
       "revenue_qoq_spike_max": _safe_float(stage_ramp_contract.get("revenue_qoq_max_spike")),
       "spike_from_quarters": copy.deepcopy(stage_ramp_contract.get("revenue_spike_window_quarters") or []),
       "max_spike_count": int(_safe_float(stage_ramp_contract.get("max_spike_count")) or 0),
-      "payroll_headcount_schedule_required": bool(stage_ramp_contract.get("payroll_headcount_schedule_required")),
       "quarter_ramp_grid": copy.deepcopy(_stage_ramp_grid_rows(stage_ramp_contract)),
-      "payroll_headcount_grid": copy.deepcopy(stage_ramp_contract.get("payroll_headcount_grid") or []),
-      "grid_rule": "Q1 is an active forecast-quarter row. For Q2-Q20, use quarter_ramp_grid row quarter_index=N as the hard revenue QoQ boundary from Q(N-1) into QN. Payroll is calculated from payroll_headcount_grid and is not a writable repair lever.",
+      "grid_rule": "Q1 is an active forecast-quarter row. For Q2-Q20, use quarter_ramp_grid row quarter_index=N as the hard revenue QoQ boundary from Q(N-1) into QN. Payroll is calculated from the separate SQL-backed payroll_headcount_schedule and is not a writable repair lever.",
       "rule": (
         "When selecting revenue levers, the combined product revenue path created by all Capacity, Unit Price, "
         "and Utilization trajectories must stay inside this ramp contract. Payroll remains Python-calculated from the persisted "
@@ -2727,12 +2867,7 @@ def _unified_lever_control_fill_grid(
       if suggested_max_raw is not None
       else None
     )
-    shape_class = _shape_sensitive_lever_class(lever_id)
-    required_quarters = (
-      list(range(first_target_quarter, horizon_count + 1))
-      if shape_class == "remaining_horizon_required"
-      else copy.deepcopy(normalized_target_quarters)
-    )
+    required_quarters = copy.deepcopy(normalized_target_quarters)
     values = [
       float(_safe_float(value) or 0.0)
       for value in (baseline_values.get(lever_id) or [])
@@ -2752,7 +2887,6 @@ def _unified_lever_control_fill_grid(
         ),
         "suggested_min_value": suggested_min_value,
         "suggested_max_value": suggested_max_value,
-        "shape_sensitive_class": shape_class or "local",
         "required_control_quarters": copy.deepcopy(required_quarters),
         "lever_adjustment_template": {
           "lever_id": lever_id,
@@ -2773,7 +2907,9 @@ def _unified_lever_control_fill_grid(
         },
         "current_values": {
           str(quarter): (
-            int(round(float(values[quarter - 1])))
+            round(float(values[quarter - 1]), 2)
+            if ratio_like_value and 0 <= quarter - 1 < len(values)
+            else int(round(float(values[quarter - 1])))
             if 0 <= quarter - 1 < len(values)
             else None
           )
@@ -2785,9 +2921,8 @@ def _unified_lever_control_fill_grid(
   return {
     "contract_version": "unified_convergence_locked_lever_control_fill_grid_v1",
     "grid_rule": (
-      "If GPT selects a lever, copy that row's lever_adjustment_template into lever_adjustments, "
-      "and fill only the value fields and timing fields. Use control_quarters_to_fill for any values/trajectory_values. "
-      "Do not provide mapping metadata; Python derives issue/target mapping from the SQL mapping lookup."
+      "If GPT selects a lever, fill the corresponding full_horizon_model_input_repair_contract editable cells only. "
+      "Do not fill legacy lever_adjustments; Python derives issue/target mapping from the SQL mapping lookup."
     ),
     "stage_ramp_rule": copy.deepcopy(stage_ramp_rule),
     "rows": rows,
@@ -2818,6 +2953,517 @@ def _lever_contract_precision_kind(
     return "ratio_2dp"
   return "integer"
 
+def _table_backed_metric_target_for_quarter(
+  *,
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  metric_name: Any,
+  quarter_index: int,
+) -> Dict[str, Any]:
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  metric = str(metric_name or "").strip().lower()
+  if not metric or quarter_index < 1:
+    return {}
+
+  def _target_from_values(payload: Dict[str, Any]) -> Optional[float]:
+    direction = str(payload.get("direction") or payload.get("direction_hint") or "").strip().lower()
+    floor_value = _safe_float(
+      payload.get("target_floor")
+      if payload.get("target_floor") is not None
+      else payload.get("minimum_target_value")
+      if payload.get("minimum_target_value") is not None
+      else payload.get("suggested_floor_target")
+    )
+    ceiling_value = _safe_float(
+      payload.get("target_ceiling")
+      if payload.get("target_ceiling") is not None
+      else payload.get("maximum_target_value")
+      if payload.get("maximum_target_value") is not None
+      else payload.get("suggested_ceiling_target")
+    )
+    equilibrium_value = _safe_float(payload.get("equilibrium_target"))
+    if direction == "decrease" and ceiling_value is not None:
+      return float(ceiling_value)
+    if direction == "increase" and floor_value is not None:
+      return float(floor_value)
+    if equilibrium_value is not None:
+      return float(equilibrium_value)
+    if ceiling_value is not None:
+      return float(ceiling_value)
+    if floor_value is not None:
+      return float(floor_value)
+    return None
+
+  for issue_packet in (guidance.get("issue_repair_packets") or []):
+    if not isinstance(issue_packet, dict):
+      continue
+    for repair_target in (issue_packet.get("repair_targets") or []):
+      if not isinstance(repair_target, dict):
+        continue
+      if int(_safe_float(repair_target.get("quarter")) or 0) != int(quarter_index):
+        continue
+      if str(repair_target.get("metric") or "").strip().lower() != metric:
+        continue
+      target_value = _target_from_values(repair_target)
+      if target_value is None:
+        continue
+      return {
+        "metric_name": metric,
+        "quarter_index": int(quarter_index),
+        "target_value": float(target_value),
+        "direction_hint": str(repair_target.get("direction") or "").strip().lower() or None,
+        "issue_code": str(issue_packet.get("issue_code") or "").strip().lower() or None,
+        "source": "issue_repair_packets",
+      }
+
+  for pressure_packet in (guidance.get("metric_pressure_packets") or []):
+    if not isinstance(pressure_packet, dict):
+      continue
+    if int(_safe_float(pressure_packet.get("quarter_index")) or 0) != int(quarter_index):
+      continue
+    if str(pressure_packet.get("metric_name") or "").strip().lower() != metric:
+      continue
+    target_value = _target_from_values(pressure_packet)
+    if target_value is None:
+      continue
+    return {
+      "metric_name": metric,
+      "quarter_index": int(quarter_index),
+      "target_value": float(target_value),
+      "direction_hint": str(pressure_packet.get("direction_hint") or "").strip().lower() or None,
+      "issue_code": str(pressure_packet.get("issue_code") or "").strip().lower() or None,
+      "source": "metric_pressure_packets",
+    }
+  return {}
+
+def _stage_ramp_revenue_growth_limit_for_target(
+  *,
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  quarter_index: int,
+  spike_count_used: int,
+) -> Dict[str, Any]:
+  contract = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
+  target_quarter = int(quarter_index or 0)
+  if target_quarter <= 1:
+    return {"applies": False}
+  row = {}
+  for candidate in (contract.get("quarter_ramp_grid") or []):
+    if not isinstance(candidate, dict):
+      continue
+    if int(_safe_float(candidate.get("quarter_index")) or 0) == target_quarter:
+      row = candidate
+      break
+  if not row:
+    return {"applies": False}
+  ordinary_max = max(0.0, float(_safe_float(row.get("revenue_qoq_max")) or 0.0))
+  spike_allowed = bool(row.get("revenue_qoq_spike_allowed"))
+  spike_max = max(ordinary_max, float(_safe_float(row.get("revenue_qoq_spike_max")) or ordinary_max))
+  max_spike_count = max(0, int(_safe_float(contract.get("max_spike_count")) or 0))
+  spike_available = bool(spike_allowed and int(spike_count_used or 0) < max_spike_count)
+  return {
+    "applies": True,
+    "quarter_index": target_quarter,
+    "ordinary_growth_max": ordinary_max,
+    "spike_growth_max": spike_max,
+    "allowed_growth": spike_max if spike_available else ordinary_max,
+    "spike_available": spike_available,
+    "ramp_grid_row": copy.deepcopy(row),
+  }
+
+def _stage_ramp_constrain_revenue_metric_spec(
+  *,
+  spec: Dict[str, Any],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  revenue_target_state_by_quarter: Dict[int, float],
+  stage_ramp_state: Dict[str, Any],
+) -> Dict[str, Any]:
+  next_spec = copy.deepcopy(spec if isinstance(spec, dict) else {})
+  if str(next_spec.get("metric_name") or "").strip().lower() != "revenue":
+    return next_spec
+  quarter_index = int(_safe_float(next_spec.get("quarter_index")) or 0)
+  if quarter_index < 1:
+    return next_spec
+  actual_value = _safe_float(next_spec.get("actual_value"))
+  target_floor = _safe_float(next_spec.get("target_floor"))
+  target_ceiling = _safe_float(next_spec.get("target_ceiling"))
+  direction_hint = str(next_spec.get("direction_hint") or "").strip().lower()
+  previous_revenue = _safe_float(revenue_target_state_by_quarter.get(quarter_index - 1))
+  if previous_revenue is not None and previous_revenue > 0.0 and direction_hint == "increase":
+    limit = _stage_ramp_revenue_growth_limit_for_target(
+      stage_ramp_contract=stage_ramp_contract,
+      quarter_index=quarter_index,
+      spike_count_used=int(_safe_float(stage_ramp_state.get("spike_count_used")) or 0),
+    )
+    if bool(limit.get("applies")):
+      ordinary_growth_max = float(_safe_float(limit.get("ordinary_growth_max")) or 0.0)
+      allowed_growth = float(_safe_float(limit.get("allowed_growth")) or ordinary_growth_max)
+      max_revenue = float(math.floor(max(0.0, float(previous_revenue) * (1.0 + allowed_growth))))
+      if target_floor is not None and float(target_floor) > max_revenue:
+        target_floor = max_revenue
+        next_spec["target_floor"] = float(target_floor)
+        next_spec["minimum_target_value"] = float(target_floor)
+      if target_ceiling is not None and float(target_ceiling) > max_revenue:
+        target_ceiling = max_revenue
+        next_spec["target_ceiling"] = float(target_ceiling)
+        next_spec["maximum_target_value"] = float(target_ceiling)
+      boundary_value = _safe_float(next_spec.get("boundary_value"))
+      if boundary_value is not None and float(boundary_value) > max_revenue:
+        next_spec["boundary_value"] = float(max_revenue)
+      chosen_target = target_floor if target_floor is not None else target_ceiling
+      if chosen_target is not None:
+        growth = (float(chosen_target) - float(previous_revenue)) / max(float(previous_revenue), 1e-9)
+        if bool(limit.get("spike_available")) and growth > ordinary_growth_max + 1e-9:
+          stage_ramp_state["spike_count_used"] = int(_safe_float(stage_ramp_state.get("spike_count_used")) or 0) + 1
+        next_spec["stage_ramp_target_cap"] = {
+          "source": "gpt_stage_ramp_contract",
+          "quarter_index": quarter_index,
+          "previous_revenue": int(round(float(previous_revenue))),
+          "allowed_growth": round(float(allowed_growth), 6),
+          "max_revenue": int(round(float(max_revenue))),
+        }
+  chosen_target = (
+    target_floor
+    if direction_hint == "increase" and target_floor is not None
+    else target_ceiling
+    if direction_hint == "decrease" and target_ceiling is not None
+    else target_floor
+    if target_floor is not None
+    else target_ceiling
+  )
+  if chosen_target is not None:
+    revenue_target_state_by_quarter[quarter_index] = max(0.0, float(chosen_target))
+    if actual_value is not None:
+      if direction_hint == "increase":
+        next_gap = max(0.0, float(chosen_target) - float(actual_value))
+      elif direction_hint == "decrease":
+        next_gap = max(0.0, float(actual_value) - float(chosen_target))
+      else:
+        next_gap = abs(float(chosen_target) - float(actual_value))
+      next_spec["gap"] = float(next_gap)
+      next_spec["gap_abs"] = abs(float(next_gap))
+  elif actual_value is not None:
+    revenue_target_state_by_quarter[quarter_index] = max(0.0, float(actual_value))
+  if target_floor is not None or target_ceiling is not None:
+    next_spec["acceptable_zone"] = {
+      "minimum": float(target_floor) if target_floor is not None else None,
+      "maximum": float(target_ceiling) if target_ceiling is not None else None,
+    }
+    repair_envelope = copy.deepcopy(next_spec.get("repair_envelope") or {})
+    current = float(actual_value) if actual_value is not None else float(chosen_target or 0.0)
+    if direction_hint == "increase" and target_floor is not None:
+      delta = max(0.0, float(target_floor) - current)
+      repair_envelope["min_required_delta"] = delta
+      repair_envelope["recommended_delta"] = delta
+      repair_envelope["max_feasible_delta"] = delta
+    elif direction_hint == "decrease" and target_ceiling is not None:
+      delta = min(0.0, float(target_ceiling) - current)
+      repair_envelope["min_required_delta"] = delta
+      repair_envelope["recommended_delta"] = delta
+      repair_envelope["max_feasible_delta"] = delta
+    next_spec["repair_envelope"] = repair_envelope
+  return next_spec
+
+def _baseline_revenue_from_formula_levers(
+  *,
+  baseline_values_by_lever: Dict[str, List[float]],
+  quarter_index: int,
+) -> float:
+  groups: Dict[str, Dict[str, float]] = {}
+  for lever_id, values in (baseline_values_by_lever or {}).items():
+    lever = str(lever_id or "").strip()
+    if not lever or not isinstance(values, list):
+      continue
+    mapping_entry = post_intake_driver_target_mapping_entry(lever) or {}
+    if str(mapping_entry.get("target_metric_name") or "").strip().lower() != "revenue":
+      continue
+    if str(mapping_entry.get("driver_bundle") or "").strip().lower() != "revenue_formula_bundle":
+      continue
+    target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+    if target_driver not in {"capacity", "unit_price", "utilization"}:
+      continue
+    if not (0 <= int(quarter_index) - 1 < len(values)):
+      continue
+    value = _safe_float(values[int(quarter_index) - 1])
+    if value is None:
+      continue
+    group_key = lever.rsplit("::", 1)[0]
+    groups.setdefault(group_key, {})[target_driver] = max(0.0, float(value))
+  revenue = 0.0
+  for drivers in groups.values():
+    if all(driver in drivers for driver in ("capacity", "unit_price", "utilization")):
+      revenue += (
+        float(drivers.get("capacity") or 0.0)
+        * float(drivers.get("unit_price") or 0.0)
+        * float(drivers.get("utilization") or 0.0)
+      )
+  return max(0.0, float(revenue))
+
+def _stage_ramp_capped_revenue_targets_by_quarter(
+  *,
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  business_world_contract: Optional[Dict[str, Any]],
+  baseline_values_by_lever: Dict[str, List[float]],
+  horizon_count: int,
+) -> Dict[int, float]:
+  world_contract = business_world_contract if isinstance(business_world_contract, dict) else {}
+  stage_ramp_contract = (
+    world_contract.get("stage_ramp_contract")
+    if isinstance(world_contract.get("stage_ramp_contract"), dict)
+    else {}
+  )
+  capped_targets: Dict[int, float] = {}
+  spike_state: Dict[str, Any] = {"spike_count_used": 0}
+  previous_revenue: Optional[float] = None
+  for quarter_index in range(1, max(1, int(horizon_count or 1)) + 1):
+    current_revenue = _baseline_revenue_from_formula_levers(
+      baseline_values_by_lever=baseline_values_by_lever,
+      quarter_index=quarter_index,
+    )
+    target_payload = _table_backed_metric_target_for_quarter(
+      deterministic_numeric_guidance=deterministic_numeric_guidance,
+      metric_name="revenue",
+      quarter_index=quarter_index,
+    )
+    raw_target = _safe_float(target_payload.get("target_value"))
+    target_revenue = max(0.0, float(raw_target if raw_target is not None else current_revenue))
+    if previous_revenue is not None and previous_revenue > 0.0 and target_revenue > previous_revenue:
+      limit = _stage_ramp_revenue_growth_limit_for_target(
+        stage_ramp_contract=stage_ramp_contract,
+        quarter_index=quarter_index,
+        spike_count_used=int(_safe_float(spike_state.get("spike_count_used")) or 0),
+      )
+      if bool(limit.get("applies")):
+        ordinary_growth_max = float(_safe_float(limit.get("ordinary_growth_max")) or 0.0)
+        allowed_growth = float(_safe_float(limit.get("allowed_growth")) or ordinary_growth_max)
+        max_revenue = float(math.floor(max(0.0, float(previous_revenue) * (1.0 + allowed_growth))))
+        if target_revenue > max_revenue:
+          target_revenue = max_revenue
+        growth = (float(target_revenue) - float(previous_revenue)) / max(float(previous_revenue), 1e-9)
+        if bool(limit.get("spike_available")) and growth > ordinary_growth_max + 1e-9:
+          spike_state["spike_count_used"] = int(_safe_float(spike_state.get("spike_count_used")) or 0) + 1
+    capped_targets[quarter_index] = max(0.0, float(target_revenue))
+    previous_revenue = capped_targets[quarter_index]
+  return capped_targets
+
+def _table_backed_formula_driver_cell_bounds(
+  *,
+  lever_id: str,
+  quarter_index: int,
+  current_value: Optional[float],
+  min_value: Optional[float],
+  max_value: Optional[float],
+  baseline_values_by_lever: Dict[str, List[float]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  revenue_target_caps_by_quarter: Optional[Dict[int, float]] = None,
+) -> Tuple[Optional[float], Optional[float], Dict[str, Any]]:
+  mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+  target_metric = str(mapping_entry.get("target_metric_name") or "").strip().lower()
+  driver_bundle = str(mapping_entry.get("driver_bundle") or "").strip().lower()
+  target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+  if target_metric != "revenue" or driver_bundle != "revenue_formula_bundle":
+    return min_value, max_value, {}
+  if target_driver not in {"capacity", "unit_price", "utilization"}:
+    return min_value, max_value, {}
+  target_payload = _table_backed_metric_target_for_quarter(
+    deterministic_numeric_guidance=deterministic_numeric_guidance,
+    metric_name=target_metric,
+    quarter_index=quarter_index,
+  )
+  target_value = _safe_float(target_payload.get("target_value"))
+  if target_value is None:
+    return min_value, max_value, {}
+  capped_target_value = _safe_float((revenue_target_caps_by_quarter or {}).get(int(quarter_index)))
+  target_cap_source = None
+  if capped_target_value is not None and float(target_value) > float(capped_target_value):
+    target_value = float(capped_target_value)
+    target_cap_source = "stage_ramp_contract"
+
+  group_prefix = str(lever_id).rsplit("::", 1)[0]
+  driver_levers: Dict[str, str] = {}
+  for candidate_lever in baseline_values_by_lever.keys():
+    if not str(candidate_lever).startswith(group_prefix + "::"):
+      continue
+    candidate_mapping = post_intake_driver_target_mapping_entry(candidate_lever) or {}
+    if str(candidate_mapping.get("target_metric_name") or "").strip().lower() != target_metric:
+      continue
+    if str(candidate_mapping.get("driver_bundle") or "").strip().lower() != driver_bundle:
+      continue
+    candidate_driver = str(candidate_mapping.get("target_driver") or "").strip().lower()
+    if candidate_driver in {"capacity", "unit_price", "utilization"}:
+      driver_levers[candidate_driver] = str(candidate_lever)
+  if not all(driver in driver_levers for driver in ("capacity", "unit_price", "utilization")):
+    return min_value, max_value, {
+      "envelope_basis": "sql_mapping_formula_target",
+      "formula": "revenue = Capacity * Unit Price * Utilization",
+      "status": "incomplete_mapping_bundle",
+      "missing_drivers": [
+        driver for driver in ("capacity", "unit_price", "utilization")
+        if driver not in driver_levers
+      ],
+    }
+
+  def _baseline(driver: str) -> Optional[float]:
+    values = baseline_values_by_lever.get(driver_levers[driver]) or []
+    if 0 <= quarter_index - 1 < len(values):
+      return _safe_float(values[quarter_index - 1])
+    return None
+
+  companion_values = {
+    "capacity": _baseline("capacity"),
+    "unit_price": _baseline("unit_price"),
+    "utilization": _baseline("utilization"),
+  }
+  denominator = 1.0
+  for driver, value in companion_values.items():
+    if driver == target_driver:
+      continue
+    parsed = _safe_float(value)
+    if parsed is None or float(parsed) <= 0:
+      return min_value, max_value, {
+        "envelope_basis": "sql_mapping_formula_target",
+        "formula": "revenue = Capacity * Unit Price * Utilization",
+        "status": "invalid_formula_denominator",
+        "target_driver": target_driver,
+        "companion_driver_values": copy.deepcopy(companion_values),
+      }
+    denominator *= float(parsed)
+  required_driver_value = max(0.0, float(target_value) / max(float(denominator), 1e-9))
+  current_revenue = (
+    float(companion_values["capacity"] or 0.0)
+    * float(companion_values["unit_price"] or 0.0)
+    * float(companion_values["utilization"] or 0.0)
+  )
+  direction = str(target_payload.get("direction_hint") or "").strip().lower()
+  adjusted_min = min_value
+  adjusted_max = max_value
+  current_float = _safe_float(current_value)
+  if direction == "decrease" or float(target_value) < current_revenue:
+    adjusted_min = min(float(adjusted_min), float(required_driver_value)) if adjusted_min is not None else float(required_driver_value)
+    if current_float is not None:
+      adjusted_max = min(float(adjusted_max), float(current_float)) if adjusted_max is not None else float(current_float)
+  elif direction == "increase":
+    adjusted_max = max(float(adjusted_max), float(required_driver_value)) if adjusted_max is not None else float(required_driver_value)
+    if current_float is not None:
+      adjusted_min = max(float(adjusted_min), float(current_float)) if adjusted_min is not None else float(current_float)
+  else:
+    adjusted_min = min(float(adjusted_min), float(required_driver_value)) if adjusted_min is not None else float(required_driver_value)
+    adjusted_max = max(float(adjusted_max), float(required_driver_value)) if adjusted_max is not None else float(required_driver_value)
+
+  # For formula-backed metrics, the mapping-table formula is authoritative over
+  # generic relative movement bands. A generic band may narrow the move, but it
+  # must never exclude the driver value required to make the mapped formula target
+  # mathematically reachable.
+  if adjusted_min is None or float(adjusted_min) > float(required_driver_value):
+    adjusted_min = float(required_driver_value)
+  if adjusted_max is None or float(adjusted_max) < float(required_driver_value):
+    adjusted_max = float(required_driver_value)
+
+  adjusted_min = max(0.0, float(adjusted_min)) if adjusted_min is not None else None
+  adjusted_max = max(0.0, float(adjusted_max)) if adjusted_max is not None else None
+  if target_driver == "utilization":
+    adjusted_min = min(1.0, max(0.0, float(adjusted_min))) if adjusted_min is not None else None
+    adjusted_max = min(1.0, max(0.0, float(adjusted_max))) if adjusted_max is not None else None
+  if adjusted_min is not None and adjusted_max is not None and adjusted_min > adjusted_max:
+    adjusted_min, adjusted_max = adjusted_max, adjusted_min
+  return adjusted_min, adjusted_max, {
+    "envelope_basis": "sql_mapping_formula_target",
+    "formula": "revenue = Capacity * Unit Price * Utilization",
+    "mapping_table": "post_intak_mapping_lookup",
+    "target_metric_name": target_metric,
+    "target_driver": target_driver,
+    "target_value": int(round(float(target_value))),
+    "target_cap_source": target_cap_source,
+    "direction_hint": direction or None,
+    "required_driver_value_if_companions_unchanged": (
+      round(float(required_driver_value), 2)
+      if target_driver == "utilization"
+      else int(round(float(required_driver_value)))
+    ),
+    "companion_driver_values": {
+      key: round(float(value), 6) if value is not None else None
+      for key, value in companion_values.items()
+    },
+  }
+
+def _table_backed_formula_envelope_feasibility_errors(
+  *,
+  rows: List[Dict[str, Any]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  horizon_count: int,
+) -> List[str]:
+  errors: List[str] = []
+  rows_by_quarter_group: Dict[Tuple[int, str], Dict[str, Dict[str, Any]]] = {}
+  for row in rows:
+    if not isinstance(row, dict) or str(row.get("edit_status") or "") != "editable":
+      continue
+    lever_id = str(row.get("lever_id") or "").strip()
+    mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+    if str(mapping_entry.get("target_metric_name") or "").strip().lower() != "revenue":
+      continue
+    if str(mapping_entry.get("driver_bundle") or "").strip().lower() != "revenue_formula_bundle":
+      continue
+    target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+    if target_driver not in {"capacity", "unit_price", "utilization"}:
+      continue
+    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+    group_key = str(lever_id).rsplit("::", 1)[0]
+    if quarter_index < 1 or not group_key:
+      continue
+    rows_by_quarter_group.setdefault((quarter_index, group_key), {})[target_driver] = row
+  for quarter_index in range(1, max(1, int(horizon_count or 1)) + 1):
+    target_payload = _table_backed_metric_target_for_quarter(
+      deterministic_numeric_guidance=deterministic_numeric_guidance,
+      metric_name="revenue",
+      quarter_index=quarter_index,
+    )
+    target_value = _safe_float(target_payload.get("target_value"))
+    if target_value is None:
+      continue
+    revenue_min = 0.0
+    revenue_max = 0.0
+    complete_group_count = 0
+    for (_row_quarter, group_key), driver_rows in rows_by_quarter_group.items():
+      if _row_quarter != quarter_index:
+        continue
+      if not all(driver in driver_rows for driver in ("capacity", "unit_price", "utilization")):
+        continue
+      group_min = 1.0
+      group_max = 1.0
+      for driver in ("capacity", "unit_price", "utilization"):
+        row = driver_rows[driver]
+        min_value = _safe_float(row.get("min_value"))
+        max_value = _safe_float(row.get("max_value"))
+        if min_value is None or max_value is None:
+          group_min = 0.0
+          group_max = -1.0
+          break
+        group_min *= max(0.0, float(min(min_value, max_value)))
+        group_max *= max(0.0, float(max(min_value, max_value)))
+      if group_max >= 0.0:
+        revenue_min += float(group_min)
+        revenue_max += float(group_max)
+        complete_group_count += 1
+    if complete_group_count <= 0:
+      continue
+    tolerance = max(1.0, abs(float(target_value)) * 0.05)
+    if float(target_value) < revenue_min - tolerance or float(target_value) > revenue_max + tolerance:
+      errors.append(
+        "formula_envelope_impossible: "
+        + json.dumps(
+          {
+            "quarter_index": quarter_index,
+            "metric_name": "revenue",
+            "target_value": int(round(float(target_value))),
+            "envelope_min_revenue": int(round(float(revenue_min))),
+            "envelope_max_revenue": int(round(float(revenue_max))),
+            "mapping_table": "post_intak_mapping_lookup",
+            "formula": "revenue = Capacity * Unit Price * Utilization",
+            "detail": "Driver cell bounds generated from the mapping table cannot produce the mapped revenue target.",
+          },
+          ensure_ascii=False,
+        )
+      )
+  return errors
+
 def _full_horizon_model_input_repair_contract(
   *,
   model_input_json: Optional[Dict[str, Any]],
@@ -2825,6 +3471,7 @@ def _full_horizon_model_input_repair_contract(
   deterministic_numeric_guidance: Optional[Dict[str, Any]],
   allowed_lever_ids: Optional[List[str]],
   quarter_count: Optional[int] = None,
+  business_world_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   model_input = model_input_json if isinstance(model_input_json, dict) else {}
   grid = locked_lever_control_fill_grid if isinstance(locked_lever_control_fill_grid, dict) else {}
@@ -2842,6 +3489,12 @@ def _full_horizon_model_input_repair_contract(
     ),
   )
   baseline_values_by_lever = _solved_lever_value_map(model_input)
+  revenue_target_caps_by_quarter = _stage_ramp_capped_revenue_targets_by_quarter(
+    deterministic_numeric_guidance=guidance,
+    business_world_contract=copy.deepcopy(business_world_contract or {}),
+    baseline_values_by_lever=baseline_values_by_lever,
+    horizon_count=horizon_count,
+  )
   catalog_entry_by_lever = _lever_review_catalog_entry_map(_build_writable_lever_review_catalog(model_input))
   grid_rows_by_lever = {
     str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
@@ -2920,6 +3573,37 @@ def _full_horizon_model_input_repair_contract(
       )
       min_value = suggested_min
       max_value = suggested_max
+      direction_hint = str(grid_row.get("direction_hint") or "").strip().lower()
+      max_relative_change = max(0.0, float(_safe_float(grid_row.get("max_relative_change")) or 0.0))
+      if current_value is not None and direction_hint in {"decrease", "increase"}:
+        current_float = float(current_value)
+        if direction_hint == "decrease":
+          if max_value is None or float(max_value) > current_float:
+            max_value = current_float
+          if min_value is None or float(min_value) >= float(max_value):
+            move_scale = max(max_relative_change, 0.35)
+            min_value = current_float - max(abs(current_float) * move_scale, 1.0)
+          if value_kind == "ratio" or "percent_of_" in input_semantics:
+            min_value = max(0.0, float(min_value))
+          else:
+            min_value = max(0.0, float(min_value))
+        elif direction_hint == "increase":
+          if min_value is None or float(min_value) < current_float:
+            min_value = current_float
+          if max_value is None or float(max_value) <= float(min_value):
+            move_scale = max(max_relative_change, 0.35)
+            max_value = current_float + max(abs(current_float) * move_scale, 1.0)
+      formula_envelope = {}
+      min_value, max_value, formula_envelope = _table_backed_formula_driver_cell_bounds(
+        lever_id=lever_id,
+        quarter_index=quarter_index,
+        current_value=current_value,
+        min_value=min_value,
+        max_value=max_value,
+        baseline_values_by_lever=baseline_values_by_lever,
+        deterministic_numeric_guidance=guidance,
+        revenue_target_caps_by_quarter=revenue_target_caps_by_quarter,
+      )
       if precision_kind == "ratio_2dp":
         display_current = round(float(current_value), 2) if current_value is not None else None
         display_min = round(float(min_value), 2) if min_value is not None else None
@@ -2956,8 +3640,19 @@ def _full_horizon_model_input_repair_contract(
           "issue_codes": copy.deepcopy(issue_codes),
           "issue_target_metrics": copy.deepcopy(issue_target_metrics),
           "issue_target_quarters": copy.deepcopy(issue_target_quarters),
+          "formula_envelope": copy.deepcopy(formula_envelope) if formula_envelope else None,
         }
       )
+  formula_feasibility_errors = _table_backed_formula_envelope_feasibility_errors(
+    rows=rows,
+    deterministic_numeric_guidance=guidance,
+    horizon_count=horizon_count,
+  )
+  if formula_feasibility_errors:
+    raise RuntimeError(
+      "post_intake_formula_driver_envelope_invalid: "
+      + "; ".join(formula_feasibility_errors[:10])
+    )
   return {
     "contract_version": _FULL_HORIZON_MODEL_INPUT_REPAIR_CONTRACT_VERSION,
     "state_rule": "model_input_json Q1-Q20 is the only mutable truth; finmo_json is rebuilt from model_input_json after cells are applied",
@@ -2967,6 +3662,11 @@ def _full_horizon_model_input_repair_contract(
     "editable_lever_ids": copy.deepcopy(editable_lever_ids),
     "required_editable_cell_ids": copy.deepcopy(required_cell_ids),
     "editable_cell_count": len(required_cell_ids),
+    "envelope_source": "table_backed_formula_driver_envelope",
+    "formula_envelope_policy": {
+      "mapping_table": "post_intak_mapping_lookup",
+      "rule": "Formula-backed target metrics derive driver cell envelopes from SQL mapping bundles before GPT sees the repair contract.",
+    },
     "editable_cells": [copy.deepcopy(row) for row in rows if row.get("edit_status") == "editable"],
     "locked_cells": [copy.deepcopy(row) for row in rows if row.get("edit_status") != "editable"],
   }
@@ -3658,6 +4358,22 @@ def _build_unified_numeric_guidance_packet(
   per_lever_metric_names: Dict[str, List[str]] = {}
   per_lever_source_metrics: Dict[str, List[str]] = {}
   issue_direct_metric_spec_map: Dict[Tuple[str, int, str], Dict[str, Any]] = {}
+  business_world_contract = (
+    convergence_context.get("business_world_contract")
+    if isinstance(convergence_context.get("business_world_contract"), dict)
+    else {}
+  )
+  stage_ramp_contract_for_targets = (
+    business_world_contract.get("stage_ramp_contract")
+    if isinstance(business_world_contract.get("stage_ramp_contract"), dict)
+    else {}
+  )
+  stage_ramp_revenue_target_state_by_quarter: Dict[int, float] = {
+    int(quarter_index): max(0.0, float(_safe_float(row.get("revenue")) or 0.0))
+    for quarter_index, row in finmo_row_map.items()
+    if int(quarter_index) >= 1
+  }
+  stage_ramp_target_state: Dict[str, Any] = {"spike_count_used": 0}
   retry_required_lever_ids = {
     str(item).strip()
     for item in (retry_context.get("required_issue_lever_ids") or [])
@@ -3774,10 +4490,16 @@ def _build_unified_numeric_guidance_packet(
       else {}
     )
     candidate_lever_pool: List[str] = []
-    for lever_id in _preferred_issue_candidate_lever_ids(
-      issue_record=issue_record,
-      contract_packet=issue_packet,
-    ):
+    table_allowed_concrete_lever_ids = post_intake_concrete_issue_lever_ids_from_catalog(
+      issue_code,
+      [
+        str(item.get("lever_id") or "").strip()
+        for item in lever_catalog_entries
+        if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+      ],
+      phase="convergence",
+    )
+    for lever_id in table_allowed_concrete_lever_ids:
       if (
         lever_id
         and post_intake_driver_target_lever_allowed_for_issue(
@@ -3798,20 +4520,15 @@ def _build_unified_numeric_guidance_packet(
         or abs(float(_safe_float(spec.get("gap_abs")) or 0.0)) > 1e-9
       )
     ]
-    for lever_id in lever_catalog_map:
-      if not post_intake_driver_target_lever_allowed_for_issue(
-        lever_id,
-        issue_code,
-        phase="convergence",
-      ):
-        continue
-      direct_metric_name = str(post_intake_direct_target_metric_for_lever(lever_id) or "").strip().lower()
+    candidate_lever_pool = [
+      lever_id
+      for lever_id in candidate_lever_pool
       if (
-        direct_metric_name
-        and direct_metric_name in set(actionable_metric_names_from_specs)
-        and lever_id not in candidate_lever_pool
-      ):
-        candidate_lever_pool.append(lever_id)
+        not actionable_metric_names_from_specs
+        or str(post_intake_direct_target_metric_for_lever(lever_id) or "").strip().lower()
+        in set(actionable_metric_names_from_specs)
+      )
+    ]
     if not candidate_lever_pool:
       raise RuntimeError(
         "post_intake_driver_target_mapping_missing_issue_levers: "
@@ -3924,6 +4641,12 @@ def _build_unified_numeric_guidance_packet(
       issue_metric_targets
     )
     for spec in metric_specs:
+      spec = _stage_ramp_constrain_revenue_metric_spec(
+        spec=copy.deepcopy(spec),
+        stage_ramp_contract=stage_ramp_contract_for_targets,
+        revenue_target_state_by_quarter=stage_ramp_revenue_target_state_by_quarter,
+        stage_ramp_state=stage_ramp_target_state,
+      )
       quarter_index = int(_safe_float(spec.get("quarter_index")) or 0)
       if quarter_index < 1 or quarter_index not in effective_quarters:
         continue
@@ -4052,12 +4775,12 @@ def _build_unified_numeric_guidance_packet(
         }
       )
 
-  if not candidate_lever_ids:
-    candidate_lever_ids = [
-      str(item.get("lever_id") or "").strip()
-      for item in lever_catalog_entries[:_CONVERGENCE_MAX_FOCUS_LEVERS]
-      if str(item.get("lever_id") or "").strip()
-    ]
+  if not candidate_lever_ids and focus_issue_codes:
+    raise RuntimeError(
+      "post_intake_driver_target_mapping_missing_active_issue_levers: "
+      + ", ".join(focus_issue_codes)
+      + " have no table-backed convergence levers. Add mappings to post_intak_mapping_lookup or disable the issue."
+    )
 
   ranked_lever_entries: List[Dict[str, Any]] = []
   for lever_id in candidate_lever_ids:
@@ -4214,7 +4937,7 @@ def _build_unified_numeric_guidance_packet(
     issue_packet = issue_repair_packet_map.get(issue_code) or {}
     selected_metric_name = str(issue_packet.get("selected_metric_name") or "").strip().lower()
     issue_direct_items: List[Dict[str, Any]] = []
-    issue_fallback_items: List[Dict[str, Any]] = []
+    issue_table_items: List[Dict[str, Any]] = []
     for item in ranked_lever_entries:
       covered_issue_codes = {
         str(code or "").strip().lower()
@@ -4223,7 +4946,7 @@ def _build_unified_numeric_guidance_packet(
       }
       if issue_code not in covered_issue_codes:
         continue
-      issue_fallback_items.append(item)
+      issue_table_items.append(item)
       if selected_metric_name:
         path_type, _efficiency = _repair_path_type_for_lever(
           metric_name=selected_metric_name,
@@ -4233,7 +4956,7 @@ def _build_unified_numeric_guidance_packet(
         )
         if str(path_type or "").strip().lower() == "direct":
           issue_direct_items.append(item)
-    for item in (issue_direct_items or issue_fallback_items):
+    for item in (issue_direct_items or issue_table_items):
       if _append_ranked_item(item, enforce_family_limit=False):
         break
       if len(lever_band_scaffold) >= _CONVERGENCE_MAX_FOCUS_LEVERS:
@@ -4498,9 +5221,7 @@ def _build_unified_numeric_guidance_packet(
   return {
     "contract_version": "unified_numeric_guidance_v3",
     "completion_policy": _convergence_completion_policy_payload(),
-    "scope_quarters": copy.deepcopy(
-      scoped_quarters[:_CONVERGENCE_MAX_FOCUS_QUARTERS]
-    ),
+    "scope_quarters": copy.deepcopy(scoped_quarters),
     "guidance_coverage_summary": {
       "metric_pressure_count": len(enriched_metric_pressure_packets),
       "metric_pressure_with_equilibrium_target_count": metric_pressure_with_equilibrium_target_count,
@@ -4619,6 +5340,19 @@ def _normalize_issue_record_to_controller_truth(
   record = copy.deepcopy(item if isinstance(item, dict) else {})
   record["verifier_status"] = _normalize_realism_verifier_status(record.get("verifier_status"))
   iteration_decision = _iteration_decision_from_issue_record(record)
+  issue_code = str(record.get("issue_code") or "").strip().lower()
+  mapping_contract = _issue_mapping_contract_or_fail(
+    issue_code,
+    phase="cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence",
+    require_mapping=not _issue_is_hard_issue(record),
+  )
+  if mapping_contract:
+    record["mapping_source"] = mapping_contract.get("mapping_source") or "post_intak_mapping_lookup"
+    record["next_required_lever_ids"] = copy.deepcopy(mapping_contract.get("next_required_lever_ids") or [])
+    record["candidate_lever_ids"] = copy.deepcopy(mapping_contract.get("candidate_lever_ids") or [])
+    record["metric_targets"] = copy.deepcopy(mapping_contract.get("metric_targets") or [])
+    record["target_metric_names"] = copy.deepcopy(mapping_contract.get("target_metric_names") or [])
+    record["mapping_rows"] = copy.deepcopy(mapping_contract.get("mapping_rows") or [])
   record["status_source"] = "verifier_status"
   record["iteration_decision"] = str(iteration_decision.get("iteration_decision") or "").strip()
   record["iteration_needed"] = bool(iteration_decision.get("iteration_needed"))
@@ -5522,6 +6256,17 @@ def _build_deterministic_issue_packets(
 
   contract_issue_packet_map = _numeric_solver_contract_issue_packet_map(numeric_solver_contract)
   baseline_quarter_map = _numeric_solver_contract_baseline_quarter_map(numeric_solver_contract)
+  contract_writable_catalog_entries = []
+  writable_catalog = (
+    (numeric_solver_contract or {}).get("writable_lever_catalog")
+    if isinstance((numeric_solver_contract or {}).get("writable_lever_catalog"), dict)
+    else {}
+  )
+  contract_writable_catalog_entries = [
+    copy.deepcopy(item)
+    for item in (writable_catalog.get("entries") or [])
+    if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+  ]
 
   for issue_code in contract_issue_packet_map.keys():
     if issue_code not in issue_order:
@@ -5539,10 +6284,11 @@ def _build_deterministic_issue_packets(
     contract_packet = contract_issue_packet_map.get(issue_code) or {}
     prior_packet = prior_packet_map.get(issue_code) or {}
     if not contract_packet:
-      record_candidate_lever_ids = _preferred_issue_candidate_lever_ids(
+      record_candidate_lever_ids = _table_issue_candidate_lever_ids(
         issue_record=record,
         contract_packet={},
         prior_packet=prior_packet,
+        catalog_entries=contract_writable_catalog_entries,
       )
       record_metric_targets = post_intake_direct_target_metric_names_for_levers(
         record_candidate_lever_ids
@@ -5615,19 +6361,17 @@ def _build_deterministic_issue_packets(
       }
     )
     candidate_lever_ids: List[str] = []
-    for lever_id in _preferred_issue_candidate_lever_ids(
+    for lever_id in _table_issue_candidate_lever_ids(
       issue_record=record,
       contract_packet=contract_packet,
       prior_packet=prior_packet,
+      catalog_entries=contract_writable_catalog_entries,
     ):
       if lever_id and lever_id not in candidate_lever_ids:
         candidate_lever_ids.append(lever_id)
     metric_targets = [
       str(item).strip()
-      for item in [
-        *(contract_packet.get("metric_targets") or []),
-        *post_intake_direct_target_metric_names_for_levers(candidate_lever_ids),
-      ]
+      for item in post_intake_direct_target_metric_names_for_levers(candidate_lever_ids)
       if str(item).strip()
     ]
     metric_targets = list(dict.fromkeys(metric_targets))
@@ -5763,7 +6507,7 @@ def _numeric_adjust_actions_contract_error(
       if int(_safe_float(item) or 0) >= 1
     }
   )
-  fallback_required_metric_keys = [
+  table_required_metric_keys = [
     str(item).strip()
     for item in (
       default_required_metric_keys
@@ -5799,7 +6543,7 @@ def _numeric_adjust_actions_contract_error(
       action.get("required_target_metric_keys") or []
     )
     if not action_required_metric_keys:
-      action_required_metric_keys = copy.deepcopy(fallback_required_metric_keys)
+      action_required_metric_keys = copy.deepcopy(table_required_metric_keys)
     metric_quarter_set = {
       int(_safe_float(item.get("quarter_index")) or 0)
       for item in quarter_target_metrics
@@ -5979,26 +6723,10 @@ def _issue_packet_declared_target_metric_names(
   packet = issue_packet if isinstance(issue_packet, dict) else {}
   ordered_metric_names: List[str] = []
   allowed_primary_metrics = set(_UNIFIED_ALLOWED_TARGET_METRIC_KEYS)
-  for metric_name in (
-    str(item).strip().lower()
-    for item in (packet.get("metric_targets") or [])
-    if str(item).strip()
-  ):
-    if metric_name and metric_name in allowed_primary_metrics and metric_name not in ordered_metric_names:
-      ordered_metric_names.append(metric_name)
-  for metric_name in post_intake_direct_target_metric_names_for_levers(
-    [
-      *[
-        str(item).strip()
-        for item in (packet.get("next_required_lever_ids") or [])
-        if str(item).strip()
-      ],
-      *[
-        str(item).strip()
-        for item in (packet.get("candidate_lever_ids") or [])
-        if str(item).strip()
-      ],
-    ]
+  issue_code = str(packet.get("issue_code") or "").strip().lower()
+  for metric_name in post_intake_target_metric_names_for_issue(
+    issue_code,
+    phase="cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence",
   ):
     if metric_name and metric_name in allowed_primary_metrics and metric_name not in ordered_metric_names:
       ordered_metric_names.append(metric_name)
@@ -6012,28 +6740,16 @@ def _issue_packet_declared_target_metric_names(
     return ordered_metric_names
   return ordered_metric_names
 
-def _preferred_issue_candidate_lever_ids(
+def _table_issue_candidate_lever_ids(
   *,
   issue_record: Optional[Dict[str, Any]] = None,
   contract_packet: Optional[Dict[str, Any]] = None,
   prior_packet: Optional[Dict[str, Any]] = None,
+  catalog_entries: Optional[List[Dict[str, Any]]] = None,
 ) -> List[str]:
   record = issue_record if isinstance(issue_record, dict) else {}
   contract = contract_packet if isinstance(contract_packet, dict) else {}
   prior = prior_packet if isinstance(prior_packet, dict) else {}
-  mapped_candidates: List[str] = []
-  for source in (contract, prior, record):
-    for lever_id in [
-      str(item).strip()
-      for item in (
-        source.get("next_required_lever_ids")
-        or source.get("candidate_lever_ids")
-        or []
-      )
-      if str(item).strip()
-    ]:
-      if lever_id and lever_id not in mapped_candidates:
-        mapped_candidates.append(lever_id)
   issue_code = str(
     contract.get("issue_code")
     or prior.get("issue_code")
@@ -6041,12 +6757,19 @@ def _preferred_issue_candidate_lever_ids(
     or ""
   ).strip().lower()
   if issue_code:
-    return post_intake_issue_candidate_lever_ids(
-      issue_code,
-      preferred_lever_ids=mapped_candidates,
-      fallback_to_table=True,
-    )
-  return mapped_candidates
+    catalog_lever_ids = [
+      str(item.get("lever_id") or "").strip()
+      for item in (catalog_entries or [])
+      if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
+    ]
+    if catalog_lever_ids:
+      return post_intake_concrete_issue_lever_ids_from_catalog(
+        issue_code,
+        catalog_lever_ids,
+        phase="convergence",
+      )
+    return post_intake_issue_candidate_lever_ids(issue_code, phase="convergence")
+  return []
 
 def _raise_p_and_l_flatline_if_needed(
   *,

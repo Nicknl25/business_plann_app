@@ -873,7 +873,7 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
         "- pre-revenue businesses must not begin Q1 at mature run-rate revenue, utilization, capacity deployment, staffing support, or profitability",
         "- use a launch/ramp curve in Q1-Q4 unless explicit operating facts prove an already-contracted backlog",
         "- revenue may become strong later, but Q1 must look like a launch period rather than an established mature business",
-        "- keep revenue, utilization, capacity, and the GPT-selected payroll_headcount_grid coherent so Python can calculate Payroll from the headcount schedule",
+        "- keep revenue, utilization, and capacity coherent with the separate SQL-backed payroll_headcount_schedule contract",
       ]
     )
   elif str(context.get("stage_family") or "").strip().lower() == "early":
@@ -923,7 +923,6 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
     "revenue_qoq_max_spike": payload.get("revenue_qoq_max_spike"),
     "fte_qoq_max": payload.get("fte_qoq_max"),
     "fte_qoq_max_spike": payload.get("fte_qoq_max_spike"),
-    "payroll_headcount_grid": copy.deepcopy(payload.get("payroll_headcount_grid") or []),
     "utilization_high_watermark": payload.get("utilization_high_watermark"),
     "cost_maturity_caps": copy.deepcopy(payload.get("cost_maturity_caps") or {}),
     "profitability_floor_by_quarter": copy.deepcopy(payload.get("profitability_floor_by_quarter") or {}),

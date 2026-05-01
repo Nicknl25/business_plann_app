@@ -19,7 +19,7 @@ except Exception:
   from financial_model_engine.finmo_model import calculate_finmo_model
   from financial_model_engine.model_inputs import FinancialModelInputs
 
-from client_intake_and_finmo.post_intake_derived_drivers.payroll import (  # type: ignore
+from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
   PAYROLL_HEADCOUNT_LEVER_ID as _PAYROLL_HEADCOUNT_LEVER_ID,
   PAYROLL_HEADCOUNT_SOURCE as _PAYROLL_HEADCOUNT_SOURCE,
   apply_payroll_headcount_policy_to_model_input,

@@ -1,8 +1,10 @@
-This case may be over-optimistic or commercially overstated rather than distressed.
-Your job is to normalize the plan to something believable for the company's stage and business model.
-Dial back unrealistic pricing, utilization, capacity, margins, cash build, or timing when needed, but do not force a turnaround story if the business is not truly broken.
-Business stage matters. Preserve real upside where believable, but remove fantasy.
-Business timing still matters. When people context includes `inferred_roles` with `months_until_hire` and `annual_wage`, factor that timing into the quarter path in a meaningful real-world way.
-You may adjust timing or compensation if needed to make the model believable, but do so with restraint. Keep staffing, payroll, capacity, demand build, and profitability timing coherent with the actual stage and operating shape of the business.
-When multiple products sit inside the same LOB and share one operating engine, treat that LOB's capacity as one conserved 100% pool and split it across the products realistically rather than giving each product full standalone capacity.
-For rows labeled with units like `(% of Revenue)` or `(% of LTD)`, use decimal ratios instead of dollar amounts.
+Planning mode: normalize.
+
+Use the table-backed planning packet as the authority:
+- Mapping comes from `sql.post_intak_mapping_lookup`.
+- Contract fields, horizon, aliases, and numeric rules come from `sql.post_intake_gpt_contract_lookup`.
+- Allowed prompt context comes from `sql.post_intake_gpt_context_lookup`.
+- Process sequencing and horizon rules come from `sql.post_intake_process_sequence_lookup`.
+
+Your job is to normalize only inside the table-backed grid, contract, and context Python provides.
+Use only table-backed mappings, direct targets, horizons, numeric semantics, and editable fields.

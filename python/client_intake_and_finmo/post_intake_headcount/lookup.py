@@ -198,7 +198,10 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
-      for row in _DEFAULT_HEADCOUNT_POLICY_ROWS:
+      cur.execute(f"SELECT COUNT(*) AS row_count FROM {HEADCOUNT_POLICY_TABLE_NAME}")
+      row_count = int((cur.fetchone() or [0])[0] or 0)
+      bootstrap_defaults = row_count == 0
+      for row in (_DEFAULT_HEADCOUNT_POLICY_ROWS if bootstrap_defaults else []):
         cur.execute(
           f"""
           INSERT INTO {HEADCOUNT_POLICY_TABLE_NAME} (
@@ -224,25 +227,7 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             notes
           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
           ON DUPLICATE KEY UPDATE
-            policy_status = VALUES(policy_status),
-            schedule_storage_table = VALUES(schedule_storage_table),
-            schedule_storage_column = VALUES(schedule_storage_column),
-            schedule_contract_version = VALUES(schedule_contract_version),
-            schedule_horizon_quarters = VALUES(schedule_horizon_quarters),
-            schedule_required = VALUES(schedule_required),
-            quarter_totals_required = VALUES(quarter_totals_required),
-            role_rows_required = VALUES(role_rows_required),
-            model_input_driver = VALUES(model_input_driver),
-            financial_model_field = VALUES(financial_model_field),
-            headcount_source_priority_json = VALUES(headcount_source_priority_json),
-            wage_source_priority_json = VALUES(wage_source_priority_json),
-            generic_oews_fallback_allowed = VALUES(generic_oews_fallback_allowed),
-            generic_oews_fallback_code = VALUES(generic_oews_fallback_code),
-            role_category_required = VALUES(role_category_required),
-            fte_math_required = VALUES(fte_math_required),
-            currency_rounding = VALUES(currency_rounding),
-            ratio_rounding = VALUES(ratio_rounding),
-            notes = VALUES(notes)
+            id = id
           """,
           (
             _clean_text(row.get("policy_code")).lower(),

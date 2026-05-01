@@ -11,6 +11,9 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_driver_target_lever_ids_for_issue,
   post_intake_driver_target_mapping_errors,
   post_intake_driver_target_metric_ids,
+  post_intake_issue_codes,
+  post_intake_issue_codes_for_phase,
+  post_intake_issue_has_phase,
 )
 
 NUMERIC_EXECUTION_BOUNDARY_VERSION = "numeric_execution_boundary_v1"
@@ -31,23 +34,33 @@ IMMUTABLE_CORE_MODEL_FILES = (
 )
 
 
-_ISSUE_SOLVER_OBJECTIVES: Dict[str, str] = {
-  "capacity_support_mismatch": "align_volume_with_capacity_and_timing",
-  "cost_structure_mismatch": "rebalance_cost_structure_without_fake_plugs",
-  "p_and_l_flatline": "repair_flat_operating_trajectory_through_mapped_revenue_and_cost_drivers",
-  "working_capital_mismatch": "align_working_capital_with_real_collection_payment_timing",
-}
+def _table_issue_codes(*, phase: Any = None, targeting_allowed: Optional[bool] = None) -> set[str]:
+  try:
+    if phase:
+      return set(post_intake_issue_codes_for_phase(phase, targeting_allowed=targeting_allowed))
+    return set(post_intake_issue_codes(targeting_allowed=targeting_allowed))
+  except Exception:
+    return set()
+
+
+def _issue_solver_objective(issue_code: Any) -> str:
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    return "repair_table_mapped_issue"
+  if _is_cash_pass_owned_issue_code(code):
+    return f"repair_{code}_through_sql_mapped_cash_policy_drivers"
+  return f"repair_{code}_through_sql_mapped_model_input_drivers"
 
 TARGETABLE_FINMO_METRIC_IDS = tuple(post_intake_driver_target_metric_ids())
 PRIMARY_TARGETABLE_FINMO_METRIC_IDS = TARGETABLE_FINMO_METRIC_IDS
 TABLE_TARGET_METRIC_ID_SET = set(TARGETABLE_FINMO_METRIC_IDS)
 
-CASH_PASS_OWNED_ISSUE_CODES = {
+CASH_PASS_OWNED_ISSUE_CODES = _table_issue_codes(phase="cash_pass") or {
   "liquidity_failure",
   "working_capital_mismatch",
   "funding_structure_mismatch",
 }
-NUMERIC_KNOWN_ISSUE_CODES = set(_ISSUE_SOLVER_OBJECTIVES) | CASH_PASS_OWNED_ISSUE_CODES | {
+NUMERIC_KNOWN_ISSUE_CODES = _table_issue_codes() | {
   "accounting_integrity_failure",
   "structural_impossibility",
 }
@@ -57,15 +70,17 @@ PRIMARY_TARGET_METRIC_MAX_COUNT = 6
 
 _OBJECTIVE_METRIC_ALIAS_MAP: Dict[str, str] = {}
 _PREFERRED_PRIMARY_TARGET_METRIC_COUNT = 6
-_REMAINING_HORIZON_ISSUE_CODES = {
-  "capacity_support_mismatch",
-  "cost_structure_mismatch",
-  "p_and_l_flatline",
-}
+_REMAINING_HORIZON_ISSUE_CODES = _table_issue_codes(phase="convergence", targeting_allowed=True)
 
 
 def _issue_requires_remaining_horizon_scope(issue_code: Any) -> bool:
-  return str(issue_code or "").strip().lower() in _REMAINING_HORIZON_ISSUE_CODES
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    return False
+  try:
+    return post_intake_issue_has_phase(code, "convergence")
+  except Exception:
+    return code in _REMAINING_HORIZON_ISSUE_CODES
 
 
 def _solver_phase_status_for_pass(pass_name: Any) -> str:
@@ -132,7 +147,13 @@ def _tactic_family(tactic: Any) -> str:
 
 
 def _is_cash_pass_owned_issue_code(issue_code: Any) -> bool:
-  return str(issue_code or "").strip().lower() in CASH_PASS_OWNED_ISSUE_CODES
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    return False
+  try:
+    return post_intake_issue_has_phase(code, "cash_pass")
+  except Exception:
+    return code in CASH_PASS_OWNED_ISSUE_CODES
 
 
 def _normalized_issue_status_records(
@@ -504,9 +525,7 @@ def _issue_target_packets(
         "candidate_lever_ids": copy.deepcopy(next_required_lever_ids),
         "iteration_needed": bool(item.get("iteration_needed")),
         "metric_targets": copy.deepcopy(metric_targets),
-        "solver_objective": str(
-          _ISSUE_SOLVER_OBJECTIVES.get(issue_code) or "align_issue_to_viable_quarter_shape"
-        ).strip(),
+        "solver_objective": _issue_solver_objective(issue_code),
       }
     )
   return packets

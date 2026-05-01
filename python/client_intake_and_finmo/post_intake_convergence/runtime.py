@@ -14,7 +14,13 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 logger = logging.getLogger(__name__)
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_assert_required_process_sequence,
+  post_intake_assert_process_sequence_step,
+  post_intake_issue_codes_for_phase,
+  post_intake_process_sequence_errors,
+  post_intake_process_sequence_rows,
   post_intake_gpt_context_filter_payload,
+  post_intake_gpt_context_rows,
   post_intake_gpt_context_request_char_budget,
 )
 
@@ -34,7 +40,16 @@ _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
 _UNIFIED_EXPLICIT_CAPITAL_ALLOCATION_LEVER_IDS: Tuple[str, ...] = tuple()
-_CASH_PASS_OWNED_ISSUE_CODES = {"liquidity_failure", "working_capital_mismatch", "funding_structure_mismatch"}
+try:
+  _CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
+except Exception:
+  _CASH_PASS_OWNED_ISSUE_CODES = {"liquidity_failure", "working_capital_mismatch", "funding_structure_mismatch"}
+try:
+  _REMAINING_HORIZON_ISSUE_CODES = set(
+    post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
+  )
+except Exception:
+  _REMAINING_HORIZON_ISSUE_CODES = set()
 _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple()
 _UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
 _UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.md"
@@ -107,14 +122,8 @@ __all__ = [
   "_finmo_rows_for_quarters",
   "_window_values",
   "_baseline_window_summary",
-  "_translate_unified_convergence_adjustment",
   "_scoped_unified_allowed_lever_ids",
   "_build_unified_convergence_pass_plan",
-  "_shape_sensitive_trajectory_values_schema",
-  "_shape_sensitive_trajectory_values_by_quarter",
-  "_shape_sensitive_trajectory_error_code",
-  "_shape_sensitive_path_validation_detail",
-  "_shape_sensitive_path_validation_error",
   "_baseline_map_quarter_count",
   "_deterministic_lever_bound_lookup",
   "_lever_family_from_lever_id",
@@ -1056,11 +1065,10 @@ def _load_unified_convergence_prompt() -> str:
       "You own the entire convergence loop from the first post-grid cycle until the business is fully viable.\n"
       "See the whole system holistically from the start: planning mode, realism, cash posture, stabilization, issue state, and full trajectory.\n"
       "Do not behave like a narrow stage reviewer. You are the one convergence owner.\n"
-      "Use only the provided writable lever ids and the quarter-specific solver contract.\n"
+      "Use only the SQL-backed full-horizon editable model-input cell contract.\n"
       "For active issues, return a coordinated strategy that can actually move the business toward a viable ongoing-concern state.\n"
       "Solver will execute every valid package, so focus on strategy quality, quarter targets, and lever coordination.\n"
-      "Read shape_sensitive_contract directly before choosing structural levers.\n"
-      "For shape-sensitive levers, return a full remaining-horizon path that preserves continuity: no quarter-to-quarter drop over 50%, no quarter-to-quarter jump over 2.5x, no snapback after a large build, and no abrupt regime switching without a believable transition.\n"
+      "For structural levers, return a full-horizon model_input_repair_cells path that preserves continuity: no quarter-to-quarter drop over 50%, no quarter-to-quarter jump over 2.5x, no snapback after a large build, and no abrupt regime switching without a believable transition.\n"
       "Do not return vague guidance. Return structured JSON only."
     ).strip()
 
@@ -1694,7 +1702,6 @@ def _compact_locked_lever_control_grid_for_prompt(grid: Optional[Dict[str, Any]]
         "numeric_precision_rule": row.get("numeric_precision_rule"),
         "suggested_min_value": row.get("suggested_min_value"),
         "suggested_max_value": row.get("suggested_max_value"),
-        "shape_sensitive_class": row.get("shape_sensitive_class"),
         "required_control_quarters": copy.deepcopy(row.get("required_control_quarters") or []),
         "lever_adjustment_template": {
           "lever_id": row.get("lever_id"),
@@ -1710,10 +1717,6 @@ def _compact_locked_lever_control_grid_for_prompt(grid: Optional[Dict[str, Any]]
             else None
           ),
           "control_quarters_to_fill": copy.deepcopy(row.get("required_control_quarters") or []),
-          "shape_rule": (
-            "If shape_sensitive_class is remaining_horizon_required, include values or trajectory_values "
-            "for every control_quarters_to_fill quarter."
-          ),
         },
         "stage_ramp_rule": copy.deepcopy(row.get("stage_ramp_rule") or {}),
       }
@@ -1740,6 +1743,9 @@ def _compact_full_horizon_repair_contract_for_prompt(contract: Optional[Dict[str
         "min_value": row.get("min_value"),
         "max_value": row.get("max_value"),
         "numeric_precision_rule": row.get("numeric_precision_rule"),
+        "formula_envelope": copy.deepcopy(row.get("formula_envelope"))
+        if isinstance(row.get("formula_envelope"), dict)
+        else None,
       }
     )
   return {
@@ -1756,10 +1762,6 @@ def _compact_full_horizon_repair_contract_for_prompt(contract: Optional[Dict[str
 
 def _apply_gpt_context_lookup_to_unified_convergence_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
   context_packet = copy.deepcopy(packet if isinstance(packet, dict) else {})
-  if isinstance(context_packet.get("locked_lever_control_fill_grid"), dict):
-    context_packet["locked_lever_control_fill_grid"] = _compact_locked_lever_control_grid_for_prompt(
-      context_packet.get("locked_lever_control_fill_grid")
-    )
   if isinstance(context_packet.get("full_horizon_model_input_repair_contract"), dict):
     context_packet["full_horizon_model_input_repair_contract"] = _compact_full_horizon_repair_contract_for_prompt(
       context_packet.get("full_horizon_model_input_repair_contract")
@@ -1770,11 +1772,331 @@ def _apply_gpt_context_lookup_to_unified_convergence_packet(packet: Dict[str, An
     payload=context_packet,
   )
 
+def _unified_convergence_prompt_context_manifest() -> Dict[str, Dict[str, Any]]:
+  return {
+    str(row.get("context_key") or "").strip(): copy.deepcopy(row)
+    for row in post_intake_gpt_context_rows(
+      contract_name="unified_convergence_decision",
+      include_phase="planner",
+      include_in_prompt=True,
+    )
+    if str(row.get("context_key") or "").strip()
+  }
+
+def _put_prompt_context_value(
+  payload: Dict[str, Any],
+  manifest: Dict[str, Dict[str, Any]],
+  key: str,
+  value: Any,
+) -> None:
+  if key in manifest:
+    payload[key] = copy.deepcopy(value)
+
 def _gpt_request_char_count(payload: Dict[str, Any]) -> int:
   try:
     return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
   except Exception:
     return len(str(payload or ""))
+
+def _target_metric_value_by_quarter(
+  *,
+  targets_by_quarter: Any,
+  metric_name: str,
+) -> Dict[int, float]:
+  wanted = str(metric_name or "").strip().lower()
+  out: Dict[int, float] = {}
+  for row in targets_by_quarter or []:
+    if not isinstance(row, dict):
+      continue
+    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    direct_value = _safe_float(row.get(wanted))
+    if direct_value is not None:
+      out[quarter_index] = float(direct_value)
+      continue
+    for metric_row in row.get("metric_targets") or []:
+      if not isinstance(metric_row, dict):
+        continue
+      row_metric = str(metric_row.get("metric_name") or "").strip().lower()
+      if row_metric != wanted:
+        continue
+      target_value = _safe_float(metric_row.get("target_value"))
+      if target_value is not None:
+        out[quarter_index] = float(target_value)
+        break
+  return out
+
+def _target_metric_tolerance(
+  *,
+  target_tolerances: Any,
+  metric_name: str,
+  target_value: float,
+) -> float:
+  wanted = str(metric_name or "").strip().lower()
+  for row in target_tolerances or []:
+    if not isinstance(row, dict):
+      continue
+    if str(row.get("metric_name") or "").strip().lower() != wanted:
+      continue
+    absolute_tolerance = _safe_float(row.get("absolute_tolerance"))
+    relative_tolerance_pct = _safe_float(row.get("relative_tolerance_pct"))
+    relative_tolerance = (
+      abs(float(target_value)) * max(0.0, float(relative_tolerance_pct)) / 100.0
+      if relative_tolerance_pct is not None
+      else 0.0
+    )
+    return max(
+      1.0,
+      float(absolute_tolerance or 0.0),
+      float(relative_tolerance or 0.0),
+    )
+  return max(1.0, abs(float(target_value)) * 0.05)
+
+def _normalize_formula_targets_from_model_input_repair_cells(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  baseline_map: Optional[Dict[str, List[float]]],
+) -> Dict[str, Any]:
+  """Derive formula-backed target metrics from GPT-authored model-input cells."""
+  decision = parsed if isinstance(parsed, dict) else {}
+  primary_metrics = {
+    str(item or "").strip().lower()
+    for item in (decision.get("primary_target_metric_names") or [])
+    if str(item or "").strip()
+  }
+  if "revenue" not in primary_metrics:
+    return {"normalized": False, "metric_names": []}
+  exact_updates = _exact_updates_from_model_input_repair_cells(
+    model_input_repair_cells=[
+      copy.deepcopy(item)
+      for item in (decision.get("model_input_repair_cells") or [])
+      if isinstance(item, dict)
+    ]
+  )
+  updates_by_lever_quarter: Dict[str, Dict[int, float]] = {}
+  for update in exact_updates:
+    lever_id = str(update.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
+    exact_value = _safe_float(update.get("exact_value"))
+    if lever_id and quarter_index >= 1 and exact_value is not None:
+      updates_by_lever_quarter.setdefault(lever_id, {})[quarter_index] = float(exact_value)
+
+  baseline = baseline_map if isinstance(baseline_map, dict) else {}
+  revenue_formula_groups: Dict[str, Dict[str, str]] = {}
+  for lever_id in baseline.keys():
+    mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+    if str(mapping_entry.get("target_metric_name") or "").strip().lower() != "revenue":
+      continue
+    if str(mapping_entry.get("driver_bundle") or "").strip().lower() != "revenue_formula_bundle":
+      continue
+    target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+    if target_driver not in {"capacity", "unit_price", "utilization"}:
+      continue
+    group_key = str(lever_id).rsplit("::", 1)[0]
+    revenue_formula_groups.setdefault(group_key, {})[target_driver] = lever_id
+  complete_groups = [
+    drivers
+    for drivers in revenue_formula_groups.values()
+    if all(driver in drivers for driver in ("capacity", "unit_price", "utilization"))
+  ]
+  if not complete_groups:
+    return {"normalized": False, "metric_names": ["revenue"], "reason": "no_complete_revenue_formula_groups"}
+
+  def _value_for(lever_id: str, quarter_index: int) -> Optional[float]:
+    if quarter_index in (updates_by_lever_quarter.get(lever_id) or {}):
+      return float((updates_by_lever_quarter.get(lever_id) or {}).get(quarter_index) or 0.0)
+    values = baseline.get(lever_id)
+    if isinstance(values, list) and 1 <= quarter_index <= len(values):
+      return float(_safe_float(values[quarter_index - 1]) or 0.0)
+    return None
+
+  normalized_quarters: List[int] = []
+  for row in (decision.get("targets_by_quarter") or []):
+    if not isinstance(row, dict):
+      continue
+    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+    if quarter_index < 1:
+      continue
+    computed_revenue = 0.0
+    complete = True
+    for drivers in complete_groups:
+      capacity = _value_for(drivers["capacity"], quarter_index)
+      unit_price = _value_for(drivers["unit_price"], quarter_index)
+      utilization = _value_for(drivers["utilization"], quarter_index)
+      if capacity is None or unit_price is None or utilization is None:
+        complete = False
+        break
+      computed_revenue += float(capacity) * float(unit_price) * float(utilization)
+    if not complete:
+      continue
+    normalized_value = int(round(float(computed_revenue)))
+    row["revenue"] = normalized_value
+    metric_rows = row.get("metric_targets") if isinstance(row.get("metric_targets"), list) else []
+    for metric_row in metric_rows:
+      if not isinstance(metric_row, dict):
+        continue
+      if str(metric_row.get("metric_name") or "").strip().lower() == "revenue":
+        metric_row["target_value"] = normalized_value
+        metric_row["target_value_source"] = "derived_from_gpt_model_input_repair_cells"
+        break
+    normalized_quarters.append(quarter_index)
+  return {
+    "normalized": bool(normalized_quarters),
+    "metric_names": ["revenue"],
+    "quarters": copy.deepcopy(normalized_quarters),
+    "source": "derived_from_gpt_model_input_repair_cells",
+    "rule": "formula targets are not independently authored; model_input_json driver cells are the decision truth",
+  }
+
+def _revenue_formula_driver_cells_contract_error(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  baseline_map: Optional[Dict[str, List[float]]],
+) -> Optional[str]:
+  decision = parsed if isinstance(parsed, dict) else {}
+  primary_metrics = {
+    str(item or "").strip().lower()
+    for item in (decision.get("primary_target_metric_names") or [])
+    if str(item or "").strip()
+  }
+  if "revenue" not in primary_metrics:
+    return None
+  revenue_targets = _target_metric_value_by_quarter(
+    targets_by_quarter=decision.get("targets_by_quarter") or [],
+    metric_name="revenue",
+  )
+  if not revenue_targets:
+    return None
+  exact_updates = _exact_updates_from_model_input_repair_cells(
+    model_input_repair_cells=[
+      copy.deepcopy(item)
+      for item in (decision.get("model_input_repair_cells") or [])
+      if isinstance(item, dict)
+    ]
+  )
+  updates_by_lever_quarter: Dict[str, Dict[int, float]] = {}
+  for update in exact_updates:
+    lever_id = str(update.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
+    exact_value = _safe_float(update.get("exact_value"))
+    if lever_id and quarter_index >= 1 and exact_value is not None:
+      updates_by_lever_quarter.setdefault(lever_id, {})[quarter_index] = float(exact_value)
+
+  baseline = baseline_map if isinstance(baseline_map, dict) else {}
+  revenue_formula_groups: Dict[str, Dict[str, str]] = {}
+  for lever_id in baseline.keys():
+    mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+    if str(mapping_entry.get("target_metric_name") or "").strip().lower() != "revenue":
+      continue
+    if str(mapping_entry.get("driver_bundle") or "").strip().lower() != "revenue_formula_bundle":
+      continue
+    target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+    if target_driver not in {"capacity", "unit_price", "utilization"}:
+      continue
+    group_key = str(lever_id).rsplit("::", 1)[0]
+    revenue_formula_groups.setdefault(group_key, {})[target_driver] = lever_id
+
+  complete_groups = [
+    drivers
+    for drivers in revenue_formula_groups.values()
+    if all(driver in drivers for driver in ("capacity", "unit_price", "utilization"))
+  ]
+  if not complete_groups:
+    return None
+
+  def _value_for(lever_id: str, quarter_index: int) -> Optional[float]:
+    if quarter_index in (updates_by_lever_quarter.get(lever_id) or {}):
+      return float((updates_by_lever_quarter.get(lever_id) or {}).get(quarter_index) or 0.0)
+    values = baseline.get(lever_id)
+    if isinstance(values, list) and 1 <= quarter_index <= len(values):
+      return float(_safe_float(values[quarter_index - 1]) or 0.0)
+    return None
+
+  violations: List[Dict[str, Any]] = []
+  for quarter_index in sorted(revenue_targets):
+    computed_revenue = 0.0
+    missing: List[str] = []
+    formula_rows: List[Dict[str, Any]] = []
+    for drivers in complete_groups:
+      capacity = _value_for(drivers["capacity"], quarter_index)
+      unit_price = _value_for(drivers["unit_price"], quarter_index)
+      utilization = _value_for(drivers["utilization"], quarter_index)
+      if capacity is None or unit_price is None or utilization is None:
+        missing.extend(
+          [
+            drivers[name]
+            for name, value in (
+              ("capacity", capacity),
+              ("unit_price", unit_price),
+              ("utilization", utilization),
+            )
+            if value is None
+          ]
+        )
+        continue
+      row_revenue = float(capacity) * float(unit_price) * float(utilization)
+      computed_revenue += row_revenue
+      formula_rows.append(
+        {
+          "capacity_lever_id": drivers["capacity"],
+          "unit_price_lever_id": drivers["unit_price"],
+          "utilization_lever_id": drivers["utilization"],
+          "capacity": round(float(capacity), 6),
+          "unit_price": round(float(unit_price), 6),
+          "utilization": round(float(utilization), 6),
+          "row_revenue": int(round(float(row_revenue))),
+        }
+      )
+    target_value = float(revenue_targets[quarter_index])
+    tolerance = _target_metric_tolerance(
+      target_tolerances=decision.get("target_tolerances") or [],
+      metric_name="revenue",
+      target_value=target_value,
+    )
+    if missing or abs(float(computed_revenue) - float(target_value)) > tolerance:
+      reconciliation_hint: Dict[str, Any] = {}
+      if len(formula_rows) == 1:
+        row = formula_rows[0]
+        unit_price = _safe_float(row.get("unit_price"))
+        utilization = _safe_float(row.get("utilization"))
+        capacity = _safe_float(row.get("capacity"))
+        if unit_price is not None and utilization is not None and unit_price > 0 and utilization > 0:
+          reconciliation_hint["required_capacity_if_price_utilization_unchanged"] = round(
+            float(target_value) / (float(unit_price) * float(utilization)),
+            6,
+          )
+        if capacity is not None and utilization is not None and capacity > 0 and utilization > 0:
+          reconciliation_hint["required_unit_price_if_capacity_utilization_unchanged"] = round(
+            float(target_value) / (float(capacity) * float(utilization)),
+            6,
+          )
+        if capacity is not None and unit_price is not None and capacity > 0 and unit_price > 0:
+          reconciliation_hint["required_utilization_if_capacity_price_unchanged"] = round(
+            float(target_value) / (float(capacity) * float(unit_price)),
+            6,
+          )
+      violations.append(
+        {
+          "quarter_index": int(quarter_index),
+          "target_revenue": int(round(float(target_value))),
+          "computed_revenue_from_driver_cells": int(round(float(computed_revenue))),
+          "allowed_tolerance": int(round(float(tolerance))),
+          "missing_formula_levers": copy.deepcopy(missing[:6]),
+          "formula_driver_rows": copy.deepcopy(formula_rows[:3]),
+          "single_product_reconciliation_hint": reconciliation_hint or None,
+        }
+      )
+    if len(violations) >= 5:
+      break
+  if not violations:
+    return None
+  return (
+    "revenue_formula_driver_cells_contract_failed: revenue is a formula target, so GPT-authored "
+    "Capacity, Unit Price, and Utilization model_input_repair_cells must mathematically produce the "
+    "revenue targets before Python applies the repair. "
+    f"violations={json.dumps(violations, ensure_ascii=False)}"
+  )
 
 def _run_unified_convergence_openai(
   *,
@@ -1848,9 +2170,6 @@ def _run_unified_convergence_openai(
   scoped_numeric_solver_contract = _subset_numeric_solver_contract(
     numeric_solver_contract=copy.deepcopy(full_numeric_solver_contract),
     retry_scope_payload=copy.deepcopy(retry_scope_payload),
-  )
-  scoped_numeric_solver_contract = _with_shape_sensitive_solver_contract_policy(
-    copy.deepcopy(scoped_numeric_solver_contract)
   )
   allowed_lever_ids = [
     str(item or "").strip()
@@ -1989,14 +2308,11 @@ def _run_unified_convergence_openai(
     scoped_numeric_solver_contract["recommended_primary_target_metric_keys"] = copy.deepcopy(
       aligned_primary_target_metric_keys[:_UNIFIED_PRIMARY_TARGET_MAX_COUNT]
     )
-  required_quarter_target_scaffold = _solver_required_quarter_target_scaffold(
-    copy.deepcopy(scoped_numeric_solver_contract),
-    required_target_quarters=copy.deepcopy(required_target_quarters),
-  )
   locked_target_fill_grid = _unified_target_fill_grid(
     required_target_quarters=copy.deepcopy(required_target_quarters),
     deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
     baseline_finmo_rows=copy.deepcopy(scoped_finmo_rows),
+    business_world_contract=copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
   )
   locked_lever_control_fill_grid = _unified_lever_control_fill_grid(
     allowed_lever_ids=copy.deepcopy(allowed_lever_ids),
@@ -2006,13 +2322,6 @@ def _run_unified_convergence_openai(
     deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
     business_world_contract=copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
   )
-  prompt_safe_retry_scope_payload = {
-    "scope_mode": str(retry_scope_payload.get("scope_mode") or "").strip(),
-    "focus_issue_codes": copy.deepcopy(retry_scope_payload.get("focus_issue_codes") or []),
-    "scoped_quarters": copy.deepcopy(retry_scope_payload.get("scoped_quarters") or []),
-    "scoped_lever_ids": copy.deepcopy(retry_scope_payload.get("scoped_lever_ids") or []),
-    "prior_attempt_summary": copy.deepcopy(retry_scope_payload.get("prior_attempt_summary") or {}),
-  }
   prompt_safe_retry_packet = {
     "issues_remaining": int(_safe_float((effective_retry_context or {}).get("issues_remaining")) or 0),
     "failed_quarters": copy.deepcopy((effective_retry_context or {}).get("failed_quarters") or []),
@@ -2062,7 +2371,6 @@ def _run_unified_convergence_openai(
       scoped_numeric_solver_contract.get("allowed_target_metric_ids") or []
     ),
     "solver_settings": copy.deepcopy(scoped_numeric_solver_contract.get("solver_settings") or {}),
-    "lever_sensitivity_policy": copy.deepcopy(scoped_numeric_solver_contract.get("lever_sensitivity_policy") or {}),
   }
   planner_input_packet = _build_repair_guidance_payload(
     draft_id=str(draft_id).strip(),
@@ -2236,6 +2544,8 @@ def _run_unified_convergence_openai(
       payload=payload,
     )
   except Exception as exc:
+    request_chars = _gpt_request_char_count(payload)
+    prompt_packet_chars = _gpt_request_char_count(planner_input_packet)
     return {
       "contract_version": "unified_convergence_decision_v1",
       "status": "failed_openai_request",
@@ -2244,6 +2554,15 @@ def _run_unified_convergence_openai(
       "review_status": "not_completed",
       "detail": str(exc),
       "decision": {},
+      "payload_size_summary": {
+        "request_chars": request_chars,
+        "request_budget": int(request_budget) if request_budget is not None else None,
+        "prompt_packet_chars": prompt_packet_chars,
+        "required_editable_cell_count": len(required_model_input_repair_cell_ids),
+        "allowed_lever_count": len(allowed_lever_ids),
+        "required_target_quarter_count": len(required_target_quarters),
+        "source_of_truth": "sql.post_intake_gpt_context_lookup",
+      },
     }
   if resp.status_code >= 400:
     return {
@@ -2312,84 +2631,101 @@ def _run_unified_convergence_openai(
     parsed=parsed,
     full_horizon_model_input_repair_contract=copy.deepcopy(full_horizon_model_input_repair_contract),
   )
+  formula_target_derivation_summary = {}
+  if not model_input_cell_contract_error:
+    formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+      parsed=parsed,
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+    )
+  unified_decision_contract_error = _unified_convergence_decision_contract_error(
+    parsed=parsed,
+    required_target_quarters=copy.deepcopy(required_target_quarters),
+    numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+    deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+    controller_retry_context=copy.deepcopy(effective_retry_context),
+    baseline_map=copy.deepcopy(scoped_baseline_map),
+    baseline_finmo_rows=copy.deepcopy(scoped_finmo_rows),
+    business_world_contract=copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
+    full_horizon_quarter_count=full_horizon_quarter_count,
+  )
+  if not model_input_cell_contract_error:
+    formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+      parsed=parsed,
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+    )
+  revenue_formula_contract_error = _revenue_formula_driver_cells_contract_error(
+    parsed=parsed,
+    baseline_map=copy.deepcopy(scoped_baseline_map),
+  )
   contract_error = (
     primary_metric_contract_error
     or model_input_cell_contract_error
-    or _unified_convergence_decision_contract_error(
-      parsed=parsed,
-      required_target_quarters=copy.deepcopy(required_target_quarters),
-      numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
-      deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
-      controller_retry_context=copy.deepcopy(effective_retry_context),
-      baseline_map=copy.deepcopy(scoped_baseline_map),
-      baseline_finmo_rows=copy.deepcopy(scoped_finmo_rows),
-      business_world_contract=copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
-      full_horizon_quarter_count=full_horizon_quarter_count,
-    )
+    or unified_decision_contract_error
+    or revenue_formula_contract_error
   )
   if contract_error:
-    retry_payload = copy.deepcopy(payload)
+    post_intake_assert_process_sequence_step(
+      step_key="unified_convergence_retry",
+      expected_phase="convergence",
+      expected_handler_key="run_unified_convergence_contract_retry",
+      required_contract_name="unified_convergence_decision",
+      required_context_contract_name="unified_convergence_decision",
+      required_context_include_phase="planner_retry",
+      required_lookup_tables=[
+        "post_intak_mapping_lookup",
+        "post_intake_gpt_contract_lookup",
+        "post_intake_gpt_context_lookup",
+      ],
+      required_horizon_rule="q1_to_q20_model_input_repair_cells",
+    )
     compact_retry_contract = _compact_full_horizon_repair_contract_for_prompt(
       copy.deepcopy(full_horizon_model_input_repair_contract)
     )
-    compact_retry_lever_grid = _compact_locked_lever_control_grid_for_prompt(
-      copy.deepcopy(locked_lever_control_fill_grid)
+    retry_context_packet = post_intake_gpt_context_filter_payload(
+      contract_name="unified_convergence_decision",
+      include_phase="planner_retry",
+      payload={
+        "repair_contract_violation": str(contract_error).strip(),
+        "required_target_quarters": copy.deepcopy(required_target_quarters),
+        "locked_target_fill_grid": copy.deepcopy(locked_target_fill_grid),
+        "full_horizon_model_input_repair_contract": copy.deepcopy(compact_retry_contract),
+        "recommended_primary_target_metric_keys": copy.deepcopy(
+          (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
+        ),
+        "invalid_response_to_repair": copy.deepcopy(parsed),
+        "issue_coverage_requirements": copy.deepcopy(
+          (effective_retry_context or {}).get("issue_coverage_requirements") or []
+        ),
+        "business_world_contract": copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
+        "contract_repair_instruction": (
+          "Repair the response contract using only SQL-approved context keys and the full-horizon "
+          "model_input_repair_cells execution contract. Fill exactly the required editable cells; "
+          "do not emit mapping metadata, alternate adjustment payloads, unlisted cells, or removed prompt packets. "
+          "Every chosen primary metric must appear in every targeted quarter row, and every targeted quarter "
+          "must be explicitly present. Structural trajectories must be expressed directly in "
+          "model_input_repair_cells across the required horizon. If revenue is targeted, calculate "
+          "Capacity x Unit Price x Utilization for every product and every targeted quarter; the authored "
+          "driver cells must produce the revenue target before Python will apply the repair."
+        ),
+      },
     )
-    retry_payload["input"] = list(retry_payload.get("input") or []) + [
-      {
-        "role": "user",
-        "content": [
-          {
-            "type": "input_text",
-            "text": json.dumps(
-              {
-                "repair_contract_violation": str(contract_error).strip(),
-                "required_target_quarters": copy.deepcopy(required_target_quarters),
-                "required_quarter_target_scaffold": copy.deepcopy(required_quarter_target_scaffold),
-                "locked_target_fill_grid": copy.deepcopy(locked_target_fill_grid),
-                "locked_lever_control_fill_grid": copy.deepcopy(compact_retry_lever_grid),
-                "full_horizon_model_input_repair_contract": copy.deepcopy(compact_retry_contract),
-                "recommended_primary_target_metric_keys": copy.deepcopy(
-                  (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
-                ),
-                "invalid_response_to_repair": copy.deepcopy(parsed),
-                "issue_coverage_requirements": copy.deepcopy(
-                  (effective_retry_context or {}).get("issue_coverage_requirements") or []
-                ),
-                "shape_sensitive_contract": copy.deepcopy(
-                  (scoped_numeric_solver_contract or {}).get("lever_sensitivity_policy") or {}
-                ),
-                "business_world_contract": copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
-                "instruction": (
-                  "Repair the response contract. Return a valid unified convergence package with only the direct "
-                  "primary_target_metric_names required by locked_target_fill_grid.allowed_target_metric_names, "
-                  "provide numeric targets only for locked_target_fill_grid.required_target_quarters, and include target_tolerances for "
-                  "every chosen primary target metric. Fill model_input_repair_cells exactly from "
-                  "full_horizon_model_input_repair_contract.required_editable_cell_ids; those cells are the execution contract. "
-                  "Use only cell_id, lever_id, quarter_index, min_value, max_value, and numeric_precision_rule from "
-                  "full_horizon_model_input_repair_contract.editable_cells. "
-                  "Python owns deterministic issue/target mapping through the SQL mapping lookup; do not emit mapping metadata. "
-                  "Keep realism, cash posture, and planning mode active as "
-                  "guardrails, not as extra exact target lines. "
-                  "The active issue in issue_coverage_requirements must still have direct "
-                  "primary-target coverage. "
-                  "Every chosen primary metric must appear in every targeted quarter row. Every targeted quarter must be present explicitly. "
-                  "Do not add cells, omit cells, or edit locked/derived cells. "
-                  "If the violation involves a shape-sensitive lever trajectory, repair that trajectory explicitly: "
-                  "cover the full remaining horizon, do not drop by more than 50% quarter-to-quarter, do not jump by more than 2.5x quarter-to-quarter, "
-                  "do not create snapback after a large build, and do not switch regime direction sharply without a believable transition. "
-                  "For large structural increases, use a ramp or staged step-up over multiple quarters. "
-                  "If the violation starts with stage_ramp_contract_, repair revenue targets and revenue-driver trajectories so every adjacent quarter pair respects business_world_contract.stage_ramp_contract. "
-                  "Do not throw away the invalid response and start over blindly. Repair the invalid_response_to_repair directly, preserving valid fields. "
-                  "Read shape_sensitive_contract directly and express the final allowed values in model_input_repair_cells."
-                ),
-              },
-              ensure_ascii=False,
-            ),
-          }
-        ],
-      }
-    ]
+    retry_payload = {
+      "model": payload.get("model"),
+      "temperature": payload.get("temperature", 0),
+      "input": [
+        {"role": "system", "content": [{"type": "input_text", "text": _load_unified_convergence_prompt()}]},
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": json.dumps(retry_context_packet, ensure_ascii=False),
+            }
+          ],
+        },
+      ],
+      "text": copy.deepcopy(payload.get("text") or {}),
+    }
     retry_request_chars = _gpt_request_char_count(retry_payload)
     retry_budget = post_intake_gpt_context_request_char_budget(
       contract_name="unified_convergence_decision",
@@ -2489,20 +2825,37 @@ def _run_unified_convergence_openai(
       parsed=parsed_retry,
       full_horizon_model_input_repair_contract=copy.deepcopy(full_horizon_model_input_repair_contract),
     )
+    retry_formula_target_derivation_summary = {}
+    if not retry_model_input_cell_contract_error:
+      retry_formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+        parsed=parsed_retry,
+        baseline_map=copy.deepcopy(scoped_baseline_map),
+      )
+    retry_unified_decision_contract_error = _unified_convergence_decision_contract_error(
+      parsed=parsed_retry,
+      required_target_quarters=copy.deepcopy(required_target_quarters),
+      numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
+      deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
+      controller_retry_context=copy.deepcopy(effective_retry_context),
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+      baseline_finmo_rows=copy.deepcopy(scoped_finmo_rows),
+      business_world_contract=copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
+      full_horizon_quarter_count=full_horizon_quarter_count,
+    )
+    if not retry_model_input_cell_contract_error:
+      retry_formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+        parsed=parsed_retry,
+        baseline_map=copy.deepcopy(scoped_baseline_map),
+      )
+    retry_revenue_formula_contract_error = _revenue_formula_driver_cells_contract_error(
+      parsed=parsed_retry,
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+    )
     retry_contract_error = (
       retry_primary_metric_contract_error
       or retry_model_input_cell_contract_error
-      or _unified_convergence_decision_contract_error(
-        parsed=parsed_retry,
-        required_target_quarters=copy.deepcopy(required_target_quarters),
-        numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
-        deterministic_numeric_guidance=copy.deepcopy(prompt_safe_numeric_guidance),
-        controller_retry_context=copy.deepcopy(effective_retry_context),
-        baseline_map=copy.deepcopy(scoped_baseline_map),
-        baseline_finmo_rows=copy.deepcopy(scoped_finmo_rows),
-        business_world_contract=copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
-        full_horizon_quarter_count=full_horizon_quarter_count,
-      )
+      or retry_unified_decision_contract_error
+      or retry_revenue_formula_contract_error
     )
     if retry_contract_error:
       return {
@@ -2513,8 +2866,10 @@ def _run_unified_convergence_openai(
         "review_status": "not_completed",
         "detail": str(retry_contract_error).strip(),
         "decision": {},
+        "formula_target_derivation": copy.deepcopy(retry_formula_target_derivation_summary),
       }
     parsed = parsed_retry
+    formula_target_derivation_summary = copy.deepcopy(retry_formula_target_derivation_summary)
   return {
     "contract_version": "unified_convergence_decision_v1",
     "numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
@@ -2526,6 +2881,7 @@ def _run_unified_convergence_openai(
     "review_status": "completed",
     "detail": "",
     "decision": parsed,
+    "formula_target_derivation": copy.deepcopy(formula_target_derivation_summary),
     "full_horizon_model_input_repair_contract": copy.deepcopy(full_horizon_model_input_repair_contract),
   }
 
@@ -2716,74 +3072,6 @@ def _baseline_window_summary(values: List[float], *, start_q: int, end_q: int) -
     "value_max": max(window),
   }
 
-def _translate_unified_convergence_adjustment(
-  *,
-  adjustment: Dict[str, Any],
-  baseline_map: Dict[str, List[float]],
-  quarter_count: int,
-  shape_sensitive_required_quarters: Optional[List[int]] = None,
-) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-  lever_id = str(adjustment.get("lever_id") or "").strip()
-  required_quarters = [
-    int(_safe_float(item) or 0)
-    for item in (shape_sensitive_required_quarters or [])
-    if int(_safe_float(item) or 0) >= 1
-  ]
-  if lever_id and required_quarters:
-    trajectory_values = _shape_sensitive_trajectory_values_by_quarter(adjustment)
-    if not trajectory_values:
-      return [], f"{lever_id} shape-sensitive trajectory is missing values or trajectory_values"
-    baseline_values = baseline_map.get(lever_id)
-    if not baseline_values:
-      return [], f"unknown lever_id {lever_id}"
-    translated_controls: List[Dict[str, Any]] = []
-    for quarter_index in required_quarters:
-      if quarter_index not in trajectory_values:
-        return [], f"{lever_id} values or trajectory_values is missing Q{quarter_index}"
-      translated_controls.append(
-        {
-          "lever_id": lever_id,
-          "section": str(adjustment.get("section") or "").strip(),
-          "direction": str(adjustment.get("direction") or "").strip().lower(),
-          "control_mode": "exact",
-          "timing_start_q": quarter_index,
-          "timing_end_q": quarter_index,
-          "baseline_window": _baseline_window_summary(
-            baseline_values,
-            start_q=quarter_index,
-            end_q=quarter_index,
-          ),
-          "business_reason": str(
-            adjustment.get("trajectory_rationale")
-            or adjustment.get("rationale")
-            or adjustment.get("business_reason")
-            or ""
-          ).strip(),
-          "linked_action_effect": str(adjustment.get("linked_action_effect") or "").strip(),
-          "mapped_repair_targets": _normalize_unified_mapped_repair_targets(
-            adjustment.get("mapped_repair_targets") or []
-          ),
-          "shape_type": str(adjustment.get("shape_type") or "").strip().lower(),
-          "exact_value": (
-            int(round(float(trajectory_values.get(quarter_index) or 0.0)))
-            if float(int(round(float(trajectory_values.get(quarter_index) or 0.0))))
-            == float(trajectory_values.get(quarter_index) or 0.0)
-            else round(float(trajectory_values.get(quarter_index) or 0.0), 2)
-          ),
-          "min_value": None,
-          "max_value": None,
-        }
-      )
-    return translated_controls, None
-  translated, warning = _translate_cash_strategy_adjustment(
-    adjustment=adjustment,
-    baseline_map=baseline_map,
-    quarter_count=quarter_count,
-  )
-  if warning:
-    return [], warning
-  return ([translated] if translated else []), None
-
 def _scoped_unified_allowed_lever_ids(
   *,
   fallback_allowed_lever_ids: Optional[List[str]],
@@ -2931,6 +3219,14 @@ def _build_unified_convergence_pass_plan(
   model_input_repair_exact_updates = _exact_updates_from_model_input_repair_cells(
     model_input_repair_cells=copy.deepcopy(model_input_repair_cells)
   )
+  model_input_repair_values_by_lever: Dict[str, Dict[int, float]] = {}
+  for update in model_input_repair_exact_updates:
+    lever_id = str(update.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
+    exact_value = _safe_float(update.get("exact_value"))
+    if not lever_id or quarter_index < 1 or exact_value is None:
+      continue
+    model_input_repair_values_by_lever.setdefault(lever_id, {})[quarter_index] = float(exact_value)
   model_input_repair_contract = (
     copy.deepcopy(review_payload.get("full_horizon_model_input_repair_contract"))
     if isinstance(review_payload.get("full_horizon_model_input_repair_contract"), dict)
@@ -2940,65 +3236,7 @@ def _build_unified_convergence_pass_plan(
   writable_lever_catalog = _build_writable_lever_review_catalog(solved_model_input_json)
   leverage_catalog_map = _lever_review_catalog_entry_map(writable_lever_catalog)
   lever_bound_lookup = _deterministic_lever_bound_lookup(guidance_packet)
-  explicit_lever_adjustments = [
-    item for item in (decision.get("lever_adjustments") or []) if isinstance(item, dict)
-  ]
-  explicit_lever_adjustment_map = {
-    str(item.get("lever_id") or "").strip(): copy.deepcopy(item)
-    for item in explicit_lever_adjustments
-    if str(item.get("lever_id") or "").strip()
-  }
-  explicit_lever_ids = {
-    str(item.get("lever_id") or "").strip()
-    for item in explicit_lever_adjustments
-    if str(item.get("lever_id") or "").strip()
-  }
-  auto_lever_adjustments = _autofill_unified_lever_adjustments_from_guidance(
-    lever_selection=lever_selection,
-    deterministic_numeric_guidance=guidance_packet,
-    primary_target_metric_names=primary_target_metric_names,
-    targeted_quarters=targeted_quarters,
-  )
-  auto_lever_adjustments = [
-    item for item in auto_lever_adjustments
-    if (
-      str(item.get("lever_id") or "").strip()
-      and str(item.get("lever_id") or "").strip() not in explicit_lever_ids
-      and _shape_sensitive_lever_class(str(item.get("lever_id") or "").strip()) != "remaining_horizon_required"
-    )
-  ]
-  effective_lever_adjustments = explicit_lever_adjustments + auto_lever_adjustments
-  sql_mapped_repair_targets_by_lever = _lever_allowed_mapped_repair_targets(guidance_packet)
-  for adjustment in effective_lever_adjustments:
-    if not isinstance(adjustment, dict):
-      continue
-    lever_id = str(adjustment.get("lever_id") or "").strip()
-    adjustment["mapped_repair_targets"] = copy.deepcopy(
-      sql_mapped_repair_targets_by_lever.get(lever_id) or []
-    )
-  shape_sensitive_requirements = _shape_sensitive_remaining_horizon_requirements(
-    selected_lever_ids=copy.deepcopy(lever_selection),
-    targeted_quarters=copy.deepcopy(targeted_quarters),
-    numeric_solver_contract=copy.deepcopy(solver_contract),
-    lever_adjustments=copy.deepcopy(effective_lever_adjustments),
-    baseline_map=copy.deepcopy(baseline_map),
-    full_horizon_quarter_count=quarter_count,
-  )
   lever_bound_validation_details: List[Dict[str, Any]] = []
-  for adjustment in effective_lever_adjustments:
-    lever_id = str(adjustment.get("lever_id") or "").strip()
-    lever_bound_validation_details.extend(
-      _pre_solver_lever_bound_validation_details(
-        adjustment=adjustment,
-        lever_bound_lookup=lever_bound_lookup,
-        required_target_quarters=(
-          copy.deepcopy(shape_sensitive_requirements.get("required_target_quarters") or [])
-          if lever_id in (shape_sensitive_requirements.get("required_lever_ids") or [])
-          else None
-        ),
-        baseline_map=baseline_map,
-      )
-    )
   payroll_headcount_validation = _validate_payroll_headcount_contract(
     model_input_json=copy.deepcopy(solved_model_input_json or {}),
     business_world_contract=copy.deepcopy(business_world_contract),
@@ -3027,73 +3265,16 @@ def _build_unified_convergence_pass_plan(
   )
   eligible_lookup = set(eligible_lever_ids)
   translated_controls: List[Dict[str, Any]] = []
-  missing_explicit_capital_adjustment_lever_ids = [
+  model_input_repair_lever_ids = {
+    str(item.get("lever_id") or "").strip()
+    for item in model_input_repair_exact_updates
+    if str(item.get("lever_id") or "").strip()
+  }
+  missing_model_input_repair_cell_lever_ids = [
     lever_id
     for lever_id in lever_selection
-    if lever_id in _UNIFIED_EXPLICIT_CAPITAL_ALLOCATION_LEVER_IDS
-    and lever_id not in explicit_lever_ids
+    if lever_id not in model_input_repair_lever_ids
   ]
-  shape_sensitive_validation_errors: List[str] = []
-  shape_sensitive_validation_details: List[Dict[str, Any]] = []
-  for lever_id in (shape_sensitive_requirements.get("required_lever_ids") or []):
-    adjustment = explicit_lever_adjustment_map.get(lever_id)
-    if adjustment is None:
-      missing_detail = {
-        "error": _shape_sensitive_trajectory_error_code(lever_id),
-        "lever_id": lever_id,
-        "quarter": min(shape_sensitive_requirements.get("required_target_quarters") or [0]) or None,
-        "previous_value": None,
-        "current_value": None,
-        "reason": f"{lever_id} is shape-sensitive and requires explicit GPT-authored values or trajectory_values.",
-        "validation_category": "horizon_coverage",
-      }
-      shape_sensitive_validation_details.append(copy.deepcopy(missing_detail))
-      shape_sensitive_validation_errors.append(
-        str(missing_detail.get("reason") or "").strip()
-      )
-      continue
-    path_detail = _shape_sensitive_path_validation_detail(
-      lever_id=lever_id,
-      adjustment=adjustment,
-      required_target_quarters=copy.deepcopy(
-        shape_sensitive_requirements.get("required_target_quarters") or []
-      ),
-    )
-    if path_detail:
-      shape_sensitive_validation_details.append(copy.deepcopy(path_detail))
-      shape_sensitive_validation_errors.append(
-        _shape_sensitive_path_validation_error(
-          lever_id=lever_id,
-          adjustment=adjustment,
-          required_target_quarters=copy.deepcopy(
-            shape_sensitive_requirements.get("required_target_quarters") or []
-          ),
-        )
-        or str(path_detail.get("reason") or "").strip()
-      )
-  for adjustment in effective_lever_adjustments:
-    lever_id = str(adjustment.get("lever_id") or "").strip()
-    translated_items, warning = _translate_unified_convergence_adjustment(
-      adjustment=adjustment,
-      baseline_map=baseline_map,
-      quarter_count=quarter_count,
-      shape_sensitive_required_quarters=(
-        copy.deepcopy(shape_sensitive_requirements.get("required_target_quarters") or [])
-        if lever_id in (shape_sensitive_requirements.get("required_lever_ids") or [])
-        else None
-      ),
-    )
-    if warning:
-      warnings.append(f"unified_cycle: {warning}")
-      continue
-    for translated in translated_items:
-      lever_id = str((translated or {}).get("lever_id") or "").strip()
-      if eligible_lookup and lever_id not in eligible_lookup:
-        warnings.append(
-          f"unified_cycle: lever_id {lever_id} is outside the deterministic eligible lever scope"
-        )
-        continue
-      translated_controls.append(translated)
   if model_input_repair_exact_updates:
     editable_repair_cell_by_id = {
       str(item.get("cell_id") or "").strip(): item
@@ -3163,7 +3344,7 @@ def _build_unified_convergence_pass_plan(
     )
     if not translated_controls:
       warnings.append(
-        "unified_cycle: no solver-ready lever controls were available from the explicit GPT-authored lever_adjustments."
+        "unified_cycle: no solver-ready model_input_repair_cells were available from the GPT-authored contract."
       )
     translated_action_packages.append(
       {
@@ -3190,22 +3371,18 @@ def _build_unified_convergence_pass_plan(
   if not targets_by_quarter:
     status = "ready_no_valid_solver_contract"
     next_step = "review_unified_targets_levers_and_bands_before_solver"
-  elif missing_explicit_capital_adjustment_lever_ids:
+  elif missing_model_input_repair_cell_lever_ids:
     status = "ready_no_valid_solver_contract"
-    next_step = "provide_explicit_capital_allocation_adjustments_before_solver"
+    next_step = "provide_model_input_repair_cells_for_selected_levers"
     warnings.extend(
       [
         (
           "unified_cycle: "
-          f"{lever_id} requires explicit GPT-authored lever_adjustments; capital allocation levers are not scaffolded."
+          f"{lever_id} was selected but has no GPT-authored model_input_repair_cells."
         )
-        for lever_id in missing_explicit_capital_adjustment_lever_ids
+        for lever_id in missing_model_input_repair_cell_lever_ids
       ]
     )
-  elif shape_sensitive_validation_errors:
-    status = "ready_no_valid_solver_contract"
-    next_step = "provide_full_remaining_horizon_trajectory_for_shape_sensitive_levers"
-    warnings.extend([f"unified_cycle: {item}" for item in shape_sensitive_validation_errors])
   elif lever_bound_validation_details:
     status = "ready_no_valid_solver_contract"
     next_step = "bring_selected_levers_back_inside_deterministic_bounds_before_solver"
@@ -3220,7 +3397,7 @@ def _build_unified_convergence_pass_plan(
     status = "ready_no_valid_solver_contract"
     next_step = "review_unified_targets_levers_and_bands_before_solver"
     warnings.append(
-      "unified_cycle: no solver-ready lever controls were available from the explicit GPT-authored lever_adjustments."
+      "unified_cycle: no solver-ready model_input_repair_cells were available from the GPT-authored contract."
     )
   elif not touched_lever_ids and not model_input_repair_exact_updates:
     status = "ready_no_valid_solver_contract"
@@ -3247,24 +3424,9 @@ def _build_unified_convergence_pass_plan(
     )
   pre_solver_validation_fail_flags: List[str] = []
   pre_solver_validation_errors: List[Dict[str, Any]] = []
-  for detail in shape_sensitive_validation_details:
-    pre_solver_validation_fail_flags.extend(
-      _shape_sensitive_path_fail_fast_flags(validation_detail=detail)
-    )
-    pre_solver_validation_errors.append(
-      {
-        "error": str(detail.get("error") or "").strip() or "invalid_shape_sensitive_trajectory",
-        "lever_id": str(detail.get("lever_id") or "").strip() or None,
-        "quarter": int(_safe_float(detail.get("quarter")) or 0) or None,
-        "previous_value": _safe_float(detail.get("previous_value")),
-        "current_value": _safe_float(detail.get("current_value")),
-        "reason": str(detail.get("reason") or "").strip() or None,
-        "validation_category": str(detail.get("validation_category") or "").strip() or None,
-      }
-    )
   for detail in lever_bound_validation_details:
     pre_solver_validation_fail_flags.extend(
-      _shape_sensitive_path_fail_fast_flags(validation_detail=detail)
+      _pre_solver_validation_fail_fast_flags(validation_detail=detail)
     )
     pre_solver_validation_errors.append(
       {
@@ -3335,7 +3497,7 @@ def _build_unified_convergence_pass_plan(
         "quarter": None,
         "previous_value": None,
         "current_value": None,
-        "reason": "No solver-ready lever controls were available from explicit GPT-authored lever_adjustments.",
+        "reason": "No solver-ready model_input_repair_cells were available from the GPT-authored contract.",
         "validation_category": "internal_consistency",
       }
     )
@@ -3352,19 +3514,19 @@ def _build_unified_convergence_pass_plan(
         "validation_category": "internal_consistency",
       }
     )
-  if missing_explicit_capital_adjustment_lever_ids:
-    pre_solver_validation_fail_flags.append("capital_allocation_adjustment_missing")
-    for lever_id in missing_explicit_capital_adjustment_lever_ids:
+  if missing_model_input_repair_cell_lever_ids:
+    pre_solver_validation_fail_flags.append("model_input_repair_cells_missing")
+    for lever_id in missing_model_input_repair_cell_lever_ids:
       pre_solver_validation_errors.append(
         {
-          "error": "capital_allocation_explicit_adjustment_required",
+          "error": "selected_lever_model_input_repair_cell_required",
           "lever_id": lever_id,
           "quarter": min(targeted_quarters or [0]) or None,
           "previous_value": None,
           "current_value": None,
           "reason": (
-            f"{lever_id} is a capital allocation lever and requires explicit GPT-authored "
-            "lever_adjustments with real numeric controls. Python will not scaffold capital mix decisions."
+            f"{lever_id} was selected but has no GPT-authored model_input_repair_cells. "
+            "Python will not scaffold missing driver edits."
           ),
           "validation_category": "internal_consistency",
         }
@@ -3419,14 +3581,8 @@ def _build_unified_convergence_pass_plan(
     "model_input_repair_cells": copy.deepcopy(model_input_repair_cells),
     "model_input_repair_exact_updates": copy.deepcopy(model_input_repair_exact_updates),
     "translation_warnings": warnings,
-    "lever_adjustment_source": (
-      "explicit_gpt"
-      if explicit_lever_adjustments
-      else "none"
-    ),
-    "explicit_lever_adjustment_count": len(explicit_lever_adjustments),
-    "auto_generated_lever_adjustment_count": len(auto_lever_adjustments),
-    "shape_sensitive_requirements": copy.deepcopy(shape_sensitive_requirements),
+    "driver_edit_source": "gpt_model_input_repair_cells",
+    "model_input_repair_lever_count": len(model_input_repair_lever_ids),
     "pre_solver_validation": copy.deepcopy(pre_solver_validation),
     "payroll_headcount_validation": copy.deepcopy(payroll_headcount_validation),
     "translation_failures": copy.deepcopy(guidance_packet.get("translation_failures") or []),
@@ -3438,203 +3594,21 @@ def _build_unified_convergence_pass_plan(
     "next_step": next_step,
   }
 
-def _shape_sensitive_trajectory_values_schema() -> Dict[str, Any]:
-  quarter_keys = [f"Q{quarter_index}" for quarter_index in range(1, 21)]
-  return {
-    "type": ["object", "null"],
-    "additionalProperties": False,
-    "properties": {
-      quarter_key: {"type": ["number", "null"]}
-      for quarter_key in quarter_keys
-    },
-    "required": quarter_keys,
-  }
-
-def _shape_sensitive_trajectory_values_by_quarter(
-  adjustment: Optional[Dict[str, Any]],
-) -> Dict[int, float]:
-  item = adjustment if isinstance(adjustment, dict) else {}
-  raw_values = (
-    item.get("trajectory_values")
-    if isinstance(item.get("trajectory_values"), dict)
-    else item.get("values")
-    if isinstance(item.get("values"), dict)
-    else {}
-  )
-  out: Dict[int, float] = {}
-  for quarter_index in range(1, 21):
-    raw_value = _safe_float(raw_values.get(f"Q{quarter_index}"))
-    if raw_value is None:
-      continue
-    out[quarter_index] = float(raw_value)
-  return out
-
-def _shape_sensitive_trajectory_error_code(lever_id: Any) -> str:
-  lever = str(lever_id or "").strip().lower()
-  tail = lever.split("::")[-1] if "::" in lever else lever
-  sanitized = re.sub(r"[^a-z0-9]+", "_", tail).strip("_") or "trajectory"
-  return f"invalid_{sanitized}_trajectory"
-
-def _shape_sensitive_path_validation_detail(
+def _pre_solver_validation_fail_fast_flags(
   *,
-  lever_id: Any,
-  adjustment: Optional[Dict[str, Any]],
-  required_target_quarters: Optional[List[int]],
-) -> Optional[Dict[str, Any]]:
-  lever = str(lever_id or "").strip()
-  item = adjustment if isinstance(adjustment, dict) else {}
-  shape_type = str(item.get("shape_type") or "").strip().lower()
-  if shape_type not in _SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES:
-    return {
-      "error": _shape_sensitive_trajectory_error_code(lever),
-      "lever_id": lever,
-      "quarter": None,
-      "previous_value": None,
-      "current_value": None,
-      "reason": (
-        f"{lever} is shape-sensitive and requires shape_type in "
-        f"{list(_SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES)}."
-      ),
-      "validation_category": "internal_consistency",
-    }
-  trajectory_values = _shape_sensitive_trajectory_values_by_quarter(item)
-  required_quarters = [
-    int(_safe_float(quarter_value) or 0)
-    for quarter_value in (required_target_quarters or [])
-    if int(_safe_float(quarter_value) or 0) >= 1
-  ]
-  if not required_quarters:
-    return {
-      "error": _shape_sensitive_trajectory_error_code(lever),
-      "lever_id": lever,
-      "quarter": None,
-      "previous_value": None,
-      "current_value": None,
-      "reason": f"{lever} is shape-sensitive but required_target_quarters was empty.",
-      "validation_category": "horizon_coverage",
-    }
-  missing_quarters = [
-    quarter_index
-    for quarter_index in required_quarters
-    if quarter_index not in trajectory_values
-  ]
-  if missing_quarters:
-    return {
-      "error": _shape_sensitive_trajectory_error_code(lever),
-      "lever_id": lever,
-      "quarter": min(missing_quarters),
-      "previous_value": None,
-      "current_value": None,
-      "reason": (
-        f"{lever} is shape-sensitive and must provide values or trajectory_values for every remaining quarter. "
-        f"Missing {missing_quarters}."
-      ),
-      "validation_category": "horizon_coverage",
-    }
-  prior_value: Optional[float] = None
-  pre_prior_value: Optional[float] = None
-  previous_change_direction: Optional[int] = None
-  previous_change_ratio: Optional[float] = None
-  for quarter_index in required_quarters:
-    current_value = float(trajectory_values.get(quarter_index) or 0.0)
-    if prior_value is not None:
-      if (
-        abs(prior_value) > 1e-9
-        and prior_value > 0.0
-        and current_value >= 0.0
-        and current_value < prior_value * 0.50
-      ):
-        return {
-          "error": _shape_sensitive_trajectory_error_code(lever),
-          "lever_id": lever,
-          "quarter": quarter_index,
-          "previous_value": float(prior_value),
-          "current_value": float(current_value),
-          "reason": "unjustified discontinuity",
-          "validation_category": "trajectory_continuity",
-        }
-      if (
-        abs(prior_value) > 1e-9
-        and prior_value > 0.0
-        and current_value > prior_value * 2.50
-      ):
-        return {
-          "error": _shape_sensitive_trajectory_error_code(lever),
-          "lever_id": lever,
-          "quarter": quarter_index,
-          "previous_value": float(prior_value),
-          "current_value": float(current_value),
-          "reason": "unjustified regime jump",
-          "validation_category": "trajectory_continuity",
-        }
-      if (
-        pre_prior_value is not None
-        and pre_prior_value > 0.0
-        and prior_value > pre_prior_value * 1.25
-        and current_value < prior_value * 0.75
-      ):
-        return {
-          "error": _shape_sensitive_trajectory_error_code(lever),
-          "lever_id": lever,
-          "quarter": quarter_index,
-          "previous_value": float(prior_value),
-          "current_value": float(current_value),
-          "reason": "unrealistic snapback",
-          "validation_category": "trajectory_continuity",
-        }
-      if abs(prior_value) > 1e-9:
-        change_ratio = float((current_value - prior_value) / abs(prior_value))
-        direction = 1 if change_ratio > 0.0 else -1 if change_ratio < 0.0 else 0
-        if (
-          previous_change_direction is not None
-          and previous_change_ratio is not None
-          and direction != 0
-          and previous_change_direction != 0
-          and direction != previous_change_direction
-          and abs(change_ratio) >= 0.25
-          and abs(previous_change_ratio) >= 0.25
-        ):
-          return {
-            "error": _shape_sensitive_trajectory_error_code(lever),
-            "lever_id": lever,
-            "quarter": quarter_index,
-            "previous_value": float(prior_value),
-            "current_value": float(current_value),
-            "reason": "inconsistent regime switching",
-            "validation_category": "internal_consistency",
-          }
-        previous_change_direction = direction
-        previous_change_ratio = change_ratio
-    pre_prior_value = prior_value
-    prior_value = current_value
-  return None
-
-def _shape_sensitive_path_validation_error(
-  *,
-  lever_id: Any,
-  adjustment: Optional[Dict[str, Any]],
-  required_target_quarters: Optional[List[int]],
-) -> Optional[str]:
-  detail = _shape_sensitive_path_validation_detail(
-    lever_id=lever_id,
-    adjustment=adjustment,
-    required_target_quarters=required_target_quarters,
-  )
-  if not isinstance(detail, dict) or not detail:
-    return None
-  lever = str(detail.get("lever_id") or lever_id or "").strip()
-  quarter = int(_safe_float(detail.get("quarter")) or 0)
-  previous_value = _safe_float(detail.get("previous_value"))
-  current_value = _safe_float(detail.get("current_value"))
-  reason = str(detail.get("reason") or "").strip()
-  if previous_value is not None and current_value is not None and quarter >= 1:
-    return (
-      f"{lever} invalid trajectory at Q{quarter}: "
-      f"{float(previous_value):.2f} -> {float(current_value):.2f}. {reason}"
-    )
-  if quarter >= 1:
-    return f"{lever} invalid trajectory at Q{quarter}: {reason}"
-  return f"{lever} invalid trajectory: {reason}"
+  validation_detail: Optional[Dict[str, Any]],
+) -> List[str]:
+  detail = validation_detail if isinstance(validation_detail, dict) else {}
+  category = str(detail.get("validation_category") or "").strip().lower()
+  if category == "horizon_coverage":
+    return ["trajectory_horizon_coverage_failed"]
+  if category == "lever_bounds":
+    return ["lever_bounds_failed"]
+  if category == "lever_value_units":
+    return ["lever_value_units_failed"]
+  if category == "internal_consistency":
+    return ["internal_consistency_failed"]
+  return []
 
 def _baseline_map_quarter_count(
   baseline_map: Optional[Dict[str, List[float]]],
@@ -4115,11 +4089,35 @@ def _mark_unified_convergence_cycle_phase(
   cycle_timing["remaining_seconds"] = round(remaining, 3)
 
 def get_runtime_probe_payload() -> Dict[str, Any]:
+  try:
+    process_sequence_assertion = post_intake_assert_required_process_sequence()
+    process_sequence_errors = []
+  except Exception as exc:
+    process_sequence_assertion = {}
+    process_sequence_errors = [f"post_intake_process_sequence_lookup_unavailable: {exc}"]
+  try:
+    process_sequence_steps = [
+      str((row or {}).get("step_key") or "").strip()
+      for row in post_intake_process_sequence_rows(active_only=True)
+      if str((row or {}).get("step_key") or "").strip()
+    ]
+  except Exception:
+    process_sequence_steps = []
   return {
     "status": "ok",
     "runtime_probe_version": _INTAKE_CONSULT_RUNTIME_PROBE_VERSION,
     "architecture": "unified_convergence_plus_cash_pass",
     "mapping_source": "sql.post_intak_mapping_lookup",
+    "process_sequence_source": "sql.post_intake_process_sequence_lookup",
+    "process_sequence_valid": not bool(process_sequence_errors),
+    "process_sequence_errors": process_sequence_errors,
+    "process_sequence_steps": process_sequence_steps,
+    "process_sequence_gateway_context_loaded": bool(
+      process_sequence_assertion.get("gateway_context_loaded")
+    ),
+    "process_sequence_step_table_dependencies": copy.deepcopy(
+      process_sequence_assertion.get("step_table_dependencies") or []
+    ),
     "unified_convergence": {
       "max_cycles": int(_UNIFIED_CONVERGENCE_MAX_CYCLES),
       "cycle_timeout_seconds": float(_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS),

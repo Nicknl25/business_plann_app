@@ -17,7 +17,13 @@ from .schedule import (
   PAYROLL_HEADCOUNT_POLICY_VERSION,
   PAYROLL_HEADCOUNT_SOURCE,
   apply_payroll_headcount_payload_to_model_input,
-  build_payroll_headcount_payload_from_stage_ramp_contract,
+  apply_payroll_headcount_policy_to_model_input,
+  build_payroll_headcount_payload_from_contract,
+  default_payroll_headcount_policy,
+  estimate_payroll_headcount_schedule_with_gpt,
+  normalized_payroll_headcount_policy,
+  validate_payroll_headcount_contract,
+  validate_payroll_headcount_contract_payload,
   validate_payroll_headcount_model_input_contract,
 )
 
@@ -36,6 +42,12 @@ __all__ = [
   "PAYROLL_HEADCOUNT_POLICY_VERSION",
   "PAYROLL_HEADCOUNT_SOURCE",
   "apply_payroll_headcount_payload_to_model_input",
-  "build_payroll_headcount_payload_from_stage_ramp_contract",
+  "apply_payroll_headcount_policy_to_model_input",
+  "build_payroll_headcount_payload_from_contract",
+  "default_payroll_headcount_policy",
+  "estimate_payroll_headcount_schedule_with_gpt",
+  "normalized_payroll_headcount_policy",
+  "validate_payroll_headcount_contract",
+  "validate_payroll_headcount_contract_payload",
   "validate_payroll_headcount_model_input_contract",
 ]

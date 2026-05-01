@@ -6,11 +6,19 @@ runtime helpers once and then calls this module as the convergence phase owner.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_assert_required_process_sequence,
   post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_process_step_context,
 )
+
+_CYCLE_DEADLINE_GUARD_SECONDS = 8.0
+_PLANNER_GPT_MAX_SECONDS = 75.0
+_PLAN_BUILDER_MAX_SECONDS = 35.0
+_VERIFICATION_GPT_MAX_SECONDS = 45.0
 
 
 def _contract_forecast_quarter_count() -> int:
@@ -28,9 +36,220 @@ def _contract_forecast_quarter_count() -> int:
     return 20
 
 
+def _bounded_cycle_deadline(cycle_deadline: float, max_seconds: float) -> float:
+  """Keep each subcall inside the total 180s cycle budget with a return guard."""
+  now = time.perf_counter()
+  guarded_cycle_deadline = float(cycle_deadline) - float(_CYCLE_DEADLINE_GUARD_SECONDS)
+  return min(guarded_cycle_deadline, now + max(1.0, float(max_seconds)))
+
+
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   """Bind handler/runtime helpers used by the extracted convergence loop."""
   globals().update(dependencies or {})
+
+
+def _reset_non_productive_cycle_tracker(retry_memory: Dict[str, Any]) -> None:
+  """Reset retry-loop stall memory after a solver-ready cycle is accepted."""
+  if not isinstance(retry_memory, dict):
+    return
+  retry_memory["non_productive_cycle_tracker"] = {
+    "consecutive_non_productive_cycles": 0,
+    "repeated_same_pattern": False,
+    "repeated_failure_pattern": "",
+    "last_known_state": {},
+  }
+  retry_memory["recent_validation_errors"] = []
+
+
+def _hard_rule_failure_count(assessment: Optional[Dict[str, Any]]) -> int:
+  payload = assessment if isinstance(assessment, dict) else {}
+  if bool(payload.get("all_hard_rules_cleared")) or bool(payload.get("all_cleared")):
+    return 0
+  for key in ("failed_count", "violation_count", "failure_count", "open_violation_count"):
+    value = _safe_float(payload.get(key))
+    if value is not None:
+      return max(0, int(round(float(value))))
+  count = 0
+  for key in ("failures", "violations", "remaining_violations", "failed_rules"):
+    value = payload.get(key)
+    if isinstance(value, list):
+      count += len(value)
+  return count
+
+
+def _controller_issue_records(state: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  payload = state if isinstance(state, dict) else {}
+  candidates: List[Any] = [
+    payload.get("remaining_issues"),
+    payload.get("detected_issues"),
+    (
+      (payload.get("current_issue_summaries") or {}).get("detected_issues")
+      if isinstance(payload.get("current_issue_summaries"), dict)
+      else None
+    ),
+  ]
+  records: List[Dict[str, Any]] = []
+  for candidate in candidates:
+    if isinstance(candidate, list) and candidate:
+      records = [item for item in candidate if isinstance(item, dict)]
+      if records:
+        break
+  return records
+
+
+def _controller_issue_gap_summary(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  records = _controller_issue_records(state)
+  total_gap_abs = 0.0
+  total_severity = 0.0
+  issue_count_with_gap = 0
+  issue_codes: List[str] = []
+  by_issue: Dict[str, Dict[str, Any]] = {}
+  for record in records:
+    code = str(record.get("issue_code") or record.get("issue") or "").strip().lower()
+    if code:
+      issue_codes.append(code)
+    gap_value = _safe_float(record.get("aggregate_gap_abs"))
+    if gap_value is None:
+      metric_gaps = [
+        abs(float(_safe_float(spec.get("gap_abs")) or 0.0))
+        for spec in (record.get("metric_debug") or [])
+        if isinstance(spec, dict)
+      ]
+      gap_value = sum(metric_gaps) if metric_gaps else None
+    severity_value = _safe_float(record.get("remaining_issue_severity_score"))
+    if severity_value is None:
+      severity_value = _safe_float(record.get("severity_score"))
+    if gap_value is not None:
+      gap_float = abs(float(gap_value))
+      total_gap_abs += gap_float
+      issue_count_with_gap += 1
+    else:
+      gap_float = 0.0
+    severity_float = max(0.0, float(severity_value or 0.0))
+    total_severity += severity_float
+    if code:
+      by_issue[code] = {
+        "gap_abs": gap_float,
+        "severity_score": severity_float,
+      }
+  return {
+    "issue_codes": sorted(set(issue_codes)),
+    "issue_count_with_gap": issue_count_with_gap,
+    "total_gap_abs": total_gap_abs,
+    "total_severity_score": total_severity,
+    "by_issue": by_issue,
+  }
+
+
+def _issue_gap_materially_improved(
+  *,
+  before_summary: Dict[str, Any],
+  after_summary: Dict[str, Any],
+) -> bool:
+  before_gap = float(_safe_float(before_summary.get("total_gap_abs")) or 0.0)
+  after_gap = float(_safe_float(after_summary.get("total_gap_abs")) or 0.0)
+  if before_gap <= 0.0:
+    return False
+  gap_delta = before_gap - after_gap
+  if gap_delta <= 0.0:
+    return False
+  # A cycle is productive when it materially shrinks the table-backed issue
+  # diagnostic, even if the issue needs another cycle to fully clear.
+  return gap_delta >= max(1000.0, before_gap * 0.02)
+
+
+def _build_unified_cycle_quality_assessment(
+  *,
+  before_controller_resolution_state: Dict[str, Any],
+  before_hard_rule_assessment: Dict[str, Any],
+  after_controller_resolution_state: Dict[str, Any],
+  after_hard_rule_assessment: Dict[str, Any],
+  before_finmo_json: Dict[str, Any],
+  after_finmo_json: Dict[str, Any],
+  result_payload: Dict[str, Any],
+  before_numeric_guidance_packet: Dict[str, Any],
+  candidate_signature: Dict[str, Any],
+  prior_quality_assessment: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Decide whether a convergence cycle made durable progress worth keeping."""
+  del before_finmo_json, after_finmo_json, before_numeric_guidance_packet, prior_quality_assessment
+  before_state = before_controller_resolution_state if isinstance(before_controller_resolution_state, dict) else {}
+  after_state = after_controller_resolution_state if isinstance(after_controller_resolution_state, dict) else {}
+  before_remaining = int(_safe_float(before_state.get("remaining_issue_count")) or 0)
+  after_remaining = int(_safe_float(after_state.get("remaining_issue_count")) or 0)
+  before_resolved = int(_safe_float(before_state.get("resolved_issue_count")) or 0)
+  after_resolved = int(_safe_float(after_state.get("resolved_issue_count")) or 0)
+  before_score = float(_safe_float(before_state.get("overall_completion_score_pct")) or 0.0)
+  after_score = float(_safe_float(after_state.get("overall_completion_score_pct")) or 0.0)
+  before_hard_failures = _hard_rule_failure_count(before_hard_rule_assessment)
+  after_hard_failures = _hard_rule_failure_count(after_hard_rule_assessment)
+  before_issue_gap_summary = _controller_issue_gap_summary(before_state)
+  after_issue_gap_summary = _controller_issue_gap_summary(after_state)
+  issue_count_improved = after_remaining < before_remaining
+  resolved_count_improved = after_resolved > before_resolved
+  score_improved = after_score >= before_score + 1.0
+  issue_gap_improved = _issue_gap_materially_improved(
+    before_summary=before_issue_gap_summary,
+    after_summary=after_issue_gap_summary,
+  )
+  hard_rules_improved = after_hard_failures < before_hard_failures
+  hard_rules_worsened = after_hard_failures > before_hard_failures
+  issue_count_regressed = after_remaining > before_remaining
+  all_cleared = bool(after_state.get("all_cleared")) and after_hard_failures == 0
+  meaningful_progress = bool(
+    all_cleared
+    or issue_count_improved
+    or resolved_count_improved
+    or hard_rules_improved
+    or score_improved
+    or issue_gap_improved
+  )
+  reject_attempt = bool(
+    issue_count_regressed
+    or hard_rules_worsened
+    or not meaningful_progress
+  )
+  accepted = not reject_attempt
+  return {
+    "status": "accepted" if accepted else "rejected_no_meaningful_progress",
+    "accepted": accepted,
+    "reject_attempt": reject_attempt,
+    "meaningful_progress": meaningful_progress,
+    "no_progress": not meaningful_progress,
+    "remaining_issue_count_before": before_remaining,
+    "remaining_issue_count_after": after_remaining,
+    "resolved_issue_count_before": before_resolved,
+    "resolved_issue_count_after": after_resolved,
+    "overall_completion_score_pct_before": before_score,
+    "overall_completion_score_pct_after": after_score,
+    "hard_rule_failure_count_before": before_hard_failures,
+    "hard_rule_failure_count_after": after_hard_failures,
+    "issue_count_improved": issue_count_improved,
+    "issue_count_regressed": issue_count_regressed,
+    "resolved_count_improved": resolved_count_improved,
+    "score_improved": score_improved,
+    "issue_gap_improved": issue_gap_improved,
+    "issue_gap_abs_before": before_issue_gap_summary.get("total_gap_abs"),
+    "issue_gap_abs_after": after_issue_gap_summary.get("total_gap_abs"),
+    "issue_gap_summary_before": before_issue_gap_summary,
+    "issue_gap_summary_after": after_issue_gap_summary,
+    "hard_rules_improved": hard_rules_improved,
+    "hard_rules_worsened": hard_rules_worsened,
+    "all_cleared": all_cleared,
+    "worsened_without_compensating_improvement": bool((issue_count_regressed or hard_rules_worsened) and not meaningful_progress),
+    "solver_invoked": bool((result_payload or {}).get("solver_invoked", True)),
+    "candidate_signature": candidate_signature if isinstance(candidate_signature, dict) else {},
+    "open_issue_codes_before": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in (before_state.get("remaining_issues") or [])
+      if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+    ],
+    "open_issue_codes_after": [
+      str(item.get("issue_code") or "").strip().lower()
+      for item in (after_state.get("remaining_issues") or [])
+      if isinstance(item, dict) and str(item.get("issue_code") or "").strip()
+    ],
+  }
 
 def _run_unified_post_grid_system_run(
   *,
@@ -69,6 +288,29 @@ def _run_unified_post_grid_system_run(
   if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
     raise RuntimeError(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
+    )
+  process_sequence_trace: Dict[str, Any] = {}
+  process_sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
+  process_sequence_trace["issue_detection"] = post_intake_process_step_context(
+    step_key="issue_detection",
+    expected_phase="convergence",
+    expected_handler_key="detect_post_intake_issues",
+    required_lookup_tables=["post_intak_mapping_lookup", "post_intake_gpt_contract_lookup"],
+    required_horizon_rule="scan_all_q1_to_q20",
+  )
+  process_sequence_trace["unified_convergence_decision"] = post_intake_process_step_context(
+    step_key="unified_convergence_decision",
+    expected_phase="convergence",
+    expected_handler_key="run_unified_convergence_cycle",
+    required_contract_name="unified_convergence_decision",
+    required_context_contract_name="unified_convergence_decision",
+    required_context_include_phase="planner",
+    required_lookup_tables=[
+      "post_intak_mapping_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="q1_to_q20_model_input_repair_cells",
   )
   final_finmo_json = copy.deepcopy(applied_finmo_json or {})
   realism_memo_before_resolution = {
@@ -426,8 +668,18 @@ def _run_unified_post_grid_system_run(
       cycle_timing=cycle_timing,
     )
 
+    _raise_unified_convergence_stage_budget_if_needed(
+      cycle=unified_convergence_cycle_count,
+      cycle_started_at=cycle_started_at,
+      stage="planner_gpt_start",
+      minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
+      detail="Planner GPT call cannot start without enough cycle budget to return before the 180s wall.",
+      cycle_timing=cycle_timing,
+    )
     phase_started_at = time.perf_counter()
-    previous_openai_deadline = _set_active_openai_deadline(cycle_deadline)
+    previous_openai_deadline = _set_active_openai_deadline(
+      _bounded_cycle_deadline(cycle_deadline, _PLANNER_GPT_MAX_SECONDS)
+    )
     try:
       unified_convergence_decision = _run_unified_convergence_openai(
         draft_id=str(draft_id).strip(),
@@ -456,6 +708,14 @@ def _run_unified_post_grid_system_run(
       detail=str((unified_convergence_decision or {}).get("detail") or "").strip(),
       cycle_timing=cycle_timing,
     )
+    _raise_unified_convergence_stage_budget_if_needed(
+      cycle=unified_convergence_cycle_count,
+      cycle_started_at=cycle_started_at,
+      stage="plan_builder_start",
+      minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
+      detail="Plan builder cannot start without enough cycle budget to return before the 180s wall.",
+      cycle_timing=cycle_timing,
+    )
     phase_started_at = time.perf_counter()
     cycle_numeric_guidance_packet = _build_unified_numeric_guidance_packet(
       controller_resolution_state=copy.deepcopy(baseline_controller_resolution_state),
@@ -463,7 +723,9 @@ def _run_unified_post_grid_system_run(
       unified_convergence_context=copy.deepcopy(unified_convergence_context),
       quarter_count=_contract_forecast_quarter_count(),
     )
-    previous_openai_deadline = _set_active_openai_deadline(cycle_deadline)
+    previous_openai_deadline = _set_active_openai_deadline(
+      _bounded_cycle_deadline(cycle_deadline, _PLAN_BUILDER_MAX_SECONDS)
+    )
     try:
       _raise_unified_convergence_cycle_timeout_if_needed(
         cycle=unified_convergence_cycle_count,
@@ -697,10 +959,25 @@ def _run_unified_post_grid_system_run(
         model_input_json=copy.deepcopy(final_model_input_json),
         finmo_json=copy.deepcopy(final_finmo_json),
       )
+      _raise_unified_convergence_cycle_timeout_if_needed(
+        cycle=unified_convergence_cycle_count,
+        cycle_started_at=cycle_started_at,
+        stage="pre_solver_validation_failure",
+        detail=str(validation_error.get("reason") or validation_error.get("reason_code") or "").strip(),
+        cycle_timing=cycle_timing,
+      )
       _set_active_openai_deadline(previous_cycle_openai_deadline)
       continue
 
     _reset_non_productive_cycle_tracker(retry_memory)
+    _raise_unified_convergence_stage_budget_if_needed(
+      cycle=unified_convergence_cycle_count,
+      cycle_started_at=cycle_started_at,
+      stage="solver_application_start",
+      minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
+      detail="Solver/application cannot start without enough cycle budget to return before the 180s wall.",
+      cycle_timing=cycle_timing,
+    )
     phase_started_at = time.perf_counter()
     unified_convergence_result = _apply_followup_exact_updates(
       review_plan=copy.deepcopy(unified_convergence_plan),
@@ -932,7 +1209,9 @@ def _run_unified_post_grid_system_run(
       cycle_timing=cycle_timing,
     )
     phase_started_at = time.perf_counter()
-    previous_openai_deadline = _set_active_openai_deadline(cycle_deadline)
+    previous_openai_deadline = _set_active_openai_deadline(
+      _bounded_cycle_deadline(cycle_deadline, _VERIFICATION_GPT_MAX_SECONDS)
+    )
     try:
       unified_convergence_verification = _run_realism_verification_openai(
         draft_id=str(draft_id).strip(),
@@ -1216,6 +1495,35 @@ def _run_unified_post_grid_system_run(
   pre_cash_realism_memo_json = copy.deepcopy(realism_memo_json)
   pre_cash_controller_resolution_state = copy.deepcopy(controller_resolution_state)
   pre_cash_hard_rule_assessment = copy.deepcopy(hard_rule_assessment)
+  process_sequence_trace["cash_minimum_debt_schedule"] = post_intake_process_step_context(
+    step_key="cash_minimum_debt_schedule",
+    expected_phase="cash_pass",
+    expected_handler_key="apply_cash_pass_minimum_debt_schedule",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="q1_to_q20_debt_schedule",
+  )
+  process_sequence_trace["cash_strategy_review"] = post_intake_process_step_context(
+    step_key="cash_strategy_review",
+    expected_phase="cash_pass",
+    expected_handler_key="run_cash_strategy_review",
+    required_contract_name="cash_strategy_review",
+    required_context_contract_name="cash_strategy_review",
+    required_context_include_phase="cash_pass",
+    required_lookup_tables=[
+      "post_intake_cash_policy_lookup",
+      "post_intak_mapping_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
+  )
+  process_sequence_trace["cash_pass_validation"] = post_intake_process_step_context(
+    step_key="cash_pass_validation",
+    expected_phase="cash_pass",
+    expected_handler_key="validate_cash_pass",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="validate_all_q1_to_q20",
+  )
   cash_pass_phase_contract = _cash_pass_phase_contract(financials_json=copy.deepcopy(financials_json or {}))
   cash_pass_phase_trace = _new_cash_pass_phase_trace(cash_pass_phase_contract)
   pre_cash_debt_schedule_seed = _apply_cash_pass_minimum_debt_schedule(
@@ -1678,6 +1986,18 @@ def _run_unified_post_grid_system_run(
   )
   _assert_cash_pass_phase_trace_complete(cash_pass_phase_trace, cash_pass_phase_contract)
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
+  process_sequence_trace["final_hard_gates"] = post_intake_process_step_context(
+    step_key="final_hard_gates",
+    expected_phase="final_validation",
+    expected_handler_key="validate_final_post_intake_state",
+    required_lookup_tables=[
+      "post_intak_mapping_lookup",
+      "post_intake_cash_policy_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="validate_all_q1_to_q20",
+  )
   _raise_p_and_l_flatline_if_needed(
     final_model_input_json=copy.deepcopy(final_model_input_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
@@ -1713,6 +2033,7 @@ def _run_unified_post_grid_system_run(
     "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
     "cash_strategy_effect_summary": copy.deepcopy(cash_strategy_effect_summary),
     "debt_schedule": copy.deepcopy(final_debt_schedule_payload),
+    "post_intake_process_sequence_trace": copy.deepcopy(process_sequence_trace),
     "cost_telemetry": _openai_call_telemetry_snapshot(),
   }
   next_planning_run_json = _build_planning_run_payload(
