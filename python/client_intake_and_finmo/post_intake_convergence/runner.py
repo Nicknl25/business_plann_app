@@ -12,13 +12,45 @@ from typing import Any, Dict, List, Optional, Tuple
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_assert_required_process_sequence,
   post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_process_sequence_step,
   post_intake_process_step_context,
+)
+from client_intake_and_finmo.post_intake_foundation import (
+  CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
+  PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS,
+  bind_table_safe_runtime_dependencies,
+  post_intake_assert_golden_rule_integrity,
 )
 
 _CYCLE_DEADLINE_GUARD_SECONDS = 8.0
 _PLANNER_GPT_MAX_SECONDS = 75.0
 _PLAN_BUILDER_MAX_SECONDS = 35.0
 _VERIFICATION_GPT_MAX_SECONDS = 45.0
+_RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
+_RETRY_MEMORY_MAX_PRIOR_TARGET_KEYS = 4
+_RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
+_RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
+_CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
+_PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
+_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
+
+
+def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
+  row = post_intake_process_sequence_step(step_key, required=True) or {}
+  value = row.get(field_name)
+  if value is None or value == "":
+    raise RuntimeError(
+      f"post_intake_process_sequence_missing_numeric_setting: step={step_key} field={field_name}"
+    )
+  return float(value)
+
+
+_UNIFIED_CONVERGENCE_MAX_CYCLES = int(
+  _sequence_numeric_setting("unified_convergence_decision", "max_attempts")
+)
+_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS = float(
+  _sequence_numeric_setting("unified_convergence_decision", "timeout_seconds")
+)
 
 
 def _contract_forecast_quarter_count() -> int:
@@ -45,7 +77,7 @@ def _bounded_cycle_deadline(cycle_deadline: float, max_seconds: float) -> float:
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   """Bind handler/runtime helpers used by the extracted convergence loop."""
-  globals().update(dependencies or {})
+  bind_table_safe_runtime_dependencies(globals(), dependencies or {})
 
 
 def _reset_non_productive_cycle_tracker(retry_memory: Dict[str, Any]) -> None:
@@ -290,6 +322,7 @@ def _run_unified_post_grid_system_run(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
     )
   process_sequence_trace: Dict[str, Any] = {}
+  process_sequence_trace["golden_rule"] = post_intake_assert_golden_rule_integrity()
   process_sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
   process_sequence_trace["issue_detection"] = post_intake_process_step_context(
     step_key="issue_detection",

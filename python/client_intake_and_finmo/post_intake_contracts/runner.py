@@ -14,11 +14,16 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-_CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
+_REQUIRED_SOLVER_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
+_RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
+_RETRY_MEMORY_MAX_PRIOR_TARGET_KEYS = 4
+_RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
+_RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
+_PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO = 0.05
 _UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
 _UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "verifier.md"
 R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
@@ -26,6 +31,8 @@ R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_build_prompt_from_contract,
+  post_intake_driver_target_metric_ids,
   post_intake_gpt_contract_compact_prompt_field_spec,
   post_intake_gpt_contract_errors,
   post_intake_gpt_contract_horizon_errors,
@@ -38,6 +45,10 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_context_request_char_budget,
   stage_planning_ramp_policy,
 )
+from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
+
+_UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
+_REQUIRED_SOLVER_TARGET_METRIC_KEYS = _UNIFIED_ALLOWED_TARGET_METRIC_KEYS
 
 def _safe_float(value: Any) -> Optional[float]:
   try:
@@ -61,6 +72,11 @@ def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_d
       "post_intake_gpt_contract_lookup must define a positive forecast horizon."
     )
   return count
+
+
+_CONVERGENCE_DEFAULT_QUARTER_COUNT = _contract_forecast_quarter_count("unified_convergence_decision")
+_CONVERGENCE_MAX_FOCUS_QUARTERS = _CONVERGENCE_DEFAULT_QUARTER_COUNT
+_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = _CONVERGENCE_DEFAULT_QUARTER_COUNT
 
 
 def _safe_ratio(value: Any) -> Optional[float]:
@@ -160,11 +176,7 @@ def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
-  globals().update({
-    key: value
-    for key, value in dependencies.items()
-    if key != "bind_runtime_dependencies"
-  })
+  bind_table_safe_runtime_dependencies(globals(), dependencies)
 
 
 def _openai_strict_json_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -356,8 +368,8 @@ __all__ = [
   "_run_realism_verification_openai",
   "_validate_payroll_headcount_contract",
   "_normalize_retry_requirements_to_allowed_scope",
-  "_autofill_unified_mapped_repair_targets_for_lever",
-  "_auto_repair_unified_primary_metric_coverage",
+  "_table_mapped_repair_targets_for_lever",
+  "_unified_primary_metric_coverage_error",
   "_solver_contract_quarter_count",
   "_remaining_horizon_quarters",
   "_normalize_primary_target_metric_names",
@@ -615,11 +627,12 @@ def _validate_stage_ramp_contract_payload(
     )
 
   raw_grid = candidate.get("quarter_ramp_grid")
+  horizon_count = _contract_forecast_quarter_count("stage_ramp_contract")
   if not isinstance(raw_grid, list):
-    errors.append("quarter_ramp_grid must be a 20-row array")
+    errors.append(f"quarter_ramp_grid must be a {horizon_count}-row array")
     raw_grid = []
-  if len(raw_grid) != 20:
-    errors.append(f"quarter_ramp_grid must contain exactly 20 rows; received {len(raw_grid)}")
+  if len(raw_grid) != horizon_count:
+    errors.append(f"quarter_ramp_grid must contain exactly {horizon_count} rows; received {len(raw_grid)}")
   rows_by_quarter: Dict[int, Dict[str, Any]] = {}
   normalized_rows: List[Dict[str, Any]] = []
   ramp_field_aliases = {
@@ -644,7 +657,7 @@ def _validate_stage_ramp_contract_payload(
       errors.append("quarter_ramp_grid entries must be objects")
       continue
     quarter_index = int(_safe_float(item.get(ramp_field_aliases["quarter_index"])) or 0)
-    if quarter_index < 1 or quarter_index > 20:
+    if quarter_index < 1 or quarter_index > horizon_count:
       errors.append(f"quarter_ramp_grid has invalid q {item.get('q')!r}")
       continue
     if quarter_index in rows_by_quarter:
@@ -765,7 +778,7 @@ def _validate_stage_ramp_contract_payload(
     rows_by_quarter[quarter_index] = normalized_row
     normalized_rows.append(normalized_row)
 
-  missing_quarters = [quarter for quarter in range(1, 21) if quarter not in rows_by_quarter]
+  missing_quarters = [quarter for quarter in range(1, horizon_count + 1) if quarter not in rows_by_quarter]
   if missing_quarters:
     errors.append(f"quarter_ramp_grid missing required quarter rows {missing_quarters}")
 
@@ -1014,12 +1027,18 @@ def _estimate_maintenance_capex_percent_with_gpt(
       "Treat maintenance_capex_percent as the annual maintenance spend needed to keep the client-stated PPE base productive before expansion capex.",
     ],
   }
-  system_prompt = (
-    "You estimate one model-input assumption for a 3-statement forecast: annual maintenance capex percent. "
-    "The client's reported balance sheet is authoritative, so do not estimate or return starting PPE. "
-    "Return only JSON matching the schema. maintenance_capex_percent must be percentage points, for example "
-    "8 for 8%, and must be at least 2 and no more than 15. Do not output explanations, ranges, future "
-    "quarters, capex, depreciation, or balance sheet replacements."
+  system_prompt = post_intake_build_prompt_from_contract(
+    "maintenance_capex_percent",
+    context_payload=user_context,
+    static_instruction=(
+      "You estimate one model-input assumption for a 3-statement forecast: annual maintenance capex percent. "
+      "The client's reported balance sheet is authoritative, so do not estimate or return starting PPE."
+    ),
+    task_instruction=(
+      "Return only JSON matching the SQL contract. maintenance_capex_percent must be percentage points, "
+      "for example 8 for 8%, and must stay inside the contract range. Do not output ranges, future quarters, "
+      "capex, depreciation, or balance sheet replacements."
+    ),
   )
   payload = {
     "model": _openai_model(),
@@ -1291,10 +1310,16 @@ def _estimate_r_and_d_applicability_with_gpt(
       "This is a structural applicability decision, not a cost forecast.",
     ],
   }
-  system_prompt = (
-    "You make one pre-forecast structural applicability decision for a 3-statement planning app. "
-    "Decide whether Research & Development should exist as a separate P&L driver in the forecast. "
-    "Return only JSON matching the schema. Be conservative: if R&D is not a real distinct operating function, return false."
+  system_prompt = post_intake_build_prompt_from_contract(
+    "r_and_d_applicability",
+    context_payload=user_context,
+    static_instruction=(
+      "You make one pre-forecast structural applicability decision for a 3-statement planning app."
+    ),
+    task_instruction=(
+      "Decide whether Research & Development should exist as a separate P&L driver in the forecast. "
+      "Return only JSON matching the SQL contract. Be conservative: if R&D is not a real distinct operating function, return false."
+    ),
   )
   payload = {
     "model": _openai_model(),
@@ -1457,14 +1482,23 @@ def _estimate_stage_ramp_contract_with_gpt(
     },
     "r_and_d_cost_rule": rd_cost_rule,
   }
-  system_prompt = (
-    "Return only JSON matching the SQL-backed schema and table-provided contract/context. "
-    "You must obey contract_field_spec.field_instructions and stage_profitability_policy.validator_rules exactly before responding."
-  )
   user_context = post_intake_gpt_context_filter_payload(
     contract_name="stage_ramp_contract",
     payload=user_context,
     include_phase="pre_convergence",
+  )
+  system_prompt = post_intake_build_prompt_from_contract(
+    "stage_ramp_contract",
+    context_payload=user_context,
+    include_phase="pre_convergence",
+    static_instruction=(
+      "You decide the business-world ramp before convergence. Use business type, stage, planning mode, "
+      "balance-sheet starting reality, and the table-provided stage policy to choose realistic quarter-by-quarter bounds."
+    ),
+    task_instruction=(
+      "Return only JSON matching the SQL-backed stage_ramp_contract. Obey contract field instructions and "
+      "stage_profitability_policy.validator_rules exactly before responding."
+    ),
   )
   context_budget = post_intake_gpt_context_request_char_budget(
     contract_name="stage_ramp_contract",
@@ -2991,7 +3025,7 @@ def _unified_convergence_decision_contract_error(
   sql_derived_issue_metric_coverage: Dict[str, set[str]] = {}
   sql_derived_issue_quarter_coverage: Dict[str, set[int]] = {}
   for lever_id in lever_selection:
-    for mapping in _autofill_unified_mapped_repair_targets_for_lever(
+    for mapping in _table_mapped_repair_targets_for_lever(
       lever_id=lever_id,
       deterministic_numeric_guidance=copy.deepcopy(
         deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
@@ -3175,7 +3209,7 @@ def _run_realism_verification_openai(
     )
 
   try:
-    verify_prompt = _UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH.read_text(encoding="utf-8").strip()
+    static_verify_prompt = _UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH.read_text(encoding="utf-8").strip()
   except Exception as exc:
     return _realism_verification_failure_payload(
       prompt_file=prompt_file,
@@ -3246,6 +3280,24 @@ def _run_realism_verification_openai(
     "realism_pass_consistency_context": copy.deepcopy(realism_pass_consistency_context or {}),
     "writable_lever_catalog": _compact_writable_lever_catalog_entries(lever_catalog),
   }
+  try:
+    verify_prompt = post_intake_build_prompt_from_contract(
+      "unified_convergence_verification",
+      context_payload=user_context,
+      include_phase="verifier",
+      static_instruction=static_verify_prompt,
+      task_instruction=(
+        "Return only JSON matching the unified_convergence_verification contract. Verify the "
+        "actual table-backed plan result and do not introduce fields, targets, or issue concepts "
+        "outside the SQL contract/context lookup rows."
+      ),
+    )
+  except Exception as exc:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_table_prompt_render",
+      detail=str(exc),
+    )
   payload = {
     "model": _openai_model(),
     "input": [
@@ -3356,7 +3408,7 @@ def _normalize_retry_requirements_to_allowed_scope(
   context["issue_coverage_requirements"] = normalized_issue_requirements
   return context
 
-def _autofill_unified_mapped_repair_targets_for_lever(
+def _table_mapped_repair_targets_for_lever(
   *,
   lever_id: str,
   deterministic_numeric_guidance: Optional[Dict[str, Any]],
@@ -3413,7 +3465,7 @@ def _autofill_unified_mapped_repair_targets_for_lever(
     )
   return mappings
 
-def _auto_repair_unified_primary_metric_coverage(
+def _unified_primary_metric_coverage_error(
   *,
   parsed: Optional[Dict[str, Any]],
   numeric_solver_contract: Optional[Dict[str, Any]],
@@ -3587,11 +3639,12 @@ def _unified_required_target_metric_keys(
 
 def _normalize_solver_quarter_target_metrics(raw_targets: Any) -> List[Dict[str, Any]]:
   normalized: List[Dict[str, Any]] = []
+  horizon_count = _contract_forecast_quarter_count("unified_convergence_decision")
   for item in (raw_targets or []):
     if not isinstance(item, dict):
       continue
     quarter_index = int(_safe_float(item.get("quarter_index")) or 0)
-    if quarter_index < 1 or quarter_index > 20:
+    if quarter_index < 1 or quarter_index > horizon_count:
       continue
     payload: Dict[str, Any] = {"quarter_index": quarter_index}
     metric_targets = [entry for entry in (item.get("metric_targets") or []) if isinstance(entry, dict)]
@@ -3776,7 +3829,7 @@ def _relevant_solver_target_quarters(
     )
     if baseline_quarters:
       return baseline_quarters
-    return list(range(1, 21))
+    return list(range(1, _contract_forecast_quarter_count() + 1))
   quarters = sorted(
     {
       int(_safe_float(item.get("quarter_index")) or 0)
@@ -5227,7 +5280,7 @@ def _build_convergence_retry_focus_packet(
       relevant_quarters = _remaining_horizon_issue_quarters(
         issue_code=issue_code,
         base_quarters=relevant_quarters,
-        quarter_count=_CONVERGENCE_DEFAULT_QUARTER_COUNT,
+        quarter_count=_contract_forecast_quarter_count(),
       )
     full_horizon_issue = _issue_requires_remaining_horizon_scope(issue_code)
     remaining_horizon_focus_active = remaining_horizon_focus_active or full_horizon_issue

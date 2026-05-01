@@ -16,15 +16,28 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_contract_forecast_horizon_quarter_count,
   post_intake_assert_required_process_sequence,
   post_intake_assert_process_sequence_step,
+  post_intake_build_prompt_from_contract,
+  post_intake_driver_target_metric_ids,
   post_intake_issue_codes_for_phase,
+  post_intake_process_sequence_step,
   post_intake_process_sequence_errors,
   post_intake_process_sequence_rows,
   post_intake_gpt_context_filter_payload,
   post_intake_gpt_context_rows,
   post_intake_gpt_context_request_char_budget,
 )
+from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
+  PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS,
+  TRANSLATION_TEST_MODE_FAIL_FLAGS,
+  bind_table_safe_runtime_dependencies,
+)
 
-_CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
+_CONVERGENCE_DEFAULT_QUARTER_COUNT = int(
+  post_intake_contract_forecast_horizon_quarter_count(
+    contract_name="unified_convergence_decision",
+  )
+  or 20
+)
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
 _CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES = 3
 _CONVERGENCE_MAX_FOCUS_DRIVER_PATHS = 12
@@ -35,7 +48,7 @@ _CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT = 5.0
 _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0
 _UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR = -250000.0
 _UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
-_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = 20
+_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = _CONVERGENCE_DEFAULT_QUARTER_COUNT
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
@@ -47,6 +60,28 @@ _REMAINING_HORIZON_ISSUE_CODES = set(
 _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple()
 _UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
 _UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.md"
+_UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
+_PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
+_TRANSLATION_TEST_MODE_FAIL_FLAGS = set(TRANSLATION_TEST_MODE_FAIL_FLAGS)
+_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
+
+
+def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
+  row = post_intake_process_sequence_step(step_key, required=True) or {}
+  value = row.get(field_name)
+  if value is None or value == "":
+    raise RuntimeError(
+      f"post_intake_process_sequence_missing_numeric_setting: step={step_key} field={field_name}"
+    )
+  return float(value)
+
+
+_UNIFIED_CONVERGENCE_MAX_CYCLES = int(
+  _sequence_numeric_setting("unified_convergence_decision", "max_attempts")
+)
+_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS = float(
+  _sequence_numeric_setting("unified_convergence_decision", "timeout_seconds")
+)
 
 
 def _contract_forecast_quarter_count() -> int:
@@ -67,11 +102,7 @@ def _contract_forecast_quarter_count() -> int:
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
-  globals().update({
-    key: value
-    for key, value in dependencies.items()
-    if key != "bind_runtime_dependencies"
-  })
+  bind_table_safe_runtime_dependencies(globals(), dependencies)
 
 
 __all__ = [
@@ -2474,11 +2505,21 @@ def _run_unified_convergence_openai(
       if _safe_float(value) is not None
     }
   )
+  system_prompt = post_intake_build_prompt_from_contract(
+    "unified_convergence_decision",
+    context_payload=planner_input_packet,
+    include_phase="planner",
+    static_instruction=_load_unified_convergence_prompt(),
+    task_instruction=(
+      "Return only JSON matching the SQL-backed unified_convergence_decision contract. "
+      "Use the full Q1-Q20 state, edit only locked model-input repair cells, and use only mapping-table levers/targets."
+    ),
+  )
   payload = {
     "model": _openai_model(),
     "temperature": 0,
     "input": [
-      {"role": "system", "content": [{"type": "input_text", "text": _load_unified_convergence_prompt()}]},
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
       {"role": "user", "content": [{"type": "input_text", "text": json.dumps(planner_input_packet, ensure_ascii=False)}]},
     ],
     "text": {
@@ -2616,7 +2657,7 @@ def _run_unified_convergence_openai(
       "decision": copy.deepcopy(parsed),
       "gpt_contract_field_spec": _post_intake_contract_prompt_spec("unified_convergence_decision"),
     }
-  primary_metric_contract_error = _auto_repair_unified_primary_metric_coverage(
+  primary_metric_contract_error = _unified_primary_metric_coverage_error(
     parsed=parsed,
     numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
     controller_retry_context=copy.deepcopy(effective_retry_context),
@@ -2703,11 +2744,21 @@ def _run_unified_convergence_openai(
         ),
       },
     )
+    retry_system_prompt = post_intake_build_prompt_from_contract(
+      "unified_convergence_decision",
+      context_payload=retry_context_packet,
+      include_phase="planner",
+      static_instruction=_load_unified_convergence_prompt(),
+      task_instruction=(
+        "Return a corrected SQL-backed unified_convergence_decision payload. Keep full Q1-Q20 coverage, "
+        "fix the validation errors, and do not introduce fields, levers, targets, or quarters outside the table-backed contract."
+      ),
+    )
     retry_payload = {
       "model": payload.get("model"),
       "temperature": payload.get("temperature", 0),
       "input": [
-        {"role": "system", "content": [{"type": "input_text", "text": _load_unified_convergence_prompt()}]},
+        {"role": "system", "content": [{"type": "input_text", "text": retry_system_prompt}]},
         {
           "role": "user",
           "content": [
@@ -2810,7 +2861,7 @@ def _run_unified_convergence_openai(
         "decision": copy.deepcopy(parsed_retry),
         "gpt_contract_field_spec": _post_intake_contract_prompt_spec("unified_convergence_decision"),
       }
-    retry_primary_metric_contract_error = _auto_repair_unified_primary_metric_coverage(
+    retry_primary_metric_contract_error = _unified_primary_metric_coverage_error(
       parsed=parsed_retry,
       numeric_solver_contract=copy.deepcopy(scoped_numeric_solver_contract),
       controller_retry_context=copy.deepcopy(effective_retry_context),
@@ -2910,12 +2961,13 @@ def _solved_lever_value_map(model_input_json: Optional[Dict[str, Any]]) -> Dict[
   model_input = model_input_json if isinstance(model_input_json, dict) else {}
   sections = model_input.get("sections") if isinstance(model_input.get("sections"), dict) else {}
   lever_map: Dict[str, List[float]] = {}
+  horizon_count = _contract_forecast_quarter_count()
 
   def _live_values(row_values: Any) -> List[float]:
     values = [float(_safe_float(value) or 0.0) for value in (row_values or [])]
-    if len(values) >= 21:
-      return values[1:21]
-    return values[:20]
+    if len(values) >= horizon_count + 1:
+      return values[1:horizon_count + 1]
+    return values[:horizon_count]
 
   for row in [item for item in (sections.get("revenue") or []) if isinstance(item, dict)]:
     lever_id = str(row.get("lever_id") or "").strip()
@@ -3015,7 +3067,7 @@ def _subset_lever_value_map(
         for quarter_index in quarter_list
       ]
     else:
-      out[lever_id] = normalized_values[:20]
+      out[lever_id] = normalized_values[:_contract_forecast_quarter_count()]
   return out
 
 def _finmo_rows_for_quarters(

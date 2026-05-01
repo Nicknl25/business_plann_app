@@ -158,6 +158,20 @@ def _int_or_none(value: Any) -> Optional[int]:
     return None
 
 
+def _contract_forecast_horizon_quarters() -> int:
+  try:
+    from client_intake_and_finmo.post_intake_mapping import post_intake_contract_forecast_horizon_quarter_count  # type: ignore
+    value = int(
+      post_intake_contract_forecast_horizon_quarter_count(
+        contract_name="payroll_headcount_schedule",
+      )
+      or 0
+    )
+  except Exception:
+    value = 0
+  return value if value > 0 else 20
+
+
 def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
   global _ENSURE_HEADCOUNT_POLICY_TABLE_READY
   if _ENSURE_HEADCOUNT_POLICY_TABLE_READY:
@@ -397,8 +411,9 @@ class PostIntakeHeadcountPolicyLookup:
         errors.append(f"{policy_code}_invalid_schedule_storage_table")
       if _clean_text(row.get("schedule_storage_column")) != PAYROLL_HEADCOUNT_DRAFT_COLUMN:
         errors.append(f"{policy_code}_invalid_schedule_storage_column")
-      if int(row.get("schedule_horizon_quarters") or 0) != 20:
-        errors.append(f"{policy_code}_schedule_horizon_must_be_20")
+      expected_horizon = _contract_forecast_horizon_quarters()
+      if int(row.get("schedule_horizon_quarters") or 0) != expected_horizon:
+        errors.append(f"{policy_code}_schedule_horizon_must_match_contract:{expected_horizon}")
       if not _clean_text(row.get("model_input_driver")):
         errors.append(f"{policy_code}_missing_model_input_driver")
       if not _clean_text(row.get("financial_model_field")):
@@ -474,12 +489,12 @@ def _validate_no_prose_fields(value: Any, *, path: str, errors: List[str]) -> No
       _validate_no_prose_fields(child, path=f"{path}[{index}]", errors=errors)
 
 
-def _validate_schedule_row(row: Any, *, path: str, errors: List[str]) -> None:
+def _validate_schedule_row(row: Any, *, path: str, errors: List[str], max_quarter: int) -> None:
   if not isinstance(row, dict):
     errors.append(f"payroll_headcount_row_not_object:{path}")
     return
   quarter_index = _int_or_none(row.get("quarter_index"))
-  if quarter_index is None or quarter_index < 1 or quarter_index > 20:
+  if quarter_index is None or quarter_index < 1 or quarter_index > max_quarter:
     errors.append(f"payroll_headcount_invalid_quarter_index:{path}")
   role_category = _clean_text(row.get("role_category"))
   if not role_category:
@@ -524,13 +539,13 @@ def validate_payroll_headcount_payload(
     errors.append("payroll_headcount_rows_not_array")
     rows = []
   for index, row in enumerate(rows):
-    _validate_schedule_row(row, path=f"rows[{index}]", errors=errors)
+    _validate_schedule_row(row, path=f"rows[{index}]", errors=errors, max_quarter=expected_horizon)
   quarter_totals = payload.get("quarter_totals")
   if not isinstance(quarter_totals, list):
     errors.append("payroll_headcount_quarter_totals_not_array")
     quarter_totals = []
   if len(quarter_totals) != expected_horizon:
-    errors.append("payroll_headcount_quarter_totals_must_cover_20q")
+    errors.append(f"payroll_headcount_quarter_totals_must_cover_contract_horizon:{expected_horizon}")
   seen_quarters: set[int] = set()
   for index, item in enumerate(quarter_totals):
     if not isinstance(item, dict):

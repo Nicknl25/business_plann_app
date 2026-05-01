@@ -8,6 +8,8 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_build_prompt_from_contract,
+  post_intake_contract_forecast_horizon_quarter_count,
   post_intake_gpt_contract_compact_prompt_field_spec,
   post_intake_gpt_contract_horizon_errors,
   post_intake_gpt_contract_normalize_payload,
@@ -27,6 +29,21 @@ PAYROLL_HEADCOUNT_SOURCE = "headcount_schedule_derived"
 PAYROLL_HEADCOUNT_POLICY_VERSION = "payroll_headcount_schedule_policy_v1"
 PAYROLL_HEADCOUNT_LEVER_ID = "expenses::Payroll"
 PAYROLL_HEADCOUNT_CONTRACT_NAME = "payroll_headcount_schedule"
+
+
+def _contract_horizon_quarters() -> int:
+  count = int(
+    post_intake_contract_forecast_horizon_quarter_count(
+      contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    )
+    or 0
+  )
+  if count <= 0:
+    raise RuntimeError(
+      "payroll_headcount_contract_horizon_missing: "
+      "post_intake_gpt_contract_lookup must define a positive payroll horizon."
+    )
+  return count
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -84,7 +101,7 @@ def _live_count_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> 
   payload = model_input_json if isinstance(model_input_json, dict) else {}
   periods = payload.get("periods") if isinstance(payload.get("periods"), list) else []
   live_count = len([item for item in periods if isinstance(item, dict) and not bool(item.get("is_stub"))])
-  return live_count or 20
+  return live_count or _contract_horizon_quarters()
 
 
 def _schedule_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -206,7 +223,8 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
     if not isinstance(item, dict):
       continue
     quarter_index = int(round(float(_safe_float(item.get("q") or item.get("quarter_index")) or 0.0)))
-    if quarter_index < 1 or quarter_index > 20 or quarter_index in rows_by_quarter:
+    horizon = _contract_horizon_quarters()
+    if quarter_index < 1 or quarter_index > horizon or quarter_index in rows_by_quarter:
       continue
     starting_fte = round(max(0.0, float(_safe_float(item.get("starting_fte")) or 0.0)), 2)
     hires = round(max(0.0, float(_safe_float(item.get("hires")) or 0.0)), 2)
@@ -254,8 +272,11 @@ def validate_payroll_headcount_contract_payload(
       + "; ".join(str(item) for item in horizon_errors[:20])
     )
   rows = _payroll_headcount_grid_rows(candidate)
-  if len(rows) != 20 or {int(row.get("quarter_index") or 0) for row in rows} != set(range(1, 21)):
-    raise RuntimeError("payroll_headcount_contract_missing_full_horizon: payroll_headcount_grid must include Q1-Q20.")
+  horizon = _contract_horizon_quarters()
+  if len(rows) != horizon or {int(row.get("quarter_index") or 0) for row in rows} != set(range(1, horizon + 1)):
+    raise RuntimeError(
+      f"payroll_headcount_contract_missing_full_horizon: payroll_headcount_grid must include Q1-Q{horizon}."
+    )
   previous_ending_fte: Optional[float] = None
   for row in rows:
     quarter_index = int(row.get("quarter_index") or 0)
@@ -286,9 +307,12 @@ def build_payroll_headcount_payload_from_contract(
   policy_code: Any = "default",
 ) -> Dict[str, Any]:
   policy = post_intake_headcount_policy_for(policy_code=policy_code)
-  horizon = int((policy or {}).get("schedule_horizon_quarters") or 20)
-  if horizon != 20:
-    raise RuntimeError("payroll_headcount_policy_invalid: schedule_horizon_quarters must be 20")
+  horizon = int((policy or {}).get("schedule_horizon_quarters") or 0)
+  contract_horizon = _contract_horizon_quarters()
+  if horizon != contract_horizon:
+    raise RuntimeError(
+      f"payroll_headcount_policy_invalid: schedule_horizon_quarters must be {contract_horizon}"
+    )
   rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
   if len(rows) != horizon or {int(row.get("quarter_index") or 0) for row in rows} != set(range(1, horizon + 1)):
     raise RuntimeError(
@@ -471,7 +495,20 @@ def estimate_payroll_headcount_schedule_with_gpt(
       raise RuntimeError(
         f"payroll_headcount_gpt_context_payload_budget_exceeded: chars={context_chars} budget={int(context_budget)}"
       )
-  system_prompt = "Return only JSON matching the SQL-backed schema and table-provided contract/context."
+  system_prompt = post_intake_build_prompt_from_contract(
+    PAYROLL_HEADCOUNT_CONTRACT_NAME,
+    context_payload=user_context,
+    include_phase="pre_convergence",
+    static_instruction=(
+      "Decide the payroll headcount schedule using business judgment, but only inside the "
+      "SQL-defined payroll headcount contract. Python will calculate payroll from the returned "
+      "headcount schedule and table-backed policy."
+    ),
+    task_instruction=(
+      "Return only JSON matching the payroll_headcount_schedule contract. Do not add fields, "
+      "omit required fields, or invent staffing structure outside the contract."
+    ),
+  )
   payload = {
     "model": _openai_model(),
     "temperature": 0,

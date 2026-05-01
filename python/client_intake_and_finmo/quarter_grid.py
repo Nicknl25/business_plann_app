@@ -16,7 +16,11 @@ from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
 
 from client_intake_and_finmo.realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
-from client_intake_and_finmo.post_intake_mapping import stage_planning_ramp_policy  # type: ignore
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_build_prompt_from_contract,
+  post_intake_gpt_contract_openai_schema,
+  stage_planning_ramp_policy,
+)
 
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
@@ -1642,40 +1646,16 @@ def grid_markdown(rows: List[Dict[str, Any]]) -> str:
 
 
 def quarter_grid_schema(allowed_row_ids: Sequence[str]) -> Dict[str, Any]:
+  row_ids = [str(item) for item in allowed_row_ids]
   return {
     "name": "quarter_grid_probe",
-    "schema": {
-      "type": "object",
-      "additionalProperties": False,
-      "properties": {
-        "summary": {"type": "string"},
-        "rows": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-              "row_id": {"type": "string", "enum": [str(item) for item in allowed_row_ids]},
-              "row_type": {"type": "string", "enum": ["lever", "output"]},
-              "quarter_values": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": False,
-                  "properties": {
-                    "quarter_index": {"type": "integer", "minimum": 1, "maximum": QUARTER_COUNT},
-                    "value": {"type": "number"},
-                  },
-                  "required": ["quarter_index", "value"],
-                },
-              },
-            },
-            "required": ["row_id", "row_type", "quarter_values"],
-          },
-        },
+    "schema": post_intake_gpt_contract_openai_schema(
+      contract_name="quarter_grid_probe",
+      field_schema_overrides={
+        "rows[].row_id": {"type": "string", "enum": row_ids},
+        "row_id": {"type": "string", "enum": row_ids},
       },
-      "required": ["summary", "rows"],
-    },
+    ),
     "strict": True,
   }
 
@@ -1816,7 +1796,12 @@ def build_quarter_grid_prompt(
   )
 
 
-def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode: str, realism_memo_present: bool = False) -> str:
+def _quarter_grid_static_system_instruction(
+  *,
+  use_real_strategy_prompt: bool,
+  planning_mode: str,
+  realism_memo_present: bool = False,
+) -> str:
   realism_boundary = (
     load_realism_memo_grid_advisory_prompt().strip() + "\n"
     if realism_memo_present
@@ -1848,6 +1833,41 @@ def quarter_grid_system_prompt(*, use_real_strategy_prompt: bool, planning_mode:
   )
 
 
+def quarter_grid_system_prompt(
+  *,
+  use_real_strategy_prompt: bool,
+  planning_mode: str,
+  realism_memo_present: bool = False,
+  allowed_row_ids: Optional[Sequence[str]] = None,
+) -> str:
+  static_instruction = _quarter_grid_static_system_instruction(
+    use_real_strategy_prompt=use_real_strategy_prompt,
+    planning_mode=planning_mode,
+    realism_memo_present=realism_memo_present,
+  )
+  return post_intake_build_prompt_from_contract(
+    "quarter_grid_probe",
+    context_payload={
+      "planning_mode": str(planning_mode or "").strip().lower(),
+      "use_real_strategy_prompt": bool(use_real_strategy_prompt),
+      "realism_memo_present": bool(realism_memo_present),
+      "allowed_row_ids": [str(item) for item in (allowed_row_ids or [])],
+      "quarter_grid_horizon": {
+        "start_quarter": 1,
+        "end_quarter": int(QUARTER_COUNT),
+        "stub_q0_excluded": True,
+      },
+    },
+    include_phase="initial_grid",
+    static_instruction=static_instruction,
+    task_instruction=(
+      "Return only JSON matching the quarter_grid_probe contract. Fill only the requested "
+      "row_ids, preserve row ids exactly, and provide exactly one value for every Q1-Q20 "
+      "forecast quarter in each returned row."
+    ),
+  )
+
+
 def call_quarter_grid_openai(
   prompt: str,
   *,
@@ -1874,6 +1894,7 @@ def call_quarter_grid_openai(
               use_real_strategy_prompt=use_real_strategy_prompt,
               planning_mode=planning_mode,
               realism_memo_present=realism_memo_present,
+              allowed_row_ids=allowed_row_ids,
             ),
           }
         ],

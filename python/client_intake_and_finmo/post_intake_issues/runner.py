@@ -29,6 +29,7 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_target_metric_names_for_issue,
   post_intake_target_value_kind_for_metric,
 )
+from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
 from client_intake_and_finmo.post_intake_issues import detection as _issue_detection
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,12 @@ logger = logging.getLogger(__name__)
 _CONVERGENCE_ISSUE_PASS_SCORE_PCT = 80
 _CONVERGENCE_ISSUE_WARN_SCORE_PCT = 70
 _CONVERGENCE_STRONG_SCORE_PCT = 90
-_CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
+_CONVERGENCE_DEFAULT_QUARTER_COUNT = int(
+  post_intake_contract_forecast_horizon_quarter_count(
+    contract_name="unified_convergence_decision",
+  )
+  or 20
+)
 _CONVERGENCE_MAX_FOCUS_ISSUES = 2
 _CONVERGENCE_MAX_FOCUS_QUARTERS = _CONVERGENCE_DEFAULT_QUARTER_COUNT
 _CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES = 3
@@ -48,8 +54,9 @@ _CONVERGENCE_PROMPT_LEVER_PACKET_LIMIT = 12
 _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0
 _UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR = -250000.0
 _UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
-_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = 20
+_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = _CONVERGENCE_DEFAULT_QUARTER_COUNT
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
+_REQUIRED_SOLVER_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
 _CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
 _REMAINING_HORIZON_ISSUE_CODES = set(
@@ -59,6 +66,10 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
   code: {"title": code}
   for code in post_intake_issue_codes()
 }
+for _hard_issue_code in ("accounting_integrity_failure", "structural_impossibility"):
+  _ISSUE_CODE_REGISTRY.setdefault(_hard_issue_code, {"title": _hard_issue_code})
+_UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
+_REQUIRED_SOLVER_TARGET_METRIC_KEYS = _UNIFIED_ALLOWED_TARGET_METRIC_KEYS
 
 
 def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_decision") -> int:
@@ -116,11 +127,7 @@ def _assert_issue_quarter_in_contract_horizon(
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
-  globals().update({
-    key: value
-    for key, value in dependencies.items()
-    if key != "bind_runtime_dependencies"
-  })
+  bind_table_safe_runtime_dependencies(globals(), dependencies)
   _issue_detection.bind_runtime_dependencies(globals())
 
 
@@ -141,7 +148,6 @@ __all__ = [
   "_normalize_realism_lever_ids",
   "_issue_requires_remaining_horizon_scope",
   "_is_cash_pass_owned_issue_code",
-  "_is_retired_convergence_issue_record",
   "_filter_cash_pass_owned_issue_records",
   "_remaining_horizon_issue_quarters",
   "_safe_int_in_range",
@@ -275,6 +281,27 @@ def _issue_registry_entry(issue_code: Any) -> Dict[str, Any]:
 def _is_known_post_intake_issue_code(issue_code: Any) -> bool:
   return str(issue_code or "").strip().lower() in _ISSUE_CODE_REGISTRY
 
+def _assert_known_post_intake_issue_code(issue_code: Any, *, source: str) -> str:
+  code = str(issue_code or "").strip().lower()
+  if not code:
+    raise RuntimeError(
+      f"post_intake_issue_code_missing: source={str(source or '').strip() or 'unknown'}"
+    )
+  if not _is_known_post_intake_issue_code(code):
+    raise RuntimeError(
+      "post_intake_issue_code_not_table_backed: "
+      + json.dumps(
+        {
+          "issue_code": code,
+          "source": str(source or "").strip() or "unknown",
+          "mapping_table": "post_intak_mapping_lookup",
+          "detail": "Non-hard post-intake issues must be represented in the SQL mapping table.",
+        },
+        ensure_ascii=False,
+      )
+    )
+  return code
+
 def _canonical_issue_title(issue_code: Any, fallback: Any) -> str:
   entry = _issue_registry_entry(issue_code)
   title = str(entry.get("title") or "").strip()
@@ -315,8 +342,7 @@ def _normalized_issue_records(items: Any) -> List[Dict[str, str]]:
     detail = str(item.get("detail") or "").strip()
     if not issue_code or not issue or not detail:
       continue
-    if not _is_known_post_intake_issue_code(issue_code):
-      continue
+    _assert_known_post_intake_issue_code(issue_code, source="_normalized_issue_records")
     record: Dict[str, str] = {"issue": issue, "detail": detail}
     record["issue_code"] = issue_code
     out.append(record)
@@ -399,26 +425,6 @@ def _is_cash_pass_owned_issue_code(issue_code: Any) -> bool:
   if not code:
     return False
   return post_intake_issue_has_phase(code, "cash_pass")
-
-def _is_retired_convergence_issue_record(record: Optional[Dict[str, Any]]) -> bool:
-  item = record if isinstance(record, dict) else {}
-  issue_code = str(item.get("issue_code") or "").strip().lower()
-  if _is_cash_pass_owned_issue_code(issue_code):
-    return True
-  if issue_code != "cost_structure_mismatch":
-    return False
-  detail_blob = _issue_detail_blob(item)
-  legacy_capex_terms = (
-    "capex",
-    "capital expenditure",
-    "capital expenditures",
-    "ppe",
-    "asset footprint",
-    "equipment",
-    "maintenance-like",
-    "investment",
-  )
-  return any(term in detail_blob for term in legacy_capex_terms)
 
 def _filter_cash_pass_owned_issue_records(
   issue_status_records: Optional[List[Dict[str, Any]]],
@@ -778,12 +784,7 @@ def _issue_is_hard_issue(
 ) -> bool:
   item = record if isinstance(record, dict) else {}
   issue_code = str(item.get("issue_code") or "").strip().lower()
-  detail_blob = _issue_detail_blob(item)
   if issue_code in {"accounting_integrity_failure", "structural_impossibility"}:
-    return True
-  if "accounting" in detail_blob and ("integrity" in detail_blob or "equation" in detail_blob):
-    return True
-  if "structural impossib" in detail_blob:
     return True
   return False
 
@@ -5027,12 +5028,13 @@ def _iteration_decision_from_issue_record(
   }
 
 def _clone_issue_status_records(issue_status_records: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-  return [
-    _normalize_issue_record_to_controller_truth(item)
-    for item in (issue_status_records or [])
-    if isinstance(item, dict)
-    and _is_known_post_intake_issue_code(item.get("issue_code"))
-  ]
+  cloned: List[Dict[str, Any]] = []
+  for item in (issue_status_records or []):
+    if not isinstance(item, dict):
+      continue
+    _assert_known_post_intake_issue_code(item.get("issue_code"), source="_clone_issue_status_records")
+    cloned.append(_normalize_issue_record_to_controller_truth(item))
+  return cloned
 
 def _controller_issue_effective_status(item: Optional[Dict[str, Any]]) -> str:
   record = item if isinstance(item, dict) else {}
@@ -5200,7 +5202,6 @@ def _filter_issue_status_records(
     _normalize_issue_record_to_controller_truth(item)
     for item in (issue_status_records or [])
     if isinstance(item, dict)
-    and not _is_retired_convergence_issue_record(item)
   ]
   if not issue_keys:
     return normalized_records
@@ -5542,13 +5543,14 @@ def _compact_model_input_for_verification(
     if str(item or "").strip()
   }
   lever_values = _solved_lever_value_map(model_input_json)
+  horizon_count = _contract_forecast_quarter_count()
   compact_values: Dict[str, List[Any]] = {}
   for lever_id in sorted(lever_values.keys()):
     if lever_id_set and lever_id not in lever_id_set:
       continue
     compact_values[lever_id] = [
       int(round(float(value)))
-      for value in (lever_values.get(lever_id) or [])[:20]
+      for value in (lever_values.get(lever_id) or [])[:horizon_count]
     ]
   return {
     "storage_mode": "compact_verification_context",

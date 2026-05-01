@@ -4,6 +4,7 @@ import os
 import threading
 import copy
 import json
+import re
 from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Set
 
@@ -485,6 +486,21 @@ def _process_sequence_row(
 _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   _process_sequence_row(
     "pre_convergence",
+    5,
+    "realism_memo_review",
+    "generate_realism_memo_payload_safe",
+    contract_name="realism_memo",
+    context_contract_name="realism_memo",
+    context_include_phase="reviewer",
+    required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _MAPPING_TABLE_NAME],
+    horizon_rule="pre_grid_issue_memo_from_table_contract",
+    timeout_seconds=45,
+    max_attempts=2,
+    fail_fast_code="post_intake_sequence_realism_memo_contract_missing",
+    notes="Optional pre-grid realism memo must use SQL contract/context tables when invoked.",
+  ),
+  _process_sequence_row(
+    "pre_convergence",
     10,
     "baseline_model_input",
     "prepare_baseline_model_input",
@@ -562,9 +578,9 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     60,
     "quarter_grid_generation",
     "generate_live_quarter_grid_plan",
-    contract_name="stage_ramp_contract",
-    context_contract_name="stage_ramp_contract",
-    context_include_phase="pre_convergence",
+    contract_name="quarter_grid_probe",
+    context_contract_name="quarter_grid_probe",
+    context_include_phase="initial_grid",
     required_lookup_tables=[
       _MAPPING_TABLE_NAME,
       _GPT_CONTRACT_TABLE_NAME,
@@ -572,7 +588,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     ],
     horizon_rule="q1_to_q20_model_input_state",
     fail_fast_code="post_intake_sequence_quarter_grid_contract_missing",
-    notes="Initial 20-quarter model_input grid must consume the GPT stage ramp and table-backed contracts.",
+    notes="Initial 20-quarter model_input grid uses quarter_grid_probe for its GPT response contract and consumes the stage ramp as runtime context.",
   ),
   _process_sequence_row(
     "convergence",
@@ -875,6 +891,55 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("cash_strategy_review", "quarter_funding_plan", "quarter_funding_plan[].business_reason", "business_reason", "string", is_array_item=True, parent_field_path="quarter_funding_plan"),
   _gpt_contract_row("cash_strategy_review", "funding_sources", "funding_sources[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="funding_sources", validation_kind="cash_funding_lever_member", lookup_source="post_intak_mapping_lookup"),
   _gpt_contract_row("cash_strategy_review", "funding_sources", "funding_sources[].amount", "amount", "integer_currency", is_array_item=True, parent_field_path="funding_sources", normalization_kind="integer_currency"),
+  _gpt_contract_row("quarter_grid_probe", "root", "summary", "summary", "string", contract_phase="initial_grid"),
+  _gpt_contract_row(
+    "quarter_grid_probe",
+    "root",
+    "rows",
+    "rows",
+    "array",
+    min_items=1,
+    item_contract_grid_name="rows",
+    contract_phase="initial_grid",
+    horizon_rule="q1_to_q20_model_input_state",
+    validation_kind="quarter_grid_probe_rows",
+    lookup_source="post_intak_mapping_lookup",
+    prompt_required_instruction="Return only the requested row_ids in this batch. Each row must include exactly one value for every forecast quarter Q1 through Q20.",
+  ),
+  _gpt_contract_row("quarter_grid_probe", "rows", "rows[].row_id", "row_id", "string", is_array_item=True, parent_field_path="rows", validation_kind="quarter_grid_allowed_row_id", must_match_lookup=False, notes="Runtime schema override supplies the allowed row_id enum for the current requested batch."),
+  _gpt_contract_row("quarter_grid_probe", "rows", "rows[].row_type", "row_type", "enum", is_array_item=True, parent_field_path="rows", validation_kind="enum", enum_values=["lever", "output"]),
+  _gpt_contract_row(
+    "quarter_grid_probe",
+    "rows",
+    "rows[].quarter_values",
+    "quarter_values",
+    "array",
+    is_array_item=True,
+    parent_field_path="rows",
+    min_items=20,
+    max_items=20,
+    item_contract_grid_name="quarter_values",
+    horizon_rule="q1_to_q20_exactly_once",
+    validation_kind="required_20q_grid",
+  ),
+  _gpt_contract_row("quarter_grid_probe", "quarter_values", "quarter_values[].quarter_index", "quarter_index", "integer", is_array_item=True, parent_field_path="quarter_values", min_value=1, max_value=20, horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20"),
+  _gpt_contract_row("quarter_grid_probe", "quarter_values", "quarter_values[].value", "value", "number", is_array_item=True, parent_field_path="quarter_values", normalization_kind="field_type_numeric_contract", validation_kind="quarter_grid_cell_value"),
+  _gpt_contract_row("realism_memo", "root", "status", "status", "enum", contract_phase="post_intake_realism_memo", validation_kind="enum", enum_values=["ready"]),
+  _gpt_contract_row(
+    "realism_memo",
+    "root",
+    "issues",
+    "issues",
+    "array",
+    max_items=4,
+    item_contract_grid_name="issues",
+    contract_phase="post_intake_realism_memo",
+    validation_kind="realism_memo_issue_grid",
+    prompt_required_instruction="Return at most four issue rows. Only use issue codes represented in the table-backed issue/mapping system.",
+  ),
+  _gpt_contract_row("realism_memo", "issues", "issues[].issue_code", "issue_code", "enum", is_array_item=True, parent_field_path="issues", validation_kind="enum", enum_values=["capacity_support_mismatch", "p_and_l_flatline", "cost_structure_mismatch"], lookup_source="post_intak_mapping_lookup"),
+  _gpt_contract_row("realism_memo", "issues", "issues[].issue", "issue", "string", is_array_item=True, parent_field_path="issues"),
+  _gpt_contract_row("realism_memo", "issues", "issues[].detail", "detail", "string", is_array_item=True, parent_field_path="issues"),
   _gpt_contract_row("unified_convergence_verification", "root", "overall_assessment", "overall_assessment", "enum", validation_kind="enum", enum_values=["all_resolved", "partially_resolved", "not_resolved"]),
   _gpt_contract_row("unified_convergence_verification", "root", "executive_summary", "executive_summary", "string"),
   _gpt_contract_row("unified_convergence_verification", "root", "issue_results", "issue_results", "array", min_items=1, item_contract_grid_name="issue_results"),
@@ -1023,6 +1088,17 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("cash_strategy_review", "debt_schedule_summary", context_group="debt_schedule", include_phase="cash_pass", required=False),
   _gpt_context_row("cash_strategy_review", "funding_action_cells", context_group="locked_grid", include_phase="cash_pass", required=False),
   _gpt_context_row("cash_strategy_review", "gpt_contract_field_spec", context_group="contract", include_phase="cash_pass", required=False),
+
+  _gpt_context_row("quarter_grid_probe", "planning_mode", context_group="business_world", include_phase="initial_grid", required=False),
+  _gpt_context_row("quarter_grid_probe", "use_real_strategy_prompt", context_group="prompt_policy", include_phase="initial_grid", required=False),
+  _gpt_context_row("quarter_grid_probe", "realism_memo_present", context_group="diagnostics", include_phase="initial_grid", required=False),
+  _gpt_context_row("quarter_grid_probe", "allowed_row_ids", context_group="locked_grid", include_phase="initial_grid", required=False, max_items=250),
+  _gpt_context_row("quarter_grid_probe", "quarter_grid_horizon", context_group="horizon", include_phase="initial_grid", required=False),
+
+  _gpt_context_row("realism_memo", "ops_json", context_group="business_world", include_phase="reviewer", required=False, max_chars=20000),
+  _gpt_context_row("realism_memo", "financials_json", context_group="financials", include_phase="reviewer", required=False, max_chars=20000),
+  _gpt_context_row("realism_memo", "solved_model_input_json", context_group="model_input", include_phase="reviewer", required=False, max_chars=80000),
+  _gpt_context_row("realism_memo", "solved_finmo_json", context_group="finmo", include_phase="reviewer", required=False, max_chars=80000),
 ]
 
 
@@ -1567,10 +1643,7 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
           cur.execute(alter_sql)
         except Exception:
           pass
-      cur.execute(f"SELECT COUNT(*) AS row_count FROM {_GPT_CONTRACT_TABLE_NAME}")
-      row_count = int((cur.fetchone() or [0])[0] or 0)
-      bootstrap_defaults = row_count == 0
-      for row in (_DEFAULT_GPT_CONTRACT_ROWS if bootstrap_defaults else []):
+      for row in _DEFAULT_GPT_CONTRACT_ROWS:
         cur.execute(
           f"""
           INSERT INTO {_GPT_CONTRACT_TABLE_NAME} (
@@ -1697,10 +1770,7 @@ def _ensure_gpt_context_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
-      cur.execute(f"SELECT COUNT(*) AS row_count FROM {_GPT_CONTEXT_TABLE_NAME}")
-      row_count = int((cur.fetchone() or [0])[0] or 0)
-      bootstrap_defaults = row_count == 0
-      for row in (_DEFAULT_GPT_CONTEXT_ROWS if bootstrap_defaults else []):
+      for row in _DEFAULT_GPT_CONTEXT_ROWS:
         cur.execute(
           f"""
           INSERT INTO {_GPT_CONTEXT_TABLE_NAME} (
@@ -1785,10 +1855,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
-      cur.execute(f"SELECT COUNT(*) AS row_count FROM {_PROCESS_SEQUENCE_TABLE_NAME}")
-      row_count = int((cur.fetchone() or [0])[0] or 0)
-      bootstrap_defaults = row_count == 0
-      for row in (_DEFAULT_PROCESS_SEQUENCE_ROWS if bootstrap_defaults else []):
+      for row in _DEFAULT_PROCESS_SEQUENCE_ROWS:
         cur.execute(
           f"""
           INSERT INTO {_PROCESS_SEQUENCE_TABLE_NAME} (
@@ -1810,7 +1877,21 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             notes
           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
-            id = id
+            phase = VALUES(phase),
+            step_order = VALUES(step_order),
+            handler_key = VALUES(handler_key),
+            contract_name = VALUES(contract_name),
+            context_contract_name = VALUES(context_contract_name),
+            context_include_phase = VALUES(context_include_phase),
+            required_lookup_tables_json = VALUES(required_lookup_tables_json),
+            horizon_rule = VALUES(horizon_rule),
+            timeout_seconds = VALUES(timeout_seconds),
+            max_attempts = VALUES(max_attempts),
+            required = VALUES(required),
+            enabled = VALUES(enabled),
+            fail_fast_code = VALUES(fail_fast_code),
+            sequence_status = VALUES(sequence_status),
+            notes = VALUES(notes)
           """,
           (
             _clean_text(row.get("phase")).lower(),
@@ -2883,8 +2964,17 @@ class PostIntakeCashPolicyLookup:
       debt_method = _clean_text(row.get("debt_schedule_method")).lower()
       if debt_method != "straight_line_minimum_principal":
         errors.append(f"{strategy}/{position} unsupported debt_schedule_method {debt_method or 'missing'}")
-      if int(float(row.get("debt_schedule_horizon_quarters") or 0)) != 20:
-        errors.append(f"{strategy}/{position} debt_schedule_horizon_quarters must be 20")
+      expected_debt_horizon = len(
+        post_intake_gpt_contract_lookup().forecast_horizon_quarters(
+          contract_name="cash_strategy_review"
+        )
+      )
+      if expected_debt_horizon <= 0:
+        expected_debt_horizon = 20
+      if int(float(row.get("debt_schedule_horizon_quarters") or 0)) != expected_debt_horizon:
+        errors.append(
+          f"{strategy}/{position} debt_schedule_horizon_quarters must match cash_strategy_review contract horizon {expected_debt_horizon}"
+        )
       if _clean_text(row.get("debt_minimum_payment_frequency")).lower() != "quarterly":
         errors.append(f"{strategy}/{position} debt_minimum_payment_frequency must be quarterly")
       if _clean_text(row.get("debt_extra_paydown_policy")).lower() != "cash_strategy_surplus_only":
@@ -3420,15 +3510,20 @@ class PostIntakeGptContractLookup:
         quarters.add(int(quarter_value))
     return quarters
 
-  def _expected_quarters_for_rule(self, horizon_rule: Any) -> Set[int]:
+  def _horizon_count_from_rule(self, horizon_rule: Any) -> int:
     rule = _clean_text(horizon_rule).lower()
     if not rule:
-      return set()
+      return 0
     # Horizon ownership lives in SQL via strings such as q1_to_q20_exactly_once.
     # Keep parsing deliberately narrow so a misspelled rule fails validation.
-    if not rule.startswith("q1_to_q20"):
+    match = re.search(r"q1_to_q(\d+)", rule)
+    return int(match.group(1)) if match else 0
+
+  def _expected_quarters_for_rule(self, horizon_rule: Any) -> Set[int]:
+    horizon_count = self._horizon_count_from_rule(horizon_rule)
+    if horizon_count <= 0:
       return set()
-    return set(range(1, 21))
+    return set(range(1, horizon_count + 1))
 
   def forecast_horizon_quarters(self, *, contract_name: Any = None) -> List[int]:
     rows = self.rows(contract_name=contract_name) if contract_name is not None else self.rows()
@@ -3437,7 +3532,7 @@ class PostIntakeGptContractLookup:
       quarters.update(self._expected_quarters_for_rule(row.get("horizon_rule")))
     if quarters:
       return sorted(quarters)
-    return list(range(1, 21))
+    return []
 
   def horizon_errors_for_payload(
     self,
@@ -3461,18 +3556,20 @@ class PostIntakeGptContractLookup:
         continue
       value = payload.get(field_name)
       if horizon_rule == "q1_to_q20_exactly_once":
+        horizon_label = f"Q1-Q{len(expected_quarters)}"
         if not isinstance(value, list):
-          errors.append(f"{contract}.{field_name} must be an array with Q1-Q20")
+          errors.append(f"{contract}.{field_name} must be an array with {horizon_label}")
           continue
         quarters = self._quarter_set_from_array(value)
         missing = sorted(expected_quarters - quarters)
         extra = sorted(quarter for quarter in quarters if quarter not in expected_quarters)
         if len(value) != len(expected_quarters) or missing or extra:
           errors.append(
-            f"{contract}.{field_name} must contain exactly one row for every forecast quarter Q1-Q20; "
+            f"{contract}.{field_name} must contain exactly one row for every forecast quarter {horizon_label}; "
             f"row_count={len(value)} missing={missing} extra={extra}"
           )
       elif horizon_rule == "q1_to_q20_editable_cells":
+        horizon_label = f"Q1-Q{len(expected_quarters)}"
         if not isinstance(value, list):
           errors.append(f"{contract}.{field_name} must be an array of editable cells")
           continue
@@ -3481,7 +3578,7 @@ class PostIntakeGptContractLookup:
         extra = sorted(quarter for quarter in quarters if quarter not in expected_quarters)
         if missing or extra:
           errors.append(
-            f"{contract}.{field_name} must include editable-cell coverage across Q1-Q20; "
+            f"{contract}.{field_name} must include editable-cell coverage across {horizon_label}; "
             f"missing={missing} extra={extra}"
           )
       elif horizon_rule in {
@@ -3499,7 +3596,10 @@ class PostIntakeGptContractLookup:
             continue
           quarter_value = self._quarter_value_from_payload(item)
           if quarter_value is not None and quarter_value not in expected_quarters:
-            errors.append(f"{contract}.{field_name} contains out-of-horizon quarter {quarter_value}; allowed Q1-Q20")
+            errors.append(
+              f"{contract}.{field_name} contains out-of-horizon quarter {quarter_value}; "
+              f"allowed Q1-Q{len(expected_quarters)}"
+            )
     return errors
 
   def contract_summary(self, contract_name: Any) -> Dict[str, Any]:
@@ -3654,6 +3754,8 @@ class PostIntakeGptContractLookup:
       "cash_strategy_review",
       "r_and_d_applicability",
       "unified_convergence_verification",
+      "quarter_grid_probe",
+      "realism_memo",
     }:
       if required_contract not in contracts_seen:
         errors.append(f"missing GPT contract rows for {required_contract}")
@@ -3812,6 +3914,8 @@ class PostIntakeGptContextLookup:
       "stage_ramp_contract",
       "unified_convergence_decision",
       "cash_strategy_review",
+      "quarter_grid_probe",
+      "realism_memo",
     }:
       if required_contract not in contracts_seen:
         errors.append(f"missing GPT context rows for {required_contract}")
@@ -3861,6 +3965,7 @@ class PostIntakeProcessSequenceLookup:
       _CASH_POLICY_TABLE_NAME,
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
+      _PROCESS_SEQUENCE_TABLE_NAME,
       "post_intake_headcount_policy_lookup",
     }
     for table_name in row.get("required_lookup_tables") or []:
@@ -3955,6 +4060,13 @@ class PostIntakeProcessSequenceLookup:
           "schedule_horizon_quarters": int(policy.get("schedule_horizon_quarters") or 0),
           "schedule_storage_table": policy.get("schedule_storage_table"),
           "schedule_storage_column": policy.get("schedule_storage_column"),
+        }
+      elif normalized_table == _PROCESS_SEQUENCE_TABLE_NAME:
+        lookup = post_intake_process_sequence_lookup()
+        context[normalized_table] = {
+          "lookup_function": "post_intake_process_sequence_lookup",
+          "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
+          "active_step_count": len(lookup.rows(active_only=True)),
         }
     return context
 
@@ -4059,6 +4171,12 @@ class PostIntakeProcessSequenceLookup:
         errors.append(f"{step_key} missing handler_key")
       if bool(row.get("required")) and not bool(row.get("enabled")):
         errors.append(f"{step_key} is required but disabled")
+      if not row.get("required_lookup_tables"):
+        errors.append(f"{step_key} missing required_lookup_tables")
+      if not _clean_text(row.get("horizon_rule")):
+        errors.append(f"{step_key} missing horizon_rule")
+      if _clean_text(row.get("context_contract_name")) and not _clean_text(row.get("context_include_phase")):
+        errors.append(f"{step_key} has context_contract_name but missing context_include_phase")
       errors.extend(self._lookup_table_errors(row))
     missing_required = sorted(required_steps - set(self._by_step_key.keys()))
     for step_key in missing_required:
@@ -4428,6 +4546,154 @@ def post_intake_gpt_contract_prompt_field_spec(contract_name: Any) -> Dict[str, 
 
 def post_intake_gpt_contract_compact_prompt_field_spec(contract_name: Any) -> Dict[str, Any]:
   return post_intake_gpt_contract_lookup().compact_prompt_field_spec(contract_name)
+
+
+def _post_intake_prompt_constraint_text(row: Dict[str, Any]) -> str:
+  parts: List[str] = []
+  for key, label in (
+    ("required", "required"),
+    ("strict_required", "strict"),
+    ("gpt_owned", "gpt-owned"),
+    ("python_owned", "python-owned"),
+    ("editable", "editable"),
+  ):
+    if bool(row.get(key)):
+      parts.append(label)
+  for key in ("min_value", "max_value", "min_items", "max_items"):
+    value = row.get(key)
+    if value is not None and value != "":
+      parts.append(f"{key}={value}")
+  for key in ("normalization_kind", "rounding_kind", "decimal_places", "horizon_rule", "validation_kind", "lookup_source"):
+    value = _clean_text(row.get(key))
+    if value and value.lower() not in {"none", "0"}:
+      parts.append(f"{key}={value}")
+  aliases = [
+    _clean_text(item)
+    for item in (row.get("allowed_aliases") or [])
+    if _clean_text(item)
+  ]
+  if aliases:
+    parts.append(f"aliases={aliases}")
+  enum_values = [
+    _clean_text(item)
+    for item in (row.get("enum_values") or [])
+    if _clean_text(item)
+  ]
+  if enum_values:
+    parts.append(f"enum={enum_values}")
+  return "; ".join(parts)
+
+
+def post_intake_build_prompt_from_contract(
+  contract_name: Any,
+  *,
+  context_payload: Any = None,
+  include_phase: Any = None,
+  static_instruction: Any = "",
+  task_instruction: Any = "",
+) -> str:
+  """Render a GPT prompt section from SQL contract/context lookup tables.
+
+  Static prose may explain the thinking task, but deterministic structure comes
+  from ``post_intake_gpt_contract_lookup`` and ``post_intake_gpt_context_lookup``.
+  """
+  contract = _clean_text(contract_name).lower()
+  contract_rows = post_intake_gpt_contract_rows(contract_name=contract)
+  if not contract_rows:
+    raise RuntimeError(f"post_intake_prompt_contract_missing: {contract}")
+  context_rows = post_intake_gpt_context_rows(
+    contract_name=contract,
+    include_phase=include_phase,
+    include_in_prompt=True,
+  )
+  filtered_context = (
+    post_intake_gpt_context_filter_payload(
+      contract_name=contract,
+      payload=context_payload,
+      include_phase=include_phase,
+    )
+    if isinstance(context_payload, dict) and context_rows
+    else {}
+  )
+  grouped_fields: Dict[str, List[Dict[str, Any]]] = {}
+  for row in contract_rows:
+    grouped_fields.setdefault(_clean_text(row.get("grid_name")).lower() or "root", []).append(row)
+
+  lines: List[str] = [
+    "STATIC ROLE INSTRUCTION:",
+    _clean_text(static_instruction) or "Produce a valid contract payload using business judgment inside the table-defined contract.",
+    "",
+    "TABLE AUTHORITY:",
+    "- Deterministic prompt structure is rendered from sql.post_intake_gpt_contract_lookup and sql.post_intake_gpt_context_lookup.",
+    "- The SQL contract table is authoritative for fields, requiredness, types, normalization, horizon rules, lookup sources, and validation.",
+    "- Do not add fields. Do not omit required fields. Do not invent structure outside the contract table.",
+    "",
+    f"CONTRACT SPEC: {contract}",
+  ]
+  for grid_name in sorted(grouped_fields.keys()):
+    fields = grouped_fields[grid_name]
+    root_row = next(
+      (
+        row for row in fields
+        if _clean_text(row.get("grid_name")).lower() == "root"
+        and _clean_text(row.get("item_contract_grid_name")).lower() == grid_name
+      ),
+      None,
+    )
+    grid_label = f"Grid: {grid_name}"
+    if root_row:
+      min_items = root_row.get("min_items")
+      max_items = root_row.get("max_items")
+      if min_items is not None and max_items is not None and str(min_items) == str(max_items):
+        grid_label += f" ({min_items} rows)"
+    lines.extend(["", grid_label])
+    for row in fields:
+      field_path = _clean_text(row.get("field_path")) or _clean_text(row.get("field_name"))
+      field_type = _clean_text(row.get("field_type")) or _clean_text(row.get("json_schema_type"))
+      constraints = _post_intake_prompt_constraint_text(row)
+      instruction = _clean_text(row.get("prompt_required_instruction"))
+      prompt_label = _clean_text(row.get("prompt_label"))
+      label = f"{field_path}: {field_type}"
+      if prompt_label:
+        label += f" ({prompt_label})"
+      if constraints:
+        label += f" [{constraints}]"
+      lines.append(f"- {label}")
+      if instruction:
+        lines.append(f"  Instruction: {instruction}")
+
+  lines.extend(["", "CONTEXT SPEC:"])
+  if context_rows:
+    for row in context_rows:
+      context_key = _clean_text(row.get("context_key"))
+      source_kind = _clean_text(row.get("source_kind"))
+      transform_kind = _clean_text(row.get("transform_kind"))
+      required = "required" if bool(row.get("required")) else "optional"
+      budget = []
+      if row.get("max_items") is not None:
+        budget.append(f"max_items={row.get('max_items')}")
+      if row.get("max_chars") is not None:
+        budget.append(f"max_chars={row.get('max_chars')}")
+      suffix = f" [{'; '.join(budget)}]" if budget else ""
+      lines.append(f"- {context_key}: {required}; source={source_kind}; transform={transform_kind}{suffix}")
+  else:
+    lines.append("- No prompt context rows are defined for this contract/phase.")
+  if filtered_context:
+    lines.extend(
+      [
+        "",
+        "CONTEXT PAYLOAD KEYS:",
+        "- " + ", ".join(sorted(str(key) for key in filtered_context.keys())),
+      ]
+    )
+  lines.extend(
+    [
+      "",
+      "TASK:",
+      _clean_text(task_instruction) or "Return only JSON that satisfies this table-rendered contract.",
+    ]
+  )
+  return "\n".join(lines).strip()
 
 
 def post_intake_gpt_contract_normalize_payload(

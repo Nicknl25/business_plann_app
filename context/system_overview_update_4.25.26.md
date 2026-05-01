@@ -12,6 +12,7 @@ The user is moving the app away from legacy fuzzy/proxy mapping and toward a det
 
 Key invariants:
 
+- Controller, Python, GPT, and FINMO have distinct jobs.
 - Mapping is SQL-table-driven. The source of truth is the MySQL table `post_intak_mapping_lookup`, loaded through `python/client_intake_and_finmo/post_intake_mapping.py`.
 - Solver/convergence should use table-backed driver-to-target relationships, not hardcoded proxy mappings.
 - GPT owns business decisions and numeric targets. Python defines the valid solution space, validates contracts, applies model-input driver updates, and runs deterministic FINMO calculations.
@@ -20,6 +21,53 @@ Key invariants:
 - Cash-related issue detection belongs in the cash pass, not convergence.
 - Runtime speed is a correctness concern. A convergence cycle should not exceed 3 minutes. If it does, treat time as a failure to diagnose, not as something to tolerate.
 - Backend restarts should be autonomous through `context/ensure_5050_backend.ps1`; do not ask the user to restart Flask.
+
+## Ownership Boundaries
+
+The short version:
+
+`Controller runs the play -> Python draws the field/enforces rules -> GPT makes business decisions inside marked lanes -> FINMO calculates the scoreboard from model inputs`
+
+Controller owns orchestration:
+
+- sequence
+- phase routing
+- cycle/time/progress enforcement
+- persistence
+- fail-fast routing
+
+Controller must not invent values, choose mappings, repair financial logic, or act as a hidden decision-maker.
+
+Python owns deterministic structure:
+
+- lookup-table reads
+- prompt/schema/context/contract rendering
+- process sequencing
+- issue detection from table-backed issue/driver/target definitions
+- deterministic derived drivers
+- validation, normalization where explicitly allowed, and fail-fast errors
+- applying accepted GPT decisions to `model_input_json`
+- running FINMO
+
+Python must not complete, infer, broaden, proxy, top up, rewrite, or silently repair GPT-owned decision content.
+
+GPT owns judgment inside contracts:
+
+- realistic ramp/headcount/repair values
+- R&D applicability
+- maintenance capex percentage
+- business-stage and planning-mode judgments
+- values inside table-backed schemas and bounds
+
+GPT must not define structure, invent fields, choose unsupported targets, bypass lookup tables, or freeform outside the contract.
+
+FINMO owns calculation only:
+
+- consume model-input drivers
+- calculate financial outputs
+- preserve the driver-based 3-statement model
+
+FINMO should not be patched directly by post-intake. Post-intake changes model-input drivers; FINMO recalculates outputs.
 
 ## Intake Flow
 
@@ -1402,3 +1450,146 @@ The next session should:
    - or a real business-model issue.
 
 Do not patch around the failure. Convert/delete the root legacy path or add missing deterministic table metadata.
+
+## May 1 Structural Completion Update: Table-Backed Post-Intake Skeleton
+
+The latest cleanup pass moved the architecture closer to the Golden Rule target.
+
+Current structural position:
+
+- `intake_consult.py` is intake/API orchestration and runtime binding, not the home for post-intake logic.
+- Post-intake behavior is split into dedicated folders/modules.
+- Prompt structure, schema structure, context inclusion, process sequence, cash policy, headcount policy, and mapping authority are represented through SQL lookup tables and lookup functions.
+- The post-intake foundation layer contains structural guards that check whether the app is still respecting those lookup authorities.
+
+Important foundation files:
+
+- `python/client_intake_and_finmo/post_intake_foundation/`
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+- `context/Golden Rule to Live By.md`
+
+Important SQL lookup tables:
+
+- `post_intak_mapping_lookup`
+- `post_intake_cash_policy_lookup`
+- `post_intake_gpt_context_lookup`
+- `post_intake_gpt_contract_lookup`
+- `post_intake_headcount_policy_lookup`
+- `post_intake_process_sequence_lookup`
+
+### Table-Backed Prompt/Contract Rule
+
+Post-intake prompts should not be independent sources of truth.
+
+The intended pattern is:
+
+1. Read field/contract/horizon/format rules from `post_intake_gpt_contract_lookup`.
+2. Read allowed context rows from `post_intake_gpt_context_lookup`.
+3. Render a prompt from those rows plus a minimal static reasoning instruction.
+4. Generate the OpenAI schema from the same contract rows.
+5. Validate/normalize from the same table-backed contract rules.
+
+If prompt prose says something different from the table-backed contract, the prompt prose is wrong and must be removed or rewritten to render the table-backed rule.
+
+### Current Issue Detection Alignment
+
+Issue detection has been tightened to the SQL mapping taxonomy.
+
+Current convergence-owned issue codes:
+
+- `capacity_support_mismatch`
+- `p_and_l_flatline`
+- `cost_structure_mismatch`
+
+Current cash-pass-owned issue codes:
+
+- `working_capital_mismatch`
+- `liquidity_failure`
+- `funding_structure_mismatch`
+
+Hard gates can still exist outside repair mapping when they are not repairable mapped-driver issues:
+
+- `accounting_integrity_failure`
+- `structural_impossibility`
+
+Structural guards now check:
+
+- convergence detector issue codes match `post_intak_mapping_lookup`
+- cash issue handlers match `post_intak_mapping_lookup`
+- retired issue-code literals do not reappear in active post-intake Python
+- cash pass cannot emit private cash issue names as planning issues
+- realism memo issue enums come from mapping-table convergence issues
+
+Retired issue classes that should stay gone:
+
+- `business_model_coherence`
+- `capex_footprint_mismatch`
+- `cash_distribution_violation` as a planning issue
+- `cash_strategy_contract_failure` as a planning issue
+- `cash_surplus_deployment_failure` as a planning issue
+- `financial_solvency_mismatch`
+- `pricing_positioning_mismatch`
+- `profitability_cash_shape`
+
+Cash can still keep diagnostic names such as `cash_distribution_violations` inside validation payloads, but active planning issue codes must be mapped to SQL-owned cash-pass issues.
+
+### Latest Verification Commands
+
+Use these before E2E when continuing this work:
+
+```powershell
+@'
+import sys
+sys.path.insert(0, 'python')
+from client_intake_and_finmo.post_intake_foundation.golden_rule import post_intake_golden_rule_errors
+errors = post_intake_golden_rule_errors()
+print('golden_rule_error_count', len(errors))
+for error in errors[:50]:
+    print(error)
+'@ | .\.venv\Scripts\python.exe -
+```
+
+Expected result after the latest structural pass:
+
+```text
+golden_rule_error_count 0
+```
+
+Also verify issue-code alignment:
+
+```powershell
+@'
+import sys
+sys.path.insert(0, 'python')
+from client_intake_and_finmo.post_intake_mapping import post_intake_issue_codes_for_phase
+from client_intake_and_finmo.post_intake_issues.detection import post_intake_issue_detector_alignment_errors
+from client_intake_and_finmo.post_intake_cash.runner import post_intake_cash_issue_alignment_errors
+print('convergence_issue_codes', post_intake_issue_codes_for_phase('convergence', targeting_allowed=True))
+print('cash_issue_codes', post_intake_issue_codes_for_phase('cash_pass'))
+print('convergence_detector_errors', post_intake_issue_detector_alignment_errors())
+print('cash_issue_errors', post_intake_cash_issue_alignment_errors())
+'@ | .\.venv\Scripts\python.exe -
+```
+
+Expected issue codes:
+
+```text
+convergence_issue_codes ['capacity_support_mismatch', 'p_and_l_flatline', 'cost_structure_mismatch']
+cash_issue_codes ['working_capital_mismatch', 'liquidity_failure', 'funding_structure_mismatch']
+convergence_detector_errors []
+cash_issue_errors []
+```
+
+### Current Caveat
+
+This structural cleanup does not prove E2E stability yet.
+
+It means the next E2E failure should be treated as one of:
+
+- missing lookup metadata
+- a remaining legacy bypass
+- a contract/schema mismatch
+- a real business-model issue
+- an external OpenAI/runtime failure
+
+Do not solve those with local hardcoding. Add missing deterministic metadata to the appropriate lookup table or delete/convert the legacy path.

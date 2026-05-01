@@ -11,17 +11,31 @@ try:
   from openai_http import post_openai_with_retries  # type: ignore
 except Exception:
   from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_build_prompt_from_contract,
+  post_intake_gpt_contract_openai_schema,
+  post_intake_issue_codes_for_phase,
+)
 
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts" / "realism_memo"
 REALISM_MEMO_REVIEWER_PROMPT_PATH = PROMPTS_DIR / "reviewer.md"
 REALISM_MEMO_GRID_ADVISORY_PROMPT_PATH = PROMPTS_DIR / "grid_advisory.md"
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
-_REALISM_ISSUE_CODES = [
-  "capacity_support_mismatch",
-  "cost_structure_mismatch",
-  "working_capital_mismatch",
-]
+_REALISM_MEMO_CONTRACT_NAME = "realism_memo"
+
+
+def _realism_issue_codes() -> List[str]:
+  codes = [
+    str(item or "").strip().lower()
+    for item in post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
+    if str(item or "").strip()
+  ]
+  if not codes:
+    raise RuntimeError(
+      "realism_memo_issue_code_mapping_missing: SQL mapping lookup has no convergence issue codes."
+    )
+  return codes
 
 
 def empty_realism_memo_payload() -> Dict[str, Any]:
@@ -44,7 +58,7 @@ def _normalize_issue_text(value: Any) -> str:
 
 def _normalize_issue_code(value: Any) -> str:
   code = str(value or "").strip().lower()
-  return code if code in _REALISM_ISSUE_CODES else ""
+  return code if code in set(_realism_issue_codes()) else ""
 
 
 def is_valid_realism_memo_payload(payload: Any) -> bool:
@@ -154,31 +168,15 @@ def _parse_json_response(data: Dict[str, Any]) -> Dict[str, Any]:
 def realism_memo_schema() -> Dict[str, Any]:
   return {
     "name": "realism_memo",
-    "schema": {
-      "type": "object",
-      "additionalProperties": False,
-      "properties": {
-        "status": {
+    "schema": post_intake_gpt_contract_openai_schema(
+      contract_name=_REALISM_MEMO_CONTRACT_NAME,
+      field_schema_overrides={
+        "issues[].issue_code": {
           "type": "string",
-          "enum": ["ready"],
-        },
-        "issues": {
-          "type": "array",
-          "maxItems": 4,
-          "items": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-              "issue": {"type": "string"},
-              "issue_code": {"type": "string", "enum": _REALISM_ISSUE_CODES},
-              "detail": {"type": "string"},
-            },
-            "required": ["issue_code", "issue", "detail"],
-          },
+          "enum": _realism_issue_codes(),
         },
       },
-      "required": ["status", "issues"],
-    },
+    ),
     "strict": True,
   }
 
@@ -202,6 +200,30 @@ def build_realism_memo_input(
   )
 
 
+def build_realism_memo_system_prompt(
+  *,
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  solved_model_input_json: Dict[str, Any] | None = None,
+  solved_finmo_json: Dict[str, Any] | None = None,
+) -> str:
+  return post_intake_build_prompt_from_contract(
+    _REALISM_MEMO_CONTRACT_NAME,
+    context_payload={
+      "ops_json": ops_json if isinstance(ops_json, dict) else {},
+      "financials_json": financials_json if isinstance(financials_json, dict) else {},
+      "solved_model_input_json": solved_model_input_json if isinstance(solved_model_input_json, dict) else {},
+      "solved_finmo_json": solved_finmo_json if isinstance(solved_finmo_json, dict) else {},
+    },
+    include_phase="reviewer",
+    static_instruction=load_realism_memo_reviewer_prompt(),
+    task_instruction=(
+      "Return only JSON matching the realism_memo contract. Use only issue codes permitted by "
+      "the SQL contract table and do not introduce non-table issue concepts."
+    ),
+  )
+
+
 def generate_realism_memo_payload(
   *,
   ops_json: Dict[str, Any],
@@ -219,7 +241,17 @@ def generate_realism_memo_payload(
     "input": [
       {
         "role": "system",
-        "content": [{"type": "input_text", "text": load_realism_memo_reviewer_prompt()}],
+        "content": [
+          {
+            "type": "input_text",
+            "text": build_realism_memo_system_prompt(
+              ops_json=ops_json,
+              financials_json=financials_json,
+              solved_model_input_json=solved_model_input_json,
+              solved_finmo_json=solved_finmo_json,
+            ),
+          }
+        ],
       },
       {
         "role": "user",

@@ -8,43 +8,17 @@ import time
 import calendar
 import logging
 from datetime import date, datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from client_intake_and_finmo.post_intake_mapping import post_intake_issue_codes_for_phase
+from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
 
 logger = logging.getLogger(__name__)
-
-_CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
-_CONVERGENCE_MAX_FOCUS_LEVERS = 12
-_CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES = 3
-_CONVERGENCE_MAX_FOCUS_DRIVER_PATHS = 12
-_CONVERGENCE_MAX_FOCUS_METRICS_PER_ISSUE = 2
-_CONVERGENCE_PROMPT_METRIC_PACKET_LIMIT = 10
-_CONVERGENCE_PROMPT_LEVER_PACKET_LIMIT = 12
-_CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT = 5.0
-_UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0
-_UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR = -250000.0
-_UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
-_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = 20
-_UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
-_UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
-_UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
-_UNIFIED_EXPLICIT_CAPITAL_ALLOCATION_LEVER_IDS: Tuple[str, ...] = tuple()
-_CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
-_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple()
-_UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
-_UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.md"
 
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
-  globals().update({
-    key: value
-    for key, value in dependencies.items()
-    if key != "bind_runtime_dependencies"
-  })
+  bind_table_safe_runtime_dependencies(globals(), dependencies)
 
 
 __all__ = [

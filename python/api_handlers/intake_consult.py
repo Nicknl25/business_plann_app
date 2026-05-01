@@ -35,39 +35,6 @@ except Exception:
   build_shared_context = None  # type: ignore
 from client_intake_and_finmo.fact_templates import sanitize_fact_template  # type: ignore
 from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
-from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-  post_intake_direct_target_metric_for_lever,
-  post_intake_direct_target_metric_names_for_levers,
-  post_intake_compact_mapping_lookup_for_levers,
-  post_intake_contract_forecast_horizon_quarter_count,
-  post_intake_contract_forecast_horizon_quarters,
-  post_intake_driver_target_lever_ids_for_issue,
-  post_intake_driver_target_lever_allowed_for_issue,
-  post_intake_driver_target_lever_ids_for_cash_roles,
-  post_intake_driver_target_lever_ids_for_target_drivers,
-  post_intake_driver_target_mapping_entry,
-  post_intake_driver_target_mapping_errors,
-  post_intake_driver_target_metric_ids,
-  post_intake_driver_target_single_lever_id_for_target_driver,
-  post_intake_issue_candidate_lever_ids,
-  post_intake_issue_mapping_contract,
-  post_intake_cash_policy_errors,
-  post_intake_cash_debt_schedule_policy,
-  post_intake_cash_policy_for,
-  post_intake_cash_policy_phase_sequence,
-  post_intake_gpt_contract_errors,
-  post_intake_gpt_contract_horizon_errors,
-  post_intake_gpt_contract_normalize_payload,
-  post_intake_gpt_contract_openai_schema,
-  post_intake_gpt_contract_payload_errors,
-  post_intake_gpt_contract_prompt_field_spec,
-  stage_planning_ramp_policy,
-)
-from client_intake_and_finmo.post_intake_cash import (  # type: ignore
-  assert_cash_envelope_lifecycle,
-  build_cash_planning_envelope,
-  build_cash_validation_envelope,
-)
 from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
   bind_runtime_dependencies as bind_cash_runtime_dependencies,
 )
@@ -107,10 +74,6 @@ OPS_MILESTONE_QUESTION = (
   "Looking ahead, what is one concrete goal you want to hit in about the next 12 months "
   "(for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?"
 )
-
-R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
-R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
-
 
 class PlanningRunLifecycleInterrupt(RuntimeError):
   def __init__(self, *, action: str, planning_run_id: str, detail: str):
@@ -198,121 +161,8 @@ PEOPLE_CONFIRM_QUESTION = "Does this look right before we move on to Financials?
 COMPETITIVE_ADVANTAGE_PREFIX = "Proposed competitive advantage:"
 COMPETITIVE_ADVANTAGE_QUESTION = "Does this accurately reflect what truly sets the business apart?"
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
-_CASH_STRATEGY_REVIEW_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "cash_strategy_review"
-_CASH_STRATEGY_REVIEW_PROMPT_PATH = _CASH_STRATEGY_REVIEW_PROMPTS_DIR / "reviewer.md"
-_UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "client_intake_and_finmo" / "prompts" / "unified_convergence"
-_UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.md"
-_UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "verifier.md"
 _ACTIVE_OPENAI_DEADLINE_MONOTONIC: Optional[float] = None
-_REALISM_MAX_ITERATIONS = 1
-_PASS_INTERNAL_RETRY_MAX_ATTEMPTS = 4
-_PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO = 0.05
-_UNIFIED_CONVERGENCE_MAX_CYCLES = 10
-_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS = 180.0
 _ACTIVE_OPENAI_DEADLINE_RETURN_GUARD_SECONDS = 8.0
-_UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
-_UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = 20
-_RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
-_RETRY_MEMORY_MAX_PRIOR_TARGET_KEYS = 4
-_RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
-_RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
-
-_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_issuance")
-_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_repayment")
-_CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver(
-  "short_term_debt_percent_of_ltd"
-)
-_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("owners_capital")
-_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("other_equity")
-_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("distributions")
-
-
-_CASH_STRATEGY_ALLOWED_LEVER_IDS = tuple(
-  post_intake_driver_target_lever_ids_for_cash_roles(
-    {
-      "distribution",
-      "debt_paydown",
-      "debt_raise",
-      "equity_raise",
-      "owner_equity_raise",
-      "external_equity_raise",
-    }
-  )
-)
-_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS = tuple(
-  post_intake_driver_target_lever_ids_for_cash_roles(
-    {
-      "debt_raise",
-      "equity_raise",
-      "owner_equity_raise",
-      "external_equity_raise",
-    }
-  )
-)
-_UNIFIED_EXPLICIT_CAPITAL_ALLOCATION_LEVER_IDS = tuple(
-  post_intake_driver_target_lever_ids_for_target_drivers(
-    {
-      "distributions",
-      "owners_capital",
-      "other_equity",
-      "short_term_debt_percent_of_ltd",
-      "debt_issuance",
-      "debt_repayment",
-    },
-    phase="cash_pass",
-  )
-)
-_CASH_STRATEGY_BUFFER_MONTHS = 1.0
-_CASH_STRATEGY_MONTHS_PER_QUARTER = 3.0
-_CASH_STRATEGY_PREFERRED_DEBT_RATIO = 0.40
-_CASH_STRATEGY_PREFERRED_EQUITY_RATIO = 0.60
-_CONVERGENCE_TEST_MODE_FAIL_FLAGS = {
-  "repair_target_count_zero",
-  "no_direct_drivers_for_closure_metric",
-  "no_selected_levers_for_issue",
-  "all_selected_levers_indirect",
-  "weakest_metric_not_targeted",
-  "expected_impact_but_actual_change_negligible",
-  "gap_reduction_stalled_multiple_cycles",
-  "gap_shrinking_but_score_flat",
-}
-_CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = {
-  "cash_pass_not_executed",
-  "cash_prompt_trace_missing",
-  "cash_raw_response_missing",
-  "cash_parse_failed",
-  "cash_translation_failed",
-  "cash_quarter_coverage_missing",
-  "cash_quarter_underfunded",
-  "cash_quarter_overfunded",
-  "cash_stock_financing_carryforward_missing",
-  "cash_non_gpt_fallback_used",
-  "cash_required_action_missing",
-  "cash_buffer_violation",
-  "liquidity_failure",
-  "cash_distribution_violation",
-  "cash_surplus_deployment_failure",
-  "cash_strategy_contract_failure",
-}
-_PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = {
-  "payroll_headcount_validator_unavailable",
-  "payroll_row_missing",
-  "payroll_stub_missing",
-  "payroll_row_should_not_be_writable",
-  "payroll_row_missing_headcount_derived_driver_marker",
-  "payroll_lever_still_writable_catalog",
-  "payroll_headcount_schedule_missing",
-  "payroll_headcount_schedule_validation_failed",
-  "payroll_headcount_schedule_missing_full_horizon",
-  "payroll_headcount_schedule_missing_live_quarters",
-  "payroll_values_not_headcount_schedule_derived",
-  "payroll_headcount_grid must be a 20-row array",
-  "payroll_headcount_grid must contain exactly 20 rows",
-}
-_TRANSLATION_TEST_MODE_FAIL_FLAGS = {
-  "metric_to_lever_translation_failed",
-}
-_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
 _INTAKE_CONSULT_RUNTIME_PROBE_VERSION = "2026-04-23-post-intake-numeric-contract-v32"
 _OPENAI_CALL_TELEMETRY: Dict[str, Any] = {
   "logical_call_count": 0,
@@ -1796,23 +1646,6 @@ _FULL_HORIZON_MODEL_INPUT_REPAIR_CONTRACT_VERSION = "full_horizon_model_input_re
 
 
 
-_SOLVER_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
-
-_UNIFIED_ALLOWED_TARGET_METRIC_KEYS = _SOLVER_TARGET_METRIC_KEYS
-_UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
-_UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
-_DERIVED_NON_COVERAGE_PRIMARY_TARGET_METRICS = set()
-
-_REQUIRED_SOLVER_TARGET_METRIC_KEYS = _SOLVER_TARGET_METRIC_KEYS
-
-_SHAPE_SENSITIVE_MATERIAL_RELATIVE_DELTA_THRESHOLD = 0.10
-_SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES = (
-  "ramp",
-  "step_up",
-  "hiring_block",
-  "moderation",
-  "delayed_follow_through",
-)
 
 
 

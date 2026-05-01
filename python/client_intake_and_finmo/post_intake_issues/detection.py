@@ -13,16 +13,24 @@ from typing import Any, Dict, List, Optional, Set
 
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_issue_candidate_lever_ids,
+  post_intake_issue_codes_for_phase,
+  post_intake_issue_has_phase,
   post_intake_target_metric_names_for_issue,
 )
+from client_intake_and_finmo.post_intake_foundation import table_safe_runtime_bindings  # type: ignore
 
 _RUNTIME: Dict[str, Any] = {}
+_IMPLEMENTED_CONVERGENCE_DETECTOR_ISSUE_CODES = {
+  "capacity_support_mismatch",
+  "p_and_l_flatline",
+  "cost_structure_mismatch",
+}
 
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
-  _RUNTIME.update(dependencies)
+  _RUNTIME.update(table_safe_runtime_bindings(dependencies))
 
 
 def _dep(name: str) -> Any:
@@ -30,6 +38,28 @@ def _dep(name: str) -> Any:
   if value is None:
     raise RuntimeError(f"post_intake_issue_detection_dependency_missing: {name}")
   return value
+
+
+def post_intake_issue_detector_alignment_errors() -> List[str]:
+  table_codes = {
+    str(item or "").strip().lower()
+    for item in post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
+    if str(item or "").strip()
+  }
+  errors: List[str] = []
+  missing_detectors = sorted(table_codes - _IMPLEMENTED_CONVERGENCE_DETECTOR_ISSUE_CODES)
+  stale_detectors = sorted(_IMPLEMENTED_CONVERGENCE_DETECTOR_ISSUE_CODES - table_codes)
+  if missing_detectors:
+    errors.append(
+      "post_intake_issue_detector_missing_for_table_issue: "
+      + json.dumps(missing_detectors, ensure_ascii=False)
+    )
+  if stale_detectors:
+    errors.append(
+      "post_intake_issue_detector_stale_not_in_mapping_table: "
+      + json.dumps(stale_detectors, ensure_ascii=False)
+    )
+  return errors
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -41,11 +71,35 @@ def _contract_forecast_quarter_count() -> int:
 
 
 def _issue_allowed_target_metric_names(issue_code: Any, *, phase: str) -> Set[str]:
+  _assert_issue_phase(issue_code, phase=phase)
   return {
     str(item or "").strip().lower()
     for item in post_intake_target_metric_names_for_issue(issue_code, phase=phase)
     if str(item or "").strip()
   }
+
+
+def _assert_issue_phase(issue_code: Any, *, phase: str) -> str:
+  code = str(issue_code or "").strip().lower()
+  phase_name = str(phase or "").strip().lower()
+  if not code or not phase_name:
+    raise RuntimeError(
+      f"post_intake_issue_detection_phase_contract_missing: issue_code={code!r} phase={phase_name!r}"
+    )
+  if not post_intake_issue_has_phase(code, phase_name):
+    raise RuntimeError(
+      "post_intake_issue_detection_phase_violation: "
+      + json.dumps(
+        {
+          "issue_code": code,
+          "phase": phase_name,
+          "mapping_table": "post_intak_mapping_lookup",
+          "detail": "Issue detection emitted or evaluated an issue outside its SQL-mapped phase.",
+        },
+        ensure_ascii=False,
+      )
+    )
+  return code
 
 
 def _cost_structure_direct_metric_specs_for_quarter(
@@ -144,6 +198,12 @@ def _issue_metric_specs_for_quarter(
 ) -> List[Dict[str, Any]]:
   row = quarter_row if isinstance(quarter_row, dict) else {}
   code = str(issue_code or "").strip().lower()
+  if code in {"accounting_integrity_failure", "structural_impossibility"}:
+    pass
+  elif code == "working_capital_mismatch":
+    _assert_issue_phase(code, phase="cash_pass")
+  else:
+    _assert_issue_phase(code, phase="convergence")
   phase = _dep("_quarter_phase_label")(quarter_index)
   revenue = float(_safe_float(row.get("revenue")) or 0.0)
   current_assets = float(_safe_float(row.get("current_assets")) or 0.0)
@@ -308,6 +368,7 @@ def _build_capacity_support_issue_status_records(
   model_input_json: Optional[Dict[str, Any]] = None,
   iteration: int,
 ) -> List[Dict[str, Any]]:
+  _assert_issue_phase("capacity_support_mismatch", phase="convergence")
   rows_by_q = _dep("_finmo_quarter_row_map")(finmo_json)
   if not rows_by_q:
     return []
@@ -464,6 +525,7 @@ def _build_p_and_l_flatline_issue_status_records(
   finmo_json: Optional[Dict[str, Any]],
   iteration: int,
 ) -> List[Dict[str, Any]]:
+  _assert_issue_phase("p_and_l_flatline", phase="convergence")
   signals = _p_and_l_flatline_signals(finmo_json)
   if not signals:
     return []
@@ -542,6 +604,7 @@ def _build_stage_maturity_cost_structure_issue_status_records(
   stage_ramp_contract: Optional[Dict[str, Any]],
   iteration: int,
 ) -> List[Dict[str, Any]]:
+  _assert_issue_phase("cost_structure_mismatch", phase="convergence")
   contract = stage_ramp_contract if isinstance(stage_ramp_contract, dict) else {}
   r_and_d_enabled = _dep("_r_and_d_enabled_from_model_input")(model_input_json)
   ramp_rows = {
@@ -669,6 +732,7 @@ def _build_stage_maturity_cost_structure_issue_status_records(
 
 __all__ = [
   "bind_runtime_dependencies",
+  "post_intake_issue_detector_alignment_errors",
   "_cost_structure_direct_metric_specs_for_quarter",
   "_issue_metric_specs_for_quarter",
   "_raise_p_and_l_flatline_if_needed",

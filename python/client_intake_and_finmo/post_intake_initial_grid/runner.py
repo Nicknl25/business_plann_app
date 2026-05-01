@@ -14,6 +14,9 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_assert_required_process_sequence,
   post_intake_process_step_context,
 )
+from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
+  post_intake_assert_golden_rule_integrity,
+)
 
 
 def prepare_initial_grid_for_draft(
@@ -51,6 +54,7 @@ def prepare_initial_grid_for_draft(
   if str(draft.get("active_focus") or "").strip().lower() != "done":
     raise RuntimeError("draft_not_complete")
   sequence_trace: Dict[str, Any] = {}
+  sequence_trace["golden_rule"] = post_intake_assert_golden_rule_integrity()
   sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
   sequence_trace["baseline_model_input"] = post_intake_process_step_context(
     step_key="baseline_model_input",

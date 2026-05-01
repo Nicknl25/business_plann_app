@@ -13,36 +13,128 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_cash_debt_schedule_policy,
+  post_intake_cash_policy_errors,
+  post_intake_cash_policy_phase_sequence,
+  post_intake_build_prompt_from_contract,
+  post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_driver_target_lever_ids_for_cash_roles,
+  post_intake_driver_target_lever_ids_for_target_drivers,
+  post_intake_driver_target_single_lever_id_for_target_driver,
+  post_intake_issue_codes_for_phase,
+  post_intake_issue_has_phase,
+)
+from client_intake_and_finmo.post_intake_cash.common import assert_cash_envelope_lifecycle  # type: ignore
+from client_intake_and_finmo.post_intake_cash.planning_envelope import build_cash_planning_envelope  # type: ignore
+from client_intake_and_finmo.post_intake_cash.validation_envelope import build_cash_validation_envelope  # type: ignore
+from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
+  CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
+  bind_table_safe_runtime_dependencies,
+)
+
 _CASH_STRATEGY_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "cash_strategy_review" / "reviewer.md"
-_CASH_STRATEGY_ALLOWED_LEVER_IDS: Tuple[str, ...] = tuple()
-_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple()
-_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID = ""
-_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID = ""
-_CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID = ""
-_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID = ""
-_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID = ""
-_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID = ""
+_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_issuance")
+_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_repayment")
+_CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver(
+  "short_term_debt_percent_of_ltd"
+)
+_CASH_STRATEGY_OWNERS_CAPITAL_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("owners_capital")
+_CASH_STRATEGY_OTHER_EQUITY_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("other_equity")
+_CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("distributions")
+_CASH_STRATEGY_ALLOWED_LEVER_IDS: Tuple[str, ...] = tuple(
+  post_intake_driver_target_lever_ids_for_cash_roles(
+    {
+      "distribution",
+      "debt_paydown",
+      "debt_raise",
+      "equity_raise",
+      "owner_equity_raise",
+      "external_equity_raise",
+    }
+  )
+)
+_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple(
+  post_intake_driver_target_lever_ids_for_cash_roles(
+    {
+      "debt_raise",
+      "equity_raise",
+      "owner_equity_raise",
+      "external_equity_raise",
+    }
+  )
+)
 _CASH_STRATEGY_BUFFER_MONTHS = 1.0
 _CASH_STRATEGY_MONTHS_PER_QUARTER = 3.0
 _CASH_STRATEGY_PREFERRED_DEBT_RATIO = 0.40
 _CASH_STRATEGY_PREFERRED_EQUITY_RATIO = 0.60
-_CASH_STRATEGY_TEST_MODE_FAIL_FLAGS: Set[str] = set()
+_CASH_STRATEGY_TEST_MODE_FAIL_FLAGS: Set[str] = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
+_IMPLEMENTED_CASH_PASS_ISSUE_CODES = {
+  "working_capital_mismatch",
+  "liquidity_failure",
+  "funding_structure_mismatch",
+}
+
+
+def _cash_contract_horizon_quarters() -> int:
+  count = int(
+    post_intake_contract_forecast_horizon_quarter_count(
+      contract_name="cash_strategy_review",
+    )
+    or 0
+  )
+  if count <= 0:
+    raise RuntimeError(
+      "cash_strategy_contract_horizon_missing: "
+      "post_intake_gpt_contract_lookup must define cash_strategy_review forecast horizon."
+    )
+  return count
+
+
+def post_intake_cash_issue_alignment_errors() -> List[str]:
+  table_codes = {
+    str(item or "").strip().lower()
+    for item in post_intake_issue_codes_for_phase("cash_pass")
+    if str(item or "").strip()
+  }
+  errors: List[str] = []
+  missing = sorted(table_codes - _IMPLEMENTED_CASH_PASS_ISSUE_CODES)
+  stale = sorted(_IMPLEMENTED_CASH_PASS_ISSUE_CODES - table_codes)
+  if missing:
+    errors.append(
+      "post_intake_cash_issue_handler_missing_for_table_issue: "
+      + json.dumps(missing, ensure_ascii=False)
+    )
+  if stale:
+    errors.append(
+      "post_intake_cash_issue_handler_stale_not_in_mapping_table: "
+      + json.dumps(stale, ensure_ascii=False)
+    )
+  return errors
+
+
+def _cash_table_issue_code(raw_code: Any) -> str:
+  code = str(raw_code or "").strip().lower()
+  if code and post_intake_issue_has_phase(code, "cash_pass"):
+    return code
+  if any(token in code for token in ("buffer", "liquidity", "underfund", "funding_gap", "cash_quarter")):
+    return "liquidity_failure"
+  if any(token in code for token in ("working_capital", "ar_", "ap_", "inventory", "receivable", "payable")):
+    return "working_capital_mismatch"
+  return "funding_structure_mismatch"
 
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   if not isinstance(dependencies, dict):
     return
-  globals().update({
-    key: value
-    for key, value in dependencies.items()
-    if key != "bind_runtime_dependencies"
-  })
+  bind_table_safe_runtime_dependencies(globals(), dependencies)
 
 
 __all__ = [
+  "post_intake_cash_issue_alignment_errors",
   "_cash_strategy_fail_flags_from_review_payload",
   "_cash_strategy_failure_stage",
   "_cash_validation_errors_from_failure_payload",
@@ -82,7 +174,6 @@ __all__ = [
   "_build_cash_pass_controller_resolution_state",
   "_load_cash_strategy_review_prompt",
   "_cash_strategy_review_schema",
-  "_unified_convergence_schema",
   "_cash_strategy_review_failure_payload",
   "_cash_strategy_gross_up_effective_support",
   "_normalize_cash_strategy_review_decision_from_funding_plan",
@@ -780,9 +871,11 @@ def _cash_pass_minimum_debt_schedule_plan(
     raise RuntimeError(
       "cash_debt_schedule_policy_invalid: debt_schedule_required must be true"
     )
-  if int(_safe_float(policy.get("debt_schedule_horizon_quarters")) or 0) != 20:
+  horizon_count = _cash_contract_horizon_quarters()
+  if int(_safe_float(policy.get("debt_schedule_horizon_quarters")) or 0) != horizon_count:
     raise RuntimeError(
-      "cash_debt_schedule_policy_invalid: debt_schedule_horizon_quarters must be 20"
+      "cash_debt_schedule_policy_invalid: "
+      f"debt_schedule_horizon_quarters must match cash_strategy_review contract horizon ({horizon_count})"
     )
   opening_debt_seed = _cash_strategy_debt_opening_seed(
     model_input_json=model_input_json,
@@ -803,7 +896,7 @@ def _cash_pass_minimum_debt_schedule_plan(
   rows: List[Dict[str, Any]] = []
   exact_updates: List[Dict[str, Any]] = []
   if opening_debt_seed <= 0 and not any(debt_issuance_series):
-    for quarter_index in range(1, 21):
+    for quarter_index in range(1, horizon_count + 1):
       exact_updates.append(
         {
           "lever_id": "expenses::Interest Rate",
@@ -837,7 +930,7 @@ def _cash_pass_minimum_debt_schedule_plan(
       "cash_debt_schedule_quarterly_minimum_zero: opening debt exists but computed quarterly principal is zero"
     )
   opening_debt = int(opening_debt_seed)
-  for quarter_index in range(1, 21):
+  for quarter_index in range(1, horizon_count + 1):
     current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
     current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
     available_debt = int(max(0, opening_debt + current_issuance))
@@ -1663,9 +1756,21 @@ def _build_cash_pass_controller_resolution_state(
   issue_records_by_code: Dict[str, Dict[str, Any]] = {}
 
   def _add_issue(issue_code: str, *, quarters: Optional[List[int]] = None, detail: str = "") -> None:
-    clean_code = str(issue_code or "").strip().lower()
+    clean_code = _cash_table_issue_code(issue_code)
     if not clean_code:
       return
+    if not post_intake_issue_has_phase(clean_code, "cash_pass"):
+      raise RuntimeError(
+        "cash_pass_issue_code_not_table_backed: "
+        + json.dumps(
+          {
+            "issue_code": clean_code,
+            "mapping_table": "post_intak_mapping_lookup",
+            "detail": "Cash pass can only emit issue codes owned by the SQL mapping table.",
+          },
+          ensure_ascii=False,
+        )
+      )
     incoming = _issue_record(clean_code, quarters=quarters, detail=detail)
     existing = issue_records_by_code.get(clean_code)
     if not existing:
@@ -1711,28 +1816,28 @@ def _build_cash_pass_controller_resolution_state(
   ]
   if distribution_violation_quarters:
     _add_issue(
-      "cash_distribution_violation",
+      "funding_structure_mismatch",
       quarters=distribution_violation_quarters,
       detail="Cash pass must remove distributions that violate the selected cash posture.",
     )
 
   if decision and _cash_strategy_fail_flags_from_review_payload(decision):
     _add_issue(
-      "cash_strategy_contract_failure",
+      "funding_structure_mismatch",
       detail="GPT cash strategy review did not satisfy the mandatory cash contract.",
     )
   for flag in [str(item).strip() for item in (plan.get("translation_fail_flags") or []) if str(item).strip()]:
     _add_issue(
-      "cash_strategy_contract_failure",
+      _cash_table_issue_code(flag),
       detail=f"Cash strategy translation failed: {flag}",
     )
   for flag in [str(item).strip() for item in (result.get("fail_flags") or []) if str(item).strip()]:
     _add_issue(
-      flag if flag in {"liquidity_failure", "funding_structure_mismatch"} else "cash_strategy_contract_failure",
+      _cash_table_issue_code(flag),
       detail=f"Cash strategy result failed: {flag}",
     )
   for rule_code in [str(item).strip() for item in (post_validation.get("failed_rule_codes") or []) if str(item).strip()]:
-    _add_issue(rule_code, detail="Cash post-validation failed this hard rule.")
+    _add_issue(_cash_table_issue_code(rule_code), detail="Cash post-validation failed this hard rule.")
   cash_buffer_quarters = [
     int(_safe_float(item.get("quarter_index")) or 0)
     for item in (post_validation.get("cash_buffer_violations") or [])
@@ -1751,13 +1856,13 @@ def _build_cash_pass_controller_resolution_state(
   ]
   if cash_distribution_post_quarters:
     _add_issue(
-      "cash_distribution_violation",
+      "funding_structure_mismatch",
       quarters=cash_distribution_post_quarters,
       detail="Cash pass finished with invalid distributions.",
     )
   if post_validation.get("cash_contract_failures"):
     _add_issue(
-      "cash_strategy_contract_failure",
+      "funding_structure_mismatch",
       detail="Cash pass contract validation failed.",
     )
 
@@ -1831,70 +1936,6 @@ def _cash_strategy_review_schema(
       "quarter_funding_plan[].expected_buffer": {"type": "integer", "minimum": 0},
       "funding_sources[].lever_id": {"type": "string", "enum": funding_lever_enum},
       "funding_sources[].amount": {"type": "integer", "minimum": 0},
-    },
-  )
-
-def _unified_convergence_schema(
-  allowed_lever_ids: List[str],
-  allowed_target_metric_names: Optional[List[str]] = None,
-  allowed_mapped_target_quarters: Optional[List[int]] = None,
-  allowed_target_values: Optional[List[int]] = None,
-  locked_target_rows: Optional[List[Dict[str, Any]]] = None,
-  allowed_model_input_repair_cell_ids: Optional[List[str]] = None,
-  allowed_model_input_repair_quarters: Optional[List[int]] = None,
-) -> Dict[str, Any]:
-  metric_enum = list(allowed_target_metric_names or _UNIFIED_ALLOWED_TARGET_METRIC_KEYS) or [""]
-  _ = allowed_mapped_target_quarters
-  return _post_intake_contract_schema(
-    "unified_convergence_decision",
-    field_schema_overrides={
-      "lever_selection": {
-        "type": "array",
-        "minItems": 1,
-        "items": {"type": "string", "enum": allowed_lever_ids or [""]},
-      },
-      "primary_target_metric_names": {
-        "type": "array",
-        "minItems": _UNIFIED_PRIMARY_TARGET_MIN_COUNT,
-        "maxItems": _UNIFIED_PRIMARY_TARGET_MAX_COUNT,
-        "items": {"type": "string", "enum": metric_enum},
-      },
-      "targets_by_quarter": _unified_targets_by_quarter_schema(
-        metric_enum,
-        allowed_target_values=allowed_target_values,
-        locked_target_rows=locked_target_rows,
-      ),
-      "target_tolerances": {
-        "type": "array",
-        "minItems": 0,
-        "maxItems": _UNIFIED_PRIMARY_TARGET_MAX_COUNT,
-        "items": {
-          "type": "object",
-          "additionalProperties": False,
-          "properties": {
-            "metric_name": {"type": "string", "enum": list(_UNIFIED_ALLOWED_TARGET_METRIC_KEYS) or [""]},
-            "relative_tolerance_pct": {"type": ["number", "null"]},
-            "absolute_tolerance": {"type": ["integer", "null"]},
-            "tolerance_reason": {"type": "string"},
-          },
-          "required": [
-            "metric_name",
-            "relative_tolerance_pct",
-            "absolute_tolerance",
-            "tolerance_reason",
-          ],
-        },
-      },
-      "lever_adjustments[].lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
-      "lever_adjustments[].shape_type": {
-        "type": ["string", "null"],
-        "enum": [*list(_SHAPE_SENSITIVE_ALLOWED_SHAPE_TYPES), None],
-      },
-      "model_input_repair_cells": _model_input_repair_cell_schema(
-        allowed_cell_ids=allowed_model_input_repair_cell_ids,
-        allowed_lever_ids=allowed_lever_ids,
-        allowed_quarters=allowed_model_input_repair_quarters,
-      ),
     },
   )
 
@@ -2467,7 +2508,7 @@ def _run_cash_strategy_review_openai(
     "validation_requirements": copy.deepcopy(context_payload.get("validation_requirements") or {}),
   }
 
-  system_prompt = _load_cash_strategy_review_prompt()
+  static_cash_prompt = _load_cash_strategy_review_prompt()
   user_context = {
     "draft_id": str(draft_id or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
@@ -2484,6 +2525,16 @@ def _run_cash_strategy_review_openai(
     "solved_model_input_json": {},
     "solved_finmo_quarter_rows": [],
   }
+  system_prompt = post_intake_build_prompt_from_contract(
+    "cash_strategy_review",
+    context_payload=user_context,
+    include_phase="cash_pass",
+    static_instruction=static_cash_prompt,
+    task_instruction=(
+      "Return only JSON matching the SQL-backed cash_strategy_review contract. Use only mapping-table cash levers, "
+      "respect the cash policy lookup, and fill only the contract-authorized funding/action rows."
+    ),
+  )
   prompt_trace = {
     "system_prompt": system_prompt,
     "user_payload": copy.deepcopy(user_context),
@@ -4197,7 +4248,7 @@ def _apply_cash_policy_surplus_cleanup(
             "lever_id": _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
             "quarter_index": quarter_index,
             "exact_value": int(current_debt_repayment + debt_add),
-            "issue_codes": ["cash_surplus_deployment_failure"],
+            "issue_codes": ["funding_structure_mismatch"],
             "rationale": (
               "Deterministic SQL cash policy cleanup: deploy actual post-action surplus above the "
               "strategy ceiling through the mapped Debt Repayment lever after FINMO recalculation."
@@ -4211,7 +4262,7 @@ def _apply_cash_policy_surplus_cleanup(
             "lever_id": _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID,
             "quarter_index": quarter_index,
             "exact_value": int(current_distribution + distribution_add),
-            "issue_codes": ["cash_surplus_deployment_failure"],
+            "issue_codes": ["funding_structure_mismatch"],
             "rationale": (
               "Deterministic SQL cash policy cleanup: deploy actual post-action surplus above the "
               "strategy ceiling through the mapped Distributions lever after FINMO recalculation."
@@ -4492,16 +4543,17 @@ def _validate_cash_strategy_post_pass(
         _solved_lever_value_map(candidate_model_input_json).get("expenses::Interest Rate")
         or []
       )
+      horizon_count = _cash_contract_horizon_quarters()
       mismatched_forecast_rates = [
         {
           "quarter_index": index + 1,
           "actual_interest_rate": round(float(_safe_float(value) or 0.0), 6),
           "expected_sba_interest_rate": expected_sba_rate,
         }
-        for index, value in enumerate(interest_rate_values[:20])
+        for index, value in enumerate(interest_rate_values[:horizon_count])
         if round(float(_safe_float(value) or 0.0), 6) != expected_sba_rate
       ]
-      if len(interest_rate_values) < 20:
+      if len(interest_rate_values) < horizon_count:
         mismatched_forecast_rates.append(
           {
             "quarter_index": "missing",
@@ -4514,8 +4566,8 @@ def _validate_cash_strategy_post_pass(
         cash_contract_failures.append(
           {
             "error": "cash_debt_interest_rate_forecast_mismatch",
-            "reason": "Stub Q0 may reflect intake, but every forecast quarter Q1-Q20 must equal the SBA-backed interest-rate policy.",
-            "violating_quarters": copy.deepcopy(mismatched_forecast_rates[:20]),
+            "reason": f"Stub Q0 may reflect intake, but every forecast quarter Q1-Q{horizon_count} must equal the SBA-backed interest-rate policy.",
+            "violating_quarters": copy.deepcopy(mismatched_forecast_rates[:horizon_count]),
             "source_detail": copy.deepcopy(debt_rate_source),
           }
         )
@@ -4648,11 +4700,11 @@ def _validate_cash_strategy_post_pass(
   if cash_buffer_violations:
     cash_failed_rule_codes.append("liquidity_failure")
   if cash_distribution_violations:
-    cash_failed_rule_codes.append("cash_distribution_violation")
+    cash_failed_rule_codes.append("funding_structure_mismatch")
   if cash_surplus_ceiling_violations:
-    cash_failed_rule_codes.append("cash_surplus_deployment_failure")
+    cash_failed_rule_codes.append("funding_structure_mismatch")
   if cash_contract_failures:
-    cash_failed_rule_codes.append("cash_strategy_contract_failure")
+    cash_failed_rule_codes.append("funding_structure_mismatch")
   keep_changes = bool(
     hard_rule_assessment.get("all_hard_rules_cleared")
     and not cash_buffer_violations
