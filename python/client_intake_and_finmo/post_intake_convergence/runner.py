@@ -22,18 +22,18 @@ _VERIFICATION_GPT_MAX_SECONDS = 45.0
 
 
 def _contract_forecast_quarter_count() -> int:
-  try:
-    return max(
-      1,
-      int(
-        post_intake_contract_forecast_horizon_quarter_count(
-          contract_name="unified_convergence_decision",
-        )
-        or 0
-      ),
+  count = int(
+    post_intake_contract_forecast_horizon_quarter_count(
+      contract_name="unified_convergence_decision",
     )
-  except Exception:
-    return 20
+    or 0
+  )
+  if count <= 0:
+    raise RuntimeError(
+      "post_intake_contract_horizon_missing: "
+      "post_intake_gpt_contract_lookup must define a positive convergence forecast horizon."
+    )
+  return count
 
 
 def _bounded_cycle_deadline(cycle_deadline: float, max_seconds: float) -> float:
@@ -322,6 +322,7 @@ def _run_unified_post_grid_system_run(
   }
   capacity_support_issue_ledger = _build_capacity_support_issue_status_records(
     finmo_json=copy.deepcopy(final_finmo_json),
+    model_input_json=copy.deepcopy(final_model_input_json),
     iteration=0,
   )
   flatline_issue_ledger = _build_p_and_l_flatline_issue_status_records(
@@ -1281,6 +1282,7 @@ def _run_unified_post_grid_system_run(
       }
       capacity_support_scan_issue_set = _build_capacity_support_issue_status_records(
         finmo_json=copy.deepcopy(final_finmo_json),
+        model_input_json=copy.deepcopy(final_model_input_json),
         iteration=next_iteration,
       )
       flatline_scan_issue_set = _build_p_and_l_flatline_issue_status_records(

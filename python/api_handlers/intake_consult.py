@@ -1381,32 +1381,6 @@ def _refresh_shared_forecast_context(
 
 
 
-_ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
-  "capacity_support_mismatch": {
-    "title": "capacity_support_mismatch",
-  },
-  "p_and_l_flatline": {
-    "title": "p_and_l_flatline",
-  },
-  "cost_structure_mismatch": {
-    "title": "cost_structure_mismatch",
-  },
-  "working_capital_mismatch": {
-    "title": "working_capital_mismatch",
-  },
-  "liquidity_failure": {
-    "title": "liquidity_failure",
-  },
-  "funding_structure_mismatch": {
-    "title": "funding_structure_mismatch",
-  },
-  "accounting_integrity_failure": {
-    "title": "accounting_integrity_failure",
-  },
-  "structural_impossibility": {
-    "title": "structural_impossibility",
-  },
-}
 
 
 
@@ -1437,33 +1411,6 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
 
 
 
-_CONVERGENCE_ISSUE_PASS_SCORE_PCT = 80
-_CONVERGENCE_ISSUE_WARN_SCORE_PCT = 70
-_CONVERGENCE_OVERALL_SCORE_ISSUE_WEIGHT = 0.75
-_CONVERGENCE_OVERALL_SCORE_LOWEST_QUARTER_WEIGHT = 0.25
-_CONVERGENCE_STRONG_SCORE_PCT = 90
-_CONVERGENCE_DEFAULT_QUARTER_COUNT = 20
-_CONVERGENCE_MAX_FOCUS_ISSUES = 2
-_CONVERGENCE_MAX_FOCUS_QUARTERS = 4
-_CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES = 3
-_CONVERGENCE_MAX_FOCUS_LEVERS = 12
-_CONVERGENCE_MAX_FOCUS_DRIVER_PATHS = 12
-_CONVERGENCE_MAX_FOCUS_METRICS_PER_ISSUE = 2
-_CONVERGENCE_PROMPT_METRIC_PACKET_LIMIT = 10
-_CONVERGENCE_PROMPT_LEVER_PACKET_LIMIT = 12
-_CONVERGENCE_MEANINGFUL_SCORE_DELTA_PCT = 5.0
-_UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0
-_UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR = -250000.0
-_CASH_PASS_OWNED_ISSUE_CODES = {
-  "liquidity_failure",
-  "working_capital_mismatch",
-  "funding_structure_mismatch",
-}
-_REMAINING_HORIZON_ISSUE_CODES = {
-  "capacity_support_mismatch",
-  "cost_structure_mismatch",
-  "p_and_l_flatline",
-}
 
 
 

@@ -49,18 +49,18 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_decision") -> int:
-  try:
-    return max(
-      1,
-      int(
-        post_intake_contract_forecast_horizon_quarter_count(
-          contract_name=contract_name,
-        )
-        or 0
-      ),
+  count = int(
+    post_intake_contract_forecast_horizon_quarter_count(
+      contract_name=contract_name,
     )
-  except Exception:
-    return _CONVERGENCE_DEFAULT_QUARTER_COUNT
+    or 0
+  )
+  if count <= 0:
+    raise RuntimeError(
+      "post_intake_contract_horizon_missing: "
+      "post_intake_gpt_contract_lookup must define a positive forecast horizon."
+    )
+  return count
 
 
 def _safe_ratio(value: Any) -> Optional[float]:
@@ -2785,6 +2785,21 @@ def _unified_convergence_decision_contract_error(
     parsed=decision,
     lever_value_kind_by_id=lever_value_kind_by_id,
   )
+  target_fill_grid = _unified_target_fill_grid(
+    required_target_quarters=copy.deepcopy(required_target_quarters),
+    deterministic_numeric_guidance=copy.deepcopy(deterministic_numeric_guidance or {}),
+    baseline_finmo_rows=copy.deepcopy(baseline_finmo_rows or []),
+    business_world_contract=copy.deepcopy(business_world_contract or {}),
+  )
+  # The locked target grid is table-backed contract structure. Apply it before
+  # stage-ramp validation so stale/freeform target values cannot create an
+  # avoidable retry loop ahead of the table-owned exact target rows.
+  target_grid_normalization_error = _normalize_unified_decision_targets_to_locked_grid(
+    parsed=decision,
+    target_fill_grid=copy.deepcopy(target_fill_grid),
+  )
+  if target_grid_normalization_error:
+    return target_grid_normalization_error
   stage_ramp_currency_cap_error = _normalize_revenue_targets_to_stage_ramp_currency_caps(
     parsed=decision,
     baseline_finmo_rows=copy.deepcopy(baseline_finmo_rows or []),
@@ -2842,18 +2857,6 @@ def _unified_convergence_decision_contract_error(
     decision_payload=decision,
     numeric_solver_contract=numeric_solver_contract,
   )
-  target_fill_grid = _unified_target_fill_grid(
-    required_target_quarters=copy.deepcopy(required_target_quarters),
-    deterministic_numeric_guidance=copy.deepcopy(deterministic_numeric_guidance or {}),
-    baseline_finmo_rows=copy.deepcopy(baseline_finmo_rows or []),
-    business_world_contract=copy.deepcopy(business_world_contract or {}),
-  )
-  target_grid_normalization_error = _normalize_unified_decision_targets_to_locked_grid(
-    parsed=decision,
-    target_fill_grid=copy.deepcopy(target_fill_grid),
-  )
-  if target_grid_normalization_error:
-    return target_grid_normalization_error
   grid_allowed_metric_set = {
     str(item or "").strip().lower()
     for item in (target_fill_grid.get("allowed_target_metric_names") or [])

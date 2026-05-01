@@ -1309,3 +1309,96 @@ Success criteria for the next pass:
 - Cash pass uses cash policy lookup and validates all 20 quarters.
 - Payroll/headcount uses the new headcount path and does not regress to capped/fake payroll.
 - Cycle timeout remains 180 seconds.
+
+## May 1 Late Update: Issue Detection Separation And Remaining Instability
+
+### Latest Architectural Direction
+
+The post-intake architecture is being hardened around this invariant:
+
+- `intake_consult.py` is intake/API orchestration only.
+- Post-intake behavior must live under dedicated post-intake folders.
+- Lookup tables are the source of truth for deterministic structure.
+- GPT makes business decisions inside table-backed contracts; Python owns deterministic sequencing, validation, table lookup, and FINMO rebuilds.
+
+The key table set remains:
+
+- `post_intak_mapping_lookup`: mapping authority for issue -> driver bundle -> target metric -> model input / FINMO location.
+- `post_intake_cash_policy_lookup`: cash strategy, debt position, buffer, deployment weights, cash sequencing, and debt schedule policy lookup.
+- `post_intake_gpt_context_lookup`: what context each GPT call is allowed to receive.
+- `post_intake_gpt_contract_lookup`: contract/schema/horizon/normalization source of truth.
+- `post_intake_headcount_policy_lookup`: payroll/headcount policy lookup.
+- `post_intake_process_sequence_lookup`: deterministic post-intake step sequencing and table dependencies.
+
+### Issue Detection Refactor In Progress
+
+Issue detection is being separated out of the large runner module.
+
+New file:
+
+- `python/client_intake_and_finmo/post_intake_issues/detection.py`
+
+Current intent:
+
+- Issue detection belongs in `post_intake_issues`, not `intake_consult.py`.
+- `intake_consult.py` must not define post-intake issue registries, cash-pass issue sets, convergence issue sets, or horizon focus constants.
+- Detectors must use table-backed target metrics and candidate levers.
+- If an issue has no table-backed drivers/targets, fail fast or delete the issue. Do not create prose-only active repair issues.
+
+Important current detector behavior:
+
+- `capacity_support_mismatch` should no longer use payroll/revenue support intensity as a proxy.
+- Capacity support should check formula integrity: revenue must match table-backed revenue drivers, effectively `Capacity * Unit Price * Utilization`.
+- `cost_structure_mismatch` should emit only direct mapped cost targets from the mapping lookup.
+- `p_and_l_flatline` remains a convergence issue, but it must use mapped revenue/cost drivers and full-horizon context.
+- Cash-owned issues remain cash-pass-owned and should not be repaired in convergence.
+
+### Current Code State To Verify Next
+
+Before running another E2E, verify these items:
+
+- `python/api_handlers/intake_consult.py` does not define post-intake issue authority.
+- `python/client_intake_and_finmo/post_intake_issues/detection.py` owns detector functions.
+- `python/client_intake_and_finmo/post_intake_issues/runner.py` imports detector functions from `detection.py` and does not keep duplicate detector bodies.
+- All issue phase ownership flows through `post_intak_mapping_lookup` helper functions in `post_intake_mapping.py`.
+- Contract horizon reads fail fast through `post_intake_gpt_contract_lookup`; no hidden fallback to 20 should remain in critical post-intake contract paths.
+
+### Recent Failure Class
+
+The latest persisted E2E failure moved past earlier horizon/schema problems and exposed an issue/envelope conflict:
+
+- `capacity_support_mismatch` detected a revenue problem from old support-intensity logic.
+- The repair envelope then tried to solve a revenue target that contradicted the revenue formula driver bounds.
+- This was not a real solver bug. It was legacy issue detection creating an impossible target.
+
+Class fix direction:
+
+- Delete/convert legacy issue detectors that create proxy targets.
+- Driver selection must come from the mapping lookup table.
+- Formula-driver envelopes must be built from mapping-table driver bundles and the actual formula relationship.
+- No issue should generate active repair work unless it can produce table-backed numeric specs.
+
+### Do Not Regress These Rules
+
+- Do not add post-intake semantic constants back into `intake_consult.py`.
+- Do not use the E2E runner to instruct app behavior; it is intake simulation only.
+- Do not increase cycle timeout above 180 seconds or max cycles above 10 without explicit user approval.
+- Do not reintroduce partial 4Q/5Q convergence horizons. Convergence is full Q1-Q20.
+- Do not let prose guidance override mapping/contract/context/cash/sequence tables.
+- Do not add fallback behavior when a lookup table is missing required metadata; fail fast and add the metadata to the table instead.
+
+### Next Safe Action
+
+The next session should:
+
+1. Run a syntax/preflight check.
+2. Restart backend with `.\context\ensure_5050_backend.ps1 -ForceRestart`.
+3. Run exactly one persisted E2E unless the user asks for a longer loop.
+4. If it fails, inspect the first failure and determine whether it is:
+   - a missing table row/column,
+   - a stale legacy path,
+   - a contract/schema issue,
+   - an OpenAI timeout/payload issue,
+   - or a real business-model issue.
+
+Do not patch around the failure. Convert/delete the root legacy path or add missing deterministic table metadata.

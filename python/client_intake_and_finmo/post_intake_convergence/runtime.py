@@ -40,34 +40,28 @@ _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
 _UNIFIED_EXPLICIT_CAPITAL_ALLOCATION_LEVER_IDS: Tuple[str, ...] = tuple()
-try:
-  _CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
-except Exception:
-  _CASH_PASS_OWNED_ISSUE_CODES = {"liquidity_failure", "working_capital_mismatch", "funding_structure_mismatch"}
-try:
-  _REMAINING_HORIZON_ISSUE_CODES = set(
-    post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
-  )
-except Exception:
-  _REMAINING_HORIZON_ISSUE_CODES = set()
+_CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
+_REMAINING_HORIZON_ISSUE_CODES = set(
+  post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
+)
 _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple()
 _UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
 _UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.md"
 
 
 def _contract_forecast_quarter_count() -> int:
-  try:
-    return max(
-      1,
-      int(
-        post_intake_contract_forecast_horizon_quarter_count(
-          contract_name="unified_convergence_decision",
-        )
-        or 0
-      ),
+  count = int(
+    post_intake_contract_forecast_horizon_quarter_count(
+      contract_name="unified_convergence_decision",
     )
-  except Exception:
-    return _CONVERGENCE_DEFAULT_QUARTER_COUNT
+    or 0
+  )
+  if count <= 0:
+    raise RuntimeError(
+      "post_intake_contract_horizon_missing: "
+      "post_intake_gpt_contract_lookup must define a positive convergence forecast horizon."
+    )
+  return count
 
 
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:

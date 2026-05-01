@@ -35,12 +35,9 @@ IMMUTABLE_CORE_MODEL_FILES = (
 
 
 def _table_issue_codes(*, phase: Any = None, targeting_allowed: Optional[bool] = None) -> set[str]:
-  try:
-    if phase:
-      return set(post_intake_issue_codes_for_phase(phase, targeting_allowed=targeting_allowed))
-    return set(post_intake_issue_codes(targeting_allowed=targeting_allowed))
-  except Exception:
-    return set()
+  if phase:
+    return set(post_intake_issue_codes_for_phase(phase, targeting_allowed=targeting_allowed))
+  return set(post_intake_issue_codes(targeting_allowed=targeting_allowed))
 
 
 def _issue_solver_objective(issue_code: Any) -> str:
@@ -55,11 +52,7 @@ TARGETABLE_FINMO_METRIC_IDS = tuple(post_intake_driver_target_metric_ids())
 PRIMARY_TARGETABLE_FINMO_METRIC_IDS = TARGETABLE_FINMO_METRIC_IDS
 TABLE_TARGET_METRIC_ID_SET = set(TARGETABLE_FINMO_METRIC_IDS)
 
-CASH_PASS_OWNED_ISSUE_CODES = _table_issue_codes(phase="cash_pass") or {
-  "liquidity_failure",
-  "working_capital_mismatch",
-  "funding_structure_mismatch",
-}
+CASH_PASS_OWNED_ISSUE_CODES = _table_issue_codes(phase="cash_pass")
 NUMERIC_KNOWN_ISSUE_CODES = _table_issue_codes() | {
   "accounting_integrity_failure",
   "structural_impossibility",
@@ -77,10 +70,7 @@ def _issue_requires_remaining_horizon_scope(issue_code: Any) -> bool:
   code = str(issue_code or "").strip().lower()
   if not code:
     return False
-  try:
-    return post_intake_issue_has_phase(code, "convergence")
-  except Exception:
-    return code in _REMAINING_HORIZON_ISSUE_CODES
+  return post_intake_issue_has_phase(code, "convergence")
 
 
 def _solver_phase_status_for_pass(pass_name: Any) -> str:
@@ -150,10 +140,7 @@ def _is_cash_pass_owned_issue_code(issue_code: Any) -> bool:
   code = str(issue_code or "").strip().lower()
   if not code:
     return False
-  try:
-    return post_intake_issue_has_phase(code, "cash_pass")
-  except Exception:
-    return code in CASH_PASS_OWNED_ISSUE_CODES
+  return post_intake_issue_has_phase(code, "cash_pass")
 
 
 def _normalized_issue_status_records(
