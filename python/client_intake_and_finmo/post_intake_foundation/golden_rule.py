@@ -19,6 +19,7 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_contract_errors,
   post_intake_gpt_contract_rows,
   post_intake_gpt_context_rows,
+  post_intake_golden_lookup_snapshot_errors,
   post_intake_issue_codes,
   post_intake_issue_codes_for_phase,
   post_intake_process_sequence_rows,
@@ -237,6 +238,7 @@ def post_intake_golden_rule_errors() -> List[str]:
   errors.extend(str(item) for item in (post_intake_cash_policy_errors() or []))
   errors.extend(str(item) for item in (post_intake_gpt_contract_errors() or []))
   errors.extend(str(item) for item in (post_intake_gpt_context_errors() or []))
+  errors.extend(str(item) for item in (post_intake_golden_lookup_snapshot_errors() or []))
   errors.extend(str(item) for item in _headcount_policy_errors())
   errors.extend(_contract_and_context_errors())
   errors.extend(_issue_mapping_errors())
@@ -265,5 +267,6 @@ def post_intake_assert_golden_rule_integrity() -> Dict[str, Any]:
       "post_intake_gpt_context_lookup",
       "post_intake_headcount_policy_lookup",
       "post_intake_process_sequence_lookup",
+      "post_intake_lookup_table_snapshot",
     ],
   }

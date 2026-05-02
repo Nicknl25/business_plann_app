@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 import copy
+import hashlib
 import json
 import math
 import re
@@ -18,6 +19,8 @@ _CASH_POLICY_TABLE_NAME = "post_intake_cash_policy_lookup"
 _GPT_CONTRACT_TABLE_NAME = "post_intake_gpt_contract_lookup"
 _GPT_CONTEXT_TABLE_NAME = "post_intake_gpt_context_lookup"
 _PROCESS_SEQUENCE_TABLE_NAME = "post_intake_process_sequence_lookup"
+_LOOKUP_SNAPSHOT_TABLE_NAME = "post_intake_lookup_table_snapshot"
+_GOLDEN_BASELINE_NAME = "post_intake_golden_f949316"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
 _REVENUE_PATTERN_PREFIX = "revenue::*::*::"
 _ENSURE_MAPPING_TABLE_READY = False
@@ -25,11 +28,13 @@ _ENSURE_CASH_POLICY_TABLE_READY = False
 _ENSURE_GPT_CONTRACT_TABLE_READY = False
 _ENSURE_GPT_CONTEXT_TABLE_READY = False
 _ENSURE_PROCESS_SEQUENCE_TABLE_READY = False
+_ENSURE_LOOKUP_SNAPSHOT_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
 _ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
 _ENSURE_GPT_CONTRACT_TABLE_LOCK = threading.Lock()
 _ENSURE_GPT_CONTEXT_TABLE_LOCK = threading.Lock()
 _ENSURE_PROCESS_SEQUENCE_TABLE_LOCK = threading.Lock()
+_ENSURE_LOOKUP_SNAPSHOT_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
 
@@ -2298,6 +2303,302 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         cur.close()
       except Exception:
         pass
+
+
+def _ensure_headcount_policy_lookup_table(conn) -> None:
+  try:
+    from client_intake_and_finmo.post_intake_headcount import ensure_post_intake_headcount_policy_lookup_table  # type: ignore
+  except Exception:
+    from post_intake_headcount import ensure_post_intake_headcount_policy_lookup_table  # type: ignore
+  ensure_post_intake_headcount_policy_lookup_table(conn)
+
+
+def _post_intake_snapshot_source_tables() -> List[str]:
+  return [
+    _MAPPING_TABLE_NAME,
+    _CASH_POLICY_TABLE_NAME,
+    _GPT_CONTRACT_TABLE_NAME,
+    _GPT_CONTEXT_TABLE_NAME,
+    "post_intake_headcount_policy_lookup",
+    _PROCESS_SEQUENCE_TABLE_NAME,
+  ]
+
+
+def _ensure_lookup_snapshot_table(conn) -> None:
+  global _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY
+  if _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY:
+    return
+  with _ENSURE_LOOKUP_SNAPSHOT_TABLE_LOCK:
+    if _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_LOOKUP_SNAPSHOT_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          baseline_name VARCHAR(128) NOT NULL,
+          source_commit VARCHAR(64) NOT NULL DEFAULT '',
+          table_name VARCHAR(128) NOT NULL,
+          row_count INT NOT NULL,
+          content_hash CHAR(64) NOT NULL,
+          snapshot_json LONGTEXT NOT NULL,
+          snapshot_status VARCHAR(32) NOT NULL DEFAULT 'active',
+          notes LONGTEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_post_intake_lookup_snapshot (baseline_name, table_name),
+          KEY idx_post_intake_lookup_snapshot_status (snapshot_status),
+          KEY idx_post_intake_lookup_snapshot_commit (source_commit)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      conn.commit()
+      _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
+def _ensure_all_post_intake_lookup_tables(conn) -> None:
+  _ensure_mapping_lookup_table(conn)
+  _ensure_cash_policy_lookup_table(conn)
+  _ensure_gpt_contract_lookup_table(conn)
+  _ensure_gpt_context_lookup_table(conn)
+  _ensure_headcount_policy_lookup_table(conn)
+  _ensure_process_sequence_lookup_table(conn)
+  _ensure_lookup_snapshot_table(conn)
+
+
+def _json_safe_snapshot_value(value: Any) -> Any:
+  if value is None:
+    return None
+  if isinstance(value, (str, int, float, bool)):
+    return value
+  return str(value)
+
+
+def _semantic_lookup_table_rows(conn, table_name: str) -> List[Dict[str, Any]]:
+  if table_name not in set(_post_intake_snapshot_source_tables()):
+    raise RuntimeError(f"post_intake_lookup_snapshot_unsupported_table: {table_name}")
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(f"SELECT * FROM `{table_name}` ORDER BY id ASC")
+    raw_rows = cur.fetchall() or []
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+  rows: List[Dict[str, Any]] = []
+  for raw_row in raw_rows:
+    if not isinstance(raw_row, dict):
+      continue
+    row: Dict[str, Any] = {}
+    for key in sorted(raw_row.keys()):
+      if key in {"id", "created_at", "updated_at"}:
+        continue
+      row[str(key)] = _json_safe_snapshot_value(raw_row.get(key))
+    rows.append(row)
+  return rows
+
+
+def _lookup_table_snapshot_hash(rows: List[Dict[str, Any]]) -> str:
+  payload = json.dumps(
+    rows,
+    ensure_ascii=False,
+    sort_keys=True,
+    separators=(",", ":"),
+  )
+  return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def refresh_post_intake_lookup_table_snapshot(
+  *,
+  baseline_name: Any = _GOLDEN_BASELINE_NAME,
+  source_commit: Any = "",
+  notes: Any = "",
+) -> List[Dict[str, Any]]:
+  """Freeze the semantic contents of every post-intake lookup table in SQL.
+
+  This is the table-backed baseline used to prove future fixes have not drifted
+  away from the current Golden Rule architecture.
+  """
+  _ensure_env_loaded()
+  normalized_baseline = _clean_text(baseline_name).lower() or _GOLDEN_BASELINE_NAME
+  normalized_commit = _clean_text(source_commit)
+  conn = get_mysql_connection()
+  snapshots: List[Dict[str, Any]] = []
+  try:
+    _ensure_all_post_intake_lookup_tables(conn)
+    cur = conn.cursor()
+    try:
+      for table_name in _post_intake_snapshot_source_tables():
+        rows = _semantic_lookup_table_rows(conn, table_name)
+        snapshot_json = json.dumps(rows, ensure_ascii=False, sort_keys=True)
+        content_hash = _lookup_table_snapshot_hash(rows)
+        cur.execute(
+          f"""
+          INSERT INTO {_LOOKUP_SNAPSHOT_TABLE_NAME} (
+            baseline_name,
+            source_commit,
+            table_name,
+            row_count,
+            content_hash,
+            snapshot_json,
+            snapshot_status,
+            notes
+          ) VALUES (%s, %s, %s, %s, %s, %s, 'active', %s)
+          ON DUPLICATE KEY UPDATE
+            source_commit = VALUES(source_commit),
+            row_count = VALUES(row_count),
+            content_hash = VALUES(content_hash),
+            snapshot_json = VALUES(snapshot_json),
+            snapshot_status = 'active',
+            notes = VALUES(notes)
+          """,
+          (
+            normalized_baseline,
+            normalized_commit,
+            table_name,
+            len(rows),
+            content_hash,
+            snapshot_json,
+            _clean_text(notes),
+          ),
+        )
+        snapshots.append(
+          {
+            "baseline_name": normalized_baseline,
+            "source_commit": normalized_commit,
+            "table_name": table_name,
+            "row_count": len(rows),
+            "content_hash": content_hash,
+            "source_of_truth": f"sql.{_LOOKUP_SNAPSHOT_TABLE_NAME}",
+          }
+        )
+      conn.commit()
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  post_intake_lookup_table_snapshot_rows.cache_clear()
+  return snapshots
+
+
+@lru_cache(maxsize=16)
+def post_intake_lookup_table_snapshot_rows(
+  *,
+  baseline_name: Any = _GOLDEN_BASELINE_NAME,
+) -> List[Dict[str, Any]]:
+  _ensure_env_loaded()
+  normalized_baseline = _clean_text(baseline_name).lower() or _GOLDEN_BASELINE_NAME
+  conn = get_mysql_connection()
+  try:
+    _ensure_all_post_intake_lookup_tables(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          baseline_name,
+          source_commit,
+          table_name,
+          row_count,
+          content_hash,
+          snapshot_status,
+          notes
+        FROM {_LOOKUP_SNAPSHOT_TABLE_NAME}
+        WHERE baseline_name = %s
+          AND snapshot_status = 'active'
+        ORDER BY table_name ASC
+        """,
+        (normalized_baseline,),
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  rows: List[Dict[str, Any]] = []
+  for raw_row in raw_rows:
+    if not isinstance(raw_row, dict):
+      continue
+    rows.append(
+      {
+        "baseline_name": _clean_text(raw_row.get("baseline_name")).lower(),
+        "source_commit": _clean_text(raw_row.get("source_commit")),
+        "table_name": _clean_text(raw_row.get("table_name")),
+        "row_count": int(raw_row.get("row_count") or 0),
+        "content_hash": _clean_text(raw_row.get("content_hash")),
+        "snapshot_status": _clean_text(raw_row.get("snapshot_status")).lower() or "active",
+        "notes": _clean_text(raw_row.get("notes")),
+        "source_of_truth": f"sql.{_LOOKUP_SNAPSHOT_TABLE_NAME}",
+      }
+    )
+  return rows
+
+
+def post_intake_lookup_table_snapshot_errors(
+  *,
+  baseline_name: Any = _GOLDEN_BASELINE_NAME,
+) -> List[str]:
+  normalized_baseline = _clean_text(baseline_name).lower() or _GOLDEN_BASELINE_NAME
+  expected_tables = set(_post_intake_snapshot_source_tables())
+  snapshot_rows = post_intake_lookup_table_snapshot_rows(baseline_name=normalized_baseline)
+  if not snapshot_rows:
+    return [
+      f"post_intake_lookup_table_snapshot_missing: baseline={normalized_baseline} table={_LOOKUP_SNAPSHOT_TABLE_NAME}"
+    ]
+  snapshot_by_table = {
+    _clean_text(row.get("table_name")): row
+    for row in snapshot_rows
+    if _clean_text(row.get("table_name"))
+  }
+  errors: List[str] = []
+  missing = sorted(expected_tables - set(snapshot_by_table.keys()))
+  for table_name in missing:
+    errors.append(f"post_intake_lookup_table_snapshot_missing_table: baseline={normalized_baseline} table={table_name}")
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_all_post_intake_lookup_tables(conn)
+    for table_name in sorted(expected_tables):
+      snapshot = snapshot_by_table.get(table_name)
+      if not snapshot:
+        continue
+      live_rows = _semantic_lookup_table_rows(conn, table_name)
+      live_hash = _lookup_table_snapshot_hash(live_rows)
+      expected_hash = _clean_text(snapshot.get("content_hash"))
+      expected_count = int(snapshot.get("row_count") or 0)
+      if len(live_rows) != expected_count:
+        errors.append(
+          f"post_intake_lookup_table_snapshot_row_count_mismatch: table={table_name} expected={expected_count} actual={len(live_rows)}"
+        )
+      if live_hash != expected_hash:
+        errors.append(
+          f"post_intake_lookup_table_snapshot_hash_mismatch: table={table_name} expected={expected_hash} actual={live_hash}"
+        )
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  return errors
 
 
 @lru_cache(maxsize=1)
@@ -5515,3 +5816,30 @@ def post_intake_assert_required_process_sequence() -> Dict[str, Any]:
 
 def post_intake_process_sequence_errors() -> List[str]:
   return post_intake_process_sequence_lookup().validation_errors()
+
+
+def post_intake_golden_lookup_snapshot_errors(
+  *,
+  baseline_name: Any = _GOLDEN_BASELINE_NAME,
+) -> List[str]:
+  return post_intake_lookup_table_snapshot_errors(baseline_name=baseline_name)
+
+
+def post_intake_golden_lookup_snapshot_rows(
+  *,
+  baseline_name: Any = _GOLDEN_BASELINE_NAME,
+) -> List[Dict[str, Any]]:
+  return post_intake_lookup_table_snapshot_rows(baseline_name=baseline_name)
+
+
+def post_intake_refresh_golden_lookup_snapshot(
+  *,
+  baseline_name: Any = _GOLDEN_BASELINE_NAME,
+  source_commit: Any = "",
+  notes: Any = "",
+) -> List[Dict[str, Any]]:
+  return refresh_post_intake_lookup_table_snapshot(
+    baseline_name=baseline_name,
+    source_commit=source_commit,
+    notes=notes,
+  )

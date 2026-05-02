@@ -240,3 +240,42 @@ This prevents drift:
 All of those should come from the same table-backed contract path wherever possible.
 
 Do not over-automate natural-language reasoning. The goal is not to generate every sentence from SQL. The goal is to generate deterministic contract/context structure from SQL, while keeping business judgment instructions concise and static.
+
+## Golden Baseline Snapshot Rule
+
+The passing post-intake state at commit `f949316` is now the golden baseline.
+
+The app must preserve that behavior unless we intentionally change the baseline:
+
+- Golden tag: `post-intake-golden-payroll-debt-depr-tables`
+- Golden run doc: `context/post_intake_golden_baseline_f949316.md`
+- Golden SQL baseline table: `post_intake_lookup_table_snapshot`
+- Baseline name: `post_intake_golden_f949316`
+
+The snapshot table freezes the semantic contents of the critical lookup tables:
+
+- `post_intak_mapping_lookup`
+- `post_intake_cash_policy_lookup`
+- `post_intake_gpt_contract_lookup`
+- `post_intake_gpt_context_lookup`
+- `post_intake_headcount_policy_lookup`
+- `post_intake_process_sequence_lookup`
+
+Future fixes must not silently drift away from these tables.
+
+If an E2E failure appears after the golden baseline:
+
+1. Run `scripts/post_intake_golden_preflight.py`.
+2. If a lookup snapshot mismatch appears, decide whether the table change is intentional.
+3. If intentional, update the table and refresh the baseline snapshot deliberately.
+4. If not intentional, revert or fix the drift.
+5. Never patch around the snapshot by bypassing table-backed logic.
+
+Payroll, debt, and depreciation schedules are now part of the standard:
+
+- Payroll must come from the `payroll_headcount_schedule` contract and headcount schedule application.
+- Debt must come from the cash debt schedule policy and persist into `intake_consult_drafts.debt_schedule`.
+- Depreciation must come from the deterministic capex/depreciation schedule.
+- If any schedule is missing, bypassed, or contradicted, fail fast.
+
+This baseline exists so future Codex sessions know what "working correctly" means before touching new failures.
