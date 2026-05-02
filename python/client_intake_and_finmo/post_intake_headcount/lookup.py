@@ -41,7 +41,7 @@ _DEFAULT_HEADCOUNT_POLICY_ROWS: List[Dict[str, Any]] = [
     "wage_source_priority_json": [
       "oews_role_match",
       "oews_naics_role_fallback",
-      "gpt_business_role_wage",
+      "policy_default_wage",
     ],
     "generic_oews_fallback_allowed": False,
     "generic_oews_fallback_code": "000001",
@@ -49,6 +49,7 @@ _DEFAULT_HEADCOUNT_POLICY_ROWS: List[Dict[str, Any]] = [
     "default_avg_annual_wage": 150000,
     "min_wage_benchmark_ratio": 0.75,
     "min_payroll_tax_benefits_pct": 0.12,
+    "default_payroll_tax_benefits_pct": 0.22,
     "max_payroll_tax_benefits_pct": 0.35,
     "min_annual_wage": 25000,
     "max_role_rows_per_quarter": 4,
@@ -86,7 +87,12 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   "source",
   "source_table",
   "source_column",
+  "staffing_class",
   "role_category",
+  "role_title",
+  "person_name",
+  "oews_matched_title",
+  "oews_match_basis",
   "wage_source",
   "wage_source_code",
   "policy_code",
@@ -238,7 +244,8 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
       )
       for ddl in [
         f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_payroll_tax_benefits_pct DECIMAL(10,4) NOT NULL DEFAULT 0.1200 AFTER generic_oews_fallback_code",
-        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN max_payroll_tax_benefits_pct DECIMAL(10,4) NOT NULL DEFAULT 0.3500 AFTER min_payroll_tax_benefits_pct",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN default_payroll_tax_benefits_pct DECIMAL(10,4) NOT NULL DEFAULT 0.2200 AFTER min_payroll_tax_benefits_pct",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN max_payroll_tax_benefits_pct DECIMAL(10,4) NOT NULL DEFAULT 0.3500 AFTER default_payroll_tax_benefits_pct",
         f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_annual_wage DECIMAL(14,2) NOT NULL DEFAULT 25000.00 AFTER max_payroll_tax_benefits_pct",
         f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN max_role_rows_per_quarter INT NOT NULL DEFAULT 8 AFTER min_annual_wage",
         f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN revenue_driver_context_required TINYINT(1) NOT NULL DEFAULT 1 AFTER max_role_rows_per_quarter",
@@ -285,6 +292,7 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             generic_oews_fallback_allowed,
             generic_oews_fallback_code,
             min_payroll_tax_benefits_pct,
+            default_payroll_tax_benefits_pct,
             max_payroll_tax_benefits_pct,
             min_annual_wage,
             max_role_rows_per_quarter,
@@ -296,7 +304,7 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             currency_rounding,
             ratio_rounding,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
           ON DUPLICATE KEY UPDATE
             policy_status = VALUES(policy_status),
             schedule_storage_table = VALUES(schedule_storage_table),
@@ -315,6 +323,7 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             generic_oews_fallback_allowed = VALUES(generic_oews_fallback_allowed),
             generic_oews_fallback_code = VALUES(generic_oews_fallback_code),
             min_payroll_tax_benefits_pct = VALUES(min_payroll_tax_benefits_pct),
+            default_payroll_tax_benefits_pct = VALUES(default_payroll_tax_benefits_pct),
             max_payroll_tax_benefits_pct = VALUES(max_payroll_tax_benefits_pct),
             min_annual_wage = VALUES(min_annual_wage),
             max_role_rows_per_quarter = VALUES(max_role_rows_per_quarter),
@@ -346,6 +355,7 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             1 if row.get("generic_oews_fallback_allowed") else 0,
             _clean_text(row.get("generic_oews_fallback_code")) or None,
             float(row.get("min_payroll_tax_benefits_pct") or 0.12),
+            float(row.get("default_payroll_tax_benefits_pct") or 0.22),
             float(row.get("max_payroll_tax_benefits_pct") or 0.35),
             float(row.get("min_annual_wage") or 25000),
             int(row.get("max_role_rows_per_quarter") or 8),
@@ -444,6 +454,7 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
           currency_rounding,
           ratio_rounding,
           min_payroll_tax_benefits_pct,
+          default_payroll_tax_benefits_pct,
           max_payroll_tax_benefits_pct,
           min_annual_wage,
           max_role_rows_per_quarter,
@@ -499,6 +510,7 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
         "default_avg_annual_wage": float(raw_row.get("default_avg_annual_wage") or 150000),
         "min_wage_benchmark_ratio": float(raw_row.get("min_wage_benchmark_ratio") or 0.75),
         "min_payroll_tax_benefits_pct": float(raw_row.get("min_payroll_tax_benefits_pct") or 0.12),
+        "default_payroll_tax_benefits_pct": float(raw_row.get("default_payroll_tax_benefits_pct") or 0.22),
         "max_payroll_tax_benefits_pct": float(raw_row.get("max_payroll_tax_benefits_pct") or 0.35),
         "min_annual_wage": float(raw_row.get("min_annual_wage") or 25000.0),
         "max_role_rows_per_quarter": int(float(raw_row.get("max_role_rows_per_quarter") or 8)),
@@ -581,9 +593,12 @@ class PostIntakeHeadcountPolicyLookup:
       if min_wage_benchmark_ratio <= 0.0 or min_wage_benchmark_ratio > 1.0:
         errors.append(f"{policy_code}_min_wage_benchmark_ratio_invalid")
       min_benefits = float(row.get("min_payroll_tax_benefits_pct") or 0.0)
+      default_benefits = float(row.get("default_payroll_tax_benefits_pct") or 0.0)
       max_benefits = float(row.get("max_payroll_tax_benefits_pct") or 0.0)
       if min_benefits <= 0.0:
         errors.append(f"{policy_code}_min_payroll_tax_benefits_pct_must_be_positive")
+      if default_benefits < min_benefits or default_benefits > max_benefits:
+        errors.append(f"{policy_code}_default_payroll_tax_benefits_pct_invalid")
       if max_benefits < min_benefits or max_benefits > 1.0:
         errors.append(f"{policy_code}_max_payroll_tax_benefits_pct_invalid")
       if float(row.get("min_annual_wage") or 0.0) <= 0.0:
@@ -674,6 +689,12 @@ def _validate_schedule_row(row: Any, *, path: str, errors: List[str], max_quarte
   role_category = _clean_text(row.get("role_category"))
   if not role_category:
     errors.append(f"payroll_headcount_missing_role_category:{path}")
+  annual_wage = _float_or_none(row.get("annual_wage"))
+  if annual_wage is None or annual_wage <= 0:
+    errors.append(f"payroll_headcount_missing_resolved_annual_wage:{path}")
+  wage_source = _clean_text(row.get("wage_source"))
+  if not wage_source:
+    errors.append(f"payroll_headcount_missing_wage_source:{path}")
   for field in _PAYROLL_HEADCOUNT_NUMERIC_FIELDS:
     if field not in row:
       continue

@@ -796,9 +796,7 @@ _PAYROLL_HEADCOUNT_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE"),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions"),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE"),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].avg_annual_wage", "avg_annual_wage", "integer_currency", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=1, max_value=1000000, normalization_kind="integer_currency", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Average annual wage"),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0.12, max_value=0.35, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent", prompt_required_instruction="Must stay inside post_intake_headcount_policy_lookup min/max benefits burden. Do not use 0.00 for employees."),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].wage_source", "wage_source", "enum", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="enum", enum_values=["oews_role_match", "oews_naics_role_fallback", "gpt_business_role_wage"], lookup_source="post_intake_headcount_policy_lookup", prompt_label="Wage source"),
 ]
 
 
@@ -833,7 +831,7 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     horizon_rule="q1_to_q20_at_least_once",
     validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Provide at least one payroll role row for every forecast quarter Q1 through Q20. Use multiple role rows when needed for staffing realism; Python calculates payroll dollars and stores intake_consult_drafts.payroll_headcount.",
+    prompt_required_instruction="Provide supporting-staff role/FTE rows for every forecast quarter Q1 through Q20. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through OEWS/policy, calculates payroll dollars, and stores intake_consult_drafts.payroll_headcount.",
   ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
@@ -2068,6 +2066,21 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             field_path = 'fte_spike_small_base_threshold'
             OR field_path LIKE 'quarter_ramp_grid[].fte_%'
             OR field_name IN ('fte_target', 'fte_max', 'fte_spike', 'fte_spike_max', 'fte_spike_small_base_threshold')
+          )
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_GPT_CONTRACT_TABLE_NAME}
+        SET contract_status = 'retired',
+            required = 0,
+            strict_required = 0,
+            prompt_required_instruction = 'Retired: GPT supplies supporting-staff FTE only. Python resolves payroll wages through OEWS and post_intake_headcount_policy_lookup.'
+        WHERE contract_name = 'payroll_headcount_schedule'
+          AND field_path IN (
+            'payroll_headcount_grid[].avg_annual_wage',
+            'payroll_headcount_grid[].annual_wage',
+            'payroll_headcount_grid[].wage_source'
           )
         """
       )

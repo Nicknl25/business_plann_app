@@ -322,7 +322,12 @@ _BALANCE_SHEET_STUB_CONTINUITY_EXCLUDED_LABELS = {
 }
 
 
-def _enforce_balance_sheet_stub_continuity(balance_rows: Sequence[Dict[str, Any]]) -> None:
+def _enforce_balance_sheet_stub_continuity(
+  balance_rows: Sequence[Dict[str, Any]],
+  *,
+  dependency_series_by_label: Optional[Dict[str, Sequence[Any]]] = None,
+) -> None:
+  dependencies = dependency_series_by_label if isinstance(dependency_series_by_label, dict) else {}
   violations: List[Dict[str, Any]] = []
   for row in balance_rows or []:
     if not isinstance(row, dict):
@@ -335,6 +340,9 @@ def _enforce_balance_sheet_stub_continuity(balance_rows: Sequence[Dict[str, Any]
       continue
     stub_value = round(_safe_float(values[0]) or 0.0, 6)
     if abs(stub_value) <= 1e-6:
+      continue
+    dependency_series = list(dependencies.get(label) or [])
+    if dependency_series and all(abs(round(_safe_float(value) or 0.0, 6)) <= 1e-6 for value in dependency_series):
       continue
     empty_live_quarters = [
       idx
@@ -551,7 +559,24 @@ def build_python_finmo_json(
     {"label": "Total Equity", "values": _series("total_equity", include_stub=True)},
     {"label": "Total Liabilities & Equity", "values": _series("total_liabilities_and_equity", include_stub=True)},
   ]
-  _enforce_balance_sheet_stub_continuity(balance_rows)
+  _enforce_balance_sheet_stub_continuity(
+    balance_rows,
+    dependency_series_by_label={
+      "Accounts Receivable": _series("revenue"),
+      "Inventory": _series("cost_of_goods_sold"),
+      "Accounts Payable": [
+        (
+          (_safe_float(row.get("marketing")) or 0.0)
+          + (_safe_float(row.get("research_and_development")) or 0.0)
+          + (_safe_float(row.get("lease_rent")) or 0.0)
+          + (_safe_float(row.get("payroll")) or 0.0)
+          + (_safe_float(row.get("general_and_administrative")) or 0.0)
+        )
+        for row in quarter_rows_raw
+        if isinstance(row, dict)
+      ],
+    },
+  )
   cfs_rows = [
     {"label": "Beginning Cash", "values": _series("beginning_cash", include_stub=True)},
     {"label": "Net Income", "values": _series("net_income", include_stub=True)},
@@ -1667,6 +1692,7 @@ def _apply_authoritative_working_capital_driver_policies(
   )
 
   runtime_rows: List[Dict[str, Any]] = []
+  pending_dependency_rows: List[Dict[str, Any]] = []
   seen_working_capital_labels: set[str] = set()
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
@@ -1674,6 +1700,7 @@ def _apply_authoritative_working_capital_driver_policies(
       continue
     seen_working_capital_labels.add(label)
     stub_value, _existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    existing_live_values = list(_existing_live_values or [])
     live_values: List[float] = []
     for idx in range(max(0, live_count)):
       revenue = max(0.0, float(revenue_series[idx]) if idx < len(revenue_series) else 0.0)
@@ -1694,11 +1721,24 @@ def _apply_authoritative_working_capital_driver_policies(
         value = (ar_balance_seed / revenue) * days_in_quarter if revenue > 0.0 and ar_balance_seed > 0.0 else 0.0
       elif label == "Inventory Days":
         if inventory_balance_seed > 0.0 and cogs <= 0.0:
-          raise ValueError(
-            "working_capital_days_contract_failed: Inventory Days requires positive live COGS "
-            f"when authoritative opening inventory exists. quarter_index={idx + 1} inventory_balance_seed={inventory_balance_seed} cogs={cogs}"
+          existing_value = (
+            round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
+            if idx < len(existing_live_values)
+            else 0.0
           )
-        value = (inventory_balance_seed / cogs) * days_in_quarter if cogs > 0.0 and inventory_balance_seed > 0.0 else 0.0
+          pending_dependency_rows.append(
+            {
+              "label": label,
+              "quarter_index": idx + 1,
+              "dependency": "Cost of Goods Sold",
+              "opening_balance_seed": inventory_balance_seed,
+              "dependency_value": cogs,
+              "preserved_existing_value": existing_value,
+            }
+          )
+          value = existing_value
+        else:
+          value = (inventory_balance_seed / cogs) * days_in_quarter if cogs > 0.0 and inventory_balance_seed > 0.0 else 0.0
       else:
         if ap_balance_seed > 0.0 and ap_expense_base <= 0.0:
           raise ValueError(
@@ -1708,7 +1748,7 @@ def _apply_authoritative_working_capital_driver_policies(
         value = (ap_balance_seed / ap_expense_base) * days_in_quarter if ap_expense_base > 0.0 and ap_balance_seed > 0.0 else 0.0
       if (
         (label == "Accounts Receivable Days" and ar_balance_seed > 0.0)
-        or (label == "Inventory Days" and inventory_balance_seed > 0.0)
+        or (label == "Inventory Days" and inventory_balance_seed > 0.0 and cogs > 0.0)
         or (label == "Accounts Payable Days" and ap_balance_seed > 0.0)
       ) and value <= 0.0:
         raise ValueError(
@@ -1767,6 +1807,7 @@ def _apply_authoritative_working_capital_driver_policies(
       next_payload["derived_driver_runtime"]["authoritative_balance_sheet_working_capital_days"] = {
         "source": "authoritative_balance_sheet_opening_balances",
         "rows": runtime_rows,
+        "pending_dependency_rows": pending_dependency_rows,
       }
   return next_payload
 

@@ -7,6 +7,13 @@ import requests
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
+from client_intake_and_finmo.people_roles import (  # type: ignore
+  _fetch_oews_rows_with_fallback,
+  _get_naics_from_business_type,
+  _match_occ_title_with_gpt,
+  _select_wage,
+)
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_build_prompt_from_contract,
   post_intake_contract_forecast_horizon_quarter_count,
@@ -206,7 +213,7 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
   raw_rows = payload.get("payroll_headcount_grid")
   if not isinstance(raw_rows, list):
     raw_rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
-  rows_by_key: Dict[Tuple[int, str], Dict[str, Any]] = {}
+  rows_by_key: Dict[Tuple[int, str, str, str], Dict[str, Any]] = {}
   for item in raw_rows:
     if not isinstance(item, dict):
       continue
@@ -217,26 +224,34 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
     starting_fte = round(max(0.0, float(_safe_float(item.get("starting_fte")) or 0.0)), 2)
     hires = round(max(0.0, float(_safe_float(item.get("hires")) or 0.0)), 2)
     ending_fte = round(max(0.0, float(_safe_float(item.get("ending_fte")) or 0.0)), 2)
-    annual_wage = _round_currency(item.get("avg_annual_wage") or item.get("annual_wage"))
     benefits_raw = item.get("payroll_tax_benefits_pct")
     if benefits_raw is None:
       benefits_raw = item.get("payroll_taxes_benefits_percent")
     payroll_tax_benefits_pct = round(max(0.0, float(_safe_ratio(benefits_raw) or 0.0)), 2)
     role_category = str(item.get("role_category") or "aggregate_staff").strip() or "aggregate_staff"
-    wage_source = str(item.get("wage_source") or "gpt_business_role_wage").strip() or "gpt_business_role_wage"
+    staffing_class = str(item.get("staffing_class") or "supporting_staff").strip() or "supporting_staff"
+    role_title = str(item.get("role_title") or role_category).strip() or role_category
     role_key = role_category.lower()
-    if (quarter_index, role_key) in rows_by_key:
+    class_key = staffing_class.lower()
+    person_key = str(item.get("person_name") or "").strip().lower()
+    if (quarter_index, class_key, role_key, person_key) in rows_by_key:
       continue
-    rows_by_key[(quarter_index, role_key)] = {
+    parsed_row = {
       "quarter_index": quarter_index,
+      "staffing_class": staffing_class,
       "role_category": role_category,
+      "role_title": role_title,
       "starting_fte": starting_fte,
       "hires": hires,
       "ending_fte": ending_fte,
-      "annual_wage": annual_wage,
-      "wage_source": wage_source,
       "payroll_taxes_benefits_percent": payroll_tax_benefits_pct,
     }
+    if item.get("annual_wage") is not None or item.get("avg_annual_wage") is not None:
+      parsed_row["annual_wage"] = _round_currency(item.get("annual_wage") or item.get("avg_annual_wage"))
+    for text_field in ("person_name", "wage_source", "wage_source_code", "oews_matched_title", "oews_match_basis"):
+      if item.get(text_field) is not None:
+        parsed_row[text_field] = str(item.get(text_field) or "").strip()
+    rows_by_key[(quarter_index, class_key, role_key, person_key)] = parsed_row
   return [
     rows_by_key[key]
     for key in sorted(rows_by_key.keys(), key=lambda item: (item[0], item[1]))
@@ -286,7 +301,7 @@ def _parse_responses_json_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]
 def _people_staffing_context(people_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   people = people_json if isinstance(people_json, dict) else {}
   rows: List[Dict[str, Any]] = []
-  for group_name in ("people", "inferred_roles"):
+  for group_name in ("people",):
     raw_items = people.get(group_name)
     if not isinstance(raw_items, list):
       continue
@@ -311,8 +326,231 @@ def _people_staffing_context(people_json: Optional[Dict[str, Any]]) -> Dict[str,
       )
   return {
     "business_naics_6": str(people.get("business_naics_6") or "").strip(),
-    "known_staffing_roles": rows[:32],
+    "key_people_from_intake": rows[:32],
+    "supporting_staff_instruction": (
+      "Key people are injected by Python from intake and use their intake/OEWS wage. "
+      "GPT should provide supporting-staff role categories and FTE only."
+    ),
   }
+
+
+def _business_type_from_context(
+  *,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+) -> str:
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  return str(
+    ops.get("business_type")
+    or facts.get("business_type")
+    or facts.get("industry")
+    or facts.get("business_description")
+    or ""
+  ).strip()
+
+
+def _business_stage_from_context(
+  *,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+) -> str:
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  return str(ops.get("business_stage") or facts.get("business_stage") or "").strip()
+
+
+def _key_people_rows_from_intake(
+  people_json: Optional[Dict[str, Any]],
+  *,
+  policy: Dict[str, Any],
+  horizon: int,
+) -> List[Dict[str, Any]]:
+  people = people_json if isinstance(people_json, dict) else {}
+  raw_people = people.get("people") if isinstance(people.get("people"), list) else []
+  default_benefits = round(float(policy.get("default_payroll_tax_benefits_pct") or 0.22), 2)
+  rows: List[Dict[str, Any]] = []
+  for person_index, person in enumerate(raw_people):
+    if not isinstance(person, dict):
+      continue
+    role_title = str(person.get("role_title") or person.get("role") or person.get("title") or "").strip()
+    person_name = str(person.get("full_name") or person.get("name") or "").strip() or f"key_person_{person_index + 1}"
+    label = role_title or person_name or f"key_person_{person_index + 1}"
+    annual_wage = _round_currency(person.get("annual_wage"))
+    if annual_wage <= 0:
+      _payroll_fail_fast(
+        "payroll_headcount_key_person_wage_missing",
+        f"Key person '{label}' is missing a positive intake/OEWS annual_wage.",
+        stage="payroll_headcount_key_people",
+        details={"person_index": person_index, "person": person},
+      )
+    wage_source = str(person.get("wage_source") or "intake_oews_key_person").strip() or "intake_oews_key_person"
+    for quarter_index in range(1, horizon + 1):
+      rows.append(
+        {
+          "quarter_index": quarter_index,
+          "staffing_class": "key_person",
+          "role_category": label,
+          "role_title": role_title or label,
+          "person_name": person_name,
+          "starting_fte": 1.0,
+          "hires": 0.0,
+          "ending_fte": 1.0,
+          "annual_wage": annual_wage,
+          "wage_source": wage_source,
+          "wage_source_code": str(person.get("wage_source_code") or "").strip(),
+          "oews_matched_title": str(person.get("matched_occ_title") or person.get("oews_matched_title") or "").strip(),
+          "oews_match_basis": "intake_key_person",
+          "payroll_taxes_benefits_percent": default_benefits,
+        }
+      )
+  return rows
+
+
+def _oews_rows_for_business(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], str]:
+  people = people_json if isinstance(people_json, dict) else {}
+  business_type = _business_type_from_context(business_facts=business_facts, ops_json=ops_json)
+  naics_6 = str(people.get("business_naics_6") or "").strip()
+  conn = get_mysql_connection()
+  try:
+    if not naics_6:
+      naics_6 = str(_get_naics_from_business_type(conn, business_type) or "").strip()
+    rows = _fetch_oews_rows_with_fallback(conn, state_abbrev="US", naics_value=naics_6) if naics_6 else []
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  return rows, naics_6
+
+
+def _fallback_wage_from_oews_rows(rows: Sequence[Dict[str, Any]]) -> Tuple[Optional[int], str, str]:
+  all_occupations_row = None
+  for row in rows:
+    if str(row.get("occ_title") or "").strip().lower() == "all occupations":
+      all_occupations_row = row
+      break
+  if all_occupations_row:
+    picked, source = _select_wage(all_occupations_row, False)
+    if picked is not None:
+      return _round_currency(picked), "All Occupations", source or "oews_median"
+  picked_values: List[float] = []
+  for row in rows:
+    picked, _source = _select_wage(row, False)
+    if picked is not None:
+      picked_values.append(float(picked))
+  if picked_values:
+    picked_values.sort()
+    midpoint = len(picked_values) // 2
+    median = picked_values[midpoint] if len(picked_values) % 2 else (picked_values[midpoint - 1] + picked_values[midpoint]) / 2.0
+    return _round_currency(median), "NAICS wage median", "oews_naics_role_fallback"
+  return None, "", ""
+
+
+def _resolve_supporting_staff_wages(
+  rows: Sequence[Dict[str, Any]],
+  *,
+  policy: Dict[str, Any],
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  oews_rows, naics_6 = _oews_rows_for_business(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+  )
+  business_type = _business_type_from_context(business_facts=business_facts, ops_json=ops_json)
+  default_wage = _round_currency(policy.get("default_avg_annual_wage") or 150000)
+  min_wage = _round_currency(policy.get("min_annual_wage") or 25000)
+  candidate_titles: List[str] = []
+  seen_titles: set[str] = set()
+  for row in oews_rows:
+    occ_title = str(row.get("occ_title") or "").strip()
+    if not occ_title or occ_title.lower() == "all occupations" or occ_title.lower() in seen_titles:
+      continue
+    seen_titles.add(occ_title.lower())
+    candidate_titles.append(occ_title)
+  wage_cache: Dict[str, Dict[str, Any]] = {}
+  resolved_rows: List[Dict[str, Any]] = []
+  for row in rows:
+    role_title = str(row.get("role_title") or row.get("role_category") or "").strip() or "supporting_staff"
+    cache_key = role_title.lower()
+    wage_info = wage_cache.get(cache_key)
+    if wage_info is None:
+      matched_title = ""
+      annual_wage: Optional[int] = None
+      wage_source = ""
+      matched_row = None
+      if candidate_titles:
+        try:
+          matched_title = _match_occ_title_with_gpt(
+            role_title=role_title,
+            notes="Post-intake payroll supporting staff role. Match to the closest OEWS occupation title.",
+            business_type=business_type,
+            candidate_titles=candidate_titles,
+          ) or ""
+        except Exception:
+          matched_title = ""
+        if matched_title:
+          for oews_row in oews_rows:
+            if str(oews_row.get("occ_title") or "").strip() == matched_title:
+              matched_row = oews_row
+              break
+        if matched_row:
+          picked, picked_source = _select_wage(matched_row, False)
+          if picked is not None:
+            annual_wage = _round_currency(picked)
+            wage_source = f"oews_role_match:{picked_source or 'oews_median'}"
+      if annual_wage is None and oews_rows:
+        fallback_wage, fallback_title, fallback_source = _fallback_wage_from_oews_rows(oews_rows)
+        if fallback_wage is not None:
+          annual_wage = fallback_wage
+          matched_title = fallback_title
+          wage_source = fallback_source or "oews_naics_role_fallback"
+      if annual_wage is None:
+        annual_wage = default_wage
+        wage_source = "policy_default_wage"
+        matched_title = ""
+      if annual_wage < min_wage:
+        _payroll_fail_fast(
+          "payroll_headcount_resolved_wage_below_policy_floor",
+          f"Supporting staff role '{role_title}' resolved annual_wage={annual_wage}; min={min_wage}.",
+          stage="payroll_headcount_wage_resolution",
+          details={
+            "role_title": role_title,
+            "annual_wage": annual_wage,
+            "min_annual_wage": min_wage,
+            "wage_source": wage_source,
+            "business_naics_6": naics_6,
+          },
+        )
+      wage_info = {
+        "annual_wage": annual_wage,
+        "wage_source": wage_source,
+        "wage_source_code": naics_6,
+        "oews_matched_title": matched_title,
+        "oews_match_basis": "US OEWS NAICS fallback" if wage_source != "policy_default_wage" else "post_intake_headcount_policy_lookup.default_avg_annual_wage",
+      }
+      wage_cache[cache_key] = wage_info
+    resolved_rows.append(
+      {
+        **deepcopy(row),
+        "staffing_class": "supporting_staff",
+        "role_title": role_title,
+        "annual_wage": int(wage_info["annual_wage"]),
+        "wage_source": str(wage_info["wage_source"]),
+        "wage_source_code": str(wage_info.get("wage_source_code") or ""),
+        "oews_matched_title": str(wage_info.get("oews_matched_title") or ""),
+        "oews_match_basis": str(wage_info.get("oews_match_basis") or ""),
+      }
+    )
+  return resolved_rows
 
 
 def _role_key(value: Any) -> str:
@@ -322,6 +560,8 @@ def _role_key(value: Any) -> str:
 def _quarter_role_counts(rows: Sequence[Dict[str, Any]]) -> Dict[int, int]:
   counts: Dict[int, int] = {}
   for row in rows:
+    if str(row.get("staffing_class") or "supporting_staff").strip().lower() == "key_person":
+      continue
     quarter_index = int(row.get("quarter_index") or 0)
     counts[quarter_index] = int(counts.get(quarter_index) or 0) + 1
   return counts
@@ -331,6 +571,7 @@ def _validate_payroll_role_rows(
   rows: Sequence[Dict[str, Any]],
   *,
   policy: Dict[str, Any],
+  require_annual_wage: bool = True,
 ) -> None:
   horizon = _contract_horizon_quarters()
   quarters = {int(row.get("quarter_index") or 0) for row in rows}
@@ -359,10 +600,12 @@ def _validate_payroll_role_rows(
   for row in rows:
     quarter_index = int(row.get("quarter_index") or 0)
     role_category = _role_key(row.get("role_category"))
+    role_identity = _role_key(row.get("person_name")) if str(row.get("staffing_class") or "").lower() == "key_person" else ""
+    continuity_key = f"{str(row.get('staffing_class') or 'supporting_staff').lower()}::{role_identity or role_category}"
     starting_fte = round(float(row.get("starting_fte") or 0.0), 2)
     hires = round(float(row.get("hires") or 0.0), 2)
     ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
-    if quarter_index > 1 and role_category in previous_by_role and abs(starting_fte - previous_by_role[role_category]) > 0.01:
+    if quarter_index > 1 and continuity_key in previous_by_role and abs(starting_fte - previous_by_role[continuity_key]) > 0.01:
       _payroll_fail_fast(
         "payroll_headcount_contract_continuity_failed",
         f"Q{quarter_index} {role_category} starting_fte must equal prior quarter ending_fte.",
@@ -382,13 +625,19 @@ def _validate_payroll_role_rows(
         stage="payroll_headcount_role_row_validation",
       )
     annual_wage = _round_currency(row.get("annual_wage"))
-    if annual_wage < min_annual_wage:
+    if require_annual_wage and annual_wage <= 0:
+      _payroll_fail_fast(
+        "payroll_headcount_schedule_wage_missing",
+        f"Q{quarter_index} {role_category} annual_wage must be resolved by the payroll schedule builder.",
+        stage="payroll_headcount_role_row_validation",
+      )
+    if require_annual_wage and annual_wage < min_annual_wage:
       _payroll_fail_fast(
         "payroll_headcount_schedule_wage_below_policy_floor",
         f"Q{quarter_index} {role_category} annual_wage={annual_wage}; min={min_annual_wage} from post_intake_headcount_policy_lookup.",
         stage="payroll_headcount_role_row_validation",
       )
-    previous_by_role[role_category] = ending_fte
+    previous_by_role[continuity_key] = ending_fte
 
 
 def _average_fte_by_quarter_from_rows(rows: Sequence[Dict[str, Any]]) -> Dict[int, float]:
@@ -455,6 +704,34 @@ def _payroll_economic_guardrails(
     "rule": "average_fte_by_quarter must be >= minimum_average_fte for every Q1-Q20",
     "quarter_rows": quarter_rows,
   }
+
+
+def _supporting_staff_guardrails_for_gpt(
+  guardrails: Dict[str, Any],
+  *,
+  people_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  people = people_json if isinstance(people_json, dict) else {}
+  key_people_count = len([item for item in (people.get("people") or []) if isinstance(item, dict)])
+  out = deepcopy(guardrails if isinstance(guardrails, dict) else {})
+  out["key_people_injected_by_python"] = key_people_count
+  out["rule"] = (
+    "GPT provides supporting-staff FTE only. Python injects key people from intake, "
+    "so supporting_staff_minimum_average_fte is the GPT-owned floor."
+  )
+  adjusted_rows: List[Dict[str, Any]] = []
+  for item in out.get("quarter_rows") or []:
+    if not isinstance(item, dict):
+      continue
+    row = deepcopy(item)
+    row["key_people_average_fte_injected_by_python"] = float(key_people_count)
+    row["supporting_staff_minimum_average_fte"] = round(
+      max(0.0, float(row.get("minimum_average_fte") or 0.0) - float(key_people_count)),
+      2,
+    )
+    adjusted_rows.append(row)
+  out["quarter_rows"] = adjusted_rows
+  return out
 
 
 def _validate_payroll_economic_guardrails(
@@ -545,7 +822,7 @@ def validate_payroll_headcount_contract_payload(
     )
   policy = post_intake_headcount_policy_for("default")
   rows = _payroll_headcount_grid_rows(candidate)
-  _validate_payroll_role_rows(rows, policy=policy)
+  _validate_payroll_role_rows(rows, policy=policy, require_annual_wage=False)
   rationale = str(candidate.get("rationale") or "").strip()
   if not rationale:
     _payroll_fail_fast(
@@ -572,6 +849,9 @@ def _build_payroll_headcount_payload_from_contract(
   client_id: Any = "",
   policy_code: Any = "default",
   model_input_json: Optional[Dict[str, Any]] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   policy = post_intake_headcount_policy_for(policy_code=policy_code)
   horizon = int((policy or {}).get("schedule_horizon_quarters") or 0)
@@ -583,8 +863,25 @@ def _build_payroll_headcount_payload_from_contract(
       stage="payroll_headcount_payload_build",
       details={"policy_horizon": horizon, "contract_horizon": contract_horizon},
     )
-  rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
-  _validate_payroll_role_rows(rows, policy=policy)
+  supporting_rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
+  _validate_payroll_role_rows(supporting_rows, policy=policy, require_annual_wage=False)
+  key_people_rows = _key_people_rows_from_intake(
+    people_json,
+    policy=policy,
+    horizon=horizon,
+  )
+  resolved_supporting_rows = _resolve_supporting_staff_wages(
+    supporting_rows,
+    policy=policy,
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+  )
+  rows = [
+    *key_people_rows,
+    *resolved_supporting_rows,
+  ]
+  _validate_payroll_role_rows(rows, policy=policy, require_annual_wage=True)
   _validate_payroll_economic_guardrails(
     rows,
     model_input_json=model_input_json,
@@ -616,6 +913,7 @@ def _build_payroll_headcount_payload_from_contract(
     total_quarterly_payroll = int(quarterly_wage_cost + quarterly_taxes_benefits)
     schedule_row = {
       **deepcopy(row),
+      "staffing_class": str(row.get("staffing_class") or "supporting_staff").strip() or "supporting_staff",
       "average_fte": average_fte,
       "annual_wage": annual_wage,
       "payroll_taxes_benefits_percent": benefits_pct,
@@ -658,6 +956,9 @@ def build_payroll_headcount_payload_from_contract(
   client_id: Any = "",
   policy_code: Any = "default",
   model_input_json: Optional[Dict[str, Any]] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  people_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   payload = payroll_headcount_contract if isinstance(payroll_headcount_contract, dict) else {}
   try:
@@ -697,6 +998,9 @@ def build_payroll_headcount_payload_from_contract(
     client_id=client_id,
     policy_code=policy_code,
     model_input_json=model_input_json,
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
   )
 
 
@@ -734,6 +1038,10 @@ def estimate_payroll_headcount_schedule_with_gpt(
     model_input_json=model_input_json,
     policy=policy or {},
     financials_json=financials,
+  )
+  payroll_supporting_staff_guardrails = _supporting_staff_guardrails_for_gpt(
+    payroll_economic_guardrails,
+    people_json=people_json,
   )
   user_context = {
     "business_identity": {
@@ -794,11 +1102,12 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "salary_basis",
         "default_avg_annual_wage",
         "min_wage_benchmark_ratio",
+        "default_payroll_tax_benefits_pct",
         "currency_rounding",
         "ratio_rounding",
       }
     },
-    "payroll_economic_guardrails": payroll_economic_guardrails,
+    "payroll_economic_guardrails": payroll_supporting_staff_guardrails,
     "revenue_driver_context": _revenue_driver_context_from_model_input(model_input_json, finmo_json=finmo_json),
     "current_model_snapshot": {
       "finmo_revenue_and_payroll_first_4_quarters": [
@@ -852,7 +1161,8 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "source_of_truth": "post_intake_headcount_policy_lookup + payroll_headcount_schedule validator",
         "required_action": (
           "Return a corrected full payroll_headcount_schedule. Do not change stage_ramp_contract. "
-          "Increase staffing rows so every quarter average FTE satisfies payroll_economic_guardrails.minimum_average_fte. "
+          "Increase supporting-staff rows so every quarter average FTE satisfies "
+          "payroll_economic_guardrails.supporting_staff_minimum_average_fte. "
           "Review every violating_quarters item in the failure details; fixing only the first failing quarter is invalid."
         ),
         "error": last_contract_error[:6000],
@@ -864,13 +1174,15 @@ def estimate_payroll_headcount_schedule_with_gpt(
       include_phase="pre_convergence",
       static_instruction=(
         "Decide the payroll headcount schedule using business judgment inside the SQL-defined "
-        "payroll_headcount_schedule contract. Python will calculate payroll dollars from this schedule "
-        "and validate it against payroll_economic_guardrails from post_intake_headcount_policy_lookup."
+        "payroll_headcount_schedule contract. GPT only supplies supporting-staff role/FTE rows. "
+        "Python injects key people from intake, resolves wages through OEWS/policy, calculates payroll dollars, "
+        "and validates the final schedule against post_intake_headcount_policy_lookup."
       ),
       task_instruction=(
         "Return only JSON matching payroll_headcount_schedule. Use the stage_ramp_contract as context, "
-        "but do not change ramp. Output staffing/FTE/wage assumptions only; Python calculates and persists payroll. "
-        "Every quarter's average FTE must satisfy payroll_economic_guardrails.minimum_average_fte. "
+        "but do not change ramp. Output supporting-staff role_category, starting_fte, hires, ending_fte, and benefits percent only. "
+        "Do not provide wages and do not include key people; Python owns those. "
+        "Every quarter's supporting-staff average FTE must satisfy payroll_economic_guardrails.supporting_staff_minimum_average_fte. "
         "If a prior failure is provided, fix that exact table-backed validation failure."
       ),
     )
@@ -919,6 +1231,9 @@ def estimate_payroll_headcount_schedule_with_gpt(
         draft_id=draft_id,
         client_id=client_id,
         model_input_json=model_input_json,
+        business_facts=business_facts,
+        ops_json=ops_json,
+        people_json=people_json,
       )
     except RuntimeError as exc:
       last_contract_error = str(exc)

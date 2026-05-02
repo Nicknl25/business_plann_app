@@ -1637,3 +1637,52 @@ Likely next root-cause area:
 - Do not increase the cash bounds ad hoc. If the legal move space is wrong, fix the table-backed cash envelope generation or the cash policy lookup metadata. If GPT is expected to allocate within existing legal bounds, make the cash contract/schema expose those exact per-cell bounds before the call.
 
 Important: do not resume by changing the runner. The runner is intake simulation only. Resume by fixing post-intake cash under the Golden Rule.
+
+## Update: 2026-05-02 Role-Based Payroll Schedule Instituted
+
+This update moved payroll closer to the intended real-business schedule architecture, but it is not complete yet.
+
+What changed:
+
+- Payroll remains a post-intake derived driver. Model input still receives the same `expenses::Payroll` row and FINMO still calculates normally from model input.
+- The payroll step remains table-backed through `post_intake_process_sequence_lookup`, `post_intake_gpt_contract_lookup`, `post_intake_gpt_context_lookup`, and `post_intake_headcount_policy_lookup`.
+- GPT no longer owns payroll wage fields in the active `payroll_headcount_schedule` contract.
+- GPT now supplies supporting-staff FTE schedule rows only: role category, starting FTE, hires, ending FTE, and payroll tax/benefits percent.
+- Python injects key people from intake into the payroll schedule.
+- Python resolves supporting-staff wages through OEWS role matching where possible, then through the headcount policy fallback only when OEWS cannot resolve.
+- The persisted `intake_consult_drafts.payroll_headcount` schedule now supports role-level rows with staffing class, role title, person name, wage source, annual wage, taxes/benefits, quarterly wage cost, and total quarterly payroll.
+
+Verification performed:
+
+- Golden preflight passed after the lookup-table changes: `golden_rule_error_count 0`.
+- Persisted E2E source draft `0d0fb60aca754e00954f402a4fdec0ab` was run through `Test Files/run_persisted_system_run.py`.
+- The E2E completed successfully on clone draft `b6134325d26842228cad0430aa9649b3`.
+- Final stage was `cash_pass_completed`.
+- Final status was `completed`.
+- Remaining issues were `0`.
+- Payroll schedule produced `120` rows.
+- Payroll included both `key_person` and `supporting_staff` rows.
+- Payroll wage sources were OEWS-backed: `oews_median` and `oews_role_match:oews_median`.
+- Q1 payroll was `555,251` with ending FTE `46.0`.
+- Q20 payroll was `1,169,043` with ending FTE `103.0`.
+
+Class fixes made during this E2E:
+
+- Authoritative working-capital day derivation no longer hard-fails during pre-grid baseline when COGS is not established yet.
+- Balance-sheet stub continuity now respects dependency timing. Inventory continuity is enforced once the COGS dependency exists instead of blocking baseline construction before the cost driver is established.
+
+Important caveat:
+
+- This is not the final payroll design yet.
+- Roles are still too broad in places.
+- Supporting-staff roles are not yet sufficiently complete or granular.
+- Payroll is not yet tied tightly enough to revenue, capacity, utilization, or ramp behavior.
+- The current successful run proves the new schedule can execute and persist; it does not prove role coverage is business-complete.
+
+Next payroll work should focus on:
+
+- Better role decomposition from GPT: not one broad staff bucket when the business clearly needs multiple operating roles.
+- Stronger table-backed payroll context so GPT sees exactly what role families are expected for the business type.
+- A better link between revenue/capacity/utilization ramp and required role/FTE growth.
+- Fail-fast checks that reject incomplete role coverage, not merely low total payroll.
+- Continued adherence to the Golden Rule: if payroll behavior is structural or repeatable, put it in `post_intake_headcount_policy_lookup` or a table-backed payroll function instead of prompt prose or scattered code.
