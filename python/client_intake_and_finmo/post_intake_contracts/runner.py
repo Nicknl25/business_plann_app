@@ -15,7 +15,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 logger = logging.getLogger(__name__)
 
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
+_CONVERGENCE_MAX_FOCUS_ISSUES = 2
+_UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
+_SOLVER_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
 _UNIFIED_PRIMARY_TARGET_MAX_COUNT = 6
 _REQUIRED_SOLVER_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
@@ -32,6 +35,9 @@ R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_contract_forecast_horizon_quarter_count,
   post_intake_build_prompt_from_contract,
+  post_intake_direct_target_metric_for_lever,
+  post_intake_direct_target_metric_names_for_levers,
+  post_intake_driver_target_mapping_entry,
   post_intake_driver_target_metric_ids,
   post_intake_gpt_contract_compact_prompt_field_spec,
   post_intake_gpt_contract_errors,
@@ -43,11 +49,19 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_context_filter_payload,
   post_intake_gpt_context_rows,
   post_intake_gpt_context_request_char_budget,
+  post_intake_issue_mapping_contract,
+  post_intake_normalize_lever_value,
+  post_intake_normalize_target_value,
+  post_intake_precision_unit,
+  post_intake_process_sequence_step,
+  post_intake_target_precision_for_metric,
+  post_intake_target_value_kind_for_metric,
   stage_planning_ramp_policy,
 )
 from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
 
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
+_SOLVER_TARGET_METRIC_KEYS = _UNIFIED_ALLOWED_TARGET_METRIC_KEYS
 _REQUIRED_SOLVER_TARGET_METRIC_KEYS = _UNIFIED_ALLOWED_TARGET_METRIC_KEYS
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -507,6 +521,50 @@ def _post_intake_contract_payload_errors(
       f"post_intake_gpt_contract_payload_validation_failed: contract={contract_name} detail={exc}"
     ]
 
+def _sequence_validation_subject_path(step_key: str) -> str:
+  try:
+    row = post_intake_process_sequence_step(step_key, required=True) or {}
+  except Exception as exc:
+    raise RuntimeError(
+      f"post_intake_process_sequence_lookup_unavailable: step_key={step_key} detail={exc}"
+    ) from exc
+  path = str(row.get("validation_subject_path") or "").strip()
+  if not path:
+    raise RuntimeError(
+      f"post_intake_process_sequence_validation_subject_missing: step_key={step_key}"
+    )
+  if ";" in path:
+    raise RuntimeError(
+      f"post_intake_process_sequence_validation_subject_not_machine_path: step_key={step_key} path={path!r}"
+    )
+  return path
+
+
+def _stage_ramp_validation_subject_for_step(
+  *,
+  step_key: str,
+  candidate: Dict[str, Any],
+) -> Dict[str, Any]:
+  path = _sequence_validation_subject_path(step_key)
+  if path == "stage_ramp_contract":
+    return copy.deepcopy(candidate)
+  prefix = "stage_ramp_contract."
+  if not path.startswith(prefix):
+    raise RuntimeError(
+      "post_intake_process_sequence_validation_subject_unsupported: "
+      f"step_key={step_key} path={path!r} expected_prefix={prefix!r}"
+    )
+  remainder = path[len(prefix):].strip()
+  if not remainder or "." in remainder:
+    raise RuntimeError(
+      "post_intake_process_sequence_validation_subject_unsupported_nested_path: "
+      f"step_key={step_key} path={path!r}"
+    )
+  return {
+    remainder: copy.deepcopy(candidate.get(remainder)),
+    "rationale": copy.deepcopy(candidate.get("rationale")),
+  }
+
 def _maintenance_capex_percent_schema() -> Dict[str, Any]:
   return _post_intake_contract_schema("maintenance_capex_percent")
 
@@ -522,9 +580,6 @@ def _stage_ramp_contract_schema() -> Dict[str, Any]:
       "rev_target": rate_schema,
       "rev_max": rate_schema,
       "rev_spike_max": rate_schema,
-      "fte_target": rate_schema,
-      "fte_max": rate_schema,
-      "fte_spike_max": rate_schema,
       "max_util": {"type": "number", "minimum": 0, "maximum": 1},
       "cogs_target": {"type": "number", "minimum": 0, "maximum": 1},
       "cogs_max": {"type": "number", "minimum": 0, "maximum": 1},
@@ -533,7 +588,6 @@ def _stage_ramp_contract_schema() -> Dict[str, Any]:
       "ga_max": {"type": "number", "minimum": 0, "maximum": 1},
       "lease_max": {"type": "number", "minimum": 0, "maximum": 1},
       "ni_floor": margin_schema,
-      "fte_spike_small_base_threshold": {"type": "number", "minimum": -1, "maximum": 1000},
     },
   )
 
@@ -619,13 +673,6 @@ def _validate_stage_ramp_contract_payload(
       f"utilization_high_watermark must be between 0.50 and 0.98; received {candidate.get('utilization_high_watermark')!r}"
     )
 
-  small_base_raw = candidate.get("fte_spike_small_base_threshold")
-  small_base_threshold = _safe_float(small_base_raw)
-  if small_base_threshold is None:
-    errors.append(
-      f"fte_spike_small_base_threshold must be numeric; use -1 when no small-base spike threshold applies. received {small_base_raw!r}"
-    )
-
   raw_grid = candidate.get("quarter_ramp_grid")
   horizon_count = _contract_forecast_quarter_count("stage_ramp_contract")
   if not isinstance(raw_grid, list):
@@ -640,9 +687,6 @@ def _validate_stage_ramp_contract_payload(
     "revenue_qoq_target": "rev_target",
     "revenue_qoq_max": "rev_max",
     "revenue_qoq_spike_max": "rev_spike_max",
-    "fte_qoq_target": "fte_target",
-    "fte_qoq_max": "fte_max",
-    "fte_qoq_spike_max": "fte_spike_max",
     "utilization_cap": "max_util",
     "cogs_percent_of_revenue_target": "cogs_target",
     "cogs_percent_of_revenue_max": "cogs_max",
@@ -667,9 +711,6 @@ def _validate_stage_ramp_contract_payload(
       "revenue_qoq_target",
       "revenue_qoq_max",
       "revenue_qoq_spike_max",
-      "fte_qoq_target",
-      "fte_qoq_max",
-      "fte_qoq_spike_max",
       "utilization_cap",
       "cogs_percent_of_revenue_target",
       "cogs_percent_of_revenue_max",
@@ -702,19 +743,12 @@ def _validate_stage_ramp_contract_payload(
       value = round(value, 2)
       parsed[field] = value
     revenue_spike_allowed = bool(item.get("rev_spike"))
-    fte_spike_allowed = bool(item.get("fte_spike"))
     if not revenue_spike_allowed and parsed.get("revenue_qoq_spike_max", 0.0) < parsed.get("revenue_qoq_max", 0.0) - 1e-9:
       parsed["revenue_qoq_spike_max"] = parsed.get("revenue_qoq_max", 0.0)
-    if not fte_spike_allowed and parsed.get("fte_qoq_spike_max", 0.0) < parsed.get("fte_qoq_max", 0.0) - 1e-9:
-      parsed["fte_qoq_spike_max"] = parsed.get("fte_qoq_max", 0.0)
     if parsed.get("revenue_qoq_target", 0.0) > parsed.get("revenue_qoq_max", 0.0) + 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_target cannot exceed revenue_qoq_max")
     if revenue_spike_allowed and parsed.get("revenue_qoq_spike_max", 0.0) < parsed.get("revenue_qoq_max", 0.0) - 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_spike_max must be >= revenue_qoq_max")
-    if parsed.get("fte_qoq_target", 0.0) > parsed.get("fte_qoq_max", 0.0) + 1e-9:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} fte_qoq_target cannot exceed fte_qoq_max")
-    if fte_spike_allowed and parsed.get("fte_qoq_spike_max", 0.0) < parsed.get("fte_qoq_max", 0.0) - 1e-9:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} fte_qoq_spike_max must be >= fte_qoq_max")
     if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
     if parsed.get("cogs_percent_of_revenue_max", 0.0) < 0.20:
@@ -750,9 +784,6 @@ def _validate_stage_ramp_contract_payload(
         errors.append(
           f"quarter_ramp_grid Q{quarter_index} stage/planning policy does not allow loss_allowed after Q{int(loss_allowed_latest)}."
         )
-    reason = str(item.get("why") or "").strip()
-    if not reason:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} ramp_reason is required")
     normalized_row = {
       "quarter_index": quarter_index,
       "prior_quarter_index": quarter_index - 1 if quarter_index > 1 else 0,
@@ -760,10 +791,6 @@ def _validate_stage_ramp_contract_payload(
       "revenue_qoq_max": round(float(parsed.get("revenue_qoq_max") or 0.0), 2),
       "revenue_qoq_spike_allowed": revenue_spike_allowed,
       "revenue_qoq_spike_max": round(float(parsed.get("revenue_qoq_spike_max") or 0.0), 2),
-      "fte_qoq_target": round(float(parsed.get("fte_qoq_target") or 0.0), 2),
-      "fte_qoq_max": round(float(parsed.get("fte_qoq_max") or 0.0), 2),
-      "fte_qoq_spike_allowed": fte_spike_allowed,
-      "fte_qoq_spike_max": round(float(parsed.get("fte_qoq_spike_max") or 0.0), 2),
       "utilization_cap": round(float(parsed.get("utilization_cap") or 0.0), 2),
       "cogs_percent_of_revenue_target": round(float(parsed.get("cogs_percent_of_revenue_target") or 0.0), 2),
       "cogs_percent_of_revenue_max": round(float(parsed.get("cogs_percent_of_revenue_max") or 0.0), 2),
@@ -773,7 +800,6 @@ def _validate_stage_ramp_contract_payload(
       "lease_percent_of_revenue_max": round(float(parsed.get("lease_percent_of_revenue_max") or 0.0), 2),
       "net_income_margin_floor": round(float(parsed.get("net_income_margin_floor") or 0.0), 2),
       "profitability_posture": profitability_posture,
-      "ramp_reason": reason,
     }
     rows_by_quarter[quarter_index] = normalized_row
     normalized_rows.append(normalized_row)
@@ -856,13 +882,6 @@ def _validate_stage_ramp_contract_payload(
     for row in live_rows
     if bool(row.get("revenue_qoq_spike_allowed"))
   ]
-  fte_targets = [float(row.get("fte_qoq_target") or 0.0) for row in live_rows]
-  fte_maxes = [float(row.get("fte_qoq_max") or 0.0) for row in live_rows]
-  fte_spikes = [
-    float(row.get("fte_qoq_spike_max") or 0.0)
-    for row in live_rows
-    if bool(row.get("fte_qoq_spike_allowed"))
-  ]
   revenue_spike_window = [
     int(row.get("prior_quarter_index") or 0)
     for row in live_rows
@@ -900,14 +919,6 @@ def _validate_stage_ramp_contract_payload(
     "utilization_launch_caps_by_quarter": utilization_caps,
     "cost_maturity_caps": cost_cap_summary,
     "profitability_floor_by_quarter": profitability_floor_by_quarter,
-    "fte_qoq_default": round(sum(fte_targets) / max(len(fte_targets), 1), 2),
-    "fte_qoq_max": round(max(fte_maxes or [0.0]), 2),
-    "fte_qoq_max_spike": round(max(fte_spikes or fte_maxes or [0.0]), 2),
-    "fte_spike_small_base_threshold": (
-      None
-      if small_base_threshold is not None and float(small_base_threshold) < 0
-      else round(float(small_base_threshold or 0.0), 2)
-    ),
     "max_spike_count": len(revenue_spike_window),
     "utilization_high_watermark": round(float(utilization_high_watermark or 0.0), 2),
     "capacity_support_rule": (
@@ -970,6 +981,39 @@ def _revenue_catalog_snapshot_for_starting_ppe(ops_json: Optional[Dict[str, Any]
     if entry:
       snapshot.append(entry)
   return snapshot
+
+
+def _payroll_people_staffing_context(people_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  people = people_json if isinstance(people_json, dict) else {}
+  rows: List[Dict[str, Any]] = []
+  for group_name in ("people", "inferred_roles"):
+    raw_items = people.get(group_name)
+    if not isinstance(raw_items, list):
+      continue
+    for item in raw_items:
+      if not isinstance(item, dict):
+        continue
+      role_title = str(item.get("role_title") or item.get("full_name") or "").strip()
+      if not role_title:
+        continue
+      rows.append(
+        {
+          "source_group": group_name,
+          "role_title": role_title,
+          "annual_wage": int(round(float(_safe_float(item.get("annual_wage")) or 0.0))),
+          "wage_source": str(item.get("wage_source") or "").strip(),
+          "months_until_hire": (
+            int(round(float(_safe_float(item.get("months_until_hire")) or 0.0)))
+            if item.get("months_until_hire") is not None
+            else None
+          ),
+        }
+      )
+  return {
+    "business_naics_6": str(people.get("business_naics_6") or "").strip(),
+    "known_staffing_roles": rows[:24],
+  }
+
 
 def _estimate_maintenance_capex_percent_with_gpt(
   *,
@@ -1096,23 +1140,47 @@ def _estimate_maintenance_capex_percent_with_gpt(
     "raw_openai_response": raw_openai_response,
   }
 
-def _stage_ramp_gpt_timeout_seconds() -> float:
-  raw = str(os.getenv("STAGE_RAMP_GPT_TIMEOUT_SECONDS") or "").strip()
+def _sequence_gpt_timeout_seconds(
+  *,
+  step_key: str,
+  env_name: str,
+  fallback: float,
+  minimum: float,
+  maximum: float,
+) -> float:
+  raw = str(os.getenv(env_name) or "").strip()
   if raw:
     try:
-      return max(15.0, min(90.0, float(raw)))
+      return max(minimum, min(maximum, float(raw)))
     except Exception:
       pass
-  return 45.0
+  try:
+    step = post_intake_process_sequence_step(step_key, required=False)
+    value = float((step or {}).get("timeout_seconds") or 0.0)
+    if value > 0:
+      return max(minimum, min(maximum, value))
+  except Exception:
+    pass
+  return fallback
+
+
+def _stage_ramp_gpt_timeout_seconds() -> float:
+  return _sequence_gpt_timeout_seconds(
+    step_key="stage_ramp_contract",
+    env_name="STAGE_RAMP_GPT_TIMEOUT_SECONDS",
+    fallback=60.0,
+    minimum=15.0,
+    maximum=90.0,
+  )
 
 def _r_and_d_applicability_timeout_seconds() -> float:
-  raw = str(os.getenv("R_AND_D_APPLICABILITY_GPT_TIMEOUT_SECONDS") or "").strip()
-  if raw:
-    try:
-      return max(10.0, min(45.0, float(raw)))
-    except Exception:
-      pass
-  return 20.0
+  return _sequence_gpt_timeout_seconds(
+    step_key="r_and_d_applicability",
+    env_name="R_AND_D_APPLICABILITY_GPT_TIMEOUT_SECONDS",
+    fallback=20.0,
+    minimum=10.0,
+    maximum=45.0,
+  )
 
 def _r_and_d_applicability_schema() -> Dict[str, Any]:
   return _post_intake_contract_schema(
@@ -1321,13 +1389,9 @@ def _estimate_r_and_d_applicability_with_gpt(
       "Return only JSON matching the SQL contract. Be conservative: if R&D is not a real distinct operating function, return false."
     ),
   )
-  payload = {
+  payload_base = {
     "model": _openai_model(),
     "temperature": 0,
-    "input": [
-      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
-    ],
     "text": {
       "format": {
         "type": "json_schema",
@@ -1340,6 +1404,11 @@ def _estimate_r_and_d_applicability_with_gpt(
   timeout_seconds = _r_and_d_applicability_timeout_seconds()
   prior_deadline = _set_active_openai_deadline(time.perf_counter() + timeout_seconds)
   try:
+    payload = copy.deepcopy(payload_base)
+    payload["input"] = [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ]
     resp = _post_openai(
       url="https://api.openai.com/v1/responses",
       headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -1368,6 +1437,7 @@ def _estimate_stage_ramp_contract_with_gpt(
   ops_json: Optional[Dict[str, Any]],
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]] = None,
   planning_mode: str,
   planning_mode_reason: str,
   model_input_json: Optional[Dict[str, Any]],
@@ -1379,6 +1449,7 @@ def _estimate_stage_ramp_contract_with_gpt(
     raise RuntimeError("stage_ramp_contract_openai_key_missing: OPENAI_API_KEY is not configured.")
   facts = business_facts if isinstance(business_facts, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
+  people = people_json if isinstance(people_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
   year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
   start_date = (
@@ -1413,6 +1484,11 @@ def _estimate_stage_ramp_contract_with_gpt(
   finmo_rows = [
     row for row in ((finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)
   ]
+  try:
+    from client_intake_and_finmo.post_intake_headcount.schedule import _revenue_driver_context_from_model_input  # type: ignore
+    revenue_driver_context = _revenue_driver_context_from_model_input(model_input_json, finmo_json=finmo_json)
+  except Exception as exc:
+    raise RuntimeError(f"stage_ramp_revenue_driver_context_failed: {exc}") from exc
   compact_ramp_contract_spec = post_intake_gpt_contract_compact_prompt_field_spec("stage_ramp_contract")
   stage_policy_context = {
     "policy_version": stage_policy.get("policy_version"),
@@ -1455,9 +1531,6 @@ def _estimate_stage_ramp_contract_with_gpt(
       "cash_on_hand": financials.get("cash_on_hand"),
       "initial_assets": financials.get("initial_assets"),
       "total_debt_outstanding": financials.get("total_debt_outstanding"),
-      "client_reported_current_num_employees": financials.get("current_num_employees"),
-      "client_reported_payroll_total_year1": financials.get("payroll_total_year1"),
-      "client_reported_owner_compensation": financials.get("owner_compensation"),
     },
     "r_and_d_applicability": {
       key: copy.deepcopy(value)
@@ -1465,6 +1538,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       if key not in {"prompt_context", "raw_openai_response"}
     },
     "stage_profitability_policy": stage_policy_context,
+    "revenue_driver_context": revenue_driver_context,
     "current_model_snapshot": {
       "revenue_driver_states_first_4_quarters": {
         int(key): value
@@ -1493,11 +1567,14 @@ def _estimate_stage_ramp_contract_with_gpt(
     include_phase="pre_convergence",
     static_instruction=(
       "You decide the business-world ramp before convergence. Use business type, stage, planning mode, "
-      "balance-sheet starting reality, and the table-provided stage policy to choose realistic quarter-by-quarter bounds."
+      "balance-sheet starting reality, and the table-provided stage policy "
+      "to choose realistic quarter-by-quarter revenue, utilization, cost, and profitability bounds."
     ),
     task_instruction=(
       "Return only JSON matching the SQL-backed stage_ramp_contract. Obey contract field instructions and "
-      "stage_profitability_policy.validator_rules exactly before responding."
+      "stage_profitability_policy.validator_rules exactly. This contract owns ramp, utilization, cost caps, "
+      "and profitability posture only. Do not include payroll/headcount rows; payroll_headcount_schedule is "
+      "a separate contract that runs after this stage/ramp contract."
     ),
   )
   context_budget = post_intake_gpt_context_request_char_budget(
@@ -1511,7 +1588,7 @@ def _estimate_stage_ramp_contract_with_gpt(
       raise RuntimeError(
         f"stage_ramp_gpt_context_payload_budget_exceeded: chars={context_chars} budget={int(context_budget)}"
       )
-  payload = {
+  payload_base = {
     "model": _openai_model(),
     "temperature": 0,
     "input": [
@@ -1529,32 +1606,54 @@ def _estimate_stage_ramp_contract_with_gpt(
   }
   ramp_timeout_seconds = _stage_ramp_gpt_timeout_seconds()
   prior_deadline = _set_active_openai_deadline(time.perf_counter() + ramp_timeout_seconds)
+  raw_openai_response: Dict[str, Any] = {}
+  last_contract_error = ""
+  last_parsed: Dict[str, Any] = {}
   try:
-    resp = _post_openai(
-      url="https://api.openai.com/v1/responses",
-      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-      payload=payload,
-    )
-    if resp.status_code >= 400:
-      raise RuntimeError(f"stage_ramp_contract_openai_status: {resp.text[:1200]}")
-    raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
-    parsed = _parse_responses_json_dict(raw_openai_response)
-    if not isinstance(parsed, dict):
-      raise RuntimeError("stage_ramp_contract_parse_failed: GPT did not return a JSON object.")
-    try:
-      contract = _validate_stage_ramp_contract_payload(
-        payload=parsed,
-        expected_stage_family=expected_family,
-        business_stage=stage,
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        r_and_d_enabled=rd_enabled,
+    for attempt_index in range(2):
+      request_context = copy.deepcopy(user_context)
+      if last_contract_error:
+        request_context["previous_contract_failure"] = {
+          "source_of_truth": "post_intake_gpt_contract_lookup validator",
+          "required_action": "Return a corrected full stage_ramp_contract. Payroll/headcount belongs only to payroll_headcount_schedule.",
+          "error": last_contract_error[:6000],
+          "invalid_response_excerpt": json.dumps(last_parsed, ensure_ascii=False)[:6000],
+        }
+      payload = copy.deepcopy(payload_base)
+      payload["input"] = [
+        {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+        {"role": "user", "content": [{"type": "input_text", "text": json.dumps(request_context, ensure_ascii=False)}]},
+      ]
+      resp = _post_openai(
+        url="https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        payload=payload,
       )
-    except RuntimeError as exc:
-      raise RuntimeError(
-        "stage_ramp_contract_invalid_fail_fast: "
-        f"{str(exc)}; raw_stage_ramp_response={json.dumps(parsed, ensure_ascii=False)[:8000]}"
-      ) from exc
+      if resp.status_code >= 400:
+        raise RuntimeError(f"stage_ramp_contract_openai_status: {resp.text[:1200]}")
+      raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+      parsed = _parse_responses_json_dict(raw_openai_response)
+      if not isinstance(parsed, dict):
+        raise RuntimeError("stage_ramp_contract_parse_failed: GPT did not return a JSON object.")
+      last_parsed = copy.deepcopy(parsed)
+      try:
+        contract = _validate_stage_ramp_contract_payload(
+          payload=parsed,
+          expected_stage_family=expected_family,
+          business_stage=stage,
+          planning_mode=planning_mode,
+          planning_mode_reason=planning_mode_reason,
+          r_and_d_enabled=rd_enabled,
+        )
+        break
+      except RuntimeError as exc:
+        last_contract_error = str(exc)
+        if attempt_index == 0:
+          continue
+        raise RuntimeError(
+          "stage_ramp_contract_invalid_fail_fast: "
+          f"{str(exc)}; raw_stage_ramp_response={json.dumps(parsed, ensure_ascii=False)[:8000]}"
+        ) from exc
   except TimeoutError as exc:
     raise RuntimeError(
       f"stage_ramp_contract_timeout: GPT ramp selection exceeded {ramp_timeout_seconds:.0f}s before convergence."
@@ -1722,8 +1821,8 @@ def _solver_target_contract_spec_payload() -> Dict[str, Any]:
       "If recommendation_mode is 'adjust', recommended_actions must not be empty.",
       "Each adjust action must include allowed model-input levers.",
       "Each adjust action must include quarter_target_metrics for every targeted quarter.",
-      "Each quarter_target_metrics item must include whole-dollar integer values for every required target metric.",
-      "All currency values must be whole-dollar integers and all ratio or percentage values must use at most 2 decimal places.",
+      "Each quarter_target_metrics item must conform to the target precision defined in post_intak_mapping_lookup.",
+      "All numeric formatting is normalized only through the SQL mapping lookup precision metadata.",
       "All driver changes must be expressed through model_input_repair_cells. No alternate adjustment structure is accepted.",
     ],
   }
@@ -2462,22 +2561,36 @@ def _unified_target_values_repair_envelope_contract_error(
         continue
       floor_value = _safe_float(bounds.get("minimum_target_value"))
       ceiling_value = _safe_float(bounds.get("maximum_target_value"))
-      target_value_int = int(round(float(target_value)))
-      floor_value_int = int(round(float(floor_value))) if floor_value is not None else None
-      ceiling_value_int = int(round(float(ceiling_value))) if ceiling_value is not None else None
-      if floor_value_int is not None and target_value_int < floor_value_int:
+      target_value_norm = float(post_intake_normalize_target_value(metric_key, target_value, phase="convergence"))
+      floor_value_norm = (
+        float(post_intake_normalize_target_value(metric_key, floor_value, phase="convergence", bound_side="minimum"))
+        if floor_value is not None
+        else None
+      )
+      ceiling_value_norm = (
+        float(post_intake_normalize_target_value(metric_key, ceiling_value, phase="convergence", bound_side="maximum"))
+        if ceiling_value is not None
+        else None
+      )
+      target_precision = post_intake_target_precision_for_metric(metric_key, phase="convergence")
+      precision_unit = post_intake_precision_unit(target_precision)
+      if floor_value_norm is not None and target_value_norm < floor_value_norm:
+        if precision_unit > 0.0 and abs(float(floor_value_norm) - float(target_value_norm)) <= precision_unit + 1e-9:
+          continue
         return (
           "target_value_outside_deterministic_repair_envelope: "
-          f"Q{quarter_index} {metric_key} target_value={target_value_int} "
-          f"is below minimum_target_value={floor_value_int} for issue "
+          f"Q{quarter_index} {metric_key} target_value={target_value_norm} "
+          f"is below minimum_target_value={floor_value_norm} for issue "
           f"{bounds.get('issue_code') or 'unknown'}; direction={bounds.get('direction_hint') or 'unknown'}. "
           "GPT must choose targets inside Python's explicit repair envelope; Python will not treat current-value holds as progress."
         )
-      if ceiling_value_int is not None and target_value_int > ceiling_value_int:
+      if ceiling_value_norm is not None and target_value_norm > ceiling_value_norm:
+        if precision_unit > 0.0 and abs(float(target_value_norm) - float(ceiling_value_norm)) <= precision_unit + 1e-9:
+          continue
         return (
           "target_value_outside_deterministic_repair_envelope: "
-          f"Q{quarter_index} {metric_key} target_value={target_value_int} "
-          f"exceeds maximum_target_value={ceiling_value_int} for issue "
+          f"Q{quarter_index} {metric_key} target_value={target_value_norm} "
+          f"exceeds maximum_target_value={ceiling_value_norm} for issue "
           f"{bounds.get('issue_code') or 'unknown'}; direction={bounds.get('direction_hint') or 'unknown'}. "
           "GPT must choose targets inside Python's explicit repair envelope; Python will not treat current-value holds as progress."
         )
@@ -2592,9 +2705,14 @@ def _normalize_unified_decision_numeric_formatting(
     for metric_target in (row.get("metric_targets") or []):
       if not isinstance(metric_target, dict):
         continue
+      metric_name = str(metric_target.get("metric_name") or "").strip().lower()
       target_value = _safe_float(metric_target.get("target_value"))
-      if target_value is not None:
-        metric_target["target_value"] = int(round(float(target_value)))
+      if metric_name and target_value is not None:
+        metric_target["target_value"] = post_intake_normalize_target_value(
+          metric_name,
+          target_value,
+          phase="convergence",
+        )
 
   for tolerance in (decision.get("target_tolerances") or []):
     if not isinstance(tolerance, dict):
@@ -2613,22 +2731,6 @@ def _normalize_unified_decision_targets_to_locked_grid(
 ) -> Optional[str]:
   decision = parsed if isinstance(parsed, dict) else {}
   grid = target_fill_grid if isinstance(target_fill_grid, dict) else {}
-  max_currency_snap_drift = 1.0
-
-  def _table_target_value(value: Any, *, value_kind: Any, bound_side: str = "") -> Any:
-    parsed = _safe_float(value)
-    if parsed is None:
-      return value
-    kind = str(value_kind or "").strip().lower()
-    if kind in {"currency", "count", "day_count", "integer"}:
-      if bound_side == "minimum":
-        return int(math.ceil(float(parsed)))
-      if bound_side == "maximum":
-        return int(math.floor(float(parsed)))
-      return int(round(float(parsed)))
-    if kind in {"ratio", "percentage", "percent"}:
-      return round(float(parsed), 2)
-    return float(parsed)
 
   bounds_by_key: Dict[Tuple[int, str], Dict[str, Any]] = {}
   for row in (grid.get("rows") or []):
@@ -2661,47 +2763,54 @@ def _normalize_unified_decision_targets_to_locked_grid(
         continue
       bounds = bounds_by_key.get((quarter_index, metric_name))
       if not isinstance(bounds, dict):
-        metric_target["target_value"] = _table_target_value(target_value, value_kind="currency")
+        metric_target["target_value"] = post_intake_normalize_target_value(
+          metric_name,
+          target_value,
+          phase="convergence",
+        )
         continue
       adjusted_value = float(target_value)
       minimum_value = _safe_float(bounds.get("minimum_target_value"))
       maximum_value = _safe_float(bounds.get("maximum_target_value"))
       recommended_value = _safe_float(bounds.get("recommended_target_value"))
-      target_value_kind = bounds.get("target_value_kind") or "currency"
+      target_precision = post_intake_target_precision_for_metric(metric_name, phase="convergence")
+      precision_unit = post_intake_precision_unit(target_precision)
       if recommended_value is not None:
-        metric_target["target_value"] = _table_target_value(
+        metric_target["target_value"] = post_intake_normalize_target_value(
+          metric_name,
           recommended_value,
-          value_kind=target_value_kind,
+          phase="convergence",
         )
         continue
       bound_side = ""
       if minimum_value is not None and adjusted_value < float(minimum_value):
         drift = abs(float(minimum_value) - adjusted_value)
-        if drift > max_currency_snap_drift:
+        if precision_unit <= 0.0 or drift > precision_unit + 1e-9:
           return (
             "targets_by_quarter target_value is materially below the locked deterministic target envelope. "
-            f"Q{quarter_index} {metric_name} target_value={int(round(float(target_value)))} "
-            f"minimum_target_value={int(round(float(minimum_value)))} "
-            f"format_snap_limit={int(max_currency_snap_drift)}. "
-            "Python only normalizes whole-dollar formatting drift; it does not clamp material GPT decisions."
+            f"Q{quarter_index} {metric_name} target_value={target_value} "
+            f"minimum_target_value={minimum_value} "
+            f"table_precision_unit={precision_unit}. "
+            "Python only normalizes table-defined formatting drift; it does not clamp material GPT decisions."
           )
         adjusted_value = float(minimum_value)
         bound_side = "minimum"
       if maximum_value is not None and adjusted_value > float(maximum_value):
         drift = abs(adjusted_value - float(maximum_value))
-        if drift > max_currency_snap_drift:
+        if precision_unit <= 0.0 or drift > precision_unit + 1e-9:
           return (
             "targets_by_quarter target_value is materially above the locked deterministic target envelope. "
-            f"Q{quarter_index} {metric_name} target_value={int(round(float(target_value)))} "
-            f"maximum_target_value={int(round(float(maximum_value)))} "
-            f"format_snap_limit={int(max_currency_snap_drift)}. "
-            "Python only normalizes whole-dollar formatting drift; it does not clamp material GPT decisions."
+            f"Q{quarter_index} {metric_name} target_value={target_value} "
+            f"maximum_target_value={maximum_value} "
+            f"table_precision_unit={precision_unit}. "
+            "Python only normalizes table-defined formatting drift; it does not clamp material GPT decisions."
           )
         adjusted_value = float(maximum_value)
         bound_side = "maximum"
-      metric_target["target_value"] = _table_target_value(
+      metric_target["target_value"] = post_intake_normalize_target_value(
+        metric_name,
         adjusted_value,
-        value_kind=target_value_kind,
+        phase="convergence",
         bound_side=bound_side,
       )
   return None
@@ -2761,16 +2870,23 @@ def _normalize_revenue_targets_to_stage_ramp_currency_caps(
       max_allowed_revenue = float(math.floor(max(0.0, float(previous_revenue) * (1.0 + allowed_growth))))
       if target_revenue > max_allowed_revenue:
         drift = target_revenue - max_allowed_revenue
-        if drift > 1.0:
+        precision_unit = post_intake_precision_unit(
+          post_intake_target_precision_for_metric("revenue", phase="convergence")
+        )
+        if precision_unit <= 0.0 or drift > precision_unit + 1e-9:
           return (
             "stage_ramp_contract_revenue_target_violation: "
-            f"Q{quarter_index - 1}->Q{quarter_index} target revenue exceeds the table-currency ramp cap by {int(round(drift))}. "
+            f"Q{quarter_index - 1}->Q{quarter_index} target revenue exceeds the table precision ramp cap by {drift}. "
             f"previous_revenue={int(round(previous_revenue))}, target_revenue={int(round(target_revenue))}, "
             f"max_allowed_revenue={int(round(max_allowed_revenue))}. "
-            "Currency targets are integer values; Python may correct only one-dollar formatting drift, not material GPT decisions."
+            "Python only normalizes table-defined formatting drift, not material GPT decisions."
           )
         target_revenue = max_allowed_revenue
-        metric_target["target_value"] = int(target_revenue)
+        metric_target["target_value"] = post_intake_normalize_target_value(
+          "revenue",
+          target_revenue,
+          phase="convergence",
+        )
       growth = (float(target_revenue) - float(previous_revenue)) / max(float(previous_revenue), 1e-9)
       if bool(pair_limit.get("spike_available")) and growth > ordinary_growth_max:
         spike_count += 1
@@ -2930,10 +3046,21 @@ def _unified_convergence_decision_contract_error(
         f"target_tolerances metric {metric_name} relative_tolerance_pct must use at most 2 decimal places. "
         f"received={relative_tolerance_pct}."
       )
-    if absolute_tolerance is not None and float(int(round(float(absolute_tolerance)))) != float(absolute_tolerance):
+    target_precision = post_intake_target_precision_for_metric(metric_name, phase="convergence")
+    normalized_absolute_tolerance = (
+      post_intake_normalize_target_value(metric_name, absolute_tolerance, phase="convergence")
+      if absolute_tolerance is not None
+      else None
+    )
+    precision_unit = post_intake_precision_unit(target_precision)
+    if (
+      absolute_tolerance is not None
+      and normalized_absolute_tolerance is not None
+      and abs(float(absolute_tolerance) - float(normalized_absolute_tolerance)) > max(precision_unit / 2.0, 1e-9)
+    ):
       return (
-        f"target_tolerances metric {metric_name} absolute_tolerance must be a whole-dollar integer. "
-        f"received={absolute_tolerance}."
+        f"target_tolerances metric {metric_name} absolute_tolerance violates SQL mapping precision. "
+        f"received={absolute_tolerance}, normalized={normalized_absolute_tolerance}, precision={target_precision}."
       )
   normalized_tolerances = _merge_required_target_tolerances(
     decision.get("target_tolerances") or [],
@@ -4573,19 +4700,17 @@ def _translate_realism_lever_adjustment(
     max_value = baseline_value + move_limit
   value_kind = str(meta.get("value_kind") or "").strip().lower()
   input_semantics = str(meta.get("input_semantics") or "").strip().lower()
-  ratio_like_value = value_kind == "ratio" or "percent_of_" in input_semantics
-  integer_like_value = value_kind in {"currency", "quarter_currency", "day_count", "count"} or not ratio_like_value
   translated_min_raw = float(min(min_value, max_value))
   translated_max_raw = float(max(min_value, max_value))
-  translated_min_value = (
-    round(translated_min_raw, 2)
-    if ratio_like_value and not integer_like_value
-    else int(round(translated_min_raw))
+  translated_min_value = post_intake_normalize_lever_value(
+    lever_id,
+    translated_min_raw,
+    bound_side="minimum",
   )
-  translated_max_value = (
-    round(translated_max_raw, 2)
-    if ratio_like_value and not integer_like_value
-    else int(round(translated_max_raw))
+  translated_max_value = post_intake_normalize_lever_value(
+    lever_id,
+    translated_max_raw,
+    bound_side="maximum",
   )
 
   translated = {

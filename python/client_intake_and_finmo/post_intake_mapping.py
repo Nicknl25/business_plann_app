@@ -4,6 +4,7 @@ import os
 import threading
 import copy
 import json
+import math
 import re
 from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -462,6 +463,12 @@ def _process_sequence_row(
   required: bool = True,
   enabled: bool = True,
   fail_fast_code: str = "",
+  python_role: str = "",
+  python_timing: str = "",
+  python_action: str = "",
+  input_object_path: str = "",
+  output_object_path: str = "",
+  validation_subject_path: str = "",
   notes: str = "",
 ) -> Dict[str, Any]:
   return {
@@ -479,6 +486,12 @@ def _process_sequence_row(
     "required": bool(required),
     "enabled": bool(enabled),
     "fail_fast_code": fail_fast_code or f"{step_key}_sequence_violation",
+    "python_role": python_role or "deterministic_step_executor",
+    "python_timing": python_timing or phase,
+    "python_action": python_action or notes or f"Execute {handler_key} for {step_key}.",
+    "input_object_path": input_object_path or f"{step_key}.input",
+    "output_object_path": output_object_path or f"{step_key}.output",
+    "validation_subject_path": validation_subject_path or output_object_path or f"{step_key}.output",
     "notes": notes,
   }
 
@@ -494,7 +507,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     context_include_phase="reviewer",
     required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _MAPPING_TABLE_NAME],
     horizon_rule="pre_grid_issue_memo_from_table_contract",
-    timeout_seconds=45,
+    timeout_seconds=60,
     max_attempts=2,
     fail_fast_code="post_intake_sequence_realism_memo_contract_missing",
     notes="Optional pre-grid realism memo must use SQL contract/context tables when invoked.",
@@ -547,35 +560,28 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     contract_name="stage_ramp_contract",
     context_contract_name="stage_ramp_contract",
     context_include_phase="pre_convergence",
-    required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME],
-    horizon_rule="q1_to_q20_exactly_once",
-    timeout_seconds=45,
-    max_attempts=1,
-    fail_fast_code="post_intake_sequence_stage_ramp_contract_missing",
-    notes="GPT supplies the 20-quarter business-world ramp before convergence.",
-  ),
-  _process_sequence_row(
-    "pre_convergence",
-    50,
-    "payroll_headcount_schedule",
-    "estimate_payroll_headcount_schedule_with_gpt",
-    contract_name="payroll_headcount_schedule",
-    context_contract_name="payroll_headcount_schedule",
-    context_include_phase="pre_convergence",
     required_lookup_tables=[
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
-      "post_intake_headcount_policy_lookup",
     ],
     horizon_rule="q1_to_q20_exactly_once",
-    timeout_seconds=45,
+    timeout_seconds=60,
     max_attempts=1,
-    fail_fast_code="post_intake_sequence_headcount_contract_missing",
-    notes="GPT supplies the 20-quarter headcount schedule; Python calculates payroll.",
+    fail_fast_code="post_intake_sequence_stage_ramp_contract_missing",
+    python_role="contract_request_and_validation",
+    python_timing="pre_convergence_before_initial_grid",
+    python_action=(
+      "Build table-filtered context, call GPT for the stage_ramp_contract, "
+      "then validate the 20-quarter stage/ramp contract. Payroll is a separate contract."
+    ),
+    input_object_path="business_facts, operating_model_json, people_json, financials_json, model_input_json, finmo_json, r_and_d_applicability",
+    output_object_path="stage_ramp_contract",
+    validation_subject_path="stage_ramp_contract",
+    notes="GPT supplies only the 20-quarter revenue/utilization/cost/profitability ramp before convergence. Payroll is handled by payroll_headcount_schedule.",
   ),
   _process_sequence_row(
     "initial_grid",
-    60,
+    50,
     "quarter_grid_generation",
     "generate_live_quarter_grid_plan",
     contract_name="quarter_grid_probe",
@@ -589,6 +595,34 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     horizon_rule="q1_to_q20_model_input_state",
     fail_fast_code="post_intake_sequence_quarter_grid_contract_missing",
     notes="Initial 20-quarter model_input grid uses quarter_grid_probe for its GPT response contract and consumes the stage ramp as runtime context.",
+  ),
+  _process_sequence_row(
+    "initial_grid",
+    60,
+    "payroll_headcount_schedule",
+    "estimate_payroll_headcount_schedule_with_gpt",
+    contract_name="payroll_headcount_schedule",
+    context_contract_name="payroll_headcount_schedule",
+    context_include_phase="pre_convergence",
+    required_lookup_tables=[
+      _GPT_CONTRACT_TABLE_NAME,
+      _GPT_CONTEXT_TABLE_NAME,
+      "post_intake_headcount_policy_lookup",
+    ],
+    horizon_rule="q1_to_q20_at_least_once",
+    timeout_seconds=None,
+    max_attempts=1,
+    fail_fast_code="post_intake_sequence_headcount_contract_missing",
+    python_role="contract_request_and_schedule_builder",
+    python_timing="after_quarter_grid_before_convergence",
+    python_action=(
+      "Call GPT for the independent payroll_headcount_schedule contract, validate it through "
+      "post_intake_headcount_policy_lookup against the applied quarter grid, then calculate and persist the Payroll model-input schedule."
+    ),
+    input_object_path="business_facts, operating_model_json, people_json, financials_json, applied_model_input_json, applied_finmo_json, stage_ramp_contract",
+    output_object_path="intake_consult_drafts.payroll_headcount; model_input_json.sections.expenses[Payroll]",
+    validation_subject_path="payroll_headcount_schedule.payroll_headcount_grid",
+    notes="Payroll is not part of stage_ramp_contract and must run after the quarter grid so the headcount schedule supports the actual applied revenue state.",
   ),
   _process_sequence_row(
     "convergence",
@@ -702,10 +736,6 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_max", "rev_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["revenue_qoq_max"]),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_spike", "rev_spike", "boolean", is_array_item=True, parent_field_path="quarter_ramp_grid"),
   _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rev_spike_max", "rev_spike_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["revenue_qoq_spike_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_target", "fte_target", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_target"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_max", "fte_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike", "fte_spike", "boolean", is_array_item=True, parent_field_path="quarter_ramp_grid"),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].fte_spike_max", "fte_spike_max", "ratio_2dp", is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["fte_qoq_spike_max"]),
   _gpt_contract_row(
     "stage_ramp_contract",
     "quarter_ramp_grid",
@@ -751,17 +781,16 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
     allowed_aliases=["profitability_posture"],
     prompt_required_instruction="Profitability posture must be one of the stage_profitability_policy.profitability_postures values. If operational_requires_positive_from_q5 is true, every Q5-Q20 posture must be positive.",
   ),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].why", "why", "string", is_array_item=True, parent_field_path="quarter_ramp_grid", allowed_aliases=["ramp_reason"]),
 ]
 
 _PAYROLL_HEADCOUNT_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].q", "q", "integer", is_array_item=True, parent_field_path="payroll_headcount_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].role_category", "role_category", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Role category", prompt_required_instruction="Use a concise staffing category. Use aggregate_staff only when detailed roles are not needed for realism."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].role_category", "role_category", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Role category", prompt_required_instruction="Use a concise staffing category tied to an actual role family or staffing bundle. Do not invent rows outside the payroll_headcount_grid contract."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE"),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions"),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE"),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].avg_annual_wage", "avg_annual_wage", "integer_currency", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=1, max_value=1000000, normalization_kind="integer_currency", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Average annual wage"),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=1, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent"),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0.12, max_value=0.35, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent", prompt_required_instruction="Must stay inside post_intake_headcount_policy_lookup min/max benefits burden. Do not use 0.00 for employees."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].wage_source", "wage_source", "enum", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="enum", enum_values=["oews_role_match", "oews_naics_role_fallback", "gpt_business_role_wage"], lookup_source="post_intake_headcount_policy_lookup", prompt_label="Wage source"),
 ]
 
@@ -770,7 +799,6 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("maintenance_capex_percent", "root", "maintenance_capex_percent", "maintenance_capex_percent", "ratio_2dp", min_value=2.00, max_value=15.00, normalization_kind="ratio_2dp", validation_kind="maintenance_capex_percent_range", contract_phase="pre_forecast"),
   _gpt_contract_row("stage_ramp_contract", "root", "stage_family", "stage_family", "enum", validation_kind="enum", enum_values=["startup", "early", "operational"]),
   _gpt_contract_row("stage_ramp_contract", "root", "utilization_high_watermark", "utilization_high_watermark", "ratio_2dp", min_value=0.50, max_value=0.98, normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric"),
-  _gpt_contract_row("stage_ramp_contract", "root", "fte_spike_small_base_threshold", "fte_spike_small_base_threshold", "integer_or_negative_one", normalization_kind="integer"),
   _gpt_contract_row(
     "stage_ramp_contract",
     "root",
@@ -793,12 +821,12 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     "payroll_headcount_grid",
     "array",
     min_items=20,
-    max_items=20,
+    max_items=160,
     item_contract_grid_name="payroll_headcount_grid",
-    horizon_rule="q1_to_q20_exactly_once",
+    horizon_rule="q1_to_q20_at_least_once",
     validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Provide exactly one payroll headcount row for every forecast quarter Q1 through Q20. GPT decides staffing FTE and wage assumptions; Python calculates payroll dollars and stores intake_consult_drafts.payroll_headcount.",
+    prompt_required_instruction="Provide at least one payroll role row for every forecast quarter Q1 through Q20. Use multiple role rows when needed for staffing realism; Python calculates payroll dollars and stores intake_consult_drafts.payroll_headcount.",
   ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
@@ -968,55 +996,84 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
     failure_code="unified_convergence_gpt_context_payload_budget_exceeded",
     notes="Hard pre-OpenAI request budget. This prevents large strict convergence payloads from burning the full cycle timeout.",
   ),
-  _gpt_context_row("unified_convergence_decision", "contract_version", context_group="identity"),
-  _gpt_context_row("unified_convergence_decision", "packet_role", context_group="identity"),
-  _gpt_context_row("unified_convergence_decision", "draft_id", context_group="identity"),
-  _gpt_context_row("unified_convergence_decision", "business_name", context_group="identity"),
-  _gpt_context_row("unified_convergence_decision", "convergence_engine_contract", context_group="contract"),
-  _gpt_context_row("unified_convergence_decision", "convergence_contract_policy", context_group="contract"),
-  _gpt_context_row("unified_convergence_decision", "planning_mode_context", context_group="business_world"),
+  _gpt_context_row("unified_convergence_decision", "contract_version", context_group="identity", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "packet_role", context_group="identity", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "draft_id", context_group="identity", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "business_name", context_group="identity", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "convergence_engine_contract", context_group="contract", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "convergence_contract_policy", context_group="contract", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "planning_mode_context", context_group="business_world", include_phase="planner"),
   _gpt_context_row(
     "unified_convergence_decision",
     "business_world_contract",
     context_group="business_world",
+    include_phase="planner",
     notes="Compact stage, planning-mode, ramp, and derived-driver policy context used by convergence. This is table-approved context, not a freeform legacy packet.",
   ),
-  _gpt_context_row("unified_convergence_decision", "selected_cash_strategy", context_group="business_world"),
-  _gpt_context_row("unified_convergence_decision", "convergence_scorecard", context_group="diagnostics", required=False),
-  _gpt_context_row("unified_convergence_decision", "repair_envelope_packets", context_group="issues", max_items=4),
-  _gpt_context_row("unified_convergence_decision", "retry_packet", context_group="retry", required=False),
-  _gpt_context_row("unified_convergence_decision", "repair_contract_violation", context_group="retry", required=False),
-  _gpt_context_row("unified_convergence_decision", "invalid_response_to_repair", context_group="retry", required=False),
-  _gpt_context_row("unified_convergence_decision", "issue_coverage_requirements", context_group="retry", required=False),
-  _gpt_context_row("unified_convergence_decision", "contract_repair_instruction", context_group="retry", required=False),
-  _gpt_context_row("unified_convergence_decision", "required_target_quarters", context_group="horizon", max_items=20),
-  _gpt_context_row("unified_convergence_decision", "locked_target_fill_grid", context_group="locked_grid"),
-  _gpt_context_row("unified_convergence_decision", "locked_targets_by_quarter_response_template", context_group="locked_grid"),
+  _gpt_context_row("unified_convergence_decision", "selected_cash_strategy", context_group="business_world", include_phase="planner"),
+  _gpt_context_row("unified_convergence_decision", "convergence_scorecard", context_group="diagnostics", include_phase="planner", required=False),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "repair_envelope_packets",
+    context_group="issues",
+    include_phase="planner",
+    transform_kind="compact_issue_repair_envelope",
+    max_items=4,
+  ),
+  _gpt_context_row("unified_convergence_decision", "retry_packet", context_group="retry", include_phase="planner", required=False),
+  _gpt_context_row("unified_convergence_decision", "repair_contract_violation", context_group="retry", include_phase="planner", required=False),
+  _gpt_context_row("unified_convergence_decision", "invalid_response_to_repair", context_group="retry", include_phase="planner", required=False),
+  _gpt_context_row("unified_convergence_decision", "issue_coverage_requirements", context_group="retry", include_phase="planner", required=False),
+  _gpt_context_row("unified_convergence_decision", "contract_repair_instruction", context_group="retry", include_phase="planner", required=False),
+  _gpt_context_row("unified_convergence_decision", "required_target_quarters", context_group="horizon", include_phase="planner", max_items=20),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "locked_target_fill_grid",
+    context_group="locked_grid",
+    include_phase="planner",
+    transform_kind="compact_locked_target_fill_grid",
+  ),
+  _gpt_context_row("unified_convergence_decision", "locked_targets_by_quarter_response_template", context_group="locked_grid", include_phase="planner"),
   _gpt_context_row(
     "unified_convergence_decision",
     "full_horizon_model_input_repair_contract",
     context_group="locked_grid",
+    include_phase="planner",
     transform_kind="compact_full_horizon_repair_contract",
     max_items=240,
     notes="Authoritative full-horizon editable cell contract. Runtime compacts rows but keeps every required editable cell.",
   ),
-  _gpt_context_row("unified_convergence_decision", "issue_mapping_gate", context_group="mapping"),
-  _gpt_context_row("unified_convergence_decision", "prior_numeric_solver_feedback", context_group="feedback", required=False),
-  _gpt_context_row("unified_convergence_decision", "recommended_primary_target_metric_keys", context_group="solver", required=False),
-  _gpt_context_row("unified_convergence_decision", "planner_model_input_packet", context_group="model_input"),
+  _gpt_context_row("unified_convergence_decision", "issue_mapping_gate", context_group="mapping", include_phase="planner"),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "prior_numeric_solver_feedback",
+    context_group="feedback",
+    include_phase="planner",
+    required=False,
+    transform_kind="compact_numeric_solver_feedback",
+  ),
+  _gpt_context_row("unified_convergence_decision", "recommended_primary_target_metric_keys", context_group="solver", include_phase="planner", required=False),
+  _gpt_context_row("unified_convergence_decision", "planner_model_input_packet", context_group="model_input", include_phase="planner"),
   _gpt_context_row(
     "unified_convergence_decision",
     "gpt_contract_field_spec",
     context_group="contract",
+    include_phase="planner",
     required=False,
     include_in_prompt=False,
     notes="The strict OpenAI schema and SQL contract table are authoritative; do not duplicate the full field spec into the prompt payload.",
   ),
-  _gpt_context_row("unified_convergence_decision", "payload_size_summary", context_group="diagnostics", required=False, include_in_prompt=False),
+  _gpt_context_row("unified_convergence_decision", "payload_size_summary", context_group="diagnostics", include_phase="planner", required=False, include_in_prompt=False),
 
   _gpt_context_row("unified_convergence_decision", "repair_contract_violation", context_group="retry", include_phase="planner_retry"),
   _gpt_context_row("unified_convergence_decision", "required_target_quarters", context_group="horizon", include_phase="planner_retry", max_items=20),
-  _gpt_context_row("unified_convergence_decision", "locked_target_fill_grid", context_group="locked_grid", include_phase="planner_retry"),
+  _gpt_context_row(
+    "unified_convergence_decision",
+    "locked_target_fill_grid",
+    context_group="locked_grid",
+    include_phase="planner_retry",
+    transform_kind="compact_locked_target_fill_grid",
+  ),
   _gpt_context_row(
     "unified_convergence_decision",
     "full_horizon_model_input_repair_contract",
@@ -1047,9 +1104,27 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("stage_ramp_contract", "financial_context", context_group="financials", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "r_and_d_applicability", context_group="policy", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "stage_profitability_policy", context_group="policy", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "revenue_driver_context", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("stage_ramp_contract", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
-  _gpt_context_row("stage_ramp_contract", "contract_field_spec", context_group="contract", include_phase="pre_convergence"),
-  _gpt_context_row("stage_ramp_contract", "required_response_shape", context_group="contract", include_phase="pre_convergence"),
+  _gpt_context_row("stage_ramp_contract", "previous_contract_failure", context_group="retry", include_phase="pre_convergence", required=False, notes="Only present on a pre-convergence contract retry. Contains the table-backed validation failure and invalid response excerpt so GPT can correct its own decision without Python mutating it."),
+  _gpt_context_row(
+    "stage_ramp_contract",
+    "contract_field_spec",
+    context_group="contract",
+    include_phase="pre_convergence",
+    required=False,
+    include_in_prompt=False,
+    notes="The stage-ramp prompt is rendered directly from the SQL contract table; do not duplicate the field spec into the user payload.",
+  ),
+  _gpt_context_row(
+    "stage_ramp_contract",
+    "required_response_shape",
+    context_group="contract",
+    include_phase="pre_convergence",
+    required=False,
+    include_in_prompt=False,
+    notes="The strict OpenAI schema and rendered contract prompt already define the response shape.",
+  ),
 
   _gpt_context_row(
     "payroll_headcount_schedule",
@@ -1064,10 +1139,14 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   ),
   _gpt_context_row("payroll_headcount_schedule", "business_identity", context_group="business_world", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "business_context", context_group="business_world", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "people_staffing_context", context_group="business_world", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "financial_context", context_group="financials", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "stage_ramp_contract", context_group="policy", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "payroll_headcount_policy", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_economic_guardrails", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "revenue_driver_context", context_group="model_input", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "previous_contract_failure", context_group="retry", include_phase="pre_convergence", required=False, notes="Only present on payroll schedule retry. Contains the table-backed validation failure and invalid response excerpt so GPT corrects its staffing schedule without Python mutating it."),
   _gpt_context_row("payroll_headcount_schedule", "contract_field_spec", context_group="contract", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "required_response_shape", context_group="contract", include_phase="pre_convergence"),
 
@@ -1107,9 +1186,22 @@ def _clean_text(value: Any) -> str:
 
 
 def _clean_bool(value: Any, *, default: bool = False) -> bool:
+  if isinstance(value, bool):
+    return value
+  if value is not None and not isinstance(value, str):
+    try:
+      numeric = float(value)
+      if numeric == 0.0:
+        return False
+      if numeric == 1.0:
+        return True
+    except Exception:
+      pass
   raw = _clean_text(value).lower()
   if not raw:
     return bool(default)
+  if raw in {"0", "false", "no", "n", "inactive", "disabled"}:
+    return False
   return raw in {"1", "true", "yes", "y", "active"}
 
 
@@ -1251,6 +1343,87 @@ def _default_target_value_kind(financial_model_field: Any) -> str:
   return "currency"
 
 
+def _default_precision_for_value_kind(value_kind: Any) -> Dict[str, Any]:
+  kind = _clean_text(value_kind).lower()
+  if kind in {"currency", "quarter_currency", "money", "count", "day_count", "integer"}:
+    return {
+      "rounding_kind": "nearest_integer",
+      "decimal_places": 0,
+      "precision_unit": 1.0,
+    }
+  if kind in {"ratio", "percentage", "percent", "rate", "interest_rate"}:
+    return {
+      "rounding_kind": "nearest_decimal",
+      "decimal_places": 2,
+      "precision_unit": 0.01,
+    }
+  return {
+    "rounding_kind": "none",
+    "decimal_places": None,
+    "precision_unit": 0.0,
+  }
+
+
+def _normalize_precision_metadata(
+  *,
+  value_kind: Any,
+  rounding_kind: Any = "",
+  decimal_places: Any = None,
+) -> Dict[str, Any]:
+  default = _default_precision_for_value_kind(value_kind)
+  resolved_rounding = _clean_text(rounding_kind).lower() or str(default.get("rounding_kind") or "none")
+  resolved_decimal_places: Optional[int]
+  try:
+    resolved_decimal_places = (
+      int(decimal_places)
+      if decimal_places is not None and str(decimal_places).strip() != ""
+      else default.get("decimal_places")
+    )
+  except Exception:
+    resolved_decimal_places = default.get("decimal_places")
+  if resolved_rounding in {"nearest_integer", "nearest_dollar"}:
+    resolved_decimal_places = 0
+  if resolved_rounding == "nearest_decimal" and resolved_decimal_places is None:
+    resolved_decimal_places = 2
+  if resolved_rounding == "none":
+    resolved_decimal_places = None
+  precision_unit = 0.0
+  if resolved_rounding in {"nearest_integer", "nearest_dollar"}:
+    precision_unit = 1.0
+  elif resolved_rounding == "nearest_decimal" and resolved_decimal_places is not None:
+    precision_unit = float(10 ** (-int(resolved_decimal_places)))
+  return {
+    "value_kind": _clean_text(value_kind).lower(),
+    "rounding_kind": resolved_rounding,
+    "decimal_places": resolved_decimal_places,
+    "precision_unit": precision_unit,
+  }
+
+
+def _round_by_precision_metadata(
+  value: Any,
+  *,
+  precision: Dict[str, Any],
+  bound_side: str = "",
+) -> Any:
+  try:
+    numeric = float(value)
+  except Exception:
+    return value
+  rounding_kind = _clean_text(precision.get("rounding_kind")).lower()
+  decimal_places = precision.get("decimal_places")
+  normalized_bound_side = _clean_text(bound_side).lower()
+  if rounding_kind in {"nearest_integer", "nearest_dollar"}:
+    if normalized_bound_side == "minimum":
+      return int(math.ceil(numeric))
+    if normalized_bound_side == "maximum":
+      return int(math.floor(numeric))
+    return int(round(numeric))
+  if rounding_kind == "nearest_decimal" and decimal_places is not None:
+    return round(numeric, int(decimal_places))
+  return float(numeric)
+
+
 def _normalized_lookup_key(lever_id: Any) -> str:
   raw = _clean_text(lever_id)
   if raw.startswith("revenue::"):
@@ -1305,11 +1478,17 @@ def _ensure_mapping_lookup_table(conn) -> None:
           control_owner VARCHAR(32) NOT NULL,
           value_kind VARCHAR(32) NOT NULL,
           target_value_kind VARCHAR(32) NOT NULL DEFAULT 'currency',
+          value_rounding_kind VARCHAR(64) NOT NULL DEFAULT 'none',
+          value_decimal_places INT NULL,
+          target_rounding_kind VARCHAR(64) NOT NULL DEFAULT 'none',
+          target_decimal_places INT NULL,
           input_semantics VARCHAR(64) NOT NULL,
           driver_bundle VARCHAR(64) NULL,
           cash_strategy_role VARCHAR(64) NULL,
           targeting_allowed TINYINT(1) NOT NULL DEFAULT 0,
           diagnostic_only TINYINT(1) NOT NULL DEFAULT 0,
+          tolerance_allowed TINYINT(1) NOT NULL DEFAULT 1,
+          non_tolerable_issue_codes LONGTEXT NULL,
           mapping_status VARCHAR(32) NOT NULL DEFAULT 'active',
           notes LONGTEXT NULL,
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -1332,11 +1511,70 @@ def _ensure_mapping_lookup_table(conn) -> None:
         )
       except Exception:
         pass
+      for column_sql in [
+        "ADD COLUMN value_rounding_kind VARCHAR(64) NOT NULL DEFAULT 'none' AFTER target_value_kind",
+        "ADD COLUMN value_decimal_places INT NULL AFTER value_rounding_kind",
+        "ADD COLUMN target_rounding_kind VARCHAR(64) NOT NULL DEFAULT 'none' AFTER value_decimal_places",
+        "ADD COLUMN target_decimal_places INT NULL AFTER target_rounding_kind",
+        "ADD COLUMN tolerance_allowed TINYINT(1) NOT NULL DEFAULT 1 AFTER diagnostic_only",
+        "ADD COLUMN non_tolerable_issue_codes LONGTEXT NULL AFTER tolerance_allowed",
+      ]:
+        try:
+          cur.execute(
+            f"""
+            ALTER TABLE {_MAPPING_TABLE_NAME}
+            {column_sql}
+            """
+          )
+        except Exception:
+          pass
       cur.execute(
         f"""
         UPDATE {_MAPPING_TABLE_NAME}
         SET target_value_kind = 'currency'
         WHERE target_value_kind IS NULL OR target_value_kind = ''
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET
+          value_rounding_kind = CASE
+            WHEN LOWER(value_kind) IN ('currency', 'quarter_currency', 'money', 'count', 'day_count', 'integer') THEN 'nearest_integer'
+            WHEN LOWER(value_kind) IN ('ratio', 'percentage', 'percent', 'rate', 'interest_rate') THEN 'nearest_decimal'
+            ELSE 'none'
+          END,
+          value_decimal_places = CASE
+            WHEN LOWER(value_kind) IN ('currency', 'quarter_currency', 'money', 'count', 'day_count', 'integer') THEN 0
+            WHEN LOWER(value_kind) IN ('ratio', 'percentage', 'percent', 'rate', 'interest_rate') THEN 2
+            ELSE NULL
+          END
+        WHERE value_rounding_kind IS NULL OR value_rounding_kind = '' OR value_rounding_kind = 'none'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET
+          target_rounding_kind = CASE
+            WHEN LOWER(target_value_kind) IN ('currency', 'quarter_currency', 'money', 'count', 'day_count', 'integer') THEN 'nearest_integer'
+            WHEN LOWER(target_value_kind) IN ('ratio', 'percentage', 'percent', 'rate', 'interest_rate') THEN 'nearest_decimal'
+            ELSE 'none'
+          END,
+          target_decimal_places = CASE
+            WHEN LOWER(target_value_kind) IN ('currency', 'quarter_currency', 'money', 'count', 'day_count', 'integer') THEN 0
+            WHEN LOWER(target_value_kind) IN ('ratio', 'percentage', 'percent', 'rate', 'interest_rate') THEN 2
+            ELSE NULL
+          END
+        WHERE target_rounding_kind IS NULL OR target_rounding_kind = '' OR target_rounding_kind = 'none'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET tolerance_allowed = 1,
+            non_tolerable_issue_codes = 'p_and_l_flatline'
+        WHERE post_intake_issue_codes LIKE '%p_and_l_flatline%'
         """
       )
       conn.commit()
@@ -1685,7 +1923,39 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             notes
           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
-            id = id
+            field_name = VALUES(field_name),
+            field_type = VALUES(field_type),
+            required = VALUES(required),
+            strict_required = VALUES(strict_required),
+            allow_null = VALUES(allow_null),
+            allow_empty = VALUES(allow_empty),
+            is_array_item = VALUES(is_array_item),
+            parent_field_path = VALUES(parent_field_path),
+            json_schema_type = VALUES(json_schema_type),
+            min_value = VALUES(min_value),
+            max_value = VALUES(max_value),
+            min_items = VALUES(min_items),
+            max_items = VALUES(max_items),
+            item_contract_grid_name = VALUES(item_contract_grid_name),
+            additional_properties_allowed = VALUES(additional_properties_allowed),
+            gpt_owned = VALUES(gpt_owned),
+            python_owned = VALUES(python_owned),
+            editable = VALUES(editable),
+            must_match_lookup = VALUES(must_match_lookup),
+            contract_phase = VALUES(contract_phase),
+            horizon_rule = VALUES(horizon_rule),
+            normalization_kind = VALUES(normalization_kind),
+            rounding_kind = VALUES(rounding_kind),
+            decimal_places = VALUES(decimal_places),
+            validation_kind = VALUES(validation_kind),
+            lookup_source = VALUES(lookup_source),
+            enum_values = VALUES(enum_values),
+            allowed_aliases = VALUES(allowed_aliases),
+            prompt_required_instruction = VALUES(prompt_required_instruction),
+            prompt_label = VALUES(prompt_label),
+            failure_code = VALUES(failure_code),
+            contract_status = VALUES(contract_status),
+            notes = VALUES(notes)
           """,
           (
             _clean_text(row.get("contract_name")).lower(),
@@ -1725,6 +1995,46 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             _clean_text(row.get("notes")),
           ),
         )
+      cur.execute(
+        f"""
+        UPDATE {_GPT_CONTRACT_TABLE_NAME}
+        SET contract_status = 'retired',
+            required = 0,
+            strict_required = 0,
+            prompt_required_instruction = 'Retired: per-quarter ramp prose is legacy bloat; root rationale remains the diagnostic explanation.'
+        WHERE contract_name = 'stage_ramp_contract'
+          AND field_path = 'quarter_ramp_grid[].why'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_GPT_CONTRACT_TABLE_NAME}
+        SET contract_status = 'retired',
+            required = 0,
+            strict_required = 0,
+            prompt_required_instruction = 'Retired: payroll is owned by the separate payroll_headcount_schedule contract, not stage_ramp_contract.'
+        WHERE contract_name = 'stage_ramp_contract'
+          AND (
+            field_path = 'payroll_headcount_grid'
+            OR grid_name = 'payroll_headcount_grid'
+            OR parent_field_path = 'payroll_headcount_grid'
+          )
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_GPT_CONTRACT_TABLE_NAME}
+        SET contract_status = 'retired',
+            required = 0,
+            prompt_required_instruction = 'Retired: FTE/headcount is owned by payroll_headcount_schedule, not stage_ramp_contract.'
+        WHERE contract_name = 'stage_ramp_contract'
+          AND (
+            field_path = 'fte_spike_small_base_threshold'
+            OR field_path LIKE 'quarter_ramp_grid[].fte_%'
+            OR field_name IN ('fte_target', 'fte_max', 'fte_spike', 'fte_spike_max', 'fte_spike_small_base_threshold')
+          )
+        """
+      )
       conn.commit()
       _ENSURE_GPT_CONTRACT_TABLE_READY = True
     finally:
@@ -1790,7 +2100,17 @@ def _ensure_gpt_context_lookup_table(conn) -> None:
             notes
           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
-            id = id
+            context_group = VALUES(context_group),
+            source_kind = VALUES(source_kind),
+            source_path = VALUES(source_path),
+            transform_kind = VALUES(transform_kind),
+            required = VALUES(required),
+            include_in_prompt = VALUES(include_in_prompt),
+            max_items = VALUES(max_items),
+            max_chars = VALUES(max_chars),
+            failure_code = VALUES(failure_code),
+            context_status = VALUES(context_status),
+            notes = VALUES(notes)
           """,
           (
             _clean_text(row.get("contract_name")).lower(),
@@ -1808,6 +2128,29 @@ def _ensure_gpt_context_lookup_table(conn) -> None:
             _clean_text(row.get("notes")),
           ),
         )
+      cur.execute(
+        f"""
+        UPDATE {_GPT_CONTEXT_TABLE_NAME}
+        SET required = 0,
+            include_in_prompt = 0,
+            notes = 'Prompts render contract structure from SQL directly; this duplicate context payload is intentionally disabled.'
+        WHERE contract_name IN ('stage_ramp_contract', 'payroll_headcount_schedule')
+          AND context_key IN ('contract_field_spec', 'required_response_shape')
+          AND include_phase = 'pre_convergence'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_GPT_CONTEXT_TABLE_NAME}
+        SET required = 0,
+            include_in_prompt = 0,
+            context_status = 'retired',
+            notes = 'Retired: payroll is owned by payroll_headcount_schedule, not stage_ramp_contract.'
+        WHERE contract_name = 'stage_ramp_contract'
+          AND context_key IN ('payroll_headcount_policy', 'payroll_budget_context', 'payroll_budget_checklist', 'people_staffing_context')
+          AND include_phase = 'pre_convergence'
+        """
+      )
       conn.commit()
       _ENSURE_GPT_CONTEXT_TABLE_READY = True
     finally:
@@ -1844,6 +2187,12 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
           required TINYINT(1) NOT NULL DEFAULT 1,
           enabled TINYINT(1) NOT NULL DEFAULT 1,
           fail_fast_code VARCHAR(255) NOT NULL,
+          python_role VARCHAR(128) NOT NULL DEFAULT 'deterministic_step_executor',
+          python_timing VARCHAR(128) NOT NULL DEFAULT '',
+          python_action LONGTEXT NULL,
+          input_object_path LONGTEXT NULL,
+          output_object_path LONGTEXT NULL,
+          validation_subject_path LONGTEXT NULL,
           sequence_status VARCHAR(32) NOT NULL DEFAULT 'active',
           notes LONGTEXT NULL,
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -1855,6 +2204,19 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
+      for ddl in [
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN python_role VARCHAR(128) NOT NULL DEFAULT 'deterministic_step_executor' AFTER fail_fast_code",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN python_timing VARCHAR(128) NOT NULL DEFAULT '' AFTER python_role",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN python_action LONGTEXT NULL AFTER python_timing",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN input_object_path LONGTEXT NULL AFTER python_action",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_object_path LONGTEXT NULL AFTER input_object_path",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN validation_subject_path LONGTEXT NULL AFTER output_object_path",
+      ]:
+        try:
+          cur.execute(ddl)
+        except Exception as exc:
+          if "Duplicate column" not in str(exc):
+            raise
       for row in _DEFAULT_PROCESS_SEQUENCE_ROWS:
         cur.execute(
           f"""
@@ -1873,9 +2235,15 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             required,
             enabled,
             fail_fast_code,
+            python_role,
+            python_timing,
+            python_action,
+            input_object_path,
+            output_object_path,
+            validation_subject_path,
             sequence_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             phase = VALUES(phase),
             step_order = VALUES(step_order),
@@ -1890,6 +2258,12 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             required = VALUES(required),
             enabled = VALUES(enabled),
             fail_fast_code = VALUES(fail_fast_code),
+            python_role = VALUES(python_role),
+            python_timing = VALUES(python_timing),
+            python_action = VALUES(python_action),
+            input_object_path = VALUES(input_object_path),
+            output_object_path = VALUES(output_object_path),
+            validation_subject_path = VALUES(validation_subject_path),
             sequence_status = VALUES(sequence_status),
             notes = VALUES(notes)
           """,
@@ -1908,6 +2282,12 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             1 if bool(row.get("required")) else 0,
             1 if bool(row.get("enabled")) else 0,
             _clean_text(row.get("fail_fast_code")) or f"{_clean_text(row.get('step_key')).lower()}_sequence_violation",
+            _clean_text(row.get("python_role")) or "deterministic_step_executor",
+            _clean_text(row.get("python_timing")) or _clean_text(row.get("phase")).lower(),
+            _clean_text(row.get("python_action")),
+            _clean_text(row.get("input_object_path")),
+            _clean_text(row.get("output_object_path")),
+            _clean_text(row.get("validation_subject_path")),
             _clean_text(row.get("notes")),
           ),
         )
@@ -1943,11 +2323,17 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
           control_owner,
           value_kind,
           target_value_kind,
+          value_rounding_kind,
+          value_decimal_places,
+          target_rounding_kind,
+          target_decimal_places,
           input_semantics,
           driver_bundle,
           cash_strategy_role,
           targeting_allowed,
           diagnostic_only,
+          tolerance_allowed,
+          non_tolerable_issue_codes,
           mapping_status,
           notes
         FROM {_MAPPING_TABLE_NAME}
@@ -1986,16 +2372,35 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
         _clean_text(raw_row.get("target_value_kind")).lower()
         or _default_target_value_kind(raw_row.get("financial_model_field"))
       ),
+      "value_precision": _normalize_precision_metadata(
+        value_kind=raw_row.get("value_kind"),
+        rounding_kind=raw_row.get("value_rounding_kind"),
+        decimal_places=raw_row.get("value_decimal_places"),
+      ),
+      "target_precision": _normalize_precision_metadata(
+        value_kind=(
+          _clean_text(raw_row.get("target_value_kind")).lower()
+          or _default_target_value_kind(raw_row.get("financial_model_field"))
+        ),
+        rounding_kind=raw_row.get("target_rounding_kind"),
+        decimal_places=raw_row.get("target_decimal_places"),
+      ),
       "input_semantics": _clean_text(raw_row.get("input_semantics")).lower(),
       "driver_bundle": _clean_text(raw_row.get("driver_bundle")).lower(),
       "cash_strategy_role": _clean_text(raw_row.get("cash_strategy_role")).lower(),
       "targeting_allowed": _clean_bool(raw_row.get("targeting_allowed")),
       "diagnostic_only": _clean_bool(raw_row.get("diagnostic_only")),
+      "tolerance_allowed": _clean_bool(raw_row.get("tolerance_allowed"), default=True),
+      "non_tolerable_issue_codes": _split_tokens(raw_row.get("non_tolerable_issue_codes")),
       "mapping_status": _clean_text(raw_row.get("mapping_status")).lower() or "active",
       "notes": _clean_text(raw_row.get("notes")),
     }
     row["target_metric_name"] = _normalized_metric_id_from_field(row.get("financial_model_field"))
     row["lookup_lever_id"] = _normalized_lookup_key(lever_id)
+    row["value_rounding_kind"] = _clean_text((row.get("value_precision") or {}).get("rounding_kind")).lower()
+    row["value_decimal_places"] = (row.get("value_precision") or {}).get("decimal_places")
+    row["target_rounding_kind"] = _clean_text((row.get("target_precision") or {}).get("rounding_kind")).lower()
+    row["target_decimal_places"] = (row.get("target_precision") or {}).get("decimal_places")
     rows.append(row)
   if not rows:
     raise RuntimeError(f"{_MAPPING_TABLE_NAME}_empty: post-intake mapping lookup table has no rows")
@@ -2319,6 +2724,12 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
           required,
           enabled,
           fail_fast_code,
+          python_role,
+          python_timing,
+          python_action,
+          input_object_path,
+          output_object_path,
+          validation_subject_path,
           sequence_status,
           notes
         FROM {_PROCESS_SEQUENCE_TABLE_NAME}
@@ -2363,6 +2774,12 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
         "required": _clean_bool(raw_row.get("required"), default=True),
         "enabled": _clean_bool(raw_row.get("enabled"), default=True),
         "fail_fast_code": _clean_text(raw_row.get("fail_fast_code")) or f"{step_key}_sequence_violation",
+        "python_role": _clean_text(raw_row.get("python_role")) or "deterministic_step_executor",
+        "python_timing": _clean_text(raw_row.get("python_timing")),
+        "python_action": _clean_text(raw_row.get("python_action")),
+        "input_object_path": _clean_text(raw_row.get("input_object_path")),
+        "output_object_path": _clean_text(raw_row.get("output_object_path")),
+        "validation_subject_path": _clean_text(raw_row.get("validation_subject_path")),
         "sequence_status": _clean_text(raw_row.get("sequence_status")).lower() or "active",
         "notes": _clean_text(raw_row.get("notes")),
         "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
@@ -2536,6 +2953,15 @@ class PostIntakeMappingLookup:
       for row in self.rows(active_only=True)
     )
 
+  def issue_tolerance_allowed(self, issue_code: Any, *, phase: Any = None) -> bool:
+    issue = _clean_text(issue_code).lower()
+    rows = self.rows_for_issue(issue_code, phase=phase)
+    if not rows:
+      return False
+    if any(issue in set(row.get("non_tolerable_issue_codes") or []) for row in rows):
+      return False
+    return all(bool(row.get("tolerance_allowed")) for row in rows)
+
   def target_value_kind_for_metric(self, target_metric_name: Any, *, phase: Any = None) -> str:
     metric = _clean_text(target_metric_name).lower()
     if not metric:
@@ -2555,6 +2981,74 @@ class PostIntakeMappingLookup:
         f"{metric} has multiple target_value_kind values in {_MAPPING_TABLE_NAME}: {kinds}"
       )
     return kinds[0] if kinds else ""
+
+  def target_precision_for_metric(self, target_metric_name: Any, *, phase: Any = None) -> Dict[str, Any]:
+    metric = _clean_text(target_metric_name).lower()
+    if not metric:
+      return _normalize_precision_metadata(value_kind="number")
+    precisions: List[Dict[str, Any]] = []
+    seen_keys: Set[Tuple[str, Optional[int]]] = set()
+    for row in self.rows(active_only=True, phase=phase):
+      if bool(row.get("diagnostic_only")):
+        continue
+      if _clean_text(row.get("target_metric_name")).lower() != metric:
+        continue
+      precision = dict(row.get("target_precision") or {})
+      if not precision:
+        precision = _normalize_precision_metadata(value_kind=row.get("target_value_kind"))
+      key = (
+        _clean_text(precision.get("rounding_kind")).lower(),
+        precision.get("decimal_places"),
+      )
+      if key not in seen_keys:
+        seen_keys.add(key)
+        precisions.append(precision)
+    if len(precisions) > 1:
+      raise RuntimeError(
+        "post_intake_mapping_target_precision_ambiguous: "
+        f"{metric} has multiple target precision values in {_MAPPING_TABLE_NAME}: {precisions}"
+      )
+    if precisions:
+      out = dict(precisions[0])
+      out["target_metric_name"] = metric
+      return out
+    out = _normalize_precision_metadata(value_kind="number")
+    out["target_metric_name"] = metric
+    return out
+
+  def value_precision_for_lever(self, lever_id: Any) -> Dict[str, Any]:
+    row = self.entry_for_lever(lever_id)
+    if not isinstance(row, dict) or not row:
+      raise RuntimeError(
+        "post_intake_mapping_value_precision_missing: "
+        f"lever_id={_clean_text(lever_id) or 'missing'} is not present in {_MAPPING_TABLE_NAME}"
+      )
+    precision = dict(row.get("value_precision") or {})
+    if not precision:
+      precision = _normalize_precision_metadata(value_kind=row.get("value_kind"))
+    precision["lever_id"] = _clean_text(row.get("lever_id"))
+    return precision
+
+  def normalize_target_value(
+    self,
+    target_metric_name: Any,
+    value: Any,
+    *,
+    phase: Any = None,
+    bound_side: str = "",
+  ) -> Any:
+    precision = self.target_precision_for_metric(target_metric_name, phase=phase)
+    return _round_by_precision_metadata(value, precision=precision, bound_side=bound_side)
+
+  def normalize_lever_value(
+    self,
+    lever_id: Any,
+    value: Any,
+    *,
+    bound_side: str = "",
+  ) -> Any:
+    precision = self.value_precision_for_lever(lever_id)
+    return _round_by_precision_metadata(value, precision=precision, bound_side=bound_side)
 
   def issue_candidate_lever_ids(
     self,
@@ -2725,6 +3219,8 @@ class PostIntakeMappingLookup:
           "control_owner": _clean_text(row.get("control_owner")).lower(),
           "value_kind": _clean_text(row.get("value_kind")).lower(),
           "target_value_kind": _clean_text(row.get("target_value_kind")).lower(),
+          "value_precision": copy.deepcopy(row.get("value_precision") or {}),
+          "target_precision": copy.deepcopy(row.get("target_precision") or {}),
           "input_semantics": _clean_text(row.get("input_semantics")).lower(),
           "driver_bundle": _clean_text(row.get("driver_bundle")).lower(),
           "cash_strategy_role": _clean_text(row.get("cash_strategy_role")).lower(),
@@ -2777,6 +3273,20 @@ class PostIntakeMappingLookup:
         errors.append(f"{_clean_text(row.get('lever_id'))} is missing value_kind")
       if not _clean_text(row.get("target_value_kind")):
         errors.append(f"{_clean_text(row.get('lever_id'))} is missing target_value_kind")
+      value_precision = row.get("value_precision") if isinstance(row.get("value_precision"), dict) else {}
+      target_precision = row.get("target_precision") if isinstance(row.get("target_precision"), dict) else {}
+      for precision_label, precision in (("value_precision", value_precision), ("target_precision", target_precision)):
+        rounding_kind = _clean_text(precision.get("rounding_kind")).lower()
+        decimal_places = precision.get("decimal_places")
+        if rounding_kind not in {"nearest_integer", "nearest_decimal", "nearest_dollar", "none"}:
+          errors.append(
+            f"{_clean_text(row.get('lever_id'))} has unsupported {precision_label}.rounding_kind {rounding_kind}"
+          )
+        if rounding_kind in {"nearest_integer", "nearest_dollar"} and decimal_places != 0:
+          errors.append(f"{_clean_text(row.get('lever_id'))} {precision_label} integer rounding must have decimal_places=0")
+        if rounding_kind == "nearest_decimal":
+          if decimal_places is None or int(decimal_places) < 0:
+            errors.append(f"{_clean_text(row.get('lever_id'))} {precision_label} decimal rounding needs decimal_places >= 0")
       if not _clean_text(row.get("input_semantics")):
         errors.append(f"{_clean_text(row.get('lever_id'))} is missing input_semantics")
       if phase == "cash_pass" and owner not in {"cash_pass", "locked"}:
@@ -3568,6 +4078,19 @@ class PostIntakeGptContractLookup:
             f"{contract}.{field_name} must contain exactly one row for every forecast quarter {horizon_label}; "
             f"row_count={len(value)} missing={missing} extra={extra}"
           )
+      elif horizon_rule == "q1_to_q20_at_least_once":
+        horizon_label = f"Q1-Q{len(expected_quarters)}"
+        if not isinstance(value, list):
+          errors.append(f"{contract}.{field_name} must be an array with {horizon_label}")
+          continue
+        quarters = self._quarter_set_from_array(value)
+        missing = sorted(expected_quarters - quarters)
+        extra = sorted(quarter for quarter in quarters if quarter not in expected_quarters)
+        if missing or extra:
+          errors.append(
+            f"{contract}.{field_name} must include at least one row for every forecast quarter {horizon_label}; "
+            f"row_count={len(value)} missing={missing} extra={extra}"
+          )
       elif horizon_rule == "q1_to_q20_editable_cells":
         horizon_label = f"Q1-Q{len(expected_quarters)}"
         if not isinstance(value, list):
@@ -4175,6 +4698,18 @@ class PostIntakeProcessSequenceLookup:
         errors.append(f"{step_key} missing required_lookup_tables")
       if not _clean_text(row.get("horizon_rule")):
         errors.append(f"{step_key} missing horizon_rule")
+      if not _clean_text(row.get("python_role")):
+        errors.append(f"{step_key} missing python_role")
+      if not _clean_text(row.get("python_timing")):
+        errors.append(f"{step_key} missing python_timing")
+      if not _clean_text(row.get("python_action")):
+        errors.append(f"{step_key} missing python_action")
+      if not _clean_text(row.get("output_object_path")):
+        errors.append(f"{step_key} missing output_object_path")
+      if not _clean_text(row.get("validation_subject_path")):
+        errors.append(f"{step_key} missing validation_subject_path")
+      if ";" in _clean_text(row.get("validation_subject_path")):
+        errors.append(f"{step_key} validation_subject_path must be a machine-readable object path, not prose")
       if _clean_text(row.get("context_contract_name")) and not _clean_text(row.get("context_include_phase")):
         errors.append(f"{step_key} has context_contract_name but missing context_include_phase")
       errors.extend(self._lookup_table_errors(row))
@@ -4345,6 +4880,14 @@ def post_intake_issue_has_phase(issue_code: Any, phase: Any) -> bool:
   return post_intake_mapping_lookup().issue_has_phase(issue_code, phase)
 
 
+def post_intake_issue_tolerance_allowed(
+  issue_code: Any,
+  *,
+  phase: Any = None,
+) -> bool:
+  return post_intake_mapping_lookup().issue_tolerance_allowed(issue_code, phase=phase)
+
+
 def post_intake_target_value_kind_for_metric(
   target_metric_name: Any,
   *,
@@ -4354,6 +4897,58 @@ def post_intake_target_value_kind_for_metric(
     target_metric_name,
     phase=phase,
   )
+
+
+def post_intake_target_precision_for_metric(
+  target_metric_name: Any,
+  *,
+  phase: Any = None,
+) -> Dict[str, Any]:
+  return post_intake_mapping_lookup().target_precision_for_metric(
+    target_metric_name,
+    phase=phase,
+  )
+
+
+def post_intake_value_precision_for_lever(lever_id: Any) -> Dict[str, Any]:
+  return post_intake_mapping_lookup().value_precision_for_lever(lever_id)
+
+
+def post_intake_normalize_target_value(
+  target_metric_name: Any,
+  value: Any,
+  *,
+  phase: Any = None,
+  bound_side: str = "",
+) -> Any:
+  return post_intake_mapping_lookup().normalize_target_value(
+    target_metric_name,
+    value,
+    phase=phase,
+    bound_side=bound_side,
+  )
+
+
+def post_intake_normalize_lever_value(
+  lever_id: Any,
+  value: Any,
+  *,
+  bound_side: str = "",
+) -> Any:
+  return post_intake_mapping_lookup().normalize_lever_value(
+    lever_id,
+    value,
+    bound_side=bound_side,
+  )
+
+
+def post_intake_precision_unit(precision: Any) -> float:
+  if not isinstance(precision, dict):
+    return 0.0
+  try:
+    return float(precision.get("precision_unit") or 0.0)
+  except Exception:
+    return 0.0
 
 
 def post_intake_issue_mapping_contract(
@@ -4907,6 +5502,11 @@ def post_intake_assert_required_process_sequence() -> Dict[str, Any]:
         "required_lookup_tables": copy.deepcopy(context.get("required_lookup_tables") or []),
         "required_lookup_context": copy.deepcopy(context.get("required_lookup_context") or {}),
         "horizon_rule": _clean_text(context.get("horizon_rule")).lower(),
+        "python_role": _clean_text(context.get("python_role")),
+        "python_timing": _clean_text(context.get("python_timing")),
+        "input_object_path": _clean_text(context.get("input_object_path")),
+        "output_object_path": _clean_text(context.get("output_object_path")),
+        "validation_subject_path": _clean_text(context.get("validation_subject_path")),
       }
       for context in gateway_contexts
     ],

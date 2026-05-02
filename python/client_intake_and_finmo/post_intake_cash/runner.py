@@ -22,16 +22,17 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_driver_target_lever_ids_for_cash_roles,
   post_intake_driver_target_lever_ids_for_target_drivers,
   post_intake_driver_target_single_lever_id_for_target_driver,
+  post_intake_gpt_context_request_char_budget,
   post_intake_issue_codes_for_phase,
   post_intake_issue_has_phase,
 )
 from client_intake_and_finmo.post_intake_cash.common import assert_cash_envelope_lifecycle  # type: ignore
 from client_intake_and_finmo.post_intake_cash.planning_envelope import build_cash_planning_envelope  # type: ignore
 from client_intake_and_finmo.post_intake_cash.validation_envelope import build_cash_validation_envelope  # type: ignore
-from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
+from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
   CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
-  bind_table_safe_runtime_dependencies,
 )
+from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
 
 _CASH_STRATEGY_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "cash_strategy_review" / "reviewer.md"
 _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_issuance")
@@ -1298,7 +1299,6 @@ def _cash_strategy_summary_metrics(
         "deployable_surplus_above_ceiling": int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))),
         "max_additional_distribution": int(round(float(_safe_float(item.get("max_additional_distribution")) or 0.0))),
         "max_additional_debt_paydown": int(round(float(_safe_float(item.get("max_additional_debt_paydown")) or 0.0))),
-        "cash_policy": copy.deepcopy(item.get("cash_policy") or {}),
         "buffer_violation": bool(item.get("buffer_violation")),
         "distribution_violation": bool(item.get("distribution_violation")),
       }
@@ -1496,7 +1496,6 @@ def _cash_strategy_lever_bounds(
           ),
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
           "allowed_action": "increase_repayment_for_surplus_deployment_only; minimum scheduled debt service is Python-owned and cannot be reduced by cash strategy",
-          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -1513,7 +1512,6 @@ def _cash_strategy_lever_bounds(
           "residual_funding_gap": residual_gap,
           "deployable_surplus_above_ceiling": deployable_surplus,
           "max_additional_distribution": max_additional_distribution,
-          "cash_policy": copy.deepcopy(cash_policy),
           "allowed_action": "increase_distributions_only_from_surplus_above_strategy_cash_ceiling",
           "strategy": strategy,
         },
@@ -1537,7 +1535,6 @@ def _cash_strategy_lever_bounds(
           ),
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
           "soft_capital_structure_guidance": copy.deepcopy(quarter_payload.get("soft_capital_structure_guidance") or {}),
-          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -1554,7 +1551,6 @@ def _cash_strategy_lever_bounds(
           "residual_funding_gap": residual_gap,
           "carryforward_headroom": carryforward_headroom,
           "capital_structure": copy.deepcopy(quarter_payload.get("capital_structure") or {}),
-          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -1571,7 +1567,6 @@ def _cash_strategy_lever_bounds(
           "residual_funding_gap": residual_gap,
           "carryforward_headroom": carryforward_headroom,
           "capital_structure": copy.deepcopy(quarter_payload.get("capital_structure") or {}),
-          "cash_policy": copy.deepcopy(cash_policy),
         },
       }
     )
@@ -2358,7 +2353,6 @@ def _run_cash_strategy_review_openai(
       "cash_ceiling": int(round(float(_safe_float(item.get("cash_ceiling")) or 0.0))),
       "max_additional_distribution": int(round(float(_safe_float(item.get("max_additional_distribution")) or 0.0))),
       "max_additional_debt_paydown": int(round(float(_safe_float(item.get("max_additional_debt_paydown")) or 0.0))),
-      "cash_policy": copy.deepcopy(item.get("cash_policy") or {}),
     }
     for item in (raw_violation_envelope.get("quarter_envelopes") or [])
     if isinstance(item, dict)
@@ -2445,7 +2439,6 @@ def _run_cash_strategy_review_openai(
             "deployable_surplus_above_ceiling": int(round(float(_safe_float(supporting_metrics.get("deployable_surplus_above_ceiling")) or 0.0))),
             "carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("carryforward_headroom")) or 0.0))),
             "cash_support_multiplier": round(float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0), 6),
-            "cash_policy": copy.deepcopy(supporting_metrics.get("cash_policy") or {}),
             "allowed_action": str(supporting_metrics.get("allowed_action") or "").strip(),
           },
         }
@@ -2509,22 +2502,59 @@ def _run_cash_strategy_review_openai(
   }
 
   static_cash_prompt = _load_cash_strategy_review_prompt()
-  user_context = {
-    "draft_id": str(draft_id or "").strip(),
+  cash_policy_prompt = {
+    "selected_cash_strategy": selected_cash_strategy,
+    "planning_mode": str(planning_mode or "").strip(),
+    "planning_mode_reason": str(planning_mode_reason or "").strip(),
     "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
-    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("cash_strategy_review"),
-    "planning_mode_context": _build_planning_mode_context(
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=planning_mode_prompt_file,
-    ),
-    "cash_strategy": selected_cash_strategy,
-    "cash_strategy_review_context": prompt_safe_cash_strategy_review_context,
-    "writable_lever_catalog": copy.deepcopy(scoped_lever_catalog),
-    "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
-    "solved_model_input_json": {},
-    "solved_finmo_quarter_rows": [],
+    "business_snapshot": copy.deepcopy(context_payload.get("business_snapshot") or {}),
+    "strategy_policy": copy.deepcopy(context_payload.get("strategy_policy") or {}),
+    "funding_source_policy": copy.deepcopy(funding_source_policy),
+    "cash_profile_summary": copy.deepcopy(context_payload.get("cash_profile_summary") or {}),
+    "cash_pass_phase_contract": copy.deepcopy(context_payload.get("cash_pass_phase_contract") or {}),
   }
+  cash_envelope_prompt = {
+    "cash_violation_envelope": copy.deepcopy(prompt_cash_violation_envelope),
+    "summary_metrics": copy.deepcopy(prompt_summary_metrics),
+    "allowed_quarters": copy.deepcopy(allowed_quarters),
+  }
+  funding_action_cells_prompt = {
+    "required_funding_quarters": copy.deepcopy(required_funding_quarters),
+    "required_surplus_deployment_quarters": copy.deepcopy(required_surplus_deployment_quarters),
+    "lever_bounds": {
+      "contract_version": str(raw_lever_bounds.get("contract_version") or "cash_strategy_lever_bounds_v2"),
+      "allowed_quarters": [
+        quarter for quarter in (raw_lever_bounds.get("allowed_quarters") or allowed_quarters)
+        if not decision_quarter_set or int(_safe_float(quarter) or 0) in decision_quarter_set
+      ],
+      "lever_bounds": prompt_lever_bounds_rows,
+    },
+    "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
+  }
+  user_context = {
+    "cash_policy": cash_policy_prompt,
+    "cash_envelope": cash_envelope_prompt,
+    "liquidity_violation_grid": copy.deepcopy(required_funding_quarters),
+    "debt_schedule_summary": copy.deepcopy(prompt_safe_cash_strategy_review_context.get("debt_schedule_snapshot") or {}),
+    "funding_action_cells": funding_action_cells_prompt,
+    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("cash_strategy_review"),
+  }
+  prompt_budget = post_intake_gpt_context_request_char_budget(
+    contract_name="cash_strategy_review",
+    include_phase="cash_pass",
+  )
+  user_context_chars = len(json.dumps(user_context, ensure_ascii=False))
+  if prompt_budget is not None and user_context_chars > int(prompt_budget):
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_prompt_context_budget_exceeded",
+      detail=(
+        "cash_strategy_review_prompt_context_budget_exceeded: "
+        f"user_payload_chars={user_context_chars}; sql_budget={int(prompt_budget)}"
+      ),
+      prompt_trace={"user_payload_chars": user_context_chars, "sql_budget": int(prompt_budget)},
+    )
   system_prompt = post_intake_build_prompt_from_contract(
     "cash_strategy_review",
     context_payload=user_context,

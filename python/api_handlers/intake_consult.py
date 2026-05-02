@@ -1377,19 +1377,6 @@ def _refresh_shared_forecast_context(
 
 
 
-_FULL_HORIZON_MODEL_INPUT_REPAIR_CONTRACT_VERSION = "full_horizon_model_input_repair_contract_v1"
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -6680,6 +6667,7 @@ def _run_unified_post_grid_system_run(
   applied_model_input_json: Dict[str, Any],
   applied_finmo_json: Dict[str, Any],
   stage_ramp_contract: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   _bind_post_intake_runtime_dependencies()
   return run_unified_post_grid_system_run(
@@ -6703,6 +6691,7 @@ def _run_unified_post_grid_system_run(
     applied_model_input_json=applied_model_input_json,
     applied_finmo_json=applied_finmo_json,
     stage_ramp_contract=stage_ramp_contract,
+    payroll_headcount=copy.deepcopy(payroll_headcount or {}),
   )
 def _run_planning_system_for_draft_unified(
   *,
@@ -6733,7 +6722,6 @@ def _run_planning_system_for_draft_unified(
     safe_float=_safe_float,
     estimate_r_and_d_applicability_with_gpt=_estimate_r_and_d_applicability_with_gpt,
     r_and_d_policy_from_model_input=_r_and_d_policy_from_model_input,
-    r_and_d_policy_version=R_AND_D_APPLICABILITY_POLICY_VERSION,
     assert_r_and_d_applicability_policy_applied=_assert_r_and_d_applicability_policy_applied,
     estimate_stage_ramp_contract_with_gpt=_estimate_stage_ramp_contract_with_gpt,
   )
@@ -6758,6 +6746,7 @@ def _run_planning_system_for_draft_unified(
     applied_model_input_json=copy.deepcopy(initial_grid_state.get("applied_model_input_json") or {}),
     applied_finmo_json=copy.deepcopy(initial_grid_state.get("applied_finmo_json") or {}),
     stage_ramp_contract=copy.deepcopy(initial_grid_state.get("stage_ramp_contract") or {}),
+    payroll_headcount=copy.deepcopy(initial_grid_state.get("payroll_headcount") or {}),
   )
 def _run_planning_system_for_draft(
   *,

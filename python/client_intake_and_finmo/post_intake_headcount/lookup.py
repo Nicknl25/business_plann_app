@@ -23,6 +23,8 @@ _DEFAULT_HEADCOUNT_POLICY_ROWS: List[Dict[str, Any]] = [
     "schedule_storage_table": "intake_consult_drafts",
     "schedule_storage_column": PAYROLL_HEADCOUNT_DRAFT_COLUMN,
     "schedule_contract_version": "payroll_headcount_schedule_v1",
+    "decision_source_required": True,
+    "required_decision_source": "payroll_headcount_schedule.payroll_headcount_grid",
     "schedule_horizon_quarters": 20,
     "schedule_required": True,
     "quarter_totals_required": True,
@@ -33,6 +35,9 @@ _DEFAULT_HEADCOUNT_POLICY_ROWS: List[Dict[str, Any]] = [
       "client_current_num_employees",
       "gpt_role_headcount_grid",
     ],
+    "headcount_economic_basis": "revenue_per_employee",
+    "default_revenue_per_employee": 650000,
+    "min_fte_coverage_ratio": 0.85,
     "wage_source_priority_json": [
       "oews_role_match",
       "oews_naics_role_fallback",
@@ -40,14 +45,24 @@ _DEFAULT_HEADCOUNT_POLICY_ROWS: List[Dict[str, Any]] = [
     ],
     "generic_oews_fallback_allowed": False,
     "generic_oews_fallback_code": "000001",
+    "salary_basis": "oews_all_occupations_mean",
+    "default_avg_annual_wage": 150000,
+    "min_wage_benchmark_ratio": 0.75,
+    "min_payroll_tax_benefits_pct": 0.12,
+    "max_payroll_tax_benefits_pct": 0.35,
+    "min_annual_wage": 25000,
+    "max_role_rows_per_quarter": 4,
+    "revenue_driver_context_required": True,
+    "min_payroll_percent_of_revenue": 0.08,
+    "max_payroll_percent_of_revenue": 0.80,
     "role_category_required": True,
     "fte_math_required": True,
     "currency_rounding": "nearest_dollar",
     "ratio_rounding": "two_decimal_places",
     "notes": (
-      "Payroll is schedule-driven: GPT decides staffing rows, Python calculates "
-      "quarter payroll from FTE and wage assumptions, and FINMO consumes the "
-      "Payroll model-input driver. The draft column stores numeric schedule data only."
+      "Payroll is schedule-driven through its own payroll_headcount_schedule "
+      "contract: GPT decides staffing rows, Python calculates quarter payroll "
+      "from FTE and wage assumptions, and FINMO consumes the Payroll model-input driver."
     ),
   },
 ]
@@ -67,6 +82,7 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   "contract_version",
   "draft_id",
   "client_id",
+  "decision_source",
   "source",
   "source_table",
   "source_column",
@@ -190,6 +206,8 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
           schedule_storage_table VARCHAR(128) NOT NULL,
           schedule_storage_column VARCHAR(128) NOT NULL,
           schedule_contract_version VARCHAR(128) NOT NULL,
+          decision_source_required TINYINT(1) NOT NULL DEFAULT 1,
+          required_decision_source VARCHAR(128) NOT NULL DEFAULT 'payroll_headcount_schedule.payroll_headcount_grid',
           schedule_horizon_quarters INT NOT NULL DEFAULT 20,
           schedule_required TINYINT(1) NOT NULL DEFAULT 1,
           quarter_totals_required TINYINT(1) NOT NULL DEFAULT 1,
@@ -197,9 +215,15 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
           model_input_driver VARCHAR(255) NOT NULL,
           financial_model_field VARCHAR(255) NOT NULL,
           headcount_source_priority_json LONGTEXT NOT NULL,
+          headcount_economic_basis VARCHAR(128) NOT NULL DEFAULT 'revenue_per_employee',
+          default_revenue_per_employee DECIMAL(14,2) NOT NULL DEFAULT 650000.00,
+          min_fte_coverage_ratio DECIMAL(10,4) NOT NULL DEFAULT 0.8500,
           wage_source_priority_json LONGTEXT NOT NULL,
           generic_oews_fallback_allowed TINYINT(1) NOT NULL DEFAULT 0,
           generic_oews_fallback_code VARCHAR(64) NULL,
+          salary_basis VARCHAR(128) NOT NULL DEFAULT 'oews_all_occupations_mean',
+          default_avg_annual_wage DECIMAL(14,2) NOT NULL DEFAULT 150000.00,
+          min_wage_benchmark_ratio DECIMAL(10,4) NOT NULL DEFAULT 0.7500,
           role_category_required TINYINT(1) NOT NULL DEFAULT 1,
           fte_math_required TINYINT(1) NOT NULL DEFAULT 1,
           currency_rounding VARCHAR(64) NOT NULL DEFAULT 'nearest_dollar',
@@ -212,10 +236,34 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
-      cur.execute(f"SELECT COUNT(*) AS row_count FROM {HEADCOUNT_POLICY_TABLE_NAME}")
-      row_count = int((cur.fetchone() or [0])[0] or 0)
-      bootstrap_defaults = row_count == 0
-      for row in (_DEFAULT_HEADCOUNT_POLICY_ROWS if bootstrap_defaults else []):
+      for ddl in [
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_payroll_tax_benefits_pct DECIMAL(10,4) NOT NULL DEFAULT 0.1200 AFTER generic_oews_fallback_code",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN max_payroll_tax_benefits_pct DECIMAL(10,4) NOT NULL DEFAULT 0.3500 AFTER min_payroll_tax_benefits_pct",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_annual_wage DECIMAL(14,2) NOT NULL DEFAULT 25000.00 AFTER max_payroll_tax_benefits_pct",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN max_role_rows_per_quarter INT NOT NULL DEFAULT 8 AFTER min_annual_wage",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN revenue_driver_context_required TINYINT(1) NOT NULL DEFAULT 1 AFTER max_role_rows_per_quarter",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_payroll_percent_of_revenue DECIMAL(10,4) NOT NULL DEFAULT 0.0800 AFTER revenue_driver_context_required",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN max_payroll_percent_of_revenue DECIMAL(10,4) NOT NULL DEFAULT 0.8000 AFTER min_payroll_percent_of_revenue",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN decision_source_required TINYINT(1) NOT NULL DEFAULT 1 AFTER schedule_contract_version",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN required_decision_source VARCHAR(128) NOT NULL DEFAULT 'payroll_headcount_schedule.payroll_headcount_grid' AFTER decision_source_required",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN headcount_economic_basis VARCHAR(128) NOT NULL DEFAULT 'revenue_per_employee' AFTER headcount_source_priority_json",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN default_revenue_per_employee DECIMAL(14,2) NOT NULL DEFAULT 650000.00 AFTER headcount_economic_basis",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_fte_coverage_ratio DECIMAL(10,4) NOT NULL DEFAULT 0.8500 AFTER default_revenue_per_employee",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN salary_basis VARCHAR(128) NOT NULL DEFAULT 'oews_all_occupations_mean' AFTER generic_oews_fallback_code",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN default_avg_annual_wage DECIMAL(14,2) NOT NULL DEFAULT 150000.00 AFTER salary_basis",
+        f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} ADD COLUMN min_wage_benchmark_ratio DECIMAL(10,4) NOT NULL DEFAULT 0.7500 AFTER default_avg_annual_wage",
+      ]:
+        try:
+          cur.execute(ddl)
+        except Exception as exc:
+          if "Duplicate column" not in str(exc):
+            raise
+      try:
+        cur.execute(f"ALTER TABLE {HEADCOUNT_POLICY_TABLE_NAME} DROP COLUMN aggregate_staff_max_fte")
+      except Exception as exc:
+        if "check that column/key exists" not in str(exc).lower() and "can't drop" not in str(exc).lower() and "unknown column" not in str(exc).lower():
+          raise
+      for row in _DEFAULT_HEADCOUNT_POLICY_ROWS:
         cur.execute(
           f"""
           INSERT INTO {HEADCOUNT_POLICY_TABLE_NAME} (
@@ -224,6 +272,8 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             schedule_storage_table,
             schedule_storage_column,
             schedule_contract_version,
+            decision_source_required,
+            required_decision_source,
             schedule_horizon_quarters,
             schedule_required,
             quarter_totals_required,
@@ -234,14 +284,48 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             wage_source_priority_json,
             generic_oews_fallback_allowed,
             generic_oews_fallback_code,
+            min_payroll_tax_benefits_pct,
+            max_payroll_tax_benefits_pct,
+            min_annual_wage,
+            max_role_rows_per_quarter,
+            revenue_driver_context_required,
+            min_payroll_percent_of_revenue,
+            max_payroll_percent_of_revenue,
             role_category_required,
             fte_math_required,
             currency_rounding,
             ratio_rounding,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
           ON DUPLICATE KEY UPDATE
-            id = id
+            policy_status = VALUES(policy_status),
+            schedule_storage_table = VALUES(schedule_storage_table),
+            schedule_storage_column = VALUES(schedule_storage_column),
+            schedule_contract_version = VALUES(schedule_contract_version),
+            decision_source_required = VALUES(decision_source_required),
+            required_decision_source = VALUES(required_decision_source),
+            schedule_horizon_quarters = VALUES(schedule_horizon_quarters),
+            schedule_required = VALUES(schedule_required),
+            quarter_totals_required = VALUES(quarter_totals_required),
+            role_rows_required = VALUES(role_rows_required),
+            model_input_driver = VALUES(model_input_driver),
+            financial_model_field = VALUES(financial_model_field),
+            headcount_source_priority_json = VALUES(headcount_source_priority_json),
+            wage_source_priority_json = VALUES(wage_source_priority_json),
+            generic_oews_fallback_allowed = VALUES(generic_oews_fallback_allowed),
+            generic_oews_fallback_code = VALUES(generic_oews_fallback_code),
+            min_payroll_tax_benefits_pct = VALUES(min_payroll_tax_benefits_pct),
+            max_payroll_tax_benefits_pct = VALUES(max_payroll_tax_benefits_pct),
+            min_annual_wage = VALUES(min_annual_wage),
+            max_role_rows_per_quarter = VALUES(max_role_rows_per_quarter),
+            revenue_driver_context_required = VALUES(revenue_driver_context_required),
+            min_payroll_percent_of_revenue = VALUES(min_payroll_percent_of_revenue),
+            max_payroll_percent_of_revenue = VALUES(max_payroll_percent_of_revenue),
+            role_category_required = VALUES(role_category_required),
+            fte_math_required = VALUES(fte_math_required),
+            currency_rounding = VALUES(currency_rounding),
+            ratio_rounding = VALUES(ratio_rounding),
+            notes = VALUES(notes)
           """,
           (
             _clean_text(row.get("policy_code")).lower(),
@@ -249,6 +333,8 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             _clean_text(row.get("schedule_storage_table")),
             _clean_text(row.get("schedule_storage_column")),
             _clean_text(row.get("schedule_contract_version")),
+            1 if row.get("decision_source_required") else 0,
+            _clean_text(row.get("required_decision_source")) or "payroll_headcount_schedule.payroll_headcount_grid",
             int(row.get("schedule_horizon_quarters") or 20),
             1 if row.get("schedule_required") else 0,
             1 if row.get("quarter_totals_required") else 0,
@@ -259,6 +345,13 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             _json_dumps_value(row.get("wage_source_priority_json") or []),
             1 if row.get("generic_oews_fallback_allowed") else 0,
             _clean_text(row.get("generic_oews_fallback_code")) or None,
+            float(row.get("min_payroll_tax_benefits_pct") or 0.12),
+            float(row.get("max_payroll_tax_benefits_pct") or 0.35),
+            float(row.get("min_annual_wage") or 25000),
+            int(row.get("max_role_rows_per_quarter") or 8),
+            1 if row.get("revenue_driver_context_required") else 0,
+            float(row.get("min_payroll_percent_of_revenue") or 0.08),
+            float(row.get("max_payroll_percent_of_revenue") or 0.80),
             1 if row.get("role_category_required") else 0,
             1 if row.get("fte_math_required") else 0,
             _clean_text(row.get("currency_rounding")) or "nearest_dollar",
@@ -266,6 +359,27 @@ def _ensure_post_intake_headcount_policy_lookup_table(conn) -> None:
             _clean_text(row.get("notes")),
           ),
         )
+      cur.execute(
+        f"""
+        UPDATE {HEADCOUNT_POLICY_TABLE_NAME}
+        SET required_decision_source = 'payroll_headcount_schedule.payroll_headcount_grid',
+            notes = 'Payroll is schedule-driven through its own payroll_headcount_schedule contract. Stage/ramp is context only and must not own payroll rows.'
+        WHERE policy_code = 'default'
+          AND required_decision_source = 'stage_ramp_contract.payroll_headcount_grid'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {HEADCOUNT_POLICY_TABLE_NAME}
+        SET headcount_economic_basis = 'revenue_per_employee',
+            default_revenue_per_employee = 650000.00,
+            min_fte_coverage_ratio = 0.8500,
+            salary_basis = 'oews_all_occupations_mean',
+            default_avg_annual_wage = 150000.00,
+            min_wage_benchmark_ratio = 0.7500
+        WHERE policy_code = 'default'
+        """
+      )
       conn.commit()
       _ENSURE_HEADCOUNT_POLICY_TABLE_READY = True
     finally:
@@ -307,6 +421,8 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
           schedule_storage_table,
           schedule_storage_column,
           schedule_contract_version,
+          decision_source_required,
+          required_decision_source,
           schedule_horizon_quarters,
           schedule_required,
           quarter_totals_required,
@@ -314,13 +430,26 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
           model_input_driver,
           financial_model_field,
           headcount_source_priority_json,
+          headcount_economic_basis,
+          default_revenue_per_employee,
+          min_fte_coverage_ratio,
           wage_source_priority_json,
           generic_oews_fallback_allowed,
           generic_oews_fallback_code,
+          salary_basis,
+          default_avg_annual_wage,
+          min_wage_benchmark_ratio,
           role_category_required,
           fte_math_required,
           currency_rounding,
           ratio_rounding,
+          min_payroll_tax_benefits_pct,
+          max_payroll_tax_benefits_pct,
+          min_annual_wage,
+          max_role_rows_per_quarter,
+          revenue_driver_context_required,
+          min_payroll_percent_of_revenue,
+          max_payroll_percent_of_revenue,
           notes
         FROM {HEADCOUNT_POLICY_TABLE_NAME}
         ORDER BY policy_code ASC
@@ -351,6 +480,8 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
         "schedule_storage_table": _clean_text(raw_row.get("schedule_storage_table")),
         "schedule_storage_column": _clean_text(raw_row.get("schedule_storage_column")),
         "schedule_contract_version": _clean_text(raw_row.get("schedule_contract_version")),
+        "decision_source_required": _clean_bool(raw_row.get("decision_source_required"), default=True),
+        "required_decision_source": _clean_text(raw_row.get("required_decision_source")) or "payroll_headcount_schedule.payroll_headcount_grid",
         "schedule_horizon_quarters": int(float(raw_row.get("schedule_horizon_quarters") or 0)),
         "schedule_required": _clean_bool(raw_row.get("schedule_required"), default=True),
         "quarter_totals_required": _clean_bool(raw_row.get("quarter_totals_required"), default=True),
@@ -358,9 +489,22 @@ def load_post_intake_headcount_policy_rows() -> List[Dict[str, Any]]:
         "model_input_driver": _clean_text(raw_row.get("model_input_driver")),
         "financial_model_field": _clean_text(raw_row.get("financial_model_field")),
         "headcount_source_priority": _json_value(raw_row.get("headcount_source_priority_json"), []),
+        "headcount_economic_basis": _clean_text(raw_row.get("headcount_economic_basis")).lower() or "revenue_per_employee",
+        "default_revenue_per_employee": float(raw_row.get("default_revenue_per_employee") or 650000),
+        "min_fte_coverage_ratio": float(raw_row.get("min_fte_coverage_ratio") or 0.85),
         "wage_source_priority": _json_value(raw_row.get("wage_source_priority_json"), []),
         "generic_oews_fallback_allowed": _clean_bool(raw_row.get("generic_oews_fallback_allowed")),
         "generic_oews_fallback_code": _clean_text(raw_row.get("generic_oews_fallback_code")),
+        "salary_basis": _clean_text(raw_row.get("salary_basis")).lower() or "oews_all_occupations_mean",
+        "default_avg_annual_wage": float(raw_row.get("default_avg_annual_wage") or 150000),
+        "min_wage_benchmark_ratio": float(raw_row.get("min_wage_benchmark_ratio") or 0.75),
+        "min_payroll_tax_benefits_pct": float(raw_row.get("min_payroll_tax_benefits_pct") or 0.12),
+        "max_payroll_tax_benefits_pct": float(raw_row.get("max_payroll_tax_benefits_pct") or 0.35),
+        "min_annual_wage": float(raw_row.get("min_annual_wage") or 25000.0),
+        "max_role_rows_per_quarter": int(float(raw_row.get("max_role_rows_per_quarter") or 8)),
+        "revenue_driver_context_required": _clean_bool(raw_row.get("revenue_driver_context_required"), default=True),
+        "min_payroll_percent_of_revenue": float(raw_row.get("min_payroll_percent_of_revenue") or 0.08),
+        "max_payroll_percent_of_revenue": float(raw_row.get("max_payroll_percent_of_revenue") or 0.80),
         "role_category_required": _clean_bool(raw_row.get("role_category_required"), default=True),
         "fte_math_required": _clean_bool(raw_row.get("fte_math_required"), default=True),
         "currency_rounding": _clean_text(raw_row.get("currency_rounding")).lower(),
@@ -418,10 +562,40 @@ class PostIntakeHeadcountPolicyLookup:
         errors.append(f"{policy_code}_missing_model_input_driver")
       if not _clean_text(row.get("financial_model_field")):
         errors.append(f"{policy_code}_missing_financial_model_field")
+      if _clean_bool(row.get("decision_source_required"), default=True) and not _clean_text(row.get("required_decision_source")):
+        errors.append(f"{policy_code}_missing_required_decision_source")
       if not isinstance(row.get("headcount_source_priority"), list) or not row.get("headcount_source_priority"):
         errors.append(f"{policy_code}_missing_headcount_source_priority")
+      if _clean_text(row.get("headcount_economic_basis")).lower() != "revenue_per_employee":
+        errors.append(f"{policy_code}_unsupported_headcount_economic_basis")
+      if float(row.get("default_revenue_per_employee") or 0.0) <= 0.0:
+        errors.append(f"{policy_code}_default_revenue_per_employee_must_be_positive")
+      min_fte_coverage_ratio = float(row.get("min_fte_coverage_ratio") or 0.0)
+      if min_fte_coverage_ratio <= 0.0 or min_fte_coverage_ratio > 1.0:
+        errors.append(f"{policy_code}_min_fte_coverage_ratio_invalid")
       if not isinstance(row.get("wage_source_priority"), list) or not row.get("wage_source_priority"):
         errors.append(f"{policy_code}_missing_wage_source_priority")
+      if float(row.get("default_avg_annual_wage") or 0.0) <= 0.0:
+        errors.append(f"{policy_code}_default_avg_annual_wage_must_be_positive")
+      min_wage_benchmark_ratio = float(row.get("min_wage_benchmark_ratio") or 0.0)
+      if min_wage_benchmark_ratio <= 0.0 or min_wage_benchmark_ratio > 1.0:
+        errors.append(f"{policy_code}_min_wage_benchmark_ratio_invalid")
+      min_benefits = float(row.get("min_payroll_tax_benefits_pct") or 0.0)
+      max_benefits = float(row.get("max_payroll_tax_benefits_pct") or 0.0)
+      if min_benefits <= 0.0:
+        errors.append(f"{policy_code}_min_payroll_tax_benefits_pct_must_be_positive")
+      if max_benefits < min_benefits or max_benefits > 1.0:
+        errors.append(f"{policy_code}_max_payroll_tax_benefits_pct_invalid")
+      if float(row.get("min_annual_wage") or 0.0) <= 0.0:
+        errors.append(f"{policy_code}_min_annual_wage_must_be_positive")
+      if int(row.get("max_role_rows_per_quarter") or 0) < 1:
+        errors.append(f"{policy_code}_max_role_rows_per_quarter_must_be_positive")
+      min_payroll_pct = float(row.get("min_payroll_percent_of_revenue") or 0.0)
+      max_payroll_pct = float(row.get("max_payroll_percent_of_revenue") or 0.0)
+      if min_payroll_pct <= 0.0:
+        errors.append(f"{policy_code}_min_payroll_percent_of_revenue_must_be_positive")
+      if max_payroll_pct < min_payroll_pct or max_payroll_pct > 1.0:
+        errors.append(f"{policy_code}_max_payroll_percent_of_revenue_invalid")
     return errors
 
 
@@ -456,6 +630,7 @@ def build_empty_payroll_headcount_payload(
   horizon = int((policy or {}).get("schedule_horizon_quarters") or 20)
   return {
     "contract_version": str((policy or {}).get("schedule_contract_version") or "payroll_headcount_schedule_v1"),
+    "decision_source": _clean_text((policy or {}).get("required_decision_source")) or "payroll_headcount_schedule.payroll_headcount_grid",
     "draft_id": _clean_text(draft_id),
     "client_id": _clean_text(client_id),
     "policy_code": _clean_text(policy_code).lower() or "default",
@@ -531,6 +706,10 @@ def validate_payroll_headcount_payload(
   expected_version = _clean_text((policy or {}).get("schedule_contract_version"))
   if expected_version and _clean_text(payload.get("contract_version")) != expected_version:
     errors.append("payroll_headcount_contract_version_mismatch")
+  if _clean_bool((policy or {}).get("decision_source_required"), default=True):
+    expected_source = _clean_text((policy or {}).get("required_decision_source"))
+    if expected_source and _clean_text(payload.get("decision_source")) != expected_source:
+      errors.append(f"payroll_headcount_decision_source_mismatch:expected={expected_source}")
   expected_horizon = int((policy or {}).get("schedule_horizon_quarters") or 20)
   if int(payload.get("schedule_horizon_quarters") or 0) != expected_horizon:
     errors.append("payroll_headcount_horizon_mismatch")

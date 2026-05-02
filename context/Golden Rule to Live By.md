@@ -95,6 +95,49 @@ FINMO's job is calculation only:
 
 FINMO should not receive patched output rows from post-intake. Post-intake changes drivers; FINMO calculates outputs.
 
+## Required Schedule Invariant
+
+Some model-input lines are deterministic schedule outputs. Those schedules are not optional guidance.
+
+These schedules must be built, applied to model input, reflected in FINMO, and persisted where applicable:
+
+- payroll schedule
+- debt schedule
+- depreciation schedule
+
+If a required schedule is missing, skipped, contradicted by model input, contradicted by FINMO, or bypassed by legacy logic, the run must fail fast at the boundary where the mismatch is detected.
+
+The schedule is the source for the model-input driver values. The model-input driver values feed FINMO. FINMO calculates outputs.
+
+Do not let GPT or legacy convergence code directly rewrite schedule-owned model-input rows outside the schedule process.
+
+## Fail-Fast Ownership
+
+Fail-fast behavior must be centralized by app phase.
+
+The canonical fail-fast package is `python/client_intake_and_finmo/fail_fast/`.
+
+It has three phase-owned areas:
+
+- `intake_fail_fast`
+- `post_intake_fail_fast`
+- `writtenplan_fail_fast`
+
+Post-intake fail-fast flags, switches, and named failure helpers belong in `post_intake_fail_fast`, not scattered through foundation files or phase runners.
+
+Fail-fast is controlled by the existing `CONVERGENCE_TEST_MODE` environment toggle.
+
+If `CONVERGENCE_TEST_MODE` is not true, fail-fast helpers must not raise.
+
+Phase-specific switches can only further disable fail-fast while `CONVERGENCE_TEST_MODE` is true:
+
+- `POST_INTAKE_FAIL_FAST_ENABLED=false`
+- `INTAKE_FAIL_FAST_ENABLED=false`
+- `WRITTENPLAN_FAIL_FAST_ENABLED=false`
+- `FAIL_FAST_ENABLED=false`
+
+Disabling fail-fast is a runtime/operator choice. It must not cause Python to silently invent values, complete GPT decisions, bypass mapping tables, or mutate FINMO outputs.
+
 ## Current Reality Check
 
 We are past concept and the structural architecture is now close to fully manifested.

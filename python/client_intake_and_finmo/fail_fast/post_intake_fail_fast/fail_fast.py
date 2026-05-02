@@ -1,13 +1,18 @@
-"""Post-intake fail-fast flag ownership.
-
-These flags are diagnostics, not business decisions. They live with
-post-intake foundation code so intake cannot redefine which post-intake
-failures are terminal.
-"""
+"""Post-intake fail-fast switches and named failure groups."""
 
 from __future__ import annotations
 
-from typing import Set
+from typing import Any, Dict, Optional, Set
+
+from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+  convergence_test_mode_enabled,
+  fail_fast_enabled,
+  fail_fast_raise,
+  fail_fast_result,
+)
+
+
+POST_INTAKE_FAIL_FAST_ENV = "POST_INTAKE_FAIL_FAST_ENABLED"
 
 
 CONVERGENCE_TEST_MODE_FAIL_FLAGS: Set[str] = {
@@ -53,6 +58,12 @@ PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "payroll_values_not_headcount_schedule_derived",
   "payroll_headcount_grid must be a 20-row array",
   "payroll_headcount_grid must contain exactly 20 rows",
+  "payroll_headcount_schedule_missing_at_application",
+  "payroll_headcount_quarter_total_mismatch",
+  "payroll_headcount_economic_coverage_failed",
+  "payroll_headcount_contract_invalid_fail_fast",
+  "payroll_headcount_model_input_not_applied",
+  "payroll_headcount_finmo_mismatch",
 }
 
 TRANSLATION_TEST_MODE_FAIL_FLAGS: Set[str] = {
@@ -60,9 +71,41 @@ TRANSLATION_TEST_MODE_FAIL_FLAGS: Set[str] = {
 }
 
 
-__all__ = [
-  "CASH_STRATEGY_TEST_MODE_FAIL_FLAGS",
-  "CONVERGENCE_TEST_MODE_FAIL_FLAGS",
-  "PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS",
-  "TRANSLATION_TEST_MODE_FAIL_FLAGS",
-]
+def post_intake_fail_fast_enabled() -> bool:
+  return fail_fast_enabled("POST_INTAKE")
+
+
+def post_intake_convergence_test_mode_enabled() -> bool:
+  return convergence_test_mode_enabled()
+
+
+def post_intake_fail_fast_result(
+  code: str,
+  message: str = "",
+  *,
+  stage: str = "",
+  details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  return fail_fast_result(
+    code,
+    message,
+    phase="POST_INTAKE",
+    stage=stage,
+    details=details,
+  )
+
+
+def post_intake_fail_fast_raise(
+  code: str,
+  message: str = "",
+  *,
+  stage: str = "",
+  details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  return fail_fast_raise(
+    code,
+    message,
+    phase="POST_INTAKE",
+    stage=stage,
+    details=details,
+  )

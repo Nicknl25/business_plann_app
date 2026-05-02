@@ -17,6 +17,9 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_assert_required_process_sequence,
   post_intake_assert_process_sequence_step,
   post_intake_build_prompt_from_contract,
+  post_intake_direct_target_metric_for_lever,
+  post_intake_driver_target_lever_allowed_for_issue,
+  post_intake_driver_target_mapping_entry,
   post_intake_driver_target_metric_ids,
   post_intake_issue_codes_for_phase,
   post_intake_process_sequence_step,
@@ -25,11 +28,19 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_gpt_context_filter_payload,
   post_intake_gpt_context_rows,
   post_intake_gpt_context_request_char_budget,
+  post_intake_gpt_contract_normalize_payload,
+  post_intake_gpt_contract_openai_schema,
+  post_intake_gpt_contract_payload_errors,
+  post_intake_gpt_contract_prompt_field_spec,
 )
 from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
+  bind_table_safe_runtime_dependencies,
+)
+from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
   PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS,
   TRANSLATION_TEST_MODE_FAIL_FLAGS,
-  bind_table_safe_runtime_dependencies,
+  post_intake_convergence_test_mode_enabled,
+  post_intake_fail_fast_raise,
 )
 
 _CONVERGENCE_DEFAULT_QUARTER_COUNT = int(
@@ -64,6 +75,13 @@ _UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids
 _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
 _TRANSLATION_TEST_MODE_FAIL_FLAGS = set(TRANSLATION_TEST_MODE_FAIL_FLAGS)
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
+_POST_INTAKE_RUNTIME_PROBE_VERSION = "2026-05-01-table-backed-post-intake-v1"
+_ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
+  code: {"title": code}
+  for code in post_intake_issue_codes_for_phase("convergence")
+}
+for _hard_issue_code in ("accounting_integrity_failure", "structural_impossibility"):
+  _ISSUE_CODE_REGISTRY.setdefault(_hard_issue_code, {"title": _hard_issue_code})
 
 
 def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
@@ -74,6 +92,45 @@ def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
       f"post_intake_process_sequence_missing_numeric_setting: step={step_key} field={field_name}"
     )
   return float(value)
+
+
+def _post_intake_contract_prompt_spec(contract_name: str) -> Dict[str, Any]:
+  return post_intake_gpt_contract_prompt_field_spec(contract_name)
+
+
+def _normalize_post_intake_contract_payload(
+  *,
+  contract_name: str,
+  payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  normalized = post_intake_gpt_contract_normalize_payload(
+    contract_name=contract_name,
+    payload=payload if isinstance(payload, dict) else {},
+  )
+  return normalized if isinstance(normalized, dict) else {}
+
+
+def _post_intake_contract_payload_errors(
+  *,
+  contract_name: str,
+  payload: Optional[Dict[str, Any]],
+) -> List[str]:
+  return list(
+    post_intake_gpt_contract_payload_errors(
+      contract_name=contract_name,
+      payload=payload if isinstance(payload, dict) else {},
+    )
+    or []
+  )
+
+
+def _unified_convergence_schema(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
+  """Return the SQL contract-table schema; runtime validators enforce dynamic cell membership."""
+  return _openai_strict_json_schema(
+    post_intake_gpt_contract_openai_schema(
+      contract_name="unified_convergence_decision",
+    )
+  )
 
 
 _UNIFIED_CONVERGENCE_MAX_CYCLES = int(
@@ -1093,7 +1150,7 @@ def _load_unified_convergence_prompt() -> str:
       "Use only the SQL-backed full-horizon editable model-input cell contract.\n"
       "For active issues, return a coordinated strategy that can actually move the business toward a viable ongoing-concern state.\n"
       "Solver will execute every valid package, so focus on strategy quality, quarter targets, and lever coordination.\n"
-      "For structural levers, return a full-horizon model_input_repair_cells path that preserves continuity: no quarter-to-quarter drop over 50%, no quarter-to-quarter jump over 2.5x, no snapback after a large build, and no abrupt regime switching without a believable transition.\n"
+      "For structural levers, return a full-horizon model_input_repair_cells path that preserves continuity: no quarter-to-quarter drop over 50%, no quarter-to-quarter jump over 2.5x, no immediate reversal after a large build, and no abrupt regime switching without a believable transition.\n"
       "Do not return vague guidance. Return structured JSON only."
     ).strip()
 
@@ -1768,9 +1825,7 @@ def _compact_full_horizon_repair_contract_for_prompt(contract: Optional[Dict[str
         "min_value": row.get("min_value"),
         "max_value": row.get("max_value"),
         "numeric_precision_rule": row.get("numeric_precision_rule"),
-        "formula_envelope": copy.deepcopy(row.get("formula_envelope"))
-        if isinstance(row.get("formula_envelope"), dict)
-        else None,
+        "formula_envelope": _compact_formula_envelope_for_prompt(row.get("formula_envelope")),
       }
     )
   return {
@@ -1785,12 +1840,160 @@ def _compact_full_horizon_repair_contract_for_prompt(contract: Optional[Dict[str
     "editable_cells": editable_cells,
   }
 
-def _apply_gpt_context_lookup_to_unified_convergence_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
-  context_packet = copy.deepcopy(packet if isinstance(packet, dict) else {})
-  if isinstance(context_packet.get("full_horizon_model_input_repair_contract"), dict):
-    context_packet["full_horizon_model_input_repair_contract"] = _compact_full_horizon_repair_contract_for_prompt(
-      context_packet.get("full_horizon_model_input_repair_contract")
+def _compact_formula_envelope_for_prompt(envelope: Any) -> Optional[Dict[str, Any]]:
+  if not isinstance(envelope, dict) or not envelope:
+    return None
+  keep_keys = [
+    "envelope_basis",
+    "formula",
+    "mapping_table",
+    "target_metric_name",
+    "target_driver",
+    "target_value",
+    "target_cap_source",
+    "direction_hint",
+    "required_driver_value_if_companions_unchanged",
+  ]
+  compact = {
+    key: copy.deepcopy(envelope.get(key))
+    for key in keep_keys
+    if envelope.get(key) is not None
+  }
+  companion_values = envelope.get("companion_driver_values")
+  if isinstance(companion_values, dict):
+    compact["companion_driver_values"] = {
+      str(key): value
+      for key, value in companion_values.items()
+      if str(key).strip() in {"capacity", "unit_price", "utilization"}
+    }
+  return compact or None
+
+def _compact_locked_target_fill_grid_for_prompt(grid: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  source = grid if isinstance(grid, dict) else {}
+  rows: List[Dict[str, Any]] = []
+  for row in source.get("rows") or []:
+    if not isinstance(row, dict):
+      continue
+    rows.append(
+      {
+        "quarter_index": row.get("quarter_index"),
+        "metric_name": row.get("metric_name"),
+        "target_value_kind": row.get("target_value_kind"),
+        "current_value": row.get("current_value"),
+        "minimum_target_value": row.get("minimum_target_value"),
+        "maximum_target_value": row.get("maximum_target_value"),
+        "recommended_target_value": row.get("recommended_target_value"),
+        "direction_hint": row.get("direction_hint"),
+      }
     )
+  return {
+    "contract_version": source.get("contract_version"),
+    "grid_rule": source.get("grid_rule"),
+    "required_target_quarters": copy.deepcopy(source.get("required_target_quarters") or []),
+    "allowed_target_metric_names": copy.deepcopy(source.get("allowed_target_metric_names") or []),
+    "rows": rows,
+  }
+
+def _compact_issue_repair_envelope_for_prompt(packets: Any) -> List[Dict[str, Any]]:
+  compact_packets: List[Dict[str, Any]] = []
+  for packet in packets or []:
+    if not isinstance(packet, dict):
+      continue
+    repair_targets: List[Dict[str, Any]] = []
+    for target in packet.get("repair_targets") or []:
+      if not isinstance(target, dict):
+        continue
+      driver_paths: List[Dict[str, Any]] = []
+      for driver_path in target.get("driver_paths") or []:
+        if not isinstance(driver_path, dict):
+          continue
+        driver_paths.append(
+          {
+            "lever": driver_path.get("lever"),
+            "target_driver": driver_path.get("target_driver"),
+            "value_kind": driver_path.get("value_kind"),
+            "input_semantics": driver_path.get("input_semantics"),
+          }
+        )
+      repair_targets.append(
+        {
+          "quarter": target.get("quarter"),
+          "metric": target.get("metric"),
+          "direction": target.get("direction"),
+          "target_value": target.get("target_value"),
+          "target_floor": target.get("target_floor"),
+          "target_ceiling": target.get("target_ceiling"),
+          "driver_paths": driver_paths,
+        }
+      )
+    compact_packets.append(
+      {
+        "issue_code": packet.get("issue_code"),
+        "phase": packet.get("phase"),
+        "metric_targets": copy.deepcopy(packet.get("metric_targets") or []),
+        "target_quarters": copy.deepcopy(packet.get("target_quarters") or []),
+        "repair_targets": repair_targets,
+      }
+    )
+  return compact_packets
+
+def _compact_numeric_solver_feedback_for_prompt(feedback: Any) -> Dict[str, Any]:
+  source = feedback if isinstance(feedback, dict) else {}
+  return {
+    "execution_state": source.get("execution_state"),
+    "outcome_reason": source.get("outcome_reason"),
+    "solver_invoked": bool(source.get("solver_invoked")),
+    "solver_execution_state": source.get("solver_execution_state"),
+    "quarters_with_all_targets_within_tolerance": source.get("quarters_with_all_targets_within_tolerance"),
+    "quarters_with_target_misses": source.get("quarters_with_target_misses"),
+    "target_metric_names": copy.deepcopy(source.get("target_metric_names") or []),
+    "targeted_quarters": copy.deepcopy(source.get("targeted_quarters") or []),
+    "allowed_lever_ids": copy.deepcopy(source.get("allowed_lever_ids") or []),
+    "attempted_lever_families": copy.deepcopy(source.get("attempted_lever_families") or []),
+    "quarter_fit_summary": copy.deepcopy(source.get("quarter_fit_summary") or []),
+  }
+
+def _apply_unified_convergence_context_transforms(
+  packet: Dict[str, Any],
+  *,
+  include_phase: str,
+) -> Dict[str, Any]:
+  context_packet = copy.deepcopy(packet if isinstance(packet, dict) else {})
+  transforms = {
+    str(row.get("context_key") or "").strip(): str(row.get("transform_kind") or "").strip().lower()
+    for row in post_intake_gpt_context_rows(
+      contract_name="unified_convergence_decision",
+      include_phase=include_phase,
+      include_in_prompt=True,
+    )
+    if str(row.get("context_key") or "").strip()
+  }
+  for key, transform_kind in transforms.items():
+    if key not in context_packet or not transform_kind:
+      continue
+    if transform_kind == "compact_full_horizon_repair_contract":
+      context_packet[key] = _compact_full_horizon_repair_contract_for_prompt(context_packet.get(key))
+    elif transform_kind == "compact_locked_target_fill_grid":
+      context_packet[key] = _compact_locked_target_fill_grid_for_prompt(context_packet.get(key))
+    elif transform_kind == "compact_issue_repair_envelope":
+      context_packet[key] = _compact_issue_repair_envelope_for_prompt(context_packet.get(key))
+    elif transform_kind == "compact_numeric_solver_feedback":
+      context_packet[key] = _compact_numeric_solver_feedback_for_prompt(context_packet.get(key))
+    elif transform_kind in {"copy", "request_char_budget"}:
+      continue
+    elif transform_kind:
+      raise RuntimeError(
+        "post_intake_gpt_context_transform_unsupported: "
+        f"contract=unified_convergence_decision include_phase={include_phase} "
+        f"context_key={key} transform_kind={transform_kind}"
+      )
+  return context_packet
+
+def _apply_gpt_context_lookup_to_unified_convergence_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
+  context_packet = _apply_unified_convergence_context_transforms(
+    copy.deepcopy(packet if isinstance(packet, dict) else {}),
+    include_phase="planner",
+  )
   return post_intake_gpt_context_filter_payload(
     contract_name="unified_convergence_decision",
     include_phase="planner",
@@ -1822,6 +2025,19 @@ def _gpt_request_char_count(payload: Dict[str, Any]) -> int:
     return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
   except Exception:
     return len(str(payload or ""))
+
+def _payload_key_char_counts(payload: Any, *, limit: int = 12) -> List[Dict[str, Any]]:
+  if not isinstance(payload, dict):
+    return []
+  rows: List[Dict[str, Any]] = []
+  for key, value in payload.items():
+    rows.append(
+      {
+        "key": str(key),
+        "chars": _gpt_request_char_count({"value": value}),
+      }
+    )
+  return sorted(rows, key=lambda item: int(item.get("chars") or 0), reverse=True)[: max(1, int(limit))]
 
 def _target_metric_value_by_quarter(
   *,
@@ -2570,6 +2786,7 @@ def _run_unified_convergence_openai(
         "required_editable_cell_count": len(required_model_input_repair_cell_ids),
         "allowed_lever_count": len(allowed_lever_ids),
         "required_target_quarter_count": len(required_target_quarters),
+        "largest_prompt_context_keys": _payload_key_char_counts(planner_input_packet),
       },
     }
   try:
@@ -2591,14 +2808,15 @@ def _run_unified_convergence_openai(
       "decision": {},
       "payload_size_summary": {
         "request_chars": request_chars,
-        "request_budget": int(request_budget) if request_budget is not None else None,
-        "prompt_packet_chars": prompt_packet_chars,
-        "required_editable_cell_count": len(required_model_input_repair_cell_ids),
-        "allowed_lever_count": len(allowed_lever_ids),
-        "required_target_quarter_count": len(required_target_quarters),
-        "source_of_truth": "sql.post_intake_gpt_context_lookup",
-      },
-    }
+          "request_budget": int(request_budget) if request_budget is not None else None,
+          "prompt_packet_chars": prompt_packet_chars,
+          "required_editable_cell_count": len(required_model_input_repair_cell_ids),
+          "allowed_lever_count": len(allowed_lever_ids),
+          "required_target_quarter_count": len(required_target_quarters),
+          "source_of_truth": "sql.post_intake_gpt_context_lookup",
+          "largest_prompt_context_keys": _payload_key_char_counts(planner_input_packet),
+        },
+      }
   if resp.status_code >= 400:
     return {
       "contract_version": "unified_convergence_decision_v1",
@@ -2713,41 +2931,42 @@ def _run_unified_convergence_openai(
       ],
       required_horizon_rule="q1_to_q20_model_input_repair_cells",
     )
-    compact_retry_contract = _compact_full_horizon_repair_contract_for_prompt(
-      copy.deepcopy(full_horizon_model_input_repair_contract)
-    )
+    raw_retry_context_packet = {
+      "repair_contract_violation": str(contract_error).strip(),
+      "required_target_quarters": copy.deepcopy(required_target_quarters),
+      "locked_target_fill_grid": copy.deepcopy(locked_target_fill_grid),
+      "full_horizon_model_input_repair_contract": copy.deepcopy(full_horizon_model_input_repair_contract),
+      "recommended_primary_target_metric_keys": copy.deepcopy(
+        (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
+      ),
+      "invalid_response_to_repair": copy.deepcopy(parsed),
+      "issue_coverage_requirements": copy.deepcopy(
+        (effective_retry_context or {}).get("issue_coverage_requirements") or []
+      ),
+      "business_world_contract": copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
+      "contract_repair_instruction": (
+        "Repair the response contract using only SQL-approved context keys and the full-horizon "
+        "model_input_repair_cells execution contract. Fill exactly the required editable cells; "
+        "do not emit mapping metadata, alternate adjustment payloads, unlisted cells, or removed prompt packets. "
+        "Every chosen primary metric must appear in every targeted quarter row, and every targeted quarter "
+        "must be explicitly present. Structural trajectories must be expressed directly in "
+        "model_input_repair_cells across the required horizon. If revenue is targeted, calculate "
+        "Capacity x Unit Price x Utilization for every product and every targeted quarter; the authored "
+        "driver cells must produce the revenue target before Python will apply the repair."
+      ),
+    }
     retry_context_packet = post_intake_gpt_context_filter_payload(
       contract_name="unified_convergence_decision",
       include_phase="planner_retry",
-      payload={
-        "repair_contract_violation": str(contract_error).strip(),
-        "required_target_quarters": copy.deepcopy(required_target_quarters),
-        "locked_target_fill_grid": copy.deepcopy(locked_target_fill_grid),
-        "full_horizon_model_input_repair_contract": copy.deepcopy(compact_retry_contract),
-        "recommended_primary_target_metric_keys": copy.deepcopy(
-          (scoped_numeric_solver_contract or {}).get("recommended_primary_target_metric_keys") or []
-        ),
-        "invalid_response_to_repair": copy.deepcopy(parsed),
-        "issue_coverage_requirements": copy.deepcopy(
-          (effective_retry_context or {}).get("issue_coverage_requirements") or []
-        ),
-        "business_world_contract": copy.deepcopy((unified_convergence_context or {}).get("business_world_contract") or {}),
-        "contract_repair_instruction": (
-          "Repair the response contract using only SQL-approved context keys and the full-horizon "
-          "model_input_repair_cells execution contract. Fill exactly the required editable cells; "
-          "do not emit mapping metadata, alternate adjustment payloads, unlisted cells, or removed prompt packets. "
-          "Every chosen primary metric must appear in every targeted quarter row, and every targeted quarter "
-          "must be explicitly present. Structural trajectories must be expressed directly in "
-          "model_input_repair_cells across the required horizon. If revenue is targeted, calculate "
-          "Capacity x Unit Price x Utilization for every product and every targeted quarter; the authored "
-          "driver cells must produce the revenue target before Python will apply the repair."
-        ),
-      },
+      payload=_apply_unified_convergence_context_transforms(
+        raw_retry_context_packet,
+        include_phase="planner_retry",
+      ),
     )
     retry_system_prompt = post_intake_build_prompt_from_contract(
       "unified_convergence_decision",
       context_payload=retry_context_packet,
-      include_phase="planner",
+      include_phase="planner_retry",
       static_instruction=_load_unified_convergence_prompt(),
       task_instruction=(
         "Return a corrected SQL-backed unified_convergence_decision payload. Keep full Q1-Q20 coverage, "
@@ -2774,7 +2993,7 @@ def _run_unified_convergence_openai(
     retry_request_chars = _gpt_request_char_count(retry_payload)
     retry_budget = post_intake_gpt_context_request_char_budget(
       contract_name="unified_convergence_decision",
-      include_phase="planner",
+      include_phase="planner_retry",
       default=None,
     )
     if retry_budget is not None and retry_request_chars > int(retry_budget):
@@ -2793,7 +3012,8 @@ def _run_unified_convergence_openai(
         "payload_size_summary": {
           "request_chars": retry_request_chars,
           "budget": int(retry_budget),
-          "prompt_packet_chars": _gpt_request_char_count(compact_retry_contract),
+          "prompt_packet_chars": _gpt_request_char_count(retry_context_packet),
+          "largest_prompt_context_keys": _payload_key_char_counts(retry_context_packet),
         },
       }
     try:
@@ -3880,19 +4100,18 @@ def _allowed_stage_growth_result(
   spike_available_by_grid = bool(pair_limit.get("spike_available"))
   spike_allowed_by_grid = bool(pair_limit.get("spike_allowed_for_pair"))
   support_ok = bool((support or {}).get("supported"))
-  small_base_threshold = _safe_float(policy.get("fte_spike_small_base_threshold"))
-  small_base_ok = (
-    True
-    if metric_prefix != "fte"
-    else (small_base_threshold is not None and prior_fte is not None and float(prior_fte) < float(small_base_threshold))
-  )
-  if metric_prefix == "fte" and str(policy.get("stage_family") or "").strip().lower() != "startup":
-    small_base_ok = True
+  if metric_prefix == "fte":
+    return {
+      "allowed": False,
+      "allowed_growth": 0.0,
+      "used_spike": False,
+      "reason": "fte_growth_is_owned_by_payroll_headcount_schedule_not_stage_ramp",
+      "ramp_grid_row": copy.deepcopy(pair_limit.get("ramp_grid_row") or {}),
+    }
   if (
     growth <= spike_max + 1e-9
     and spike_available_by_grid
     and support_ok
-    and small_base_ok
   ):
     return {
       "allowed": True,
@@ -4151,7 +4370,7 @@ def get_runtime_probe_payload() -> Dict[str, Any]:
     process_sequence_steps = []
   return {
     "status": "ok",
-    "runtime_probe_version": _INTAKE_CONSULT_RUNTIME_PROBE_VERSION,
+    "runtime_probe_version": _POST_INTAKE_RUNTIME_PROBE_VERSION,
     "architecture": "unified_convergence_plus_cash_pass",
     "mapping_source": "sql.post_intak_mapping_lookup",
     "process_sequence_source": "sql.post_intake_process_sequence_lookup",
@@ -4177,8 +4396,7 @@ def get_runtime_probe_payload() -> Dict[str, Any]:
   }
 
 def _convergence_test_mode_enabled() -> bool:
-  raw = (os.getenv("CONVERGENCE_TEST_MODE") or "false").strip().lower()
-  return raw not in {"", "0", "false", "no", "off"}
+  return post_intake_convergence_test_mode_enabled()
 
 def _handle_convergence_test_mode_failure(
   quality_assessment: Optional[Dict[str, Any]],
@@ -4201,7 +4419,13 @@ def _handle_convergence_test_mode_failure(
     if terminal_message:
       print(terminal_message, flush=True)
       logger.error(terminal_message)
-    raise RuntimeError(detail)
+    post_intake_fail_fast_raise(
+      "unified_convergence_test_mode_failure",
+      detail,
+      stage="unified_convergence_test_mode",
+      details={"strict_failure": copy.deepcopy(strict_failure)},
+    )
+    return
   if terminal_message:
     logger.warning(terminal_message)
   else:

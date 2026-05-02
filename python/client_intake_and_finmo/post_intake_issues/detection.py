@@ -12,6 +12,7 @@ import json
 from typing import Any, Dict, List, Optional, Set
 
 from client_intake_and_finmo.post_intake_mapping import (
+  post_intake_driver_target_mapping_rows_for_issue,
   post_intake_issue_candidate_lever_ids,
   post_intake_issue_codes_for_phase,
   post_intake_issue_has_phase,
@@ -490,11 +491,10 @@ def _p_and_l_flatline_signals(finmo_json: Optional[Dict[str, Any]]) -> List[Dict
     field for field in ("cogs", "gross_profit", "ebitda", "net_income")
     if int(flat_runs.get(field, {}).get("length") or 0) >= int(revenue_flat.get("length") or 0) - 1
   ]
-  full_horizon_flat = int(revenue_flat.get("length") or 0) >= live_count and bool(companion_flat_fields)
+  full_horizon_flat = int(revenue_flat.get("length") or 0) >= live_count
   late_plateau = (
     int(revenue_flat.get("length") or 0) >= 10
     and int(revenue_flat.get("start_quarter") or 99) >= 8
-    and bool(companion_flat_fields)
   )
   if not full_horizon_flat and not late_plateau:
     return []
@@ -620,8 +620,19 @@ def _build_stage_maturity_cost_structure_issue_status_records(
     phase="convergence",
   )
   if not r_and_d_enabled:
-    rd_lever = str(_dep("R_AND_D_APPLICABILITY_LEVER_ID") or "").strip()
-    allowed_levers = [lever_id for lever_id in allowed_levers if str(lever_id or "").strip() != rd_lever]
+    rd_levers = {
+      str(row.get("lever_id") or "").strip()
+      for row in post_intake_driver_target_mapping_rows_for_issue(
+        "cost_structure_mismatch",
+        phase="convergence",
+      )
+      if str(row.get("target_metric_name") or "").strip().lower() == "research_and_development"
+    }
+    allowed_levers = [
+      lever_id
+      for lever_id in allowed_levers
+      if str(lever_id or "").strip() not in rd_levers
+    ]
   if not allowed_levers:
     raise RuntimeError(
       "stage_maturity_cost_structure_mapping_failed: cost_structure_mismatch fired but no table-backed cost levers are available."

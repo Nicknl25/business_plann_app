@@ -877,7 +877,7 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
         "- pre-revenue businesses must not begin Q1 at mature run-rate revenue, utilization, capacity deployment, staffing support, or profitability",
         "- use a launch/ramp curve in Q1-Q4 unless explicit operating facts prove an already-contracted backlog",
         "- revenue may become strong later, but Q1 must look like a launch period rather than an established mature business",
-        "- keep revenue, utilization, and capacity coherent with the separate SQL-backed payroll_headcount_schedule contract",
+        "- keep revenue, utilization, and capacity coherent with the business stage; payroll is handled by the separate SQL-backed payroll_headcount_schedule contract",
       ]
     )
   elif str(context.get("stage_family") or "").strip().lower() == "early":
@@ -905,7 +905,6 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
       "rev_max": row.get("revenue_qoq_max"),
       "rev_spike": row.get("revenue_qoq_spike_allowed"),
       "rev_spike_max": row.get("revenue_qoq_spike_max"),
-      "fte_max": row.get("fte_qoq_max"),
       "util_cap": row.get("utilization_cap"),
       "cogs_target": row.get("cogs_percent_of_revenue_target"),
       "cogs_max": row.get("cogs_percent_of_revenue_max"),
@@ -925,8 +924,6 @@ def _compact_stage_ramp_contract_for_prompt(contract: Dict[str, Any]) -> Dict[st
     "quarter_grid_is_binding": bool(payload.get("quarter_grid_is_binding") or payload.get("composite_revenue_ramp_is_binding")),
     "revenue_qoq_growth_target_max": payload.get("revenue_qoq_growth_target_max"),
     "revenue_qoq_max_spike": payload.get("revenue_qoq_max_spike"),
-    "fte_qoq_max": payload.get("fte_qoq_max"),
-    "fte_qoq_max_spike": payload.get("fte_qoq_max_spike"),
     "utilization_high_watermark": payload.get("utilization_high_watermark"),
     "cost_maturity_caps": copy.deepcopy(payload.get("cost_maturity_caps") or {}),
     "profitability_floor_by_quarter": copy.deepcopy(payload.get("profitability_floor_by_quarter") or {}),

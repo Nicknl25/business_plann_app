@@ -25,9 +25,15 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_issue_codes,
   post_intake_issue_codes_for_phase,
   post_intake_issue_has_phase,
+  post_intake_issue_tolerance_allowed,
   post_intake_issue_mapping_contract,
+  post_intake_normalize_lever_value,
+  post_intake_normalize_target_value,
+  post_intake_precision_unit,
+  post_intake_target_precision_for_metric,
   post_intake_target_metric_names_for_issue,
   post_intake_target_value_kind_for_metric,
+  post_intake_value_precision_for_lever,
 )
 from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
 from client_intake_and_finmo.post_intake_issues import detection as _issue_detection
@@ -37,6 +43,8 @@ logger = logging.getLogger(__name__)
 _CONVERGENCE_ISSUE_PASS_SCORE_PCT = 80
 _CONVERGENCE_ISSUE_WARN_SCORE_PCT = 70
 _CONVERGENCE_STRONG_SCORE_PCT = 90
+_CONVERGENCE_OVERALL_SCORE_ISSUE_WEIGHT = 0.70
+_CONVERGENCE_OVERALL_SCORE_LOWEST_QUARTER_WEIGHT = 0.30
 _CONVERGENCE_DEFAULT_QUARTER_COUNT = int(
   post_intake_contract_forecast_horizon_quarter_count(
     contract_name="unified_convergence_decision",
@@ -55,9 +63,9 @@ _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE = 1.0
 _UNIFIED_CATASTROPHIC_LIQUIDITY_FLOOR = -250000.0
 _UNIFIED_CONVERGENCE_ACTIVE_ISSUE_LIMIT = 1
 _UNIFIED_CONVERGENCE_ACTIVE_QUARTER_LIMIT = _CONVERGENCE_DEFAULT_QUARTER_COUNT
+_FULL_HORIZON_MODEL_INPUT_REPAIR_CONTRACT_VERSION = "full_horizon_model_input_repair_contract_v1"
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _REQUIRED_SOLVER_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
-R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
 _CASH_PASS_OWNED_ISSUE_CODES = set(post_intake_issue_codes_for_phase("cash_pass"))
 _REMAINING_HORIZON_ISSUE_CODES = set(
   post_intake_issue_codes_for_phase("convergence", targeting_allowed=True)
@@ -201,7 +209,6 @@ __all__ = [
   "_unified_target_fill_grid",
   "_locked_targets_by_quarter_response_template",
   "_unified_lever_control_fill_grid",
-  "_lever_contract_precision_kind",
   "_full_horizon_model_input_repair_contract",
   "_model_input_repair_cell_schema",
   "_normalize_model_input_repair_cell_value",
@@ -844,6 +851,10 @@ def _synthetic_controller_issue_completion_snapshot(
   remaining_quarters = _normalize_realism_remaining_quarters(record.get("remaining_problem_quarters"))
   next_levers = _normalize_realism_lever_ids(record.get("next_required_lever_ids"))
   issue_code = str(record.get("issue_code") or "").strip().lower()
+  tolerance_allowed = post_intake_issue_tolerance_allowed(
+    issue_code,
+    phase="cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence",
+  ) if issue_code and not _issue_is_hard_issue(record) else False
   affected_quarters = (
     remaining_quarters
     if remaining_quarters
@@ -888,7 +899,7 @@ def _synthetic_controller_issue_completion_snapshot(
     "resolved"
     if verifier_status == "resolved"
     else "tolerated"
-    if meets_pass_threshold
+    if tolerance_allowed and meets_pass_threshold
     else "open"
   )
   return {
@@ -911,6 +922,7 @@ def _synthetic_controller_issue_completion_snapshot(
     "aggregate_gap_abs": None,
     "aggregate_gap": None,
     "hard_issue": False,
+    "tolerance_allowed": tolerance_allowed,
     "metric_debug": [],
     "next_required_lever_ids": next_levers,
     "closure_reasons": [],
@@ -981,6 +993,11 @@ def _controller_issue_completion_snapshot(
   )
   lowest_relevant_score_pct = min(relevant_scores) if relevant_scores else 100
   hard_issue = _issue_is_hard_issue(record, metric_specs=metric_specs)
+  issue_code = str(record.get("issue_code") or "").strip().lower()
+  tolerance_allowed = post_intake_issue_tolerance_allowed(
+    issue_code,
+    phase="cash_pass" if _is_cash_pass_owned_issue_code(issue_code) else "convergence",
+  ) if issue_code and not hard_issue else False
   aggregate_gap = float(
     sum(
       float(_safe_float(spec.get("gap")) or 0.0)
@@ -996,6 +1013,8 @@ def _controller_issue_completion_snapshot(
   closure_reasons: List[str] = []
   if hard_issue and any(not bool(spec.get("within_boundary")) for spec in metric_specs):
     closure_reasons.append("hard_issue_any_failed_quarter_keeps_issue_open")
+  if not tolerance_allowed and any(not bool(spec.get("within_boundary")) for spec in metric_specs):
+    closure_reasons.append("table_policy_disallows_tolerating_this_issue")
   if lowest_relevant_score_pct < _CONVERGENCE_ISSUE_WARN_SCORE_PCT:
     closure_reasons.append("quarter_floor_not_met")
   if average_relevant_score_pct < _CONVERGENCE_ISSUE_PASS_SCORE_PCT:
@@ -1004,6 +1023,12 @@ def _controller_issue_completion_snapshot(
   if verifier_status == "resolved":
     effective_status = "resolved"
   elif hard_issue:
+    effective_status = (
+      "resolved"
+      if all_metric_specs_within_boundary
+      else "open"
+    )
+  elif not tolerance_allowed:
     effective_status = (
       "resolved"
       if all_metric_specs_within_boundary
@@ -1039,6 +1064,7 @@ def _controller_issue_completion_snapshot(
     "aggregate_gap": aggregate_gap,
     "aggregate_gap_abs": aggregate_gap_abs,
     "hard_issue": hard_issue,
+    "tolerance_allowed": tolerance_allowed,
     "metric_debug": copy.deepcopy(metric_specs),
     "next_required_lever_ids": next_levers,
     "closure_reasons": closure_reasons,
@@ -1071,6 +1097,7 @@ def _controller_issue_public_record(
   public_record["aggregate_gap"] = _safe_float(snapshot.get("aggregate_gap"))
   public_record["aggregate_gap_abs"] = _safe_float(snapshot.get("aggregate_gap_abs"))
   public_record["hard_issue"] = bool(snapshot.get("hard_issue"))
+  public_record["tolerance_allowed"] = bool(snapshot.get("tolerance_allowed"))
   public_record["closure_reasons"] = copy.deepcopy(snapshot.get("closure_reasons") or [])
   public_record["metric_debug"] = copy.deepcopy(snapshot.get("metric_debug") or [])
   public_record["next_required_lever_ids"] = copy.deepcopy(snapshot.get("next_required_lever_ids") or [])
@@ -1517,22 +1544,27 @@ def _driver_target_conversion_context(
   value_kind = str(entry.get("value_kind") or "").strip().lower()
   input_semantics = str(entry.get("input_semantics") or "").strip().lower()
   driver_unit = input_semantics or value_kind or "input_units"
+  target_precision = post_intake_target_precision_for_metric(metric, phase="convergence")
+  driver_precision = post_intake_value_precision_for_lever(lever)
   actual_value = _safe_float(actual_metric_value)
   floor_value = _safe_float(target_floor)
   ceiling_value = _safe_float(target_ceiling)
 
-  def _rounded(value: Optional[float], *, ratio_like: bool) -> Optional[float]:
+  def _target_rounded(value: Optional[float]) -> Any:
     if value is None:
       return None
-    return (
-      round(float(value), 2)
-      if ratio_like
-      else int(round(float(value)))
-    )
+    return post_intake_normalize_target_value(metric, value, phase="convergence")
+
+  def _driver_rounded(value: Optional[float]) -> Any:
+    if value is None:
+      return None
+    return post_intake_normalize_lever_value(lever, value)
 
   denominator: Optional[float] = None
   conversion_formula = None
-  ratio_like_driver = value_kind == "ratio" or "percent_of_" in input_semantics
+  driver_differs_from_target = (
+    post_intake_precision_unit(driver_precision) != post_intake_precision_unit(target_precision)
+  )
   if input_semantics == "percent_of_revenue":
     denominator = _safe_float(row.get("revenue"))
     conversion_formula = "driver_value = finmo_target_value / revenue"
@@ -1560,20 +1592,21 @@ def _driver_target_conversion_context(
         "contract_version": "driver_target_conversion_v1",
         "lever_id": lever,
         "target_metric_name": metric,
-        "target_metric_unit": "currency",
+        "target_precision": copy.deepcopy(target_precision),
         "driver_target": str(mapping_entry.get("target_driver") or "").strip() or None,
         "driver_value_unit": driver_unit,
+        "driver_precision": copy.deepcopy(driver_precision),
         "return_value_in": "driver_units",
-        "do_not_return_target_dollars_as_lever_value": True,
+        "do_not_return_target_value_as_lever_value": True,
         "conversion_formula": conversion_formula,
         "denominator_metric": denominator_metric,
         "denominator_value": int(round(float(denominator))),
-        "current_target_value": _rounded(actual_value, ratio_like=False),
-        "current_driver_equivalent": _rounded(actual_value * scale if actual_value is not None else None, ratio_like=False),
-        "target_floor_value": _rounded(floor_value, ratio_like=False),
-        "target_ceiling_value": _rounded(ceiling_value, ratio_like=False),
-        "target_floor_driver_equivalent": _rounded(floor_value * scale if floor_value is not None else None, ratio_like=False),
-        "target_ceiling_driver_equivalent": _rounded(ceiling_value * scale if ceiling_value is not None else None, ratio_like=False),
+        "current_target_value": _target_rounded(actual_value),
+        "current_driver_equivalent": _driver_rounded(actual_value * scale if actual_value is not None else None),
+        "target_floor_value": _target_rounded(floor_value),
+        "target_ceiling_value": _target_rounded(ceiling_value),
+        "target_floor_driver_equivalent": _driver_rounded(floor_value * scale if floor_value is not None else None),
+        "target_ceiling_driver_equivalent": _driver_rounded(ceiling_value * scale if ceiling_value is not None else None),
       }
     return {}
   elif input_semantics in {"quarter_currency", "debt_new_borrowing", "debt_scheduled_repayment", "capital_expenditures_cash", "capital_lease_principal_repayments", "capital_lease_additions_noncash"}:
@@ -1581,17 +1614,18 @@ def _driver_target_conversion_context(
       "contract_version": "driver_target_conversion_v1",
       "lever_id": lever,
       "target_metric_name": metric,
-      "target_metric_unit": "currency",
+      "target_precision": copy.deepcopy(target_precision),
       "driver_target": str(mapping_entry.get("target_driver") or "").strip() or None,
       "driver_value_unit": driver_unit,
+      "driver_precision": copy.deepcopy(driver_precision),
       "return_value_in": "driver_units",
       "conversion_formula": "driver_value = finmo_target_value",
-      "current_target_value": _rounded(actual_value, ratio_like=False),
-      "current_driver_equivalent": _rounded(actual_value, ratio_like=False),
-      "target_floor_value": _rounded(floor_value, ratio_like=False),
-      "target_ceiling_value": _rounded(ceiling_value, ratio_like=False),
-      "target_floor_driver_equivalent": _rounded(floor_value, ratio_like=False),
-      "target_ceiling_driver_equivalent": _rounded(ceiling_value, ratio_like=False),
+      "current_target_value": _target_rounded(actual_value),
+      "current_driver_equivalent": _driver_rounded(actual_value),
+      "target_floor_value": _target_rounded(floor_value),
+      "target_ceiling_value": _target_rounded(ceiling_value),
+      "target_floor_driver_equivalent": _driver_rounded(floor_value),
+      "target_ceiling_driver_equivalent": _driver_rounded(ceiling_value),
     }
 
   if denominator is None or abs(float(denominator)) <= 1e-9:
@@ -1600,27 +1634,25 @@ def _driver_target_conversion_context(
     "contract_version": "driver_target_conversion_v1",
     "lever_id": lever,
     "target_metric_name": metric,
-    "target_metric_unit": "currency",
+    "target_precision": copy.deepcopy(target_precision),
     "driver_target": str(mapping_entry.get("target_driver") or "").strip() or None,
     "driver_value_unit": driver_unit,
+    "driver_precision": copy.deepcopy(driver_precision),
     "return_value_in": "driver_units",
-    "do_not_return_target_dollars_as_lever_value": bool(ratio_like_driver),
+    "do_not_return_target_value_as_lever_value": bool(driver_differs_from_target),
     "conversion_formula": conversion_formula,
     "denominator_value": int(round(float(denominator))),
-    "current_target_value": _rounded(actual_value, ratio_like=False),
-    "current_driver_equivalent": _rounded(
-      actual_value / float(denominator) if actual_value is not None else None,
-      ratio_like=ratio_like_driver,
+    "current_target_value": _target_rounded(actual_value),
+    "current_driver_equivalent": _driver_rounded(
+      actual_value / float(denominator) if actual_value is not None else None
     ),
-    "target_floor_value": _rounded(floor_value, ratio_like=False),
-    "target_ceiling_value": _rounded(ceiling_value, ratio_like=False),
-    "target_floor_driver_equivalent": _rounded(
-      floor_value / float(denominator) if floor_value is not None else None,
-      ratio_like=ratio_like_driver,
+    "target_floor_value": _target_rounded(floor_value),
+    "target_ceiling_value": _target_rounded(ceiling_value),
+    "target_floor_driver_equivalent": _driver_rounded(
+      floor_value / float(denominator) if floor_value is not None else None
     ),
-    "target_ceiling_driver_equivalent": _rounded(
-      ceiling_value / float(denominator) if ceiling_value is not None else None,
-      ratio_like=ratio_like_driver,
+    "target_ceiling_driver_equivalent": _driver_rounded(
+      ceiling_value / float(denominator) if ceiling_value is not None else None
     ),
   }
 
@@ -2226,7 +2258,7 @@ def _compact_numeric_guidance_for_prompt(
     )
     value_kind = str(canonical_value_meta.get("value_kind") or "").strip().lower()
     input_semantics = str(canonical_value_meta.get("input_semantics") or "").strip().lower()
-    ratio_like_value = value_kind == "ratio" or "percent_of_" in input_semantics
+    value_precision = post_intake_value_precision_for_lever(lever_id)
     suggested_min_raw = _safe_float(item.get("suggested_min_value"))
     suggested_max_raw = _safe_float(item.get("suggested_max_value"))
     compact_lever_entries.append(
@@ -2236,22 +2268,15 @@ def _compact_numeric_guidance_for_prompt(
         "priority_rank": int(_safe_float(item.get("priority_rank")) or 0) or None,
         "priority_tier": str(item.get("priority_tier") or "").strip(),
         "direction_hint": str(item.get("direction_hint") or "").strip(),
-        "numeric_precision_rule": (
-          "ratio_like_driver_two_decimals_only; use 0.02 or 0.03, never 0.025"
-          if ratio_like_value
-          else "currency_driver_integer_only"
-        ),
+        "numeric_precision_rule": "use value_precision from SQL mapping lookup",
+        "value_precision": copy.deepcopy(value_precision),
         "suggested_min_value": (
-          round(float(suggested_min_raw), 2)
-          if ratio_like_value and suggested_min_raw is not None
-          else int(round(float(suggested_min_raw)))
+          post_intake_normalize_lever_value(lever_id, suggested_min_raw)
           if suggested_min_raw is not None
           else None
         ),
         "suggested_max_value": (
-          round(float(suggested_max_raw), 2)
-          if ratio_like_value and suggested_max_raw is not None
-          else int(round(float(suggested_max_raw)))
+          post_intake_normalize_lever_value(lever_id, suggested_max_raw)
           if suggested_max_raw is not None
           else None
         ),
@@ -2362,16 +2387,12 @@ def _unified_target_fill_grid(
     parsed = _safe_float(value)
     if parsed is None:
       return None
-    target_kind = post_intake_target_value_kind_for_metric(metric_name, phase="convergence") or "number"
-    if target_kind == "currency" or target_kind == "count" or target_kind == "day_count":
-      if bound_side == "minimum":
-        return int(math.ceil(float(parsed)))
-      if bound_side == "maximum":
-        return int(math.floor(float(parsed)))
-      return int(round(float(parsed)))
-    if target_kind == "ratio":
-      return round(float(parsed), 2)
-    return float(parsed)
+    return post_intake_normalize_target_value(
+      metric_name,
+      parsed,
+      phase="convergence",
+      bound_side=bound_side,
+    )
 
   for quarter in quarters:
     baseline = baseline_by_quarter.get(quarter) or {}
@@ -2421,33 +2442,79 @@ def _unified_target_fill_grid(
           revenue_target_state_by_quarter[quarter] = max(0.0, float(recommended_target_value))
         elif current_value is not None:
           revenue_target_state_by_quarter[quarter] = max(0.0, float(current_value))
+      displayed_current_value = _target_display_value(current_value, metric_name=metric_name)
+      displayed_minimum_target_value = _target_display_value(
+        minimum_target_value,
+        metric_name=metric_name,
+        bound_side="minimum",
+      )
+      displayed_maximum_target_value = _target_display_value(
+        maximum_target_value,
+        metric_name=metric_name,
+        bound_side="maximum",
+      )
+      displayed_recommended_target_value = _target_display_value(
+        recommended_target_value,
+        metric_name=metric_name,
+        bound_side=(
+          "minimum"
+          if direction_hint == "increase"
+          else "maximum"
+          if direction_hint == "decrease"
+          else ""
+        ),
+      )
+      target_value_kind = post_intake_target_value_kind_for_metric(metric_name, phase="convergence") or None
+      target_precision = post_intake_target_precision_for_metric(metric_name, phase="convergence")
+      target_precision_unit = post_intake_precision_unit(target_precision)
+      if (
+        target_precision_unit >= 1.0
+        and displayed_minimum_target_value is not None
+        and displayed_maximum_target_value is not None
+        and int(displayed_minimum_target_value) > int(displayed_maximum_target_value)
+      ):
+        precision_source = (
+          displayed_recommended_target_value
+          if displayed_recommended_target_value is not None
+          else displayed_maximum_target_value
+          if direction_hint == "decrease"
+          else displayed_minimum_target_value
+        )
+        precision_value = post_intake_normalize_target_value(
+          metric_name,
+          precision_source,
+          phase="convergence",
+        )
+        displayed_minimum_target_value = precision_value
+        displayed_maximum_target_value = precision_value
+        displayed_recommended_target_value = precision_value
+      if (
+        target_precision_unit > 0.0
+        and displayed_recommended_target_value is not None
+      ):
+        recommended_value = post_intake_normalize_target_value(
+          metric_name,
+          displayed_recommended_target_value,
+          phase="convergence",
+        )
+        if displayed_minimum_target_value is not None:
+          recommended_value = max(float(recommended_value), float(displayed_minimum_target_value))
+        if displayed_maximum_target_value is not None:
+          recommended_value = min(float(recommended_value), float(displayed_maximum_target_value))
+        displayed_recommended_target_value = post_intake_normalize_target_value(
+          metric_name,
+          recommended_value,
+          phase="convergence",
+        )
       rows.append(
         {
           "quarter_index": quarter,
           "metric_name": metric_name,
-          "target_value_kind": post_intake_target_value_kind_for_metric(metric_name, phase="convergence") or None,
-          "current_value": _target_display_value(current_value, metric_name=metric_name),
-          "minimum_target_value": _target_display_value(
-            minimum_target_value,
-            metric_name=metric_name,
-            bound_side="minimum",
-          ),
-          "maximum_target_value": _target_display_value(
-            maximum_target_value,
-            metric_name=metric_name,
-            bound_side="maximum",
-          ),
-          "recommended_target_value": _target_display_value(
-            recommended_target_value,
-            metric_name=metric_name,
-            bound_side=(
-              "minimum"
-              if direction_hint == "increase"
-              else "maximum"
-              if direction_hint == "decrease"
-              else ""
-            ),
-          ),
+          "target_value_kind": target_value_kind,
+          "current_value": displayed_current_value,
+          "minimum_target_value": displayed_minimum_target_value,
+          "maximum_target_value": displayed_maximum_target_value,
+          "recommended_target_value": displayed_recommended_target_value,
           "target_value_copy_rule": (
             "copy recommended_target_value exactly; do not pretty-round above maximum_target_value or below minimum_target_value"
             if recommended_target_value is not None
@@ -2568,20 +2635,22 @@ def _unified_lever_control_fill_grid(
     )
     value_kind = str(canonical_value_meta.get("value_kind") or "").strip().lower()
     input_semantics = str(canonical_value_meta.get("input_semantics") or "").strip().lower()
-    ratio_like_value = value_kind == "ratio" or "percent_of_" in input_semantics
+    value_precision = post_intake_value_precision_for_lever(lever_id)
+    precision_value_kind = str(value_precision.get("value_kind") or value_kind or "").strip().lower()
+    ratio_like_value = (
+      precision_value_kind in {"ratio", "percentage", "percent", "rate", "interest_rate"}
+      or value_kind in {"ratio", "percentage", "percent", "rate", "interest_rate"}
+      or "percent_of_" in input_semantics
+    )
     suggested_min_raw = _safe_float(scaffold_entry.get("suggested_min_value"))
     suggested_max_raw = _safe_float(scaffold_entry.get("suggested_max_value"))
     suggested_min_value = (
-      round(float(suggested_min_raw), 2)
-      if ratio_like_value and suggested_min_raw is not None
-      else int(round(float(suggested_min_raw)))
+      post_intake_normalize_lever_value(lever_id, suggested_min_raw)
       if suggested_min_raw is not None
       else None
     )
     suggested_max_value = (
-      round(float(suggested_max_raw), 2)
-      if ratio_like_value and suggested_max_raw is not None
-      else int(round(float(suggested_max_raw)))
+      post_intake_normalize_lever_value(lever_id, suggested_max_raw)
       if suggested_max_raw is not None
       else None
     )
@@ -2598,11 +2667,8 @@ def _unified_lever_control_fill_grid(
         "driver_value_unit": str(input_semantics or value_kind or "").strip() or None,
         "return_value_in": "driver_units",
         "driver_value_rule": "Fill exact_value/min_value/max_value in model-input driver units, not financial target dollars.",
-        "numeric_precision_rule": (
-          "ratio_like_driver_two_decimals_only; use 0.02 or 0.03, never 0.025"
-          if ratio_like_value
-          else "currency_driver_integer_only"
-        ),
+        "numeric_precision_rule": "use value_precision from SQL mapping lookup",
+        "value_precision": copy.deepcopy(value_precision),
         "suggested_min_value": suggested_min_value,
         "suggested_max_value": suggested_max_value,
         "required_control_quarters": copy.deepcopy(required_quarters),
@@ -2645,31 +2711,6 @@ def _unified_lever_control_fill_grid(
     "stage_ramp_rule": copy.deepcopy(stage_ramp_rule),
     "rows": rows,
   }
-
-def _lever_contract_precision_kind(
-  *,
-  lever_id: Any,
-  value_kind: Any = "",
-  input_semantics: Any = "",
-  numeric_precision_rule: Any = "",
-) -> str:
-  lever = str(lever_id or "").strip()
-  canonical = _canonical_writable_lever_value_metadata(
-    lever_id=lever,
-    value_kind=value_kind,
-    input_semantics=input_semantics,
-  )
-  kind = str(canonical.get("value_kind") or value_kind or "").strip().lower()
-  semantics = str(canonical.get("input_semantics") or input_semantics or "").strip().lower()
-  precision_rule = str(numeric_precision_rule or "").strip().lower()
-  if (
-    kind == "ratio"
-    or "percent_of_" in semantics
-    or semantics in {"utilization_ratio", "interest_rate"}
-    or "ratio_like" in precision_rule
-  ):
-    return "ratio_2dp"
-  return "integer"
 
 def _table_backed_metric_target_for_quarter(
   *,
@@ -3236,12 +3277,7 @@ def _full_horizon_model_input_repair_contract(
     catalog_entry = catalog_entry_by_lever.get(lever_id) or {}
     value_kind = str(catalog_entry.get("value_kind") or grid_row.get("value_kind") or "").strip()
     input_semantics = str(catalog_entry.get("input_semantics") or grid_row.get("driver_value_unit") or "").strip()
-    precision_kind = _lever_contract_precision_kind(
-      lever_id=lever_id,
-      value_kind=value_kind,
-      input_semantics=input_semantics,
-      numeric_precision_rule=grid_row.get("numeric_precision_rule"),
-    )
+    value_precision = post_intake_value_precision_for_lever(lever_id)
     suggested_min = _safe_float(grid_row.get("suggested_min_value"))
     suggested_max = _safe_float(grid_row.get("suggested_max_value"))
     if suggested_min is not None and suggested_max is not None and suggested_min > suggested_max:
@@ -3322,14 +3358,21 @@ def _full_horizon_model_input_repair_contract(
         deterministic_numeric_guidance=guidance,
         revenue_target_caps_by_quarter=revenue_target_caps_by_quarter,
       )
-      if precision_kind == "ratio_2dp":
-        display_current = round(float(current_value), 2) if current_value is not None else None
-        display_min = round(float(min_value), 2) if min_value is not None else None
-        display_max = round(float(max_value), 2) if max_value is not None else None
-      else:
-        display_current = int(round(float(current_value))) if current_value is not None else None
-        display_min = int(round(float(min_value))) if min_value is not None else None
-        display_max = int(round(float(max_value))) if max_value is not None else None
+      display_current = (
+        post_intake_normalize_lever_value(lever_id, current_value)
+        if current_value is not None
+        else None
+      )
+      display_min = (
+        post_intake_normalize_lever_value(lever_id, min_value, bound_side="minimum")
+        if min_value is not None
+        else None
+      )
+      display_max = (
+        post_intake_normalize_lever_value(lever_id, max_value, bound_side="maximum")
+        if max_value is not None
+        else None
+      )
       cell_id = f"{lever_id}|Q{quarter_index}"
       if edit_status == "editable":
         required_cell_ids.append(cell_id)
@@ -3345,11 +3388,8 @@ def _full_horizon_model_input_repair_contract(
           "max_value": display_max,
           "value_kind": value_kind,
           "input_semantics": input_semantics,
-          "numeric_precision_rule": (
-            "ratio_or_percent_must_use_at_most_2_decimals"
-            if precision_kind == "ratio_2dp"
-            else "currency_or_count_must_be_integer"
-          ),
+          "numeric_precision_rule": "use value_precision from SQL mapping lookup",
+          "value_precision": copy.deepcopy(value_precision),
           "target_driver": str(mapping_entry.get("target_driver") or "").strip(),
           "target_metric_name": str(mapping_entry.get("target_metric_name") or "").strip().lower(),
           "financial_model_field": str(mapping_entry.get("financial_model_field") or "").strip(),
@@ -3433,22 +3473,21 @@ def _normalize_model_input_repair_cell_value(
   numeric_value = _safe_float(value)
   if numeric_value is None:
     return None, "value must be numeric"
-  precision_rule = str(contract_cell.get("numeric_precision_rule") or "").strip().lower()
-  if "2_decimals" in precision_rule:
-    normalized = round(float(numeric_value), 2)
-    if abs(float(numeric_value) - float(normalized)) > 0.0050001:
-      return None, (
-        "ratio/percent value has more than formatting-level decimal drift; "
-        f"received={numeric_value}, normalized={normalized}"
-      )
-    return float(normalized), None
-  normalized_int = int(round(float(numeric_value)))
-  if abs(float(numeric_value) - float(normalized_int)) > 0.5000001:
+  lever_id = str(contract_cell.get("lever_id") or "").strip()
+  precision = (
+    contract_cell.get("value_precision")
+    if isinstance(contract_cell.get("value_precision"), dict)
+    else post_intake_value_precision_for_lever(lever_id)
+  )
+  normalized = post_intake_normalize_lever_value(lever_id, numeric_value)
+  unit = post_intake_precision_unit(precision)
+  allowable_format_drift = (unit / 2.0) + 1e-9 if unit > 0.0 else 1e-9
+  if abs(float(numeric_value) - float(normalized)) > allowable_format_drift:
     return None, (
-      "currency/count value has more than formatting-level integer drift; "
-      f"received={numeric_value}, normalized={normalized_int}"
+      "value does not conform to SQL mapping precision; "
+      f"received={numeric_value}, normalized={normalized}, precision={precision}"
     )
-  return float(normalized_int), None
+  return float(normalized), None
 
 def _validate_and_normalize_model_input_repair_cells(
   *,
@@ -3511,6 +3550,30 @@ def _validate_and_normalize_model_input_repair_cells(
       return f"{cell_id} invalid value format. {normalization_error}."
     minimum = _safe_float(contract_cell.get("min_value"))
     maximum = _safe_float(contract_cell.get("max_value"))
+    precision = (
+      contract_cell.get("value_precision")
+      if isinstance(contract_cell.get("value_precision"), dict)
+      else post_intake_value_precision_for_lever(lever_id)
+    )
+    precision_unit = post_intake_precision_unit(precision)
+    if minimum is not None and normalized_value is not None and normalized_value < float(minimum):
+      drift = abs(float(minimum) - float(normalized_value))
+      if precision_unit > 0.0 and drift <= precision_unit + 1e-9:
+        normalized_value = float(minimum)
+      else:
+        return (
+          f"{cell_id} value is below deterministic min_value. "
+          f"value={normalized_value}, min_value={minimum}."
+        )
+    if maximum is not None and normalized_value is not None and normalized_value > float(maximum):
+      drift = abs(float(normalized_value) - float(maximum))
+      if precision_unit > 0.0 and drift <= precision_unit + 1e-9:
+        normalized_value = float(maximum)
+      else:
+        return (
+          f"{cell_id} value is above deterministic max_value. "
+          f"value={normalized_value}, max_value={maximum}."
+        )
     if minimum is not None and normalized_value is not None and normalized_value < float(minimum):
       return (
         f"{cell_id} value is below deterministic min_value. "
@@ -3521,11 +3584,7 @@ def _validate_and_normalize_model_input_repair_cells(
         f"{cell_id} value is above deterministic max_value. "
         f"value={normalized_value}, max_value={maximum}."
       )
-    cell["value"] = (
-      round(float(normalized_value), 2)
-      if "2_decimals" in str(contract_cell.get("numeric_precision_rule") or "").strip().lower()
-      else int(round(float(normalized_value)))
-    )
+    cell["value"] = post_intake_normalize_lever_value(lever_id, normalized_value)
   missing_ids = [cell_id for cell_id in required_ids if cell_id not in seen_ids]
   extra_ids = [cell_id for cell_id in seen_ids if cell_id not in set(required_ids)]
   if missing_ids or extra_ids:
@@ -6304,10 +6363,17 @@ def _numeric_adjust_actions_contract_error(
             f"{action_id} quarter_target_metrics for Q{quarter_index} is missing a numeric value for {metric_name}. "
             "All required target lines must be preset numerically for every targeted quarter."
           )
-        if float(metric_value) != float(int(round(float(metric_value)))):
+        normalized_metric_value = post_intake_normalize_target_value(
+          metric_name,
+          metric_value,
+          phase="convergence",
+        )
+        target_precision = post_intake_target_precision_for_metric(metric_name, phase="convergence")
+        precision_unit = post_intake_precision_unit(target_precision)
+        if abs(float(metric_value) - float(normalized_metric_value)) > max(precision_unit / 2.0, 1e-9):
           return (
-            f"{action_id} quarter_target_metrics for Q{quarter_index} metric {metric_name} must be a whole-dollar integer value. "
-            f"received={metric_value}."
+            f"{action_id} quarter_target_metrics for Q{quarter_index} metric {metric_name} violates SQL mapping precision. "
+            f"received={metric_value}, normalized={normalized_metric_value}, precision={target_precision}."
           )
   if required_quarters:
     missing_required_quarters = [quarter for quarter in required_quarters if quarter not in all_metric_quarters]

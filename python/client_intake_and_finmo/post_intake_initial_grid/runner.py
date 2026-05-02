@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Optional
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_assert_required_process_sequence,
+  post_intake_contract_forecast_horizon_quarter_count,
   post_intake_process_step_context,
 )
 from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
@@ -41,7 +42,6 @@ def prepare_initial_grid_for_draft(
   safe_float: Callable[[Any], Optional[float]],
   estimate_r_and_d_applicability_with_gpt: Callable[..., Dict[str, Any]],
   r_and_d_policy_from_model_input: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]],
-  r_and_d_policy_version: str,
   assert_r_and_d_applicability_policy_applied: Callable[..., None],
   estimate_stage_ramp_contract_with_gpt: Callable[..., Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -94,7 +94,9 @@ def prepare_initial_grid_for_draft(
   )
   from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
     apply_payroll_headcount_payload_to_model_input,
-    build_payroll_headcount_payload_from_contract,
+    assert_finmo_payroll_matches_headcount_schedule,
+    assert_payroll_headcount_model_input_applied,
+    assert_payroll_headcount_payload_ready,
     estimate_payroll_headcount_schedule_with_gpt,
   )
   from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
@@ -395,10 +397,17 @@ def prepare_initial_grid_for_draft(
     planning_mode_reason_value=planning_mode_reason,
     prompt_file_value=str(planning_choice.get("prompt_file") or "").strip(),
   )
-  r_and_d_applicability_decision_for_ramp = {
-    **copy.deepcopy(r_and_d_policy_from_model_input(model_input_json)),
-    "contract_version": r_and_d_policy_version,
-  }
+  r_and_d_applicability_decision_for_ramp = copy.deepcopy(
+    r_and_d_policy_from_model_input(model_input_json)
+  )
+  if (
+    isinstance(r_and_d_applicability_decision_for_ramp, dict)
+    and not str(r_and_d_applicability_decision_for_ramp.get("contract_version") or "").strip()
+    and str(r_and_d_applicability_decision_for_ramp.get("policy_version") or "").strip()
+  ):
+    r_and_d_applicability_decision_for_ramp["contract_version"] = str(
+      r_and_d_applicability_decision_for_ramp.get("policy_version") or ""
+    ).strip()
   if isinstance(planning_context_summary_json, dict):
     planning_context_summary_json["r_and_d_applicability"] = copy.deepcopy(
       r_and_d_applicability_decision_for_ramp
@@ -410,12 +419,16 @@ def prepare_initial_grid_for_draft(
     required_contract_name="stage_ramp_contract",
     required_context_contract_name="stage_ramp_contract",
     required_context_include_phase="pre_convergence",
-    required_lookup_tables=["post_intake_gpt_contract_lookup", "post_intake_gpt_context_lookup"],
+    required_lookup_tables=[
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
     required_horizon_rule="q1_to_q20_exactly_once",
   )
   stage_ramp_contract = estimate_stage_ramp_contract_with_gpt(
     business_facts=copy.deepcopy(business_facts or {}),
     ops_json=copy.deepcopy(ops_json or {}),
+    people_json=copy.deepcopy(people_json or {}),
     financials_json=copy.deepcopy(financials_json or {}),
     financials_year1_json=copy.deepcopy(financials_year1_json or {}),
     planning_mode=planning_mode,
@@ -424,42 +437,7 @@ def prepare_initial_grid_for_draft(
     finmo_json=copy.deepcopy(finmo_json or {}),
     r_and_d_applicability=copy.deepcopy(r_and_d_applicability_decision_for_ramp),
   )
-  sequence_trace["payroll_headcount_schedule"] = post_intake_process_step_context(
-    step_key="payroll_headcount_schedule",
-    expected_phase="pre_convergence",
-    expected_handler_key="estimate_payroll_headcount_schedule_with_gpt",
-    required_contract_name="payroll_headcount_schedule",
-    required_context_contract_name="payroll_headcount_schedule",
-    required_context_include_phase="pre_convergence",
-    required_lookup_tables=[
-      "post_intake_gpt_contract_lookup",
-      "post_intake_gpt_context_lookup",
-      "post_intake_headcount_policy_lookup",
-    ],
-    required_horizon_rule="q1_to_q20_exactly_once",
-  )
-  payroll_headcount_contract = estimate_payroll_headcount_schedule_with_gpt(
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    model_input_json=copy.deepcopy(model_input_json or {}),
-    finmo_json=copy.deepcopy(finmo_json or {}),
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
-  )
-  payroll_headcount_payload = build_payroll_headcount_payload_from_contract(
-    copy.deepcopy(payroll_headcount_contract),
-    draft_id=normalized_draft_id,
-    client_id=str(draft.get("client_id") or "").strip(),
-  )
-  model_input_json = apply_payroll_headcount_payload_to_model_input(
-    copy.deepcopy(model_input_json),
-    copy.deepcopy(payroll_headcount_payload),
-    live_count=20,
-  )
-  finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(model_input_json))
+  payroll_headcount_payload = None
   persist_system_stage(
     stage="stage_ramp_contract_applied",
     status="running",
@@ -468,13 +446,7 @@ def prepare_initial_grid_for_draft(
     prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
     model_input_payload=model_input_json,
     finmo_payload=finmo_json,
-    payroll_headcount_payload=payroll_headcount_payload,
   )
-  shared_context["payroll_headcount_contract_decision"] = {
-    key: copy.deepcopy(value)
-    for key, value in payroll_headcount_contract.items()
-    if key not in {"prompt_context", "raw_openai_response"}
-  }
   shared_context["stage_ramp_contract_decision"] = {
     key: copy.deepcopy(value)
     for key, value in stage_ramp_contract.items()
@@ -486,11 +458,86 @@ def prepare_initial_grid_for_draft(
       for key, value in stage_ramp_contract.items()
       if key not in {"prompt_context", "raw_openai_response"}
     }
-    planning_context_summary_json["payroll_headcount"] = {
-      key: copy.deepcopy(value)
-      for key, value in payroll_headcount_payload.items()
-      if key in {"contract_version", "schedule_horizon_quarters", "quarter_totals"}
+
+  def _build_and_apply_payroll_schedule(
+    *,
+    current_model_input_json: Dict[str, Any],
+    current_finmo_json: Dict[str, Any],
+    stage_prefix: str,
+  ) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    sequence_trace["payroll_headcount_schedule"] = post_intake_process_step_context(
+      step_key="payroll_headcount_schedule",
+      expected_phase="initial_grid",
+      expected_handler_key="estimate_payroll_headcount_schedule_with_gpt",
+      required_contract_name="payroll_headcount_schedule",
+      required_context_contract_name="payroll_headcount_schedule",
+      required_context_include_phase="pre_convergence",
+      required_lookup_tables=[
+        "post_intake_gpt_contract_lookup",
+        "post_intake_gpt_context_lookup",
+        "post_intake_headcount_policy_lookup",
+      ],
+      required_horizon_rule="q1_to_q20_at_least_once",
+    )
+    schedule_payload = estimate_payroll_headcount_schedule_with_gpt(
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      model_input_json=copy.deepcopy(current_model_input_json or {}),
+      finmo_json=copy.deepcopy(current_finmo_json or {}),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      draft_id=normalized_draft_id,
+      client_id=str(draft.get("client_id") or "").strip(),
+    )
+    payroll_horizon = int(
+      post_intake_contract_forecast_horizon_quarter_count(
+        contract_name="payroll_headcount_schedule",
+      )
+      or 0
+    )
+    if payroll_horizon <= 0:
+      raise RuntimeError(
+        "payroll_headcount_schedule_horizon_lookup_failed: "
+        "post_intake_gpt_contract_lookup must define payroll_headcount_schedule horizon."
+      )
+    assert_payroll_headcount_payload_ready(
+      copy.deepcopy(schedule_payload),
+      model_input_json=copy.deepcopy(current_model_input_json or {}),
+      stage=f"{stage_prefix}_payroll_headcount_schedule_built",
+    )
+    next_model_input_json = apply_payroll_headcount_payload_to_model_input(
+      copy.deepcopy(current_model_input_json),
+      copy.deepcopy(schedule_payload),
+      live_count=payroll_horizon,
+    )
+    assert_payroll_headcount_model_input_applied(
+      copy.deepcopy(next_model_input_json),
+      copy.deepcopy(schedule_payload),
+      stage=f"{stage_prefix}_payroll_headcount_model_input_applied",
+    )
+    next_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(next_model_input_json))
+    assert_finmo_payroll_matches_headcount_schedule(
+      copy.deepcopy(next_finmo_json),
+      copy.deepcopy(schedule_payload),
+      stage=f"{stage_prefix}_payroll_headcount_finmo_rebuilt",
+    )
+    shared_context["payroll_headcount_contract_decision"] = {
+      "decision_source": "payroll_headcount_schedule.payroll_headcount_grid",
+      "contract_version": schedule_payload.get("contract_version"),
+      "schedule_horizon_quarters": schedule_payload.get("schedule_horizon_quarters"),
+      "quarter_totals": copy.deepcopy(schedule_payload.get("quarter_totals") or []),
     }
+    if isinstance(planning_context_summary_json, dict):
+      planning_context_summary_json["payroll_headcount"] = {
+        key: copy.deepcopy(value)
+        for key, value in schedule_payload.items()
+        if key in {"contract_version", "schedule_horizon_quarters", "quarter_totals"}
+      }
+    return schedule_payload, next_model_input_json, next_finmo_json
 
   if resume_from_checkpoint_state:
     planning_result = {
@@ -507,6 +554,21 @@ def prepare_initial_grid_for_draft(
     )
     applied_model_input_json = copy.deepcopy(model_input_json)
     applied_finmo_json = copy.deepcopy(finmo_json)
+    payroll_headcount_payload, applied_model_input_json, applied_finmo_json = _build_and_apply_payroll_schedule(
+      current_model_input_json=copy.deepcopy(applied_model_input_json),
+      current_finmo_json=copy.deepcopy(applied_finmo_json),
+      stage_prefix="resume_checkpoint",
+    )
+    assert_payroll_headcount_model_input_applied(
+      copy.deepcopy(applied_model_input_json),
+      copy.deepcopy(payroll_headcount_payload),
+      stage="resume_checkpoint_ready",
+    )
+    assert_finmo_payroll_matches_headcount_schedule(
+      copy.deepcopy(applied_finmo_json),
+      copy.deepcopy(payroll_headcount_payload),
+      stage="resume_checkpoint_ready",
+    )
     persist_system_stage(
       stage="resume_checkpoint_ready",
       status="running",
@@ -525,9 +587,9 @@ def prepare_initial_grid_for_draft(
       step_key="quarter_grid_generation",
       expected_phase="initial_grid",
       expected_handler_key="generate_live_quarter_grid_plan",
-      required_contract_name="stage_ramp_contract",
-      required_context_contract_name="stage_ramp_contract",
-      required_context_include_phase="pre_convergence",
+      required_contract_name="quarter_grid_probe",
+      required_context_contract_name="quarter_grid_probe",
+      required_context_include_phase="initial_grid",
       required_lookup_tables=[
         "post_intak_mapping_lookup",
         "post_intake_gpt_contract_lookup",
@@ -605,6 +667,21 @@ def prepare_initial_grid_for_draft(
       grid_application_result.get("applied_finmo_json")
       if isinstance(grid_application_result.get("applied_finmo_json"), dict)
       else {}
+    )
+    payroll_headcount_payload, applied_model_input_json, applied_finmo_json = _build_and_apply_payroll_schedule(
+      current_model_input_json=copy.deepcopy(applied_model_input_json),
+      current_finmo_json=copy.deepcopy(applied_finmo_json),
+      stage_prefix="quarter_grid_applied",
+    )
+    assert_payroll_headcount_model_input_applied(
+      copy.deepcopy(applied_model_input_json),
+      copy.deepcopy(payroll_headcount_payload),
+      stage="quarter_grid_applied",
+    )
+    assert_finmo_payroll_matches_headcount_schedule(
+      copy.deepcopy(applied_finmo_json),
+      copy.deepcopy(payroll_headcount_payload),
+      stage="quarter_grid_applied",
     )
     assert_r_and_d_applicability_policy_applied(
       model_input_json=applied_model_input_json,

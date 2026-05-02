@@ -15,9 +15,11 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_process_sequence_step,
   post_intake_process_step_context,
 )
-from client_intake_and_finmo.post_intake_foundation import (
+from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
   CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
   PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS,
+)
+from client_intake_and_finmo.post_intake_foundation import (
   bind_table_safe_runtime_dependencies,
   post_intake_assert_golden_rule_integrity,
 )
@@ -305,6 +307,7 @@ def _run_unified_post_grid_system_run(
   applied_model_input_json: Dict[str, Any],
   applied_finmo_json: Dict[str, Any],
   stage_ramp_contract: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   try:
     from client_intake_and_finmo.numeric_execution import build_numeric_solver_contract  # type: ignore
@@ -317,6 +320,7 @@ def _run_unified_post_grid_system_run(
     model_input_json=copy.deepcopy(applied_model_input_json or {}),
     catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json or {}),
   )
+  final_payroll_headcount_payload = copy.deepcopy(payroll_headcount or {})
   if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
     raise RuntimeError(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
@@ -2141,6 +2145,7 @@ def _run_unified_post_grid_system_run(
     model_input_json=final_model_input_json,
     finmo_json=final_finmo_json,
     debt_schedule=copy.deepcopy(final_debt_schedule_payload),
+    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload) if final_payroll_headcount_payload else None,
     planning_run_json=next_planning_run_json,
     numeric_solver_feedback_json=_extract_numeric_solver_feedback_for_persistence(
       planning_run_payload=next_planning_run_json,
@@ -2185,6 +2190,7 @@ def _run_unified_post_grid_system_run(
     "model_input_json": final_model_input_json,
     "finmo_json": final_finmo_json,
     "debt_schedule": copy.deepcopy(final_debt_schedule_payload),
+    "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
   }
 
 
