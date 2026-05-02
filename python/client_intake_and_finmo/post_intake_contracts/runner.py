@@ -41,6 +41,7 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_driver_target_metric_ids,
   post_intake_gpt_contract_compact_prompt_field_spec,
   post_intake_gpt_contract_errors,
+  post_intake_gpt_contract_field_for_path,
   post_intake_gpt_contract_horizon_errors,
   post_intake_gpt_contract_normalize_payload,
   post_intake_gpt_contract_openai_schema,
@@ -86,6 +87,26 @@ def _contract_forecast_quarter_count(contract_name: Any = "unified_convergence_d
       "post_intake_gpt_contract_lookup must define a positive forecast horizon."
     )
   return count
+
+
+def _contract_numeric_bounds(
+  *,
+  contract_name: str,
+  field_path: str,
+  default_min: float,
+  default_max: float,
+) -> Tuple[float, float]:
+  row = post_intake_gpt_contract_field_for_path(
+    contract_name=contract_name,
+    field_path=field_path,
+    required=False,
+  ) or {}
+  minimum = _safe_float(row.get("min_value"))
+  maximum = _safe_float(row.get("max_value"))
+  return (
+    float(minimum) if minimum is not None else float(default_min),
+    float(maximum) if maximum is not None else float(default_max),
+  )
 
 
 _CONVERGENCE_DEFAULT_QUARTER_COUNT = _contract_forecast_quarter_count("unified_convergence_decision")
@@ -728,14 +749,20 @@ def _validate_stage_ramp_contract_payload(
         continue
       value = float(value)
       if field == "net_income_margin_floor":
-        lower_bound = -1.0
-        upper_bound = 1.0
+        default_lower_bound = -1.0
+        default_upper_bound = 1.0
       elif field == "utilization_cap" or field.endswith("_percent_of_revenue_max") or field.endswith("_percent_of_revenue_target"):
-        lower_bound = 0.0
-        upper_bound = 1.0
+        default_lower_bound = 0.0
+        default_upper_bound = 1.0
       else:
-        lower_bound = 0.0
-        upper_bound = 2.5
+        default_lower_bound = 0.0
+        default_upper_bound = 2.5
+      lower_bound, upper_bound = _contract_numeric_bounds(
+        contract_name="stage_ramp_contract",
+        field_path=f"quarter_ramp_grid[].{ramp_field_aliases[field]}",
+        default_min=default_lower_bound,
+        default_max=default_upper_bound,
+      )
       if value < lower_bound or value > upper_bound:
         errors.append(
           f"quarter_ramp_grid Q{quarter_index} {field} must be between {lower_bound} and {upper_bound}; received {value}"
@@ -751,8 +778,6 @@ def _validate_stage_ramp_contract_payload(
       errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_spike_max must be >= revenue_qoq_max")
     if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
-    if parsed.get("cogs_percent_of_revenue_max", 0.0) < 0.20:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_max must be >= 0.20 so it does not conflict with the COGS operating envelope")
     if not bool(r_and_d_enabled) and abs(float(parsed.get("rd_percent_of_revenue_max") or 0.0)) > 1e-9:
       errors.append(
         f"quarter_ramp_grid Q{quarter_index} rd_max must be 0.00 because R&D applicability is disabled before forecast"

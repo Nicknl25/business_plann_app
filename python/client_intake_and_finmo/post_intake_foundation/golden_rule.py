@@ -232,22 +232,64 @@ def _sequence_errors() -> List[str]:
   return errors
 
 
-def post_intake_golden_rule_errors() -> List[str]:
+def post_intake_runtime_table_integrity_errors() -> List[str]:
+  """Live-run integrity checks for the operational lookup-table machine.
+
+  This intentionally excludes the golden snapshot and static source-code scans.
+  Runtime should prove the active operational tables are usable, but it should
+  not make every client request compare against a frozen baseline artifact.
+  """
   errors: List[str] = []
   errors.extend(str(item) for item in (post_intake_driver_target_mapping_errors() or []))
   errors.extend(str(item) for item in (post_intake_cash_policy_errors() or []))
   errors.extend(str(item) for item in (post_intake_gpt_contract_errors() or []))
   errors.extend(str(item) for item in (post_intake_gpt_context_errors() or []))
-  errors.extend(str(item) for item in (post_intake_golden_lookup_snapshot_errors() or []))
   errors.extend(str(item) for item in _headcount_policy_errors())
   errors.extend(_contract_and_context_errors())
   errors.extend(_issue_mapping_errors())
   errors.extend(_issue_detector_alignment_errors())
   errors.extend(_sequence_errors())
+  return errors
+
+
+def post_intake_golden_rule_errors() -> List[str]:
+  """Preflight/deploy audit checks for Golden Rule drift.
+
+  These checks include the frozen SQL snapshot and source scans. They are meant
+  for CI, preflight, and admin validation, not as the per-client runtime gate.
+  """
+  errors: List[str] = []
+  errors.extend(post_intake_runtime_table_integrity_errors())
+  errors.extend(str(item) for item in (post_intake_golden_lookup_snapshot_errors() or []))
   errors.extend(_intake_boundary_errors())
   errors.extend(_retired_issue_literal_errors())
   errors.extend(_prompt_table_reference_errors())
   return errors
+
+
+def post_intake_assert_runtime_table_integrity() -> Dict[str, Any]:
+  errors = post_intake_runtime_table_integrity_errors()
+  if errors:
+    raise RuntimeError(
+      "post_intake_runtime_table_integrity_violation: "
+      + "; ".join(str(item) for item in errors[:50])
+    )
+  return {
+    "runtime_table_integrity_enforced": True,
+    "source_of_truth": "operational_lookup_tables",
+    "validated_tables": [
+      "post_intak_mapping_lookup",
+      "post_intake_cash_policy_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+      "post_intake_headcount_policy_lookup",
+      "post_intake_process_sequence_lookup",
+    ],
+    "excluded_from_runtime": [
+      "post_intake_lookup_table_snapshot",
+      "source_code_static_scans",
+    ],
+  }
 
 
 def post_intake_assert_golden_rule_integrity() -> Dict[str, Any]:

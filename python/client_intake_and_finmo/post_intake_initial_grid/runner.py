@@ -16,7 +16,10 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_process_step_context,
 )
 from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
-  post_intake_assert_golden_rule_integrity,
+  post_intake_assert_runtime_table_integrity,
+)
+from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
+  assert_post_intake_global_invariants,
 )
 
 
@@ -54,7 +57,7 @@ def prepare_initial_grid_for_draft(
   if str(draft.get("active_focus") or "").strip().lower() != "done":
     raise RuntimeError("draft_not_complete")
   sequence_trace: Dict[str, Any] = {}
-  sequence_trace["golden_rule"] = post_intake_assert_golden_rule_integrity()
+  sequence_trace["runtime_table_integrity"] = post_intake_assert_runtime_table_integrity()
   sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
   sequence_trace["baseline_model_input"] = post_intake_process_step_context(
     step_key="baseline_model_input",
@@ -569,6 +572,13 @@ def prepare_initial_grid_for_draft(
       copy.deepcopy(payroll_headcount_payload),
       stage="resume_checkpoint_ready",
     )
+    assert_post_intake_global_invariants(
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      model_input_json=copy.deepcopy(applied_model_input_json),
+      finmo_json=copy.deepcopy(applied_finmo_json),
+      stage="resume_checkpoint_ready",
+      payroll_headcount=copy.deepcopy(payroll_headcount_payload),
+    )
     persist_system_stage(
       stage="resume_checkpoint_ready",
       status="running",
@@ -687,6 +697,13 @@ def prepare_initial_grid_for_draft(
       model_input_json=applied_model_input_json,
       finmo_json=applied_finmo_json,
       stage="quarter_grid_applied",
+    )
+    assert_post_intake_global_invariants(
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      model_input_json=copy.deepcopy(applied_model_input_json),
+      finmo_json=copy.deepcopy(applied_finmo_json),
+      stage="quarter_grid_applied",
+      payroll_headcount=copy.deepcopy(payroll_headcount_payload),
     )
 
   return {

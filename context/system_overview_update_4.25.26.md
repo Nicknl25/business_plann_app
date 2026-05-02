@@ -1593,3 +1593,47 @@ It means the next E2E failure should be treated as one of:
 - an external OpenAI/runtime failure
 
 Do not solve those with local hardcoding. Add missing deterministic metadata to the appropriate lookup table or delete/convert the legacy path.
+
+## Update: 2026-05-02 Late E2E Stop Point
+
+Latest source draft used for persisted E2E:
+
+- Source draft: `c92dd5cb7698497c9a512db350d2e418`
+- Business: `Radiant Grove Aesthetics Group`
+- Runner: `Test Files/run_persisted_system_run.py --draft-id c92dd5cb7698497c9a512db350d2e418`
+- Backend restart: `context/ensure_5050_backend.ps1 -ForceRestart`
+
+Structural fixes made before stopping:
+
+- `cost_structure_mismatch` no longer converts a broad stage-ramp net-income floor into arbitrary individual operating-cost cuts.
+- Stage maturity cost detection now only emits repair pressure when direct mapped cost rows exceed GPT-selected cost caps.
+- Stage-ramp numeric bounds for cost caps and `ni_floor` were moved into `post_intake_gpt_contract_lookup` and read through the contract lookup function during validation.
+- Planner retry context now compacts `invalid_response_to_repair` through `post_intake_gpt_context_lookup` instead of re-sending the full malformed payload.
+- Golden preflight was refreshed and passed after the table changes.
+
+What the E2E proved:
+
+- The earlier COGS/stage-maturity overcorrection class moved forward.
+- The process sequence still loads from `sql.post_intake_process_sequence_lookup`.
+- Runtime probe confirmed 180-second cycle timeout and max 10 cycles.
+- Mapping/context/contract/cash/headcount tables loaded correctly at backend startup.
+
+Current stopping failure:
+
+```text
+cash_pass_failed:
+recommended_adjustments schedules::Debt Issuance (New Borrowing) Q8 is outside allowed bounds.
+candidate_value=322906 min_value=0 max_value=307568.
+```
+
+Failed clone draft:
+
+- `d9c61d3b629a45d69c33db7480d7962f`
+
+Likely next root-cause area:
+
+- Cash review is asking GPT for a debt-issuance action whose funding amount exceeds the deterministic action-cell bound.
+- The next fix should inspect `post_intake_cash.runner` around the cash action-cell envelope and validation, especially the relationship between `quarter_funding_plan.required_funding_gap`, funding-source amounts, and `recommended_adjustments[].exact_value`.
+- Do not increase the cash bounds ad hoc. If the legal move space is wrong, fix the table-backed cash envelope generation or the cash policy lookup metadata. If GPT is expected to allocate within existing legal bounds, make the cash contract/schema expose those exact per-cell bounds before the call.
+
+Important: do not resume by changing the runner. The runner is intake simulation only. Resume by fixing post-intake cash under the Golden Rule.

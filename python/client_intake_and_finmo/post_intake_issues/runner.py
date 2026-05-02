@@ -3223,6 +3223,57 @@ def _table_backed_formula_envelope_feasibility_errors(
       )
   return errors
 
+def _directional_driver_bounds_by_cell_from_metric_pressure(
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+) -> Dict[Tuple[str, int], Dict[str, Any]]:
+  """Convert active issue pressure into quarter-specific driver bounds."""
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  bounds: Dict[Tuple[str, int], Dict[str, Any]] = {}
+  for packet in (guidance.get("metric_pressure_packets") or []):
+    if not isinstance(packet, dict):
+      continue
+    quarter_index = int(_safe_float(packet.get("quarter_index")) or 0)
+    direction = str(packet.get("direction_hint") or "").strip().lower()
+    if quarter_index < 1 or direction not in {"increase", "decrease"}:
+      continue
+    for path in (packet.get("driver_paths") or packet.get("prompt_driver_paths") or []):
+      if not isinstance(path, dict):
+        continue
+      lever_id = str(path.get("lever") or path.get("lever_id") or "").strip()
+      conversion = path.get("driver_target_conversion")
+      if not lever_id or not isinstance(conversion, dict):
+        continue
+      key = (lever_id, quarter_index)
+      cell_bounds = bounds.setdefault(
+        key,
+        {
+          "lever_id": lever_id,
+          "quarter_index": quarter_index,
+          "source": "metric_pressure_driver_target_conversion",
+          "direction_hints": [],
+        },
+      )
+      direction_hints = cell_bounds.setdefault("direction_hints", [])
+      if direction not in direction_hints:
+        direction_hints.append(direction)
+      if direction == "decrease":
+        upper = _safe_float(conversion.get("target_ceiling_driver_equivalent"))
+        if upper is None:
+          upper = _safe_float(conversion.get("target_floor_driver_equivalent"))
+        if upper is None:
+          continue
+        current_upper = _safe_float(cell_bounds.get("max_value"))
+        cell_bounds["max_value"] = float(upper) if current_upper is None else min(float(current_upper), float(upper))
+      else:
+        lower = _safe_float(conversion.get("target_floor_driver_equivalent"))
+        if lower is None:
+          lower = _safe_float(conversion.get("target_ceiling_driver_equivalent"))
+        if lower is None:
+          continue
+        current_lower = _safe_float(cell_bounds.get("min_value"))
+        cell_bounds["min_value"] = float(lower) if current_lower is None else max(float(current_lower), float(lower))
+  return bounds
+
 def _full_horizon_model_input_repair_contract(
   *,
   model_input_json: Optional[Dict[str, Any]],
@@ -3261,6 +3312,7 @@ def _full_horizon_model_input_repair_contract(
     if isinstance(item, dict) and str(item.get("lever_id") or "").strip()
   }
   allowed_mapping_by_lever = _lever_allowed_mapped_repair_targets(guidance)
+  directional_bounds_by_cell = _directional_driver_bounds_by_cell_from_metric_pressure(guidance)
   rows: List[Dict[str, Any]] = []
   required_cell_ids: List[str] = []
   editable_lever_ids: List[str] = []
@@ -3328,6 +3380,58 @@ def _full_horizon_model_input_repair_contract(
       min_value = suggested_min
       max_value = suggested_max
       direction_hint = str(grid_row.get("direction_hint") or "").strip().lower()
+      directional_bounds = directional_bounds_by_cell.get((lever_id, quarter_index)) or {}
+      directional_min = _safe_float(directional_bounds.get("min_value"))
+      directional_max = _safe_float(directional_bounds.get("max_value"))
+      if directional_min is not None:
+        min_value = (
+          float(directional_min)
+          if min_value is None
+          else max(float(min_value), float(directional_min))
+        )
+      if directional_max is not None:
+        max_value = (
+          float(directional_max)
+          if max_value is None
+          else min(float(max_value), float(directional_max))
+        )
+      if (
+        min_value is not None
+        and max_value is not None
+        and float(min_value) > float(max_value)
+        and str(directional_bounds.get("source") or "").strip() == "metric_pressure_driver_target_conversion"
+      ):
+        direction_hints = {
+          str(item or "").strip().lower()
+          for item in (directional_bounds.get("direction_hints") or [])
+          if str(item or "").strip()
+        }
+        if "decrease" in direction_hints and directional_max is not None:
+          # The SQL mapping conversion is the specific target path. Generic
+          # movement bands may guide the envelope, but cannot make the mapped
+          # target mathematically impossible.
+          max_value = float(directional_max)
+          min_value = min(float(suggested_min), float(directional_max)) if suggested_min is not None else float(directional_max)
+        elif "increase" in direction_hints and directional_min is not None:
+          min_value = float(directional_min)
+          max_value = max(float(suggested_max), float(directional_min)) if suggested_max is not None else float(directional_min)
+      if min_value is not None and max_value is not None and float(min_value) > float(max_value):
+        raise RuntimeError(
+          "post_intake_directional_driver_envelope_impossible: "
+          + json.dumps(
+            {
+              "lever_id": lever_id,
+              "quarter_index": quarter_index,
+              "mapping_table": "post_intak_mapping_lookup",
+              "contract_table": "post_intake_gpt_contract_lookup",
+              "directional_bounds": copy.deepcopy(directional_bounds),
+              "suggested_min_value": suggested_min,
+              "suggested_max_value": suggested_max,
+              "detail": "Metric pressure converted through the table-backed mapping contradicts the editable driver envelope.",
+            },
+            ensure_ascii=False,
+          )
+        )
       max_relative_change = max(0.0, float(_safe_float(grid_row.get("max_relative_change")) or 0.0))
       if current_value is not None and direction_hint in {"decrease", "increase"}:
         current_float = float(current_value)

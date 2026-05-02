@@ -18,10 +18,11 @@ from client_intake_and_finmo.post_intake_mapping import (
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
   CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
   PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS,
+  assert_post_intake_global_invariants,
 )
 from client_intake_and_finmo.post_intake_foundation import (
   bind_table_safe_runtime_dependencies,
-  post_intake_assert_golden_rule_integrity,
+  post_intake_assert_runtime_table_integrity,
 )
 
 _CYCLE_DEADLINE_GUARD_SECONDS = 8.0
@@ -326,7 +327,7 @@ def _run_unified_post_grid_system_run(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
     )
   process_sequence_trace: Dict[str, Any] = {}
-  process_sequence_trace["golden_rule"] = post_intake_assert_golden_rule_integrity()
+  process_sequence_trace["runtime_table_integrity"] = post_intake_assert_runtime_table_integrity()
   process_sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
   process_sequence_trace["issue_detection"] = post_intake_process_step_context(
     step_key="issue_detection",
@@ -1526,6 +1527,13 @@ def _run_unified_post_grid_system_run(
   # cycle's nearly expired OpenAI deadline turns a cleared convergence run into
   # a false terminal timeout.
   _set_active_openai_deadline(None)
+  assert_post_intake_global_invariants(
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    stage="post_convergence_pre_cash",
+    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
+  )
 
   pre_cash_model_input_json = copy.deepcopy(final_model_input_json)
   pre_cash_finmo_json = copy.deepcopy(final_finmo_json)
@@ -2041,6 +2049,15 @@ def _run_unified_post_grid_system_run(
     final_model_input_json=copy.deepcopy(final_model_input_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
     stage="post_cash_pass_final",
+  )
+  assert_post_intake_global_invariants(
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    stage="post_cash_pass_final",
+    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
+    financials_json=copy.deepcopy(financials_json or {}),
+    enforce_cash_buffer=True,
   )
   final_debt_schedule_payload = _cash_strategy_debt_schedule_snapshot(
     finmo_payload=copy.deepcopy(final_finmo_json),

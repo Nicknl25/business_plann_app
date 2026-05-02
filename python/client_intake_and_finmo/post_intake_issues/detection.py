@@ -652,11 +652,10 @@ def _build_stage_maturity_cost_structure_issue_status_records(
     ramp_row = ramp_rows.get(quarter_index) or {}
     revenue = float(_safe_float(quarter_row.get("revenue")) or 0.0)
     floor_margin = _safe_float(ramp_row.get("net_income_margin_floor"))
-    if revenue <= 0.0 or floor_margin is None:
+    if revenue <= 0.0:
       continue
     net_income = float(_safe_float(quarter_row.get("net_income")) or 0.0)
     actual_margin = net_income / revenue
-    margin_gap = float(floor_margin) - actual_margin
     direct_cost_values = {
       "cogs": float(_dep("_quarter_row_cost_of_goods_sold")(quarter_row) or 0.0),
       "marketing": float(_safe_float(quarter_row.get("marketing")) or 0.0),
@@ -683,19 +682,20 @@ def _build_stage_maturity_cost_structure_issue_status_records(
         continue
       if direct_cost_values.get(metric_name, 0.0) > (revenue * float(cap_ratio)) + 1.0:
         cap_violations.append(metric_name)
-    if margin_gap <= 0.0001 and not cap_violations:
+    if not cap_violations:
       continue
     problem_quarters.append(quarter_index)
-    margin_gap_dollars = max(0.0, margin_gap * revenue)
-    positive_cost_pool = sum(max(0.0, value) for value in direct_cost_values.values()) or 1.0
     for metric_name, row_field, target_field, cap_field in component_specs:
+      if metric_name not in cap_violations:
+        continue
       actual_value = max(0.0, direct_cost_values.get(metric_name, 0.0))
       if actual_value <= 0.0:
         continue
       cap_ratio = _safe_float(ramp_row.get(cap_field))
-      cap_value = revenue * float(cap_ratio) if cap_ratio is not None else actual_value
-      allocated_reduction = margin_gap_dollars * (actual_value / positive_cost_pool)
-      target_ceiling = min(actual_value, cap_value, max(0.0, actual_value - allocated_reduction))
+      if cap_ratio is None:
+        continue
+      cap_value = max(0.0, revenue * float(cap_ratio))
+      target_ceiling = min(actual_value, cap_value)
       target_ratio = _safe_float(ramp_row.get(target_field)) if target_field else None
       if target_ratio is not None:
         target_ceiling = min(target_ceiling, max(0.0, revenue * float(target_ratio)))
@@ -707,13 +707,14 @@ def _build_stage_maturity_cost_structure_issue_status_records(
         score_scale=max(revenue * 0.03, abs(actual_value - target_ceiling), 1000.0),
         source_metric_names=[row_field, "revenue", "net_income", "stage_maturity_contract"],
         metric_definition=(
-          "Stage maturity net-income guardrails are detected from the GPT-selected maturity grid, "
-          "but repair targets only direct table-backed operating cost rows."
+          "Stage maturity cost caps are detected from the GPT-selected maturity grid, "
+          "and repair targets only direct table-backed operating cost rows."
         ),
       )
       if isinstance(spec, dict):
         spec["quarter_index"] = int(quarter_index)
-        spec["stage_maturity_floor_margin"] = round(float(floor_margin), 2)
+        if floor_margin is not None:
+          spec["stage_maturity_floor_margin"] = round(float(floor_margin), 2)
         spec["actual_net_income_margin"] = round(float(actual_margin), 4)
         metric_specs.append(spec)
   if not problem_quarters or not metric_specs:
@@ -724,7 +725,7 @@ def _build_stage_maturity_cost_structure_issue_status_records(
         "issue": "cost_structure_mismatch",
         "issue_code": "cost_structure_mismatch",
         "detail": (
-          "Stage maturity profitability guardrail failed. Direct operating costs must be adjusted "
+          "Stage maturity cost cap guardrail failed. Direct operating costs must be adjusted "
           "through table-backed cost_structure_mismatch levers so the business matures naturally."
         ),
         "candidate_kind": "stage_maturity_cost_structure_detector",

@@ -7,6 +7,7 @@ import re
 import time
 import copy
 from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -867,6 +868,9 @@ def _stage_governance_prompt_block(governor_payload: Dict[str, Any]) -> str:
     "- planning mode and business stage must shape the grid before any profitability goal",
     "- do not create a forecast that violates the lifecycle stage just to make outputs look clean",
     "- apply `stage_ramp_contract` to every adjacent quarter pair Q1->Q2 through Q19->Q20",
+    "- in `quarter_ramp_grid`, `rev_target` is the minimum required composite revenue multiplier for that quarter pair, not optional guidance",
+    "- in `quarter_ramp_grid`, `rev_max` is the maximum allowed composite revenue multiplier for that quarter pair",
+    "- composite revenue must satisfy: prior_quarter_revenue * rev_target <= current_quarter_revenue <= prior_quarter_revenue * rev_max",
     "- do not allow unchecked growth; spikes are only valid inside the contract's window and support rules",
     cost_cap_line,
     "- use net_income_margin_floor as a maturity guardrail, not as permission to fake instant mature profitability",
@@ -1112,7 +1116,7 @@ def _quarter_grid_cell_envelopes_for_row(
         min_value, max_value = 0.20, 0.85
         reason = "cogs_percent_operating_bound"
       elif "marketing" in label:
-        min_value, max_value = 0.0, 0.35
+        min_value, max_value = 0.01, 0.35
         reason = "marketing_percent_operating_bound"
       elif "research" in label:
         min_value, max_value = 0.0, 0.35
@@ -1128,7 +1132,13 @@ def _quarter_grid_cell_envelopes_for_row(
         _quarter_grid_stage_maturity_row(governor_payload, idx),
       )
       if maturity_cap is not None:
-        max_value = min(float(max_value), max(float(min_value), float(maturity_cap)))
+        if "marketing" in label and float(maturity_cap) <= 0.0:
+          min_value = 0.0
+          max_value = 0.0
+        else:
+          max_value = min(float(max_value), max(float(min_value), float(maturity_cap)))
+          if "marketing" in label:
+            min_value = min(float(max_value), max(float(min_value), min(0.02, float(maturity_cap) * 0.25)))
         reason = str(maturity_reason or reason)
     elif section == "balance_sheet" and _is_ratio_like_row(row):
       min_value, max_value = 0.0, 1.0
@@ -1743,6 +1753,8 @@ def build_quarter_grid_prompt(
       "- revenue is not a standalone row and the three revenue drivers are not independent knobs\n",
       "- Python will multiply Capacity x Unit Price x Utilization for every product and validate the combined revenue path\n",
       "- keep the combined revenue path inside stage_governance_context.stage_ramp_contract; do not hide an unrealistic revenue jump by keeping each individual driver inside its row envelope\n\n",
+      "- the stage ramp `rev_target` is a hard minimum multiplier and `rev_max` is a hard maximum multiplier for composite revenue\n",
+      "- if utilization hits its cap, use structural Capacity and/or Unit Price within their envelopes so composite revenue still clears the required ramp floor\n\n",
       "Cost/profitability maturity rule:\n",
       "- stage_governance_context.stage_ramp_contract includes cost-ratio caps and net income margin floors by quarter\n",
       cost_maturity_rule,
@@ -1936,7 +1948,9 @@ def _quarter_grid_contract_repair_prompt(
     + "Do not add rows. Do not omit rows. Do not change row_ids. "
     + "Most importantly, the combined revenue path from Capacity * Unit Price * Utilization across all products "
     + "must satisfy stage_governance_context.stage_ramp_contract for every adjacent quarter pair. "
-    + "Recalculate composite revenue before answering; if Q2 is too high for Q1, lower Q2 or smooth later quarters rather than violating the ramp.\n"
+    + "`rev_target` is the hard minimum multiplier and `rev_max` is the hard maximum multiplier. "
+    + "Recalculate composite revenue before answering; if a later quarter is below the minimum, increase Capacity, Unit Price, or Utilization inside the envelopes. "
+    + "If a quarter is above the maximum, lower or smooth later quarters rather than violating the ramp.\n"
     + "For ratio rows, repair using decimal ratios inside the envelope. Example: if COGS min is 0.20, return 0.20 or higher, not 0.00002.\n"
     + "Validation errors:\n"
     + json.dumps(
@@ -2107,8 +2121,21 @@ def _composite_revenue_ramp_violations(
   contract = context.get("stage_ramp_contract") if isinstance(context, dict) and isinstance(context.get("stage_ramp_contract"), dict) else {}
   if not contract:
     return []
-  ordinary_max = float(contract.get("revenue_qoq_growth_target_max") or 0.0)
-  spike_max = float(contract.get("revenue_qoq_max_spike") or ordinary_max)
+  def _growth_multiplier(value: Any) -> Optional[float]:
+    number = float_or_none(value)
+    if number is None or number <= 0.0:
+      return None
+    # Older contract fields used decimal growth (0.08); current quarter rows
+    # use multipliers (1.08). Normalize both to a multiplier.
+    if number < 1.0:
+      return 1.0 + float(number)
+    return float(number)
+
+  def _ratio_2dp(value: float) -> Decimal:
+    return Decimal(str(float(value))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+  ordinary_max = _growth_multiplier(contract.get("revenue_qoq_growth_target_max")) or 0.0
+  spike_max = _growth_multiplier(contract.get("revenue_qoq_max_spike")) or ordinary_max
   spike_window = {
     int(item)
     for item in (contract.get("revenue_spike_window_quarters") or [])
@@ -2117,6 +2144,11 @@ def _composite_revenue_ramp_violations(
   max_spike_count = int(contract.get("max_spike_count") or 0)
   if ordinary_max <= 0.0:
     return []
+  ramp_rows_by_quarter: Dict[int, Dict[str, Any]] = {
+    int(float_or_none(row.get("quarter_index") or row.get("q")) or 0): row
+    for row in (contract.get("quarter_ramp_grid") or [])
+    if isinstance(row, dict)
+  }
 
   slots: Dict[str, Dict[str, Dict[int, float]]] = {}
   for requested_row in requested_rows:
@@ -2153,20 +2185,41 @@ def _composite_revenue_ramp_violations(
   for quarter_index in range(2, QUARTER_COUNT + 1):
     previous_revenue = float(revenue_by_quarter.get(quarter_index - 1) or 0.0)
     current_revenue = float(revenue_by_quarter.get(quarter_index) or 0.0)
-    if previous_revenue <= 0.0 or current_revenue <= previous_revenue:
+    if previous_revenue <= 0.0:
       continue
-    growth = (current_revenue - previous_revenue) / previous_revenue
-    allowed_growth = ordinary_max
-    if growth > ordinary_max and (quarter_index - 1) in spike_window and spike_count < max_spike_count:
-      allowed_growth = spike_max
-      if growth <= allowed_growth + 1e-9:
+    actual_multiplier = current_revenue / previous_revenue
+    ramp_row = ramp_rows_by_quarter.get(quarter_index) or {}
+    required_multiplier = _growth_multiplier(
+      ramp_row.get("revenue_qoq_target")
+      if ramp_row.get("revenue_qoq_target") is not None
+      else ramp_row.get("rev_target")
+    )
+    allowed_multiplier = _growth_multiplier(
+      ramp_row.get("revenue_qoq_max")
+      if ramp_row.get("revenue_qoq_max") is not None
+      else ramp_row.get("rev_max")
+    ) or ordinary_max
+    actual_multiplier_2dp = _ratio_2dp(actual_multiplier)
+    if required_multiplier is not None and actual_multiplier_2dp < _ratio_2dp(required_multiplier):
+      required_revenue = previous_revenue * required_multiplier
+      violations.append(
+        "composite_revenue_ramp_minimum::"
+        f"Q{quarter_index - 1}->Q{quarter_index}::"
+        f"actual_multiplier={round(actual_multiplier, 6)}::required={round(required_multiplier, 6)}::"
+        f"minimum_current_revenue={round(required_revenue, 2)}::"
+        f"previous_revenue={round(previous_revenue, 2)}::current_revenue={round(current_revenue, 2)}"
+      )
+      continue
+    if actual_multiplier_2dp > _ratio_2dp(allowed_multiplier) and (quarter_index - 1) in spike_window and spike_count < max_spike_count:
+      allowed_multiplier = spike_max
+      if actual_multiplier_2dp <= _ratio_2dp(allowed_multiplier):
         spike_count += 1
         continue
-    if growth > allowed_growth + 1e-9:
+    if actual_multiplier_2dp > _ratio_2dp(allowed_multiplier):
       violations.append(
-        "composite_revenue_ramp::"
+        "composite_revenue_ramp_maximum::"
         f"Q{quarter_index - 1}->Q{quarter_index}::"
-        f"growth={round(growth, 6)}::allowed={round(allowed_growth, 6)}::"
+        f"actual_multiplier={round(actual_multiplier, 6)}::allowed={round(allowed_multiplier, 6)}::"
         f"previous_revenue={round(previous_revenue, 2)}::current_revenue={round(current_revenue, 2)}"
       )
   return violations

@@ -1977,6 +1977,8 @@ def _apply_unified_convergence_context_transforms(
       context_packet[key] = _compact_locked_target_fill_grid_for_prompt(context_packet.get(key))
     elif transform_kind == "compact_issue_repair_envelope":
       context_packet[key] = _compact_issue_repair_envelope_for_prompt(context_packet.get(key))
+    elif transform_kind == "compact_invalid_response_to_repair":
+      context_packet[key] = _compact_invalid_response_to_repair_for_prompt(context_packet.get(key))
     elif transform_kind == "compact_numeric_solver_feedback":
       context_packet[key] = _compact_numeric_solver_feedback_for_prompt(context_packet.get(key))
     elif transform_kind in {"copy", "request_char_budget"}:
@@ -1988,6 +1990,51 @@ def _apply_unified_convergence_context_transforms(
         f"context_key={key} transform_kind={transform_kind}"
       )
   return context_packet
+
+
+def _compact_invalid_response_to_repair_for_prompt(value: Any) -> Dict[str, Any]:
+  """Keep retry prompts focused on the contract violation, not the full bad payload."""
+  payload = copy.deepcopy(value if isinstance(value, dict) else {})
+  decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+  raw_cells = (
+    decision.get("model_input_repair_cells")
+    if isinstance(decision.get("model_input_repair_cells"), list)
+    else []
+  )
+  compact_cells: List[Dict[str, Any]] = []
+  for cell in raw_cells:
+    if not isinstance(cell, dict):
+      continue
+    compact_cells.append(
+      {
+        "cell_id": str(cell.get("cell_id") or "").strip(),
+        "lever_id": str(cell.get("lever_id") or "").strip(),
+        "quarter_index": int(_safe_float(cell.get("quarter_index")) or 0),
+        "exact_value": cell.get("exact_value"),
+        "min_value": cell.get("min_value"),
+        "max_value": cell.get("max_value"),
+      }
+    )
+  compact_cells = [
+    cell for cell in compact_cells
+    if cell.get("cell_id") or cell.get("lever_id")
+  ]
+  return {
+    "status": str(payload.get("status") or "").strip() or None,
+    "review_status": str(payload.get("review_status") or "").strip() or None,
+    "strategy_class": str(decision.get("strategy_class") or "").strip() or None,
+    "change_type": str(decision.get("change_type") or "").strip() or None,
+    "primary_target_metric_names": copy.deepcopy(decision.get("primary_target_metric_names") or []),
+    "lever_selection": copy.deepcopy(decision.get("lever_selection") or []),
+    "target_quarter_count": len(decision.get("targets_by_quarter") or []),
+    "model_input_repair_cell_count": len(raw_cells),
+    "model_input_repair_cells_sample": compact_cells[:40],
+    "compact_reason": (
+      "Full malformed response omitted by SQL context transform "
+      "compact_invalid_response_to_repair. Use repair_contract_violation and "
+      "full_horizon_model_input_repair_contract as the authoritative repair source."
+    ),
+  }
 
 def _apply_gpt_context_lookup_to_unified_convergence_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
   context_packet = _apply_unified_convergence_context_transforms(
@@ -2967,7 +3014,11 @@ def _run_unified_convergence_openai(
       "unified_convergence_decision",
       context_payload=retry_context_packet,
       include_phase="planner_retry",
-      static_instruction=_load_unified_convergence_prompt(),
+      static_instruction=(
+        "You are correcting a malformed post-intake convergence contract. "
+        "Use only the SQL-rendered contract spec and allowed context keys. "
+        "Do not use legacy prose, do not change mapping, and do not omit Q1-Q20 coverage."
+      ),
       task_instruction=(
         "Return a corrected SQL-backed unified_convergence_decision payload. Keep full Q1-Q20 coverage, "
         "fix the validation errors, and do not introduce fields, levers, targets, or quarters outside the table-backed contract."
