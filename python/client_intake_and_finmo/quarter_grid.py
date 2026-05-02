@@ -1337,6 +1337,7 @@ def generate_live_quarter_grid_plan(
     repaired_batch_response = repair_quarter_grid_response(
       requested_rows=batch_rows,
       response_json=batch_response if isinstance(batch_response, dict) else {},
+      governor_payload=governor_payload,
     )
     repaired_batch_validation = validate_quarter_grid_response(
       requested_rows=batch_rows,
@@ -1369,6 +1370,7 @@ def generate_live_quarter_grid_plan(
       repaired_batch_response = repair_quarter_grid_response(
         requested_rows=batch_rows,
         response_json=batch_response if isinstance(batch_response, dict) else {},
+        governor_payload=governor_payload,
       )
       repaired_batch_validation = validate_quarter_grid_response(
         requested_rows=batch_rows,
@@ -1420,6 +1422,7 @@ def generate_live_quarter_grid_plan(
   response_json = repair_quarter_grid_response(
     requested_rows=grid_rows,
     response_json=raw_response_json,
+    governor_payload=governor_payload,
   )
   validation = validate_quarter_grid_response(
     requested_rows=grid_rows,
@@ -2031,6 +2034,7 @@ def repair_quarter_grid_response(
   *,
   requested_rows: List[Dict[str, Any]],
   response_json: Dict[str, Any],
+  governor_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   requested_map = {
     str(item.get("row_id") or "").strip(): item
@@ -2087,6 +2091,17 @@ def repair_quarter_grid_response(
     repaired_rows.append(_fallback_grid_row_from_requested(requested_row))
     repaired_row_ids.append(row_id)
 
+  ramp_repair_metadata = _enforce_composite_revenue_ramp_inside_envelopes(
+    requested_rows=requested_rows,
+    response_rows=repaired_rows,
+    governor_payload=governor_payload,
+  )
+  if ramp_repair_metadata.get("adjusted_cells"):
+    for item in ramp_repair_metadata.get("adjusted_cells") or []:
+      row_id = str((item or {}).get("row_id") or "").strip()
+      if row_id and row_id not in repaired_row_ids:
+        repaired_row_ids.append(row_id)
+
   return {
     "summary": str(response_json.get("summary") or "").strip(),
     "rows": repaired_rows,
@@ -2094,8 +2109,189 @@ def repair_quarter_grid_response(
       "extras_dropped": extras_dropped,
       "duplicates_dropped": duplicates_dropped,
       "repaired_or_fallback_row_ids": repaired_row_ids,
+      "composite_revenue_ramp_repair": ramp_repair_metadata,
       "repair_applied": bool(extras_dropped or duplicates_dropped or repaired_row_ids),
     },
+  }
+
+
+def _row_quarter_map(row: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+  return {
+    int(item.get("quarter_index") or 0): item
+    for item in (row.get("quarter_values") or [])
+    if isinstance(item, dict) and 1 <= int(item.get("quarter_index") or 0) <= QUARTER_COUNT
+  }
+
+
+def _row_envelope_for_quarter(requested_row: Dict[str, Any], quarter_index: int) -> Dict[str, Any]:
+  for envelope in requested_row.get("cell_envelopes") or []:
+    if not isinstance(envelope, dict):
+      continue
+    if int(envelope.get("quarter_index") or 0) == int(quarter_index):
+      return envelope
+  return {}
+
+
+def _grid_growth_multiplier(value: Any) -> Optional[float]:
+  number = float_or_none(value)
+  if number is None or number <= 0.0:
+    return None
+  return 1.0 + float(number) if number < 1.0 else float(number)
+
+
+def _set_row_quarter_value(row: Dict[str, Any], quarter_index: int, value: float) -> None:
+  for item in row.get("quarter_values") or []:
+    if isinstance(item, dict) and int(item.get("quarter_index") or 0) == int(quarter_index):
+      item["value"] = float(value)
+      return
+  row.setdefault("quarter_values", []).append({"quarter_index": int(quarter_index), "value": float(value)})
+
+
+def _enforce_composite_revenue_ramp_inside_envelopes(
+  *,
+  requested_rows: List[Dict[str, Any]],
+  response_rows: List[Dict[str, Any]],
+  governor_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  context = governor_payload.get("stage_governance_context") if isinstance(governor_payload, dict) else {}
+  contract = context.get("stage_ramp_contract") if isinstance(context, dict) and isinstance(context.get("stage_ramp_contract"), dict) else {}
+  if not contract:
+    return {"applied": False, "reason": "missing_stage_ramp_contract"}
+  ramp_rows_by_quarter: Dict[int, Dict[str, Any]] = {
+    int(float_or_none(row.get("quarter_index") or row.get("q")) or 0): row
+    for row in (contract.get("quarter_ramp_grid") or [])
+    if isinstance(row, dict)
+  }
+  if not ramp_rows_by_quarter:
+    return {"applied": False, "reason": "missing_quarter_ramp_grid"}
+
+  response_by_id = {
+    str(row.get("row_id") or "").strip(): row
+    for row in response_rows
+    if isinstance(row, dict) and str(row.get("row_id") or "").strip()
+  }
+  requested_by_id = {
+    str(row.get("row_id") or "").strip(): row
+    for row in requested_rows
+    if isinstance(row, dict) and str(row.get("row_id") or "").strip()
+  }
+  slots: Dict[str, Dict[str, Dict[str, Any]]] = {}
+  for requested_row in requested_rows:
+    if str(requested_row.get("section") or "").strip().lower() != "revenue":
+      continue
+    driver = _row_driver_name(requested_row)
+    if driver not in {"capacity", "unit price", "utilization"}:
+      continue
+    row_id = str(requested_row.get("row_id") or "").strip()
+    response_row = response_by_id.get(row_id)
+    if not isinstance(response_row, dict):
+      continue
+    slot_key = str(requested_row.get("revenue_slot_key") or "").strip() or row_id.rsplit("::", 1)[0]
+    slots.setdefault(slot_key, {})[driver] = {
+      "requested": requested_by_id.get(row_id) or requested_row,
+      "response": response_row,
+    }
+  if not slots:
+    return {"applied": False, "reason": "missing_revenue_formula_bundle_rows"}
+
+  def _slot_values(slot: Dict[str, Dict[str, Any]], quarter_index: int) -> Tuple[float, float, float]:
+    capacity_row = (slot.get("capacity") or {}).get("response") or {}
+    price_row = (slot.get("unit price") or {}).get("response") or {}
+    utilization_row = (slot.get("utilization") or {}).get("response") or {}
+    capacity = float_or_none((_row_quarter_map(capacity_row).get(quarter_index) or {}).get("value")) or 0.0
+    price = float_or_none((_row_quarter_map(price_row).get(quarter_index) or {}).get("value")) or 0.0
+    utilization = float_or_none((_row_quarter_map(utilization_row).get(quarter_index) or {}).get("value")) or 0.0
+    return max(0.0, capacity), max(0.0, price), max(0.0, utilization)
+
+  def _total_revenue(quarter_index: int) -> float:
+    total = 0.0
+    for slot in slots.values():
+      capacity, price, utilization = _slot_values(slot, quarter_index)
+      total += capacity * price * utilization
+    return float(total)
+
+  adjusted_cells: List[Dict[str, Any]] = []
+  impossible_quarters: List[Dict[str, Any]] = []
+  for quarter_index in range(2, QUARTER_COUNT + 1):
+    previous_revenue = _total_revenue(quarter_index - 1)
+    if previous_revenue <= 0.0:
+      continue
+    ramp_row = ramp_rows_by_quarter.get(quarter_index) or {}
+    required_multiplier = _grid_growth_multiplier(
+      ramp_row.get("revenue_qoq_target")
+      if ramp_row.get("revenue_qoq_target") is not None
+      else ramp_row.get("rev_target")
+    )
+    if required_multiplier is None:
+      continue
+    required_revenue = previous_revenue * required_multiplier
+    current_revenue = _total_revenue(quarter_index)
+    if Decimal(str(current_revenue / previous_revenue)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) >= Decimal(str(required_multiplier)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+      continue
+    remaining_shortfall = max(0.0, required_revenue - current_revenue)
+    # Prefer absorption before expansion, then price. This preserves the model's
+    # existing revenue formula while using the table-backed editable driver rows.
+    for driver in ("utilization", "capacity", "unit price"):
+      if remaining_shortfall <= 0.01:
+        break
+      for slot_key, slot in slots.items():
+        driver_payload = slot.get(driver) or {}
+        requested_row = driver_payload.get("requested") if isinstance(driver_payload.get("requested"), dict) else {}
+        response_row = driver_payload.get("response") if isinstance(driver_payload.get("response"), dict) else {}
+        if not requested_row or not response_row:
+          continue
+        capacity, price, utilization = _slot_values(slot, quarter_index)
+        if driver == "utilization":
+          derivative = capacity * price
+          current_value = utilization
+        elif driver == "capacity":
+          derivative = price * utilization
+          current_value = capacity
+        else:
+          derivative = capacity * utilization
+          current_value = price
+        if derivative <= 0.0:
+          continue
+        envelope = _row_envelope_for_quarter(requested_row, quarter_index)
+        max_value = float_or_none(envelope.get("max_value")) if envelope else None
+        if max_value is None:
+          continue
+        headroom = max(0.0, float(max_value) - float(current_value))
+        if headroom <= 0.0:
+          continue
+        potential_revenue = derivative * headroom
+        revenue_to_add = min(remaining_shortfall, potential_revenue)
+        delta = revenue_to_add / derivative
+        next_value = min(float(max_value), float(current_value) + delta)
+        if driver == "unit price":
+          next_value = math.floor(next_value * 100.0) / 100.0
+        _set_row_quarter_value(response_row, quarter_index, next_value)
+        actual_add = max(0.0, (next_value - current_value) * derivative)
+        remaining_shortfall = max(0.0, remaining_shortfall - actual_add)
+        adjusted_cells.append(
+          {
+            "row_id": str(response_row.get("row_id") or "").strip(),
+            "slot_key": slot_key,
+            "driver": driver,
+            "quarter_index": quarter_index,
+            "previous_value": round(float(current_value), 6),
+            "new_value": round(float(next_value), 6),
+            "basis": "table_backed_stage_ramp_contract_normalization",
+          }
+        )
+    if remaining_shortfall > 1.0:
+      impossible_quarters.append(
+        {
+          "quarter_index": quarter_index,
+          "previous_revenue": round(previous_revenue, 2),
+          "required_revenue": round(required_revenue, 2),
+          "remaining_shortfall_after_envelope_repair": round(remaining_shortfall, 2),
+        }
+      )
+  return {
+    "applied": bool(adjusted_cells),
+    "adjusted_cells": adjusted_cells,
+    "impossible_quarters": impossible_quarters,
   }
 
 

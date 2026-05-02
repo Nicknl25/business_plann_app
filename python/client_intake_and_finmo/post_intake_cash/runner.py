@@ -1476,6 +1476,14 @@ def _cash_strategy_lever_bounds(
     max_additional_debt_paydown = int(round(float(_safe_float(quarter_payload.get("max_additional_debt_paydown")) or 0.0)))
     max_additional_distribution = int(round(float(_safe_float(quarter_payload.get("max_additional_distribution")) or 0.0)))
     cash_policy = quarter_payload.get("cash_policy") if isinstance(quarter_payload.get("cash_policy"), dict) else {}
+    debt_cash_support_multiplier = round(
+      float(_safe_float(quarter_payload.get("debt_cash_support_multiplier")) or 1.0),
+      6,
+    )
+    debt_grossed_up_carryforward_headroom = _cash_strategy_gross_up_effective_support(
+      carryforward_headroom,
+      debt_cash_support_multiplier,
+    )
 
     lever_bounds[_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID].append(
       {
@@ -1490,10 +1498,7 @@ def _cash_strategy_lever_bounds(
           "residual_funding_gap": residual_gap,
           "deployable_surplus_above_ceiling": deployable_surplus,
           "max_additional_debt_paydown": max_additional_debt_paydown,
-          "cash_support_multiplier": round(
-            float(_safe_float(quarter_payload.get("debt_cash_support_multiplier")) or 1.0),
-            6,
-          ),
+          "cash_support_multiplier": debt_cash_support_multiplier,
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
           "allowed_action": "increase_repayment_for_surplus_deployment_only; minimum scheduled debt service is Python-owned and cannot be reduced by cash strategy",
         },
@@ -1522,17 +1527,15 @@ def _cash_strategy_lever_bounds(
         "quarter_index": quarter_index,
         "current_value": debt_issuance_current,
         "min_value": debt_issuance_current,
-        "max_value": int(debt_issuance_current + carryforward_headroom),
+        "max_value": int(debt_issuance_current + debt_grossed_up_carryforward_headroom),
         "supporting_metrics": {
           "buffer": int(round(float(_safe_float(quarter_payload.get("buffer")) or 0.0))),
           "cash_ceiling": int(round(float(_safe_float(quarter_payload.get("cash_ceiling")) or 0.0))),
           "ending_cash_after_hard_rules": int(round(float(_safe_float(quarter_payload.get("ending_cash_after_hard_rules")) or 0.0))),
           "residual_funding_gap": residual_gap,
           "carryforward_headroom": carryforward_headroom,
-          "cash_support_multiplier": round(
-            float(_safe_float(quarter_payload.get("debt_cash_support_multiplier")) or 1.0),
-            6,
-          ),
+          "grossed_up_carryforward_headroom": int(debt_grossed_up_carryforward_headroom),
+          "cash_support_multiplier": debt_cash_support_multiplier,
           "cash_support_per_1000": int(round(float(_safe_float(quarter_payload.get("debt_cash_support_per_1000")) or 1000.0))),
           "soft_capital_structure_guidance": copy.deepcopy(quarter_payload.get("soft_capital_structure_guidance") or {}),
         },
@@ -2438,6 +2441,7 @@ def _run_cash_strategy_review_openai(
             "residual_funding_gap": int(round(float(_safe_float(supporting_metrics.get("residual_funding_gap")) or 0.0))),
             "deployable_surplus_above_ceiling": int(round(float(_safe_float(supporting_metrics.get("deployable_surplus_above_ceiling")) or 0.0))),
             "carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("carryforward_headroom")) or 0.0))),
+            "grossed_up_carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("grossed_up_carryforward_headroom")) or 0.0))),
             "cash_support_multiplier": round(float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0), 6),
             "allowed_action": str(supporting_metrics.get("allowed_action") or "").strip(),
           },

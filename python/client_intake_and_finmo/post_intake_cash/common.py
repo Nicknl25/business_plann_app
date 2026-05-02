@@ -222,7 +222,7 @@ def buffer_components(
   months_per_quarter: float,
 ) -> Dict[str, Any]:
   opex_quarter = int(round(max(0.0, operating_expense_from_row(row))))
-  monthly_opex = int(round(max(0.0, float(opex_quarter) / max(months_per_quarter, 1.0))))
+  cash_buffer_base_opex = opex_quarter
   floor_months = float(cash_floor_months if cash_floor_months is not None else default_buffer_months)
   ceiling_months = float(cash_ceiling_months if cash_ceiling_months is not None else max(floor_months, default_buffer_months))
   return {
@@ -230,9 +230,10 @@ def buffer_components(
     "buffer_months": round(float(floor_months), 2),
     "cash_floor_months": round(float(floor_months), 2),
     "cash_ceiling_months": round(float(ceiling_months), 2),
-    "monthly_opex": monthly_opex,
-    "cash_buffer_required": int(round(max(float(monthly_opex) * floor_months, 0.0))),
-    "cash_ceiling": int(round(max(float(monthly_opex) * ceiling_months, 0.0))),
+    "monthly_opex": cash_buffer_base_opex,
+    "cash_buffer_base_opex": cash_buffer_base_opex,
+    "cash_buffer_required": int(round(max(float(cash_buffer_base_opex) * floor_months, 0.0))),
+    "cash_ceiling": int(round(max(float(cash_buffer_base_opex) * ceiling_months, 0.0))),
   }
 
 
