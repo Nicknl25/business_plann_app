@@ -847,6 +847,12 @@ def _cash_strategy_annual_principal_from_financials(
       value = int(round(max(0.0, monthly_payment * 12.0 - annual_interest)))
       if value > 0:
         return value, source
+    if source == "policy.amortizing_remaining_balance_over_contract_horizon":
+      horizon_quarters = int(_safe_float(policy_payload.get("debt_schedule_horizon_quarters")) or 0)
+      if horizon_quarters > 0:
+        value = int(round(float(opening_debt) / (horizon_quarters / 4.0)))
+        if value > 0:
+          return value, source
   raise RuntimeError(
     "cash_debt_schedule_minimum_principal_missing: "
     "opening debt exists, but no positive annual principal source was available. "
@@ -864,9 +870,9 @@ def _cash_pass_minimum_debt_schedule_plan(
     selected_cash_strategy=selected_cash_strategy,
     finmo_payload=finmo_payload,
   )
-  if str(policy.get("debt_schedule_method") or "").strip().lower() != "straight_line_minimum_principal":
+  if str(policy.get("debt_schedule_method") or "").strip().lower() != "amortizing_remaining_balance":
     raise RuntimeError(
-      "cash_debt_schedule_policy_invalid: debt_schedule_method must be straight_line_minimum_principal"
+      "cash_debt_schedule_policy_invalid: debt_schedule_method must be amortizing_remaining_balance"
     )
   if not bool(policy.get("debt_schedule_required", True)):
     raise RuntimeError(
@@ -925,8 +931,8 @@ def _cash_pass_minimum_debt_schedule_plan(
     policy=policy,
     opening_debt=opening_debt_seed,
   )
-  quarterly_minimum = int(round(max(0.0, float(annual_principal)) / 4.0))
-  if quarterly_minimum <= 0 and opening_debt_seed > 0:
+  contractual_quarterly_floor = int(round(max(0.0, float(annual_principal)) / 4.0))
+  if contractual_quarterly_floor <= 0 and opening_debt_seed > 0:
     raise RuntimeError(
       "cash_debt_schedule_quarterly_minimum_zero: opening debt exists but computed quarterly principal is zero"
     )
@@ -935,7 +941,17 @@ def _cash_pass_minimum_debt_schedule_plan(
     current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
     current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
     available_debt = int(max(0, opening_debt + current_issuance))
-    minimum_principal = int(min(available_debt, quarterly_minimum if available_debt > 0 else 0))
+    remaining_quarters = max(1, horizon_count - quarter_index + 1)
+    amortizing_minimum = int(math.ceil(float(available_debt) / float(remaining_quarters))) if available_debt > 0 else 0
+    minimum_principal = int(
+      min(
+        available_debt,
+        max(
+          contractual_quarterly_floor if available_debt > 0 else 0,
+          amortizing_minimum,
+        ),
+      )
+    )
     scheduled_principal = int(max(current_repayment, minimum_principal))
     scheduled_principal = int(min(available_debt, scheduled_principal))
     closing_debt = int(max(0, available_debt - scheduled_principal))
@@ -957,20 +973,23 @@ def _cash_pass_minimum_debt_schedule_plan(
     )
     if interest_rate > 0.0:
       exact_updates.append(
-      {
-        "lever_id": "expenses::Interest Rate",
-        "quarter_index": quarter_index,
-        "exact_value": interest_rate,
-        "issue_codes": ["funding_structure_mismatch"],
-        "rationale": "Forecast Q1-Q20 interest-rate driver must use the SBA 7(a)-backed policy rate; stub Q0 remains intake history.",
-      }
-    )
+        {
+          "lever_id": "expenses::Interest Rate",
+          "quarter_index": quarter_index,
+          "exact_value": interest_rate,
+          "issue_codes": ["funding_structure_mismatch"],
+          "rationale": "Forecast Q1-Q20 interest-rate driver must use the SBA 7(a)-backed policy rate; stub Q0 remains intake history.",
+        }
+      )
     rows.append(
       {
         "quarter_index": quarter_index,
         "opening_debt": opening_debt,
         "new_borrowing": current_issuance,
         "minimum_principal_payment": minimum_principal,
+        "amortizing_minimum_principal": amortizing_minimum,
+        "contractual_quarterly_floor": contractual_quarterly_floor,
+        "remaining_amortization_quarters": remaining_quarters,
         "extra_principal_payment": int(max(0, scheduled_principal - minimum_principal)),
         "total_principal_payment": scheduled_principal,
         "closing_debt": closing_debt,
@@ -990,7 +1009,8 @@ def _cash_pass_minimum_debt_schedule_plan(
     "opening_debt_seed": int(opening_debt_seed),
     "annual_principal_payment": int(annual_principal),
     "annual_principal_source": annual_principal_source,
-    "quarterly_minimum_principal": int(quarterly_minimum),
+    "quarterly_minimum_principal": int(contractual_quarterly_floor),
+    "schedule_method": "amortizing_remaining_balance",
     "model_input_rows_written": [
       _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
       "expenses::Interest Rate",
@@ -4656,6 +4676,27 @@ def _validate_cash_strategy_post_pass(
         "error": "cash_debt_schedule_interest_rate_missing",
         "reason": "Any quarter with debt outstanding or new borrowing must have a positive interest rate before FINMO calculates interest.",
         "violating_quarters": copy.deepcopy(missing_interest_rows),
+      }
+    )
+  non_declining_debt_rows = [
+    {
+      "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
+      "opening_debt": int(round(float(_safe_float(item.get("opening_debt")) or 0.0))),
+      "actual_debt_issuance": int(round(float(_safe_float(item.get("actual_debt_issuance")) or 0.0))),
+      "actual_debt_repayment": int(round(float(_safe_float(item.get("actual_debt_repayment")) or 0.0))),
+      "closing_debt": int(round(float(_safe_float(item.get("closing_debt")) or 0.0))),
+    }
+    for item in debt_schedule_rows
+    if int(round(float(_safe_float(item.get("opening_debt")) or 0.0))) > 0
+    and int(round(float(_safe_float(item.get("actual_debt_issuance")) or 0.0))) <= 0
+    and int(round(float(_safe_float(item.get("closing_debt")) or 0.0))) >= int(round(float(_safe_float(item.get("opening_debt")) or 0.0)))
+  ]
+  if non_declining_debt_rows:
+    cash_contract_failures.append(
+      {
+        "error": "cash_debt_schedule_principal_balance_not_declining",
+        "reason": "When debt is outstanding and no new borrowing occurs, the debt schedule must reduce principal every quarter.",
+        "violating_quarters": copy.deepcopy(non_declining_debt_rows),
       }
     )
   lever_values = _solved_lever_value_map(candidate_model_input_json)

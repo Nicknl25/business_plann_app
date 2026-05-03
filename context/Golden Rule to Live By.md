@@ -142,6 +142,15 @@ The schedule is the source for the model-input driver values. The model-input dr
 
 Do not let GPT or legacy convergence code directly rewrite schedule-owned model-input rows outside the schedule process.
 
+Debt schedule detail:
+
+- Debt must be handled through the SQL-backed cash policy and debt schedule process.
+- The debt schedule method is `amortizing_remaining_balance`.
+- Outstanding principal balance must decline quarter by quarter whenever debt exists and no new borrowing occurs.
+- Interest must be derived from the SBA-backed forecast interest rate policy and remaining debt balance.
+- Model input and FINMO do not change shape: Python writes the existing Interest Rate, Debt Issuance, Debt Repayment, and Short Term Debt driver rows; FINMO calculates from those drivers.
+- If debt schedule policy, interest-rate policy, current-portion short-term debt, minimum principal, or declining-principal behavior is missing or contradicted, fail fast.
+
 ## Fail-Fast Ownership
 
 Fail-fast behavior must be centralized by app phase.

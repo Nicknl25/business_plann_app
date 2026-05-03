@@ -1768,3 +1768,53 @@ Latest proof point:
 - Duration was about `99.1` seconds.
 - Final `resolution_summary_status` was `all_cleared`.
 - Final `remaining_issue_count` was `0`.
+
+## Update: 2026-05-03 Debt Schedule and Ramp Envelope Stop Point
+
+Source draft used:
+
+- Source draft: `63e3cc69231f492490e7a6bf37efb0e6`
+- Business: `NexGen Software Solutions Inc.`
+- Runner: `Test Files/run_persisted_system_run.py --draft-id 63e3cc69231f492490e7a6bf37efb0e6`
+
+Class fixes made before stopping:
+
+- Cash debt schedule policy is now table-backed as `amortizing_remaining_balance` instead of `straight_line_minimum_principal`.
+- `post_intake_cash_policy_lookup` active rows are migrated by `_ensure_cash_policy_lookup_table` so the live SQL policy uses the amortizing method.
+- Debt minimum-principal fallback now comes from `policy.amortizing_remaining_balance_over_contract_horizon` when intake does not provide explicit principal payment.
+- The cash debt schedule plan now calculates each quarter from opening debt, new borrowing, remaining horizon, scheduled repayment, SBA-backed interest rate, and closing debt.
+- Post-cash validation now fails if a quarter has opening debt, no new borrowing, and closing principal does not decline.
+- Quarter-grid revenue driver envelopes were widened from the GPT stage-ramp contract so the allowed Capacity envelope cannot mathematically contradict the stage ramp minimum/maximum revenue path.
+
+Important invariants after this update:
+
+- The model-input and FINMO shape did not change.
+- Python still writes existing model-input drivers: `expenses::Interest Rate`, `schedules::Debt Issuance (New Borrowing)`, `schedules::Debt Repayment (Scheduled)`, and `balance_sheet::Short Term Debt (% of LTD)`.
+- FINMO still calculates debt opening, issuance, repayment, closing balance, and interest from those drivers.
+- Cash strategy may add extra paydown, but the minimum amortizing schedule is not optional.
+- If outstanding debt does not decline in no-new-borrowing quarters, that is a hard cash contract failure.
+
+Latest run result:
+
+- Clone draft: `d0bd55545ba741f1aa92d0dfb8969952`
+- The run failed with backend disconnect:
+
+```text
+POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500
+detail=('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+```
+
+Observed persisted state:
+
+- `planning_stage`: `quarter_grid_ready`
+- `planning_status`: `failed`
+- `planning_mode`: `normalize`
+- Runtime reached `quarter_grid_ready` after initial grid planning, then the backend disconnected before a clean structured failure could be surfaced.
+
+Next session starting point:
+
+- Do not revert the debt schedule or ramp-envelope changes.
+- Restart with `context/ensure_5050_backend.ps1`.
+- Rerun `Test Files/run_persisted_system_run.py --draft-id 63e3cc69231f492490e7a6bf37efb0e6`.
+- If it fails again, first inspect why the backend process disconnected instead of returning a structured fail-fast payload.
+- Treat unstructured backend disconnects as a runtime stability bug. The app should surface table-backed fail-fast diagnostics, not silently drop the connection.

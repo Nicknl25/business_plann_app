@@ -156,20 +156,22 @@ _DEFAULT_CASH_POLICY_ROWS: List[Dict[str, Any]] = [
 
 
 _DEFAULT_CASH_DEBT_SCHEDULE_POLICY: Dict[str, Any] = {
-  "debt_schedule_method": "straight_line_minimum_principal",
+  "debt_schedule_method": "amortizing_remaining_balance",
   "debt_schedule_required": True,
   "debt_schedule_horizon_quarters": 20,
   "debt_minimum_payment_frequency": "quarterly",
   "debt_min_principal_source_priority": [
     "financials.annual_principal_payment",
     "financials.other_monthly_debt_payments_minus_annual_interest_payment",
+    "policy.amortizing_remaining_balance_over_contract_horizon",
   ],
   "debt_extra_paydown_policy": "cash_strategy_surplus_only",
   "debt_interest_rate_source_required": "sba_loan_7a_raw",
   "debt_interest_rate_fallback_allowed": False,
   "debt_schedule_notes": (
-    "Python owns contractual minimum debt service. Cash strategy may add extra principal "
-    "paydown above the scheduled minimum, but may not skip required minimum principal while debt is outstanding."
+    "Python owns contractual minimum debt service through an amortizing quarter-by-quarter debt schedule. "
+    "Cash strategy may add extra principal paydown above the scheduled minimum, but may not skip required "
+    "minimum principal while debt is outstanding."
   ),
 }
 
@@ -1902,7 +1904,7 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
           debt_paydown_weight DECIMAL(10,4) NOT NULL,
           retain_weight DECIMAL(10,4) NOT NULL,
           deploy_above_ceiling_required TINYINT(1) NOT NULL DEFAULT 1,
-          debt_schedule_method VARCHAR(64) NOT NULL DEFAULT 'straight_line_minimum_principal',
+          debt_schedule_method VARCHAR(64) NOT NULL DEFAULT 'amortizing_remaining_balance',
           debt_schedule_required TINYINT(1) NOT NULL DEFAULT 1,
           debt_schedule_horizon_quarters INT NOT NULL DEFAULT 20,
           debt_minimum_payment_frequency VARCHAR(32) NOT NULL DEFAULT 'quarterly',
@@ -1943,7 +1945,7 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
       except Exception:
         pass
       for column_sql in [
-        "ADD COLUMN debt_schedule_method VARCHAR(64) NOT NULL DEFAULT 'straight_line_minimum_principal' AFTER deploy_above_ceiling_required",
+        "ADD COLUMN debt_schedule_method VARCHAR(64) NOT NULL DEFAULT 'amortizing_remaining_balance' AFTER deploy_above_ceiling_required",
         "ADD COLUMN debt_schedule_required TINYINT(1) NOT NULL DEFAULT 1 AFTER debt_schedule_method",
         "ADD COLUMN debt_schedule_horizon_quarters INT NOT NULL DEFAULT 20 AFTER debt_schedule_required",
         "ADD COLUMN debt_minimum_payment_frequency VARCHAR(32) NOT NULL DEFAULT 'quarterly' AFTER debt_schedule_horizon_quarters",
@@ -2016,6 +2018,32 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
               ),
             ),
           )
+      cur.execute(
+        f"""
+        UPDATE {_CASH_POLICY_TABLE_NAME}
+        SET debt_schedule_method = %s
+        WHERE policy_status = 'active'
+          AND LOWER(COALESCE(debt_schedule_method, '')) IN ('', 'straight_line_minimum_principal')
+        """,
+        (
+          str(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_schedule_method") or ""),
+        ),
+      )
+      cur.execute(
+        f"""
+        UPDATE {_CASH_POLICY_TABLE_NAME}
+        SET debt_min_principal_source_priority_json = %s
+        WHERE policy_status = 'active'
+          AND (
+            debt_min_principal_source_priority_json IS NULL
+            OR debt_min_principal_source_priority_json = ''
+            OR debt_min_principal_source_priority_json NOT LIKE '%policy.amortizing_remaining_balance_over_contract_horizon%'
+          )
+        """,
+        (
+          _json_dumps_value(_DEFAULT_CASH_DEBT_SCHEDULE_POLICY.get("debt_min_principal_source_priority") or []),
+        ),
+      )
       conn.commit()
       _ENSURE_CASH_POLICY_TABLE_READY = True
     finally:
@@ -4147,7 +4175,7 @@ class PostIntakeCashPolicyLookup:
       if deploy_required and retain_weight > 0:
         errors.append(f"{strategy}/{position} retain_weight must be 0.0 when surplus deployment above ceiling is required")
       debt_method = _clean_text(row.get("debt_schedule_method")).lower()
-      if debt_method != "straight_line_minimum_principal":
+      if debt_method != "amortizing_remaining_balance":
         errors.append(f"{strategy}/{position} unsupported debt_schedule_method {debt_method or 'missing'}")
       expected_debt_horizon = len(
         post_intake_gpt_contract_lookup().forecast_horizon_quarters(
@@ -4171,6 +4199,8 @@ class PostIntakeCashPolicyLookup:
       ]
       if "financials.annual_principal_payment" not in source_priority:
         errors.append(f"{strategy}/{position} debt_min_principal_source_priority must include financials.annual_principal_payment")
+      if "policy.amortizing_remaining_balance_over_contract_horizon" not in source_priority:
+        errors.append(f"{strategy}/{position} debt_min_principal_source_priority must include policy.amortizing_remaining_balance_over_contract_horizon")
       if not _clean_text(row.get("debt_interest_rate_source_required")):
         errors.append(f"{strategy}/{position} debt_interest_rate_source_required must not be empty")
       if _clean_bool(row.get("debt_interest_rate_fallback_allowed")):

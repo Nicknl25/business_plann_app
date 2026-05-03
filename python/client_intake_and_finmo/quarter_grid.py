@@ -1012,6 +1012,23 @@ def _quarter_grid_stage_maturity_row(governor_payload: Dict[str, Any], quarter_i
   return {}
 
 
+def _quarter_grid_revenue_pair_multiplier(
+  maturity_row: Dict[str, Any],
+  *,
+  field_name: str,
+) -> Optional[float]:
+  if not isinstance(maturity_row, dict) or not maturity_row:
+    return None
+  value = maturity_row.get(field_name)
+  if value is None:
+    alias_map = {
+      "revenue_qoq_target": "rev_target",
+      "revenue_qoq_max": "rev_max",
+    }
+    value = maturity_row.get(alias_map.get(field_name, ""))
+  return _grid_growth_multiplier(value)
+
+
 def _maturity_cap_for_expense_row(label: str, maturity_row: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
   lowered = str(label or "").strip().lower()
   if not isinstance(maturity_row, dict) or not maturity_row:
@@ -1060,6 +1077,15 @@ def _quarter_grid_cell_envelopes_for_row(
   previous_max: Optional[float] = None
   for idx, baseline in enumerate(padded, start=1):
     base = max(0.0, float(baseline or 0.0))
+    maturity_row = _quarter_grid_stage_maturity_row(governor_payload, idx)
+    revenue_target_multiplier = _quarter_grid_revenue_pair_multiplier(
+      maturity_row,
+      field_name="revenue_qoq_target",
+    )
+    revenue_max_multiplier = _quarter_grid_revenue_pair_multiplier(
+      maturity_row,
+      field_name="revenue_qoq_max",
+    )
     min_value = 0.0
     max_value = max(base * 2.0, 1.0)
     reason = "generic_nonnegative_driver_bound"
@@ -1100,8 +1126,12 @@ def _quarter_grid_cell_envelopes_for_row(
       else:
         min_value = max(0.0, previous_min)
         capacity_growth_ceiling = 1.05 if stage_family == "early" else 1.03
+        if revenue_max_multiplier is not None and revenue_max_multiplier > 1.0:
+          capacity_growth_ceiling = max(float(capacity_growth_ceiling), float(revenue_max_multiplier))
+        elif revenue_target_multiplier is not None and revenue_target_multiplier > 1.0:
+          capacity_growth_ceiling = max(float(capacity_growth_ceiling), float(revenue_target_multiplier))
         max_value = max(previous_max or 0.0, (previous_max or 0.0) * capacity_growth_ceiling, base)
-        reason = "structural_capacity_stage_growth_bound"
+        reason = "structural_capacity_stage_ramp_contract_bound"
     elif driver == "unit price":
       anchor = max(base, padded[0], 1.0)
       if previous_min is None:
@@ -1129,7 +1159,7 @@ def _quarter_grid_cell_envelopes_for_row(
         reason = "expense_percent_operating_bound"
       maturity_cap, maturity_reason = _maturity_cap_for_expense_row(
         label,
-        _quarter_grid_stage_maturity_row(governor_payload, idx),
+        maturity_row,
       )
       if maturity_cap is not None:
         if "marketing" in label and float(maturity_cap) <= 0.0:
