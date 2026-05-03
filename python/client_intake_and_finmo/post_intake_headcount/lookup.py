@@ -91,6 +91,7 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   "role_category",
   "role_title",
   "person_name",
+  "oews_occ_title",
   "oews_matched_title",
   "oews_match_basis",
   "wage_source",
@@ -714,6 +715,48 @@ def _validate_schedule_row(row: Any, *, path: str, errors: List[str], max_quarte
       errors.append(f"payroll_headcount_fte_math_mismatch:{path}")
 
 
+def _validate_supporting_role_lifecycle(rows: List[Any], *, errors: List[str], max_quarter: int) -> None:
+  rows_by_role: Dict[str, Dict[int, Dict[str, Any]]] = {}
+  labels: Dict[str, str] = {}
+  for row in rows:
+    if not isinstance(row, dict):
+      continue
+    staffing_class = _clean_text(row.get("staffing_class")).lower() or "supporting_staff"
+    if staffing_class == "key_person":
+      continue
+    role_category = _clean_text(row.get("role_category"))
+    if not role_category:
+      continue
+    oews_title = _clean_text(row.get("oews_occ_title") or row.get("oews_matched_title"))
+    role_key = f"{role_category.lower()}::{oews_title.lower()}"
+    quarter_index = _int_or_none(row.get("quarter_index"))
+    if quarter_index is None or quarter_index < 1 or quarter_index > max_quarter:
+      continue
+    labels[role_key] = role_category
+    rows_by_role.setdefault(role_key, {})[quarter_index] = row
+  for role_key, quarter_rows in rows_by_role.items():
+    label = labels.get(role_key) or role_key
+    active_quarters: List[int] = []
+    for quarter_index, row in sorted(quarter_rows.items()):
+      starting = _float_or_none(row.get("starting_fte")) or 0.0
+      hires = _float_or_none(row.get("hires")) or 0.0
+      ending = _float_or_none(row.get("ending_fte")) or 0.0
+      if max(starting, hires, ending) > 0.0:
+        active_quarters.append(quarter_index)
+    if not active_quarters:
+      errors.append(f"payroll_headcount_dead_support_role:{label}")
+      continue
+    first_active = min(active_quarters)
+    for quarter_index in range(first_active, max_quarter + 1):
+      row = quarter_rows.get(quarter_index)
+      if not isinstance(row, dict):
+        errors.append(f"payroll_headcount_support_role_missing_after_start:{label}:q{quarter_index}")
+        continue
+      ending = _float_or_none(row.get("ending_fte")) or 0.0
+      if ending <= 0.0:
+        errors.append(f"payroll_headcount_support_role_stops_after_start:{label}:q{quarter_index}")
+
+
 def validate_payroll_headcount_payload(
   payload: Any,
   *,
@@ -740,6 +783,7 @@ def validate_payroll_headcount_payload(
     rows = []
   for index, row in enumerate(rows):
     _validate_schedule_row(row, path=f"rows[{index}]", errors=errors, max_quarter=expected_horizon)
+  _validate_supporting_role_lifecycle(rows, errors=errors, max_quarter=expected_horizon)
   quarter_totals = payload.get("quarter_totals")
   if not isinstance(quarter_totals, list):
     errors.append("payroll_headcount_quarter_totals_not_array")

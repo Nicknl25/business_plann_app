@@ -15,11 +15,11 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_contract_forecast_horizon_quarter_count,
   post_intake_process_step_context,
 )
-from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
-  post_intake_assert_runtime_table_integrity,
-)
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
   assert_post_intake_global_invariants,
+)
+from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
+  run_initialize_post_intake_validation,
 )
 
 
@@ -57,19 +57,6 @@ def prepare_initial_grid_for_draft(
   if str(draft.get("active_focus") or "").strip().lower() != "done":
     raise RuntimeError("draft_not_complete")
   sequence_trace: Dict[str, Any] = {}
-  sequence_trace["runtime_table_integrity"] = post_intake_assert_runtime_table_integrity()
-  sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
-  sequence_trace["baseline_model_input"] = post_intake_process_step_context(
-    step_key="baseline_model_input",
-    expected_phase="pre_convergence",
-    expected_handler_key="prepare_baseline_model_input",
-    required_lookup_tables=[
-      "post_intak_mapping_lookup",
-      "post_intake_gpt_contract_lookup",
-      "post_intake_gpt_context_lookup",
-    ],
-    required_horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
-  )
 
   reset_openai_call_telemetry()
   lifecycle_start = begin_planning_run(
@@ -87,6 +74,75 @@ def prepare_initial_grid_for_draft(
   active_planning_run_id = str(active_planning_run.get("planning_run_id") or "").strip()
   if not active_planning_run_id:
     raise RuntimeError("planning_run_start_failed")
+
+  def _persist_validation_stage(
+    *,
+    stage: str,
+    status: str,
+    validation_payload: Optional[Dict[str, Any]] = None,
+  ) -> Dict[str, Any]:
+    payload = build_planning_run_payload(
+      stage=stage,
+      status=status,
+      planning_mode="",
+      planning_mode_reason="",
+      prompt_file="",
+      gpt_narrative="",
+      gpt_grid_metadata={},
+      grid_application_summary={},
+    )
+    payload["planning_run_id"] = active_planning_run_id
+    payload["trigger_type"] = "system_run"
+    payload["lifecycle_mode"] = normalized_lifecycle_mode
+    payload["runtime_validation"] = copy.deepcopy(validation_payload or {})
+    persisted = persist_post_intake_execution_state(
+      conn,
+      draft_id=normalized_draft_id,
+      new_messages=[],
+      planning_run_json=payload,
+      numeric_solver_feedback_json=extract_numeric_solver_feedback_for_persistence(
+        planning_run_payload=payload
+      ),
+      active_focus="done",
+      status="in_progress",
+      completed=False,
+      checkpoint_kind="stage_snapshot",
+      event_type="runtime_validation",
+      event_summary=f"{stage}:{status}",
+    )
+    return (
+      persisted.get("planning_run_json")
+      if isinstance(persisted, dict) and isinstance(persisted.get("planning_run_json"), dict)
+      else payload
+    )
+
+  _persist_validation_stage(
+    stage="post_intake_initialize_validation_running",
+    status="running",
+  )
+  initialize_validation = run_initialize_post_intake_validation(
+    draft_id=normalized_draft_id,
+    planning_run_id=active_planning_run_id,
+  )
+  sequence_trace["post_intake_initialize_validation"] = copy.deepcopy(initialize_validation)
+  sequence_trace["runtime_table_integrity"] = copy.deepcopy(initialize_validation.get("runtime_table_integrity") or {})
+  sequence_trace["required_process_sequence"] = copy.deepcopy(initialize_validation.get("required_process_sequence") or {})
+  _persist_validation_stage(
+    stage="post_intake_initialize_validation_completed",
+    status="completed",
+    validation_payload=copy.deepcopy(initialize_validation),
+  )
+  sequence_trace["baseline_model_input"] = post_intake_process_step_context(
+    step_key="baseline_model_input",
+    expected_phase="pre_convergence",
+    expected_handler_key="prepare_baseline_model_input",
+    required_lookup_tables=[
+      "post_intak_mapping_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
+  )
 
   from client_intake_and_finmo.financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
   from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore

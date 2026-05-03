@@ -95,6 +95,37 @@ FINMO's job is calculation only:
 
 FINMO should not receive patched output rows from post-intake. Post-intake changes drivers; FINMO calculates outputs.
 
+## Mapping Formula Authority
+
+The mapping table must own driver formula intent, not inline bridge assumptions.
+
+`post_intak_mapping_lookup` is not only a lever-to-target table. It is also the source of truth for:
+
+- which source fields seed a model-input driver
+- which named formula key Python may use to seed that driver
+- which named FINMO formula relationship should result
+- which validation formula must pass after FINMO rebuild
+- when the row is required
+- whether zero is allowed
+
+Formula notes are not authority. Human notes can explain the formula, but machine behavior must use explicit columns such as:
+
+- `seed_source_paths_json`
+- `seed_formula_key`
+- `finmo_formula_key`
+- `validation_formula_key`
+- `required_when_key`
+- `allow_zero`
+- `formula_status`
+
+Python may only execute approved formula keys from the deterministic formula registry. SQL selects the key; Python executes the known implementation. If SQL names an unknown formula key, the app must fail fast before the run proceeds.
+
+Before each run, including production runs, runtime table integrity must validate the mapping formula contract.
+
+After each FINMO rebuild/final run state, post-intake fail-fast must validate mapped model-input rows against the mapping table formula contract. For example, if a row is `percent_of_revenue`, the FINMO field must equal revenue times that mapped model-input ratio. If the mapping row says zero is not allowed when revenue is positive, zero must fail immediately.
+
+This rule exists to prevent bugs where a bridge function silently interprets an intake value differently than the mapping table intended.
+
 ## Required Schedule Invariant
 
 Some model-input lines are deterministic schedule outputs. Those schedules are not optional guidance.
@@ -240,6 +271,59 @@ This prevents drift:
 All of those should come from the same table-backed contract path wherever possible.
 
 Do not over-automate natural-language reasoning. The goal is not to generate every sentence from SQL. The goal is to generate deterministic contract/context structure from SQL, while keeping business judgment instructions concise and static.
+
+## Production Runtime Validation Gates
+
+Post-intake must have formal initialize and finalize gates. These are production gates, not test-only helpers.
+
+The initialize gate runs after the planning run starts and before post-intake spends OpenAI/runtime cycles:
+
+- validates lookup tables and lookup functions are callable
+- validates process sequence rows are active and table-backed
+- validates GPT contracts, context contracts, horizons, cash policy, mapping rows, formula metadata, and headcount policy
+- takes a balance-sheet driver initialization sample from `sql.post_intak_mapping_lookup` formula metadata and the intake record
+- identifies balance-sheet forecast obligations that intake omitted, especially formula-backed AR, AP, prepaid expenses, inventory when applicable, deferred revenue when applicable, and debt only when debt policy or existing debt makes it applicable
+- validates the sample itself has required mapped rows, formula keys, applicability keys, presence rules, and source-of-truth metadata
+- writes `post_intake_initialize_validation_running` and `post_intake_initialize_validation_completed` into `planning_stage`
+
+The finalize gate runs after convergence and cash pass, but before completion:
+
+- validates final `model_input_json` and `finmo_json`
+- validates payroll, debt, and depreciation schedule usage
+- validates cash phase trace and cash buffer integrity
+- validates mapping formula application from SQL lookup rows
+- validates the full Q1-Q20 forecast horizon and blocks Q21/partial-horizon leaks
+- validates live-quarter model-input rows are numeric and complete
+- validates live-quarter FINMO rows have required P&L, balance sheet, and cash-flow fields
+- validates revenue reconciles to the three model-input drivers: Capacity x Unit Price x Utilization
+- validates payroll reconciles from the persisted headcount schedule into model input and FINMO
+- validates the debt schedule reconciles to FINMO issuance, repayment, closing debt, interest, and interest-rate requirements
+- validates table-backed balance-sheet drivers reconcile to FINMO formulas and are not left zero merely because stub/intake omitted them
+- writes `post_intake_finalize_validation_running` and `post_intake_finalize_validation_completed` into `planning_stage`
+
+These gates must be wired through `post_intake_process_sequence_lookup` and the post-intake runtime validation folder. If the gates fail, the run must not complete. They are the production proof that the table-backed machine is present before the run and still obeyed after the run.
+
+### Balance Sheet Driver Sample Rule
+
+The balance sheet sets the tone for the P&L and forecast world. Stub `Q0` is an intake fact, but missing stub rows do not mean the forecast can ignore those line items.
+
+Initialization must sample every mapped balance-sheet driver from `post_intak_mapping_lookup`:
+
+- read `business_applicability_key`, `forecast_presence_rule_key`, `zero_allowed_reason_key`, `validation_formula_key`, and FINMO formula metadata from the mapping table
+- inspect intake/stub data and business context
+- compute a formula sample base where applicable, such as revenue for AR/prepaids, operating expense base for AP, COGS for inventory, and debt policy/existing debt for short-term debt
+- record whether the forecast driver is required even when intake seed values are missing or zero
+
+Examples:
+
+- AR cannot disappear just because `ar_balance` was missing at intake when live revenue exists.
+- AP cannot disappear just because `ap_balance` was missing at intake when operating expense activity exists.
+- Prepaid expenses cannot disappear just because intake omitted them when revenue exists.
+- Inventory is required when inventory business context or inventory seed says it applies.
+- Deferred revenue is required when the business model has subscriptions, deposits, retainers, memberships, upfront payments, or similar deferred-revenue behavior.
+- Debt is not forced. Debt is governed by cash strategy, cash policy, debt schedule policy, and existing debt.
+
+Finalize must prove every applicable sampled driver actually appears in model input and reconciles to FINMO. A row existing with twenty zeroes is not enough when the table says the formula base makes it applicable.
 
 ## Golden Baseline Snapshot Rule
 

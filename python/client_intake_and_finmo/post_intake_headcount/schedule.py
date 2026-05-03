@@ -11,7 +11,6 @@ from client_intake_and_finmo.intake_submission import get_mysql_connection  # ty
 from client_intake_and_finmo.people_roles import (  # type: ignore
   _fetch_oews_rows_with_fallback,
   _get_naics_from_business_type,
-  _match_occ_title_with_gpt,
   _select_wage,
 )
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
@@ -231,6 +230,7 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
     role_category = str(item.get("role_category") or "aggregate_staff").strip() or "aggregate_staff"
     staffing_class = str(item.get("staffing_class") or "supporting_staff").strip() or "supporting_staff"
     role_title = str(item.get("role_title") or role_category).strip() or role_category
+    oews_occ_title = str(item.get("oews_occ_title") or item.get("oews_matched_title") or "").strip()
     role_key = role_category.lower()
     class_key = staffing_class.lower()
     person_key = str(item.get("person_name") or "").strip().lower()
@@ -241,6 +241,7 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
       "staffing_class": staffing_class,
       "role_category": role_category,
       "role_title": role_title,
+      "oews_occ_title": oews_occ_title,
       "starting_fte": starting_fte,
       "hires": hires,
       "ending_fte": ending_fte,
@@ -329,7 +330,7 @@ def _people_staffing_context(people_json: Optional[Dict[str, Any]]) -> Dict[str,
     "key_people_from_intake": rows[:32],
     "supporting_staff_instruction": (
       "Key people are injected by Python from intake and use their intake/OEWS wage. "
-      "GPT should provide supporting-staff role categories and FTE only."
+      "GPT should provide supporting-staff role categories, exact oews_occ_title selections from oews_role_catalog, and FTE only."
     ),
   }
 
@@ -429,27 +430,65 @@ def _oews_rows_for_business(
   return rows, naics_6
 
 
-def _fallback_wage_from_oews_rows(rows: Sequence[Dict[str, Any]]) -> Tuple[Optional[int], str, str]:
-  all_occupations_row = None
+def _oews_role_catalog_from_rows(
+  rows: Sequence[Dict[str, Any]],
+  *,
+  naics_6: str,
+  max_items: int = 160,
+) -> Dict[str, Any]:
+  candidates: List[Dict[str, Any]] = []
+  seen_titles: set[str] = set()
   for row in rows:
-    if str(row.get("occ_title") or "").strip().lower() == "all occupations":
-      all_occupations_row = row
-      break
-  if all_occupations_row:
-    picked, source = _select_wage(all_occupations_row, False)
-    if picked is not None:
-      return _round_currency(picked), "All Occupations", source or "oews_median"
-  picked_values: List[float] = []
-  for row in rows:
-    picked, _source = _select_wage(row, False)
-    if picked is not None:
-      picked_values.append(float(picked))
-  if picked_values:
-    picked_values.sort()
-    midpoint = len(picked_values) // 2
-    median = picked_values[midpoint] if len(picked_values) % 2 else (picked_values[midpoint - 1] + picked_values[midpoint]) / 2.0
-    return _round_currency(median), "NAICS wage median", "oews_naics_role_fallback"
-  return None, "", ""
+    occ_title = str(row.get("occ_title") or "").strip()
+    normalized_title = occ_title.lower()
+    if not occ_title or normalized_title == "all occupations" or normalized_title in seen_titles:
+      continue
+    picked, source = _select_wage(row, False)
+    if picked is None:
+      continue
+    seen_titles.add(normalized_title)
+    candidates.append(
+      {
+        "occ_title": occ_title,
+        "annual_wage": _round_currency(picked),
+        "wage_source": source or "oews_median",
+      }
+    )
+  candidates.sort(key=lambda item: str(item.get("occ_title") or "").lower())
+  return {
+    "source_table": "oews_state_wages",
+    "business_naics_6": str(naics_6 or "").strip(),
+    "selection_rule": "GPT must choose oews_occ_title exactly from role_candidates[].occ_title; Python uses the matching row for wage math.",
+    "role_candidates": candidates[:max(1, int(max_items or 160))],
+  }
+
+
+def _oews_role_catalog_for_business(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  rows, naics_6 = _oews_rows_for_business(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+  )
+  catalog = _oews_role_catalog_from_rows(rows, naics_6=naics_6)
+  if not catalog.get("business_naics_6"):
+    _payroll_fail_fast(
+      "payroll_headcount_oews_naics_missing",
+      "Payroll supporting-staff role selection requires business_naics_6 before GPT creates the headcount schedule.",
+      stage="payroll_headcount_oews_catalog",
+    )
+  if not catalog.get("role_candidates"):
+    _payroll_fail_fast(
+      "payroll_headcount_oews_catalog_empty",
+      f"No OEWS role candidates found for naics={catalog.get('business_naics_6')}.",
+      stage="payroll_headcount_oews_catalog",
+      details={"business_naics_6": catalog.get("business_naics_6")},
+    )
+  return catalog
 
 
 def _resolve_supporting_staff_wages(
@@ -465,58 +504,73 @@ def _resolve_supporting_staff_wages(
     ops_json=ops_json,
     people_json=people_json,
   )
-  business_type = _business_type_from_context(business_facts=business_facts, ops_json=ops_json)
   default_wage = _round_currency(policy.get("default_avg_annual_wage") or 150000)
   min_wage = _round_currency(policy.get("min_annual_wage") or 25000)
-  candidate_titles: List[str] = []
-  seen_titles: set[str] = set()
-  for row in oews_rows:
-    occ_title = str(row.get("occ_title") or "").strip()
-    if not occ_title or occ_title.lower() == "all occupations" or occ_title.lower() in seen_titles:
-      continue
-    seen_titles.add(occ_title.lower())
-    candidate_titles.append(occ_title)
+  catalog = _oews_role_catalog_from_rows(oews_rows, naics_6=naics_6)
+  catalog_by_title = {
+    str(item.get("occ_title") or "").strip(): item
+    for item in catalog.get("role_candidates") or []
+    if str(item.get("occ_title") or "").strip()
+  }
+  if not catalog_by_title:
+    _payroll_fail_fast(
+      "payroll_headcount_oews_catalog_empty",
+      f"No OEWS role candidates found for naics={naics_6}.",
+      stage="payroll_headcount_wage_resolution",
+      details={"business_naics_6": naics_6},
+    )
   wage_cache: Dict[str, Dict[str, Any]] = {}
   resolved_rows: List[Dict[str, Any]] = []
   for row in rows:
     role_title = str(row.get("role_title") or row.get("role_category") or "").strip() or "supporting_staff"
-    cache_key = role_title.lower()
+    declared_oews_title = str(row.get("oews_occ_title") or "").strip()
+    cache_key = f"{role_title.lower()}::{declared_oews_title.lower()}"
     wage_info = wage_cache.get(cache_key)
     if wage_info is None:
-      matched_title = ""
+      matched_title = declared_oews_title
       annual_wage: Optional[int] = None
       wage_source = ""
       matched_row = None
-      if candidate_titles:
-        try:
-          matched_title = _match_occ_title_with_gpt(
-            role_title=role_title,
-            notes="Post-intake payroll supporting staff role. Match to the closest OEWS occupation title.",
-            business_type=business_type,
-            candidate_titles=candidate_titles,
-          ) or ""
-        except Exception:
-          matched_title = ""
-        if matched_title:
-          for oews_row in oews_rows:
-            if str(oews_row.get("occ_title") or "").strip() == matched_title:
-              matched_row = oews_row
-              break
-        if matched_row:
-          picked, picked_source = _select_wage(matched_row, False)
-          if picked is not None:
-            annual_wage = _round_currency(picked)
-            wage_source = f"oews_role_match:{picked_source or 'oews_median'}"
-      if annual_wage is None and oews_rows:
-        fallback_wage, fallback_title, fallback_source = _fallback_wage_from_oews_rows(oews_rows)
-        if fallback_wage is not None:
-          annual_wage = fallback_wage
-          matched_title = fallback_title
-          wage_source = fallback_source or "oews_naics_role_fallback"
+      if not declared_oews_title:
+        _payroll_fail_fast(
+          "payroll_headcount_oews_title_missing",
+          f"Supporting staff role '{role_title}' must include oews_occ_title from oews_role_catalog.",
+          stage="payroll_headcount_wage_resolution",
+          details={"role_title": role_title, "business_naics_6": naics_6},
+        )
+      if declared_oews_title not in catalog_by_title:
+        _payroll_fail_fast(
+          "payroll_headcount_oews_title_not_in_catalog",
+          f"Supporting staff role '{role_title}' selected oews_occ_title='{declared_oews_title}', which is not in oews_role_catalog.",
+          stage="payroll_headcount_wage_resolution",
+          details={
+            "role_title": role_title,
+            "oews_occ_title": declared_oews_title,
+            "business_naics_6": naics_6,
+          },
+        )
+      if declared_oews_title:
+        for oews_row in oews_rows:
+          if str(oews_row.get("occ_title") or "").strip() == declared_oews_title:
+            matched_row = oews_row
+            break
+      if matched_row:
+        picked, picked_source = _select_wage(matched_row, False)
+        if picked is not None:
+          annual_wage = _round_currency(picked)
+          wage_source = f"oews_role_catalog:{picked_source or 'oews_median'}"
       if annual_wage is None:
-        annual_wage = default_wage
-        wage_source = "policy_default_wage"
-        matched_title = ""
+        _payroll_fail_fast(
+          "payroll_headcount_oews_wage_missing",
+          f"Supporting staff role '{role_title}' selected oews_occ_title='{declared_oews_title}' but no positive OEWS wage was available.",
+          stage="payroll_headcount_wage_resolution",
+          details={
+            "role_title": role_title,
+            "oews_occ_title": declared_oews_title,
+            "business_naics_6": naics_6,
+            "policy_default_wage_not_used": default_wage,
+          },
+        )
       if annual_wage < min_wage:
         _payroll_fail_fast(
           "payroll_headcount_resolved_wage_below_policy_floor",
@@ -535,7 +589,7 @@ def _resolve_supporting_staff_wages(
         "wage_source": wage_source,
         "wage_source_code": naics_6,
         "oews_matched_title": matched_title,
-        "oews_match_basis": "US OEWS NAICS fallback" if wage_source != "policy_default_wage" else "post_intake_headcount_policy_lookup.default_avg_annual_wage",
+        "oews_match_basis": "exact_oews_role_catalog_selection",
       }
       wage_cache[cache_key] = wage_info
     resolved_rows.append(
@@ -543,6 +597,7 @@ def _resolve_supporting_staff_wages(
         **deepcopy(row),
         "staffing_class": "supporting_staff",
         "role_title": role_title,
+        "oews_occ_title": str(wage_info.get("oews_matched_title") or ""),
         "annual_wage": int(wage_info["annual_wage"]),
         "wage_source": str(wage_info["wage_source"]),
         "wage_source_code": str(wage_info.get("wage_source_code") or ""),
@@ -565,6 +620,63 @@ def _quarter_role_counts(rows: Sequence[Dict[str, Any]]) -> Dict[int, int]:
     quarter_index = int(row.get("quarter_index") or 0)
     counts[quarter_index] = int(counts.get(quarter_index) or 0) + 1
   return counts
+
+
+def _validate_supporting_role_lifecycle(
+  rows: Sequence[Dict[str, Any]],
+  *,
+  horizon: int,
+) -> None:
+  rows_by_role: Dict[str, Dict[int, Dict[str, Any]]] = {}
+  role_labels: Dict[str, str] = {}
+  for row in rows:
+    staffing_class = str(row.get("staffing_class") or "supporting_staff").strip().lower() or "supporting_staff"
+    if staffing_class == "key_person":
+      continue
+    role_category = str(row.get("role_category") or "").strip()
+    oews_title = str(row.get("oews_occ_title") or row.get("oews_matched_title") or "").strip()
+    role_key = f"{role_category.lower()}::{oews_title.lower()}"
+    if not role_category:
+      continue
+    role_labels[role_key] = role_category
+    quarter_index = int(row.get("quarter_index") or 0)
+    if 1 <= quarter_index <= horizon:
+      rows_by_role.setdefault(role_key, {})[quarter_index] = row
+
+  for role_key, quarter_rows in rows_by_role.items():
+    label = role_labels.get(role_key) or role_key
+    active_quarters: List[int] = []
+    for quarter_index, row in sorted(quarter_rows.items()):
+      starting_fte = round(float(row.get("starting_fte") or 0.0), 2)
+      hires = round(float(row.get("hires") or 0.0), 2)
+      ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
+      if max(starting_fte, hires, ending_fte) > 0.0:
+        active_quarters.append(quarter_index)
+    if not active_quarters:
+      _payroll_fail_fast(
+        "payroll_headcount_dead_support_role",
+        f"Supporting staff role '{label}' appears in payroll_headcount_grid but has zero FTE in every quarter.",
+        stage="payroll_headcount_role_lifecycle",
+        details={"role": label, "horizon": horizon},
+      )
+    first_active = min(active_quarters)
+    for quarter_index in range(first_active, horizon + 1):
+      row = quarter_rows.get(quarter_index)
+      if not isinstance(row, dict):
+        _payroll_fail_fast(
+          "payroll_headcount_support_role_missing_after_start",
+          f"Supporting staff role '{label}' starts in Q{first_active} but has no row in Q{quarter_index}.",
+          stage="payroll_headcount_role_lifecycle",
+          details={"role": label, "first_active_quarter": first_active, "missing_quarter": quarter_index},
+        )
+      ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
+      if ending_fte <= 0.0:
+        _payroll_fail_fast(
+          "payroll_headcount_support_role_stops_after_start",
+          f"Supporting staff role '{label}' starts in Q{first_active} but ending_fte is zero in Q{quarter_index}.",
+          stage="payroll_headcount_role_lifecycle",
+          details={"role": label, "first_active_quarter": first_active, "violating_quarter": quarter_index},
+        )
 
 
 def _validate_payroll_role_rows(
@@ -593,6 +705,7 @@ def _validate_payroll_role_rows(
         stage="payroll_headcount_role_row_validation",
         details={"quarter_index": quarter_index, "row_count": count, "max_role_rows": max_role_rows},
       )
+  _validate_supporting_role_lifecycle(rows, horizon=horizon)
   min_benefits = round(float(policy.get("min_payroll_tax_benefits_pct") or 0.12), 2)
   max_benefits = round(float(policy.get("max_payroll_tax_benefits_pct") or 0.35), 2)
   min_annual_wage = _round_currency(policy.get("min_annual_wage") or 25000)
@@ -1043,6 +1156,11 @@ def estimate_payroll_headcount_schedule_with_gpt(
     payroll_economic_guardrails,
     people_json=people_json,
   )
+  oews_role_catalog = _oews_role_catalog_for_business(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+  )
   user_context = {
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
@@ -1061,6 +1179,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "geographic_scope": ops.get("geographic_scope"),
     },
     "people_staffing_context": _people_staffing_context(people_json),
+    "oews_role_catalog": oews_role_catalog,
     "financial_context": {
       "annual_revenue": (
         year1.get("company_revenue_total_year1")
@@ -1152,6 +1271,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
   }
   raw_openai_response: Dict[str, Any] = {}
   last_contract_error = ""
+  last_contract_details: Dict[str, Any] = {}
   last_parsed: Dict[str, Any] = {}
   start = time.perf_counter()
   for attempt_index in range(3):
@@ -1161,11 +1281,14 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "source_of_truth": "post_intake_headcount_policy_lookup + payroll_headcount_schedule validator",
         "required_action": (
           "Return a corrected full payroll_headcount_schedule. Do not change stage_ramp_contract. "
+          "Select every oews_occ_title exactly from oews_role_catalog.role_candidates. "
           "Increase supporting-staff rows so every quarter average FTE satisfies "
           "payroll_economic_guardrails.supporting_staff_minimum_average_fte. "
+          "Use average_fte=(starting_fte+ending_fte)/2; matching ending_fte alone is invalid. "
           "Review every violating_quarters item in the failure details; fixing only the first failing quarter is invalid."
         ),
         "error": last_contract_error[:6000],
+        "failure_details": deepcopy(last_contract_details),
         "invalid_response_excerpt": json.dumps(last_parsed, ensure_ascii=False)[:6000],
       }
     system_prompt = post_intake_build_prompt_from_contract(
@@ -1175,12 +1298,14 @@ def estimate_payroll_headcount_schedule_with_gpt(
       static_instruction=(
         "Decide the payroll headcount schedule using business judgment inside the SQL-defined "
         "payroll_headcount_schedule contract. GPT only supplies supporting-staff role/FTE rows. "
-        "Python injects key people from intake, resolves wages through OEWS/policy, calculates payroll dollars, "
+        "Python injects key people from intake, resolves wages from the selected OEWS catalog title, calculates payroll dollars, "
         "and validates the final schedule against post_intake_headcount_policy_lookup."
       ),
       task_instruction=(
         "Return only JSON matching payroll_headcount_schedule. Use the stage_ramp_contract as context, "
-        "but do not change ramp. Output supporting-staff role_category, starting_fte, hires, ending_fte, and benefits percent only. "
+        "but do not change ramp. Output supporting-staff role_category, oews_occ_title, starting_fte, hires, ending_fte, and benefits percent only. "
+        "Each oews_occ_title must be an exact occ_title from oews_role_catalog.role_candidates. "
+        "Only include roles that carry FTE at some point in the 20-quarter schedule; once a role starts, it must continue through Q20. "
         "Do not provide wages and do not include key people; Python owns those. "
         "Every quarter's supporting-staff average FTE must satisfy payroll_economic_guardrails.supporting_staff_minimum_average_fte. "
         "If a prior failure is provided, fix that exact table-backed validation failure."
@@ -1237,13 +1362,21 @@ def estimate_payroll_headcount_schedule_with_gpt(
       )
     except RuntimeError as exc:
       last_contract_error = str(exc)
+      last_contract_details = (
+        deepcopy(getattr(exc, "details", {}))
+        if isinstance(getattr(exc, "details", {}), dict)
+        else {}
+      )
       if attempt_index < 2:
         continue
       _payroll_fail_fast(
         "payroll_headcount_contract_invalid_fail_fast",
         f"{last_contract_error}; raw_payroll_headcount_response={json.dumps(parsed, ensure_ascii=False)[:8000]}",
         stage="payroll_headcount_contract_response",
-        details={"raw_payroll_headcount_response": parsed},
+        details={
+          "raw_payroll_headcount_response": parsed,
+          "last_contract_details": deepcopy(last_contract_details),
+        },
       )
   _payroll_fail_fast(
     "payroll_headcount_contract_invalid_fail_fast",

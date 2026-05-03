@@ -1686,3 +1686,68 @@ Next payroll work should focus on:
 - A better link between revenue/capacity/utilization ramp and required role/FTE growth.
 - Fail-fast checks that reject incomplete role coverage, not merely low total payroll.
 - Continued adherence to the Golden Rule: if payroll behavior is structural or repeatable, put it in `post_intake_headcount_policy_lookup` or a table-backed payroll function instead of prompt prose or scattered code.
+
+## Update: 2026-05-03 Runtime Initialization/Finalization Gates and Balance-Sheet Sample
+
+The production runtime gates have been strengthened so trivial balance-sheet omissions cannot survive to a completed run.
+
+New/updated files:
+
+- `python/client_intake_and_finmo/post_intake_runtime_validation/initialize_post_intake.py`
+- `python/client_intake_and_finmo/post_intake_runtime_validation/finalize_post_intake.py`
+- `python/client_intake_and_finmo/post_intake_runtime_validation/balance_sheet_driver_validation.py`
+- `python/client_intake_and_finmo/post_intake_driver_formulas.py`
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+
+Architecture intent:
+
+- `post_intake_initialize_validation` runs before post-intake spends OpenAI/runtime cycles.
+- `post_intake_finalize_validation` runs after convergence/cash pass and before completion.
+- Both are production gates, not test-only helpers.
+- They are part of `post_intake_process_sequence_lookup`.
+- If either gate fails, the run must not complete.
+
+Balance-sheet sample:
+
+- Initialization now samples mapped balance-sheet drivers from `sql.post_intak_mapping_lookup`.
+- The sample reads table metadata such as `business_applicability_key`, `forecast_presence_rule_key`, `zero_allowed_reason_key`, `validation_formula_key`, and formula keys.
+- The sample inspects the intake/stub state plus formula bases so the system knows what intake omitted but the forecast still needs.
+- The sample is persisted in the runtime validation payload for visibility.
+
+Important semantics:
+
+- Stub `Q0` remains an intake fact.
+- Missing or zero stub values do not automatically authorize missing or zero forecast values.
+- AR, AP, and prepaid expenses are formula-backed operating balance-sheet drivers and should not vanish just because intake omitted them.
+- Inventory is required when the business/seed indicates inventory applies.
+- Deferred revenue is required only when the business model indicates deferred revenue behavior, such as subscriptions, deposits, retainers, memberships, upfront payments, or similar.
+- Debt is not forced. Debt is governed by existing debt, cash strategy, cash policy, and debt schedule policy.
+
+Finalize validation now checks:
+
+- applicable mapped balance-sheet driver rows exist in model input
+- live values cover Q1-Q20
+- required live values are not all zero
+- FINMO balances reconcile to the table-backed formulas
+- AR formula: `accounts_receivable = AR_days / 90 * revenue`
+- AP formula: `accounts_payable = AP_days / 90 * operating_expense_base`
+- inventory formula: `inventory = inventory_days / 90 * COGS`
+- prepaid formula: `prepaid_expenses = prepaid_percent * revenue`
+- deferred revenue formula: `deferred_revenue = deferred_revenue_percent * revenue`
+- short-term debt formula applies only when debt policy/existing debt makes debt applicable
+
+Why this matters:
+
+- A row existing with twenty zeroes is no longer treated as valid when the mapping table says the formula base makes the driver applicable.
+- The system can now detect the class of bug where the balance sheet silently omits AR/AP/prepaids/deferred/STD because intake did not provide stub balances.
+- Fixes should continue to update lookup-table metadata first, then table-backed functions. Do not patch local code around these gates.
+
+Recent proof point:
+
+- The prior Luna Boutique pass (`9c77eee6f84340779974a6100c7b16ec`) would now fail finalization for the exact omitted-balance-sheet class:
+- AR zero despite revenue.
+- AP zero despite operating expense base.
+- Prepaid expenses zero despite revenue.
+- Inventory formula mismatch.
+
+That is intentional. The new gates are supposed to catch those failures before a run is allowed to complete.

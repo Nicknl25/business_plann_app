@@ -24,6 +24,9 @@ from client_intake_and_finmo.post_intake_foundation import (
   bind_table_safe_runtime_dependencies,
   post_intake_assert_runtime_table_integrity,
 )
+from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
+  run_finalize_post_intake_validation,
+)
 
 _CYCLE_DEADLINE_GUARD_SECONDS = 8.0
 _PLANNER_GPT_MAX_SECONDS = 75.0
@@ -2033,6 +2036,14 @@ def _run_unified_post_grid_system_run(
   )
   _assert_cash_pass_phase_trace_complete(cash_pass_phase_trace, cash_pass_phase_contract)
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
+  final_debt_schedule_payload = _cash_strategy_debt_schedule_snapshot(
+    finmo_payload=copy.deepcopy(final_finmo_json),
+    model_input_json=copy.deepcopy(final_model_input_json),
+  )
+  if isinstance(final_debt_schedule_payload, dict):
+    final_debt_schedule_payload["selected_cash_strategy"] = _resolved_cash_strategy(financials_json)
+    final_debt_schedule_payload["source_stage"] = "cash_pass_completed"
+    final_debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
   process_sequence_trace["final_hard_gates"] = post_intake_process_step_context(
     step_key="final_hard_gates",
     expected_phase="final_validation",
@@ -2059,14 +2070,74 @@ def _run_unified_post_grid_system_run(
     financials_json=copy.deepcopy(financials_json or {}),
     enforce_cash_buffer=True,
   )
-  final_debt_schedule_payload = _cash_strategy_debt_schedule_snapshot(
-    finmo_payload=copy.deepcopy(final_finmo_json),
+  _persist_unified_convergence_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage="post_intake_finalize_validation_running",
+    status="running",
+    planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    resolution_summary=copy.deepcopy(resolution_summary),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+    realism_memo_json=copy.deepcopy(realism_memo_json),
+    unified_convergence_context=copy.deepcopy(unified_convergence_context),
+    unified_convergence_decision=copy.deepcopy(unified_convergence_decision),
+    unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
+    unified_convergence_result=copy.deepcopy(unified_convergence_result),
+    unified_convergence_iterations=copy.deepcopy(unified_convergence_iterations),
+    unified_convergence_cycle_count=unified_convergence_cycle_count,
     model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
   )
-  if isinstance(final_debt_schedule_payload, dict):
-    final_debt_schedule_payload["selected_cash_strategy"] = _resolved_cash_strategy(financials_json)
-    final_debt_schedule_payload["source_stage"] = "cash_pass_completed"
-    final_debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
+  finalize_validation = run_finalize_post_intake_validation(
+    draft_id=str(draft_id).strip(),
+    planning_run_id=active_planning_run_id,
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
+    debt_schedule=copy.deepcopy(final_debt_schedule_payload),
+    financials_json=copy.deepcopy(financials_json or {}),
+    ops_json=copy.deepcopy(ops_json or {}),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+  )
+  process_sequence_trace["post_intake_finalize_validation"] = copy.deepcopy(finalize_validation)
+  cash_strategy_second_pass_result["post_intake_finalize_validation"] = copy.deepcopy(finalize_validation)
+  _persist_unified_convergence_state(
+    conn=conn,
+    draft_id=str(draft_id).strip(),
+    stage="post_intake_finalize_validation_completed",
+    status="completed",
+    planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+    controller_resolution_state=copy.deepcopy(controller_resolution_state),
+    resolution_summary=copy.deepcopy(resolution_summary),
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    prompt_file=prompt_file,
+    grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+    realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+    realism_memo_json=copy.deepcopy(realism_memo_json),
+    unified_convergence_context=copy.deepcopy(unified_convergence_context),
+    unified_convergence_decision=copy.deepcopy(unified_convergence_decision),
+    unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
+    unified_convergence_result=copy.deepcopy(unified_convergence_result),
+    unified_convergence_iterations=copy.deepcopy(unified_convergence_iterations),
+    unified_convergence_cycle_count=unified_convergence_cycle_count,
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
+    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+  )
   cash_strategy_effect_summary = _build_cash_strategy_effect_summary(
     financials_json=copy.deepcopy(financials_json or {}),
     review_decision_payload=copy.deepcopy(cash_strategy_review_decision),

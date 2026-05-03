@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from client_intake_and_finmo.fail_fast.common import (  # type: ignore
+  FailFastError,
   convergence_test_mode_enabled,
   fail_fast_enabled,
   fail_fast_raise,
@@ -89,6 +90,8 @@ GLOBAL_POST_INTAKE_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "post_intake_schedule_marker_missing",
   "post_intake_cash_buffer_violation",
   "post_intake_lookup_table_contract_invalid",
+  "post_intake_mapping_formula_contract_invalid",
+  "post_intake_mapping_formula_application_invalid",
 }
 
 TRANSLATION_TEST_MODE_FAIL_FLAGS: Set[str] = {
@@ -120,6 +123,13 @@ def post_intake_fail_fast_result(
   )
 
 
+def _post_intake_runtime_validation_stage(stage: str) -> bool:
+  normalized = str(stage or "").strip().lower()
+  return normalized.startswith("post_intake_initialize_validation") or normalized.startswith(
+    "post_intake_finalize_validation"
+  )
+
+
 def post_intake_fail_fast_raise(
   code: str,
   message: str = "",
@@ -127,13 +137,22 @@ def post_intake_fail_fast_raise(
   stage: str = "",
   details: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  return fail_fast_raise(
+  result = fail_fast_raise(
     code,
     message,
     phase="POST_INTAKE",
     stage=stage,
     details=details,
   )
+  if _post_intake_runtime_validation_stage(stage):
+    raise FailFastError(
+      result["code"],
+      result["message"],
+      phase=result["phase"],
+      stage=result["stage"],
+      details=result["details"],
+    )
+  return result
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -228,6 +247,70 @@ def _find_model_input_row(
     if target_lever and current_lever == target_lever:
       return row
   return None
+
+
+def _finmo_field_from_mapping(financial_model_field: Any) -> str:
+  raw = str(financial_model_field or "").strip()
+  prefix = "finmo_json.quarter_rows[*]."
+  if raw.startswith(prefix):
+    field = raw[len(prefix):].strip()
+  else:
+    field = raw.strip()
+  aliases = {
+    "cogs": "cost_of_goods_sold",
+    "g_and_a": "general_and_administrative",
+    "distributions": "owner_distributions",
+  }
+  return aliases.get(field, field)
+
+
+def _model_input_row_for_mapping(
+  model_input_json: Optional[Dict[str, Any]],
+  mapping_row: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  lever_id = str(mapping_row.get("lever_id") or "").strip()
+  if lever_id.startswith("revenue::*::*::"):
+    return None
+  section = lever_id.split("::", 1)[0] if "::" in lever_id else ""
+  label = lever_id.split("::", 1)[1] if "::" in lever_id else ""
+  if section == "balance_sheet":
+    section_name = "balance_sheet"
+  elif section == "expenses":
+    section_name = "expenses"
+  elif section == "schedules":
+    section_name = "schedules"
+  else:
+    section_name = section
+  return _find_model_input_row(
+    model_input_json,
+    section_name=section_name,
+    label=label,
+    lever_id=lever_id,
+  )
+
+
+def _formula_required_for_quarter(
+  *,
+  required_when_key: str,
+  finmo_row: Dict[str, Any],
+  prior_finmo_row: Optional[Dict[str, Any]],
+) -> bool:
+  key = str(required_when_key or "").strip().lower()
+  if key == "optional":
+    return False
+  if key in {"", "always", "cash_strategy_requires"}:
+    return True
+  if key == "revenue_positive":
+    return float(_safe_float(finmo_row.get("revenue")) or 0.0) > 0
+  if key == "debt_outstanding":
+    return (
+      float(_safe_float(finmo_row.get("long_term_debt")) or 0.0)
+      + float(_safe_float(finmo_row.get("short_term_debt")) or 0.0)
+    ) > 0
+  if key == "prior_ppe_positive":
+    prior = prior_finmo_row if isinstance(prior_finmo_row, dict) else {}
+    return float(_safe_float(prior.get("ppe")) or 0.0) > 0
+  return True
 
 
 def _model_input_live_values_by_lever(
@@ -603,6 +686,167 @@ def assert_post_intake_horizon_integrity(
     stage=stage,
     violations=violations,
     extra_details={"contract_name": contract_name, "horizon": horizon},
+  )
+
+
+def assert_post_intake_mapping_formula_contract_integrity(
+  *,
+  stage: str,
+) -> None:
+  """Fail unless the SQL mapping table contains usable formula metadata."""
+  try:
+    from client_intake_and_finmo.post_intake_mapping import post_intake_driver_target_mapping_errors  # type: ignore
+
+    errors = list(post_intake_driver_target_mapping_errors() or [])
+  except Exception as exc:
+    post_intake_fail_fast_raise(
+      "post_intake_mapping_formula_contract_invalid",
+      f"Unable to validate SQL mapping formula contracts: {exc}",
+      stage=stage,
+      details={"exception": str(exc)},
+    )
+    return
+  formula_errors = [
+    str(item)
+    for item in errors
+    if "formula" in str(item).lower()
+    or "seed_" in str(item).lower()
+    or "required_when" in str(item).lower()
+    or "allow_zero" in str(item).lower()
+  ]
+  _raise_if_violations(
+    "post_intake_mapping_formula_contract_invalid",
+    "Every active mapping row must declare table-backed formula metadata before post-intake runs.",
+    stage=stage,
+    violations=[{"reason": item} for item in formula_errors],
+  )
+
+
+def assert_post_intake_mapping_formula_application_integrity(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  stage: str,
+  contract_name: str = "unified_convergence_decision",
+) -> None:
+  """Fail if mapped model-input rows do not flow to FINMO per table formula contracts."""
+  horizon = _expected_horizon(contract_name)
+  try:
+    from client_intake_and_finmo.post_intake_mapping import post_intake_driver_formula_contract_rows  # type: ignore
+
+    formula_rows = post_intake_driver_formula_contract_rows()
+  except Exception as exc:
+    post_intake_fail_fast_raise(
+      "post_intake_mapping_formula_contract_invalid",
+      f"Unable to load SQL mapping formula rows: {exc}",
+      stage=stage,
+      details={"exception": str(exc)},
+    )
+    return
+
+  live_rows = _live_quarter_rows(finmo_json)
+  live_by_q = {
+    int(_safe_float(row.get("quarter_index")) or 0): row
+    for row in live_rows
+  }
+  violations: List[Dict[str, Any]] = []
+  for mapping_row in formula_rows:
+    lever_id = str(mapping_row.get("lever_id") or "").strip()
+    validation_key = str(mapping_row.get("validation_formula_key") or "").strip().lower()
+    if lever_id.startswith("revenue::*::*::"):
+      continue
+    model_row = _model_input_row_for_mapping(model_input_json, mapping_row)
+    if model_row is None:
+      violations.append(
+        {
+          "lever_id": lever_id,
+          "reason": "mapped_model_input_row_missing",
+          "model_input_field": mapping_row.get("model_input_field"),
+          "source_of_truth": "sql.post_intak_mapping_lookup",
+        }
+      )
+      continue
+    live_values = _row_live_values(model_row, horizon=horizon)
+    if len(live_values) != horizon:
+      violations.append(
+        {
+          "lever_id": lever_id,
+          "reason": "mapped_model_input_row_horizon_invalid",
+          "expected_live_count": horizon,
+          "actual_live_count": len(live_values),
+        }
+      )
+      continue
+    target_field = _finmo_field_from_mapping(mapping_row.get("financial_model_field"))
+    allow_zero = bool(mapping_row.get("allow_zero"))
+    required_when_key = str(mapping_row.get("required_when_key") or "").strip().lower()
+    for quarter in range(1, horizon + 1):
+      finmo_row = live_by_q.get(quarter) or {}
+      prior_finmo_row = live_by_q.get(quarter - 1) if quarter > 1 else {}
+      required_now = _formula_required_for_quarter(
+        required_when_key=required_when_key,
+        finmo_row=finmo_row,
+        prior_finmo_row=prior_finmo_row,
+      )
+      value = _safe_float(live_values[quarter - 1])
+      if value is None:
+        violations.append(
+          {
+            "lever_id": lever_id,
+            "quarter_index": quarter,
+            "reason": "mapped_model_input_value_nonnumeric",
+            "value": live_values[quarter - 1],
+          }
+        )
+        break
+      if required_now and not allow_zero and value <= 0:
+        violations.append(
+          {
+            "lever_id": lever_id,
+            "quarter_index": quarter,
+            "reason": "mapped_model_input_value_zero_disallowed",
+            "value": value,
+            "required_when_key": required_when_key,
+          }
+        )
+        break
+      if validation_key == "finmo_equals_revenue_times_model_input_ratio":
+        revenue = float(_safe_float(finmo_row.get("revenue")) or 0.0)
+        actual = int(round(float(_safe_float(finmo_row.get(target_field)) or 0.0)))
+        expected = int(round(revenue * value))
+        if actual != expected:
+          violations.append(
+            {
+              "lever_id": lever_id,
+              "quarter_index": quarter,
+              "field": target_field,
+              "actual_finmo": actual,
+              "expected_from_mapping_formula": expected,
+              "validation_formula_key": validation_key,
+            }
+          )
+          break
+      elif validation_key == "finmo_equals_model_input_value":
+        actual = int(round(float(_safe_float(finmo_row.get(target_field)) or 0.0)))
+        expected = int(round(value))
+        if actual != expected:
+          violations.append(
+            {
+              "lever_id": lever_id,
+              "quarter_index": quarter,
+              "field": target_field,
+              "actual_finmo": actual,
+              "expected_from_mapping_formula": expected,
+              "validation_formula_key": validation_key,
+            }
+          )
+          break
+  _raise_if_violations(
+    "post_intake_mapping_formula_application_invalid",
+    "Every mapped model-input row must exist and reconcile to FINMO through its SQL mapping formula contract.",
+    stage=stage,
+    violations=violations,
+    extra_details={"horizon": horizon, "mapping_table": "post_intak_mapping_lookup"},
   )
 
 
@@ -1154,6 +1398,9 @@ def assert_post_intake_global_invariants(
     stage=stage,
     contract_name=contract_name,
   )
+  assert_post_intake_mapping_formula_contract_integrity(
+    stage=f"{stage}_mapping_formula_contract",
+  )
   assert_post_intake_model_input_rows_integrity(
     model_input_json=model_input_json,
     stage=stage,
@@ -1203,6 +1450,12 @@ def assert_post_intake_global_invariants(
   assert_post_intake_finmo_statement_integrity(
     finmo_json=finmo_json,
     stage=stage,
+    contract_name=contract_name,
+  )
+  assert_post_intake_mapping_formula_application_integrity(
+    model_input_json=model_input_json,
+    finmo_json=finmo_json,
+    stage=f"{stage}_mapping_formula_application",
     contract_name=contract_name,
   )
   assert_post_intake_rebuilt_finmo_matches_model_input(

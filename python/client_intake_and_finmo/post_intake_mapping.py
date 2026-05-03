@@ -12,6 +12,11 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 
 from client_intake_and_finmo.intake_submission import get_mysql_connection
+from client_intake_and_finmo.post_intake_driver_formulas import (  # type: ignore
+  formula_contract_for_mapping_row,
+  formula_metadata_errors,
+  mapping_formula_defaults,
+)
 
 
 _MAPPING_TABLE_NAME = "post_intak_mapping_lookup"
@@ -503,6 +508,32 @@ def _process_sequence_row(
 
 _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   _process_sequence_row(
+    "runtime_validation",
+    1,
+    "post_intake_initialize_validation",
+    "run_initialize_post_intake_validation",
+    required_lookup_tables=[
+      _MAPPING_TABLE_NAME,
+      _CASH_POLICY_TABLE_NAME,
+      _GPT_CONTRACT_TABLE_NAME,
+      _GPT_CONTEXT_TABLE_NAME,
+      "post_intake_headcount_policy_lookup",
+      _PROCESS_SEQUENCE_TABLE_NAME,
+    ],
+    horizon_rule="validate_lookup_machine_before_post_intake",
+    fail_fast_code="post_intake_sequence_initialize_validation_missing",
+    python_role="production_runtime_gate",
+    python_timing="after_planning_run_start_before_post_intake",
+    python_action=(
+      "Validate lookup tables, lookup functions, process sequence rows, GPT contracts, "
+      "context contracts, cash policy, headcount policy, and mapping formulas before post-intake begins."
+    ),
+    input_object_path="sql.lookup_tables; post_intake_lookup_functions",
+    output_object_path="planning_run_json.runtime_validation.post_intake_initialize_validation",
+    validation_subject_path="post_intake_runtime_validation.initialize",
+    notes="Production initialize gate. Post-intake must not start if deterministic lookup infrastructure is invalid.",
+  ),
+  _process_sequence_row(
     "pre_convergence",
     5,
     "realism_memo_review",
@@ -732,6 +763,32 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     fail_fast_code="post_intake_sequence_final_validation_missing",
     notes="Final table-backed hard gates before a run can complete.",
   ),
+  _process_sequence_row(
+    "runtime_validation",
+    140,
+    "post_intake_finalize_validation",
+    "run_finalize_post_intake_validation",
+    required_lookup_tables=[
+      _MAPPING_TABLE_NAME,
+      _CASH_POLICY_TABLE_NAME,
+      _GPT_CONTRACT_TABLE_NAME,
+      _GPT_CONTEXT_TABLE_NAME,
+      "post_intake_headcount_policy_lookup",
+      _PROCESS_SEQUENCE_TABLE_NAME,
+    ],
+    horizon_rule="validate_lookup_machine_after_post_intake",
+    fail_fast_code="post_intake_sequence_finalize_validation_missing",
+    python_role="production_runtime_gate",
+    python_timing="after_cash_pass_before_completion",
+    python_action=(
+      "Validate final model_input_json, finmo_json, payroll schedule, debt schedule, cash phase trace, "
+      "global invariants, and mapping formula application before a run can be marked completed."
+    ),
+    input_object_path="final_model_input_json; final_finmo_json; payroll_headcount; debt_schedule; cash_strategy_second_pass_result",
+    output_object_path="planning_run_json.runtime_validation.post_intake_finalize_validation",
+    validation_subject_path="post_intake_runtime_validation.finalize",
+    notes="Production finalize gate. Completion is blocked unless final outputs obey the table-backed contracts.",
+  ),
 ]
 
 
@@ -793,9 +850,10 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
 _PAYROLL_HEADCOUNT_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].q", "q", "integer", is_array_item=True, parent_field_path="payroll_headcount_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].role_category", "role_category", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Role category", prompt_required_instruction="Use a concise staffing category tied to an actual role family or staffing bundle. Do not invent rows outside the payroll_headcount_grid contract."),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE"),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].oews_occ_title", "oews_occ_title", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_oews_catalog_member", lookup_source="oews_role_catalog", prompt_label="OEWS occupation title", prompt_required_instruction="Must be one exact occ_title from oews_role_catalog.role_candidates. Do not invent titles. Python uses this exact OEWS title for wage lookup."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE", prompt_required_instruction="Used with ending_fte to calculate average_fte=(starting_fte+ending_fte)/2. If average FTE is below the guardrail, increase starting_fte/hires/ending_fte; ending_fte alone is not enough."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions"),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE"),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE", prompt_required_instruction="Must satisfy payroll_economic_guardrails by quarter using average_fte=(starting_fte+ending_fte)/2, not ending_fte alone. Keep role continuity after hiring starts."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0.12, max_value=0.35, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent", prompt_required_instruction="Must stay inside post_intake_headcount_policy_lookup min/max benefits burden. Do not use 0.00 for employees."),
 ]
 
@@ -831,7 +889,7 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     horizon_rule="q1_to_q20_at_least_once",
     validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Provide supporting-staff role/FTE rows for every forecast quarter Q1 through Q20. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through OEWS/policy, calculates payroll dollars, and stores intake_consult_drafts.payroll_headcount.",
+    prompt_required_instruction="Provide active supporting-staff role/FTE rows for every forecast quarter Q1 through Q20. Select oews_occ_title from oews_role_catalog. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through OEWS, calculates payroll dollars, and stores intake_consult_drafts.payroll_headcount. If a role has no FTE in all 20 quarters, omit it. Once a role starts, keep it active through Q20. Every quarter must satisfy payroll_economic_guardrails using average_fte=(starting_fte+ending_fte)/2; matching only ending_fte is invalid.",
   ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
@@ -1174,6 +1232,7 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("payroll_headcount_schedule", "business_identity", context_group="business_world", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "business_context", context_group="business_world", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "people_staffing_context", context_group="business_world", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "oews_role_catalog", context_group="wage_role_lookup", source_kind="python_derived_from_oews", source_path="oews_state_wages via business_naics_6", include_phase="pre_convergence", max_items=160, notes="Python builds this role catalog before GPT chooses supporting-staff rows. GPT must select oews_occ_title values from role_candidates[].occ_title."),
   _gpt_context_row("payroll_headcount_schedule", "financial_context", context_group="financials", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "stage_ramp_contract", context_group="policy", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "payroll_headcount_policy", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
@@ -1523,6 +1582,16 @@ def _ensure_mapping_lookup_table(conn) -> None:
           diagnostic_only TINYINT(1) NOT NULL DEFAULT 0,
           tolerance_allowed TINYINT(1) NOT NULL DEFAULT 1,
           non_tolerable_issue_codes LONGTEXT NULL,
+          seed_source_paths_json LONGTEXT NULL,
+          seed_formula_key VARCHAR(128) NOT NULL DEFAULT 'none',
+          finmo_formula_key VARCHAR(128) NOT NULL DEFAULT 'none',
+          validation_formula_key VARCHAR(128) NOT NULL DEFAULT 'semantic_presence_only',
+          required_when_key VARCHAR(128) NOT NULL DEFAULT 'always',
+          business_applicability_key VARCHAR(128) NOT NULL DEFAULT 'always',
+          forecast_presence_rule_key VARCHAR(128) NOT NULL DEFAULT 'nonnegative_driver',
+          zero_allowed_reason_key VARCHAR(128) NOT NULL DEFAULT 'not_applicable_or_table_optional',
+          allow_zero TINYINT(1) NOT NULL DEFAULT 1,
+          formula_status VARCHAR(32) NOT NULL DEFAULT 'active',
           mapping_status VARCHAR(32) NOT NULL DEFAULT 'active',
           notes LONGTEXT NULL,
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -1552,6 +1621,16 @@ def _ensure_mapping_lookup_table(conn) -> None:
         "ADD COLUMN target_decimal_places INT NULL AFTER target_rounding_kind",
         "ADD COLUMN tolerance_allowed TINYINT(1) NOT NULL DEFAULT 1 AFTER diagnostic_only",
         "ADD COLUMN non_tolerable_issue_codes LONGTEXT NULL AFTER tolerance_allowed",
+        "ADD COLUMN seed_source_paths_json LONGTEXT NULL AFTER non_tolerable_issue_codes",
+        "ADD COLUMN seed_formula_key VARCHAR(128) NOT NULL DEFAULT 'none' AFTER seed_source_paths_json",
+        "ADD COLUMN finmo_formula_key VARCHAR(128) NOT NULL DEFAULT 'none' AFTER seed_formula_key",
+        "ADD COLUMN validation_formula_key VARCHAR(128) NOT NULL DEFAULT 'semantic_presence_only' AFTER finmo_formula_key",
+        "ADD COLUMN required_when_key VARCHAR(128) NOT NULL DEFAULT 'always' AFTER validation_formula_key",
+        "ADD COLUMN business_applicability_key VARCHAR(128) NOT NULL DEFAULT 'always' AFTER required_when_key",
+        "ADD COLUMN forecast_presence_rule_key VARCHAR(128) NOT NULL DEFAULT 'nonnegative_driver' AFTER business_applicability_key",
+        "ADD COLUMN zero_allowed_reason_key VARCHAR(128) NOT NULL DEFAULT 'not_applicable_or_table_optional' AFTER forecast_presence_rule_key",
+        "ADD COLUMN allow_zero TINYINT(1) NOT NULL DEFAULT 1 AFTER zero_allowed_reason_key",
+        "ADD COLUMN formula_status VARCHAR(32) NOT NULL DEFAULT 'active' AFTER allow_zero",
       ]:
         try:
           cur.execute(
@@ -1609,6 +1688,159 @@ def _ensure_mapping_lookup_table(conn) -> None:
         SET tolerance_allowed = 1,
             non_tolerable_issue_codes = 'p_and_l_flatline'
         WHERE post_intake_issue_codes LIKE '%p_and_l_flatline%'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET
+          seed_formula_key = CASE
+            WHEN LOWER(COALESCE(driver_bundle, '')) = 'revenue_formula_bundle' THEN 'runtime_revenue_driver_from_stage_ramp'
+            WHEN LOWER(input_semantics) = 'percent_of_revenue' THEN 'annual_source_value_divided_by_annual_revenue'
+            WHEN LOWER(input_semantics) = 'quarter_currency' THEN 'runtime_quarter_currency_direct'
+            WHEN LOWER(input_semantics) = 'interest_rate' THEN 'python_derived_schedule'
+            WHEN LOWER(input_semantics) IN ('percent_of_prior_ppe', 'percent_of_pre_tax_income') THEN 'python_derived_schedule'
+            WHEN LOWER(input_semantics) IN ('days', 'percent_of_long_term_debt') THEN 'cash_strategy_schedule'
+            WHEN LOWER(control_owner) = 'cash_pass' THEN 'cash_strategy_schedule'
+            WHEN LOWER(control_owner) = 'python_derived' THEN 'python_derived_schedule'
+            ELSE seed_formula_key
+          END,
+          finmo_formula_key = CASE
+            WHEN LOWER(COALESCE(driver_bundle, '')) = 'revenue_formula_bundle' THEN 'finmo_revenue_equals_capacity_price_utilization_bundle'
+            WHEN LOWER(input_semantics) = 'percent_of_revenue' THEN 'revenue_times_model_input_ratio'
+            WHEN LOWER(input_semantics) = 'quarter_currency' THEN 'finmo_direct_quarter_currency'
+            WHEN LOWER(input_semantics) = 'interest_rate' THEN 'finmo_debt_schedule_interest'
+            WHEN LOWER(input_semantics) = 'percent_of_prior_ppe' THEN 'finmo_prior_ppe_times_model_input_ratio'
+            WHEN LOWER(input_semantics) = 'days' THEN 'finmo_working_capital_days'
+            WHEN LOWER(control_owner) = 'cash_pass' THEN 'finmo_cash_strategy_driver'
+            WHEN LOWER(control_owner) = 'python_derived' THEN 'finmo_python_derived_schedule'
+            ELSE finmo_formula_key
+          END,
+          validation_formula_key = CASE
+            WHEN LOWER(COALESCE(driver_bundle, '')) = 'revenue_formula_bundle' THEN 'finmo_revenue_equals_capacity_price_utilization_bundle'
+            WHEN LOWER(input_semantics) = 'percent_of_revenue' THEN 'finmo_equals_revenue_times_model_input_ratio'
+            WHEN LOWER(input_semantics) = 'quarter_currency' THEN 'finmo_equals_model_input_value'
+            WHEN LOWER(input_semantics) = 'days' THEN 'finmo_working_capital_days'
+            WHEN LOWER(input_semantics) = 'percent_of_long_term_debt' THEN 'finmo_short_term_debt_percent_of_ltd'
+            WHEN LOWER(control_owner) = 'python_derived' THEN 'schedule_marker_validation'
+            ELSE validation_formula_key
+          END,
+          required_when_key = CASE
+            WHEN LOWER(input_semantics) = 'percent_of_revenue' THEN 'revenue_positive'
+            WHEN LOWER(input_semantics) = 'interest_rate' THEN 'debt_outstanding'
+            WHEN LOWER(input_semantics) = 'percent_of_prior_ppe' THEN 'prior_ppe_positive'
+            WHEN LOWER(input_semantics) = 'days' THEN 'business_applicable'
+            WHEN LOWER(input_semantics) = 'percent_of_long_term_debt' THEN 'debt_policy_or_existing_debt'
+            WHEN LOWER(control_owner) = 'cash_pass' THEN 'cash_strategy_requires'
+            ELSE required_when_key
+          END,
+          business_applicability_key = CASE
+            WHEN lever_id = 'balance_sheet::Accounts Receivable Days' THEN 'revenue_positive_ar_applicable'
+            WHEN lever_id = 'balance_sheet::Accounts Payable Days' THEN 'operating_expense_positive_ap_applicable'
+            WHEN lever_id = 'balance_sheet::Inventory Days' THEN 'inventory_business_or_seed'
+            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 'revenue_positive_prepaid_applicable'
+            WHEN lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)' THEN 'deferred_revenue_business'
+            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 'debt_policy_or_existing_debt'
+            WHEN LOWER(COALESCE(driver_bundle, '')) = 'revenue_formula_bundle' THEN 'revenue_positive'
+            WHEN LOWER(input_semantics) = 'percent_of_revenue' THEN 'revenue_positive'
+            WHEN LOWER(control_owner) = 'cash_pass' THEN 'cash_strategy_requires'
+            ELSE business_applicability_key
+          END,
+          forecast_presence_rule_key = CASE
+            WHEN lever_id IN (
+              'balance_sheet::Accounts Receivable Days',
+              'balance_sheet::Accounts Payable Days',
+              'balance_sheet::Inventory Days',
+              'balance_sheet::Deferred Revenue (% of Revenue)'
+            ) THEN 'positive_driver_when_applicable'
+            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 'positive_driver_when_applicable'
+            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 'schedule_reconciles_when_applicable'
+            WHEN LOWER(COALESCE(driver_bundle, '')) = 'revenue_formula_bundle' THEN 'positive_driver_when_applicable'
+            WHEN LOWER(control_owner) IN ('cash_pass', 'python_derived') THEN 'schedule_reconciles_when_applicable'
+            ELSE forecast_presence_rule_key
+          END,
+          zero_allowed_reason_key = CASE
+            WHEN lever_id = 'balance_sheet::Accounts Receivable Days' THEN 'revenue_not_positive'
+            WHEN lever_id = 'balance_sheet::Accounts Payable Days' THEN 'no_vendor_payables_model'
+            WHEN lever_id = 'balance_sheet::Inventory Days' THEN 'inventory_not_applicable'
+            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 'revenue_not_positive'
+            WHEN lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)' THEN 'no_upfront_or_deferred_revenue_model'
+            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 'no_debt_policy_or_existing_debt'
+            ELSE zero_allowed_reason_key
+          END,
+          formula_status = 'active'
+        WHERE mapping_status = 'active'
+        """
+      )
+      for lever_id, source_paths, allow_zero in [
+        ("expenses::Cost of Goods Sold", ["financials.current_cogs", "financials.cogs", "financials.cogs_absolute"], 1),
+        ("expenses::Marketing", ["financials.marketing_total_year1", "financials.marketing_expense", "financials.marketing"], 0),
+        ("expenses::Research & Development", ["financials.r_and_d_total_year1", "financials.research_and_development"], 1),
+        ("expenses::General & Administrative", ["financials.other_opex_absolute", "financials.other_operating_expense"], 0),
+        ("expenses::Lease", ["financials.monthly_rent_expense"], 1),
+      ]:
+        cur.execute(
+          f"""
+          UPDATE {_MAPPING_TABLE_NAME}
+          SET seed_source_paths_json = %s,
+              allow_zero = %s
+          WHERE lever_id = %s
+          """,
+          (_json_dumps_value(source_paths), int(allow_zero), lever_id),
+        )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET seed_formula_key = 'cash_strategy_schedule',
+            finmo_formula_key = 'revenue_times_model_input_ratio',
+            validation_formula_key = 'finmo_equals_revenue_times_model_input_ratio',
+            required_when_key = 'business_applicable',
+            business_applicability_key = 'revenue_positive_prepaid_applicable',
+            forecast_presence_rule_key = 'positive_driver_when_applicable',
+            zero_allowed_reason_key = 'revenue_not_positive',
+            seed_source_paths_json = NULL,
+            allow_zero = 1
+        WHERE lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET seed_formula_key = 'cash_strategy_schedule',
+            finmo_formula_key = 'revenue_times_model_input_ratio',
+            validation_formula_key = 'finmo_equals_revenue_times_model_input_ratio',
+            required_when_key = 'business_applicable',
+            business_applicability_key = 'deferred_revenue_business',
+            forecast_presence_rule_key = 'positive_driver_when_applicable',
+            zero_allowed_reason_key = 'no_upfront_or_deferred_revenue_model',
+            seed_source_paths_json = NULL,
+            allow_zero = 1
+        WHERE lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET seed_formula_key = 'cash_strategy_schedule',
+            finmo_formula_key = 'finmo_cash_strategy_driver',
+            validation_formula_key = 'semantic_presence_only',
+            required_when_key = 'cash_strategy_requires'
+        WHERE control_owner = 'cash_pass'
+          AND LOWER(COALESCE(driver_bundle, '')) NOT IN ('working_capital_bundle', 'debt_schedule_bundle')
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET validation_formula_key = 'finmo_equals_model_input_value'
+        WHERE lever_id = 'expenses::Lease'
+        """
+      )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET validation_formula_key = 'schedule_marker_validation'
+        WHERE control_owner = 'python_derived'
         """
       )
       conn.commit()
@@ -2679,6 +2911,16 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
           diagnostic_only,
           tolerance_allowed,
           non_tolerable_issue_codes,
+          seed_source_paths_json,
+          seed_formula_key,
+          finmo_formula_key,
+          validation_formula_key,
+          required_when_key,
+          business_applicability_key,
+          forecast_presence_rule_key,
+          zero_allowed_reason_key,
+          allow_zero,
+          formula_status,
           mapping_status,
           notes
         FROM {_MAPPING_TABLE_NAME}
@@ -2737,15 +2979,43 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
       "diagnostic_only": _clean_bool(raw_row.get("diagnostic_only")),
       "tolerance_allowed": _clean_bool(raw_row.get("tolerance_allowed"), default=True),
       "non_tolerable_issue_codes": _split_tokens(raw_row.get("non_tolerable_issue_codes")),
+      "seed_source_paths_json": _json_value(raw_row.get("seed_source_paths_json"), []),
+      "seed_formula_key": _clean_text(raw_row.get("seed_formula_key")).lower(),
+      "finmo_formula_key": _clean_text(raw_row.get("finmo_formula_key")).lower(),
+      "validation_formula_key": _clean_text(raw_row.get("validation_formula_key")).lower(),
+      "required_when_key": _clean_text(raw_row.get("required_when_key")).lower(),
+      "business_applicability_key": _clean_text(raw_row.get("business_applicability_key")).lower(),
+      "forecast_presence_rule_key": _clean_text(raw_row.get("forecast_presence_rule_key")).lower(),
+      "zero_allowed_reason_key": _clean_text(raw_row.get("zero_allowed_reason_key")).lower(),
+      "allow_zero": _clean_bool(raw_row.get("allow_zero"), default=True),
+      "formula_status": _clean_text(raw_row.get("formula_status")).lower() or "active",
       "mapping_status": _clean_text(raw_row.get("mapping_status")).lower() or "active",
       "notes": _clean_text(raw_row.get("notes")),
     }
+    formula_defaults = mapping_formula_defaults(row)
+    if not row["seed_source_paths_json"]:
+      row["seed_source_paths_json"] = list(formula_defaults.get("seed_source_paths") or [])
+    if not row["seed_formula_key"] or row["seed_formula_key"] == "none":
+      row["seed_formula_key"] = str(formula_defaults.get("seed_formula_key") or "none")
+    if not row["finmo_formula_key"] or row["finmo_formula_key"] == "none":
+      row["finmo_formula_key"] = str(formula_defaults.get("finmo_formula_key") or "none")
+    if not row["validation_formula_key"] or row["validation_formula_key"] == "none":
+      row["validation_formula_key"] = str(formula_defaults.get("validation_formula_key") or "semantic_presence_only")
+    if not row["required_when_key"]:
+      row["required_when_key"] = str(formula_defaults.get("required_when_key") or "always")
+    if not row["business_applicability_key"]:
+      row["business_applicability_key"] = str(formula_defaults.get("business_applicability_key") or "always")
+    if not row["forecast_presence_rule_key"]:
+      row["forecast_presence_rule_key"] = str(formula_defaults.get("forecast_presence_rule_key") or "nonnegative_driver")
+    if not row["zero_allowed_reason_key"]:
+      row["zero_allowed_reason_key"] = str(formula_defaults.get("zero_allowed_reason_key") or "not_applicable_or_table_optional")
     row["target_metric_name"] = _normalized_metric_id_from_field(row.get("financial_model_field"))
     row["lookup_lever_id"] = _normalized_lookup_key(lever_id)
     row["value_rounding_kind"] = _clean_text((row.get("value_precision") or {}).get("rounding_kind")).lower()
     row["value_decimal_places"] = (row.get("value_precision") or {}).get("decimal_places")
     row["target_rounding_kind"] = _clean_text((row.get("target_precision") or {}).get("rounding_kind")).lower()
     row["target_decimal_places"] = (row.get("target_precision") or {}).get("decimal_places")
+    row["formula_contract"] = formula_contract_for_mapping_row(row)
     rows.append(row)
   if not rows:
     raise RuntimeError(f"{_MAPPING_TABLE_NAME}_empty: post-intake mapping lookup table has no rows")
@@ -3179,6 +3449,19 @@ class PostIntakeMappingLookup:
       )
     return None
 
+  def formula_contract_for_lever(self, lever_id: Any, *, required: bool = True) -> Optional[Dict[str, Any]]:
+    entry = self.entry_for_lever(lever_id, required=required)
+    if not isinstance(entry, dict):
+      return None
+    return formula_contract_for_mapping_row(entry)
+
+  def formula_contract_rows(self, *, phase: Any = None) -> List[Dict[str, Any]]:
+    return [
+      formula_contract_for_mapping_row(row)
+      for row in self.rows(active_only=True, phase=phase)
+      if _clean_text(row.get("formula_status")).lower() == "active"
+    ]
+
   def lever_allowed_for_issue(
     self,
     lever_id: Any,
@@ -3571,6 +3854,15 @@ class PostIntakeMappingLookup:
           "cash_strategy_role": _clean_text(row.get("cash_strategy_role")).lower(),
           "targeting_allowed": bool(row.get("targeting_allowed")),
           "diagnostic_only": bool(row.get("diagnostic_only")),
+          "seed_source_paths": copy.deepcopy(row.get("seed_source_paths_json") or []),
+          "seed_formula_key": _clean_text(row.get("seed_formula_key")).lower(),
+          "finmo_formula_key": _clean_text(row.get("finmo_formula_key")).lower(),
+          "validation_formula_key": _clean_text(row.get("validation_formula_key")).lower(),
+          "required_when_key": _clean_text(row.get("required_when_key")).lower(),
+          "business_applicability_key": _clean_text(row.get("business_applicability_key")).lower(),
+          "forecast_presence_rule_key": _clean_text(row.get("forecast_presence_rule_key")).lower(),
+          "zero_allowed_reason_key": _clean_text(row.get("zero_allowed_reason_key")).lower(),
+          "allow_zero": bool(row.get("allow_zero")),
         }
       )
     return compact
@@ -3634,6 +3926,7 @@ class PostIntakeMappingLookup:
             errors.append(f"{_clean_text(row.get('lever_id'))} {precision_label} decimal rounding needs decimal_places >= 0")
       if not _clean_text(row.get("input_semantics")):
         errors.append(f"{_clean_text(row.get('lever_id'))} is missing input_semantics")
+      errors.extend(formula_metadata_errors(row))
       if phase == "cash_pass" and owner not in {"cash_pass", "locked"}:
         errors.append(f"{_clean_text(row.get('lever_id'))} cash_pass row must be owned by cash_pass or locked")
       if phase == "derived_only" and owner != "python_derived":
@@ -4513,6 +4806,7 @@ class PostIntakeGptContractLookup:
     }
     valid_lookup_sources = {
       "none",
+      "oews_role_catalog",
       "post_intak_mapping_lookup",
       "post_intake_cash_policy_lookup",
       "post_intake_headcount_policy_lookup",
@@ -5014,6 +5308,7 @@ class PostIntakeProcessSequenceLookup:
     errors: List[str] = []
     seen_step_keys: Set[str] = set()
     required_steps = {
+      "post_intake_initialize_validation",
       "stage_ramp_contract",
       "payroll_headcount_schedule",
       "quarter_grid_generation",
@@ -5024,6 +5319,7 @@ class PostIntakeProcessSequenceLookup:
       "cash_strategy_review",
       "cash_pass_validation",
       "final_hard_gates",
+      "post_intake_finalize_validation",
     }
     for row in self._rows:
       step_key = _clean_text(row.get("step_key")).lower()
@@ -5121,6 +5417,24 @@ def post_intake_driver_target_mapping_by_lever() -> Dict[str, Dict[str, Any]]:
 
 def post_intake_driver_target_mapping_entry(lever_id: Any) -> Optional[Dict[str, Any]]:
   return post_intake_mapping_lookup().entry_for_lever(lever_id)
+
+
+def post_intake_driver_formula_contract(
+  lever_id: Any,
+  *,
+  required: bool = True,
+) -> Optional[Dict[str, Any]]:
+  return post_intake_mapping_lookup().formula_contract_for_lever(
+    lever_id,
+    required=required,
+  )
+
+
+def post_intake_driver_formula_contract_rows(
+  *,
+  phase: Any = None,
+) -> List[Dict[str, Any]]:
+  return post_intake_mapping_lookup().formula_contract_rows(phase=phase)
 
 
 def post_intake_direct_target_metric_for_lever(lever_id: Any) -> str:

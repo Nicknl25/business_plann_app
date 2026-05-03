@@ -25,6 +25,7 @@ from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
   apply_payroll_headcount_policy_to_model_input,
   default_payroll_headcount_policy,
 )
+from client_intake_and_finmo.post_intake_driver_formulas import apply_seed_formula  # type: ignore
 
 
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
@@ -176,6 +177,16 @@ def _simple_lever_id(section: str, label: Any) -> str:
   return "::".join([section, _canonical_model_input_text(label)])
 
 
+def _mapping_formula_contract_for_lever(lever_id: Any) -> Optional[Dict[str, Any]]:
+  try:
+    from client_intake_and_finmo.post_intake_mapping import post_intake_driver_formula_contract  # type: ignore
+
+    contract = post_intake_driver_formula_contract(lever_id, required=False)
+  except Exception:
+    return None
+  return contract if isinstance(contract, dict) else None
+
+
 def _full_quarter_scope(slots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
   full_slots = _full_quarter_slots(slots)
   valid_quarter_indices = list(range(1, len(full_slots) + 1))
@@ -190,6 +201,12 @@ def _full_quarter_scope(slots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _revenue_input_semantics(driver: str) -> Dict[str, str]:
   driver_text = _canonical_model_input_text(driver).lower()
+  contract = _mapping_formula_contract_for_lever(f"revenue::*::*::{_canonical_model_input_text(driver)}")
+  if isinstance(contract, dict):
+    value_kind = str(contract.get("value_kind") or "").strip()
+    input_semantics = str(contract.get("input_semantics") or "").strip()
+    if value_kind and input_semantics:
+      return {"value_kind": value_kind, "input_semantics": input_semantics}
   if driver_text == "capacity":
     return {"value_kind": "direct_number", "input_semantics": "quarter_capacity_units"}
   if driver_text == "unit price":
@@ -200,6 +217,12 @@ def _revenue_input_semantics(driver: str) -> Dict[str, str]:
 
 
 def _simple_input_semantics(section_key: str, label: str) -> Dict[str, str]:
+  contract = _mapping_formula_contract_for_lever(_simple_lever_id(section_key, label))
+  if isinstance(contract, dict):
+    value_kind = str(contract.get("value_kind") or "").strip()
+    input_semantics = str(contract.get("input_semantics") or "").strip()
+    if value_kind and input_semantics:
+      return {"value_kind": value_kind, "input_semantics": input_semantics}
   normalized_section = _canonical_model_input_text(section_key).lower()
   normalized_label = _canonical_model_input_text(label).lower()
   if normalized_section == "expenses":
@@ -839,15 +862,13 @@ def _operating_anchor_baseline_inputs(
       if isinstance(item, dict)
     )
   quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
-  non_rent_opex_year1 = max(
-    0.0,
-    (
-      _safe_float(financials.get("other_opex_absolute"))
-      or _safe_float(financials.get("other_operating_expense"))
-      or 0.0
-    ) - (lease_amount * 4.0)
+  non_rent_opex_year1 = _non_rent_g_and_a_year1(financials)
+  g_and_a_ratio_baseline = _table_seed_ratio_for_lever(
+    "expenses::General & Administrative",
+    financials_json=financials,
+    annual_revenue=revenue_total_year1,
+    default_value=_ratio(non_rent_opex_year1, revenue_total_year1),
   )
-  g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
   interest_rate_baseline = _ratio(financials.get("annual_interest_payment"), financials.get("total_debt_outstanding"))
   depreciation_ratio_baseline = _ratio(financials.get("accumulated_depreciation"), revenue_total_year1)
   tax_rate_baseline = _safe_ratio(financials.get("taxes_percent")) or 0.0
@@ -2536,6 +2557,57 @@ def _quarter_lease_amount(financials_json: Dict[str, Any]) -> float:
   return round(monthly_rent * 3.0, 6)
 
 
+def _non_rent_g_and_a_year1(financials_json: Dict[str, Any]) -> float:
+  """Return the intake's non-rent operating overhead used for G&A percent."""
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  contract = _mapping_formula_contract_for_lever("expenses::General & Administrative")
+  if isinstance(contract, dict):
+    try:
+      return max(
+        0.0,
+        float(
+          apply_seed_formula(
+            formula_contract=contract,
+            context={
+              "financials": financials,
+              "annual_revenue": 1.0,
+            },
+            default_value=0.0,
+          )
+        ),
+      )
+    except Exception:
+      pass
+  value = (
+    _safe_float(financials.get("other_opex_absolute"))
+    or _safe_float(financials.get("other_operating_expense"))
+    or 0.0
+  )
+  return max(0.0, float(value or 0.0))
+
+
+def _table_seed_ratio_for_lever(
+  lever_id: str,
+  *,
+  financials_json: Dict[str, Any],
+  annual_revenue: Any,
+  default_value: Any = 0.0,
+) -> float:
+  contract = _mapping_formula_contract_for_lever(lever_id)
+  if not isinstance(contract, dict):
+    return float(default_value or 0.0)
+  return float(
+    apply_seed_formula(
+      formula_contract=contract,
+      context={
+        "financials": financials_json if isinstance(financials_json, dict) else {},
+        "annual_revenue": annual_revenue,
+      },
+      default_value=default_value,
+    )
+  )
+
+
 def _add_months(base: datetime, months: int) -> datetime:
   month_index = (base.month - 1) + int(months or 0)
   year = base.year + (month_index // 12)
@@ -3005,15 +3077,13 @@ def _build_model_input_overlay(
       if isinstance(item, dict)
     )
   quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
-  non_rent_opex_year1 = max(
-    0.0,
-    (
-      _safe_float((financials_json or {}).get("other_opex_absolute"))
-      or _safe_float((financials_json or {}).get("other_operating_expense"))
-      or 0.0
-    ) - (lease_amount * 4.0)
+  non_rent_opex_year1 = _non_rent_g_and_a_year1(financials_json or {})
+  g_and_a_ratio_baseline = _table_seed_ratio_for_lever(
+    "expenses::General & Administrative",
+    financials_json=financials_json or {},
+    annual_revenue=revenue_total_year1,
+    default_value=_ratio(non_rent_opex_year1, revenue_total_year1),
   )
-  g_and_a_ratio_baseline = _ratio(non_rent_opex_year1, revenue_total_year1)
   intake_interest_rate_stub = _ratio(
     (financials_json or {}).get("annual_interest_payment"),
     (financials_json or {}).get("total_debt_outstanding"),
