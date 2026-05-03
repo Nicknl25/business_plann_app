@@ -1237,6 +1237,7 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("payroll_headcount_schedule", "stage_ramp_contract", context_group="policy", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "payroll_headcount_policy", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "payroll_economic_guardrails", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_required_fte_grid", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json revenue", include_phase="pre_convergence", max_items=20, notes="Python renders the exact Q1-Q20 supporting-staff average FTE floor before GPT chooses role rows. GPT must satisfy this grid; Python validates it after response."),
   _gpt_context_row("payroll_headcount_schedule", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "revenue_driver_context", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "previous_contract_failure", context_group="retry", include_phase="pre_convergence", required=False, notes="Only present on payroll schedule retry. Contains the table-backed validation failure and invalid response excerpt so GPT corrects its staffing schedule without Python mutating it."),
@@ -1590,6 +1591,8 @@ def _ensure_mapping_lookup_table(conn) -> None:
           business_applicability_key VARCHAR(128) NOT NULL DEFAULT 'always',
           forecast_presence_rule_key VARCHAR(128) NOT NULL DEFAULT 'nonnegative_driver',
           zero_allowed_reason_key VARCHAR(128) NOT NULL DEFAULT 'not_applicable_or_table_optional',
+          missing_seed_default_value DOUBLE NULL,
+          minimum_live_value DOUBLE NULL,
           allow_zero TINYINT(1) NOT NULL DEFAULT 1,
           formula_status VARCHAR(32) NOT NULL DEFAULT 'active',
           mapping_status VARCHAR(32) NOT NULL DEFAULT 'active',
@@ -1629,7 +1632,9 @@ def _ensure_mapping_lookup_table(conn) -> None:
         "ADD COLUMN business_applicability_key VARCHAR(128) NOT NULL DEFAULT 'always' AFTER required_when_key",
         "ADD COLUMN forecast_presence_rule_key VARCHAR(128) NOT NULL DEFAULT 'nonnegative_driver' AFTER business_applicability_key",
         "ADD COLUMN zero_allowed_reason_key VARCHAR(128) NOT NULL DEFAULT 'not_applicable_or_table_optional' AFTER forecast_presence_rule_key",
-        "ADD COLUMN allow_zero TINYINT(1) NOT NULL DEFAULT 1 AFTER zero_allowed_reason_key",
+        "ADD COLUMN missing_seed_default_value DOUBLE NULL AFTER zero_allowed_reason_key",
+        "ADD COLUMN minimum_live_value DOUBLE NULL AFTER missing_seed_default_value",
+        "ADD COLUMN allow_zero TINYINT(1) NOT NULL DEFAULT 1 AFTER minimum_live_value",
         "ADD COLUMN formula_status VARCHAR(32) NOT NULL DEFAULT 'active' AFTER allow_zero",
       ]:
         try:
@@ -1768,6 +1773,24 @@ def _ensure_mapping_lookup_table(conn) -> None:
             WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 'no_debt_policy_or_existing_debt'
             ELSE zero_allowed_reason_key
           END,
+          missing_seed_default_value = CASE
+            WHEN lever_id = 'balance_sheet::Accounts Receivable Days' THEN 2.0
+            WHEN lever_id = 'balance_sheet::Accounts Payable Days' THEN 2.0
+            WHEN lever_id = 'balance_sheet::Inventory Days' THEN 15.0
+            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 0.01
+            WHEN lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)' THEN 0.05
+            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 0.0
+            ELSE missing_seed_default_value
+          END,
+          minimum_live_value = CASE
+            WHEN lever_id = 'balance_sheet::Accounts Receivable Days' THEN 1.0
+            WHEN lever_id = 'balance_sheet::Accounts Payable Days' THEN 1.0
+            WHEN lever_id = 'balance_sheet::Inventory Days' THEN 1.0
+            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 0.01
+            WHEN lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)' THEN 0.01
+            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 0.0
+            ELSE minimum_live_value
+          END,
           formula_status = 'active'
         WHERE mapping_status = 'active'
         """
@@ -1798,6 +1821,8 @@ def _ensure_mapping_lookup_table(conn) -> None:
             business_applicability_key = 'revenue_positive_prepaid_applicable',
             forecast_presence_rule_key = 'positive_driver_when_applicable',
             zero_allowed_reason_key = 'revenue_not_positive',
+            missing_seed_default_value = 0.01,
+            minimum_live_value = 0.01,
             seed_source_paths_json = NULL,
             allow_zero = 1
         WHERE lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)'
@@ -1813,6 +1838,8 @@ def _ensure_mapping_lookup_table(conn) -> None:
             business_applicability_key = 'deferred_revenue_business',
             forecast_presence_rule_key = 'positive_driver_when_applicable',
             zero_allowed_reason_key = 'no_upfront_or_deferred_revenue_model',
+            missing_seed_default_value = 0.05,
+            minimum_live_value = 0.01,
             seed_source_paths_json = NULL,
             allow_zero = 1
         WHERE lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)'
@@ -2919,6 +2946,8 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
           business_applicability_key,
           forecast_presence_rule_key,
           zero_allowed_reason_key,
+          missing_seed_default_value,
+          minimum_live_value,
           allow_zero,
           formula_status,
           mapping_status,
@@ -2987,6 +3016,8 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
       "business_applicability_key": _clean_text(raw_row.get("business_applicability_key")).lower(),
       "forecast_presence_rule_key": _clean_text(raw_row.get("forecast_presence_rule_key")).lower(),
       "zero_allowed_reason_key": _clean_text(raw_row.get("zero_allowed_reason_key")).lower(),
+      "missing_seed_default_value": raw_row.get("missing_seed_default_value"),
+      "minimum_live_value": raw_row.get("minimum_live_value"),
       "allow_zero": _clean_bool(raw_row.get("allow_zero"), default=True),
       "formula_status": _clean_text(raw_row.get("formula_status")).lower() or "active",
       "mapping_status": _clean_text(raw_row.get("mapping_status")).lower() or "active",
@@ -3009,6 +3040,10 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
       row["forecast_presence_rule_key"] = str(formula_defaults.get("forecast_presence_rule_key") or "nonnegative_driver")
     if not row["zero_allowed_reason_key"]:
       row["zero_allowed_reason_key"] = str(formula_defaults.get("zero_allowed_reason_key") or "not_applicable_or_table_optional")
+    if row.get("missing_seed_default_value") is None:
+      row["missing_seed_default_value"] = formula_defaults.get("missing_seed_default_value")
+    if row.get("minimum_live_value") is None:
+      row["minimum_live_value"] = formula_defaults.get("minimum_live_value")
     row["target_metric_name"] = _normalized_metric_id_from_field(row.get("financial_model_field"))
     row["lookup_lever_id"] = _normalized_lookup_key(lever_id)
     row["value_rounding_kind"] = _clean_text((row.get("value_precision") or {}).get("rounding_kind")).lower()
@@ -3862,6 +3897,8 @@ class PostIntakeMappingLookup:
           "business_applicability_key": _clean_text(row.get("business_applicability_key")).lower(),
           "forecast_presence_rule_key": _clean_text(row.get("forecast_presence_rule_key")).lower(),
           "zero_allowed_reason_key": _clean_text(row.get("zero_allowed_reason_key")).lower(),
+          "missing_seed_default_value": row.get("missing_seed_default_value"),
+          "minimum_live_value": row.get("minimum_live_value"),
           "allow_zero": bool(row.get("allow_zero")),
         }
       )

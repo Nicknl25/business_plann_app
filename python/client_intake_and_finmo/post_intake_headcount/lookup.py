@@ -97,6 +97,9 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   "wage_source",
   "wage_source_code",
   "policy_code",
+  "policy_floor_adjustment",
+  "source_context",
+  "adjustment_kind",
 }
 
 _PAYROLL_HEADCOUNT_INTEGER_CURRENCY_FIELDS = {

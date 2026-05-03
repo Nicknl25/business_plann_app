@@ -1751,3 +1751,20 @@ Recent proof point:
 - Inventory formula mismatch.
 
 That is intentional. The new gates are supposed to catch those failures before a run is allowed to complete.
+
+Follow-up class fixes after that gate:
+
+- `post_intak_mapping_lookup` now carries `missing_seed_default_value` and `minimum_live_value` for mapped balance-sheet drivers that need producer-side defaults when intake omitted the seed.
+- `finmo_bridge.py` now applies table-backed missing-seed defaults in both the baseline overlay path and the derived-driver policy path.
+- This specifically prevents AR/AP/prepaids from staying at zero when revenue or operating-expense formula bases make them applicable.
+- Inventory formula validation now uses actual quarter-day counts from the FINMO row date instead of assuming every quarter is 90 days.
+- Payroll now passes an explicit `payroll_required_fte_grid` from `post_intake_headcount_policy_lookup` into the payroll contract context.
+- GPT still chooses supporting-staff roles and OEWS titles, but Python deterministically enforces the SQL policy FTE floor while building the persisted payroll schedule. This prevents repeated off-by-hundredths GPT arithmetic failures.
+
+Latest proof point:
+
+- Persisted E2E source draft `25b8e17eda804fa7a46adf72a3503900` was rerun after these fixes.
+- The E2E completed successfully on clone draft `1d85542db8e54b319d2d20ec61b3eaf7`.
+- Duration was about `99.1` seconds.
+- Final `resolution_summary_status` was `all_cleared`.
+- Final `remaining_issue_count` was `0`.

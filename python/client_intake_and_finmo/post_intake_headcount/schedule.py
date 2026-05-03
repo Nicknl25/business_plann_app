@@ -847,6 +847,169 @@ def _supporting_staff_guardrails_for_gpt(
   return out
 
 
+def _payroll_required_fte_grid_for_gpt(
+  supporting_staff_guardrails: Dict[str, Any],
+  *,
+  horizon: int,
+) -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  for item in supporting_staff_guardrails.get("quarter_rows") or []:
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(item.get("quarter_index") or 0)
+    if quarter_index < 1 or quarter_index > horizon:
+      continue
+    rows.append(
+      {
+        "q": quarter_index,
+        "revenue": int(round(float(item.get("revenue") or 0.0))),
+        "required_supporting_staff_average_fte": round(
+          float(item.get("supporting_staff_minimum_average_fte") or 0.0),
+          2,
+        ),
+        "rule": "sum average_fte=(starting_fte+ending_fte)/2 across supporting-staff rows for this q must be >= this value",
+      }
+    )
+  rows = sorted(rows, key=lambda row: int(row.get("q") or 0))
+  expected = list(range(1, horizon + 1))
+  actual = [int(row.get("q") or 0) for row in rows]
+  if actual != expected:
+    _payroll_fail_fast(
+      "payroll_required_fte_grid_incomplete",
+      (
+        "payroll_required_fte_grid must contain exactly Q1-Q20 from "
+        "post_intake_headcount_policy_lookup before GPT is called."
+      ),
+      stage="payroll_headcount_contract_request",
+      details={"expected_quarters": expected, "actual_quarters": actual},
+    )
+  return rows
+
+
+def _supporting_role_continuity_key(row: Dict[str, Any]) -> str:
+  return "::".join(
+    [
+      str(row.get("staffing_class") or "supporting_staff").strip().lower() or "supporting_staff",
+      _role_key(row.get("role_category")) or "aggregate_staff",
+      str(row.get("oews_occ_title") or row.get("oews_matched_title") or "").strip().lower(),
+    ]
+  )
+
+
+def _enforce_supporting_staff_policy_floor(
+  supporting_rows: Sequence[Dict[str, Any]],
+  *,
+  key_people_rows: Sequence[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  policy: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+  """Apply deterministic SQL policy-floor sizing after GPT picks roles/titles."""
+  horizon = _contract_horizon_quarters()
+  guardrails = _payroll_economic_guardrails(
+    model_input_json=model_input_json,
+    policy=policy,
+  )
+  key_people_average_by_quarter = _average_fte_by_quarter_from_rows(key_people_rows)
+  required_support_by_quarter: Dict[int, float] = {}
+  for item in guardrails.get("quarter_rows") or []:
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(item.get("quarter_index") or 0)
+    if quarter_index < 1 or quarter_index > horizon:
+      continue
+    total_required = round(float(item.get("minimum_average_fte") or 0.0), 2)
+    key_average = round(float(key_people_average_by_quarter.get(quarter_index) or 0.0), 2)
+    required_support_by_quarter[quarter_index] = round(max(0.0, total_required - key_average), 2)
+
+  rows = [deepcopy(row) for row in supporting_rows if isinstance(row, dict)]
+  rows.sort(
+    key=lambda row: (
+      int(row.get("quarter_index") or 0),
+      _supporting_role_continuity_key(row),
+    )
+  )
+  rows_by_quarter: Dict[int, List[Dict[str, Any]]] = {quarter: [] for quarter in range(1, horizon + 1)}
+  for row in rows:
+    quarter_index = int(row.get("quarter_index") or 0)
+    if 1 <= quarter_index <= horizon:
+      rows_by_quarter.setdefault(quarter_index, []).append(row)
+
+  previous_ending_by_role: Dict[str, float] = {}
+  adjustment_rows: List[Dict[str, Any]] = []
+  for quarter_index in range(1, horizon + 1):
+    quarter_rows = rows_by_quarter.get(quarter_index) or []
+    if not quarter_rows:
+      continue
+    for row in quarter_rows:
+      role_key = _supporting_role_continuity_key(row)
+      starting_fte = round(float(previous_ending_by_role.get(role_key, row.get("starting_fte") or 0.0)), 2)
+      ending_fte = round(max(starting_fte, float(row.get("ending_fte") or 0.0)), 2)
+      row["starting_fte"] = starting_fte
+      row["ending_fte"] = ending_fte
+      row["hires"] = round(max(0.0, ending_fte - starting_fte), 2)
+
+    required_support = round(float(required_support_by_quarter.get(quarter_index) or 0.0), 2)
+    actual_support = round(
+      sum((float(row.get("starting_fte") or 0.0) + float(row.get("ending_fte") or 0.0)) / 2.0 for row in quarter_rows),
+      2,
+    )
+    if required_support > 0.0 and actual_support + 0.001 < required_support:
+      target_row = max(
+        quarter_rows,
+        key=lambda row: (
+          float(row.get("ending_fte") or 0.0),
+          float(row.get("starting_fte") or 0.0),
+          str(row.get("role_category") or ""),
+        ),
+      )
+      deficit = round(required_support - actual_support, 2)
+      starting_fte = round(float(target_row.get("starting_fte") or 0.0), 2)
+      current_target_average = round(
+        (starting_fte + float(target_row.get("ending_fte") or 0.0)) / 2.0,
+        2,
+      )
+      target_average = round(current_target_average + deficit, 2)
+      desired_ending = round(max(float(target_row.get("ending_fte") or 0.0), (2.0 * target_average) - starting_fte), 2)
+      while round((starting_fte + desired_ending) / 2.0, 2) + 0.001 < target_average:
+        desired_ending = round(desired_ending + 0.01, 2)
+      target_row["ending_fte"] = desired_ending
+      target_row["hires"] = round(max(0.0, desired_ending - starting_fte), 2)
+      target_row["policy_floor_adjustment"] = {
+        "source_table": "post_intake_headcount_policy_lookup",
+        "source_context": "payroll_required_fte_grid",
+        "quarter_index": quarter_index,
+        "required_supporting_staff_average_fte": required_support,
+        "pre_adjustment_supporting_staff_average_fte": actual_support,
+        "adjustment_kind": "deterministic_policy_floor_sizing",
+      }
+      adjustment_rows.append(
+        {
+          "quarter_index": quarter_index,
+          "role_category": target_row.get("role_category"),
+          "required_supporting_staff_average_fte": required_support,
+          "pre_adjustment_supporting_staff_average_fte": actual_support,
+          "post_adjustment_ending_fte": desired_ending,
+        }
+      )
+
+    for row in quarter_rows:
+      previous_ending_by_role[_supporting_role_continuity_key(row)] = round(float(row.get("ending_fte") or 0.0), 2)
+
+  adjusted = [
+    row
+    for quarter_index in range(1, horizon + 1)
+    for row in rows_by_quarter.get(quarter_index, [])
+  ]
+  if adjustment_rows:
+    _validate_payroll_economic_guardrails(
+      [*key_people_rows, *adjusted],
+      model_input_json=model_input_json,
+      policy=policy,
+      stage="payroll_headcount_policy_floor_enforcement",
+    )
+  return adjusted
+
+
 def _validate_payroll_economic_guardrails(
   rows: Sequence[Dict[str, Any]],
   *,
@@ -989,6 +1152,12 @@ def _build_payroll_headcount_payload_from_contract(
     business_facts=business_facts,
     ops_json=ops_json,
     people_json=people_json,
+  )
+  resolved_supporting_rows = _enforce_supporting_staff_policy_floor(
+    resolved_supporting_rows,
+    key_people_rows=key_people_rows,
+    model_input_json=model_input_json,
+    policy=policy,
   )
   rows = [
     *key_people_rows,
@@ -1156,6 +1325,11 @@ def estimate_payroll_headcount_schedule_with_gpt(
     payroll_economic_guardrails,
     people_json=people_json,
   )
+  horizon = _contract_horizon_quarters()
+  payroll_required_fte_grid = _payroll_required_fte_grid_for_gpt(
+    payroll_supporting_staff_guardrails,
+    horizon=horizon,
+  )
   oews_role_catalog = _oews_role_catalog_for_business(
     business_facts=business_facts,
     ops_json=ops_json,
@@ -1227,6 +1401,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
       }
     },
     "payroll_economic_guardrails": payroll_supporting_staff_guardrails,
+    "payroll_required_fte_grid": payroll_required_fte_grid,
     "revenue_driver_context": _revenue_driver_context_from_model_input(model_input_json, finmo_json=finmo_json),
     "current_model_snapshot": {
       "finmo_revenue_and_payroll_first_4_quarters": [
@@ -1283,7 +1458,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
           "Return a corrected full payroll_headcount_schedule. Do not change stage_ramp_contract. "
           "Select every oews_occ_title exactly from oews_role_catalog.role_candidates. "
           "Increase supporting-staff rows so every quarter average FTE satisfies "
-          "payroll_economic_guardrails.supporting_staff_minimum_average_fte. "
+          "payroll_required_fte_grid.required_supporting_staff_average_fte. "
           "Use average_fte=(starting_fte+ending_fte)/2; matching ending_fte alone is invalid. "
           "Review every violating_quarters item in the failure details; fixing only the first failing quarter is invalid."
         ),
@@ -1307,7 +1482,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "Each oews_occ_title must be an exact occ_title from oews_role_catalog.role_candidates. "
         "Only include roles that carry FTE at some point in the 20-quarter schedule; once a role starts, it must continue through Q20. "
         "Do not provide wages and do not include key people; Python owns those. "
-        "Every quarter's supporting-staff average FTE must satisfy payroll_economic_guardrails.supporting_staff_minimum_average_fte. "
+        "Every quarter's supporting-staff average FTE must satisfy payroll_required_fte_grid.required_supporting_staff_average_fte. "
         "If a prior failure is provided, fix that exact table-backed validation failure."
       ),
     )

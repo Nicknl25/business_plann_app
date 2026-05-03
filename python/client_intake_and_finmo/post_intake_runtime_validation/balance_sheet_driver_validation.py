@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
@@ -121,6 +122,35 @@ def _text_blob(*payloads: Optional[Dict[str, Any]]) -> str:
 
 def _business_text_has_any(text: str, tokens: Tuple[str, ...]) -> bool:
   return any(token in text for token in tokens)
+
+
+def _quarter_days_from_finmo_row(row: Dict[str, Any]) -> float:
+  raw_date = _clean(row.get("date") or row.get("period_date"))
+  parsed: Optional[date] = None
+  if raw_date:
+    try:
+      parsed = datetime.fromisoformat(raw_date[:10]).date()
+    except Exception:
+      parsed = None
+  if parsed is None:
+    year = int(_safe_float(row.get("year") or row.get("period_year")) or 0)
+    quarter = int(_safe_float(row.get("quarter") or row.get("period_quarter")) or 0)
+    month = quarter * 3 if quarter in {1, 2, 3, 4} else 3
+    if year > 0:
+      parsed = date(year, month, 1)
+  if parsed is None:
+    return DAYS_IN_QUARTER
+  quarter = ((parsed.month - 1) // 3) + 1
+  start_month = (quarter - 1) * 3 + 1
+  end_month = start_month + 2
+  next_month = end_month + 1
+  next_year = parsed.year
+  if next_month == 13:
+    next_month = 1
+    next_year += 1
+  start = date(parsed.year, start_month, 1)
+  end_exclusive = date(next_year, next_month, 1)
+  return float(max(1, (end_exclusive - start).days))
 
 
 def _revenue_positive(finmo_rows: List[Dict[str, Any]], financials_json: Optional[Dict[str, Any]]) -> bool:
@@ -438,6 +468,7 @@ def balance_sheet_driver_finalize_errors(
     for quarter_index, finmo_row in enumerate(finmo_rows, start=1):
       value = float(numeric_values[quarter_index - 1] or 0.0)
       if validation_key == "finmo_working_capital_days":
+        days_in_quarter = _quarter_days_from_finmo_row(finmo_row)
         if lever_id == "balance_sheet::Accounts Receivable Days":
           target_field = "accounts_receivable"
           base = float(_safe_float(finmo_row.get("revenue")) or 0.0)
@@ -450,7 +481,7 @@ def balance_sheet_driver_finalize_errors(
             float(_safe_float(finmo_row.get(field)) or 0.0)
             for field in ("marketing", "research_and_development", "lease_rent", "payroll", "general_and_administrative")
           )
-        expected = int(round((value / DAYS_IN_QUARTER) * base))
+        expected = int(round((value / days_in_quarter) * base))
         actual = int(round(float(_safe_float(finmo_row.get(target_field)) or 0.0)))
         if expected != actual:
           errors.append(

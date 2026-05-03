@@ -187,6 +187,53 @@ def _mapping_formula_contract_for_lever(lever_id: Any) -> Optional[Dict[str, Any
   return contract if isinstance(contract, dict) else None
 
 
+def _mapping_missing_seed_default_for_lever(lever_id: Any) -> Optional[float]:
+  contract = _mapping_formula_contract_for_lever(lever_id)
+  if not isinstance(contract, dict):
+    return None
+  value = _safe_float(contract.get("missing_seed_default_value"))
+  return value if value is not None else None
+
+
+def _business_text_has_any(payload: Dict[str, Any], tokens: Sequence[str]) -> bool:
+  try:
+    text = json.dumps(payload if isinstance(payload, dict) else {}, ensure_ascii=False).lower()
+  except Exception:
+    text = str(payload or "").lower()
+  return any(str(token or "").lower() in text for token in tokens)
+
+
+def _deferred_revenue_applicable(ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> bool:
+  tokens = (
+    "subscription",
+    "membership",
+    "retainer",
+    "deposit",
+    "prepaid",
+    "advance payment",
+    "upfront",
+  )
+  return _business_text_has_any(ops_json or {}, tokens) or _business_text_has_any(financials_json or {}, tokens)
+
+
+def _inventory_driver_applicable(ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> bool:
+  if max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0) > 0.0:
+    return True
+  tokens = (
+    "inventory",
+    "retail",
+    "boutique",
+    "shop",
+    "store",
+    "goods",
+    "products",
+    "merchandise",
+    "wholesale",
+    "resale",
+  )
+  return _business_text_has_any(ops_json or {}, tokens)
+
+
 def _full_quarter_scope(slots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
   full_slots = _full_quarter_slots(slots)
   valid_quarter_indices = list(range(1, len(full_slots) + 1))
@@ -1674,6 +1721,9 @@ def _apply_authoritative_working_capital_driver_policies(
     return next_payload
 
   days_in_quarter = 90.0
+  ar_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Receivable Days")
+  inventory_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Inventory Days")
+  ap_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Payable Days")
   revenue_series = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
   cogs_ratio_series = _model_input_live_values_for_label(
     next_payload,
@@ -1739,7 +1789,17 @@ def _apply_authoritative_working_capital_driver_policies(
             "working_capital_days_contract_failed: Accounts Receivable Days requires positive live revenue "
             f"when authoritative opening AR exists. quarter_index={idx + 1} ar_balance_seed={ar_balance_seed} revenue={revenue}"
           )
-        value = (ar_balance_seed / revenue) * days_in_quarter if revenue > 0.0 and ar_balance_seed > 0.0 else 0.0
+        existing_value = (
+          round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
+          if idx < len(existing_live_values)
+          else 0.0
+        )
+        if revenue > 0.0 and ar_balance_seed > 0.0:
+          value = (ar_balance_seed / revenue) * days_in_quarter
+        elif revenue > 0.0 and existing_value <= 0.0 and ar_default_days is not None and ar_default_days > 0.0:
+          value = float(ar_default_days)
+        else:
+          value = existing_value
       elif label == "Inventory Days":
         if inventory_balance_seed > 0.0 and cogs <= 0.0:
           existing_value = (
@@ -1759,14 +1819,34 @@ def _apply_authoritative_working_capital_driver_policies(
           )
           value = existing_value
         else:
-          value = (inventory_balance_seed / cogs) * days_in_quarter if cogs > 0.0 and inventory_balance_seed > 0.0 else 0.0
+          existing_value = (
+            round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
+            if idx < len(existing_live_values)
+            else 0.0
+          )
+          if cogs > 0.0 and inventory_balance_seed > 0.0:
+            value = (inventory_balance_seed / cogs) * days_in_quarter
+          elif cogs > 0.0 and existing_value <= 0.0 and inventory_default_days is not None and inventory_default_days > 0.0:
+            value = float(inventory_default_days)
+          else:
+            value = existing_value
       else:
         if ap_balance_seed > 0.0 and ap_expense_base <= 0.0:
           raise ValueError(
             "working_capital_days_contract_failed: Accounts Payable Days requires positive live AP expense base "
             f"when authoritative opening AP exists. quarter_index={idx + 1} ap_balance_seed={ap_balance_seed} ap_expense_base={ap_expense_base}"
           )
-        value = (ap_balance_seed / ap_expense_base) * days_in_quarter if ap_expense_base > 0.0 and ap_balance_seed > 0.0 else 0.0
+        existing_value = (
+          round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
+          if idx < len(existing_live_values)
+          else 0.0
+        )
+        if ap_expense_base > 0.0 and ap_balance_seed > 0.0:
+          value = (ap_balance_seed / ap_expense_base) * days_in_quarter
+        elif ap_expense_base > 0.0 and existing_value <= 0.0 and ap_default_days is not None and ap_default_days > 0.0:
+          value = float(ap_default_days)
+        else:
+          value = existing_value
       if (
         (label == "Accounts Receivable Days" and ar_balance_seed > 0.0)
         or (label == "Inventory Days" and inventory_balance_seed > 0.0 and cogs > 0.0)
@@ -1830,6 +1910,118 @@ def _apply_authoritative_working_capital_driver_policies(
         "rows": runtime_rows,
         "pending_dependency_rows": pending_dependency_rows,
       }
+  return next_payload
+
+
+def _apply_table_backed_balance_sheet_presence_defaults(
+  model_input_json: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+) -> Dict[str, Any]:
+  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  if not isinstance(sections, dict):
+    return next_payload
+  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
+  if not balance_rows:
+    return next_payload
+  revenue_series = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
+  cogs_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Cost of Goods Sold",
+    live_count=live_count,
+  )
+  marketing_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Marketing",
+    live_count=live_count,
+  )
+  r_and_d_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Research & Development",
+    live_count=live_count,
+  )
+  lease_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Lease",
+    live_count=live_count,
+  )
+  payroll_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="Payroll",
+    live_count=live_count,
+  )
+  g_and_a_ratio_series = _model_input_live_values_for_label(
+    next_payload,
+    section_key="expenses",
+    label="General & Administrative",
+    live_count=live_count,
+  )
+  default_by_label = {
+    "Accounts Receivable Days": _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Receivable Days"),
+    "Accounts Payable Days": _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Payable Days"),
+    "Prepaid Expenses (% of Revenue)": _mapping_missing_seed_default_for_lever("balance_sheet::Prepaid Expenses (% of Revenue)"),
+  }
+  runtime_rows: List[Dict[str, Any]] = []
+  for row in balance_rows:
+    label = str(row.get("label") or "").strip()
+    default_value = default_by_label.get(label)
+    if default_value is None or default_value <= 0.0:
+      continue
+    stub_value, existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    live_values: List[float] = []
+    changed_quarters: List[int] = []
+    for idx in range(max(0, live_count)):
+      revenue = max(0.0, float(revenue_series[idx]) if idx < len(revenue_series) else 0.0)
+      cogs_ratio = max(0.0, float(cogs_ratio_series[idx]) if idx < len(cogs_ratio_series) else 0.0)
+      marketing_ratio = max(0.0, float(marketing_ratio_series[idx]) if idx < len(marketing_ratio_series) else 0.0)
+      r_and_d_ratio = max(0.0, float(r_and_d_ratio_series[idx]) if idx < len(r_and_d_ratio_series) else 0.0)
+      lease = max(0.0, float(lease_series[idx]) if idx < len(lease_series) else 0.0)
+      payroll = max(0.0, float(payroll_series[idx]) if idx < len(payroll_series) else 0.0)
+      g_and_a_ratio = max(0.0, float(g_and_a_ratio_series[idx]) if idx < len(g_and_a_ratio_series) else 0.0)
+      ap_expense_base = (revenue * marketing_ratio) + (revenue * r_and_d_ratio) + lease + payroll + (revenue * g_and_a_ratio)
+      existing_value = (
+        round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
+        if idx < len(existing_live_values)
+        else 0.0
+      )
+      should_apply = (
+        (label == "Accounts Receivable Days" and revenue > 0.0)
+        or (label == "Accounts Payable Days" and ap_expense_base > 0.0)
+        or (label == "Prepaid Expenses (% of Revenue)" and revenue > 0.0)
+      )
+      if should_apply and existing_value <= 0.0:
+        live_values.append(round(float(default_value), 6))
+        changed_quarters.append(idx + 1)
+      else:
+        live_values.append(existing_value)
+    if changed_quarters:
+      row["derived_driver"] = "mapping_table_missing_seed_presence_default"
+      row["mapping_table_presence_default"] = {
+        "source_table": "post_intak_mapping_lookup",
+        "default_column": "missing_seed_default_value",
+        "lever_id": str(row.get("lever_id") or "").strip(),
+        "changed_quarters": changed_quarters,
+      }
+      row["values"] = _compose_period_values(stub_value=stub_value, live_values=live_values)
+      runtime_rows.append(
+        {
+          "lever_id": str(row.get("lever_id") or "").strip(),
+          "label": label,
+          "default_value": round(float(default_value), 6),
+          "changed_quarters": changed_quarters,
+        }
+      )
+  if runtime_rows and isinstance(next_payload.get("derived_driver_runtime"), dict):
+    next_payload["derived_driver_runtime"]["mapping_table_balance_sheet_presence_defaults"] = {
+      "source_table": "post_intak_mapping_lookup",
+      "rows": runtime_rows,
+    }
   return next_payload
 
 
@@ -1915,6 +2107,10 @@ def apply_derived_driver_policies_to_model_input(
   )
 
   next_payload = _apply_authoritative_working_capital_driver_policies(
+    next_payload,
+    live_count=live_count,
+  )
+  next_payload = _apply_table_backed_balance_sheet_presence_defaults(
     next_payload,
     live_count=live_count,
   )
@@ -3164,6 +3360,13 @@ def _build_model_input_overlay(
   inventory_balance_seed = max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0)
   ap_balance_seed = max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0)
   days_in_quarter = 90.0
+  ar_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Receivable Days")
+  inventory_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Inventory Days")
+  ap_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Payable Days")
+  prepaid_default_ratio = _mapping_missing_seed_default_for_lever("balance_sheet::Prepaid Expenses (% of Revenue)")
+  deferred_default_ratio = _mapping_missing_seed_default_for_lever("balance_sheet::Deferred Revenue (% of Revenue)")
+  inventory_driver_applicable = _inventory_driver_applicable(ops_json or {}, financials_json or {})
+  deferred_revenue_applicable = _deferred_revenue_applicable(ops_json or {}, financials_json or {})
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
     values: List[float] = []
@@ -3183,23 +3386,58 @@ def _build_model_input_overlay(
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
         else:
-          values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6) if revenue > 0.0 and ar_balance_seed > 0.0 else 0.0)
+          if revenue > 0.0 and ar_balance_seed > 0.0:
+            values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
+          elif revenue > 0.0 and ar_default_days is not None and ar_default_days > 0.0:
+            values.append(round(float(ar_default_days), 6))
+          else:
+            values.append(0.0)
       elif label == "Inventory Days":
         explicit_value = _safe_float(working_capital.get("inventory_days"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
         else:
-          values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6) if cogs > 0.0 and inventory_balance_seed > 0.0 else 0.0)
+          if cogs > 0.0 and inventory_balance_seed > 0.0:
+            values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
+          elif cogs > 0.0 and inventory_driver_applicable and inventory_default_days is not None and inventory_default_days > 0.0:
+            values.append(round(float(inventory_default_days), 6))
+          else:
+            values.append(0.0)
       elif label == "Accounts Payable Days":
         explicit_value = _safe_float(working_capital.get("dpo"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
         else:
-          values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6) if ap_expense_base > 0.0 and ap_balance_seed > 0.0 else 0.0)
+          if ap_expense_base > 0.0 and ap_balance_seed > 0.0:
+            values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
+          elif ap_expense_base > 0.0 and ap_default_days is not None and ap_default_days > 0.0:
+            values.append(round(float(ap_default_days), 6))
+          else:
+            values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":
-        values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
+        existing = (
+          _safe_float(base_values[min(slot_idx, len(base_values) - 1)])
+          if base_values
+          else None
+        )
+        if existing is not None and existing > 0.0:
+          values.append(round(existing, 6))
+        elif revenue > 0.0 and prepaid_default_ratio is not None and prepaid_default_ratio > 0.0:
+          values.append(round(float(prepaid_default_ratio), 6))
+        else:
+          values.append(0.0)
       elif label == "Deferred Revenue (% of Revenue)":
-        values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
+        existing = (
+          _safe_float(base_values[min(slot_idx, len(base_values) - 1)])
+          if base_values
+          else None
+        )
+        if existing is not None and existing > 0.0:
+          values.append(round(existing, 6))
+        elif revenue > 0.0 and deferred_revenue_applicable and deferred_default_ratio is not None and deferred_default_ratio > 0.0:
+          values.append(round(float(deferred_default_ratio), 6))
+        else:
+          values.append(0.0)
       elif label == "Short Term Debt (% of LTD)":
         short_term_ratio = _ratio((financials_json or {}).get("short_term_debt"), (financials_json or {}).get("total_debt_outstanding"))
         values.append(round(short_term_ratio, 6))

@@ -358,8 +358,15 @@ If an E2E failure appears after the golden baseline:
 Payroll, debt, and depreciation schedules are now part of the standard:
 
 - Payroll must come from the `payroll_headcount_schedule` contract and headcount schedule application.
+- Payroll role/title judgment belongs to GPT, but table-policy arithmetic belongs to Python. If `post_intake_headcount_policy_lookup` defines a required FTE floor, Python must size the persisted schedule to satisfy that floor after GPT selects role/OEWS title rows.
 - Debt must come from the cash debt schedule policy and persist into `intake_consult_drafts.debt_schedule`.
 - Depreciation must come from the deterministic capex/depreciation schedule.
 - If any schedule is missing, bypassed, or contradicted, fail fast.
+
+Balance-sheet presence defaults are also part of the standard:
+
+- If `post_intak_mapping_lookup` says a mapped balance-sheet driver is applicable and provides `missing_seed_default_value`, Python must apply that table value when intake/stub omitted the live forecast driver.
+- AR, AP, and prepaid expenses cannot remain zero merely because intake omitted AR/AP/prepaids when revenue or operating-expense formula bases exist.
+- This is not a fallback around validation. It is producer-side table-backed initialization/derived-driver behavior, and finalize validation must still prove FINMO reconciles to the resulting model-input driver values.
 
 This baseline exists so future Codex sessions know what "working correctly" means before touching new failures.
