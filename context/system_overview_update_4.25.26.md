@@ -1818,3 +1818,48 @@ Next session starting point:
 - Rerun `Test Files/run_persisted_system_run.py --draft-id 63e3cc69231f492490e7a6bf37efb0e6`.
 - If it fails again, first inspect why the backend process disconnected instead of returning a structured fail-fast payload.
 - Treat unstructured backend disconnects as a runtime stability bug. The app should surface table-backed fail-fast diagnostics, not silently drop the connection.
+
+## Update: 2026-05-03 Debt Schedule Subsystem Separation
+
+The debt schedule is now intended to be a first-class post-intake subsystem, not cash-runner inline math.
+
+New ownership:
+
+- Folder: `python/client_intake_and_finmo/post_intake_debt_schedule/`
+- Main file: `schedule.py`
+- Cash pass calls this subsystem for:
+- SQL cash-policy lookup by strategy/debt position
+- SBA-backed forecast interest-rate policy validation
+- opening debt seed selection
+- amortizing Q1-Q20 debt schedule construction
+- minimum principal exact updates
+- short-term debt current-portion exact updates
+- post-cash debt schedule validation
+- final persisted debt schedule snapshot
+
+Important behavior:
+
+- All debt is routed through the amortizing schedule.
+- New borrowing layers into the quarter where it occurs.
+- Principal available for repayment is `opening principal + new borrowing`.
+- Required principal uses the SQL cash policy method `amortizing_remaining_balance`.
+- Cash strategy can add extra paydown, but cannot skip the schedule minimum.
+- Interest rate must come from the SBA-backed debt interest-rate policy.
+- FINMO shape remains unchanged. Python writes existing model-input drivers, and FINMO calculates debt/interest outputs.
+
+Golden Rule addition:
+
+- Where necessary and practical, do not keep deterministic behavior inline in phase runners.
+- Use named functions that call lookup tables.
+- Inline code should be orchestration/glue only.
+
+Validation additions:
+
+- Post-intake finalize validation now delegates debt schedule reconciliation to the debt schedule subsystem.
+- Post-intake global fail-fast can validate a provided debt schedule against the SQL cash-policy lookup and FINMO.
+- Cash post-validation also calls the debt schedule subsystem to verify debt schedule payload, minimum principal, and current-portion short-term debt behavior.
+
+Operational status:
+
+- Syntax checks passed for the new debt subsystem, cash runner, finalize validation, fail-fast, and mapping files.
+- This change still needs live E2E verification.

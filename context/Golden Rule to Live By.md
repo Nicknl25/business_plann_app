@@ -34,6 +34,10 @@ If code conflicts with the tables, the code is legacy and should be converted or
 
 If a table is missing metadata needed to make behavior deterministic, add columns or rows to the table instead of hardcoding around it.
 
+Where necessary and practical, do not put deterministic behavior inline in phase runners.
+
+Use named functions that call lookup tables. Inline code should be thin orchestration, simple glue, or execution of a table-selected formula/function. If a phase runner starts owning business rules, schedule rules, contract rules, mapping rules, validation rules, or sequence rules directly, that logic should be moved behind a table-backed function or deleted.
+
 `intake_consult.py` should be intake/API orchestration only.
 
 Post-intake behavior belongs in post-intake folders with functions that route through the lookup tables wherever appropriate.
@@ -146,6 +150,9 @@ Debt schedule detail:
 
 - Debt must be handled through the SQL-backed cash policy and debt schedule process.
 - The debt schedule method is `amortizing_remaining_balance`.
+- The debt schedule subsystem lives in `python/client_intake_and_finmo/post_intake_debt_schedule/`.
+- Cash pass calls the debt schedule subsystem; cash pass does not own debt amortization math.
+- New borrowing layers into the schedule in the quarter it occurs. The schedule then calculates available principal, required amortizing principal, extra principal paydown, closing principal, interest, debt service, and current-portion short-term debt across Q1-Q20.
 - Outstanding principal balance must decline quarter by quarter whenever debt exists and no new borrowing occurs.
 - Interest must be derived from the SBA-backed forecast interest rate policy and remaining debt balance.
 - Model input and FINMO do not change shape: Python writes the existing Interest Rate, Debt Issuance, Debt Repayment, and Short Term Debt driver rows; FINMO calculates from those drivers.

@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 logger = logging.getLogger(__name__)
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-  post_intake_cash_debt_schedule_policy,
   post_intake_cash_policy_errors,
   post_intake_cash_policy_phase_sequence,
   post_intake_build_prompt_from_contract,
@@ -29,6 +28,16 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
 from client_intake_and_finmo.post_intake_cash.common import assert_cash_envelope_lifecycle  # type: ignore
 from client_intake_and_finmo.post_intake_cash.planning_envelope import build_cash_planning_envelope  # type: ignore
 from client_intake_and_finmo.post_intake_cash.validation_envelope import build_cash_validation_envelope  # type: ignore
+from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
+  apply_minimum_debt_schedule as _debt_schedule_apply_minimum,
+  apply_short_term_debt_current_portion as _debt_schedule_apply_short_term_current_portion,
+  build_debt_schedule_plan as _debt_schedule_build_plan,
+  build_debt_schedule_snapshot as _debt_schedule_build_snapshot,
+  cash_debt_schedule_policy_for_state as _debt_schedule_policy_for_state,
+  debt_opening_seed as _debt_schedule_opening_seed,
+  sba_forecast_interest_rate_policy as _debt_schedule_sba_interest_policy,
+  validate_debt_schedule_post_cash_state as _debt_schedule_validate_post_cash_state,
+)
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
   CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
 )
@@ -155,7 +164,6 @@ __all__ = [
   "_cash_strategy_debt_schedule_snapshot",
   "_cash_strategy_debt_schedule_policy_for_state",
   "_cash_strategy_debt_opening_seed",
-  "_cash_strategy_annual_principal_from_financials",
   "_cash_pass_minimum_debt_schedule_plan",
   "_apply_cash_pass_minimum_debt_schedule",
   "_cash_strategy_buffer_components",
@@ -678,128 +686,26 @@ def _cash_strategy_debt_schedule_snapshot(
   finmo_payload: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  rows_by_quarter = {
-    int(_safe_float(row.get("quarter_index")) or 0): row
-    for row in _cash_strategy_live_quarter_rows(finmo_payload)
-    if int(_safe_float(row.get("quarter_index")) or 0) >= 1
-  }
-  lever_map = _solved_lever_value_map(model_input_json)
-  debt_issuance_series = [
-    int(round(float(_safe_float(value) or 0.0)))
-    for value in (lever_map.get(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID) or [])
-  ]
-  debt_repayment_series = [
-    int(round(float(_safe_float(value) or 0.0)))
-    for value in (lever_map.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
-  ]
-  interest_rate_series = [
-    round(float(_safe_float(value) or 0.0), 6)
-    for value in (lever_map.get("expenses::Interest Rate") or [])
-  ]
-  schedule_rows: List[Dict[str, Any]] = []
-  for quarter_index in sorted(rows_by_quarter.keys()):
-    row = rows_by_quarter.get(quarter_index) or {}
-    opening_debt = int(round(float(_safe_float(row.get("debt_opening_balance")) or 0.0)))
-    requested_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
-    requested_repayment = int(debt_repayment_series[quarter_index - 1] if quarter_index - 1 < len(debt_repayment_series) else 0)
-    actual_issuance = int(round(float(_safe_float(row.get("debt_issuance")) or 0.0)))
-    actual_repayment = int(round(float(_safe_float(row.get("debt_repayment")) or 0.0)))
-    closing_debt = int(round(float(_safe_float(row.get("debt_closing_balance")) or _safe_float(row.get("long_term_debt")) or 0.0)))
-    interest_rate = round(
-      float(
-        _safe_float(row.get("debt_interest_rate"))
-        if _safe_float(row.get("debt_interest_rate")) is not None
-        else (
-          interest_rate_series[quarter_index - 1]
-          if quarter_index - 1 < len(interest_rate_series)
-          else 0.0
-        )
-      ),
-      6,
-    )
-    interest_expense = int(round(float(_safe_float(row.get("debt_interest_expense")) or _safe_float(row.get("interest")) or 0.0)))
-    schedule_rows.append(
-      {
-        "quarter_index": quarter_index,
-        "date": row.get("date"),
-        "opening_debt": opening_debt,
-        "requested_debt_issuance": requested_issuance,
-        "actual_debt_issuance": actual_issuance,
-        "requested_debt_repayment": requested_repayment,
-        "actual_debt_repayment": actual_repayment,
-        "closing_debt": closing_debt,
-        "interest_rate": interest_rate,
-        "interest_expense": interest_expense,
-        "available_debt_before_repayment": int(max(0, opening_debt + actual_issuance)),
-        "finmo_formula": "closing_debt = max(0, opening_debt + debt_issuance - debt_repayment); interest = average(opening_debt, closing_debt) * interest_rate",
-      }
-    )
-  return {
-    "contract_version": "cash_strategy_debt_schedule_snapshot_v1",
-    "schedule_role": "diagnostic_and_conversion_basis_for_existing_model_input_debt_rows",
-    "finmo_formula_unchanged": True,
-    "model_input_drivers": [
-      "expenses::Interest Rate",
-      _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID,
-      _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
-    ],
-    "rows": schedule_rows,
-  }
+  return _debt_schedule_build_snapshot(
+    finmo_payload=copy.deepcopy(finmo_payload or {}),
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    source_stage="cash_strategy_snapshot",
+  )
 
 def _cash_strategy_debt_schedule_policy_for_state(
   *,
   selected_cash_strategy: Any,
   finmo_payload: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  rows = _cash_strategy_live_quarter_rows(finmo_payload)
-  first_row = rows[0] if rows else {}
-  capital_structure = _cash_strategy_capital_structure_snapshot(first_row)
-  return post_intake_cash_debt_schedule_policy(
-    cash_strategy=_canonical_cash_strategy_value(selected_cash_strategy) or "balanced",
-    debt_to_equity=capital_structure.get("debt_to_equity"),
-    debt_position=capital_structure.get("debt_position"),
-    required=True,
-  ) or {}
+  return _debt_schedule_policy_for_state(
+    selected_cash_strategy=_canonical_cash_strategy_value(selected_cash_strategy) or "balanced",
+    finmo_payload=copy.deepcopy(finmo_payload or {}),
+  )
 
 def _cash_strategy_sba_forecast_interest_rate_policy(
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  model_input = model_input_json if isinstance(model_input_json, dict) else {}
-  derived_policies = (
-    model_input.get("derived_driver_policies")
-    if isinstance(model_input.get("derived_driver_policies"), dict)
-    else {}
-  )
-  debt_rate_policy = (
-    derived_policies.get("debt_interest_rate_policy")
-    if isinstance(derived_policies.get("debt_interest_rate_policy"), dict)
-    else {}
-  )
-  debt_rate_source = (
-    debt_rate_policy.get("source_detail")
-    if isinstance(debt_rate_policy.get("source_detail"), dict)
-    else {}
-  )
-  if not debt_rate_policy:
-    raise RuntimeError(
-      "cash_debt_interest_rate_policy_missing: forecast Q1-Q20 interest rates must be backed by SBA 7(a) policy"
-    )
-  if str(debt_rate_source.get("source") or "").strip() != "sba_loan_7a_raw":
-    raise RuntimeError(
-      "cash_debt_interest_rate_policy_not_sba_backed: forecast Q1-Q20 interest rates must use sba_loan_7a_raw"
-    )
-  annual_rate = _safe_float(debt_rate_policy.get("annual_rate_decimal"))
-  if annual_rate is None:
-    annual_rate = _safe_float(debt_rate_source.get("annual_rate_decimal"))
-  if annual_rate is None or float(annual_rate) <= 0.0:
-    raise RuntimeError(
-      "cash_debt_interest_rate_policy_rate_missing: SBA-backed annual_rate_decimal must be positive"
-    )
-  return {
-    "policy": copy.deepcopy(debt_rate_policy),
-    "source_detail": copy.deepcopy(debt_rate_source),
-    "annual_rate_decimal": round(float(annual_rate), 6),
-  }
+  return _debt_schedule_sba_interest_policy(copy.deepcopy(model_input_json or {}))
 
 def _cash_strategy_debt_opening_seed(
   *,
@@ -807,56 +713,10 @@ def _cash_strategy_debt_opening_seed(
   finmo_payload: Optional[Dict[str, Any]],
   financials_json: Optional[Dict[str, Any]],
 ) -> int:
-  model_input = model_input_json if isinstance(model_input_json, dict) else {}
-  sections = model_input.get("sections") if isinstance(model_input.get("sections"), dict) else {}
-  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
-  seed = _safe_float(schedules.get("debt_opening_balance_seed"))
-  if seed is not None:
-    return int(round(max(0.0, float(seed))))
-  rows = _cash_strategy_live_quarter_rows(finmo_payload)
-  if rows:
-    opening = _safe_float(rows[0].get("debt_opening_balance"))
-    if opening is not None:
-      return int(round(max(0.0, float(opening))))
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  return int(round(max(0.0, float(_safe_float(financials.get("total_debt_outstanding")) or 0.0))))
-
-def _cash_strategy_annual_principal_from_financials(
-  *,
-  financials_json: Optional[Dict[str, Any]],
-  policy: Optional[Dict[str, Any]],
-  opening_debt: int,
-) -> Tuple[int, str]:
-  if int(opening_debt or 0) <= 0:
-    return 0, "no_opening_debt"
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  policy_payload = policy if isinstance(policy, dict) else {}
-  source_priority = [
-    str(item or "").strip()
-    for item in (policy_payload.get("debt_min_principal_source_priority") or [])
-    if str(item or "").strip()
-  ] or ["financials.annual_principal_payment"]
-  for source in source_priority:
-    if source == "financials.annual_principal_payment":
-      value = int(round(max(0.0, float(_safe_float(financials.get("annual_principal_payment")) or 0.0))))
-      if value > 0:
-        return value, source
-    if source == "financials.other_monthly_debt_payments_minus_annual_interest_payment":
-      monthly_payment = max(0.0, float(_safe_float(financials.get("other_monthly_debt_payments")) or 0.0))
-      annual_interest = max(0.0, float(_safe_float(financials.get("annual_interest_payment")) or 0.0))
-      value = int(round(max(0.0, monthly_payment * 12.0 - annual_interest)))
-      if value > 0:
-        return value, source
-    if source == "policy.amortizing_remaining_balance_over_contract_horizon":
-      horizon_quarters = int(_safe_float(policy_payload.get("debt_schedule_horizon_quarters")) or 0)
-      if horizon_quarters > 0:
-        value = int(round(float(opening_debt) / (horizon_quarters / 4.0)))
-        if value > 0:
-          return value, source
-  raise RuntimeError(
-    "cash_debt_schedule_minimum_principal_missing: "
-    "opening debt exists, but no positive annual principal source was available. "
-    f"opening_debt={int(opening_debt)} source_priority={source_priority}"
+  return _debt_schedule_opening_seed(
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    finmo_payload=copy.deepcopy(finmo_payload or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
   )
 
 def _cash_pass_minimum_debt_schedule_plan(
@@ -866,216 +726,23 @@ def _cash_pass_minimum_debt_schedule_plan(
   financials_json: Optional[Dict[str, Any]],
   selected_cash_strategy: Any,
 ) -> Dict[str, Any]:
-  policy = _cash_strategy_debt_schedule_policy_for_state(
-    selected_cash_strategy=selected_cash_strategy,
-    finmo_payload=finmo_payload,
+  return _debt_schedule_build_plan(
+    model_input_json=copy.deepcopy(model_input_json or {}),
+    finmo_payload=copy.deepcopy(finmo_payload or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    selected_cash_strategy=_canonical_cash_strategy_value(selected_cash_strategy) or "balanced",
   )
-  if str(policy.get("debt_schedule_method") or "").strip().lower() != "amortizing_remaining_balance":
-    raise RuntimeError(
-      "cash_debt_schedule_policy_invalid: debt_schedule_method must be amortizing_remaining_balance"
-    )
-  if not bool(policy.get("debt_schedule_required", True)):
-    raise RuntimeError(
-      "cash_debt_schedule_policy_invalid: debt_schedule_required must be true"
-    )
-  horizon_count = _cash_contract_horizon_quarters()
-  if int(_safe_float(policy.get("debt_schedule_horizon_quarters")) or 0) != horizon_count:
-    raise RuntimeError(
-      "cash_debt_schedule_policy_invalid: "
-      f"debt_schedule_horizon_quarters must match cash_strategy_review contract horizon ({horizon_count})"
-    )
-  opening_debt_seed = _cash_strategy_debt_opening_seed(
-    model_input_json=model_input_json,
-    finmo_payload=finmo_payload,
-    financials_json=financials_json,
-  )
-  lever_map = _solved_lever_value_map(model_input_json)
-  debt_issuance_series = [
-    int(round(max(0.0, float(_safe_float(value) or 0.0))))
-    for value in (lever_map.get(_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID) or [])
-  ]
-  current_repayment_series = [
-    int(round(max(0.0, float(_safe_float(value) or 0.0))))
-    for value in (lever_map.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
-  ]
-  interest_rate_policy = _cash_strategy_sba_forecast_interest_rate_policy(model_input_json)
-  forecast_interest_rate = round(float(interest_rate_policy.get("annual_rate_decimal") or 0.0), 6)
-  rows: List[Dict[str, Any]] = []
-  exact_updates: List[Dict[str, Any]] = []
-  if opening_debt_seed <= 0 and not any(debt_issuance_series):
-    for quarter_index in range(1, horizon_count + 1):
-      exact_updates.append(
-        {
-          "lever_id": "expenses::Interest Rate",
-          "quarter_index": quarter_index,
-          "exact_value": forecast_interest_rate,
-          "issue_codes": ["funding_structure_mismatch"],
-          "rationale": "Forecast Q1-Q20 interest-rate driver must use the SBA 7(a)-backed policy rate; stub Q0 remains intake history.",
-        }
-      )
-    return {
-      "contract_version": "cash_debt_schedule_plan_v2",
-      "status": "skipped_no_debt",
-      "source_of_truth": policy.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
-      "lookup_function": policy.get("lookup_function") or "post_intake_cash_debt_schedule_policy",
-      "policy": copy.deepcopy(policy),
-      "interest_rate_policy": copy.deepcopy(interest_rate_policy),
-      "opening_debt_seed": 0,
-      "annual_principal_payment": 0,
-      "quarterly_minimum_principal": 0,
-      "rows": rows,
-      "exact_updates": exact_updates,
-    }
-  annual_principal, annual_principal_source = _cash_strategy_annual_principal_from_financials(
-    financials_json=financials_json,
-    policy=policy,
-    opening_debt=opening_debt_seed,
-  )
-  contractual_quarterly_floor = int(round(max(0.0, float(annual_principal)) / 4.0))
-  if contractual_quarterly_floor <= 0 and opening_debt_seed > 0:
-    raise RuntimeError(
-      "cash_debt_schedule_quarterly_minimum_zero: opening debt exists but computed quarterly principal is zero"
-    )
-  opening_debt = int(opening_debt_seed)
-  for quarter_index in range(1, horizon_count + 1):
-    current_issuance = int(debt_issuance_series[quarter_index - 1] if quarter_index - 1 < len(debt_issuance_series) else 0)
-    current_repayment = int(current_repayment_series[quarter_index - 1] if quarter_index - 1 < len(current_repayment_series) else 0)
-    available_debt = int(max(0, opening_debt + current_issuance))
-    remaining_quarters = max(1, horizon_count - quarter_index + 1)
-    amortizing_minimum = int(math.ceil(float(available_debt) / float(remaining_quarters))) if available_debt > 0 else 0
-    minimum_principal = int(
-      min(
-        available_debt,
-        max(
-          contractual_quarterly_floor if available_debt > 0 else 0,
-          amortizing_minimum,
-        ),
-      )
-    )
-    scheduled_principal = int(max(current_repayment, minimum_principal))
-    scheduled_principal = int(min(available_debt, scheduled_principal))
-    closing_debt = int(max(0, available_debt - scheduled_principal))
-    interest_rate = forecast_interest_rate
-    if available_debt > 0 and interest_rate <= 0.0:
-      raise RuntimeError(
-        "cash_debt_schedule_interest_rate_missing: "
-        f"Q{quarter_index} has debt outstanding but expenses::Interest Rate is not positive"
-      )
-    interest_estimate = int(round(((opening_debt + closing_debt) / 2.0) * interest_rate))
-    exact_updates.append(
-      {
-        "lever_id": _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
-        "quarter_index": quarter_index,
-        "exact_value": scheduled_principal,
-        "issue_codes": ["funding_structure_mismatch"],
-        "rationale": "SQL cash-policy minimum debt schedule floor; cash strategy may add extra paydown but may not skip required principal.",
-      }
-    )
-    if interest_rate > 0.0:
-      exact_updates.append(
-        {
-          "lever_id": "expenses::Interest Rate",
-          "quarter_index": quarter_index,
-          "exact_value": interest_rate,
-          "issue_codes": ["funding_structure_mismatch"],
-          "rationale": "Forecast Q1-Q20 interest-rate driver must use the SBA 7(a)-backed policy rate; stub Q0 remains intake history.",
-        }
-      )
-    rows.append(
-      {
-        "quarter_index": quarter_index,
-        "opening_debt": opening_debt,
-        "new_borrowing": current_issuance,
-        "minimum_principal_payment": minimum_principal,
-        "amortizing_minimum_principal": amortizing_minimum,
-        "contractual_quarterly_floor": contractual_quarterly_floor,
-        "remaining_amortization_quarters": remaining_quarters,
-        "extra_principal_payment": int(max(0, scheduled_principal - minimum_principal)),
-        "total_principal_payment": scheduled_principal,
-        "closing_debt": closing_debt,
-        "annual_interest_rate": interest_rate,
-        "estimated_interest_expense": interest_estimate,
-        "principal_source": annual_principal_source,
-      }
-    )
-    opening_debt = closing_debt
-  return {
-    "contract_version": "cash_debt_schedule_plan_v2",
-    "status": "ready",
-    "source_of_truth": policy.get("source_of_truth") or "sql.post_intake_cash_policy_lookup",
-    "lookup_function": policy.get("lookup_function") or "post_intake_cash_debt_schedule_policy",
-    "policy": copy.deepcopy(policy),
-    "interest_rate_policy": copy.deepcopy(interest_rate_policy),
-    "opening_debt_seed": int(opening_debt_seed),
-    "annual_principal_payment": int(annual_principal),
-    "annual_principal_source": annual_principal_source,
-    "quarterly_minimum_principal": int(contractual_quarterly_floor),
-    "schedule_method": "amortizing_remaining_balance",
-    "model_input_rows_written": [
-      _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
-      "expenses::Interest Rate",
-    ],
-    "rows": rows,
-    "exact_updates": exact_updates,
-  }
 
 def _apply_cash_pass_minimum_debt_schedule(
   *,
   cash_strategy_result: Optional[Dict[str, Any]],
   financials_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  result = copy.deepcopy(cash_strategy_result if isinstance(cash_strategy_result, dict) else {})
-  model_input_json = result.get("updated_model_input_json") if isinstance(result.get("updated_model_input_json"), dict) else {}
-  finmo_json = result.get("updated_finmo_json") if isinstance(result.get("updated_finmo_json"), dict) else {}
-  if not model_input_json or not finmo_json:
-    return result
-  try:
-    from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
-  except Exception:
-    from numeric_execution import execute_numeric_plan  # type: ignore
-  selected_cash_strategy = _resolved_cash_strategy(financials_json)
-  schedule_plan = _cash_pass_minimum_debt_schedule_plan(
-    model_input_json=copy.deepcopy(model_input_json),
-    finmo_payload=copy.deepcopy(finmo_json),
+  return _debt_schedule_apply_minimum(
+    cash_strategy_result=copy.deepcopy(cash_strategy_result or {}),
     financials_json=copy.deepcopy(financials_json or {}),
-    selected_cash_strategy=selected_cash_strategy,
+    selected_cash_strategy=_resolved_cash_strategy(financials_json),
   )
-  exact_updates = [
-    copy.deepcopy(item)
-    for item in (schedule_plan.get("exact_updates") or [])
-    if isinstance(item, dict)
-  ]
-  if not exact_updates:
-    result["minimum_debt_schedule_policy"] = copy.deepcopy(schedule_plan)
-    return result
-  execution_result = execute_numeric_plan(
-    model_input_json=copy.deepcopy(model_input_json),
-    exact_updates=copy.deepcopy(exact_updates),
-    numeric_solver_contract={
-      "pass_name": "cash_strategy_review",
-      "contract_scope": "cash_pass_minimum_debt_schedule",
-      "solver_phase_status": "phase_6_cash_strategy_solver_live",
-      "solver_settings": {"max_solver_attempts_per_pass": 1},
-    },
-    review_plan=None,
-    phase_status="phase_6_cash_strategy_solver_live",
-    executor_context={
-      "source": "_apply_cash_pass_minimum_debt_schedule",
-      "execution_mode": "deterministic_minimum_debt_schedule",
-    },
-  )
-  result["updated_model_input_json"] = execution_result.get("updated_model_input_json") or model_input_json
-  result["updated_finmo_json"] = execution_result.get("updated_finmo_json") or finmo_json
-  result["minimum_debt_schedule_policy"] = copy.deepcopy(schedule_plan)
-  applied_updates = [
-    copy.deepcopy(item)
-    for item in (result.get("applied_updates") or [])
-    if isinstance(item, dict)
-  ]
-  result["applied_updates"] = applied_updates + copy.deepcopy(exact_updates)
-  result["applied_update_count"] = len(result["applied_updates"])
-  result["applied_control_count"] = len(result["applied_updates"])
-  return result
 
 def _cash_strategy_buffer_components(
   row: Optional[Dict[str, Any]],
@@ -4125,99 +3792,9 @@ def _apply_cash_pass_short_term_debt_current_portion(
   *,
   cash_strategy_result: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  result = copy.deepcopy(cash_strategy_result if isinstance(cash_strategy_result, dict) else {})
-  model_input_json = result.get("updated_model_input_json") if isinstance(result.get("updated_model_input_json"), dict) else {}
-  finmo_json = result.get("updated_finmo_json") if isinstance(result.get("updated_finmo_json"), dict) else {}
-  if not model_input_json or not finmo_json:
-    return result
-  try:
-    from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
-  except Exception:
-    from numeric_execution import execute_numeric_plan  # type: ignore
-  lever_values = _solved_lever_value_map(model_input_json)
-  repayment_values = [
-    max(0.0, float(_safe_float(item) or 0.0))
-    for item in (lever_values.get(_CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID) or [])
-  ]
-  if not repayment_values:
-    return result
-  rows = [
-    row for row in (finmo_json.get("quarter_rows") or [])
-    if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1
-  ]
-  if not rows:
-    return result
-  exact_updates: List[Dict[str, Any]] = []
-  ratio_series: List[Dict[str, Any]] = []
-  for row in rows:
-    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
-    if quarter_index < 1:
-      continue
-    long_term_debt = max(0.0, float(_safe_float(row.get("long_term_debt")) or 0.0))
-    next_four_repayments = sum(
-      repayment_values[idx]
-      for idx in range(quarter_index - 1, min(len(repayment_values), quarter_index + 3))
-    )
-    ratio = 0.0
-    if long_term_debt > 1.0 and next_four_repayments > 1.0:
-      ratio = min(1.0, max(0.0, next_four_repayments / long_term_debt))
-    ratio = round(float(ratio), 2)
-    exact_updates.append(
-      {
-        "lever_id": _CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID,
-        "quarter_index": quarter_index,
-        "exact_value": ratio,
-        "issue_codes": ["funding_structure_mismatch"],
-        "rationale": (
-          "Set current-portion short-term debt from the next four quarters of scheduled debt repayment "
-          "divided by long-term debt."
-        ),
-      }
-    )
-    ratio_series.append(
-      {
-        "quarter_index": quarter_index,
-        "long_term_debt": int(round(long_term_debt)),
-        "next_four_quarters_debt_repayment": int(round(next_four_repayments)),
-        "short_term_debt_percent_of_ltd": ratio,
-      }
-    )
-  if not exact_updates:
-    return result
-  execution_result = execute_numeric_plan(
-    model_input_json=copy.deepcopy(model_input_json),
-    exact_updates=copy.deepcopy(exact_updates),
-    numeric_solver_contract={
-      "pass_name": "cash_strategy_review",
-      "contract_scope": "cash_pass_debt_schedule_semantics",
-      "solver_phase_status": "phase_6_cash_strategy_solver_live",
-      "solver_settings": {"max_solver_attempts_per_pass": 1},
-    },
-    review_plan=None,
-    phase_status="phase_6_cash_strategy_solver_live",
-    executor_context={
-      "source": "_apply_cash_pass_short_term_debt_current_portion",
-      "execution_mode": "deterministic_debt_schedule_semantics",
-    },
+  return _debt_schedule_apply_short_term_current_portion(
+    cash_strategy_result=copy.deepcopy(cash_strategy_result or {})
   )
-  result["updated_model_input_json"] = execution_result.get("updated_model_input_json") or model_input_json
-  result["updated_finmo_json"] = execution_result.get("updated_finmo_json") or finmo_json
-  result["short_term_debt_current_portion_policy"] = {
-    "contract_version": "cash_pass_short_term_debt_current_portion_v1",
-    "status": "applied",
-    "lever_id": _CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID,
-    "basis": "next_four_quarters_scheduled_debt_repayment_divided_by_long_term_debt",
-    "rows": copy.deepcopy(ratio_series),
-  }
-  applied_updates = [
-    copy.deepcopy(item)
-    for item in (result.get("applied_updates") or [])
-    if isinstance(item, dict)
-  ]
-  result["applied_updates"] = applied_updates + copy.deepcopy(exact_updates)
-  result["applied_update_count"] = len(result["applied_updates"])
-  result["applied_control_count"] = len(result["applied_updates"])
-  return result
 
 def _apply_cash_policy_surplus_cleanup(
   *,
@@ -4771,6 +4348,23 @@ def _validate_cash_strategy_post_pass(
         "violating_quarters": copy.deepcopy(under_scheduled_debt_rows),
       }
     )
+  table_backed_debt_validation = _debt_schedule_validate_post_cash_state(
+    model_input_json=copy.deepcopy(candidate_model_input_json or {}),
+    finmo_payload=copy.deepcopy(candidate_finmo_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
+    selected_cash_strategy=selected_strategy,
+  )
+  debt_validation_failures = [
+    copy.deepcopy(item)
+    for item in (table_backed_debt_validation.get("cash_contract_failures") or [])
+    if isinstance(item, dict)
+  ]
+  if debt_validation_failures:
+    cash_contract_failures.extend(debt_validation_failures)
+  if isinstance(table_backed_debt_validation.get("debt_schedule_snapshot"), dict):
+    debt_schedule = copy.deepcopy(table_backed_debt_validation.get("debt_schedule_snapshot") or debt_schedule)
+  if isinstance(table_backed_debt_validation.get("minimum_debt_schedule_plan"), dict):
+    minimum_debt_schedule_plan = copy.deepcopy(table_backed_debt_validation.get("minimum_debt_schedule_plan") or minimum_debt_schedule_plan)
   cash_failed_rule_codes: List[str] = []
   if cash_buffer_violations:
     cash_failed_rule_codes.append("liquidity_failure")

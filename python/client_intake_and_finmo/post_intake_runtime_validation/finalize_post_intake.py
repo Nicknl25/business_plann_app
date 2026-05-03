@@ -350,50 +350,23 @@ def _assert_debt_schedule_reconciles(
   finmo_json: Optional[Dict[str, Any]],
   errors: List[str],
 ) -> None:
-  schedule = debt_schedule if isinstance(debt_schedule, dict) else {}
-  rows = [row for row in (schedule.get("rows") or []) if isinstance(row, dict)]
-  quarters = sorted(int(_safe_float(row.get("quarter_index")) or 0) for row in rows)
-  if quarters != list(range(1, _FINALIZE_HORIZON + 1)):
-    errors.append(f"debt_schedule_horizon_invalid: expected_q1_to_q20 actual={quarters[:25]}")
-    return
-  finmo_by_quarter = {
-    int(_safe_float(row.get("quarter_index")) or 0): row
-    for row in _live_finmo_rows(finmo_json)
-  }
-  violations: List[Dict[str, Any]] = []
-  for row in rows:
-    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
-    finmo_row = finmo_by_quarter.get(quarter_index) or {}
-    comparisons = [
-      ("actual_debt_issuance", "debt_issuance"),
-      ("actual_debt_repayment", "debt_repayment"),
-      ("closing_debt", "debt_closing_balance"),
-      ("interest_expense", "interest"),
-    ]
-    for schedule_field, finmo_field in comparisons:
-      expected = _safe_int(row.get(schedule_field))
-      actual = _safe_int(finmo_row.get(finmo_field))
-      if actual is None and finmo_field == "debt_closing_balance":
-        actual = _safe_int(finmo_row.get("long_term_debt"))
-      if expected is None or actual is None or expected != actual:
-        violations.append(
-          {
-            "quarter_index": quarter_index,
-            "schedule_field": schedule_field,
-            "finmo_field": finmo_field,
-            "schedule_value": expected,
-            "finmo_value": actual,
-          }
-        )
-        break
-    debt_present = any(
-      int(_safe_float(row.get(field)) or 0) > 0
-      for field in ("opening_debt", "actual_debt_issuance", "closing_debt")
+  try:
+    from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
+      assert_debt_schedule_payload_ready,
+      assert_finmo_matches_debt_schedule,
     )
-    if debt_present and float(_safe_float(row.get("interest_rate")) or 0.0) <= 0.0:
-      violations.append({"quarter_index": quarter_index, "reason": "debt_present_but_interest_rate_missing"})
-  if violations:
-    errors.append(f"debt_schedule_reconciliation_failed: {violations[:20]}")
+
+    assert_debt_schedule_payload_ready(
+      copy.deepcopy(debt_schedule or {}),
+      stage="post_intake_finalize_validation_debt_payload",
+    )
+    assert_finmo_matches_debt_schedule(
+      debt_schedule=copy.deepcopy(debt_schedule or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      stage="post_intake_finalize_validation_debt_finmo",
+    )
+  except Exception as exc:
+    errors.append(f"debt_schedule_reconciliation_failed: {exc}")
 
 
 def _assert_cash_phase_trace_complete(payload: Optional[Dict[str, Any]], errors: List[str]) -> None:
@@ -474,6 +447,7 @@ def run_finalize_post_intake_validation(
       model_input_json=copy.deepcopy(model_input_json or {}),
       finmo_json=copy.deepcopy(finmo_json or {}),
       payroll_headcount=copy.deepcopy(payroll_headcount or {}),
+      debt_schedule=copy.deepcopy(debt_schedule or {}),
       financials_json=copy.deepcopy(financials_json or {}),
       enforce_cash_buffer=True,
       stage="post_intake_finalize_validation_global",

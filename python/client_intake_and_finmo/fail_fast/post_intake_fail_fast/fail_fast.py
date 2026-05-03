@@ -1159,6 +1159,7 @@ def assert_post_intake_schedule_markers_integrity(
   *,
   model_input_json: Optional[Dict[str, Any]],
   payroll_headcount: Optional[Dict[str, Any]] = None,
+  debt_schedule: Optional[Dict[str, Any]] = None,
   stage: str,
   contract_name: str = "unified_convergence_decision",
 ) -> None:
@@ -1214,6 +1215,27 @@ def assert_post_intake_schedule_markers_integrity(
     violations.append({"runtime": "derived_driver_runtime.expenses::Payroll", "reason": "missing"})
   if not isinstance(runtime.get("capex_depreciation_policy"), dict):
     violations.append({"runtime": "derived_driver_runtime.capex_depreciation_policy", "reason": "missing"})
+  debt_runtime = runtime.get("debt_schedule") if isinstance(runtime.get("debt_schedule"), dict) else {}
+  if isinstance(debt_schedule, dict) and debt_schedule:
+    debt_runtime = debt_schedule
+  if isinstance(debt_schedule, dict) and debt_schedule:
+    if str(debt_schedule.get("source_of_truth") or "").strip() != "sql.post_intake_cash_policy_lookup":
+      violations.append({"object": "debt_schedule", "reason": "not_sql_cash_policy_backed"})
+    if str(debt_schedule.get("lookup_function") or "").strip() != "post_intake_cash_debt_schedule_policy":
+      violations.append({"object": "debt_schedule", "reason": "missing_cash_policy_lookup_function"})
+    debt_rows = [row for row in (debt_schedule.get("rows") or []) if isinstance(row, dict)]
+    debt_quarters = sorted(int(_safe_float(row.get("quarter_index")) or 0) for row in debt_rows)
+    if debt_quarters != list(range(1, horizon + 1)):
+      violations.append(
+        {
+          "object": "debt_schedule.rows",
+          "reason": "does_not_cover_full_horizon",
+          "expected_quarters": list(range(1, horizon + 1)),
+          "actual_quarters": debt_quarters,
+        }
+      )
+  elif stage.lower().endswith("final") or "finalize" in stage.lower() or "post_cash" in stage.lower():
+    violations.append({"object": "debt_schedule", "reason": "missing"})
   r_and_d_policy = policies.get("expenses::Research & Development") if isinstance(policies, dict) else {}
   r_and_d_row = _find_model_input_row(model_input_json, section_name="expenses", label="Research & Development")
   if not isinstance(r_and_d_policy, dict) or "r_and_d_enabled" not in r_and_d_policy:
@@ -1387,6 +1409,7 @@ def assert_post_intake_global_invariants(
   finmo_json: Optional[Dict[str, Any]],
   stage: str,
   payroll_headcount: Optional[Dict[str, Any]] = None,
+  debt_schedule: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
   enforce_cash_buffer: bool = False,
   contract_name: str = "unified_convergence_decision",
@@ -1415,9 +1438,33 @@ def assert_post_intake_global_invariants(
   assert_post_intake_schedule_markers_integrity(
     model_input_json=model_input_json,
     payroll_headcount=payroll_headcount,
+    debt_schedule=debt_schedule,
     stage=stage,
     contract_name=contract_name,
   )
+  if isinstance(debt_schedule, dict) and debt_schedule:
+    try:
+      from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
+        assert_debt_schedule_payload_ready,
+        assert_finmo_matches_debt_schedule,
+      )
+
+      assert_debt_schedule_payload_ready(
+        debt_schedule,
+        stage=f"{stage}_global_debt_payload",
+      )
+      assert_finmo_matches_debt_schedule(
+        debt_schedule=debt_schedule,
+        finmo_json=finmo_json,
+        stage=f"{stage}_global_debt_finmo",
+      )
+    except Exception as exc:
+      post_intake_fail_fast_raise(
+        "post_intake_schedule_marker_missing",
+        f"Debt schedule fail-fast failed; all debt must use the table-backed amortizing debt schedule: {exc}",
+        stage=stage,
+        details={"exception": str(exc)},
+      )
   try:
     from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
       assert_finmo_payroll_matches_headcount_schedule,

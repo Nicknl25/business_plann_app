@@ -184,7 +184,7 @@ _DEFAULT_CASH_PASS_PHASE_SEQUENCE: List[Dict[str, Any]] = [
     "required": True,
     "requires_finmo_rebuild_after": True,
     "validation_gate": "minimum_debt_schedule_seeded",
-    "notes": "Apply SQL cash-policy minimum debt schedule before cash review so scheduled principal is not optional.",
+    "notes": "Call post_intake_debt_schedule to apply the SQL cash-policy amortizing debt schedule before cash review so scheduled principal is not optional.",
   },
   {
     "phase_code": "cash_short_term_debt_seed",
@@ -193,7 +193,7 @@ _DEFAULT_CASH_PASS_PHASE_SEQUENCE: List[Dict[str, Any]] = [
     "required": True,
     "requires_finmo_rebuild_after": True,
     "validation_gate": "seed_short_term_debt_current_portion",
-    "notes": "Normalize current debt portion semantics before building the cash review envelope.",
+    "notes": "Call post_intake_debt_schedule to normalize current debt portion semantics before building the cash review envelope.",
   },
   {
     "phase_code": "cash_review_context_build",
@@ -238,7 +238,7 @@ _DEFAULT_CASH_PASS_PHASE_SEQUENCE: List[Dict[str, Any]] = [
     "required": True,
     "requires_finmo_rebuild_after": True,
     "validation_gate": "minimum_debt_schedule_floor_preserved_after_cash_updates",
-    "notes": "Reapply the minimum debt schedule floor after cash strategy updates while preserving extra paydown.",
+    "notes": "Rebuild through post_intake_debt_schedule after cash strategy updates so new debt layers onto existing debt and scheduled principal is preserved.",
   },
   {
     "phase_code": "cash_short_term_debt_current_portion",
@@ -247,7 +247,7 @@ _DEFAULT_CASH_PASS_PHASE_SEQUENCE: List[Dict[str, Any]] = [
     "required": True,
     "requires_finmo_rebuild_after": True,
     "validation_gate": "short_term_debt_current_portion_applied",
-    "notes": "Apply current portion of long-term debt after cash updates and rebuild FINMO.",
+    "notes": "Apply current portion of long-term debt through post_intake_debt_schedule after cash updates and rebuild FINMO.",
   },
   {
     "phase_code": "cash_surplus_cleanup",
@@ -718,7 +718,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME],
     horizon_rule="q1_to_q20_debt_schedule",
     fail_fast_code="post_intake_sequence_cash_debt_schedule_policy_missing",
-    notes="Debt schedule semantics come from cash policy lookup and mapping-table financing levers.",
+    notes="Debt schedule semantics come from post_intake_debt_schedule, cash policy lookup, and mapping-table financing levers.",
   ),
   _process_sequence_row(
     "cash_pass",

@@ -2067,6 +2067,7 @@ def _run_unified_post_grid_system_run(
     finmo_json=copy.deepcopy(final_finmo_json),
     stage="post_cash_pass_final",
     payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
+    debt_schedule=copy.deepcopy(final_debt_schedule_payload),
     financials_json=copy.deepcopy(financials_json or {}),
     enforce_cash_buffer=True,
   )
