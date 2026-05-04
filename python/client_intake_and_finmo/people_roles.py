@@ -322,7 +322,7 @@ def _fetch_oews_rows_exact(conn, *, state_abbrev: str, naics_6: str) -> List[Dic
   try:
     cur.execute(
       """
-      SELECT occ_title, a_pct10, a_median
+      SELECT occ_code, occ_title, o_group, a_pct10, a_median
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics = %s
@@ -359,7 +359,7 @@ def _fetch_oews_rows_prefix(conn, *, state_abbrev: str, naics_prefix: str) -> Li
   try:
     cur.execute(
       """
-      SELECT occ_title, a_pct10, a_median
+      SELECT occ_code, occ_title, o_group, a_pct10, a_median
       FROM oews_state_wages
       WHERE prim_state = %s
         AND naics LIKE %s
@@ -433,7 +433,7 @@ def apply_oews_wages(
     wage_source = str(role.get("wage_source") or "").strip() or "gpt_estimate"
     override_source = wage_source.strip().lower()
     if override_source in ("client_override", "user_override", "manual_override"):
-      if gpt_wage_val is not None:
+      if gpt_wage_val is not None and gpt_wage_val > 0:
         updated.append(
           {
             "role_title": role_title,

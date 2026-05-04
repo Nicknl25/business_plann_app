@@ -146,6 +146,16 @@ The schedule is the source for the model-input driver values. The model-input dr
 
 Do not let GPT or legacy convergence code directly rewrite schedule-owned model-input rows outside the schedule process.
 
+Client-facing Excel workbooks must preserve the same direction:
+
+- source schedule tabs contain the editable operating mechanics
+- `Model Inputs` links to those schedule tabs
+- `FINMO` links to `Model Inputs` and in-sheet statement rows
+- `Checks` validates workbook formula/coherence integrity and labels broken line items
+- persisted-output reconciliation is informational when a user edits assumptions; it must show baseline movement without treating a valid scenario edit as a hard model failure
+
+The workbook is a delivery artifact generated from the completed run. It does not replace runtime initialize/finalize validation. Runtime gates protect the run before spend and before completion; workbook checks protect the client-facing model after export.
+
 Debt schedule detail:
 
 - Debt must be handled through the SQL-backed cash policy and debt schedule process.
@@ -292,11 +302,27 @@ Do not over-automate natural-language reasoning. The goal is not to generate eve
 
 Post-intake must have formal initialize and finalize gates. These are production gates, not test-only helpers.
 
+Runtime validation gates are operational gates, not golden snapshot audits. Runtime initialize/finalize validation must validate only the operational lookup tables and runtime payloads needed to run or submit the plan:
+
+- `post_intak_mapping_lookup`
+- `post_intake_cash_policy_lookup`
+- `post_intake_gpt_contract_lookup`
+- `post_intake_gpt_context_lookup`
+- `post_intake_headcount_policy_lookup`
+- `post_intake_process_sequence_lookup`
+
+Runtime initialize/finalize validation must explicitly exclude `post_intake_lookup_table_snapshot` and static source-code scans. Snapshot comparison belongs to preflight, deploy, or admin audit only. It must not block or govern a normal client run unless the operator deliberately runs the Golden preflight.
+
 The initialize gate runs after the planning run starts and before post-intake spends OpenAI/runtime cycles:
 
 - validates lookup tables and lookup functions are callable
 - validates process sequence rows are active and table-backed
 - validates GPT contracts, context contracts, horizons, cash policy, mapping rows, formula metadata, and headcount policy
+- validates the payroll schedule contract shape before GPT is called: exact OEWS title/FTE fields must be active and legacy role-family/category/title fields must be absent
+- treats nonpositive key-person wages as invalid input, not usable client overrides; payroll must resolve them from the NAICS OEWS title universe before the payroll GPT call when the person is OEWS-resolvable, or fail fast with the unresolved person, NAICS, candidate count, and required action
+- treats `starting_fte` and `hires` as mechanical continuity fields derived from GPT's selected ending FTE when necessary; Python may normalize those mechanics, but it must not invent OEWS titles, wages, or capacity assumptions
+- treats GPT's payroll/revenue target as a sanity anchor inside the table-backed labor-intensity bounds, not an exact landing point that overrides capacity-driven FTE
+- reads phase timeouts and max attempts from `post_intake_process_sequence_lookup`; payroll must honor a 180-second total cycle budget and must change process shape instead of extending time when GPT cannot complete the full schedule mechanically
 - takes a balance-sheet driver initialization sample from `sql.post_intak_mapping_lookup` formula metadata and the intake record
 - identifies balance-sheet forecast obligations that intake omitted, especially formula-backed AR, AP, prepaid expenses, inventory when applicable, deferred revenue when applicable, and debt only when debt policy or existing debt makes it applicable
 - validates the sample itself has required mapped rows, formula keys, applicability keys, presence rules, and source-of-truth metadata
@@ -343,14 +369,17 @@ Finalize must prove every applicable sampled driver actually appears in model in
 
 ## Golden Baseline Snapshot Rule
 
-The passing post-intake state at commit `f949316` is now the golden baseline.
+The active golden baseline is now the pushed commit that carries the exact OEWS-title payroll system and the client FINMO Excel workbook exporter.
+
+Commit `f949316` remains the historical payroll/debt/depreciation baseline, but it is no longer the active baseline for the current system generation.
 
 The app must preserve that behavior unless we intentionally change the baseline:
 
-- Golden tag: `post-intake-golden-payroll-debt-depr-tables`
-- Golden run doc: `context/post_intake_golden_baseline_f949316.md`
+- Active baseline commit: the git commit created for the payroll roles logic and FINMO output Excel model update
+- Historical golden tag: `post-intake-golden-payroll-debt-depr-tables`
+- Historical golden run doc: `context/post_intake_golden_baseline_f949316.md`
 - Golden SQL baseline table: `post_intake_lookup_table_snapshot`
-- Baseline name: `post_intake_golden_f949316`
+- Active baseline name: `post_intake_golden_current_payroll_roles_excel_model`
 
 The snapshot table freezes the semantic contents of the critical lookup tables:
 
@@ -363,6 +392,10 @@ The snapshot table freezes the semantic contents of the critical lookup tables:
 
 Future fixes must not silently drift away from these tables.
 
+The snapshot table is the audit baseline, not a production runtime dependency. `post_intake_lookup_table_snapshot` is checked by `scripts/post_intake_golden_preflight.py` and by deploy/admin review. It is intentionally excluded from runtime initialize/finalize gates so a normal client run validates the live operational machine instead of comparing itself to a stored audit snapshot.
+
+For the current active baseline, `post_intake_lookup_table_snapshot` should be associated with the most recent successful run that produced the payroll roles logic and FINMO Excel workbook output. Refreshing that snapshot is an intentional admin/deploy action, not a runtime side effect.
+
 If an E2E failure appears after the golden baseline:
 
 1. Run `scripts/post_intake_golden_preflight.py`.
@@ -374,15 +407,24 @@ If an E2E failure appears after the golden baseline:
 Payroll, debt, and depreciation schedules are now part of the standard:
 
 - Payroll must come from the `payroll_headcount_schedule` contract and headcount schedule application.
-- Payroll role/title judgment belongs to GPT, but table-policy arithmetic belongs to Python. If `post_intake_headcount_policy_lookup` defines a required FTE floor, Python must size the persisted schedule to satisfy that floor after GPT selects role/OEWS title rows.
+- Payroll is capacity-primary, not revenue-primary. The correct direction is `capacity -> FTE -> payroll`, while `capacity x utilization x price -> revenue`. Revenue may be used as sanity context, but never as the primary FTE driver.
+- Payroll uses exact OEWS titles, not role families, role categories, role titles, aliases, or abstract staffing buckets.
+- Python determines the business NAICS and builds the full `oews_state_wages` title universe for that NAICS, with state-specific rows preferred and a national fallback where appropriate.
+- GPT owns business judgment inside the SQL-backed payroll contract: capacity labor model, labor intensity class, wage positioning tier and multiplier, positive business-specific capacity units per supporting FTE, exact OEWS titles to staff, FTE timing by quarter, and the payroll/revenue sanity target.
+- GPT must select each supporting-staff `oews_occ_title` exactly from the Python-built OEWS title catalog and must return Q1-Q20 FTE rows with `starting_fte`, `hires`, `ending_fte`, and payroll tax/benefits percent. GPT must not provide wages.
+- Python owns deterministic payroll arithmetic through `post_intake_headcount_policy_lookup`: exact OEWS wage resolution, key-person injection from intake, wage positioning, annual wage inflation, taxes/benefits, quarter totals, capacity/utilization FTE guardrails, model-input application, persisted payroll schedule, and FINMO reconciliation.
+- Payroll/revenue is an end sanity check only. GPT must provide `target_payroll_percent_of_revenue` inside the payroll contract, and Python must validate that target and the final model/FINMO payroll percent of revenue against policy table labor-intensity sanity bounds. The target is an anchor, not an exact-match blocker. This does not drive FTE; it catches incoherent payroll.
+- The old universal revenue-per-employee payroll cap/floor, default wage fallback, role-family schedule, and fake universal capacity-per-FTE reasonableness bounds are legacy. If any reappears as active payroll logic, delete it or convert it to the exact OEWS-title, capacity-primary, table-backed system.
 - Debt must come from the cash debt schedule policy and persist into `intake_consult_drafts.debt_schedule`.
 - Depreciation must come from the deterministic capex/depreciation schedule.
 - If any schedule is missing, bypassed, or contradicted, fail fast.
 
-Balance-sheet presence defaults are also part of the standard:
+Balance-sheet contextual seeding is also part of the standard:
 
-- If `post_intak_mapping_lookup` says a mapped balance-sheet driver is applicable and provides `missing_seed_default_value`, Python must apply that table value when intake/stub omitted the live forecast driver.
-- AR, AP, and prepaid expenses cannot remain zero merely because intake omitted AR/AP/prepaids when revenue or operating-expense formula bases exist.
-- This is not a fallback around validation. It is producer-side table-backed initialization/derived-driver behavior, and finalize validation must still prove FINMO reconciles to the resulting model-input driver values.
+- `post_intak_mapping_lookup` supplies candidate drivers, applicability keys, value semantics, and min/max bounds. It must not supply universal numeric fallback seed values for live forecast drivers.
+- GPT supplies the business-context-specific seed decision through the SQL-backed `balance_sheet_contextual_seed` contract before stage ramp and convergence.
+- Python validates that GPT returned every mapping-backed candidate exactly once, checks min/max bounds from the mapping table, applies applicable seeds into model_input Q1-Q20, and fails fast if any applicable seed is missing or invalid.
+- AR, AP, inventory, prepaid expenses, and deferred revenue cannot remain zero merely because intake omitted them when business context and formula bases make them applicable.
+- This is not a validation bypass. It is producer-side table-backed initialization/derived-driver behavior, and finalize validation must still prove FINMO reconciles to the resulting model-input driver values.
 
 This baseline exists so future Codex sessions know what "working correctly" means before touching new failures.

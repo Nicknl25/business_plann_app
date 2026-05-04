@@ -867,14 +867,13 @@ Concrete root causes found:
 - `financials_json.current_num_employees` was also `118.0`.
 - The input phrase was effectively “Use 118 employees,” but the system let that value become both employee count and annual payroll dollars.
 - Stub payroll became `29.5`, which is `118 / 4`.
-- Payroll derivation then used this bad stub together with the GPT payroll growth grid and backed into an absurd `effective_revenue_per_employee` around `$25B`.
+- Payroll derivation then used this bad stub together with obsolete payroll growth logic and produced near-zero implied staffing.
 - That produced near-zero implied FTE and tiny payroll.
 
 There was also a second-layer payroll issue:
 
-- The derived payroll fallback currently uses `DEFAULT_REVENUE_PER_EMPLOYEE = 650000`.
-- The wage source for that row was `oews_all_occupations_mean:000001`, not a software-specific role/staffing model.
-- The resulting recomputed payroll around 10.3% of revenue is not proven correct; it is just `67140 / 650000`.
+- That legacy payroll path has been deleted. Payroll is now capacity-primary through `payroll_headcount_schedule`.
+- Supporting-staff wages must resolve from exact OEWS role catalog selections, with table-backed wage positioning and inflation.
 - The current 5%-50% payroll ratio band is a sanity band, not a real payroll model.
 
 Important: the last code change stopped GPT payroll growth from overriding the OEWS/FTE formula, but that only fixes the tiny-payroll mechanical bug. It does not solve the deeper payroll architecture problem.
@@ -897,7 +896,7 @@ intake headcount / GPT staffing grid -> OEWS wages -> FTE x wage payroll -> mode
 Not:
 
 ```text
-revenue / generic revenue-per-employee -> fake FTE -> payroll
+revenue shortcut -> fake FTE -> payroll
 ```
 
 And not:
@@ -1754,12 +1753,12 @@ That is intentional. The new gates are supposed to catch those failures before a
 
 Follow-up class fixes after that gate:
 
-- `post_intak_mapping_lookup` now carries `missing_seed_default_value` and `minimum_live_value` for mapped balance-sheet drivers that need producer-side defaults when intake omitted the seed.
-- `finmo_bridge.py` now applies table-backed missing-seed defaults in both the baseline overlay path and the derived-driver policy path.
-- This specifically prevents AR/AP/prepaids from staying at zero when revenue or operating-expense formula bases make them applicable.
+- `post_intak_mapping_lookup` now carries candidate/applicability/min/max metadata for mapped balance-sheet drivers, but it must not provide universal numeric fallback seed values.
+- `balance_sheet_contextual_seed` is now a SQL-backed pre-convergence GPT contract. GPT decides applicable AR/AP/inventory/prepaid/deferred driver seed values from business context/type; Python validates completeness and bounds against the mapping table, applies the seeds to model_input Q1-Q20, and fail-fasts if the contract is missing or invalid.
+- This specifically prevents AR/AP/prepaids/deferred revenue from staying at zero merely because intake omitted them, without replacing business judgment with hardcoded default numbers.
 - Inventory formula validation now uses actual quarter-day counts from the FINMO row date instead of assuming every quarter is 90 days.
-- Payroll now passes an explicit `payroll_required_fte_grid` from `post_intake_headcount_policy_lookup` into the payroll contract context.
-- GPT still chooses supporting-staff roles and OEWS titles, but Python deterministically enforces the SQL policy FTE floor while building the persisted payroll schedule. This prevents repeated off-by-hundredths GPT arithmetic failures.
+- Payroll now passes capacity/utilization guardrails from `post_intake_headcount_policy_lookup` into the payroll contract context.
+- GPT still chooses supporting-staff roles, OEWS titles, labor model, labor intensity, wage positioning, and capacity productivity, but Python deterministically enforces the SQL capacity policy while building the persisted payroll schedule.
 
 Latest proof point:
 
@@ -1863,3 +1862,161 @@ Operational status:
 
 - Syntax checks passed for the new debt subsystem, cash runner, finalize validation, fail-fast, and mapping files.
 - This change still needs live E2E verification.
+
+## Update: 2026-05-03 Payroll Moves To Capacity-Primary Headcount
+
+Superseded by the 2026-05-04 update below: the interim role-based payroll schedule was deleted from the active payroll contract and replaced by exact OEWS-title/FTE scheduling.
+
+The payroll/headcount system is being moved away from the legacy revenue-per-employee guardrail.
+
+Old behavior to avoid:
+
+- Payroll FTE floors were derived from a universal revenue-per-employee assumption.
+- That made payroll reactive to revenue instead of grounded in the operating capacity required to run the business.
+- It could produce low payroll when capacity/utilization implied more staffing.
+
+New intended ownership:
+
+- GPT still makes business judgment inside `payroll_headcount_schedule`.
+- GPT chooses `capacity_labor_model`, `labor_intensity_class`, `wage_positioning_tier`, `capacity_units_per_supporting_fte`, and the Q1-Q20 supporting-staff role/FTE grid.
+- GPT must select each supporting-staff `oews_occ_title` exactly from the OEWS role catalog.
+- Python owns deterministic math through `post_intake_headcount_policy_lookup`.
+- Python injects key people from intake, resolves supporting staff wages from OEWS, applies table-backed wage positioning, applies 3 percent annual wage inflation from the policy table, calculates payroll dollars, applies the schedule to model input, and validates FINMO.
+
+New policy-table metadata:
+
+- `headcount_economic_basis = capacity_units_per_supporting_fte`
+- `min_capacity_coverage_ratio`
+- `capacity_units_per_supporting_fte_min`
+- `capacity_units_per_supporting_fte_max`
+- `capacity_productivity_bounds_json`
+- `utilization_pressure_threshold`
+- `annual_wage_inflation_rate`
+- `capacity_labor_model_values_json`
+- `labor_intensity_class_values_json`
+- `wage_positioning_multiplier_json`
+- `payroll_revenue_sanity_bounds_json`
+- `payroll_revenue_sanity_tolerance_pct`
+- `payroll_revenue_sanity_relative_tolerance`
+- `payroll_trend_rules_json`
+
+Important invariant:
+
+- The correct payroll direction is `capacity -> FTE -> payroll`.
+- Revenue remains `capacity x utilization x price`.
+- Revenue can be sanity context, but it must not be the primary payroll driver.
+- GPT now supplies `target_payroll_percent_of_revenue` as a sanity target in the payroll contract. Python compares final model/FINMO payroll percent of revenue to that target and to the table-backed sanity bounds.
+- The old universal revenue shortcut cap/floor and default wage fallback are legacy and should not exist in active payroll logic.
+
+Validation status:
+
+- `post_intake_headcount_policy_lookup` now validates that the active policy is capacity-primary, has productivity bounds by labor model/intensity, has payroll/revenue sanity bounds, bans `policy_default_wage`, and does not allow generic OEWS fallback behavior.
+- `payroll_headcount_schedule` contract now has root fields for labor model, intensity, wage tier, and capacity productivity.
+- Payroll fail-fast now includes capacity assumptions, Q1-Q20 capacity grid completeness, capacity coverage validation, utilization/capacity no-decline checks, and final payroll/revenue sanity validation.
+- Initialization should catch an active legacy revenue-per-employee payroll policy before a run spends time/money.
+
+## Update: 2026-05-04 Exact OEWS-Title Payroll And Runtime Gate Standard
+
+The role-based payroll schedule is no longer the active design. Do not revive it. The active payroll standard is:
+
+- Python resolves the business NAICS and builds the full `oews_state_wages` title universe for that NAICS, preferring state-specific wage rows and using national rows only as fallback.
+- GPT chooses exact OEWS occupation titles from `oews_title_catalog.title_candidates`.
+- GPT assigns Q1-Q20 FTE by exact title: `starting_fte`, `hires`, `ending_fte`, and payroll tax/benefits percent.
+- GPT also chooses the payroll root assumptions inside the SQL-backed contract: capacity labor model, labor intensity class, wage positioning tier, wage positioning multiplier, positive business-specific `capacity_units_per_supporting_fte`, and `target_payroll_percent_of_revenue`.
+- GPT does not provide wages and does not output role families, role categories, role titles, aliases, or catch-all staffing buckets.
+- Python calculates annual wages from the selected OEWS title row, applies wage positioning, applies payroll taxes/benefits and wage inflation, calculates quarter payroll dollars, applies the Payroll model-input row, persists `intake_consult_drafts.payroll_headcount`, rebuilds FINMO, and validates model-input/FINMO reconciliation.
+- Python does not honor nonpositive key-person wages as valid overrides. Before the payroll GPT call, it resolves missing key-person wages through the same NAICS OEWS title universe when the person's title/responsibilities are OEWS-resolvable; otherwise payroll fails fast before schedule spend.
+- Python derives the mechanical Q1-Q20 FTE schedule from GPT's exact OEWS title set, capacity productivity assumption, and table-backed capacity/utilization guardrails. GPT owns the business judgments; Python owns deterministic continuity and capacity math.
+- Capacity/utilization remains the FTE driver. Payroll/revenue is a final sanity check from GPT's own target and table-backed labor-intensity sanity bounds; the target is an anchor, not an exact landing point that overrides capacity FTE.
+
+Core files for the exact-title payroll system:
+
+- `python/client_intake_and_finmo/post_intake_headcount/schedule.py`
+- `python/client_intake_and_finmo/post_intake_headcount/lookup.py`
+- `python/client_intake_and_finmo/post_intake_mapping.py`
+- `python/client_intake_and_finmo/fail_fast/post_intake_fail_fast/fail_fast.py`
+- `python/client_intake_and_finmo/post_intake_runtime_validation/initialize_post_intake.py`
+
+Important runtime behavior:
+
+- `payroll_headcount_schedule` active grid fields are now only `q`, `oews_occ_title`, `starting_fte`, `hires`, `ending_fte`, and `payroll_tax_benefits_pct`.
+- `oews_title_catalog` is the active payroll title context.
+- `oews_role_catalog` is deleted from the active payroll context.
+- Old `payroll_headcount_grid[].role_family`, `payroll_headcount_grid[].role_category`, and `payroll_headcount_grid[].role_title` contract rows are deleted from the active payroll contract.
+- Initialization fails before OpenAI spend if the old role contract or old role catalog reappears.
+- Payroll preflight resolves the source-draft CFO zero wage to an exact OEWS title/wage instead of carrying a broken `client_override=0` into the schedule.
+- Finalization fails if the persisted payroll schedule does not reconcile to model input and FINMO.
+- Payroll contract timing is owned by `post_intake_process_sequence_lookup`, not a hardcoded timeout. The active payroll step uses a 180-second total cycle budget and `max_attempts=2`; `schedule.py` reads those values through `post_intake_process_sequence_step`.
+
+Golden Rule runtime standard:
+
+- Runtime initialize/finalize validation validates operational lookup tables only: mapping, cash policy, GPT contracts, GPT context, headcount policy, and process sequence.
+- Runtime explicitly excludes `post_intake_lookup_table_snapshot` and static source-code scans.
+- Golden snapshot comparison remains only for `scripts/post_intake_golden_preflight.py`, deploy review, or admin audit.
+- Where necessary and practical, deterministic behavior should live behind named functions that call lookup tables. Phase runners should stay orchestration/glue.
+
+Current golden snapshot refresh:
+
+- Baseline name: `post_intake_golden_current_payroll_roles_excel_model`
+- SQL table: `post_intake_lookup_table_snapshot`
+- Source commit label used for the working-tree refresh: current pushed commit for payroll roles logic and FINMO output Excel model
+- Reason: deleted role-based payroll, moved payroll to exact OEWS-title/FTE scheduling, resolved missing key-person wages from OEWS before payroll spend, moved mechanical FTE schedule derivation into Python, kept payroll under a 180-second total cycle budget, and added the client FINMO Excel model exporter.
+
+## Update: 2026-05-04 Client FINMO Output Excel Model
+
+The app now has a client-facing Excel workbook exporter in `client_statements_output_excel/`.
+
+The workbook is generated from a completed persisted draft/run. It is not a static template. Each run/client produces a company-name and timestamped workbook, currently saved locally to:
+
+```text
+C:\dev\Cilient Plans
+```
+
+Filename format:
+
+```text
+Business Name -- MM-DD-YYYY HH-MM-SS.xlsx
+```
+
+Runtime integration:
+
+- `python/api_handlers/intake_consult.py` exports the workbook after successful system-run completion.
+- The API response includes `client_workbook_path`.
+- `Test Files/run_persisted_system_run.py` prints `Saved client financial model workbook: <path>` when the export path is returned.
+- `python/requirements.txt` includes `openpyxl`.
+
+Workbook ownership:
+
+- `Revenue Drivers` is source schedule logic for capacity, unit price, utilization, and revenue.
+- `Payroll Schedule` is exact OEWS-title/FTE detail. Payroll detail rows calculate ending FTE, average FTE, wage cost, payroll taxes/benefits, and total payroll. Quarter summary rows formula-sum payroll detail and feed `Model Inputs`.
+- `Debt Schedule` owns debt issuance, actual repayment, closing debt, interest, and capital lease mechanics.
+- `CapEx Depreciation` links lease additions from `Debt Schedule` so capital lease additions affect PPE/depreciation and FINMO.
+- `Working Capital` and `Cash Equity Schedule` feed their linked model-input rows.
+- `Model Inputs` links to schedule outputs.
+- `FINMO` links to `Model Inputs` and in-sheet statement rows.
+- `Checks` validates workbook formula/coherence integrity and labels broken line items.
+- Hidden `Audit Source` preserves the persisted FINMO source output for baseline reconciliation.
+
+Important Checks behavior:
+
+- Schedule edits should not be treated as hard failures merely because the workbook no longer matches the persisted baseline.
+- Persisted baseline reconciliation is informational and shows `MATCH` or `CHANGED`.
+- Hard `FAIL` status is reserved for real formula, bridge, schedule-logic, statement-coherence, or Excel error failures.
+- The Checks sheet must avoid unsupported Excel diagnostics such as `ISFORMULA(...)`; those produced `#NAME?` in the local Excel environment.
+
+Validated workbook after the final Checks cleanup:
+
+- Workbook: `C:\dev\Cilient Plans\ExpressLogix Shipping Services -- 05-04-2026 00-29-44.xlsx`
+- Excel COM opened and recalculated the workbook.
+- `Checks!B2` was `OK`.
+- True workbook Excel error cells across all sheets: `0`.
+- Hard Checks `FAIL` rows: `0`.
+- Scenario smoke test passed with `Checks!B2 = OK` and zero hard failures after edits to revenue driver, payroll detail, debt issuance, capital lease/PPE, cash-equity lease, and a direct model-input assumption.
+
+Golden baseline update:
+
+- The active Golden Rule baseline is now the commit carrying this update, not historical commit `f949316`.
+- `f949316` remains a historical reference only.
+- `post_intake_lookup_table_snapshot` remains the audit/deploy/admin snapshot table, not a runtime dependency.
+- For the active baseline, `post_intake_lookup_table_snapshot` should be associated with the most recent successful run that produced the exact OEWS-title payroll and FINMO Excel workbook output.
+- Runtime initialize/finalize validation must continue to exclude `post_intake_lookup_table_snapshot` and static source-code scans.

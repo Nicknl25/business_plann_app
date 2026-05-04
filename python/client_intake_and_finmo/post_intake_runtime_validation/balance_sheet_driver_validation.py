@@ -120,8 +120,38 @@ def _text_blob(*payloads: Optional[Dict[str, Any]]) -> str:
   return " ".join(parts)
 
 
+def _tokens_from_mapping_row(mapping_row: Dict[str, Any], key: str) -> Tuple[str, ...]:
+  raw = mapping_row.get(key)
+  if not isinstance(raw, list):
+    return ()
+  return tuple(
+    str(item or "").strip().lower()
+    for item in raw
+    if str(item or "").strip()
+  )
+
+
 def _business_text_has_any(text: str, tokens: Tuple[str, ...]) -> bool:
   return any(token in text for token in tokens)
+
+
+def _contextual_seed_row_for_lever(
+  model_input_json: Optional[Dict[str, Any]],
+  lever_id: str,
+) -> Optional[Dict[str, Any]]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  seed_policy = policies.get("balance_sheet_contextual_seed") if isinstance(policies, dict) else {}
+  for row in ((seed_policy or {}).get("balance_sheet_seed_grid") or []):
+    if isinstance(row, dict) and _clean(row.get("lever_id")) == lever_id:
+      return row
+  for model_row in _iter_model_input_rows(model_input_json):
+    if _clean(model_row.get("lever_id")) != lever_id:
+      continue
+    seed_row = model_row.get("balance_sheet_contextual_seed")
+    if isinstance(seed_row, dict):
+      return seed_row
+  return None
 
 
 def _quarter_days_from_finmo_row(row: Dict[str, Any]) -> float:
@@ -210,19 +240,30 @@ def _mapping_row_applicable(
   if key == "revenue_positive_ar_applicable":
     return _revenue_positive(finmo_rows, financials_json), key
   if key == "operating_expense_positive_ap_applicable":
-    no_vendor_tokens = ("no vendors", "no supplier credit", "pay vendors immediately")
+    no_vendor_tokens = _tokens_from_mapping_row(mapping_row, "applicability_negative_tokens")
     return _expense_base_positive(finmo_rows) and not _business_text_has_any(text, no_vendor_tokens), key
   if key == "inventory_business_or_seed":
     if _financial_seed(financials_json, "inventory_balance") > 0.0:
       return True, key
-    inventory_tokens = ("inventory", "retail", "boutique", "shop", "store", "goods", "products", "merchandise", "wholesale", "resale")
-    return _business_text_has_any(text, inventory_tokens), key
+    seed_row = _contextual_seed_row_for_lever(model_input_json, _clean(mapping_row.get("lever_id")))
+    if isinstance(seed_row, dict) and "applicable" in seed_row:
+      return bool(seed_row.get("applicable")), key
+    positive_tokens = _tokens_from_mapping_row(mapping_row, "applicability_positive_tokens")
+    negative_tokens = _tokens_from_mapping_row(mapping_row, "applicability_negative_tokens")
+    if _business_text_has_any(text, negative_tokens):
+      return False, key
+    return _business_text_has_any(text, positive_tokens), key
   if key == "optional_prepaid_expense":
     return False, key
   if key == "revenue_positive_prepaid_applicable":
     return _revenue_positive(finmo_rows, financials_json), key
   if key == "deferred_revenue_business":
-    deferred_tokens = ("subscription", "membership", "retainer", "deposit", "prepaid", "advance payment", "upfront")
+    if _financial_seed(financials_json, "deferred_revenue") > 0.0:
+      return True, key
+    seed_row = _contextual_seed_row_for_lever(model_input_json, _clean(mapping_row.get("lever_id")))
+    if isinstance(seed_row, dict) and "applicable" in seed_row:
+      return bool(seed_row.get("applicable")), key
+    deferred_tokens = _tokens_from_mapping_row(mapping_row, "applicability_positive_tokens")
     return _business_text_has_any(text, deferred_tokens), key
   if key == "debt_policy_or_existing_debt":
     return _debt_policy_or_existing_debt(

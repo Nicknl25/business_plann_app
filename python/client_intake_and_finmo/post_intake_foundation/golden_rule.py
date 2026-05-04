@@ -35,6 +35,7 @@ _POST_INTAKE_ROOT = _REPO_ROOT / "python" / "client_intake_and_finmo"
 _REQUIRED_CONTRACTS = {
   "maintenance_capex_percent",
   "r_and_d_applicability",
+  "balance_sheet_contextual_seed",
   "stage_ramp_contract",
   "payroll_headcount_schedule",
   "unified_convergence_decision",
@@ -43,6 +44,7 @@ _REQUIRED_CONTRACTS = {
 }
 _REQUIRED_CONTEXT_CONTRACTS = {
   "stage_ramp_contract",
+  "balance_sheet_contextual_seed",
   "payroll_headcount_schedule",
   "unified_convergence_decision",
   "cash_strategy_review",

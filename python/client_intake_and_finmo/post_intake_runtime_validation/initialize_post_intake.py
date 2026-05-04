@@ -19,11 +19,17 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_driver_formula_contract_rows,
   post_intake_driver_target_mapping_errors,
   post_intake_gpt_context_errors,
+  post_intake_gpt_context_rows,
   post_intake_gpt_contract_errors,
   post_intake_gpt_contract_openai_schema,
+  post_intake_gpt_contract_rows,
   post_intake_process_step_context,
   post_intake_process_sequence_errors,
 )
+
+
+def _clean_text(value: Any) -> str:
+  return str(value or "").strip()
 
 
 def _raise_if_errors(errors: List[str]) -> None:
@@ -32,6 +38,70 @@ def _raise_if_errors(errors: List[str]) -> None:
       "post_intake_initialize_validation_failed: "
       + "; ".join(str(item) for item in errors[:80])
     )
+
+
+def _assert_payroll_headcount_initialization_contract(errors: List[str]) -> None:
+  try:
+    contract_rows = post_intake_gpt_contract_rows(contract_name="payroll_headcount_schedule")
+    field_paths = {
+      _clean_text(row.get("field_path"))
+      for row in contract_rows
+      if isinstance(row, dict)
+    }
+    forbidden_paths = {
+      "payroll_headcount_grid[].role_family",
+      "payroll_headcount_grid[].role_category",
+      "payroll_headcount_grid[].role_title",
+      "payroll_headcount_grid[].avg_annual_wage",
+      "payroll_headcount_grid[].annual_wage",
+    }
+    leaked_paths = sorted(field_paths.intersection(forbidden_paths))
+    if leaked_paths:
+      errors.append(f"payroll_headcount_initialization_legacy_contract_fields_present: {leaked_paths}")
+    required_paths = {
+      "payroll_headcount_grid[].oews_occ_title",
+      "payroll_headcount_grid[].starting_fte",
+      "payroll_headcount_grid[].hires",
+      "payroll_headcount_grid[].ending_fte",
+      "payroll_headcount_grid[].payroll_tax_benefits_pct",
+      "capacity_units_per_supporting_fte",
+      "target_payroll_percent_of_revenue",
+    }
+    missing_paths = sorted(required_paths.difference(field_paths))
+    if missing_paths:
+      errors.append(f"payroll_headcount_initialization_required_contract_fields_missing: {missing_paths}")
+    title_rows = [
+      row
+      for row in contract_rows
+      if isinstance(row, dict)
+      and _clean_text(row.get("field_path")) == "payroll_headcount_grid[].oews_occ_title"
+    ]
+    if not title_rows:
+      errors.append("payroll_headcount_initialization_oews_title_field_missing")
+    elif _clean_text(title_rows[0].get("lookup_source")) != "oews_title_catalog":
+      errors.append(
+        "payroll_headcount_initialization_oews_title_lookup_invalid: "
+        f"actual={_clean_text(title_rows[0].get('lookup_source')) or 'missing'}"
+      )
+  except Exception as exc:
+    errors.append(f"payroll_headcount_initialization_contract_check_unavailable: {exc}")
+
+  try:
+    context_rows = post_intake_gpt_context_rows(
+      contract_name="payroll_headcount_schedule",
+      include_phase="pre_convergence",
+    )
+    context_keys = {
+      _clean_text(row.get("context_key"))
+      for row in context_rows
+      if isinstance(row, dict)
+    }
+    if "oews_role_catalog" in context_keys:
+      errors.append("payroll_headcount_initialization_legacy_oews_role_catalog_present")
+    if "oews_title_catalog" not in context_keys:
+      errors.append("payroll_headcount_initialization_oews_title_catalog_missing")
+  except Exception as exc:
+    errors.append(f"payroll_headcount_initialization_context_check_unavailable: {exc}")
 
 
 def _assert_callable(name: str, fn: Any, errors: List[str]) -> None:
@@ -114,6 +184,7 @@ def run_initialize_post_intake_validation(
     errors.extend(f"headcount_policy: {item}" for item in (post_intake_headcount_policy_errors() or []))
   except Exception as exc:
     errors.append(f"headcount_policy_validation_unavailable: {exc}")
+  _assert_payroll_headcount_initialization_contract(errors)
 
   for step_key in [
     "post_intake_initialize_validation",

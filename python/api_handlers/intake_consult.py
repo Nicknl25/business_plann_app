@@ -6723,6 +6723,7 @@ def _run_planning_system_for_draft_unified(
     estimate_r_and_d_applicability_with_gpt=_estimate_r_and_d_applicability_with_gpt,
     r_and_d_policy_from_model_input=_r_and_d_policy_from_model_input,
     assert_r_and_d_applicability_policy_applied=_assert_r_and_d_applicability_policy_applied,
+    estimate_balance_sheet_contextual_seed_with_gpt=_estimate_balance_sheet_contextual_seed_with_gpt,
     estimate_stage_ramp_contract_with_gpt=_estimate_stage_ramp_contract_with_gpt,
   )
   return _run_unified_post_grid_system_run(
@@ -6906,12 +6907,37 @@ def post_intake_consult_system_run_handler(*, app, request):
       if isinstance(result.get("planning_context_summary_json"), dict)
       else {}
     )
+    result_draft_id = str(result.get("draft_id") or draft_id).strip()
+    client_workbook_path = ""
+    try:
+      from client_statements_output_excel.export_client_workbook import export_workbook_for_draft_id  # type: ignore
+
+      client_workbook_path = str(
+        export_workbook_for_draft_id(
+          draft_id=result_draft_id,
+          conn=conn,
+        )
+      )
+    except Exception as exc:
+      detail = str(exc).strip() or "client_workbook_export_failed"
+      app.logger.exception("Client workbook export failed for draft %s: %s", result_draft_id, detail)
+      return (
+        jsonify(
+          {
+            "error": "client_workbook_export_failed",
+            "detail": detail,
+            "draft_id": result_draft_id,
+          }
+        ),
+        500,
+      )
     return jsonify(
       {
         "status": "ok",
-        "draft_id": str(result.get("draft_id") or draft_id).strip(),
+        "draft_id": result_draft_id,
         "action": "system_run_complete",
         "assistant_message": "System run complete.",
+        "client_workbook_path": client_workbook_path,
         "planning_context_summary_json": planning_context_summary_json,
         "planning_run_json": planning_run_json,
         "planning_runtime_json": planning_runtime_json,

@@ -60,6 +60,10 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   stage_planning_ramp_policy,
 )
 from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
+from client_intake_and_finmo.post_intake_balance_sheet import (  # type: ignore
+  balance_sheet_contextual_seed_candidate_rows,
+  validate_balance_sheet_contextual_seed_payload,
+)
 
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
 _SOLVER_TARGET_METRIC_KEYS = _UNIFIED_ALLOWED_TARGET_METRIC_KEYS
@@ -376,13 +380,17 @@ __all__ = [
   "_estimate_maintenance_capex_percent_with_gpt",
   "_stage_ramp_gpt_timeout_seconds",
   "_r_and_d_applicability_timeout_seconds",
+  "_balance_sheet_contextual_seed_timeout_seconds",
   "_r_and_d_applicability_schema",
+  "_balance_sheet_contextual_seed_schema",
   "_validate_r_and_d_applicability_payload",
+  "_validate_balance_sheet_contextual_seed_payload",
   "_r_and_d_policy_from_model_input",
   "_r_and_d_enabled_from_model_input",
   "_model_input_r_and_d_live_values",
   "_assert_r_and_d_applicability_policy_applied",
   "_estimate_r_and_d_applicability_with_gpt",
+  "_estimate_balance_sheet_contextual_seed_with_gpt",
   "_estimate_stage_ramp_contract_with_gpt",
   "_solver_quarter_target_metrics_schema",
   "_unified_targets_by_quarter_schema",
@@ -1207,6 +1215,15 @@ def _r_and_d_applicability_timeout_seconds() -> float:
     maximum=45.0,
   )
 
+def _balance_sheet_contextual_seed_timeout_seconds() -> float:
+  return _sequence_gpt_timeout_seconds(
+    step_key="balance_sheet_contextual_seed",
+    env_name="BALANCE_SHEET_CONTEXTUAL_SEED_GPT_TIMEOUT_SECONDS",
+    fallback=30.0,
+    minimum=10.0,
+    maximum=60.0,
+  )
+
 def _r_and_d_applicability_schema() -> Dict[str, Any]:
   return _post_intake_contract_schema(
     "r_and_d_applicability",
@@ -1214,6 +1231,31 @@ def _r_and_d_applicability_schema() -> Dict[str, Any]:
       "rationale": {"type": "string", "minLength": 10, "maxLength": 600},
     },
   )
+
+def _balance_sheet_contextual_seed_schema() -> Dict[str, Any]:
+  return _post_intake_contract_schema(
+    "balance_sheet_contextual_seed",
+    field_schema_overrides={
+      "rationale": {"type": "string", "minLength": 10, "maxLength": 1000},
+      "balance_sheet_seed_grid[].rationale": {"type": "string", "minLength": 3, "maxLength": 600},
+    },
+  )
+
+def _validate_balance_sheet_contextual_seed_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  candidate = _normalize_post_intake_contract_payload(
+    contract_name="balance_sheet_contextual_seed",
+    payload=payload if isinstance(payload, dict) else {},
+  )
+  contract_errors = _post_intake_contract_payload_errors(
+    contract_name="balance_sheet_contextual_seed",
+    payload=candidate,
+  )
+  if contract_errors:
+    raise RuntimeError(
+      "balance_sheet_contextual_seed_contract_invalid: "
+      + "; ".join(str(item) for item in contract_errors[:10])
+    )
+  return validate_balance_sheet_contextual_seed_payload(candidate)
 
 def _validate_r_and_d_applicability_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   candidate = _normalize_post_intake_contract_payload(
@@ -1449,6 +1491,203 @@ def _estimate_r_and_d_applicability_with_gpt(
   except TimeoutError as exc:
     raise RuntimeError(
       f"r_and_d_applicability_timeout: GPT R&D applicability selection exceeded {timeout_seconds:.0f}s before forecast."
+    ) from exc
+  finally:
+    _set_active_openai_deadline(prior_deadline)
+  decision["prompt_context"] = user_context
+  decision["raw_openai_response"] = raw_openai_response
+  return decision
+
+def _balance_sheet_seed_current_snapshot(model_input_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  rows: List[Dict[str, Any]] = []
+  candidate_ids = {
+    str(row.get("lever_id") or "").strip()
+    for row in balance_sheet_contextual_seed_candidate_rows()
+    if str(row.get("lever_id") or "").strip()
+  }
+  for row in (sections.get("balance_sheet") or []):
+    if not isinstance(row, dict):
+      continue
+    lever_id = str(row.get("lever_id") or "").strip()
+    if lever_id not in candidate_ids:
+      continue
+    values = list(row.get("values") or [])
+    rows.append(
+      {
+        "lever_id": lever_id,
+        "label": str(row.get("label") or "").strip(),
+        "stub_value": _safe_float(values[0]) if values else None,
+        "first_4_live_values": [
+          round(float(_safe_float(value) or 0.0), 6)
+          for value in values[1:5]
+        ],
+      }
+    )
+  return rows
+
+def _balance_sheet_seed_candidate_prompt_rows() -> List[Dict[str, Any]]:
+  prompt_rows: List[Dict[str, Any]] = []
+  for row in balance_sheet_contextual_seed_candidate_rows():
+    prompt_rows.append(
+      {
+        "lever_id": str(row.get("lever_id") or "").strip(),
+        "target_driver": str(row.get("target_driver") or "").strip(),
+        "value_kind": str(row.get("value_kind") or "").strip().lower(),
+        "input_semantics": str(row.get("input_semantics") or "").strip().lower(),
+        "business_applicability_key": str(row.get("business_applicability_key") or "").strip().lower(),
+        "minimum_live_value": _safe_float(row.get("minimum_live_value")),
+        "maximum_live_value": _safe_float(row.get("maximum_live_value")),
+        "zero_allowed_reason_key": str(row.get("zero_allowed_reason_key") or "").strip().lower(),
+        "applicability_positive_tokens": list(row.get("applicability_positive_tokens") or []),
+        "applicability_negative_tokens": list(row.get("applicability_negative_tokens") or []),
+        "notes": str(row.get("notes") or "").strip(),
+      }
+    )
+  return prompt_rows
+
+def _estimate_balance_sheet_contextual_seed_with_gpt(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  api_key = _openai_key()
+  if not api_key:
+    raise RuntimeError("balance_sheet_contextual_seed_openai_key_missing: OPENAI_API_KEY is not configured.")
+  facts = business_facts if isinstance(business_facts, dict) else {}
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+  finmo_rows = [
+    row for row in ((finmo_json or {}).get("quarter_rows") or [])
+    if isinstance(row, dict)
+  ]
+  user_context = {
+    "business_identity": {
+      "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
+      "business_type": ops.get("business_type"),
+      "business_stage": ops.get("business_stage") or facts.get("business_stage"),
+      "business_start_date": facts.get("business_start_date") or facts.get("start_date") or ops.get("business_start_date"),
+    },
+    "business_context": {
+      "description": ops.get("business_description_summary") or ops.get("business_description"),
+      "products": ops.get("products") or ops.get("revenue_products") or ops.get("product_summary"),
+      "customer_type": ops.get("customer_type"),
+      "delivery_method": ops.get("delivery_method") or ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
+      "sales_channel": ops.get("sales_channel") or ops.get("sales_modality"),
+      "geography": ops.get("geography") or ops.get("geographic_scope"),
+      "growth_lever": ops.get("growth_lever"),
+      "competitive_advantage": ops.get("competitive_advantage"),
+    },
+    "financial_context": {
+      "cash_strategy": financials.get("cash_strategy"),
+      "annual_revenue": (
+        year1.get("company_revenue_total_year1")
+        or year1.get("revenue_total_year1")
+        or financials.get("current_revenue")
+      ),
+      "cash_on_hand": financials.get("cash_on_hand"),
+      "ar_balance": financials.get("ar_balance"),
+      "ap_balance": financials.get("ap_balance"),
+      "inventory_balance": financials.get("inventory_balance"),
+      "prepaid_expenses": financials.get("prepaid_expenses"),
+      "deferred_revenue": financials.get("deferred_revenue"),
+      "total_debt_outstanding": financials.get("total_debt_outstanding"),
+    },
+    "seed_candidates": _balance_sheet_seed_candidate_prompt_rows(),
+    "current_model_snapshot": {
+      "balance_sheet_seed_rows": _balance_sheet_seed_current_snapshot(model_input_json),
+      "finmo_first_4_live_rows": [
+        {
+          "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
+          "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
+          "cost_of_goods_sold": int(round(float(_safe_float(row.get("cost_of_goods_sold")) or 0.0))),
+          "accounts_receivable": int(round(float(_safe_float(row.get("accounts_receivable")) or 0.0))),
+          "accounts_payable": int(round(float(_safe_float(row.get("accounts_payable")) or 0.0))),
+          "inventory": int(round(float(_safe_float(row.get("inventory")) or 0.0))),
+          "prepaid_expenses": int(round(float(_safe_float(row.get("prepaid_expenses")) or 0.0))),
+          "deferred_revenue": int(round(float(_safe_float(row.get("deferred_revenue")) or 0.0))),
+        }
+        for row in finmo_rows[:4]
+      ],
+    },
+    "hard_rules": [
+      "Return one row for every seed_candidate, no more and no fewer.",
+      "Set applicable=true only when the business context/type should carry that balance-sheet driver in the forecast.",
+      "If applicable=true, choose a business-context-specific seed_value inside the candidate min/max bounds.",
+      "If applicable=false, return seed_value=0. Do not use a default fallback.",
+      "For day_count rows, seed_value is days. For ratio rows, seed_value is a decimal ratio, such as 0.05 for 5%.",
+    ],
+  }
+  user_context = post_intake_gpt_context_filter_payload(
+    contract_name="balance_sheet_contextual_seed",
+    payload=user_context,
+    include_phase="pre_convergence",
+  )
+  system_prompt = post_intake_build_prompt_from_contract(
+    "balance_sheet_contextual_seed",
+    context_payload=user_context,
+    include_phase="pre_convergence",
+    static_instruction=(
+      "You make one pre-convergence balance-sheet driver applicability and seed decision for a 3-statement planning app."
+    ),
+    task_instruction=(
+      "Return only JSON matching the SQL-backed balance_sheet_contextual_seed contract. "
+      "Use the supplied mapping-backed seed_candidates and business context. Do not invent fields, rows, or universal defaults."
+    ),
+  )
+  context_budget = post_intake_gpt_context_request_char_budget(
+    contract_name="balance_sheet_contextual_seed",
+    include_phase="pre_convergence",
+    default=None,
+  )
+  if context_budget is not None:
+    context_chars = len(json.dumps(user_context, ensure_ascii=False))
+    if context_chars > int(context_budget):
+      raise RuntimeError(
+        f"balance_sheet_contextual_seed_gpt_context_payload_budget_exceeded: chars={context_chars} budget={int(context_budget)}"
+      )
+  payload_base = {
+    "model": _openai_model(),
+    "temperature": 0,
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "balance_sheet_contextual_seed",
+        "schema": _balance_sheet_contextual_seed_schema(),
+        "strict": True,
+      }
+    },
+  }
+  timeout_seconds = _balance_sheet_contextual_seed_timeout_seconds()
+  prior_deadline = _set_active_openai_deadline(time.perf_counter() + timeout_seconds)
+  raw_openai_response: Dict[str, Any] = {}
+  try:
+    payload = copy.deepcopy(payload_base)
+    payload["input"] = [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+    ]
+    resp = _post_openai(
+      url="https://api.openai.com/v1/responses",
+      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+      payload=payload,
+    )
+    if resp.status_code >= 400:
+      raise RuntimeError(f"balance_sheet_contextual_seed_openai_status: {resp.text[:1200]}")
+    raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+    parsed = _parse_responses_json_dict(raw_openai_response)
+    if not isinstance(parsed, dict):
+      raise RuntimeError("balance_sheet_contextual_seed_parse_failed: GPT did not return a JSON object.")
+    decision = _validate_balance_sheet_contextual_seed_payload(parsed)
+  except TimeoutError as exc:
+    raise RuntimeError(
+      f"balance_sheet_contextual_seed_timeout: GPT balance-sheet seed selection exceeded {timeout_seconds:.0f}s before convergence."
     ) from exc
   finally:
     _set_active_openai_deadline(prior_deadline)

@@ -59,13 +59,59 @@ PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "payroll_headcount_schedule_missing_full_horizon",
   "payroll_headcount_schedule_missing_live_quarters",
   "payroll_values_not_headcount_schedule_derived",
+  "payroll_headcount_contract_horizon_missing",
+  "payroll_headcount_policy_schedule_missing",
+  "payroll_headcount_capacity_assumptions_invalid",
+  "payroll_capacity_grid_incomplete",
+  "payroll_headcount_capacity_coverage_failed",
+  "payroll_headcount_revenue_sanity_lookup_failed",
+  "payroll_headcount_wage_positioning_options_missing",
+  "payroll_headcount_target_payroll_percent_missing",
+  "payroll_headcount_target_payroll_percent_out_of_policy_bounds",
+  "payroll_headcount_revenue_sanity_failed",
+  "payroll_headcount_wage_positioning_multiplier_missing",
+  "payroll_headcount_wage_positioning_multiplier_out_of_tier_bounds",
+  "payroll_headcount_key_person_wage_missing",
+  "payroll_headcount_dead_support_title",
+  "payroll_headcount_support_title_missing_after_start",
+  "payroll_headcount_support_title_stops_after_start",
+  "payroll_headcount_contract_missing_full_horizon",
+  "payroll_headcount_contract_too_many_title_rows",
+  "payroll_headcount_contract_continuity_failed",
+  "payroll_headcount_contract_math_failed",
+  "payroll_headcount_duplicate_oews_title_quarter",
+  "payroll_headcount_oews_naics_missing",
+  "payroll_headcount_oews_catalog_empty",
+  "payroll_headcount_oews_title_missing",
+  "payroll_headcount_oews_title_not_in_catalog",
+  "payroll_headcount_oews_wage_missing",
+  "payroll_headcount_resolved_wage_below_policy_floor",
+  "payroll_headcount_schedule_benefits_invalid",
+  "payroll_headcount_schedule_wage_missing",
+  "payroll_headcount_schedule_wage_below_policy_floor",
   "payroll_headcount_grid must be a 20-row array",
   "payroll_headcount_grid must contain exactly 20 rows",
   "payroll_headcount_schedule_missing_at_application",
   "payroll_headcount_quarter_total_mismatch",
-  "payroll_headcount_economic_coverage_failed",
+  "payroll_headcount_contract_table_validation_failed",
+  "payroll_headcount_contract_horizon_violation",
+  "payroll_headcount_contract_rationale_missing",
+  "payroll_headcount_policy_invalid",
+  "payroll_headcount_schedule_wage_invalid",
+  "payroll_headcount_process_sequence_lookup_failed",
+  "payroll_headcount_process_sequence_validation_subject_mismatch",
+  "payroll_headcount_process_sequence_legacy_stage_ramp_input",
+  "payroll_headcount_grid_missing_from_payroll_contract",
+  "payroll_headcount_contract_openai_key_missing",
+  "payroll_headcount_gpt_context_payload_budget_exceeded",
+  "payroll_headcount_contract_timeout",
+  "payroll_headcount_contract_openai_status",
+  "payroll_headcount_contract_parse_failed",
   "payroll_headcount_contract_invalid_fail_fast",
+  "payroll_headcount_payload_missing",
+  "payroll_headcount_payload_invalid",
   "payroll_headcount_model_input_not_applied",
+  "payroll_headcount_finmo_rows_missing",
   "payroll_headcount_finmo_mismatch",
 }
 
@@ -177,6 +223,20 @@ def _ratio_2dp(value: Any) -> Optional[Decimal]:
   if number is None:
     return None
   return Decimal(str(float(number))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _growth_multiplier_from_contract(value: Any) -> Optional[float]:
+  """Normalize table-backed ramp fields to growth multipliers.
+
+  The stage ramp contract stores many QoQ fields as decimal growth rates
+  (0.03 means +3%). Older/alternate fields may already be multipliers
+  (1.03). Runtime validation must accept both shapes but compare only
+  normalized multipliers.
+  """
+  number = _safe_float(value)
+  if number is None or number <= 0.0:
+    return None
+  return 1.0 + float(number) if number < 1.0 else float(number)
 
 
 def _live_quarter_rows(finmo_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -399,11 +459,11 @@ def assert_stage_ramp_revenue_path_applied(
     previous_revenue = revenue_by_q.get(quarter - 1)
     current_revenue = revenue_by_q.get(quarter)
     ramp_row = ramp_rows.get(quarter) or {}
-    target_growth = _safe_float(
+    target_growth = _growth_multiplier_from_contract(
       ramp_row.get("revenue_qoq_target")
       or ramp_row.get("rev_target")
     )
-    max_growth = _safe_float(
+    max_growth = _growth_multiplier_from_contract(
       ramp_row.get("revenue_qoq_max")
       or ramp_row.get("rev_max")
     )
@@ -427,6 +487,7 @@ def assert_stage_ramp_revenue_path_applied(
             "required_revenue_from_ramp_target": required_revenue,
             "required_growth_2dp": str(required_growth_2dp),
             "revenue_qoq_target": target_growth,
+            "normalized_revenue_qoq_target_multiplier": target_growth,
             "ramp_grid_row": ramp_row,
           }
         )
@@ -447,6 +508,7 @@ def assert_stage_ramp_revenue_path_applied(
             "maximum_revenue_from_ramp_max": maximum_revenue,
             "allowed_growth_2dp": str(allowed_growth_2dp),
             "revenue_qoq_max": max_growth,
+            "normalized_revenue_qoq_max_multiplier": max_growth,
             "ramp_grid_row": ramp_row,
           }
         )

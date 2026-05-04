@@ -33,6 +33,7 @@ DEBT_REPAYMENT_LABEL = "Debt Repayment (Scheduled)"
 LEGACY_NET_DEBT_LABEL = "Plus: Additions (repayments), net"
 R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
 R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
+BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY = "balance_sheet_contextual_seed"
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
@@ -187,14 +188,6 @@ def _mapping_formula_contract_for_lever(lever_id: Any) -> Optional[Dict[str, Any
   return contract if isinstance(contract, dict) else None
 
 
-def _mapping_missing_seed_default_for_lever(lever_id: Any) -> Optional[float]:
-  contract = _mapping_formula_contract_for_lever(lever_id)
-  if not isinstance(contract, dict):
-    return None
-  value = _safe_float(contract.get("missing_seed_default_value"))
-  return value if value is not None else None
-
-
 def _business_text_has_any(payload: Dict[str, Any], tokens: Sequence[str]) -> bool:
   try:
     text = json.dumps(payload if isinstance(payload, dict) else {}, ensure_ascii=False).lower()
@@ -203,15 +196,23 @@ def _business_text_has_any(payload: Dict[str, Any], tokens: Sequence[str]) -> bo
   return any(str(token or "").lower() in text for token in tokens)
 
 
+def _mapping_applicability_tokens_for_lever(
+  lever_id: str,
+  token_kind: str,
+) -> Sequence[str]:
+  contract = _mapping_formula_contract_for_lever(lever_id)
+  if not isinstance(contract, dict):
+    return ()
+  raw = contract.get(token_kind)
+  if not isinstance(raw, list):
+    return ()
+  return tuple(str(item or "").strip().lower() for item in raw if str(item or "").strip())
+
+
 def _deferred_revenue_applicable(ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> bool:
-  tokens = (
-    "subscription",
-    "membership",
-    "retainer",
-    "deposit",
-    "prepaid",
-    "advance payment",
-    "upfront",
+  tokens = _mapping_applicability_tokens_for_lever(
+    "balance_sheet::Deferred Revenue (% of Revenue)",
+    "applicability_positive_tokens",
   )
   return _business_text_has_any(ops_json or {}, tokens) or _business_text_has_any(financials_json or {}, tokens)
 
@@ -219,19 +220,17 @@ def _deferred_revenue_applicable(ops_json: Dict[str, Any], financials_json: Dict
 def _inventory_driver_applicable(ops_json: Dict[str, Any], financials_json: Dict[str, Any]) -> bool:
   if max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0) > 0.0:
     return True
-  tokens = (
-    "inventory",
-    "retail",
-    "boutique",
-    "shop",
-    "store",
-    "goods",
-    "products",
-    "merchandise",
-    "wholesale",
-    "resale",
+  positive_tokens = _mapping_applicability_tokens_for_lever(
+    "balance_sheet::Inventory Days",
+    "applicability_positive_tokens",
   )
-  return _business_text_has_any(ops_json or {}, tokens)
+  negative_tokens = _mapping_applicability_tokens_for_lever(
+    "balance_sheet::Inventory Days",
+    "applicability_negative_tokens",
+  )
+  if _business_text_has_any(ops_json or {}, negative_tokens) or _business_text_has_any(financials_json or {}, negative_tokens):
+    return False
+  return _business_text_has_any(ops_json or {}, positive_tokens) or _business_text_has_any(financials_json or {}, positive_tokens)
 
 
 def _full_quarter_scope(slots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1721,9 +1720,6 @@ def _apply_authoritative_working_capital_driver_policies(
     return next_payload
 
   days_in_quarter = 90.0
-  ar_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Receivable Days")
-  inventory_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Inventory Days")
-  ap_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Payable Days")
   revenue_series = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
   cogs_ratio_series = _model_input_live_values_for_label(
     next_payload,
@@ -1796,8 +1792,6 @@ def _apply_authoritative_working_capital_driver_policies(
         )
         if revenue > 0.0 and ar_balance_seed > 0.0:
           value = (ar_balance_seed / revenue) * days_in_quarter
-        elif revenue > 0.0 and existing_value <= 0.0 and ar_default_days is not None and ar_default_days > 0.0:
-          value = float(ar_default_days)
         else:
           value = existing_value
       elif label == "Inventory Days":
@@ -1826,8 +1820,6 @@ def _apply_authoritative_working_capital_driver_policies(
           )
           if cogs > 0.0 and inventory_balance_seed > 0.0:
             value = (inventory_balance_seed / cogs) * days_in_quarter
-          elif cogs > 0.0 and existing_value <= 0.0 and inventory_default_days is not None and inventory_default_days > 0.0:
-            value = float(inventory_default_days)
           else:
             value = existing_value
       else:
@@ -1843,8 +1835,6 @@ def _apply_authoritative_working_capital_driver_policies(
         )
         if ap_expense_base > 0.0 and ap_balance_seed > 0.0:
           value = (ap_balance_seed / ap_expense_base) * days_in_quarter
-        elif ap_expense_base > 0.0 and existing_value <= 0.0 and ap_default_days is not None and ap_default_days > 0.0:
-          value = float(ap_default_days)
         else:
           value = existing_value
       if (
@@ -1913,7 +1903,7 @@ def _apply_authoritative_working_capital_driver_policies(
   return next_payload
 
 
-def _apply_table_backed_balance_sheet_presence_defaults(
+def _apply_contextual_balance_sheet_driver_seed_policy(
   model_input_json: Optional[Dict[str, Any]],
   *,
   live_count: int,
@@ -1962,17 +1952,37 @@ def _apply_table_backed_balance_sheet_presence_defaults(
     label="General & Administrative",
     live_count=live_count,
   )
-  default_by_label = {
-    "Accounts Receivable Days": _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Receivable Days"),
-    "Accounts Payable Days": _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Payable Days"),
-    "Prepaid Expenses (% of Revenue)": _mapping_missing_seed_default_for_lever("balance_sheet::Prepaid Expenses (% of Revenue)"),
+  policies = next_payload.get("derived_driver_policies") if isinstance(next_payload.get("derived_driver_policies"), dict) else {}
+  policy = policies.get(BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY) if isinstance(policies, dict) else {}
+  seed_rows = [
+    item for item in ((policy or {}).get("balance_sheet_seed_grid") or [])
+    if isinstance(item, dict)
+  ]
+  seed_by_lever = {
+    str(item.get("lever_id") or "").strip(): item
+    for item in seed_rows
+    if str(item.get("lever_id") or "").strip()
+  }
+  lever_by_label = {
+    "Accounts Receivable Days": "balance_sheet::Accounts Receivable Days",
+    "Accounts Payable Days": "balance_sheet::Accounts Payable Days",
+    "Inventory Days": "balance_sheet::Inventory Days",
+    "Prepaid Expenses (% of Revenue)": "balance_sheet::Prepaid Expenses (% of Revenue)",
+    "Deferred Revenue (% of Revenue)": "balance_sheet::Deferred Revenue (% of Revenue)",
   }
   runtime_rows: List[Dict[str, Any]] = []
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
-    default_value = default_by_label.get(label)
-    if default_value is None or default_value <= 0.0:
+    lever_id = str(row.get("lever_id") or lever_by_label.get(label) or "").strip()
+    seed_row = seed_by_lever.get(lever_id)
+    if not isinstance(seed_row, dict) or not bool(seed_row.get("applicable")):
       continue
+    seed_value = _safe_float(seed_row.get("seed_value"))
+    if seed_value is None or seed_value <= 0.0:
+      raise ValueError(
+        "balance_sheet_contextual_seed_invalid: applicable balance-sheet driver is missing a positive business-context seed. "
+        f"lever_id={lever_id} seed_value={seed_row.get('seed_value')!r}"
+      )
     stub_value, existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
     live_values: List[float] = []
     changed_quarters: List[int] = []
@@ -1990,36 +2000,39 @@ def _apply_table_backed_balance_sheet_presence_defaults(
         if idx < len(existing_live_values)
         else 0.0
       )
+      cogs = revenue * cogs_ratio
       should_apply = (
-        (label == "Accounts Receivable Days" and revenue > 0.0)
+        (label in {"Accounts Receivable Days", "Prepaid Expenses (% of Revenue)", "Deferred Revenue (% of Revenue)"} and revenue > 0.0)
         or (label == "Accounts Payable Days" and ap_expense_base > 0.0)
-        or (label == "Prepaid Expenses (% of Revenue)" and revenue > 0.0)
+        or (label == "Inventory Days" and cogs > 0.0)
       )
       if should_apply and existing_value <= 0.0:
-        live_values.append(round(float(default_value), 6))
+        live_values.append(round(float(seed_value), 6))
         changed_quarters.append(idx + 1)
       else:
         live_values.append(existing_value)
     if changed_quarters:
-      row["derived_driver"] = "mapping_table_missing_seed_presence_default"
-      row["mapping_table_presence_default"] = {
-        "source_table": "post_intak_mapping_lookup",
-        "default_column": "missing_seed_default_value",
-        "lever_id": str(row.get("lever_id") or "").strip(),
+      row["derived_driver"] = "balance_sheet_contextual_seed"
+      row["balance_sheet_contextual_seed"] = {
+        "source_contract": "balance_sheet_contextual_seed",
+        "source_table": "post_intake_gpt_contract_lookup",
+        "lever_id": lever_id,
+        "business_applicability_key": str(seed_row.get("business_applicability_key") or "").strip(),
+        "rationale": str(seed_row.get("rationale") or "").strip(),
         "changed_quarters": changed_quarters,
       }
       row["values"] = _compose_period_values(stub_value=stub_value, live_values=live_values)
       runtime_rows.append(
         {
-          "lever_id": str(row.get("lever_id") or "").strip(),
+          "lever_id": lever_id,
           "label": label,
-          "default_value": round(float(default_value), 6),
+          "seed_value": round(float(seed_value), 6),
           "changed_quarters": changed_quarters,
         }
       )
   if runtime_rows and isinstance(next_payload.get("derived_driver_runtime"), dict):
-    next_payload["derived_driver_runtime"]["mapping_table_balance_sheet_presence_defaults"] = {
-      "source_table": "post_intak_mapping_lookup",
+    next_payload["derived_driver_runtime"][BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY] = {
+      "source_contract": "balance_sheet_contextual_seed",
       "rows": runtime_rows,
     }
   return next_payload
@@ -2110,7 +2123,7 @@ def apply_derived_driver_policies_to_model_input(
     next_payload,
     live_count=live_count,
   )
-  next_payload = _apply_table_backed_balance_sheet_presence_defaults(
+  next_payload = _apply_contextual_balance_sheet_driver_seed_policy(
     next_payload,
     live_count=live_count,
   )
@@ -3360,12 +3373,6 @@ def _build_model_input_overlay(
   inventory_balance_seed = max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0)
   ap_balance_seed = max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0)
   days_in_quarter = 90.0
-  ar_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Receivable Days")
-  inventory_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Inventory Days")
-  ap_default_days = _mapping_missing_seed_default_for_lever("balance_sheet::Accounts Payable Days")
-  prepaid_default_ratio = _mapping_missing_seed_default_for_lever("balance_sheet::Prepaid Expenses (% of Revenue)")
-  deferred_default_ratio = _mapping_missing_seed_default_for_lever("balance_sheet::Deferred Revenue (% of Revenue)")
-  inventory_driver_applicable = _inventory_driver_applicable(ops_json or {}, financials_json or {})
   deferred_revenue_applicable = _deferred_revenue_applicable(ops_json or {}, financials_json or {})
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
@@ -3388,8 +3395,6 @@ def _build_model_input_overlay(
         else:
           if revenue > 0.0 and ar_balance_seed > 0.0:
             values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
-          elif revenue > 0.0 and ar_default_days is not None and ar_default_days > 0.0:
-            values.append(round(float(ar_default_days), 6))
           else:
             values.append(0.0)
       elif label == "Inventory Days":
@@ -3399,8 +3404,6 @@ def _build_model_input_overlay(
         else:
           if cogs > 0.0 and inventory_balance_seed > 0.0:
             values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
-          elif cogs > 0.0 and inventory_driver_applicable and inventory_default_days is not None and inventory_default_days > 0.0:
-            values.append(round(float(inventory_default_days), 6))
           else:
             values.append(0.0)
       elif label == "Accounts Payable Days":
@@ -3410,8 +3413,6 @@ def _build_model_input_overlay(
         else:
           if ap_expense_base > 0.0 and ap_balance_seed > 0.0:
             values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
-          elif ap_expense_base > 0.0 and ap_default_days is not None and ap_default_days > 0.0:
-            values.append(round(float(ap_default_days), 6))
           else:
             values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":
@@ -3422,8 +3423,6 @@ def _build_model_input_overlay(
         )
         if existing is not None and existing > 0.0:
           values.append(round(existing, 6))
-        elif revenue > 0.0 and prepaid_default_ratio is not None and prepaid_default_ratio > 0.0:
-          values.append(round(float(prepaid_default_ratio), 6))
         else:
           values.append(0.0)
       elif label == "Deferred Revenue (% of Revenue)":
@@ -3434,8 +3433,6 @@ def _build_model_input_overlay(
         )
         if existing is not None and existing > 0.0:
           values.append(round(existing, 6))
-        elif revenue > 0.0 and deferred_revenue_applicable and deferred_default_ratio is not None and deferred_default_ratio > 0.0:
-          values.append(round(float(deferred_default_ratio), 6))
         else:
           values.append(0.0)
       elif label == "Short Term Debt (% of LTD)":
@@ -3450,6 +3447,13 @@ def _build_model_input_overlay(
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
       else:
         values.append(round(_safe_float(base_values[min(slot_idx, len(base_values) - 1)]) or 0.0, 6) if base_values else 0.0)
+    if label == "Deferred Revenue (% of Revenue)":
+      row["mapping_table_presence_applicability"] = {
+        "source_table": "post_intak_mapping_lookup",
+        "lever_id": "balance_sheet::Deferred Revenue (% of Revenue)",
+        "business_applicability_key": "deferred_revenue_business",
+        "applicable": bool(deferred_revenue_applicable),
+      }
     if label == "Owner's Capital":
       stub_value = round(_safe_float((financials_json or {}).get("initial_equity")) or base_stub_value or 0.0, 6)
     elif label == "Other Equity":

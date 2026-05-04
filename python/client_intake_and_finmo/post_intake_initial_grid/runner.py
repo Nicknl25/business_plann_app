@@ -46,6 +46,7 @@ def prepare_initial_grid_for_draft(
   estimate_r_and_d_applicability_with_gpt: Callable[..., Dict[str, Any]],
   r_and_d_policy_from_model_input: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]],
   assert_r_and_d_applicability_policy_applied: Callable[..., None],
+  estimate_balance_sheet_contextual_seed_with_gpt: Callable[..., Dict[str, Any]],
   estimate_stage_ramp_contract_with_gpt: Callable[..., Dict[str, Any]],
 ) -> Dict[str, Any]:
   """Prepare the initial post-intake quarter grid and baseline state."""
@@ -150,6 +151,9 @@ def prepare_initial_grid_for_draft(
     apply_r_and_d_applicability_policy_to_model_input,
     build_python_finmo_json,
     sync_planning_state_to_finmo,
+  )
+  from client_intake_and_finmo.post_intake_balance_sheet import (  # type: ignore
+    apply_balance_sheet_contextual_seed_to_model_input,
   )
   from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
     apply_payroll_headcount_payload_to_model_input,
@@ -420,6 +424,39 @@ def prepare_initial_grid_for_draft(
       finmo_json=finmo_json,
       stage="baseline_ready_before_planning_mode",
     )
+    sequence_trace["balance_sheet_contextual_seed"] = post_intake_process_step_context(
+      step_key="balance_sheet_contextual_seed",
+      expected_phase="pre_convergence",
+      expected_handler_key="estimate_balance_sheet_contextual_seed_with_gpt",
+      required_contract_name="balance_sheet_contextual_seed",
+      required_context_contract_name="balance_sheet_contextual_seed",
+      required_context_include_phase="pre_convergence",
+      required_lookup_tables=[
+        "post_intak_mapping_lookup",
+        "post_intake_gpt_contract_lookup",
+        "post_intake_gpt_context_lookup",
+      ],
+      required_horizon_rule="single_pre_convergence_balance_sheet_driver_seed",
+    )
+    balance_sheet_contextual_seed_decision = estimate_balance_sheet_contextual_seed_with_gpt(
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+    )
+    model_input_json = apply_balance_sheet_contextual_seed_to_model_input(
+      copy.deepcopy(model_input_json or {}),
+      copy.deepcopy(balance_sheet_contextual_seed_decision or {}),
+      live_count=20,
+    )
+    finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(model_input_json))
+    shared_context["balance_sheet_contextual_seed_decision"] = {
+      key: copy.deepcopy(value)
+      for key, value in balance_sheet_contextual_seed_decision.items()
+      if key not in {"prompt_context", "raw_openai_response"}
+    }
     planning_context_summary_json = refresh_planning_context_summary(
       current_model_input_json=model_input_json,
     )
@@ -429,8 +466,13 @@ def prepare_initial_grid_for_draft(
         for key, value in r_and_d_applicability_decision.items()
         if key not in {"prompt_context", "raw_openai_response"}
       }
+      planning_context_summary_json["balance_sheet_contextual_seed"] = {
+        key: copy.deepcopy(value)
+        for key, value in balance_sheet_contextual_seed_decision.items()
+        if key not in {"prompt_context", "raw_openai_response"}
+      }
     persist_system_stage(
-      stage="baseline_ready",
+      stage="balance_sheet_contextual_seed_applied",
       status="running",
       model_input_payload=model_input_json,
       finmo_payload=finmo_json,

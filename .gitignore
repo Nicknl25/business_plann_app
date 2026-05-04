@@ -49,6 +49,9 @@ coverage/
 logs/
 tmp/
 temp/
+tmp_workbook_test/
+tmp_workbook_test_cleanname/
+tmp_workbook_viewfix*/
 *.tmp
 *.swp
 *.swo

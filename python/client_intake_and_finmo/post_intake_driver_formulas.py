@@ -113,6 +113,7 @@ def mapping_formula_defaults(row: Dict[str, Any]) -> Dict[str, Any]:
   zero_allowed_reason_key = "not_applicable_or_table_optional"
   missing_seed_default_value: Optional[float] = None
   minimum_live_value: Optional[float] = None
+  maximum_live_value: Optional[float] = None
   allow_zero = True
 
   if owner in {"cash_pass"} and driver_bundle not in {"working_capital_bundle", "debt_schedule_bundle"}:
@@ -193,30 +194,30 @@ def mapping_formula_defaults(row: Dict[str, Any]) -> Dict[str, Any]:
     if lever_id == "balance_sheet::Accounts Receivable Days":
       business_applicability_key = "revenue_positive_ar_applicable"
       zero_allowed_reason_key = "revenue_not_positive"
-      missing_seed_default_value = 2.0
       minimum_live_value = 1.0
+      maximum_live_value = 90.0
     elif lever_id == "balance_sheet::Accounts Payable Days":
       business_applicability_key = "operating_expense_positive_ap_applicable"
       zero_allowed_reason_key = "no_vendor_payables_model"
-      missing_seed_default_value = 2.0
       minimum_live_value = 1.0
+      maximum_live_value = 90.0
     elif lever_id == "balance_sheet::Inventory Days":
       business_applicability_key = "inventory_business_or_seed"
       zero_allowed_reason_key = "inventory_not_applicable"
-      missing_seed_default_value = 15.0
       minimum_live_value = 1.0
+      maximum_live_value = 180.0
     else:
       business_applicability_key = "debt_policy_or_existing_debt"
       forecast_presence_rule_key = "schedule_reconciles_when_applicable"
       zero_allowed_reason_key = "no_debt_policy_or_existing_debt"
-      missing_seed_default_value = 0.0
       minimum_live_value = 0.0
+      maximum_live_value = 1.0
   if lever_id == "balance_sheet::Prepaid Expenses (% of Revenue)":
-    missing_seed_default_value = 0.01
     minimum_live_value = 0.01
+    maximum_live_value = 0.20
   elif lever_id == "balance_sheet::Deferred Revenue (% of Revenue)":
-    missing_seed_default_value = 0.05
     minimum_live_value = 0.01
+    maximum_live_value = 0.75
 
   if "capital_expenditures" in financial_field:
     seed_formula_key = "python_derived_schedule"
@@ -234,6 +235,7 @@ def mapping_formula_defaults(row: Dict[str, Any]) -> Dict[str, Any]:
     "zero_allowed_reason_key": zero_allowed_reason_key,
     "missing_seed_default_value": missing_seed_default_value,
     "minimum_live_value": minimum_live_value,
+    "maximum_live_value": maximum_live_value,
     "allow_zero": bool(allow_zero),
   }
 
@@ -251,6 +253,7 @@ def normalize_formula_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
     "zero_allowed_reason_key": clean_text(row.get("zero_allowed_reason_key")).lower() or defaults["zero_allowed_reason_key"],
     "missing_seed_default_value": row.get("missing_seed_default_value") if row.get("missing_seed_default_value") is not None else defaults["missing_seed_default_value"],
     "minimum_live_value": row.get("minimum_live_value") if row.get("minimum_live_value") is not None else defaults["minimum_live_value"],
+    "maximum_live_value": row.get("maximum_live_value") if row.get("maximum_live_value") is not None else defaults["maximum_live_value"],
     "allow_zero": bool(row.get("allow_zero")) if row.get("allow_zero") is not None else bool(defaults["allow_zero"]),
     "formula_status": clean_text(row.get("formula_status")).lower() or "active",
   }
@@ -278,16 +281,14 @@ def formula_metadata_errors(row: Dict[str, Any]) -> List[str]:
     errors.append(f"{lever_id} has unsupported forecast_presence_rule_key {metadata['forecast_presence_rule_key']}")
   if metadata["seed_formula_key"] == "annual_source_value_divided_by_annual_revenue" and not metadata["seed_source_paths"]:
     errors.append(f"{lever_id} needs seed_source_paths_json for {metadata['seed_formula_key']}")
-  if (
-    metadata["forecast_presence_rule_key"] == "positive_driver_when_applicable"
-    and metadata["business_applicability_key"] in {
-      "revenue_positive_ar_applicable",
-      "operating_expense_positive_ap_applicable",
-      "revenue_positive_prepaid_applicable",
-    }
-    and metadata["missing_seed_default_value"] is None
-  ):
-    errors.append(f"{lever_id} needs missing_seed_default_value for table-backed omitted-intake initialization")
+  contextual_seed_candidate = (
+    lever_id.startswith("balance_sheet::")
+    and metadata["forecast_presence_rule_key"] == "positive_driver_when_applicable"
+  )
+  if contextual_seed_candidate and metadata["minimum_live_value"] is None:
+    errors.append(f"{lever_id} needs minimum_live_value for table-backed applicability validation")
+  if contextual_seed_candidate and metadata["maximum_live_value"] is None:
+    errors.append(f"{lever_id} needs maximum_live_value for table-backed applicability validation")
   return errors
 
 

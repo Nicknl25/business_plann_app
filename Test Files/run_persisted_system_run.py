@@ -444,6 +444,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     transcript.append({"role": "assistant", "content": system_message, "focus": "system"})
     print(system_message)
     print(f"System run duration: {system_run_ms} ms")
+    client_workbook_path = _string(system_run_response.get("client_workbook_path"))
+    if client_workbook_path:
+      print(f"Saved client financial model workbook: {client_workbook_path}")
 
     draft = _DUAL._get_json(f"{_string(args.base_url)}/api/intake-consult/draft", {"draft_id": draft_id})
     realism_flags = _DUAL._realism_final_flags_from_draft(draft)

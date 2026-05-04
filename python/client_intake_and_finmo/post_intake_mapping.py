@@ -593,6 +593,34 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   _process_sequence_row(
     "pre_convergence",
     40,
+    "balance_sheet_contextual_seed",
+    "estimate_balance_sheet_contextual_seed_with_gpt",
+    contract_name="balance_sheet_contextual_seed",
+    context_contract_name="balance_sheet_contextual_seed",
+    context_include_phase="pre_convergence",
+    required_lookup_tables=[
+      _MAPPING_TABLE_NAME,
+      _GPT_CONTRACT_TABLE_NAME,
+      _GPT_CONTEXT_TABLE_NAME,
+    ],
+    horizon_rule="single_pre_convergence_balance_sheet_driver_seed",
+    timeout_seconds=30,
+    max_attempts=1,
+    fail_fast_code="post_intake_sequence_balance_sheet_seed_contract_missing",
+    python_role="contract_request_and_validation",
+    python_timing="pre_convergence_before_stage_ramp",
+    python_action=(
+      "Call GPT once for business-context-specific balance-sheet driver seed values, "
+      "then Python applies those values to mapped model_input rows. Mapping defaults are guardrails only."
+    ),
+    input_object_path="business_facts, operating_model_json, financials_json, model_input_json, finmo_json, post_intak_mapping_lookup",
+    output_object_path="balance_sheet_contextual_seed; model_input_json.sections.balance_sheet",
+    validation_subject_path="balance_sheet_contextual_seed.balance_sheet_seed_grid",
+    notes="Omitted balance-sheet drivers are seeded from business context/type through a SQL-backed contract, not universal hardcoded defaults.",
+  ),
+  _process_sequence_row(
+    "pre_convergence",
+    50,
     "stage_ramp_contract",
     "estimate_stage_ramp_contract_with_gpt",
     contract_name="stage_ramp_contract",
@@ -619,7 +647,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   ),
   _process_sequence_row(
     "initial_grid",
-    50,
+    60,
     "quarter_grid_generation",
     "generate_live_quarter_grid_plan",
     contract_name="quarter_grid_probe",
@@ -636,7 +664,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   ),
   _process_sequence_row(
     "initial_grid",
-    60,
+    70,
     "payroll_headcount_schedule",
     "estimate_payroll_headcount_schedule_with_gpt",
     contract_name="payroll_headcount_schedule",
@@ -648,8 +676,8 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       "post_intake_headcount_policy_lookup",
     ],
     horizon_rule="q1_to_q20_at_least_once",
-    timeout_seconds=None,
-    max_attempts=1,
+    timeout_seconds=180,
+    max_attempts=2,
     fail_fast_code="post_intake_sequence_headcount_contract_missing",
     python_role="contract_request_and_schedule_builder",
     python_timing="after_quarter_grid_before_convergence",
@@ -660,11 +688,11 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     input_object_path="business_facts, operating_model_json, people_json, financials_json, applied_model_input_json, applied_finmo_json, stage_ramp_contract",
     output_object_path="intake_consult_drafts.payroll_headcount; model_input_json.sections.expenses[Payroll]",
     validation_subject_path="payroll_headcount_schedule.payroll_headcount_grid",
-    notes="Payroll is not part of stage_ramp_contract and must run after the quarter grid so the headcount schedule supports the actual applied revenue state.",
+    notes="Payroll is not part of stage_ramp_contract and must run after the quarter grid so the headcount schedule supports the actual applied structural capacity/utilization state. Payroll is capacity-primary; revenue is sanity context only.",
   ),
   _process_sequence_row(
     "convergence",
-    70,
+    80,
     "issue_detection",
     "detect_post_intake_issues",
     required_lookup_tables=[_MAPPING_TABLE_NAME, _GPT_CONTRACT_TABLE_NAME],
@@ -674,7 +702,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   ),
   _process_sequence_row(
     "convergence",
-    80,
+    90,
     "unified_convergence_decision",
     "run_unified_convergence_cycle",
     contract_name="unified_convergence_decision",
@@ -851,17 +879,39 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
 
 _PAYROLL_HEADCOUNT_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].q", "q", "integer", is_array_item=True, parent_field_path="payroll_headcount_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].role_category", "role_category", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Role category", prompt_required_instruction="Use a concise staffing category tied to an actual role family or staffing bundle. Do not invent rows outside the payroll_headcount_grid contract."),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].oews_occ_title", "oews_occ_title", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_oews_catalog_member", lookup_source="oews_role_catalog", prompt_label="OEWS occupation title", prompt_required_instruction="Must be one exact occ_title from oews_role_catalog.role_candidates. Do not invent titles. Python uses this exact OEWS title for wage lookup."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].oews_occ_title", "oews_occ_title", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_oews_catalog_member", lookup_source="oews_title_catalog", prompt_label="OEWS occupation title", prompt_required_instruction="Must be one exact occ_title from the full NAICS oews_title_catalog.title_candidates. GPT chooses the OEWS titles it wants to hire and FTE by quarter; Python uses the exact selected OEWS row for wage lookup and payroll math. Do not invent staffing families, staffing categories, aliases, or non-OEWS staffing buckets."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE", prompt_required_instruction="Used with ending_fte to calculate average_fte=(starting_fte+ending_fte)/2. If average FTE is below the guardrail, increase starting_fte/hires/ending_fte; ending_fte alone is not enough."),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions"),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE", prompt_required_instruction="Must satisfy payroll_economic_guardrails by quarter using average_fte=(starting_fte+ending_fte)/2, not ending_fte alone. Keep role continuity after hiring starts."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions", prompt_required_instruction="Mechanical FTE addition in the quarter. If ending_fte is greater than starting_fte, hires should equal ending_fte - starting_fte. Python may normalize this arithmetic field from the selected FTE levels; GPT owns the starting/ending FTE decision."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE", prompt_required_instruction="Must satisfy payroll_capacity_guardrails by quarter using average_fte=(starting_fte+ending_fte)/2, not ending_fte alone. Keep OEWS title continuity after hiring starts."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0.12, max_value=0.35, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent", prompt_required_instruction="Must stay inside post_intake_headcount_policy_lookup min/max benefits burden. Do not use 0.00 for employees."),
+]
+
+_BALANCE_SHEET_CONTEXTUAL_SEED_GRID_FIELDS: List[Dict[str, Any]] = [
+  _gpt_contract_row("balance_sheet_contextual_seed", "balance_sheet_seed_grid", "balance_sheet_seed_grid[].lever_id", "lever_id", "string", is_array_item=True, parent_field_path="balance_sheet_seed_grid", validation_kind="mapping_table_member", lookup_source="post_intak_mapping_lookup", prompt_required_instruction="Use one exact balance-sheet lever_id from the supplied mapping-backed seed_candidates. Do not invent rows."),
+  _gpt_contract_row("balance_sheet_contextual_seed", "balance_sheet_seed_grid", "balance_sheet_seed_grid[].applicable", "applicable", "boolean", is_array_item=True, parent_field_path="balance_sheet_seed_grid", validation_kind="boolean", prompt_required_instruction="True only when the business context/type should carry this balance-sheet driver in the forecast."),
+  _gpt_contract_row("balance_sheet_contextual_seed", "balance_sheet_seed_grid", "balance_sheet_seed_grid[].seed_value", "seed_value", "number", is_array_item=True, parent_field_path="balance_sheet_seed_grid", min_value=0.00, max_value=365.00, normalization_kind="ratio_2dp", validation_kind="balance_sheet_contextual_seed", lookup_source="post_intak_mapping_lookup", prompt_required_instruction="Business-specific seed value. For day-count rows, return days. For ratio rows, return decimal ratio like 0.05 for 5%. Do not use universal defaults; decide from business type/context and mapping bounds."),
+  _gpt_contract_row("balance_sheet_contextual_seed", "balance_sheet_seed_grid", "balance_sheet_seed_grid[].value_kind", "value_kind", "enum", is_array_item=True, parent_field_path="balance_sheet_seed_grid", validation_kind="enum", enum_values=["day_count", "ratio"], prompt_required_instruction="Must match the mapping row value_kind."),
+  _gpt_contract_row("balance_sheet_contextual_seed", "balance_sheet_seed_grid", "balance_sheet_seed_grid[].rationale", "rationale", "string", is_array_item=True, parent_field_path="balance_sheet_seed_grid", prompt_required_instruction="Brief business-context reason for applicability and seed level."),
 ]
 
 
 _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("maintenance_capex_percent", "root", "maintenance_capex_percent", "maintenance_capex_percent", "ratio_2dp", min_value=2.00, max_value=15.00, normalization_kind="ratio_2dp", validation_kind="maintenance_capex_percent_range", contract_phase="pre_forecast"),
+  _gpt_contract_row(
+    "balance_sheet_contextual_seed",
+    "root",
+    "balance_sheet_seed_grid",
+    "balance_sheet_seed_grid",
+    "array",
+    min_items=1,
+    max_items=12,
+    item_contract_grid_name="balance_sheet_seed_grid",
+    validation_kind="balance_sheet_contextual_seed",
+    lookup_source="post_intak_mapping_lookup",
+    prompt_required_instruction="Return one row for every supplied seed_candidate. Python validates completeness against sql.post_intak_mapping_lookup; missing rows fail fast.",
+  ),
+  _gpt_contract_row("balance_sheet_contextual_seed", "root", "rationale", "rationale", "string"),
+  *_BALANCE_SHEET_CONTEXTUAL_SEED_GRID_FIELDS,
   _gpt_contract_row("stage_ramp_contract", "root", "stage_family", "stage_family", "enum", validation_kind="enum", enum_values=["startup", "early", "operational"]),
   _gpt_contract_row("stage_ramp_contract", "root", "utilization_high_watermark", "utilization_high_watermark", "ratio_2dp", min_value=0.50, max_value=0.98, normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric"),
   _gpt_contract_row(
@@ -886,13 +936,19 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     "payroll_headcount_grid",
     "array",
     min_items=20,
-    max_items=160,
+    max_items=400,
     item_contract_grid_name="payroll_headcount_grid",
     horizon_rule="q1_to_q20_at_least_once",
     validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Provide active supporting-staff role/FTE rows for every forecast quarter Q1 through Q20. Select oews_occ_title from oews_role_catalog. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through OEWS, calculates payroll dollars, and stores intake_consult_drafts.payroll_headcount. If a role has no FTE in all 20 quarters, omit it. Once a role starts, keep it active through Q20. Every quarter must satisfy payroll_economic_guardrails using average_fte=(starting_fte+ending_fte)/2; matching only ending_fte is invalid.",
+    prompt_required_instruction="Provide active supporting-staff OEWS-title/FTE rows for every forecast quarter Q1 through Q20. GPT picks exact oews_occ_title rows from the full NAICS oews_title_catalog.title_candidates and states starting_fte, hires, ending_fte, and benefits percent for that title. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through the selected OEWS row, applies wage positioning and inflation from post_intake_headcount_policy_lookup, calculates payroll dollars, and stores intake_consult_drafts.payroll_headcount. If an OEWS title has no FTE in all 20 quarters, omit it. Once an OEWS title starts, keep it active through Q20. Every quarter must satisfy payroll_capacity_guardrails using average_fte=(starting_fte+ending_fte)/2; matching only ending_fte is invalid. Staffing families and categories are deleted from the active payroll contract.",
   ),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_labor_model", "capacity_labor_model", "enum", validation_kind="enum", enum_values=["labor_driven", "hybrid", "system_driven", "expert_driven"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one capacity labor model from post_intake_headcount_policy_lookup.capacity_labor_model_values. This is business judgment; Python validates it."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "labor_intensity_class", "labor_intensity_class", "enum", validation_kind="enum", enum_values=["low", "medium", "high", "expert"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one labor intensity class from post_intake_headcount_policy_lookup.labor_intensity_class_values."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_tier", "wage_positioning_tier", "enum", validation_kind="enum", enum_values=["floor", "market", "premium", "specialized"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one wage positioning tier from post_intake_headcount_policy_lookup. OEWS is the wage floor; GPT must also provide the exact wage_positioning_multiplier inside this tier's table-backed bounds."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_multiplier", "wage_positioning_multiplier", "number", min_value=1.0, max_value=3.0, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment wage multiplier applied to OEWS wages. Must be inside post_intake_headcount_policy_lookup.wage_positioning_multiplier bounds for the selected wage_positioning_tier. Python applies this exact multiplier; Python does not choose a default."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_units_per_supporting_fte", "capacity_units_per_supporting_fte", "number", min_value=0.0001, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-specific productivity judgment: how many structural capacity units one supporting FTE can support per quarter. This is GPT's positive assumption used for capacity-driven FTE coverage; Python does not reject it using fake universal capacity-per-FTE reasonableness bounds. Do not use revenue-per-employee."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "target_payroll_percent_of_revenue", "target_payroll_percent_of_revenue", "ratio_2dp", min_value=0.01, max_value=0.90, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. This does not drive payroll math; Python compares final FINMO/model payroll percent of revenue to this target and the selected labor_intensity_class sanity bounds."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
   _gpt_contract_row("r_and_d_applicability", "root", "r_and_d_enabled", "r_and_d_enabled", "boolean", validation_kind="boolean"),
@@ -1221,6 +1277,24 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   ),
 
   _gpt_context_row(
+    "balance_sheet_contextual_seed",
+    "__openai_request_budget__",
+    context_group="budget",
+    source_kind="policy",
+    transform_kind="request_char_budget",
+    include_phase="pre_convergence",
+    include_in_prompt=False,
+    max_chars=80000,
+    failure_code="balance_sheet_contextual_seed_gpt_context_payload_budget_exceeded",
+  ),
+  _gpt_context_row("balance_sheet_contextual_seed", "business_identity", context_group="business_world", include_phase="pre_convergence"),
+  _gpt_context_row("balance_sheet_contextual_seed", "business_context", context_group="business_world", include_phase="pre_convergence"),
+  _gpt_context_row("balance_sheet_contextual_seed", "financial_context", context_group="financials", include_phase="pre_convergence"),
+  _gpt_context_row("balance_sheet_contextual_seed", "seed_candidates", context_group="mapping", source_kind="sql_lookup", source_path="post_intak_mapping_lookup.balance_sheet_contextual_seed_candidates", include_phase="pre_convergence", notes="Rows Python requires GPT to decide from business context/type. Mapping defaults are not used as numeric fallbacks."),
+  _gpt_context_row("balance_sheet_contextual_seed", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence", required=False),
+  _gpt_context_row("balance_sheet_contextual_seed", "hard_rules", context_group="contract", include_phase="pre_convergence"),
+
+  _gpt_context_row(
     "payroll_headcount_schedule",
     "__openai_request_budget__",
     context_group="budget",
@@ -1234,12 +1308,13 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("payroll_headcount_schedule", "business_identity", context_group="business_world", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "business_context", context_group="business_world", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "people_staffing_context", context_group="business_world", include_phase="pre_convergence"),
-  _gpt_context_row("payroll_headcount_schedule", "oews_role_catalog", context_group="wage_role_lookup", source_kind="python_derived_from_oews", source_path="oews_state_wages via business_naics_6", include_phase="pre_convergence", max_items=160, notes="Python builds this role catalog before GPT chooses supporting-staff rows. GPT must select oews_occ_title values from role_candidates[].occ_title."),
+  _gpt_context_row("payroll_headcount_schedule", "oews_title_catalog", context_group="wage_title_lookup", source_kind="python_derived_from_oews", source_path="oews_state_wages via business_naics_6", include_phase="pre_convergence", notes="Python builds the full NAICS OEWS title catalog before GPT chooses supporting-staff rows. GPT must select oews_occ_title values from title_candidates[].occ_title exactly. Staffing families and categories are not part of the active payroll contract."),
   _gpt_context_row("payroll_headcount_schedule", "financial_context", context_group="financials", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "stage_ramp_contract", context_group="policy", include_phase="pre_convergence"),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_decision_options", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.capacity_labor_model_values + labor_intensity_class_values + wage_positioning_multiplier + payroll_revenue_sanity_bounds", include_phase="pre_convergence", notes="Compact table-rendered option rows GPT must choose from. GPT owns the payroll business judgment and positive capacity productivity assumption; Python validates exact choices and does not substitute defaults."),
   _gpt_context_row("payroll_headcount_schedule", "payroll_headcount_policy", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
-  _gpt_context_row("payroll_headcount_schedule", "payroll_economic_guardrails", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
-  _gpt_context_row("payroll_headcount_schedule", "payroll_required_fte_grid", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json revenue", include_phase="pre_convergence", max_items=20, notes="Python renders the exact Q1-Q20 supporting-staff average FTE floor before GPT chooses role rows. GPT must satisfy this grid; Python validates it after response."),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_capacity_guardrails", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json revenue drivers", include_phase="pre_convergence", notes="Python renders capacity/utilization guardrails from structural revenue drivers. GPT chooses capacity productivity; Python validates FTE against these guardrails after response."),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_capacity_grid", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json capacity/utilization", include_phase="pre_convergence", max_items=20, notes="Exact Q1-Q20 capacity/utilization context for the payroll contract. Revenue is sanity context only; payroll FTE is capacity-primary."),
   _gpt_context_row("payroll_headcount_schedule", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "revenue_driver_context", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "previous_contract_failure", context_group="retry", include_phase="pre_convergence", required=False, notes="Only present on payroll schedule retry. Contains the table-backed validation failure and invalid response excerpt so GPT corrects its staffing schedule without Python mutating it."),
@@ -1591,10 +1666,13 @@ def _ensure_mapping_lookup_table(conn) -> None:
           validation_formula_key VARCHAR(128) NOT NULL DEFAULT 'semantic_presence_only',
           required_when_key VARCHAR(128) NOT NULL DEFAULT 'always',
           business_applicability_key VARCHAR(128) NOT NULL DEFAULT 'always',
+          applicability_positive_tokens_json LONGTEXT NULL,
+          applicability_negative_tokens_json LONGTEXT NULL,
           forecast_presence_rule_key VARCHAR(128) NOT NULL DEFAULT 'nonnegative_driver',
           zero_allowed_reason_key VARCHAR(128) NOT NULL DEFAULT 'not_applicable_or_table_optional',
           missing_seed_default_value DOUBLE NULL,
           minimum_live_value DOUBLE NULL,
+          maximum_live_value DOUBLE NULL,
           allow_zero TINYINT(1) NOT NULL DEFAULT 1,
           formula_status VARCHAR(32) NOT NULL DEFAULT 'active',
           mapping_status VARCHAR(32) NOT NULL DEFAULT 'active',
@@ -1632,10 +1710,13 @@ def _ensure_mapping_lookup_table(conn) -> None:
         "ADD COLUMN validation_formula_key VARCHAR(128) NOT NULL DEFAULT 'semantic_presence_only' AFTER finmo_formula_key",
         "ADD COLUMN required_when_key VARCHAR(128) NOT NULL DEFAULT 'always' AFTER validation_formula_key",
         "ADD COLUMN business_applicability_key VARCHAR(128) NOT NULL DEFAULT 'always' AFTER required_when_key",
+        "ADD COLUMN applicability_positive_tokens_json LONGTEXT NULL AFTER business_applicability_key",
+        "ADD COLUMN applicability_negative_tokens_json LONGTEXT NULL AFTER applicability_positive_tokens_json",
         "ADD COLUMN forecast_presence_rule_key VARCHAR(128) NOT NULL DEFAULT 'nonnegative_driver' AFTER business_applicability_key",
         "ADD COLUMN zero_allowed_reason_key VARCHAR(128) NOT NULL DEFAULT 'not_applicable_or_table_optional' AFTER forecast_presence_rule_key",
         "ADD COLUMN missing_seed_default_value DOUBLE NULL AFTER zero_allowed_reason_key",
         "ADD COLUMN minimum_live_value DOUBLE NULL AFTER missing_seed_default_value",
+        "ADD COLUMN maximum_live_value DOUBLE NULL AFTER minimum_live_value",
         "ADD COLUMN allow_zero TINYINT(1) NOT NULL DEFAULT 1 AFTER minimum_live_value",
         "ADD COLUMN formula_status VARCHAR(32) NOT NULL DEFAULT 'active' AFTER allow_zero",
       ]:
@@ -1776,12 +1857,14 @@ def _ensure_mapping_lookup_table(conn) -> None:
             ELSE zero_allowed_reason_key
           END,
           missing_seed_default_value = CASE
-            WHEN lever_id = 'balance_sheet::Accounts Receivable Days' THEN 2.0
-            WHEN lever_id = 'balance_sheet::Accounts Payable Days' THEN 2.0
-            WHEN lever_id = 'balance_sheet::Inventory Days' THEN 15.0
-            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 0.01
-            WHEN lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)' THEN 0.05
-            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 0.0
+            WHEN lever_id IN (
+              'balance_sheet::Accounts Receivable Days',
+              'balance_sheet::Accounts Payable Days',
+              'balance_sheet::Inventory Days',
+              'balance_sheet::Prepaid Expenses (% of Revenue)',
+              'balance_sheet::Deferred Revenue (% of Revenue)',
+              'balance_sheet::Short Term Debt (% of LTD)'
+            ) THEN NULL
             ELSE missing_seed_default_value
           END,
           minimum_live_value = CASE
@@ -1793,10 +1876,83 @@ def _ensure_mapping_lookup_table(conn) -> None:
             WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 0.0
             ELSE minimum_live_value
           END,
+          maximum_live_value = CASE
+            WHEN lever_id = 'balance_sheet::Accounts Receivable Days' THEN 90.0
+            WHEN lever_id = 'balance_sheet::Accounts Payable Days' THEN 90.0
+            WHEN lever_id = 'balance_sheet::Inventory Days' THEN 180.0
+            WHEN lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)' THEN 0.20
+            WHEN lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)' THEN 0.75
+            WHEN lever_id = 'balance_sheet::Short Term Debt (% of LTD)' THEN 1.0
+            ELSE maximum_live_value
+          END,
           formula_status = 'active'
         WHERE mapping_status = 'active'
         """
       )
+      for lever_id, positive_tokens, negative_tokens in [
+        (
+          "balance_sheet::Inventory Days",
+          [
+            "inventory",
+            "retail",
+            "boutique",
+            "shop",
+            "store",
+            "physical goods",
+            "merchandise",
+            "wholesale",
+            "resale",
+            "stock",
+            "warehouse",
+            "shelf",
+          ],
+          [
+            "software",
+            "saas",
+            "digital product",
+            "consulting",
+            "service business",
+            "professional service",
+            "subscription software",
+          ],
+        ),
+        (
+          "balance_sheet::Deferred Revenue (% of Revenue)",
+          [
+            "subscription",
+            "membership",
+            "retainer",
+            "deposit",
+            "prepaid",
+            "advance payment",
+            "upfront",
+            "annual contract",
+          ],
+          [],
+        ),
+        (
+          "balance_sheet::Accounts Payable Days",
+          [],
+          [
+            "no vendors",
+            "no supplier credit",
+            "pay vendors immediately",
+          ],
+        ),
+      ]:
+        cur.execute(
+          f"""
+          UPDATE {_MAPPING_TABLE_NAME}
+          SET applicability_positive_tokens_json = %s,
+              applicability_negative_tokens_json = %s
+          WHERE lever_id = %s
+          """,
+          (
+            _json_dumps_value(positive_tokens),
+            _json_dumps_value(negative_tokens),
+            lever_id,
+          ),
+        )
       for lever_id, source_paths, allow_zero in [
         ("expenses::Cost of Goods Sold", ["financials.current_cogs", "financials.cogs", "financials.cogs_absolute"], 1),
         ("expenses::Marketing", ["financials.marketing_total_year1", "financials.marketing_expense", "financials.marketing"], 0),
@@ -1823,8 +1979,9 @@ def _ensure_mapping_lookup_table(conn) -> None:
             business_applicability_key = 'revenue_positive_prepaid_applicable',
             forecast_presence_rule_key = 'positive_driver_when_applicable',
             zero_allowed_reason_key = 'revenue_not_positive',
-            missing_seed_default_value = 0.01,
+            missing_seed_default_value = NULL,
             minimum_live_value = 0.01,
+            maximum_live_value = 0.20,
             seed_source_paths_json = NULL,
             allow_zero = 1
         WHERE lever_id = 'balance_sheet::Prepaid Expenses (% of Revenue)'
@@ -1840,8 +1997,9 @@ def _ensure_mapping_lookup_table(conn) -> None:
             business_applicability_key = 'deferred_revenue_business',
             forecast_presence_rule_key = 'positive_driver_when_applicable',
             zero_allowed_reason_key = 'no_upfront_or_deferred_revenue_model',
-            missing_seed_default_value = 0.05,
+            missing_seed_default_value = NULL,
             minimum_live_value = 0.01,
+            maximum_live_value = 0.75,
             seed_source_paths_json = NULL,
             allow_zero = 1
         WHERE lever_id = 'balance_sheet::Deferred Revenue (% of Revenue)'
@@ -2371,6 +2529,17 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
           )
         """
       )
+      cur.execute(
+        f"""
+        DELETE FROM {_GPT_CONTRACT_TABLE_NAME}
+        WHERE contract_name = 'payroll_headcount_schedule'
+          AND field_path IN (
+            'payroll_headcount_grid[].role_family',
+            'payroll_headcount_grid[].role_category',
+            'payroll_headcount_grid[].role_title'
+          )
+        """
+      )
       conn.commit()
       _ENSURE_GPT_CONTRACT_TABLE_READY = True
     finally:
@@ -2484,6 +2653,22 @@ def _ensure_gpt_context_lookup_table(conn) -> None:
             notes = 'Retired: payroll is owned by payroll_headcount_schedule, not stage_ramp_contract.'
         WHERE contract_name = 'stage_ramp_contract'
           AND context_key IN ('payroll_headcount_policy', 'payroll_budget_context', 'payroll_budget_checklist', 'people_staffing_context')
+          AND include_phase = 'pre_convergence'
+        """
+      )
+      cur.execute(
+        f"""
+        DELETE FROM {_GPT_CONTEXT_TABLE_NAME}
+        WHERE contract_name = 'payroll_headcount_schedule'
+          AND context_key IN ('payroll_economic_guardrails', 'payroll_required_fte_grid')
+          AND include_phase = 'pre_convergence'
+        """
+      )
+      cur.execute(
+        f"""
+        DELETE FROM {_GPT_CONTEXT_TABLE_NAME}
+        WHERE contract_name = 'payroll_headcount_schedule'
+          AND context_key = 'oews_role_catalog'
           AND include_phase = 'pre_convergence'
         """
       )
@@ -2972,10 +3157,13 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
           validation_formula_key,
           required_when_key,
           business_applicability_key,
+          applicability_positive_tokens_json,
+          applicability_negative_tokens_json,
           forecast_presence_rule_key,
           zero_allowed_reason_key,
           missing_seed_default_value,
           minimum_live_value,
+          maximum_live_value,
           allow_zero,
           formula_status,
           mapping_status,
@@ -3042,10 +3230,13 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
       "validation_formula_key": _clean_text(raw_row.get("validation_formula_key")).lower(),
       "required_when_key": _clean_text(raw_row.get("required_when_key")).lower(),
       "business_applicability_key": _clean_text(raw_row.get("business_applicability_key")).lower(),
+      "applicability_positive_tokens": _json_value(raw_row.get("applicability_positive_tokens_json"), []),
+      "applicability_negative_tokens": _json_value(raw_row.get("applicability_negative_tokens_json"), []),
       "forecast_presence_rule_key": _clean_text(raw_row.get("forecast_presence_rule_key")).lower(),
       "zero_allowed_reason_key": _clean_text(raw_row.get("zero_allowed_reason_key")).lower(),
       "missing_seed_default_value": raw_row.get("missing_seed_default_value"),
       "minimum_live_value": raw_row.get("minimum_live_value"),
+      "maximum_live_value": raw_row.get("maximum_live_value"),
       "allow_zero": _clean_bool(raw_row.get("allow_zero"), default=True),
       "formula_status": _clean_text(raw_row.get("formula_status")).lower() or "active",
       "mapping_status": _clean_text(raw_row.get("mapping_status")).lower() or "active",
@@ -3072,6 +3263,8 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
       row["missing_seed_default_value"] = formula_defaults.get("missing_seed_default_value")
     if row.get("minimum_live_value") is None:
       row["minimum_live_value"] = formula_defaults.get("minimum_live_value")
+    if row.get("maximum_live_value") is None:
+      row["maximum_live_value"] = formula_defaults.get("maximum_live_value")
     row["target_metric_name"] = _normalized_metric_id_from_field(row.get("financial_model_field"))
     row["lookup_lever_id"] = _normalized_lookup_key(lever_id)
     row["value_rounding_kind"] = _clean_text((row.get("value_precision") or {}).get("rounding_kind")).lower()
@@ -3923,10 +4116,13 @@ class PostIntakeMappingLookup:
           "validation_formula_key": _clean_text(row.get("validation_formula_key")).lower(),
           "required_when_key": _clean_text(row.get("required_when_key")).lower(),
           "business_applicability_key": _clean_text(row.get("business_applicability_key")).lower(),
+          "applicability_positive_tokens": copy.deepcopy(row.get("applicability_positive_tokens") or []),
+          "applicability_negative_tokens": copy.deepcopy(row.get("applicability_negative_tokens") or []),
           "forecast_presence_rule_key": _clean_text(row.get("forecast_presence_rule_key")).lower(),
           "zero_allowed_reason_key": _clean_text(row.get("zero_allowed_reason_key")).lower(),
           "missing_seed_default_value": row.get("missing_seed_default_value"),
           "minimum_live_value": row.get("minimum_live_value"),
+          "maximum_live_value": row.get("maximum_live_value"),
           "allow_zero": bool(row.get("allow_zero")),
         }
       )
@@ -3992,6 +4188,21 @@ class PostIntakeMappingLookup:
       if not _clean_text(row.get("input_semantics")):
         errors.append(f"{_clean_text(row.get('lever_id'))} is missing input_semantics")
       errors.extend(formula_metadata_errors(row))
+      lever_id = _clean_text(row.get("lever_id"))
+      applicability_key = _clean_text(row.get("business_applicability_key")).lower()
+      positive_tokens = [
+        _clean_text(item)
+        for item in (row.get("applicability_positive_tokens") or [])
+        if _clean_text(item)
+      ]
+      if applicability_key in {"inventory_business_or_seed", "deferred_revenue_business"} and not positive_tokens:
+        errors.append(f"{lever_id} requires table-backed applicability_positive_tokens")
+      if (
+        lever_id.startswith("balance_sheet::")
+        and _clean_text(row.get("forecast_presence_rule_key")).lower() == "positive_driver_when_applicable"
+        and row.get("missing_seed_default_value") is not None
+      ):
+        errors.append(f"{lever_id} must not define missing_seed_default_value; contextual seed must be GPT/table-backed")
       if phase == "cash_pass" and owner not in {"cash_pass", "locked"}:
         errors.append(f"{_clean_text(row.get('lever_id'))} cash_pass row must be owned by cash_pass or locked")
       if phase == "derived_only" and owner != "python_derived":
@@ -4873,7 +5084,7 @@ class PostIntakeGptContractLookup:
     }
     valid_lookup_sources = {
       "none",
-      "oews_role_catalog",
+      "oews_title_catalog",
       "post_intak_mapping_lookup",
       "post_intake_cash_policy_lookup",
       "post_intake_headcount_policy_lookup",
