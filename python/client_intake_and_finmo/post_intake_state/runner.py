@@ -254,8 +254,15 @@ def _compact_quarter_metric_rows_for_storage(rows: Optional[List[Dict[str, Any]]
     "quarter_index",
     "date",
     "revenue",
+    "cost_of_goods_sold",
+    "cogs",
     "gross_profit",
+    "marketing",
+    "research_and_development",
+    "lease_rent",
     "ebitda",
+    "general_and_administrative",
+    "g_and_a",
     "net_income",
     "ending_cash",
     "operating_cash_flow",
@@ -996,7 +1003,19 @@ def _merge_terminal_failure_context(
     planning_convergence_payload=planning_payload,
     convergence_state_payload=convergence_payload,
   )
-  terminal_failure_after_all_cleared = bool(controller_state.get("all_cleared"))
+  previous_controller_all_cleared = bool(controller_state.get("all_cleared"))
+  if str(detail or "").strip():
+    controller_state["status"] = "terminal_failure"
+    controller_state["display_status"] = "terminal failure"
+    controller_state["all_cleared"] = False
+    controller_state["hard_cleared"] = False
+    controller_state["previous_controller_all_cleared_before_terminal_failure"] = previous_controller_all_cleared
+    controller_state["terminal_failure_detail"] = str(detail or "").strip()
+    controller_state["remaining_hard_issue_count"] = max(
+      1,
+      int(_safe_float(controller_state.get("remaining_hard_issue_count")) or 0),
+    )
+  terminal_failure_after_all_cleared = False
   failure_context = {
     "failure_reason": str(detail or "").strip() or None,
     "failed_stage": str(current_stage or "").strip() or None,
@@ -1004,6 +1023,7 @@ def _merge_terminal_failure_context(
     "source_checkpoint_id": str(source_checkpoint_id or "").strip() or None,
     "preserved_last_known_good_state": bool(planning_payload or convergence_payload),
     "terminal_failure_after_all_cleared": terminal_failure_after_all_cleared,
+    "previous_controller_all_cleared_before_terminal_failure": previous_controller_all_cleared,
   }
   if isinstance(failure_diagnostics, dict) and failure_diagnostics:
     failure_context["failure_diagnostics"] = copy.deepcopy(failure_diagnostics)

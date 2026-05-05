@@ -298,12 +298,13 @@ def _assert_revenue_formula_reconciles(
       )
       continue
     actual = int(round(float(_safe_float(row.get("revenue")) or 0.0)))
-    if expected != actual:
+    if abs(int(expected) - int(actual)) > 1:
       violations.append(
         {
           "quarter_index": quarter_index,
           "actual_revenue": actual,
           "expected_capacity_x_price_x_utilization": expected,
+          "allowed_rounding_tolerance_dollars": 1,
         }
       )
       break

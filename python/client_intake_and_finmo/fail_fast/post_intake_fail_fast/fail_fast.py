@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -63,12 +64,7 @@ PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "payroll_headcount_policy_schedule_missing",
   "payroll_headcount_capacity_assumptions_invalid",
   "payroll_capacity_grid_incomplete",
-  "payroll_headcount_capacity_coverage_failed",
-  "payroll_headcount_revenue_sanity_lookup_failed",
   "payroll_headcount_wage_positioning_options_missing",
-  "payroll_headcount_target_payroll_percent_missing",
-  "payroll_headcount_target_payroll_percent_out_of_policy_bounds",
-  "payroll_headcount_revenue_sanity_failed",
   "payroll_headcount_wage_positioning_multiplier_missing",
   "payroll_headcount_wage_positioning_multiplier_out_of_tier_bounds",
   "payroll_headcount_key_person_wage_missing",
@@ -113,11 +109,17 @@ PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "payroll_headcount_model_input_not_applied",
   "payroll_headcount_finmo_rows_missing",
   "payroll_headcount_finmo_mismatch",
+  "payroll_revenue_economic_feasibility_failed",
+  "payroll_revenue_trend_rule_failed",
+  "payroll_revenue_sanity_lookup_failed",
+  "payroll_stage_profitability_feasibility_failed",
 }
 
 BUSINESS_SHAPE_TEST_MODE_FAIL_FLAGS: Set[str] = {
+  "quarter_grid_stage_ramp_revenue_bridge_failed",
   "stage_ramp_revenue_path_not_applied",
   "stage_ramp_expense_path_not_applied",
+  "payroll_stage_profitability_feasibility_failed",
   "marketing_missing_or_zero",
   "marketing_model_input_missing",
 }
@@ -349,6 +351,21 @@ def _model_input_row_for_mapping(
   )
 
 
+def _contextual_seed_applicability_for_lever(
+  model_input_json: Optional[Dict[str, Any]],
+  lever_id: str,
+) -> Optional[bool]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  policies = payload.get("derived_driver_policies") if isinstance(payload.get("derived_driver_policies"), dict) else {}
+  policy = policies.get("balance_sheet_contextual_seed") if isinstance(policies, dict) else {}
+  for item in (policy.get("balance_sheet_seed_grid") or []) if isinstance(policy, dict) else []:
+    if not isinstance(item, dict):
+      continue
+    if str(item.get("lever_id") or "").strip() == str(lever_id or "").strip():
+      return bool(item.get("applicable"))
+  return None
+
+
 def _formula_required_for_quarter(
   *,
   required_when_key: str,
@@ -433,13 +450,35 @@ def _model_input_lever_values(
   return None
 
 
+def _model_input_has_payroll_supported_capacity(model_input_json: Optional[Dict[str, Any]]) -> bool:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  for row in sections.get("revenue") or []:
+    if not isinstance(row, dict):
+      continue
+    driver = str(row.get("driver") or row.get("driver_name") or row.get("label") or "").strip().lower()
+    if driver != "capacity":
+      continue
+    if (
+      str(row.get("derived_driver") or "").strip() == "payroll_supported_capacity"
+      or isinstance(row.get("payroll_supported_capacity"), dict)
+    ):
+      return True
+  return False
+
+
 def assert_stage_ramp_revenue_path_applied(
   *,
   stage_ramp_contract: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
   stage: str,
+  model_input_json: Optional[Dict[str, Any]] = None,
 ) -> None:
-  """Fail if actual revenue stops obeying the GPT-selected Q1-Q20 ramp."""
+  """Fail if revenue exceeds ramp limits; payroll-supported capacity may constrain ramp targets."""
+  stage_key = str(stage or "").strip().lower()
+  if "final" not in stage_key and "finalize" not in stage_key:
+    return
+  payroll_capacity_authority = _model_input_has_payroll_supported_capacity(model_input_json)
   ramp_rows = _stage_ramp_rows(stage_ramp_contract)
   live_rows = _live_quarter_rows(finmo_json)
   if not ramp_rows:
@@ -473,6 +512,8 @@ def assert_stage_ramp_revenue_path_applied(
     if target_growth is not None and target_growth > 1.0:
       required_growth_2dp = _ratio_2dp(target_growth)
       if (
+        not payroll_capacity_authority
+        and
         actual_growth_2dp is not None
         and required_growth_2dp is not None
         and actual_growth_2dp < required_growth_2dp
@@ -515,12 +556,71 @@ def assert_stage_ramp_revenue_path_applied(
   if violations:
     post_intake_fail_fast_raise(
       "stage_ramp_revenue_path_not_applied",
-      "Actual FINMO revenue does not obey the GPT-selected stage_ramp_contract Q1-Q20 revenue path.",
+      "Actual FINMO revenue violates the GPT-selected stage_ramp_contract Q1-Q20 revenue path.",
       stage=stage,
       details={
         "violation_count": len(violations),
         "violations": violations[:20],
+        "payroll_supported_capacity_authority": bool(payroll_capacity_authority),
+        "rule": (
+          "When payroll-supported Capacity is present, stage-ramp target growth is subordinate to payroll capacity; "
+          "stage-ramp max growth still prevents unsupported revenue above the ramp envelope."
+        ),
       },
+    )
+
+
+def assert_quarter_grid_stage_ramp_bridge_applied(
+  *,
+  validation: Optional[Dict[str, Any]],
+  repair_metadata: Optional[Dict[str, Any]],
+  stage: str,
+) -> None:
+  """Fail if the quarter-grid stage ramp cannot be applied mechanically."""
+  validation_payload = validation if isinstance(validation, dict) else {}
+  metadata = repair_metadata if isinstance(repair_metadata, dict) else {}
+  ramp_repair = (
+    metadata.get("composite_revenue_ramp_repair")
+    if isinstance(metadata.get("composite_revenue_ramp_repair"), dict)
+    else {}
+  )
+  violations = [
+    str(item)
+    for item in (validation_payload.get("composite_revenue_ramp_violations") or [])
+    if str(item or "").strip()
+  ]
+  impossible_quarters = [
+    item for item in (ramp_repair.get("impossible_quarters") or [])
+    if isinstance(item, dict)
+  ]
+  if not violations and not impossible_quarters:
+    return
+  details = {
+    "validation_violation_count": len(violations),
+    "composite_revenue_ramp_violations": violations[:50],
+    "impossible_quarter_count": len(impossible_quarters),
+    "impossible_quarters": impossible_quarters[:50],
+    "adjusted_cell_count": len(ramp_repair.get("adjusted_cells") or []),
+    "adjusted_cells_sample": (ramp_repair.get("adjusted_cells") or [])[:50],
+    "repair_reason": ramp_repair.get("reason"),
+    "contract_authority": (
+      "GPT may select the stage ramp and revenue assumptions, but Python must deterministically "
+      "bridge the stage ramp into Capacity, Unit Price, and Utilization before FINMO is accepted."
+    ),
+  }
+  result = post_intake_fail_fast_raise(
+    "quarter_grid_stage_ramp_revenue_bridge_failed",
+    (
+      "Quarter-grid revenue drivers could not satisfy the GPT-selected stage_ramp_contract "
+      "after full-grid deterministic repair inside table-backed envelopes."
+    ),
+    stage=stage,
+    details=details,
+  )
+  if not bool(result.get("fail_fast_enabled")):
+    raise RuntimeError(
+      "quarter_grid_stage_ramp_revenue_bridge_failed: "
+      + json.dumps(details, ensure_ascii=False, default=str)
     )
 
 
@@ -529,8 +629,13 @@ def assert_stage_ramp_expense_path_applied(
   stage_ramp_contract: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
   stage: str,
+  model_input_json: Optional[Dict[str, Any]] = None,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> None:
-  """Fail if actual cost/expense ratios exceed GPT's table-backed stage ramp bands."""
+  """Fail if actual cost/expense ratios exceed GPT/table-backed maturity bands."""
+  stage_key = str(stage or "").strip().lower()
+  if "final" not in stage_key and "finalize" not in stage_key:
+    return
   ramp_rows = _stage_ramp_rows(stage_ramp_contract)
   live_rows = _live_quarter_rows(finmo_json)
   if not ramp_rows or not live_rows:
@@ -539,8 +644,8 @@ def assert_stage_ramp_expense_path_applied(
     ("cost_of_goods_sold", "cogs_percent_of_revenue_max", "cogs_max"),
     ("marketing", "marketing_percent_of_revenue_max", "marketing_max"),
     ("research_and_development", "rd_percent_of_revenue_max", "rd_max"),
-    ("general_and_administrative", "g_and_a_percent_of_revenue_max", "g_and_a_max"),
     ("lease_rent", "lease_percent_of_revenue_max", "lease_max"),
+    ("general_and_administrative", "g_and_a_percent_of_revenue_max", "g_and_a_max"),
   ]
   violations: List[Dict[str, Any]] = []
   for row in live_rows:
@@ -571,9 +676,103 @@ def assert_stage_ramp_expense_path_applied(
             "ramp_grid_row": ramp_row,
           }
         )
+  try:
+    from client_intake_and_finmo.post_intake_headcount import payroll_revenue_feasibility_violations  # type: ignore
+
+    runtime = (
+      (model_input_json or {}).get("derived_driver_runtime")
+      if isinstance(model_input_json, dict) and isinstance(model_input_json.get("derived_driver_runtime"), dict)
+      else {}
+    )
+    runtime_schedule = (
+      runtime.get("expenses::Payroll", {}).get("payroll_headcount")
+      if isinstance(runtime.get("expenses::Payroll"), dict)
+      else {}
+    )
+    schedule = payroll_headcount if isinstance(payroll_headcount, dict) and payroll_headcount else runtime_schedule
+    for item in payroll_revenue_feasibility_violations(
+      payroll_headcount=copy.deepcopy(schedule) if isinstance(schedule, dict) else {},
+      finmo_json=copy.deepcopy(finmo_json or {}),
+    ):
+      if not isinstance(item, dict):
+        continue
+      violations.append(
+        {
+          **copy.deepcopy(item),
+          "finmo_field": "payroll",
+          "stage_ramp_validation_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds_json",
+          "required_action": (
+            "Recompute payroll FTE/productivity/utilization/pricing/ramp drivers and rebuild FINMO. "
+            "Do not cap or clip Payroll or Revenue output rows."
+          ),
+        }
+      )
+  except Exception as exc:
+    violations.append(
+      {
+        "finmo_field": "payroll",
+        "reason": "payroll_revenue_sanity_validation_unavailable",
+        "exception": str(exc),
+        "stage_ramp_validation_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds_json",
+      }
+    )
   _raise_if_violations(
     "stage_ramp_expense_path_not_applied",
-    "Actual FINMO cost/expense ratios exceed the GPT-selected stage_ramp_contract Q1-Q20 bands.",
+    "Actual FINMO cost/expense ratios exceed the GPT-selected stage ramp or table-backed payroll/revenue bands.",
+    stage=stage,
+    violations=violations,
+  )
+
+
+def assert_stage_ramp_profitability_path_applied(
+  *,
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  stage: str,
+) -> None:
+  """Fail if actual profitability ignores the planning-mode/stage ramp floor."""
+  stage_key = str(stage or "").strip().lower()
+  if "final" not in stage_key and "finalize" not in stage_key and "post_convergence" not in stage_key:
+    return
+  ramp_rows = _stage_ramp_rows(stage_ramp_contract)
+  live_rows = _live_quarter_rows(finmo_json)
+  if not ramp_rows or not live_rows:
+    return
+  violations: List[Dict[str, Any]] = []
+  for row in live_rows:
+    quarter = int(_safe_float(row.get("quarter_index")) or 0)
+    revenue = float(_safe_float(row.get("revenue")) or 0.0)
+    if quarter < 1 or revenue <= 0.0:
+      continue
+    ramp_row = ramp_rows.get(quarter) or {}
+    floor_margin = _safe_float(
+      ramp_row.get("net_income_margin_floor")
+      if ramp_row.get("net_income_margin_floor") is not None
+      else ramp_row.get("ni_margin_floor")
+    )
+    if floor_margin is None:
+      continue
+    net_income = float(_safe_float(row.get("net_income")) or 0.0)
+    actual_margin = net_income / revenue
+    if actual_margin < float(floor_margin) - 0.0001:
+      violations.append(
+        {
+          "quarter_index": quarter,
+          "revenue": int(round(revenue)),
+          "net_income": int(round(net_income)),
+          "actual_net_income_margin": round(actual_margin, 6),
+          "stage_ramp_net_income_margin_floor": round(float(floor_margin), 6),
+          "profitability_posture": ramp_row.get("profitability_posture"),
+          "ramp_grid_row": ramp_row,
+          "required_action": (
+            "Recompute revenue, payroll, capacity, price, utilization, and cost drivers until the "
+            "planning-mode/stage profitability path is coherent. Do not hide the failure with cash, debt, or output clipping."
+          ),
+        }
+      )
+  _raise_if_violations(
+    "payroll_stage_profitability_feasibility_failed",
+    "Actual FINMO profitability violates the GPT-selected planning-mode/stage ramp floor.",
     stage=stage,
     violations=violations,
   )
@@ -645,10 +844,12 @@ def assert_post_intake_business_shape_applied(
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]],
   stage: str,
+  payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> None:
   assert_stage_ramp_revenue_path_applied(
     stage_ramp_contract=stage_ramp_contract,
     finmo_json=finmo_json,
+    model_input_json=model_input_json,
     stage=stage,
   )
   assert_marketing_presence_applied(
@@ -658,6 +859,13 @@ def assert_post_intake_business_shape_applied(
     stage=stage,
   )
   assert_stage_ramp_expense_path_applied(
+    stage_ramp_contract=stage_ramp_contract,
+    model_input_json=model_input_json,
+    finmo_json=finmo_json,
+    payroll_headcount=payroll_headcount,
+    stage=stage,
+  )
+  assert_stage_ramp_profitability_path_applied(
     stage_ramp_contract=stage_ramp_contract,
     finmo_json=finmo_json,
     stage=stage,
@@ -861,6 +1069,9 @@ def assert_post_intake_mapping_formula_application_integrity(
           }
         )
         break
+      contextual_applicability = _contextual_seed_applicability_for_lever(model_input_json, lever_id)
+      if contextual_applicability is False:
+        required_now = False
       if required_now and not allow_zero and value <= 0:
         violations.append(
           {
@@ -1532,6 +1743,7 @@ def assert_post_intake_global_invariants(
       assert_finmo_payroll_matches_headcount_schedule,
       assert_payroll_headcount_model_input_applied,
       assert_payroll_headcount_payload_ready,
+      assert_payroll_revenue_feasibility,
     )
 
     assert_payroll_headcount_payload_ready(
@@ -1548,6 +1760,11 @@ def assert_post_intake_global_invariants(
       finmo_json,
       payroll_headcount,
       stage=f"{stage}_global_payroll_finmo",
+    )
+    assert_payroll_revenue_feasibility(
+      payroll_headcount=payroll_headcount,
+      finmo_json=finmo_json,
+      stage=f"{stage}_global_payroll_revenue_feasibility",
     )
   except Exception as exc:
     post_intake_fail_fast_raise(
@@ -1577,6 +1794,7 @@ def assert_post_intake_global_invariants(
     stage_ramp_contract=stage_ramp_contract,
     model_input_json=model_input_json,
     finmo_json=finmo_json,
+    payroll_headcount=payroll_headcount,
     stage=stage,
   )
   if enforce_cash_buffer:

@@ -16,6 +16,7 @@ from client_intake_and_finmo.people_roles import (  # type: ignore
 )
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_build_prompt_from_contract,
+  post_intake_assert_process_object_control,
   post_intake_contract_forecast_horizon_quarter_count,
   post_intake_gpt_contract_horizon_errors,
   post_intake_gpt_contract_normalize_payload,
@@ -23,6 +24,7 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_contract_payload_errors,
   post_intake_gpt_context_filter_payload,
   post_intake_gpt_context_request_char_budget,
+  post_intake_payroll_feasibility_mapping,
   post_intake_process_sequence_step,
 )
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
@@ -415,6 +417,10 @@ def _normalize_mechanical_fte_continuity(rows: Sequence[Dict[str, Any]]) -> List
     continuity_key = f"{staffing_class}::{title_identity}"
     starting_fte = round(float(row.get("starting_fte") or 0.0), 2)
     ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
+    if quarter_index == 1 and starting_fte <= 0.0 and ending_fte > 0.0:
+      starting_fte = ending_fte
+      row["starting_fte"] = starting_fte
+      row["hires"] = 0.0
     if quarter_index > 1 and continuity_key in prior_ending_by_title:
       prior_ending = round(float(prior_ending_by_title.get(continuity_key) or 0.0), 2)
       if ending_fte + 0.01 >= prior_ending:
@@ -464,6 +470,15 @@ def _payroll_process_sequence_settings() -> Dict[str, Any]:
     "source_table": "post_intake_process_sequence_lookup",
     "step_key": "payroll_headcount_schedule",
   }
+
+
+def _payroll_repair_trigger_from_failure(previous_contract_failure: Optional[Dict[str, Any]]) -> str:
+  if not isinstance(previous_contract_failure, dict) or not previous_contract_failure:
+    return "initial_build"
+  failure_text = json.dumps(previous_contract_failure, ensure_ascii=False, default=str).lower()
+  if "payroll_stage_profitability_feasibility_failed" in failure_text:
+    return "payroll_stage_profitability_feasibility_failed"
+  return "payroll_revenue_economic_feasibility_failed"
 
 
 def _post_openai(
@@ -1116,9 +1131,20 @@ def _validate_supporting_title_lifecycle(
     if not active_quarters:
       _payroll_fail_fast(
         "payroll_headcount_dead_support_title",
-        f"OEWS title '{label}' appears in payroll_headcount_grid but has zero FTE in every quarter.",
+        (
+          f"OEWS title '{label}' appears in payroll_headcount_grid but has zero FTE in every quarter. "
+          "GPT must either assign positive FTE to every selected OEWS title or remove that title from "
+          "the selected payroll schedule."
+        ),
         stage="payroll_headcount_title_lifecycle",
-        details={"oews_occ_title": label, "horizon": horizon},
+        details={
+          "oews_occ_title": label,
+          "horizon": horizon,
+          "required_action": (
+            "Return the full Q1-Q20 payroll_headcount_grid with positive starting_fte/ending_fte "
+            "for this selected title in at least one quarter, or omit the title entirely if it was not selected."
+          ),
+        },
       )
     first_active = min(active_quarters)
     for quarter_index in range(first_active, horizon + 1):
@@ -1336,7 +1362,7 @@ def _payroll_capacity_guardrails(
     "rule": (
       "GPT must choose capacity_labor_model/labor_intensity_class, wage_positioning_tier, "
       "wage_positioning_multiplier from SQL policy options, plus a positive business-specific capacity_units_per_supporting_fte. "
-      "Python then enforces support FTE from structural capacity and utilization pressure; revenue is sanity context only."
+      "Python then uses payroll FTE as the causal capacity envelope; revenue can only be supported by that capacity."
     ),
     "quarter_rows": quarter_rows,
   }
@@ -1358,8 +1384,10 @@ def _payroll_decision_options_from_policy(policy: Dict[str, Any]) -> Dict[str, A
     "selection_rule": (
       "GPT chooses capacity_labor_model, labor_intensity_class, a positive business-specific "
       "capacity_units_per_supporting_fte assumption, one wage_positioning_options row, "
-      "and one target payroll percent inside payroll_revenue_sanity_bounds. Python validates "
-      "mechanical FTE coverage and the final payroll/revenue sanity range; it never substitutes defaults."
+      "and one target payroll percent inside payroll_revenue_sanity_bounds as business context. "
+      "Python validates mechanical FTE continuity and uses FTE times productivity as the revenue capacity envelope; "
+      "Python also validates payroll/revenue economic feasibility against the table sanity bounds after deriving supported capacity; "
+      "it never substitutes defaults."
     ),
     "capacity_labor_model_values": deepcopy(policy.get("capacity_labor_model_values") or []),
     "labor_intensity_class_values": deepcopy(policy.get("labor_intensity_class_values") or []),
@@ -1385,7 +1413,7 @@ def _supporting_staff_guardrails_for_gpt(
   out["key_people_injected_by_python"] = key_people_count
   out["rule"] = (
     "GPT provides supporting-staff FTE only. Python injects key people from intake, "
-    "so capacity support is validated after GPT selects capacity_units_per_supporting_fte."
+    "then derives supported Capacity from total average FTE and GPT's capacity_units_per_supporting_fte."
   )
   adjusted_rows: List[Dict[str, Any]] = []
   for item in out.get("quarter_rows") or []:
@@ -1421,11 +1449,9 @@ def _payroll_capacity_grid_for_gpt(
         ),
         "computed_revenue_from_model_input": int(round(float(item.get("computed_revenue_from_model_input") or 0.0))),
         "rule": (
-          "GPT selects capacity_units_per_supporting_fte, then must staff supporting rows so "
-          "total average FTE including Python-injected key people satisfies: "
-          "total_structural_capacity_units / capacity_units_per_supporting_fte. Before returning JSON, "
-          "GPT must add average_fte across all selected OEWS title rows plus key people and ensure the "
-          "quarter total is greater than or equal to that computed floor."
+          "Context only. GPT selects the OEWS title mix, productivity assumption, and FTE ramp using "
+          "business judgment. Python will derive payroll-supported capacity from the returned FTE; "
+          "revenue is constrained by that derived capacity and this grid is not a demand floor."
         ),
       }
     )
@@ -1443,177 +1469,6 @@ def _payroll_capacity_grid_for_gpt(
       details={"expected_quarters": expected, "actual_quarters": actual},
     )
   return rows
-
-
-def _payroll_required_fte_grid_for_retry(
-  *,
-  model_input_json: Optional[Dict[str, Any]],
-  policy: Dict[str, Any],
-  payroll_headcount_contract: Optional[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-  guardrails = _payroll_capacity_guardrails(model_input_json=model_input_json, policy=policy)
-  assumptions = _payroll_contract_capacity_assumptions(payroll_headcount_contract, policy=policy)
-  productivity = max(float(assumptions.get("capacity_units_per_supporting_fte") or 0.0), 0.0001)
-  coverage_ratio = float(policy.get("min_capacity_coverage_ratio") or 1.0)
-  rows: List[Dict[str, Any]] = []
-  for item in guardrails.get("quarter_rows") or []:
-    if not isinstance(item, dict):
-      continue
-    quarter_index = int(item.get("quarter_index") or 0)
-    if quarter_index < 1 or quarter_index > _contract_horizon_quarters():
-      continue
-    total_capacity = round(float(item.get("total_structural_capacity_units") or 0.0), 2)
-    required_average_fte = round((total_capacity / productivity) * coverage_ratio, 2)
-    rows.append(
-      {
-        "q": quarter_index,
-        "total_structural_capacity_units": total_capacity,
-        "capacity_units_per_supporting_fte": round(productivity, 4),
-        "min_capacity_coverage_ratio": round(coverage_ratio, 4),
-        "required_total_average_fte": required_average_fte,
-        "computed_revenue_from_model_input": int(item.get("computed_revenue_from_model_input") or 0),
-        "rule": "sum average_fte across key people plus supporting-staff rows must be >= required_total_average_fte",
-      }
-    )
-  return sorted(rows, key=lambda row: int(row.get("q") or 0))
-
-
-def _selected_supporting_title_mix(
-  payroll_headcount_contract: Dict[str, Any],
-  *,
-  policy: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-  rows = _payroll_headcount_grid_rows(payroll_headcount_contract)
-  max_titles = int(policy.get("max_oews_title_rows_per_quarter") or 20)
-  benefits_default = round(float(policy.get("default_payroll_tax_benefits_pct") or 0.22), 2)
-  by_title: Dict[str, Dict[str, Any]] = {}
-  for row in rows:
-    if str(row.get("staffing_class") or "supporting_staff").strip().lower() == "key_person":
-      continue
-    title = str(row.get("oews_occ_title") or "").strip()
-    if not title:
-      continue
-    item = by_title.setdefault(
-      title,
-      {
-        "oews_occ_title": title,
-        "weight_basis_fte": 0.0,
-        "benefits_values": [],
-      },
-    )
-    starting = round(float(row.get("starting_fte") or 0.0), 2)
-    ending = round(float(row.get("ending_fte") or 0.0), 2)
-    item["weight_basis_fte"] = round(
-      float(item.get("weight_basis_fte") or 0.0) + max(0.0, (starting + ending) / 2.0),
-      4,
-    )
-    benefits = _safe_ratio(row.get("payroll_taxes_benefits_percent"))
-    if benefits is not None and benefits > 0:
-      item.setdefault("benefits_values", []).append(float(benefits))
-  if not by_title:
-    _payroll_fail_fast(
-      "payroll_headcount_selected_oews_titles_missing",
-      "GPT payroll response did not select any exact supporting-staff OEWS titles.",
-      stage="payroll_headcount_capacity_schedule_derivation",
-    )
-  selected = sorted(
-    by_title.values(),
-    key=lambda item: (-float(item.get("weight_basis_fte") or 0.0), str(item.get("oews_occ_title") or "").lower()),
-  )[:max(1, max_titles)]
-  total_weight = round(sum(float(item.get("weight_basis_fte") or 0.0) for item in selected), 6)
-  equal_weight = round(1.0 / max(1, len(selected)), 6)
-  for item in selected:
-    values = [float(value) for value in (item.get("benefits_values") or []) if float(value) > 0]
-    item["payroll_tax_benefits_pct"] = round((sum(values) / len(values)) if values else benefits_default, 2)
-    item["allocation_weight"] = (
-      round(float(item.get("weight_basis_fte") or 0.0) / total_weight, 6)
-      if total_weight > 0
-      else equal_weight
-    )
-    item.pop("benefits_values", None)
-  weight_sum = round(sum(float(item.get("allocation_weight") or 0.0) for item in selected), 6)
-  if selected and abs(weight_sum - 1.0) > 0.0001:
-    selected[-1]["allocation_weight"] = round(
-      float(selected[-1].get("allocation_weight") or 0.0) + (1.0 - weight_sum),
-      6,
-    )
-  return selected
-
-
-def _capacity_driven_contract_from_gpt_selection(
-  payroll_headcount_contract: Dict[str, Any],
-  *,
-  model_input_json: Optional[Dict[str, Any]],
-  policy: Dict[str, Any],
-  people_json: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  """Use GPT's title/root choices and derive mechanical Q1-Q20 FTE from capacity."""
-  candidate = deepcopy(payroll_headcount_contract)
-  title_mix = _selected_supporting_title_mix(candidate, policy=policy)
-  assumptions = _payroll_contract_capacity_assumptions(candidate, policy=policy)
-  guardrails = _payroll_capacity_guardrails(model_input_json=model_input_json, policy=policy)
-  people = people_json if isinstance(people_json, dict) else {}
-  key_people_average_fte = float(len([item for item in (people.get("people") or []) if isinstance(item, dict)]))
-  productivity = max(float(assumptions.get("capacity_units_per_supporting_fte") or 0.0), 0.0001)
-  coverage_ratio = float(policy.get("min_capacity_coverage_ratio") or 1.0)
-  previous_end_by_title = {
-    str(item.get("oews_occ_title") or ""): 0.0
-    for item in title_mix
-  }
-  rows: List[Dict[str, Any]] = []
-  for item in guardrails.get("quarter_rows") or []:
-    if not isinstance(item, dict):
-      continue
-    quarter_index = int(item.get("quarter_index") or 0)
-    if quarter_index < 1 or quarter_index > _contract_horizon_quarters():
-      continue
-    total_capacity = round(float(item.get("total_structural_capacity_units") or 0.0), 2)
-    required_total_average_fte = round((total_capacity / productivity) * coverage_ratio, 2)
-    required_supporting_average_fte = round(max(0.0, required_total_average_fte - key_people_average_fte), 2)
-    quarter_rows: List[Dict[str, Any]] = []
-    for title in title_mix:
-      oews_title = str(title.get("oews_occ_title") or "").strip()
-      weight = float(title.get("allocation_weight") or 0.0)
-      desired_average_fte = round(required_supporting_average_fte * weight, 2)
-      if quarter_index == 1:
-        starting_fte = desired_average_fte
-        ending_fte = desired_average_fte
-      else:
-        starting_fte = round(float(previous_end_by_title.get(oews_title) or 0.0), 2)
-        ending_fte = round(max(starting_fte, (2.0 * desired_average_fte) - starting_fte), 2)
-      hires = round(max(0.0, ending_fte - starting_fte), 2)
-      previous_end_by_title[oews_title] = ending_fte
-      quarter_rows.append(
-        {
-          "q": quarter_index,
-          "oews_occ_title": oews_title,
-          "starting_fte": starting_fte,
-          "hires": hires,
-          "ending_fte": ending_fte,
-          "payroll_tax_benefits_pct": round(float(title.get("payroll_tax_benefits_pct") or 0.22), 2),
-        }
-      )
-    actual_supporting_average_fte = round(
-      sum(((float(row.get("starting_fte") or 0.0) + float(row.get("ending_fte") or 0.0)) / 2.0) for row in quarter_rows),
-      2,
-    )
-    if actual_supporting_average_fte + 0.01 < required_supporting_average_fte and quarter_rows:
-      shortfall = round(required_supporting_average_fte - actual_supporting_average_fte, 2)
-      last = quarter_rows[-1]
-      start = round(float(last.get("starting_fte") or 0.0), 2)
-      end = round(float(last.get("ending_fte") or 0.0) + (2.0 * shortfall), 2)
-      last["ending_fte"] = end
-      last["hires"] = round(max(0.0, end - start), 2)
-      previous_end_by_title[str(last.get("oews_occ_title") or "")] = end
-    rows.extend(quarter_rows)
-  candidate["payroll_headcount_grid"] = rows
-  candidate["rationale"] = (
-    str(candidate.get("rationale") or "").strip()
-    + "\n\nPython derived the mechanical Q1-Q20 FTE schedule from GPT's exact OEWS title selections, "
-    "capacity_units_per_supporting_fte, and the table-backed capacity/utilization guardrails. "
-    "GPT retains the business choices; Python owns deterministic continuity and capacity math."
-  ).strip()
-  return candidate
 
 
 def _payroll_capacity_guardrail_summary_for_gpt(guardrails: Dict[str, Any]) -> Dict[str, Any]:
@@ -1666,124 +1521,6 @@ def _compact_stage_ramp_contract_for_payroll(stage_ramp_contract: Optional[Dict[
       continue
     compact[key] = value
   return compact
-
-
-def _validate_payroll_capacity_guardrails(
-  rows: Sequence[Dict[str, Any]],
-  *,
-  model_input_json: Optional[Dict[str, Any]],
-  policy: Dict[str, Any],
-  payroll_headcount_contract: Optional[Dict[str, Any]],
-  financials_json: Optional[Dict[str, Any]] = None,
-  stage: str,
-) -> None:
-  del financials_json
-  guardrails = _payroll_capacity_guardrails(model_input_json=model_input_json, policy=policy)
-  assumptions = _payroll_contract_capacity_assumptions(payroll_headcount_contract, policy=policy)
-  average_fte_by_quarter = _average_fte_by_quarter_from_rows(rows)
-  key_people_average_fte_by_quarter = _average_fte_by_quarter_from_rows(
-    [
-      row
-      for row in rows
-      if str(row.get("staffing_class") or "supporting_staff").strip().lower() == "key_person"
-    ]
-  )
-  violations: List[Dict[str, Any]] = []
-  prior_actual_average_fte: Optional[float] = None
-  prior_total_capacity: Optional[float] = None
-  prior_utilization: Optional[float] = None
-  for item in guardrails.get("quarter_rows") or []:
-    if not isinstance(item, dict):
-      continue
-    quarter_index = int(item.get("quarter_index") or 0)
-    total_capacity = round(float(item.get("total_structural_capacity_units") or 0.0), 2)
-    required_average_fte = round(
-      (total_capacity / max(float(assumptions.get("capacity_units_per_supporting_fte") or 0.0), 0.0001))
-      * float(policy.get("min_capacity_coverage_ratio") or 1.0),
-      2,
-    )
-    actual_average_fte = round(float(average_fte_by_quarter.get(quarter_index) or 0.0), 2)
-    key_people_average_fte = round(float(key_people_average_fte_by_quarter.get(quarter_index) or 0.0), 2)
-    actual_supporting_average_fte = round(max(0.0, actual_average_fte - key_people_average_fte), 2)
-    minimum_supporting_average_fte = round(max(0.0, required_average_fte - key_people_average_fte), 2)
-    if required_average_fte > 0.0 and actual_average_fte + 0.01 < required_average_fte:
-      violations.append(
-        {
-          "quarter_index": quarter_index,
-          "actual_average_fte": actual_average_fte,
-          "required_average_fte": required_average_fte,
-          "actual_supporting_average_fte": actual_supporting_average_fte,
-          "minimum_supporting_average_fte": minimum_supporting_average_fte,
-          "key_people_average_fte_injected_by_python": key_people_average_fte,
-          "total_structural_capacity_units": total_capacity,
-          "capacity_units_per_supporting_fte": assumptions.get("capacity_units_per_supporting_fte"),
-          "computed_revenue_from_model_input": int(item.get("computed_revenue_from_model_input") or 0),
-        }
-      )
-    utilization = round(float(item.get("weighted_utilization") or 0.0), 4)
-    pressure_threshold = round(float(policy.get("utilization_pressure_threshold") or 0.85), 4)
-    if prior_actual_average_fte is not None and prior_total_capacity is not None and total_capacity > prior_total_capacity + 0.01 and actual_average_fte + 0.01 < prior_actual_average_fte:
-      violations.append(
-        {
-          "quarter_index": quarter_index,
-          "actual_average_fte": actual_average_fte,
-          "required_average_fte": prior_actual_average_fte,
-          "guardrail": item,
-          "reason": "capacity_increase_fte_decline",
-          "prior_total_capacity": prior_total_capacity,
-          "current_total_capacity": total_capacity,
-        }
-      )
-    if (
-      prior_actual_average_fte is not None
-      and prior_utilization is not None
-      and utilization > prior_utilization + 0.0001
-      and actual_average_fte + 0.01 < prior_actual_average_fte
-    ):
-      violations.append(
-        {
-          "quarter_index": quarter_index,
-          "actual_average_fte": actual_average_fte,
-          "required_average_fte": prior_actual_average_fte,
-          "guardrail": item,
-          "reason": "utilization_pressure_fte_decline",
-          "prior_utilization": prior_utilization,
-          "current_utilization": utilization,
-        }
-      )
-    prior_actual_average_fte = actual_average_fte
-    prior_total_capacity = total_capacity
-    prior_utilization = utilization
-  if violations:
-    first = violations[0]
-    _payroll_fail_fast(
-      "payroll_headcount_capacity_coverage_failed",
-      (
-        f"Q{first.get('quarter_index')} average_fte={first.get('actual_average_fte')} is below "
-        f"required_average_fte={first.get('required_average_fte')} from post_intake_headcount_policy_lookup "
-        f"capacity/utilization guardrail; total_violating_quarters={len(violations)}."
-      ),
-      stage=stage,
-      details={
-        "violating_quarters": violations[:20],
-        "required_action": (
-          "Return a corrected full Q1-Q20 payroll_headcount_grid. For every violating quarter, increase "
-          "ending_fte so the sum of supporting-staff average FTE is at least minimum_supporting_average_fte. "
-          "Python will derive mechanical starting_fte/hires continuity from prior ending_fte, but GPT owns each title's ending_fte schedule."
-        ),
-        "required_average_fte_formula": (
-          "required_average_fte = total_structural_capacity_units / capacity_units_per_supporting_fte "
-          "* min_capacity_coverage_ratio"
-        ),
-        "guardrail_source": {
-          "table": "post_intake_headcount_policy_lookup",
-          "headcount_economic_basis": guardrails.get("headcount_economic_basis"),
-          "capacity_units_per_supporting_fte": assumptions.get("capacity_units_per_supporting_fte"),
-          "min_capacity_coverage_ratio": guardrails.get("min_capacity_coverage_ratio"),
-          "utilization_pressure_threshold": guardrails.get("utilization_pressure_threshold"),
-        },
-      },
-    )
 
 
 def validate_payroll_headcount_contract_payload(
@@ -1888,13 +1625,6 @@ def _build_payroll_headcount_payload_from_contract(
     *resolved_supporting_rows,
   ]
   _validate_payroll_title_rows(rows, policy=policy, require_annual_wage=True)
-  _validate_payroll_capacity_guardrails(
-    rows,
-    model_input_json=model_input_json,
-    policy=policy,
-    payroll_headcount_contract=payroll_headcount_contract,
-    stage="payroll_headcount_payload_build",
-  )
   normalized_rows: List[Dict[str, Any]] = []
   quarter_totals_by_index: Dict[int, Dict[str, Any]] = {
     quarter: {"quarter_index": quarter, "ending_fte": 0.0, "payroll": 0}
@@ -1960,12 +1690,6 @@ def _build_payroll_headcount_payload_from_contract(
       stage="payroll_headcount_payload_build",
       details={"errors": validation_errors[:20]},
     )
-  _validate_payroll_revenue_sanity(
-    payload,
-    model_input_json=model_input_json,
-    policy=policy,
-    stage="payroll_headcount_payload_build",
-  )
   return payload
 
 
@@ -2024,6 +1748,53 @@ def build_payroll_headcount_payload_from_contract(
   )
 
 
+def _assert_payroll_contract_economic_feasible_for_retry(
+  *,
+  payroll_headcount: Dict[str, Any],
+  model_input_json: Optional[Dict[str, Any]],
+  stage: str,
+) -> None:
+  """Validate GPT's payroll productivity/FTE contract before leaving payroll retry scope."""
+  from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
+
+  horizon = int(payroll_headcount.get("schedule_horizon_quarters") or _contract_horizon_quarters())
+  capacity_model_input_json = apply_payroll_supported_capacity_to_model_input(
+    deepcopy(model_input_json if isinstance(model_input_json, dict) else {}),
+    deepcopy(payroll_headcount),
+    live_count=horizon,
+  )
+  payroll_model_input_json = apply_payroll_headcount_payload_to_model_input(
+    deepcopy(capacity_model_input_json),
+    deepcopy(payroll_headcount),
+    live_count=horizon,
+  )
+  projected_finmo_json = build_python_finmo_json(model_input_json=deepcopy(payroll_model_input_json))
+  violations = payroll_revenue_feasibility_violations(
+    payroll_headcount=deepcopy(payroll_headcount),
+    finmo_json=deepcopy(projected_finmo_json),
+  )
+  if violations:
+    _payroll_fail_fast(
+      "payroll_revenue_economic_feasibility_failed",
+      (
+        "GPT payroll_headcount_schedule is mechanically valid but economically infeasible against "
+        "post_intake_headcount_policy_lookup payroll/revenue sanity bounds after payroll-supported capacity is applied."
+      ),
+      stage=stage,
+      details={
+        "violations": violations[:20],
+        "capacity_units_per_supporting_fte": payroll_headcount.get("capacity_units_per_supporting_fte"),
+        "labor_intensity_class": payroll_headcount.get("labor_intensity_class"),
+        "target_payroll_percent_of_revenue": payroll_headcount.get("target_payroll_percent_of_revenue"),
+        "required_action": (
+          "GPT must revise the OEWS title FTE ramp, labor intensity class, wage positioning, or "
+          "capacity_units_per_supporting_fte so FTE creates enough payroll-supported revenue capacity. "
+          "Python will not clip payroll or revenue."
+        ),
+      },
+    )
+
+
 def estimate_payroll_headcount_schedule_with_gpt(
   *,
   business_facts: Optional[Dict[str, Any]],
@@ -2038,6 +1809,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
   stage_ramp_contract: Optional[Dict[str, Any]],
   draft_id: Any = "",
   client_id: Any = "",
+  previous_contract_failure: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   api_key = _openai_key()
   if not api_key:
@@ -2079,6 +1851,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
     people_json=resolved_people_json,
   )
   payroll_decision_options = _payroll_decision_options_from_policy(policy or {})
+  payroll_feasibility_mapping = post_intake_payroll_feasibility_mapping()
   user_context = {
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
@@ -2110,6 +1883,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
     },
     "stage_ramp_contract": _compact_stage_ramp_contract_for_payroll(stage_ramp_contract),
     "payroll_decision_options": payroll_decision_options,
+    "payroll_feasibility_mapping": payroll_feasibility_mapping,
     "payroll_headcount_policy": {
       "source_table": "post_intake_headcount_policy_lookup",
       "policy_code": (policy or {}).get("policy_code"),
@@ -2138,6 +1912,19 @@ def estimate_payroll_headcount_schedule_with_gpt(
       ],
     },
   }
+  if isinstance(previous_contract_failure, dict) and previous_contract_failure:
+    user_context["previous_contract_failure"] = {
+      "source_of_truth": "post_intake_headcount_policy_lookup + stage_ramp_contract + FINMO feasibility scan",
+      "required_action": (
+        "Return a corrected full payroll_headcount_schedule using the same SQL contract. "
+        "Fix the driver-level payroll/revenue/stage feasibility failure by revising OEWS title mix, FTE ramp, "
+        "capacity_units_per_supporting_fte, wage positioning, or labor-intensity assumptions. "
+        "Use payroll_feasibility_mapping.rows[].repair_direction_rules from sql.post_intak_mapping_lookup "
+        "for directional movement. Do not invent lever direction and do not use inline assumptions as the source of truth. "
+        "Do not clip payroll or revenue and do not ask Python to patch output rows."
+      ),
+      "failure_details": deepcopy(previous_contract_failure),
+    }
   user_context = post_intake_gpt_context_filter_payload(
     contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
     payload=user_context,
@@ -2171,6 +1958,14 @@ def estimate_payroll_headcount_schedule_with_gpt(
   sequence_settings = _payroll_process_sequence_settings()
   timeout_seconds = float(sequence_settings.get("timeout_seconds") or 180.0)
   max_attempts = int(sequence_settings.get("max_attempts") or 1)
+  payroll_control_trigger = _payroll_repair_trigger_from_failure(previous_contract_failure)
+  post_intake_assert_process_object_control(
+    step_key=("payroll_feasibility_repair" if isinstance(previous_contract_failure, dict) and previous_contract_failure else "payroll_headcount_schedule"),
+    object_name="payroll_headcount",
+    action=("rebuild" if isinstance(previous_contract_failure, dict) and previous_contract_failure else "build"),
+    owner="gpt",
+    trigger=payroll_control_trigger,
+  )
   raw_openai_response: Dict[str, Any] = {}
   last_contract_error = ""
   last_contract_details: Dict[str, Any] = {}
@@ -2202,23 +1997,20 @@ def estimate_payroll_headcount_schedule_with_gpt(
           "Choose capacity_labor_model/labor_intensity_class from payroll_decision_options, choose a positive "
           "business-specific capacity_units_per_supporting_fte assumption, and choose wage positioning only from "
           "payroll_decision_options.wage_positioning_options. "
+          "For payroll/revenue feasibility failures, read payroll_feasibility_mapping.rows[].repair_direction_rules "
+          "from sql.post_intak_mapping_lookup and apply those directions exactly. "
           "Select every oews_occ_title exactly from the full NAICS oews_title_catalog.title_candidates. "
           "GPT chooses which OEWS titles to hire and how many FTE by quarter; Python does wage/payroll math. "
-          "Increase supporting-staff rows so every quarter average FTE satisfies "
-          "the capacity/utilization guardrails derived from post_intake_headcount_policy_lookup. "
-          "Use average_fte=(starting_fte+ending_fte)/2; matching ending_fte alone is invalid. "
+          "Every OEWS title emitted in payroll_headcount_grid is a selected hired role and must have positive FTE "
+          "in at least one quarter; zero-FTE placeholder, hypothetical, or unused titles are invalid. "
+          "Do not replace a dead zero-FTE title with another zero-FTE title. "
           "For every title, Qn starting_fte must equal that title's Q(n-1) ending_fte. "
           "When staffing grows, keep starting_fte at the prior ending value and put the increase in hires. "
-          "Use every violating quarter's minimum_supporting_average_fte; if you change capacity_units_per_supporting_fte, recompute every quarter and still satisfy Q1-Q20. "
-          "Review every violating_quarters item in the failure details; fixing only the first failing quarter is invalid."
+          "Use stage-ramp, revenue-driver, and payroll_capacity_grid context to make the FTE ramp operationally realistic, "
+          "but do not solve backward from those rows as hard demand floors. Python derives supported capacity from your FTE."
         ),
         "error": last_contract_error[:6000],
         "failure_details": deepcopy(last_contract_details),
-        "required_fte_grid_from_last_root_assumptions": _payroll_required_fte_grid_for_retry(
-          model_input_json=model_input_json,
-          policy=policy,
-          payroll_headcount_contract=last_parsed,
-        ) if isinstance(last_parsed, dict) and last_parsed else [],
         "invalid_response_excerpt": json.dumps(last_parsed, ensure_ascii=False)[:6000],
       }
     system_prompt = post_intake_build_prompt_from_contract(
@@ -2242,17 +2034,20 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "Each oews_occ_title must be an exact occ_title from the full NAICS oews_title_catalog.title_candidates. "
         "Do not invent abstract staffing families, staffing categories, aliases, or non-OEWS staffing buckets. "
         "Only include OEWS titles that carry FTE at some point in the 20-quarter schedule; once a title starts, it must continue through Q20. "
+        "A payroll_headcount_grid row means the title is actually hired; do not include hypothetical, placeholder, unused, or zero-FTE roles. "
+        "For every oews_occ_title you include, at least one quarter must have starting_fte or ending_fte greater than 0. "
+        "If prior failure says a title had zero FTE in every quarter, fix it by assigning real FTE to that same selected business role or by choosing a different real hired title with positive FTE; never return another all-zero title. "
+        "If prior failure involves payroll/revenue feasibility, use payroll_feasibility_mapping from sql.post_intak_mapping_lookup "
+        "for the allowed direction of payroll, capacity, price, utilization, and productivity movements. "
         "Use the OEWS titles needed to operate the business; one catch-all staffing bucket is invalid. "
         "Do not provide wages and do not include key people; Python owns those. "
-        "Every quarter's supporting-staff average FTE must support payroll_capacity_grid structural capacity and utilization reality. "
-        "Before returning, run this check for all Q1-Q20: "
-        "sum((starting_fte+ending_fte)/2 for all selected OEWS title rows in the quarter) + "
-        "key_people_average_fte_injected_by_python must be >= "
-        "total_structural_capacity_units / capacity_units_per_supporting_fte. "
-        "If any quarter fails, increase starting_fte/hires/ending_fte before returning. "
+        "Use payroll_capacity_grid as operating context only. Do not force FTE to a hard capacity demand floor; "
+        "Python will derive payroll-supported Capacity from average FTE and capacity_units_per_supporting_fte, "
+        "then revenue will be constrained by that supported Capacity. "
         "For title continuity, Qn starting_fte must equal that same title's Q(n-1) ending_fte; increases belong in hires, not starting_fte jumps. "
-        "Python deterministically derives starting_fte and hires continuity from GPT's ending_fte values; your business decision is the exact OEWS title set and each title's ending_fte by quarter. "
-        "Payroll percent of revenue is only a final sanity check: choose the target percent with business judgment, then staff to land close to it. "
+        "Your business decision is the exact OEWS title set and each title's Q1-Q20 starting_fte, hires, and ending_fte schedule. "
+        "target_payroll_percent_of_revenue is context, but payroll_revenue_sanity_bounds from the headcount policy table are a real feasibility check; do not staff by clipping payroll to a percentage. "
+        "Payroll FTE creates supported capacity, and supported capacity constrains revenue. "
         "If a prior failure is provided, fix that exact table-backed validation failure."
       ),
     )
@@ -2303,15 +2098,9 @@ def estimate_payroll_headcount_schedule_with_gpt(
     last_parsed = deepcopy(parsed)
     try:
       contract = validate_payroll_headcount_contract_payload(parsed)
-      contract = _capacity_driven_contract_from_gpt_selection(
-        contract,
-        model_input_json=model_input_json,
-        policy=policy,
-        people_json=resolved_people_json,
-      )
       contract["prompt_context"] = request_context
       contract["raw_openai_response"] = raw_openai_response
-      return build_payroll_headcount_payload_from_contract(
+      schedule_payload = build_payroll_headcount_payload_from_contract(
         contract,
         draft_id=draft_id,
         client_id=client_id,
@@ -2320,6 +2109,12 @@ def estimate_payroll_headcount_schedule_with_gpt(
         ops_json=ops_json,
         people_json=resolved_people_json,
       )
+      _assert_payroll_contract_economic_feasible_for_retry(
+        payroll_headcount=deepcopy(schedule_payload),
+        model_input_json=deepcopy(model_input_json),
+        stage="payroll_headcount_contract_economic_feasibility",
+      )
+      return schedule_payload
     except RuntimeError as exc:
       last_contract_error = str(exc)
       last_contract_details = (
@@ -2433,15 +2228,6 @@ def _revenue_driver_context_from_model_input(
   }
 
 
-def _revenue_by_quarter_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> Dict[int, int]:
-  context = _revenue_driver_context_from_model_input(model_input_json)
-  return {
-    int(row.get("quarter_index") or 0): int(row.get("computed_revenue_from_model_input") or 0)
-    for row in (context.get("quarter_rows") or [])
-    if isinstance(row, dict)
-  }
-
-
 def _payroll_totals_by_quarter_from_rows(rows: Sequence[Dict[str, Any]]) -> Dict[int, int]:
   totals: Dict[int, int] = {}
   for row in rows:
@@ -2457,133 +2243,39 @@ def _payroll_totals_by_quarter_from_rows(rows: Sequence[Dict[str, Any]]) -> Dict
   return totals
 
 
-def _quarter_totals_from_schedule(schedule: Dict[str, Any]) -> Dict[int, int]:
-  return {
-    int(item.get("quarter_index") or 0): int(round(float(_safe_float(item.get("payroll")) or 0.0)))
-    for item in (schedule.get("quarter_totals") or [])
-    if isinstance(item, dict)
-  }
-
-
-def _average_fte_from_schedule(schedule: Dict[str, Any]) -> Dict[int, float]:
-  rows = _payroll_headcount_grid_rows(schedule)
-  return _average_fte_by_quarter_from_rows(rows)
-
-
-def _validate_payroll_revenue_sanity(
-  schedule: Dict[str, Any],
-  *,
-  model_input_json: Optional[Dict[str, Any]],
-  policy: Dict[str, Any],
-  stage: str,
-) -> None:
-  assumptions = _payroll_contract_capacity_assumptions(schedule, policy=policy)
-  intensity = assumptions.get("labor_intensity_class")
-  try:
-    bounds = headcount_payroll_revenue_sanity_bounds(policy, labor_intensity_class=intensity)
-  except RuntimeError as exc:
-    _payroll_fail_fast(
-      "payroll_headcount_revenue_sanity_lookup_failed",
-      str(exc),
-      stage=stage,
-      details={"policy_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds"},
+def _enforce_forward_fte_continuity(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  normalized: List[Dict[str, Any]] = []
+  prior_ending_by_title: Dict[str, float] = {}
+  for source_row in sorted(
+    [deepcopy(row) for row in rows if isinstance(row, dict)],
+    key=lambda row: (
+      int(row.get("quarter_index") or 0),
+      str(row.get("staffing_class") or "supporting_staff").lower(),
+      _title_key(row.get("oews_occ_title") or row.get("position_title") or row.get("person_name")),
+    ),
+  ):
+    row = deepcopy(source_row)
+    quarter_index = int(row.get("quarter_index") or 0)
+    staffing_class = str(row.get("staffing_class") or "supporting_staff").strip().lower() or "supporting_staff"
+    title_identity = (
+      _title_key(row.get("person_name") or row.get("position_title"))
+      if staffing_class == "key_person"
+      else _title_key(row.get("oews_occ_title") or row.get("position_title"))
     )
-    return
-  gpt_target = _safe_ratio(schedule.get("target_payroll_percent_of_revenue"))
-  if gpt_target is None or gpt_target <= 0.0:
-    _payroll_fail_fast(
-      "payroll_headcount_target_payroll_percent_missing",
-      "payroll_headcount_schedule must include GPT's target_payroll_percent_of_revenue for final payroll sanity.",
-      stage=stage,
-      details={"contract_field": "target_payroll_percent_of_revenue"},
-    )
-    return
-  min_pct = round(float(bounds.get("min_pct") or 0.0), 4)
-  max_pct = round(float(bounds.get("max_pct") or 0.0), 4)
-  if gpt_target < min_pct or gpt_target > max_pct:
-    _payroll_fail_fast(
-      "payroll_headcount_target_payroll_percent_out_of_policy_bounds",
-      f"target_payroll_percent_of_revenue={gpt_target:.4f} outside {min_pct:.4f}-{max_pct:.4f}.",
-      stage=stage,
-      details={
-        "target_payroll_percent_of_revenue": gpt_target,
-        "bounds": bounds,
-        "labor_intensity_class": intensity,
-        "policy_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds",
-      },
-    )
-  revenue_by_quarter = _revenue_by_quarter_from_model_input(model_input_json)
-  payroll_by_quarter = _quarter_totals_from_schedule(schedule)
-  average_fte_by_quarter = _average_fte_from_schedule(schedule)
-  violations: List[Dict[str, Any]] = []
-  prior_revenue: Optional[int] = None
-  prior_payroll: Optional[int] = None
-  prior_average_fte: Optional[float] = None
-  for quarter_index in range(1, _contract_horizon_quarters() + 1):
-    revenue = int(revenue_by_quarter.get(quarter_index) or 0)
-    payroll = int(payroll_by_quarter.get(quarter_index) or 0)
-    average_fte = round(float(average_fte_by_quarter.get(quarter_index) or 0.0), 2)
-    if revenue > 0:
-      actual_pct = round(payroll / revenue, 4)
-      if actual_pct < min_pct or actual_pct > max_pct:
-        violations.append(
-          {
-            "quarter_index": quarter_index,
-            "reason": "payroll_percent_outside_policy_sanity_bounds",
-            "revenue": revenue,
-            "payroll": payroll,
-            "actual_payroll_percent_of_revenue": actual_pct,
-            "bounds": bounds,
-          }
-        )
-    if prior_revenue is not None and prior_payroll is not None and revenue > prior_revenue and payroll < prior_payroll:
-      violations.append(
-        {
-          "quarter_index": quarter_index,
-          "reason": "payroll_dollars_decline_while_revenue_increases",
-          "prior_revenue": prior_revenue,
-          "current_revenue": revenue,
-          "prior_payroll": prior_payroll,
-          "current_payroll": payroll,
-        }
-      )
-    if prior_average_fte is not None and prior_revenue is not None and revenue > prior_revenue and average_fte + 0.01 < prior_average_fte:
-      violations.append(
-        {
-          "quarter_index": quarter_index,
-          "reason": "average_fte_declines_while_revenue_increases",
-          "prior_revenue": prior_revenue,
-          "current_revenue": revenue,
-          "prior_average_fte": prior_average_fte,
-          "current_average_fte": average_fte,
-        }
-      )
-    prior_revenue = revenue
-    prior_payroll = payroll
-    prior_average_fte = average_fte
-  if violations:
-    first = violations[0]
-    _payroll_fail_fast(
-      "payroll_headcount_revenue_sanity_failed",
-      (
-        f"Q{first.get('quarter_index')} payroll sanity failed: {first.get('reason')}. "
-        "Payroll remains capacity-primary, but final payroll percent of revenue must stay inside "
-        "the table-backed labor-intensity sanity bounds."
-      ),
-      stage=stage,
-      details={
-        "violations": violations[:20],
-        "target_payroll_percent_of_revenue": round(float(gpt_target), 4),
-        "target_use": "sanity_anchor_only_capacity_primary_not_exact_landing_point",
-        "policy_bounds": bounds,
-        "policy_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds",
-        "required_action": (
-          "Return a corrected full payroll_headcount_schedule: adjust capacity_units_per_supporting_fte, "
-          "labor_intensity_class, wage_positioning_tier, and/or supporting-staff FTE so payroll is operationally "
-          "capacity-supported and inside the table-backed payroll/revenue sanity bounds."
-        ),
-      },
-    )
+    continuity_key = f"{staffing_class}::{title_identity}"
+    starting_fte = round(float(row.get("starting_fte") or 0.0), 2)
+    ending_fte = round(float(row.get("ending_fte") or 0.0), 2)
+    if quarter_index == 1 and starting_fte <= 0.0 and ending_fte > 0.0:
+      starting_fte = ending_fte
+    if quarter_index > 1 and continuity_key in prior_ending_by_title:
+      starting_fte = round(float(prior_ending_by_title.get(continuity_key) or 0.0), 2)
+      ending_fte = round(max(ending_fte, starting_fte), 2)
+    row["starting_fte"] = starting_fte
+    row["ending_fte"] = ending_fte
+    row["hires"] = round(max(0.0, ending_fte - starting_fte), 2)
+    prior_ending_by_title[continuity_key] = ending_fte
+    normalized.append(row)
+  return normalized
 
 
 def _validate_quarter_totals_match_title_rows(
@@ -2616,7 +2308,17 @@ def apply_payroll_headcount_payload_to_model_input(
   payroll_headcount: Optional[Dict[str, Any]],
   *,
   live_count: int,
+  process_step_key: str = "payroll_headcount_schedule",
+  control_action: str = "derive",
+  control_trigger: str = "payroll_headcount_changed",
 ) -> Dict[str, Any]:
+  post_intake_assert_process_object_control(
+    step_key=process_step_key,
+    object_name="model_input.expenses.Payroll",
+    action=control_action,
+    owner="python",
+    trigger=control_trigger,
+  )
   next_payload = deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
   schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
   if not schedule:
@@ -2719,6 +2421,182 @@ def apply_payroll_headcount_payload_to_model_input(
   return next_payload
 
 
+def apply_payroll_supported_capacity_to_model_input(
+  model_input_json: Optional[Dict[str, Any]],
+  payroll_headcount: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+  process_step_key: str = "payroll_headcount_schedule",
+  control_action: str = "derive",
+  control_trigger: str = "payroll_headcount_changed",
+) -> Dict[str, Any]:
+  """Use payroll FTE as the causal capacity envelope for revenue drivers."""
+  post_intake_assert_process_object_control(
+    step_key=process_step_key,
+    object_name="model_input.revenue.Capacity",
+    action=control_action,
+    owner="python",
+    trigger=control_trigger,
+  )
+  next_payload = deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
+  schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
+  if not schedule:
+    _payroll_fail_fast(
+      "payroll_supported_capacity_schedule_missing",
+      "Payroll-supported capacity requires a payroll_headcount schedule before revenue capacity can be accepted.",
+      stage="payroll_supported_capacity_application",
+    )
+  productivity = round(float(_safe_float(schedule.get("capacity_units_per_supporting_fte")) or 0.0), 6)
+  if productivity <= 0.0:
+    _payroll_fail_fast(
+      "payroll_supported_capacity_productivity_missing",
+      "Payroll-supported capacity requires positive capacity_units_per_supporting_fte selected in payroll_headcount.",
+      stage="payroll_supported_capacity_application",
+    )
+  rows = _payroll_headcount_grid_rows(schedule)
+  average_fte_by_quarter = _average_fte_by_quarter_from_rows(rows)
+  supported_capacity = {
+    quarter: round(float(average_fte_by_quarter.get(quarter) or 0.0) * productivity, 6)
+    for quarter in range(1, live_count + 1)
+  }
+  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
+  revenue_rows = sections.get("revenue") if isinstance(sections.get("revenue"), list) else []
+  capacity_rows = [
+    row for row in revenue_rows
+    if isinstance(row, dict) and str(row.get("driver") or row.get("driver_name") or "").strip().lower() == "capacity"
+  ]
+  if not capacity_rows:
+    _payroll_fail_fast(
+      "payroll_supported_capacity_rows_missing",
+      "Revenue Capacity rows are required so payroll FTE can define the supported capacity envelope.",
+      stage="payroll_supported_capacity_application",
+    )
+  current_totals = {quarter: 0.0 for quarter in range(1, live_count + 1)}
+  row_live_values: List[Tuple[Dict[str, Any], float, List[float]]] = []
+  for row in capacity_rows:
+    values = list(row.get("values") or [])
+    _stub, live_values = _row_stub_and_live_values(values, live_count=live_count)
+    padded = list(live_values[:live_count])
+    if len(padded) < live_count:
+      padded.extend([0.0 for _ in range(live_count - len(padded))])
+    row_total = round(sum(max(0.0, float(value or 0.0)) for value in padded), 6)
+    row_live_values.append((row, row_total, padded))
+    for idx, value in enumerate(padded, start=1):
+      current_totals[idx] = round(current_totals.get(idx, 0.0) + max(0.0, float(value or 0.0)), 6)
+  equal_weight = round(1.0 / max(1, len(capacity_rows)), 6)
+  for row, row_total, live_values in row_live_values:
+    values = list(row.get("values") or [])
+    stub_value, _existing_live = _row_stub_and_live_values(values, live_count=live_count)
+    next_live_values: List[float] = []
+    for quarter_index, current_value in enumerate(live_values, start=1):
+      total_capacity = round(float(current_totals.get(quarter_index) or 0.0), 6)
+      if total_capacity > 0.0:
+        weight = max(0.0, float(current_value or 0.0)) / total_capacity
+      elif row_total > 0.0:
+        weight = max(0.0, float(current_value or 0.0)) / row_total
+      else:
+        weight = equal_weight
+      next_live_values.append(round(float(supported_capacity[quarter_index]) * float(weight), 6))
+    row["values"] = _compose_period_values(stub_value=stub_value, live_values=next_live_values)
+    row["controller_write"] = False
+    row["derived_driver"] = "payroll_supported_capacity"
+    row["payroll_supported_capacity"] = {
+      "payroll_source": PAYROLL_HEADCOUNT_SOURCE,
+      "capacity_source": "payroll_fte_times_capacity_units_per_supporting_fte",
+      "capacity_units_per_supporting_fte": productivity,
+      "schedule_storage_column": PAYROLL_HEADCOUNT_DRAFT_COLUMN,
+    }
+  next_payload.setdefault("derived_driver_policies", {})
+  next_payload.setdefault("derived_driver_runtime", {})
+  if isinstance(next_payload.get("derived_driver_policies"), dict):
+    next_payload["derived_driver_policies"]["revenue::Capacity"] = {
+      "policy_version": PAYROLL_HEADCOUNT_POLICY_VERSION,
+      "capacity_source": "payroll_supported_capacity",
+      "payroll_source": PAYROLL_HEADCOUNT_SOURCE,
+      "capacity_units_per_supporting_fte": productivity,
+    }
+  if isinstance(next_payload.get("derived_driver_runtime"), dict):
+    next_payload["derived_driver_runtime"]["payroll_supported_capacity"] = {
+      "policy_version": PAYROLL_HEADCOUNT_POLICY_VERSION,
+      "formula": "total_average_fte * capacity_units_per_supporting_fte",
+      "capacity_units_per_supporting_fte": productivity,
+      "total_average_fte_by_quarter": {
+        str(quarter): round(float(average_fte_by_quarter.get(quarter) or 0.0), 6)
+        for quarter in range(1, live_count + 1)
+      },
+      "supported_capacity_by_quarter": {
+        str(quarter): round(float(supported_capacity.get(quarter) or 0.0), 6)
+        for quarter in range(1, live_count + 1)
+      },
+    }
+  return next_payload
+
+
+def _payroll_supported_capacity_model_input_violations(
+  model_input_json: Optional[Dict[str, Any]],
+  payroll_headcount: Optional[Dict[str, Any]],
+  *,
+  live_count: int,
+) -> List[Dict[str, Any]]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
+  productivity = round(float(_safe_float(schedule.get("capacity_units_per_supporting_fte")) or 0.0), 6)
+  if productivity <= 0.0:
+    return [{
+      "error": "payroll_supported_capacity_productivity_missing",
+      "reason": "capacity_units_per_supporting_fte must be positive before payroll can support revenue capacity.",
+    }]
+  rows = _payroll_headcount_grid_rows(schedule)
+  average_fte_by_quarter = _average_fte_by_quarter_from_rows(rows)
+  expected_by_quarter = {
+    quarter: round(float(average_fte_by_quarter.get(quarter) or 0.0) * productivity, 6)
+    for quarter in range(1, live_count + 1)
+  }
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  revenue_rows = sections.get("revenue") if isinstance(sections.get("revenue"), list) else []
+  capacity_rows = [
+    row for row in revenue_rows
+    if isinstance(row, dict) and str(row.get("driver") or row.get("driver_name") or "").strip().lower() == "capacity"
+  ]
+  if not capacity_rows:
+    return [{
+      "error": "payroll_supported_capacity_rows_missing",
+      "reason": "Revenue Capacity rows are required so payroll FTE can define the supported capacity envelope.",
+    }]
+  actual_by_quarter = {quarter: 0.0 for quarter in range(1, live_count + 1)}
+  unmarked_rows: List[str] = []
+  for row in capacity_rows:
+    if str(row.get("derived_driver") or "").strip() != "payroll_supported_capacity":
+      unmarked_rows.append(str(row.get("label") or row.get("revenue_slot_key") or "Capacity").strip())
+    _stub, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    for quarter_index, value in enumerate(live_values[:live_count], start=1):
+      actual_by_quarter[quarter_index] = round(
+        float(actual_by_quarter.get(quarter_index) or 0.0) + max(0.0, float(_safe_float(value) or 0.0)),
+        6,
+      )
+  violations: List[Dict[str, Any]] = []
+  if unmarked_rows:
+    violations.append({
+      "error": "payroll_supported_capacity_marker_missing",
+      "reason": "Capacity rows must be marked derived_driver='payroll_supported_capacity'.",
+      "rows": unmarked_rows[:20],
+    })
+  for quarter_index in range(1, live_count + 1):
+    expected = round(float(expected_by_quarter.get(quarter_index) or 0.0), 6)
+    actual = round(float(actual_by_quarter.get(quarter_index) or 0.0), 6)
+    tolerance = max(0.01, abs(expected) * 0.0001)
+    if abs(actual - expected) > tolerance:
+      violations.append({
+        "error": "payroll_supported_capacity_mismatch",
+        "quarter_index": quarter_index,
+        "expected_capacity": expected,
+        "actual_capacity": actual,
+        "delta": round(actual - expected, 6),
+        "formula": "sum(payroll_average_fte) * capacity_units_per_supporting_fte",
+      })
+  return violations
+
+
 def assert_payroll_headcount_payload_ready(
   payroll_headcount: Optional[Dict[str, Any]],
   *,
@@ -2744,20 +2622,6 @@ def assert_payroll_headcount_payload_ready(
   rows = _payroll_headcount_grid_rows(schedule)
   policy = post_intake_headcount_policy_for("default")
   _validate_payroll_title_rows(rows, policy=policy)
-  if isinstance(model_input_json, dict):
-    _validate_payroll_capacity_guardrails(
-      rows,
-      model_input_json=model_input_json,
-      policy=policy,
-      payroll_headcount_contract=schedule,
-      stage=stage,
-    )
-    _validate_payroll_revenue_sanity(
-      schedule,
-      model_input_json=model_input_json,
-      policy=policy,
-      stage=stage,
-    )
   _validate_quarter_totals_match_title_rows(schedule, rows=rows)
 
 
@@ -2778,6 +2642,25 @@ def assert_payroll_headcount_model_input_applied(
       "; ".join(str(item.get("reason") or item.get("error") or item) for item in details[:10]),
       stage=stage,
       details={"validation_details": details[:10]},
+    )
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  current_row = payroll_row_from_model_input(payload)
+  live_count = max(
+    0,
+    len([item for item in (payload.get("periods") or []) if isinstance(item, dict) and not bool(item.get("is_stub"))])
+    or (len(list((current_row or {}).get("values") or [])) - 1 if isinstance(current_row, dict) else 0),
+  )
+  capacity_violations = _payroll_supported_capacity_model_input_violations(
+    payload,
+    payroll_headcount,
+    live_count=live_count,
+  )
+  if capacity_violations:
+    _payroll_fail_fast(
+      "payroll_supported_capacity_model_input_not_applied",
+      "Revenue Capacity must equal payroll-supported capacity before FINMO can be accepted.",
+      stage=stage,
+      details={"validation_details": capacity_violations[:20]},
     )
 
 
@@ -2820,6 +2703,179 @@ def assert_finmo_payroll_matches_headcount_schedule(
         stage=stage,
         details={"quarter_index": quarter_index, "finmo_payroll": actual, "schedule_payroll": expected},
       )
+
+
+def payroll_revenue_feasibility_violations(
+  *,
+  payroll_headcount: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  policy_code: Any = "default",
+) -> List[Dict[str, Any]]:
+  """Return table-backed payroll/revenue feasibility violations.
+
+  This is not a cap on payroll or revenue. It is a coherence test: if the
+  relationship is outside the headcount policy range, upstream drivers must be
+  recomputed instead of clipping either output.
+  """
+  schedule = payroll_headcount if isinstance(payroll_headcount, dict) else {}
+  rows = finmo_json.get("quarter_rows") if isinstance(finmo_json, dict) and isinstance(finmo_json.get("quarter_rows"), list) else []
+  if not schedule or not rows:
+    return []
+  try:
+    feasibility_mapping = post_intake_payroll_feasibility_mapping()
+  except Exception as exc:
+    return [{
+      "error": "payroll_feasibility_mapping_missing",
+      "reason": str(exc),
+      "policy_source": "post_intak_mapping_lookup.repair_direction_rules_json",
+      "required_action": "Initialize/repair the SQL mapping table before payroll can choose directional movements.",
+    }]
+  mapping_rows = feasibility_mapping.get("rows") if isinstance(feasibility_mapping, dict) else []
+  mapping_direction_rules = [
+    {
+      "lever_id": str(item.get("lever_id") or ""),
+      "repair_direction_rules": deepcopy(item.get("repair_direction_rules") or {}),
+    }
+    for item in (mapping_rows if isinstance(mapping_rows, list) else [])
+    if isinstance(item, dict)
+  ]
+  policy = post_intake_headcount_policy_for(policy_code=policy_code)
+  intensity = _clean_key(schedule.get("labor_intensity_class"))
+  try:
+    bounds = headcount_payroll_revenue_sanity_bounds(policy or {}, labor_intensity_class=intensity)
+  except Exception as exc:
+    return [{
+      "error": "payroll_revenue_sanity_lookup_failed",
+      "reason": str(exc),
+      "policy_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds_json",
+      "labor_intensity_class": intensity or "missing",
+    }]
+  min_pct = round(float(bounds.get("min_pct") or 0.0), 6)
+  max_pct = round(float(bounds.get("max_pct") or 0.0), 6)
+  tolerance_pct = max(0.0, float(policy.get("payroll_revenue_sanity_tolerance_pct") or 0.03))
+  relative_tolerance = max(0.0, float(policy.get("payroll_revenue_sanity_relative_tolerance") or 0.20))
+  min_allowed = max(0.0, min_pct - max(tolerance_pct, min_pct * relative_tolerance))
+  max_allowed = max_pct + max(tolerance_pct, max_pct * relative_tolerance)
+  trend_rules = policy.get("payroll_trend_rules") if isinstance(policy.get("payroll_trend_rules"), dict) else {}
+  ordered_rows = sorted(
+    [row for row in rows if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1],
+    key=lambda row: int(_safe_float(row.get("quarter_index")) or 0),
+  )
+  productivity = round(float(_safe_float(schedule.get("capacity_units_per_supporting_fte")) or 0.0), 6)
+  average_fte_by_quarter = _average_fte_by_quarter_from_rows(_payroll_headcount_grid_rows(schedule))
+  violations: List[Dict[str, Any]] = []
+  previous_revenue: Optional[float] = None
+  previous_payroll: Optional[float] = None
+  for row in ordered_rows:
+    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+    revenue = float(_safe_float(row.get("revenue")) or 0.0)
+    payroll = float(_safe_float(row.get("payroll")) or 0.0)
+    if revenue <= 0.0:
+      previous_revenue = revenue
+      previous_payroll = payroll
+      continue
+    ratio = payroll / revenue
+    if ratio < min_allowed or ratio > max_allowed:
+      too_low = ratio < min_allowed
+      required_revenue_at_bound = (
+        round(float(payroll) / float(min_allowed), 2)
+        if too_low and min_allowed > 0.0
+        else round(float(payroll) / float(max_allowed), 2)
+        if max_allowed > 0.0
+        else None
+      )
+      revenue_multiplier_to_bound = (
+        round(float(required_revenue_at_bound) / float(revenue), 6)
+        if required_revenue_at_bound is not None and revenue > 0.0
+        else None
+      )
+      implied_productivity_at_bound = (
+        round(float(productivity) * float(revenue_multiplier_to_bound), 6)
+        if revenue_multiplier_to_bound is not None and productivity > 0.0
+        else None
+      )
+      violations.append({
+        "error": "payroll_revenue_economic_feasibility_failed",
+        "quarter_index": quarter_index,
+        "revenue": int(round(revenue)),
+        "payroll": int(round(payroll)),
+        "payroll_percent_of_revenue": round(float(ratio), 6),
+        "labor_intensity_class": intensity,
+        "policy_min_pct": min_pct,
+        "policy_max_pct": max_pct,
+        "effective_min_pct_with_tolerance": round(float(min_allowed), 6),
+        "effective_max_pct_with_tolerance": round(float(max_allowed), 6),
+        "policy_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds_json",
+        "repair_rule_key": "payroll_revenue_ratio_low" if too_low else "payroll_revenue_ratio_high",
+        "mapping_direction_rules": deepcopy(mapping_direction_rules),
+        "deterministic_driver_math": {
+          "current_capacity_units_per_supporting_fte": productivity,
+          "total_average_fte": round(float(average_fte_by_quarter.get(quarter_index) or 0.0), 6),
+          "required_revenue_at_policy_bound": required_revenue_at_bound,
+          "revenue_multiplier_to_policy_bound": revenue_multiplier_to_bound,
+          "implied_capacity_units_per_supporting_fte_if_price_utilization_and_fte_unchanged": implied_productivity_at_bound,
+          "math_source": "payroll / policy_bound; payroll_supported_revenue scales linearly with capacity_units_per_supporting_fte when FTE, unit price, and utilization are unchanged",
+        },
+        "required_action": (
+          "Read mapping_direction_rules from sql.post_intak_mapping_lookup, recompute allowed upstream drivers, "
+          "use deterministic_driver_math as the minimum quantitative target when price/utilization/FTE are unchanged, "
+          "then rebuild payroll-supported capacity, revenue, payroll, and FINMO. "
+          "Do not clip payroll or revenue."
+        ),
+      })
+    if (
+      bool(trend_rules.get("payroll_dollars_cannot_decline_when_revenue_increases"))
+      and previous_revenue is not None
+      and previous_payroll is not None
+      and revenue > previous_revenue * 1.01
+      and payroll < previous_payroll * 0.99
+    ):
+      violations.append({
+        "error": "payroll_revenue_trend_rule_failed",
+        "quarter_index": quarter_index,
+        "previous_revenue": int(round(previous_revenue)),
+        "current_revenue": int(round(revenue)),
+        "previous_payroll": int(round(previous_payroll)),
+        "current_payroll": int(round(payroll)),
+        "rule": "payroll_dollars_cannot_decline_when_revenue_increases",
+        "policy_source": "post_intake_headcount_policy_lookup.payroll_trend_rules_json",
+        "required_action": (
+          "Recompute staffing/productivity/ramp drivers so payroll and revenue move coherently. "
+          "Do not patch the output row."
+        ),
+      })
+    previous_revenue = revenue
+    previous_payroll = payroll
+  return violations
+
+
+def assert_payroll_revenue_feasibility(
+  *,
+  payroll_headcount: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  stage: str,
+) -> None:
+  stage_key = str(stage or "").strip().lower()
+  if "pre_quarter_grid" in stage_key:
+    return
+  violations = payroll_revenue_feasibility_violations(
+    payroll_headcount=payroll_headcount,
+    finmo_json=finmo_json,
+  )
+  if violations:
+    _payroll_fail_fast(
+      "payroll_revenue_economic_feasibility_failed",
+      "Payroll/revenue economics are outside the table-backed headcount policy range; recompute drivers instead of clipping outputs.",
+      stage=stage,
+      details={
+        "violation_count": len(violations),
+        "violations": violations[:20],
+        "golden_rule": (
+          "Payroll must be enforced through driver recomputation under the operational headcount policy lookup, "
+          "not by hard caps or post-hoc output patching."
+        ),
+      },
+    )
 
 
 def validate_payroll_headcount_model_input_contract(
@@ -2872,30 +2928,7 @@ def validate_payroll_headcount_model_input_contract(
         "validation_category": "payroll_headcount_schedule",
       })
     if not schedule_payload_errors:
-      try:
-        rows = _payroll_headcount_grid_rows(schedule)
-        policy = post_intake_headcount_policy_for("default")
-        _validate_payroll_capacity_guardrails(
-          rows,
-          model_input_json=payload,
-          policy=policy,
-          payroll_headcount_contract=schedule,
-          stage="payroll_headcount_model_input_validation",
-        )
-        _validate_payroll_revenue_sanity(
-          schedule,
-          model_input_json=payload,
-          policy=policy,
-          stage="payroll_headcount_model_input_validation",
-        )
-      except RuntimeError as exc:
-        details.append({
-          "error": "payroll_headcount_capacity_coverage_failed",
-          "lever_id": PAYROLL_HEADCOUNT_LEVER_ID,
-          "quarter": 0,
-          "reason": str(exc),
-          "validation_category": "payroll_headcount_schedule",
-        })
+      _payroll_headcount_grid_rows(schedule)
   if bool(current_row.get("controller_write", True)):
     details.append({
       "error": "payroll_row_should_not_be_writable",
@@ -2913,8 +2946,22 @@ def validate_payroll_headcount_model_input_contract(
       "validation_category": "payroll_headcount_schedule",
     })
   if schedule and not schedule_payload_errors:
-    expected_payload = apply_payroll_headcount_payload_to_model_input(deepcopy(payload), schedule, live_count=live_count)
+    expected_payload = apply_payroll_supported_capacity_to_model_input(deepcopy(payload), schedule, live_count=live_count)
+    expected_payload = apply_payroll_headcount_payload_to_model_input(expected_payload, schedule, live_count=live_count)
     expected_row = payroll_row_from_model_input(expected_payload)
+    capacity_violations = _payroll_supported_capacity_model_input_violations(
+      payload,
+      schedule,
+      live_count=live_count,
+    )
+    for violation in capacity_violations:
+      details.append({
+        "error": str(violation.get("error") or "payroll_supported_capacity_mismatch"),
+        "lever_id": "revenue::Capacity",
+        "quarter": int(violation.get("quarter_index") or 0),
+        "reason": json.dumps(violation, ensure_ascii=False, default=str),
+        "validation_category": "payroll_supported_capacity",
+      })
     current_values = list(current_row.get("values") or [])
     expected_values = list((expected_row or {}).get("values") or [])
     if len(current_values) >= live_count + 1 and len(expected_values) >= live_count + 1:

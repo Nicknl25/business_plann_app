@@ -481,6 +481,7 @@ def _process_sequence_row(
   input_object_path: str = "",
   output_object_path: str = "",
   validation_subject_path: str = "",
+  object_controls: Optional[List[Dict[str, Any]]] = None,
   notes: str = "",
 ) -> Dict[str, Any]:
   return {
@@ -504,6 +505,7 @@ def _process_sequence_row(
     "input_object_path": input_object_path or f"{step_key}.input",
     "output_object_path": output_object_path or f"{step_key}.output",
     "validation_subject_path": validation_subject_path or output_object_path or f"{step_key}.output",
+    "object_controls": copy.deepcopy(object_controls or []),
     "notes": notes,
   }
 
@@ -631,7 +633,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _GPT_CONTEXT_TABLE_NAME,
     ],
     horizon_rule="q1_to_q20_exactly_once",
-    timeout_seconds=60,
+    timeout_seconds=90,
     max_attempts=1,
     fail_fast_code="post_intake_sequence_stage_ramp_contract_missing",
     python_role="contract_request_and_validation",
@@ -648,6 +650,126 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   _process_sequence_row(
     "initial_grid",
     60,
+    "payroll_headcount_schedule",
+    "estimate_payroll_headcount_schedule_with_gpt",
+    contract_name="payroll_headcount_schedule",
+    context_contract_name="payroll_headcount_schedule",
+    context_include_phase="pre_convergence",
+    required_lookup_tables=[
+      _MAPPING_TABLE_NAME,
+      _GPT_CONTRACT_TABLE_NAME,
+      _GPT_CONTEXT_TABLE_NAME,
+      "post_intake_headcount_policy_lookup",
+      _PROCESS_SEQUENCE_TABLE_NAME,
+    ],
+    horizon_rule="q1_to_q20_at_least_once",
+    timeout_seconds=180,
+    max_attempts=2,
+    fail_fast_code="post_intake_sequence_headcount_contract_missing",
+    python_role="contract_request_and_schedule_builder",
+    python_timing="after_stage_ramp_before_quarter_grid_and_convergence",
+    python_action=(
+      "Call GPT for the independent payroll_headcount_schedule contract, validate it through "
+      "post_intake_headcount_policy_lookup, calculate and persist the Payroll model-input schedule, "
+      "and derive revenue Capacity from payroll-supported FTE before the quarter grid runs."
+    ),
+    input_object_path="business_facts, operating_model_json, people_json, financials_json, model_input_json, finmo_json, stage_ramp_contract",
+    output_object_path="intake_consult_drafts.payroll_headcount; model_input_json.sections.expenses[Payroll]; model_input_json.sections.revenue[Capacity]",
+    validation_subject_path="payroll_headcount_schedule.payroll_headcount_grid",
+    object_controls=[
+      {
+        "object_name": "payroll_headcount",
+        "owner": "gpt",
+        "allowed_actions": ["build", "rebuild"],
+        "allowed_triggers": ["initial_build", "payroll_revenue_economic_feasibility_failed", "payroll_stage_profitability_feasibility_failed"],
+        "writes": ["intake_consult_drafts.payroll_headcount"],
+      },
+      {
+        "object_name": "model_input.expenses.Payroll",
+        "owner": "python",
+        "allowed_actions": ["derive", "build", "rebuild"],
+        "allowed_triggers": ["initial_build", "payroll_headcount_changed", "payroll_revenue_economic_feasibility_failed"],
+        "writes": ["model_input_json.sections.expenses[Payroll]"],
+      },
+      {
+        "object_name": "model_input.revenue.Capacity",
+        "owner": "python",
+        "allowed_actions": ["derive", "build", "rebuild"],
+        "allowed_triggers": ["initial_build", "payroll_headcount_changed", "payroll_revenue_economic_feasibility_failed"],
+        "writes": ["model_input_json.sections.revenue[Capacity]"],
+        "source_object": "payroll_headcount",
+      },
+      {
+        "object_name": "finmo_json",
+        "owner": "python",
+        "allowed_actions": ["rebuild"],
+        "allowed_triggers": ["model_input_changed"],
+        "writes": ["finmo_json.quarter_rows"],
+      },
+    ],
+    notes="Payroll is not part of stage_ramp_contract. GPT chooses OEWS titles, productivity, and FTE. Python derives payroll-supported Capacity from that FTE before the quarter grid, and revenue is constrained by that capacity.",
+  ),
+  _process_sequence_row(
+    "initial_grid",
+    65,
+    "payroll_feasibility_repair",
+    "retry_payroll_headcount_schedule_from_feasibility_failure",
+    contract_name="payroll_headcount_schedule",
+    context_contract_name="payroll_headcount_schedule",
+    context_include_phase="pre_convergence",
+    required_lookup_tables=[
+      _MAPPING_TABLE_NAME,
+      _GPT_CONTRACT_TABLE_NAME,
+      _GPT_CONTEXT_TABLE_NAME,
+      "post_intake_headcount_policy_lookup",
+      _PROCESS_SEQUENCE_TABLE_NAME,
+    ],
+    horizon_rule="q1_to_q20_at_least_once",
+    timeout_seconds=180,
+    max_attempts=2,
+    fail_fast_code="post_intake_sequence_payroll_feasibility_repair_missing",
+    python_role="table_driven_retry_gateway",
+    python_timing="after_payroll_or_quarter_grid_feasibility_failure_before_retry",
+    python_action=(
+      "Read repair_direction_rules_json from post_intak_mapping_lookup and retry the payroll_headcount_schedule "
+      "contract with the exact SQL-backed lever directions instead of inline causal guesses."
+    ),
+    input_object_path="previous_contract_failure; payroll_feasibility_mapping; model_input_json; finmo_json",
+    output_object_path="intake_consult_drafts.payroll_headcount; model_input_json.sections.expenses[Payroll]; model_input_json.sections.revenue[Capacity]",
+    validation_subject_path="payroll_revenue_feasibility_violations",
+    object_controls=[
+      {
+        "object_name": "payroll_headcount",
+        "owner": "gpt",
+        "allowed_actions": ["rebuild"],
+        "allowed_triggers": ["payroll_revenue_economic_feasibility_failed", "payroll_stage_profitability_feasibility_failed"],
+        "requires_context": ["payroll_feasibility_mapping"],
+      },
+      {
+        "object_name": "model_input.expenses.Payroll",
+        "owner": "python",
+        "allowed_actions": ["derive", "rebuild"],
+        "allowed_triggers": ["payroll_headcount_changed", "payroll_revenue_economic_feasibility_failed"],
+      },
+      {
+        "object_name": "model_input.revenue.Capacity",
+        "owner": "python",
+        "allowed_actions": ["derive", "rebuild"],
+        "allowed_triggers": ["payroll_headcount_changed", "payroll_revenue_economic_feasibility_failed"],
+        "source_object": "payroll_headcount",
+      },
+      {
+        "object_name": "finmo_json",
+        "owner": "python",
+        "allowed_actions": ["rebuild"],
+        "allowed_triggers": ["model_input_changed"],
+      },
+    ],
+    notes="Payroll feasibility repair is sequence-governed. GPT must read mapping-table movement rules for payroll/revenue violations.",
+  ),
+  _process_sequence_row(
+    "initial_grid",
+    70,
     "quarter_grid_generation",
     "generate_live_quarter_grid_plan",
     contract_name="quarter_grid_probe",
@@ -660,35 +782,35 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     ],
     horizon_rule="q1_to_q20_model_input_state",
     fail_fast_code="post_intake_sequence_quarter_grid_contract_missing",
-    notes="Initial 20-quarter model_input grid uses quarter_grid_probe for its GPT response contract and consumes the stage ramp as runtime context.",
-  ),
-  _process_sequence_row(
-    "initial_grid",
-    70,
-    "payroll_headcount_schedule",
-    "estimate_payroll_headcount_schedule_with_gpt",
-    contract_name="payroll_headcount_schedule",
-    context_contract_name="payroll_headcount_schedule",
-    context_include_phase="pre_convergence",
-    required_lookup_tables=[
-      _GPT_CONTRACT_TABLE_NAME,
-      _GPT_CONTEXT_TABLE_NAME,
-      "post_intake_headcount_policy_lookup",
+    object_controls=[
+      {
+        "object_name": "model_input.revenue.Capacity",
+        "owner": "python",
+        "allowed_actions": ["read_only", "preserve"],
+        "allowed_triggers": ["payroll_supported_capacity_applied"],
+        "forbidden_actions": ["gpt_edit", "overwrite"],
+        "reason": "Capacity is payroll-supported before quarter-grid. Quarter-grid may read it but must not own it.",
+      },
+      {
+        "object_name": "model_input.revenue.Unit Price",
+        "owner": "gpt",
+        "allowed_actions": ["build", "rebuild"],
+        "allowed_triggers": ["quarter_grid_generation", "payroll_supported_capacity_applied"],
+      },
+      {
+        "object_name": "model_input.revenue.Utilization",
+        "owner": "gpt",
+        "allowed_actions": ["build", "rebuild"],
+        "allowed_triggers": ["quarter_grid_generation", "payroll_supported_capacity_applied"],
+      },
+      {
+        "object_name": "finmo_json",
+        "owner": "python",
+        "allowed_actions": ["rebuild"],
+        "allowed_triggers": ["model_input_changed"],
+      },
     ],
-    horizon_rule="q1_to_q20_at_least_once",
-    timeout_seconds=180,
-    max_attempts=2,
-    fail_fast_code="post_intake_sequence_headcount_contract_missing",
-    python_role="contract_request_and_schedule_builder",
-    python_timing="after_quarter_grid_before_convergence",
-    python_action=(
-      "Call GPT for the independent payroll_headcount_schedule contract, validate it through "
-      "post_intake_headcount_policy_lookup against the applied quarter grid, then calculate and persist the Payroll model-input schedule."
-    ),
-    input_object_path="business_facts, operating_model_json, people_json, financials_json, applied_model_input_json, applied_finmo_json, stage_ramp_contract",
-    output_object_path="intake_consult_drafts.payroll_headcount; model_input_json.sections.expenses[Payroll]",
-    validation_subject_path="payroll_headcount_schedule.payroll_headcount_grid",
-    notes="Payroll is not part of stage_ramp_contract and must run after the quarter grid so the headcount schedule supports the actual applied structural capacity/utilization state. Payroll is capacity-primary; revenue is sanity context only.",
+    notes="Initial 20-quarter model_input grid uses quarter_grid_probe after payroll-supported Capacity is applied; quarter-grid may not own payroll-supported Capacity rows.",
   ),
   _process_sequence_row(
     "convergence",
@@ -714,7 +836,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _GPT_CONTEXT_TABLE_NAME,
     ],
     horizon_rule="q1_to_q20_model_input_repair_cells",
-    timeout_seconds=180,
+    timeout_seconds=240,
     max_attempts=10,
     fail_fast_code="post_intake_sequence_unified_convergence_contract_missing",
     notes="Convergence GPT sees table-approved planner context and fills only the full-horizon model-input repair contract.",
@@ -880,9 +1002,9 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
 _PAYROLL_HEADCOUNT_GRID_FIELDS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].q", "q", "integer", is_array_item=True, parent_field_path="payroll_headcount_grid", horizon_rule="q1_to_q20_exactly_once", validation_kind="quarter_index_1_to_20", allowed_aliases=["quarter_index"]),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].oews_occ_title", "oews_occ_title", "string", is_array_item=True, parent_field_path="payroll_headcount_grid", validation_kind="payroll_oews_catalog_member", lookup_source="oews_title_catalog", prompt_label="OEWS occupation title", prompt_required_instruction="Must be one exact occ_title from the full NAICS oews_title_catalog.title_candidates. GPT chooses the OEWS titles it wants to hire and FTE by quarter; Python uses the exact selected OEWS row for wage lookup and payroll math. Do not invent staffing families, staffing categories, aliases, or non-OEWS staffing buckets."),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE", prompt_required_instruction="Used with ending_fte to calculate average_fte=(starting_fte+ending_fte)/2. If average FTE is below the guardrail, increase starting_fte/hires/ending_fte; ending_fte alone is not enough."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].starting_fte", "starting_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Starting FTE", prompt_required_instruction="Used with ending_fte to calculate average_fte=(starting_fte+ending_fte)/2. GPT owns the FTE ramp; Python derives supported Capacity from the resulting average FTE."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].hires", "hires", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="FTE hires/additions", prompt_required_instruction="Mechanical FTE addition in the quarter. If ending_fte is greater than starting_fte, hires should equal ending_fte - starting_fte. Python may normalize this arithmetic field from the selected FTE levels; GPT owns the starting/ending FTE decision."),
-  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE", prompt_required_instruction="Must satisfy payroll_capacity_guardrails by quarter using average_fte=(starting_fte+ending_fte)/2, not ending_fte alone. Keep OEWS title continuity after hiring starts."),
+  _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].ending_fte", "ending_fte", "number", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0, max_value=100000, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Ending FTE", prompt_required_instruction="Ending FTE is GPT's staffing decision for the exact OEWS title and quarter. Keep OEWS title continuity after hiring starts; Python uses starting/ending average FTE to derive supported Capacity."),
   _gpt_contract_row("payroll_headcount_schedule", "payroll_headcount_grid", "payroll_headcount_grid[].payroll_tax_benefits_pct", "payroll_tax_benefits_pct", "ratio_2dp", is_array_item=True, parent_field_path="payroll_headcount_grid", min_value=0.12, max_value=0.35, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_label="Payroll taxes and benefits percent", prompt_required_instruction="Must stay inside post_intake_headcount_policy_lookup min/max benefits burden. Do not use 0.00 for employees."),
 ]
 
@@ -941,14 +1063,14 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
     horizon_rule="q1_to_q20_at_least_once",
     validation_kind="payroll_headcount_schedule",
     lookup_source="post_intake_headcount_policy_lookup",
-    prompt_required_instruction="Provide active supporting-staff OEWS-title/FTE rows for every forecast quarter Q1 through Q20. GPT picks exact oews_occ_title rows from the full NAICS oews_title_catalog.title_candidates and states starting_fte, hires, ending_fte, and benefits percent for that title. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through the selected OEWS row, applies wage positioning and inflation from post_intake_headcount_policy_lookup, calculates payroll dollars, and stores intake_consult_drafts.payroll_headcount. If an OEWS title has no FTE in all 20 quarters, omit it. Once an OEWS title starts, keep it active through Q20. Every quarter must satisfy payroll_capacity_guardrails using average_fte=(starting_fte+ending_fte)/2; matching only ending_fte is invalid. Staffing families and categories are deleted from the active payroll contract.",
+    prompt_required_instruction="Provide active supporting-staff OEWS-title/FTE rows for every forecast quarter Q1 through Q20. GPT picks exact oews_occ_title rows from the full NAICS oews_title_catalog.title_candidates and states starting_fte, hires, ending_fte, and benefits percent for that title. Do not provide wages and do not include key people; Python injects key people from intake, resolves wages through the selected OEWS row, applies wage positioning and inflation from post_intake_headcount_policy_lookup, calculates payroll dollars, derives payroll-supported Capacity from average FTE, and stores intake_consult_drafts.payroll_headcount. If an OEWS title has no FTE in all 20 quarters, omit it. Once an OEWS title starts, keep it active through Q20. Staffing families and categories are deleted from the active payroll contract.",
   ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_labor_model", "capacity_labor_model", "enum", validation_kind="enum", enum_values=["labor_driven", "hybrid", "system_driven", "expert_driven"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one capacity labor model from post_intake_headcount_policy_lookup.capacity_labor_model_values. This is business judgment; Python validates it."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "labor_intensity_class", "labor_intensity_class", "enum", validation_kind="enum", enum_values=["low", "medium", "high", "expert"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one labor intensity class from post_intake_headcount_policy_lookup.labor_intensity_class_values."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_tier", "wage_positioning_tier", "enum", validation_kind="enum", enum_values=["floor", "market", "premium", "specialized"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one wage positioning tier from post_intake_headcount_policy_lookup. OEWS is the wage floor; GPT must also provide the exact wage_positioning_multiplier inside this tier's table-backed bounds."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_multiplier", "wage_positioning_multiplier", "number", min_value=1.0, max_value=3.0, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment wage multiplier applied to OEWS wages. Must be inside post_intake_headcount_policy_lookup.wage_positioning_multiplier bounds for the selected wage_positioning_tier. Python applies this exact multiplier; Python does not choose a default."),
-  _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_units_per_supporting_fte", "capacity_units_per_supporting_fte", "number", min_value=0.0001, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-specific productivity judgment: how many structural capacity units one supporting FTE can support per quarter. This is GPT's positive assumption used for capacity-driven FTE coverage; Python does not reject it using fake universal capacity-per-FTE reasonableness bounds. Do not use revenue-per-employee."),
-  _gpt_contract_row("payroll_headcount_schedule", "root", "target_payroll_percent_of_revenue", "target_payroll_percent_of_revenue", "ratio_2dp", min_value=0.01, max_value=0.90, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. This does not drive payroll math; Python compares final FINMO/model payroll percent of revenue to this target and the selected labor_intensity_class sanity bounds."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_units_per_supporting_fte", "capacity_units_per_supporting_fte", "number", min_value=0.0001, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-specific productivity judgment: how many structural capacity units one supporting FTE can support per quarter. Python multiplies this by payroll FTE to derive supported Capacity. Python does not reject it using fake universal capacity-per-FTE reasonableness bounds. Do not use revenue-per-employee."),
+  _gpt_contract_row("payroll_headcount_schedule", "root", "target_payroll_percent_of_revenue", "target_payroll_percent_of_revenue", "ratio_2dp", min_value=0.01, max_value=0.90, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. This does not drive payroll math or force FTE. Python uses it as reasonableness context for GPT's own contract assumptions."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
   _gpt_contract_row("r_and_d_applicability", "root", "r_and_d_enabled", "r_and_d_enabled", "boolean", validation_kind="boolean"),
@@ -1129,6 +1251,7 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
     "business_world_contract",
     context_group="business_world",
     include_phase="planner",
+    transform_kind="compact_business_world_contract",
     notes="Compact stage, planning-mode, ramp, and derived-driver policy context used by convergence. This is table-approved context, not a freeform legacy packet.",
   ),
   _gpt_context_row("unified_convergence_decision", "selected_cash_strategy", context_group="business_world", include_phase="planner"),
@@ -1203,7 +1326,7 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
     include_phase="planner_retry",
     required=True,
     include_in_prompt=False,
-    max_chars=120000,
+    max_chars=170000,
     failure_code="unified_convergence_retry_gpt_context_payload_budget_exceeded",
     notes="Retry must be compact enough to correct malformed contracts inside the 180-second cycle. The full initial planner prompt is intentionally not reused for retry.",
   ),
@@ -1312,9 +1435,10 @@ _DEFAULT_GPT_CONTEXT_ROWS: List[Dict[str, Any]] = [
   _gpt_context_row("payroll_headcount_schedule", "financial_context", context_group="financials", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "stage_ramp_contract", context_group="policy", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "payroll_decision_options", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.capacity_labor_model_values + labor_intensity_class_values + wage_positioning_multiplier + payroll_revenue_sanity_bounds", include_phase="pre_convergence", notes="Compact table-rendered option rows GPT must choose from. GPT owns the payroll business judgment and positive capacity productivity assumption; Python validates exact choices and does not substitute defaults."),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_feasibility_mapping", context_group="mapping", source_kind="sql_lookup", source_path="post_intak_mapping_lookup.repair_direction_rules_json", include_phase="pre_convergence", notes="Table-backed lever direction rules for payroll/revenue feasibility. GPT must use these rows to decide directional movement and must not invent causal direction."),
   _gpt_context_row("payroll_headcount_schedule", "payroll_headcount_policy", context_group="policy", source_kind="sql_lookup", source_path="post_intake_headcount_policy_lookup.default", include_phase="pre_convergence"),
-  _gpt_context_row("payroll_headcount_schedule", "payroll_capacity_guardrails", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json revenue drivers", include_phase="pre_convergence", notes="Python renders capacity/utilization guardrails from structural revenue drivers. GPT chooses capacity productivity; Python validates FTE against these guardrails after response."),
-  _gpt_context_row("payroll_headcount_schedule", "payroll_capacity_grid", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json capacity/utilization", include_phase="pre_convergence", max_items=20, notes="Exact Q1-Q20 capacity/utilization context for the payroll contract. Revenue is sanity context only; payroll FTE is capacity-primary."),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_capacity_guardrails", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json revenue drivers", include_phase="pre_convergence", notes="Legacy context key retained for contract compatibility; content is context only. GPT chooses productivity and FTE. Python derives supported Capacity from payroll FTE and does not validate FTE against a pre-existing capacity demand floor."),
+  _gpt_context_row("payroll_headcount_schedule", "payroll_capacity_grid", context_group="policy", source_kind="python_derived_from_sql_lookup", source_path="post_intake_headcount_policy_lookup.default + model_input_json capacity/utilization", include_phase="pre_convergence", max_items=20, notes="Q1-Q20 capacity/utilization context for payroll business judgment. This is not a staffing floor; payroll FTE is the causal source of supported Capacity."),
   _gpt_context_row("payroll_headcount_schedule", "current_model_snapshot", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "revenue_driver_context", context_group="model_input", include_phase="pre_convergence"),
   _gpt_context_row("payroll_headcount_schedule", "previous_contract_failure", context_group="retry", include_phase="pre_convergence", required=False, notes="Only present on payroll schedule retry. Contains the table-backed validation failure and invalid response excerpt so GPT corrects its staffing schedule without Python mutating it."),
@@ -1607,6 +1731,91 @@ def _normalized_lookup_key(lever_id: Any) -> str:
   return raw
 
 
+def _payroll_feasibility_repair_direction_rules(lever_id: Any) -> Dict[str, Any]:
+  normalized = _normalized_lookup_key(lever_id)
+  source = f"sql.{_MAPPING_TABLE_NAME}.repair_direction_rules_json"
+  if normalized in {
+    f"{_REVENUE_PATTERN_PREFIX}Capacity",
+    f"{_REVENUE_PATTERN_PREFIX}Unit Price",
+    f"{_REVENUE_PATTERN_PREFIX}Utilization",
+  }:
+    driver = normalized.rsplit("::", 1)[-1].lower().replace(" ", "_")
+    return {
+      "source_of_truth": source,
+      "payroll_revenue_ratio_high": {
+        "direction": "increase",
+        "reason": "Increasing this revenue driver increases supported revenue and lowers payroll percent of revenue.",
+        "driver_field": driver,
+        "allowed_when": "driver is editable or derived from payroll-supported capacity",
+      },
+      "payroll_revenue_ratio_low": {
+        "direction": "decrease",
+        "reason": "Decreasing this revenue driver lowers supported revenue and raises payroll percent of revenue.",
+        "driver_field": driver,
+        "allowed_when": "driver is editable or derived from payroll-supported capacity",
+      },
+      "forbidden_moves": [
+        {
+          "issue": "payroll_revenue_ratio_high",
+          "direction": "decrease",
+          "reason": "Decreasing this driver makes payroll percent of revenue worse.",
+        },
+      ],
+    }
+  if normalized == "expenses::Payroll":
+    return {
+      "source_of_truth": source,
+      "payroll_revenue_ratio_high": {
+        "direction": "decrease_or_increase_supported_revenue",
+        "method": "recompute payroll_headcount_schedule through OEWS title mix, FTE ramp, wage positioning, or capacity productivity; do not edit the Payroll row directly.",
+        "contract_fields": {
+          "capacity_units_per_supporting_fte": {
+            "preferred_direction_when_price_and_utilization_unchanged": "increase",
+            "forbidden_direction": "decrease",
+            "reason": "Higher productivity increases payroll-supported capacity and revenue; lowering productivity makes a high payroll/revenue ratio worse.",
+          },
+          "supporting_staff_fte": {
+            "direction": "decrease_only_if_operationally_plausible",
+            "reason": "FTE may fall only when role mix and supported capacity remain coherent.",
+          },
+          "wage_positioning_multiplier": {
+            "direction": "decrease_only_within_selected_table_tier_or_select_lower_valid_tier",
+            "reason": "Wage positioning affects payroll dollars but must remain inside headcount policy options.",
+          },
+        },
+      },
+      "payroll_revenue_ratio_low": {
+        "direction": "increase_payroll_or_decrease_supported_revenue",
+        "method": "recompute payroll_headcount_schedule through OEWS title mix, FTE ramp, wage positioning, or capacity productivity; do not edit the Payroll row directly.",
+        "contract_fields": {
+          "capacity_units_per_supporting_fte": {
+            "preferred_direction_when_price_and_utilization_unchanged": "decrease",
+            "reason": "Lower productivity reduces supported capacity and revenue, raising payroll percent of revenue.",
+          },
+          "supporting_staff_fte": {
+            "direction": "increase",
+            "reason": "Additional staffing raises payroll and supported capacity when the business requires more labor.",
+          },
+        },
+      },
+      "forbidden_moves": [
+        {
+          "issue": "payroll_revenue_ratio_high",
+          "field": "capacity_units_per_supporting_fte",
+          "direction": "decrease",
+          "reason": "This reduces supported capacity and supported revenue, making payroll/revenue economics worse.",
+        },
+        {
+          "issue": "any",
+          "field": "model_input_json.sections.expenses[Payroll]",
+          "direction": "direct_edit",
+          "reason": "Payroll is python_derived from the payroll_headcount schedule and must not be patched directly.",
+        },
+      ],
+    }
+  return {}
+
+
 def _ensure_env_loaded() -> None:
   if os.getenv("MYSQL_HOST") and os.getenv("MYSQL_USER") and (os.getenv("MYSQL_DB") or os.getenv("MYSQL_DATABASE")):
     return
@@ -1660,6 +1869,7 @@ def _ensure_mapping_lookup_table(conn) -> None:
           diagnostic_only TINYINT(1) NOT NULL DEFAULT 0,
           tolerance_allowed TINYINT(1) NOT NULL DEFAULT 1,
           non_tolerable_issue_codes LONGTEXT NULL,
+          repair_direction_rules_json LONGTEXT NULL,
           seed_source_paths_json LONGTEXT NULL,
           seed_formula_key VARCHAR(128) NOT NULL DEFAULT 'none',
           finmo_formula_key VARCHAR(128) NOT NULL DEFAULT 'none',
@@ -1704,7 +1914,8 @@ def _ensure_mapping_lookup_table(conn) -> None:
         "ADD COLUMN target_decimal_places INT NULL AFTER target_rounding_kind",
         "ADD COLUMN tolerance_allowed TINYINT(1) NOT NULL DEFAULT 1 AFTER diagnostic_only",
         "ADD COLUMN non_tolerable_issue_codes LONGTEXT NULL AFTER tolerance_allowed",
-        "ADD COLUMN seed_source_paths_json LONGTEXT NULL AFTER non_tolerable_issue_codes",
+        "ADD COLUMN repair_direction_rules_json LONGTEXT NULL AFTER non_tolerable_issue_codes",
+        "ADD COLUMN seed_source_paths_json LONGTEXT NULL AFTER repair_direction_rules_json",
         "ADD COLUMN seed_formula_key VARCHAR(128) NOT NULL DEFAULT 'none' AFTER seed_source_paths_json",
         "ADD COLUMN finmo_formula_key VARCHAR(128) NOT NULL DEFAULT 'none' AFTER seed_formula_key",
         "ADD COLUMN validation_formula_key VARCHAR(128) NOT NULL DEFAULT 'semantic_presence_only' AFTER finmo_formula_key",
@@ -1887,6 +2098,151 @@ def _ensure_mapping_lookup_table(conn) -> None:
           END,
           formula_status = 'active'
         WHERE mapping_status = 'active'
+        """
+      )
+      cur.execute(
+        f"""
+        INSERT INTO {_MAPPING_TABLE_NAME} (
+          lever_id,
+          driver_category,
+          target_driver,
+          model_input_field,
+          financial_model_field,
+          impact_type,
+          post_intake_issue_codes,
+          post_intake_phase,
+          control_owner,
+          value_kind,
+          target_value_kind,
+          value_rounding_kind,
+          value_decimal_places,
+          target_rounding_kind,
+          target_decimal_places,
+          input_semantics,
+          driver_bundle,
+          targeting_allowed,
+          diagnostic_only,
+          tolerance_allowed,
+          non_tolerable_issue_codes,
+          repair_direction_rules_json,
+          seed_formula_key,
+          finmo_formula_key,
+          validation_formula_key,
+          required_when_key,
+          business_applicability_key,
+          forecast_presence_rule_key,
+          zero_allowed_reason_key,
+          allow_zero,
+          formula_status,
+          mapping_status,
+          notes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', 'active', %s)
+        ON DUPLICATE KEY UPDATE
+          driver_category = VALUES(driver_category),
+          target_driver = VALUES(target_driver),
+          model_input_field = VALUES(model_input_field),
+          financial_model_field = VALUES(financial_model_field),
+          impact_type = VALUES(impact_type),
+          post_intake_issue_codes = VALUES(post_intake_issue_codes),
+          post_intake_phase = VALUES(post_intake_phase),
+          control_owner = VALUES(control_owner),
+          value_kind = VALUES(value_kind),
+          target_value_kind = VALUES(target_value_kind),
+          input_semantics = VALUES(input_semantics),
+          driver_bundle = VALUES(driver_bundle),
+          targeting_allowed = VALUES(targeting_allowed),
+          diagnostic_only = VALUES(diagnostic_only),
+          tolerance_allowed = VALUES(tolerance_allowed),
+          non_tolerable_issue_codes = VALUES(non_tolerable_issue_codes),
+          repair_direction_rules_json = VALUES(repair_direction_rules_json),
+          seed_formula_key = VALUES(seed_formula_key),
+          finmo_formula_key = VALUES(finmo_formula_key),
+          validation_formula_key = VALUES(validation_formula_key),
+          required_when_key = VALUES(required_when_key),
+          business_applicability_key = VALUES(business_applicability_key),
+          forecast_presence_rule_key = VALUES(forecast_presence_rule_key),
+          zero_allowed_reason_key = VALUES(zero_allowed_reason_key),
+          allow_zero = VALUES(allow_zero),
+          formula_status = VALUES(formula_status),
+          mapping_status = VALUES(mapping_status),
+          notes = VALUES(notes)
+        """,
+        (
+          "expenses::Payroll",
+          "payroll_schedule",
+          "payroll",
+          "model_input_json.sections.expenses[Payroll]",
+          "finmo_json.quarter_rows[*].payroll",
+          "derived",
+          "cost_structure_mismatch|p_and_l_flatline",
+          "convergence",
+          "python_derived",
+          "quarter_currency",
+          "currency",
+          "nearest_integer",
+          0,
+          "nearest_integer",
+          0,
+          "quarter_currency",
+          "payroll_headcount_schedule",
+          0,
+          1,
+          0,
+          "cost_structure_mismatch",
+          _json_dumps_value(_payroll_feasibility_repair_direction_rules("expenses::Payroll")),
+          "python_derived_schedule",
+          "finmo_python_derived_schedule",
+          "schedule_marker_validation",
+          "business_applicable",
+          "revenue_positive",
+          "schedule_reconciles_when_applicable",
+          "payroll_not_applicable",
+          0,
+          "Payroll is derived from payroll_headcount_schedule. Directional repair rules live here so GPT sees the causal movement contract through SQL mapping.",
+        ),
+      )
+      for lever_id in [
+        f"{_REVENUE_PATTERN_PREFIX}Capacity",
+        f"{_REVENUE_PATTERN_PREFIX}Unit Price",
+        f"{_REVENUE_PATTERN_PREFIX}Utilization",
+      ]:
+        cur.execute(
+          f"""
+          UPDATE {_MAPPING_TABLE_NAME}
+          SET
+            post_intake_issue_codes = CASE
+              WHEN post_intake_issue_codes IS NULL OR TRIM(post_intake_issue_codes) = ''
+                THEN 'capacity_support_mismatch|p_and_l_flatline|cost_structure_mismatch'
+              WHEN CONCAT('|', post_intake_issue_codes, '|') NOT LIKE '%|cost_structure_mismatch|%'
+                THEN CONCAT(post_intake_issue_codes, '|cost_structure_mismatch')
+              ELSE post_intake_issue_codes
+            END,
+            non_tolerable_issue_codes = CASE
+              WHEN non_tolerable_issue_codes IS NULL OR TRIM(non_tolerable_issue_codes) = ''
+                THEN 'cost_structure_mismatch'
+              WHEN CONCAT('|', non_tolerable_issue_codes, '|') NOT LIKE '%|cost_structure_mismatch|%'
+                THEN CONCAT(non_tolerable_issue_codes, '|cost_structure_mismatch')
+              ELSE non_tolerable_issue_codes
+            END,
+            repair_direction_rules_json = %s
+          WHERE lever_id = %s
+          """,
+          (
+            _json_dumps_value(_payroll_feasibility_repair_direction_rules(lever_id)),
+            lever_id,
+          ),
+        )
+      cur.execute(
+        f"""
+        UPDATE {_MAPPING_TABLE_NAME}
+        SET non_tolerable_issue_codes = CASE
+          WHEN non_tolerable_issue_codes IS NULL OR TRIM(non_tolerable_issue_codes) = ''
+            THEN 'cost_structure_mismatch'
+          WHEN CONCAT('|', non_tolerable_issue_codes, '|') NOT LIKE '%|cost_structure_mismatch|%'
+            THEN CONCAT(non_tolerable_issue_codes, '|cost_structure_mismatch')
+          ELSE non_tolerable_issue_codes
+        END
+        WHERE CONCAT('|', COALESCE(post_intake_issue_codes, ''), '|') LIKE '%|cost_structure_mismatch|%'
         """
       )
       for lever_id, positive_tokens, negative_tokens in [
@@ -2714,6 +3070,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
           input_object_path LONGTEXT NULL,
           output_object_path LONGTEXT NULL,
           validation_subject_path LONGTEXT NULL,
+          object_controls_json LONGTEXT NULL,
           sequence_status VARCHAR(32) NOT NULL DEFAULT 'active',
           notes LONGTEXT NULL,
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -2732,6 +3089,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN input_object_path LONGTEXT NULL AFTER python_action",
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_object_path LONGTEXT NULL AFTER input_object_path",
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN validation_subject_path LONGTEXT NULL AFTER output_object_path",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN object_controls_json LONGTEXT NULL AFTER validation_subject_path",
       ]:
         try:
           cur.execute(ddl)
@@ -2762,9 +3120,10 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             input_object_path,
             output_object_path,
             validation_subject_path,
+            object_controls_json,
             sequence_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             phase = VALUES(phase),
             step_order = VALUES(step_order),
@@ -2785,6 +3144,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             input_object_path = VALUES(input_object_path),
             output_object_path = VALUES(output_object_path),
             validation_subject_path = VALUES(validation_subject_path),
+            object_controls_json = VALUES(object_controls_json),
             sequence_status = VALUES(sequence_status),
             notes = VALUES(notes)
           """,
@@ -2809,6 +3169,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             _clean_text(row.get("input_object_path")),
             _clean_text(row.get("output_object_path")),
             _clean_text(row.get("validation_subject_path")),
+            _json_dumps_value(row.get("object_controls") or []),
             _clean_text(row.get("notes")),
           ),
         )
@@ -3151,6 +3512,7 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
           diagnostic_only,
           tolerance_allowed,
           non_tolerable_issue_codes,
+          repair_direction_rules_json,
           seed_source_paths_json,
           seed_formula_key,
           finmo_formula_key,
@@ -3224,6 +3586,7 @@ def load_post_intake_driver_target_mapping_rows() -> List[Dict[str, Any]]:
       "diagnostic_only": _clean_bool(raw_row.get("diagnostic_only")),
       "tolerance_allowed": _clean_bool(raw_row.get("tolerance_allowed"), default=True),
       "non_tolerable_issue_codes": _split_tokens(raw_row.get("non_tolerable_issue_codes")),
+      "repair_direction_rules": _json_value(raw_row.get("repair_direction_rules_json"), {}),
       "seed_source_paths_json": _json_value(raw_row.get("seed_source_paths_json"), []),
       "seed_formula_key": _clean_text(raw_row.get("seed_formula_key")).lower(),
       "finmo_formula_key": _clean_text(raw_row.get("finmo_formula_key")).lower(),
@@ -3601,6 +3964,7 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
           input_object_path,
           output_object_path,
           validation_subject_path,
+          object_controls_json,
           sequence_status,
           notes
         FROM {_PROCESS_SEQUENCE_TABLE_NAME}
@@ -3651,6 +4015,7 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
         "input_object_path": _clean_text(raw_row.get("input_object_path")),
         "output_object_path": _clean_text(raw_row.get("output_object_path")),
         "validation_subject_path": _clean_text(raw_row.get("validation_subject_path")),
+        "object_controls": _json_value(raw_row.get("object_controls_json"), []),
         "sequence_status": _clean_text(raw_row.get("sequence_status")).lower() or "active",
         "notes": _clean_text(raw_row.get("notes")),
         "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
@@ -4110,6 +4475,7 @@ class PostIntakeMappingLookup:
           "cash_strategy_role": _clean_text(row.get("cash_strategy_role")).lower(),
           "targeting_allowed": bool(row.get("targeting_allowed")),
           "diagnostic_only": bool(row.get("diagnostic_only")),
+          "repair_direction_rules": copy.deepcopy(row.get("repair_direction_rules") or {}),
           "seed_source_paths": copy.deepcopy(row.get("seed_source_paths_json") or []),
           "seed_formula_key": _clean_text(row.get("seed_formula_key")).lower(),
           "finmo_formula_key": _clean_text(row.get("finmo_formula_key")).lower(),
@@ -5577,6 +5943,7 @@ class PostIntakeProcessSequenceLookup:
     return {
       **copy.deepcopy(row),
       "required_lookup_context": self._required_lookup_context(row),
+      "object_controls": copy.deepcopy(row.get("object_controls") or []),
       "sequence_enforced": True,
       "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
       "lookup_function": "post_intake_assert_process_sequence_step",
@@ -5589,6 +5956,7 @@ class PostIntakeProcessSequenceLookup:
       "post_intake_initialize_validation",
       "stage_ramp_contract",
       "payroll_headcount_schedule",
+      "payroll_feasibility_repair",
       "quarter_grid_generation",
       "issue_detection",
       "unified_convergence_decision",
@@ -5629,6 +5997,19 @@ class PostIntakeProcessSequenceLookup:
         errors.append(f"{step_key} missing validation_subject_path")
       if ";" in _clean_text(row.get("validation_subject_path")):
         errors.append(f"{step_key} validation_subject_path must be a machine-readable object path, not prose")
+      if step_key in {"payroll_headcount_schedule", "payroll_feasibility_repair", "quarter_grid_generation"} and not row.get("object_controls"):
+        errors.append(f"{step_key} missing object_controls_json for table-driven execution enforcement")
+      for control in row.get("object_controls") or []:
+        if not isinstance(control, dict):
+          errors.append(f"{step_key} has non-object object_controls_json entry")
+          continue
+        if not _clean_text(control.get("object_name")):
+          errors.append(f"{step_key} object control missing object_name")
+        if _clean_text(control.get("owner")).lower() not in {"gpt", "python", "locked"}:
+          errors.append(f"{step_key} object control {_clean_text(control.get('object_name'))} has unsupported owner {control.get('owner')}")
+        actions = control.get("allowed_actions") if isinstance(control.get("allowed_actions"), list) else []
+        if not actions:
+          errors.append(f"{step_key} object control {_clean_text(control.get('object_name'))} missing allowed_actions")
       if _clean_text(row.get("context_contract_name")) and not _clean_text(row.get("context_include_phase")):
         errors.append(f"{step_key} has context_contract_name but missing context_include_phase")
       errors.extend(self._lookup_table_errors(row))
@@ -5657,6 +6038,67 @@ class PostIntakeProcessSequenceLookup:
         )
       )
     return contexts
+
+  def assert_object_control(
+    self,
+    *,
+    step_key: Any,
+    object_name: Any,
+    action: Any,
+    owner: Any,
+    trigger: Any = "",
+  ) -> Dict[str, Any]:
+    row = self.step(step_key, required=True) or {}
+    requested_object = _clean_text(object_name)
+    requested_action = _clean_text(action).lower()
+    requested_owner = _clean_text(owner).lower()
+    requested_trigger = _clean_text(trigger).lower()
+    controls = [item for item in (row.get("object_controls") or []) if isinstance(item, dict)]
+    matched = None
+    for control in controls:
+      if _clean_text(control.get("object_name")).lower() == requested_object.lower():
+        matched = control
+        break
+    fail_code = _clean_text(row.get("fail_fast_code")) or "post_intake_process_sequence_object_control_violation"
+    if not isinstance(matched, dict):
+      raise RuntimeError(
+        f"{fail_code}: object control missing for step_key={row.get('step_key')} "
+        f"object_name={requested_object}; source=sql.{_PROCESS_SEQUENCE_TABLE_NAME}.object_controls_json"
+      )
+    allowed_actions = {
+      _clean_text(item).lower()
+      for item in (matched.get("allowed_actions") if isinstance(matched.get("allowed_actions"), list) else [])
+      if _clean_text(item)
+    }
+    allowed_triggers = {
+      _clean_text(item).lower()
+      for item in (matched.get("allowed_triggers") if isinstance(matched.get("allowed_triggers"), list) else [])
+      if _clean_text(item)
+    }
+    expected_owner = _clean_text(matched.get("owner")).lower()
+    errors: List[str] = []
+    if expected_owner and requested_owner != expected_owner:
+      errors.append(f"owner expected={expected_owner} actual={requested_owner}")
+    if requested_action not in allowed_actions:
+      errors.append(f"action {requested_action} not in allowed_actions={sorted(allowed_actions)}")
+    if requested_trigger and allowed_triggers and requested_trigger not in allowed_triggers:
+      errors.append(f"trigger {requested_trigger} not in allowed_triggers={sorted(allowed_triggers)}")
+    if errors:
+      raise RuntimeError(
+        f"{fail_code}: object control violation for step_key={row.get('step_key')} "
+        f"object_name={requested_object}: " + "; ".join(errors)
+      )
+    return {
+      "sequence_enforced": True,
+      "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}.object_controls_json",
+      "lookup_function": "post_intake_assert_process_object_control",
+      "step_key": _clean_text(row.get("step_key")).lower(),
+      "object_name": requested_object,
+      "action": requested_action,
+      "owner": requested_owner,
+      "trigger": requested_trigger,
+      "control": copy.deepcopy(matched),
+    }
 
 
 @lru_cache(maxsize=1)
@@ -5740,6 +6182,33 @@ def post_intake_driver_target_mapping_rows_for_issue(
   phase: Any = None,
 ) -> List[Dict[str, Any]]:
   return post_intake_mapping_lookup().rows_for_issue(issue_code, phase=phase)
+
+
+def post_intake_payroll_feasibility_mapping() -> Dict[str, Any]:
+  lever_ids = [
+    f"{_REVENUE_PATTERN_PREFIX}Capacity",
+    f"{_REVENUE_PATTERN_PREFIX}Unit Price",
+    f"{_REVENUE_PATTERN_PREFIX}Utilization",
+    "expenses::Payroll",
+  ]
+  rows = post_intake_mapping_lookup().compact_lookup_for_levers(lever_ids)
+  missing_rules = [
+    _clean_text(row.get("lever_id"))
+    for row in rows
+    if not isinstance(row.get("repair_direction_rules"), dict) or not row.get("repair_direction_rules")
+  ]
+  if missing_rules or len(rows) < len(lever_ids):
+    raise RuntimeError(
+      "post_intake_payroll_feasibility_mapping_missing_direction_rules: "
+      f"missing_or_empty={missing_rules} row_count={len(rows)} expected={len(lever_ids)} "
+      f"source=sql.{_MAPPING_TABLE_NAME}.repair_direction_rules_json"
+    )
+  return {
+    "source_of_truth": f"sql.{_MAPPING_TABLE_NAME}.repair_direction_rules_json",
+    "lookup_function": "post_intake_payroll_feasibility_mapping",
+    "rule_keys": ["payroll_revenue_ratio_high", "payroll_revenue_ratio_low"],
+    "rows": rows,
+  }
 
 
 def post_intake_driver_target_lever_ids_for_issue(
@@ -6383,6 +6852,23 @@ def post_intake_assert_process_sequence_step(
   )
 
 
+def post_intake_assert_process_object_control(
+  *,
+  step_key: Any,
+  object_name: Any,
+  action: Any,
+  owner: Any,
+  trigger: Any = "",
+) -> Dict[str, Any]:
+  return post_intake_process_sequence_lookup().assert_object_control(
+    step_key=step_key,
+    object_name=object_name,
+    action=action,
+    owner=owner,
+    trigger=trigger,
+  )
+
+
 def post_intake_process_step_context(
   *,
   step_key: Any,
@@ -6444,6 +6930,7 @@ def post_intake_assert_required_process_sequence() -> Dict[str, Any]:
         "input_object_path": _clean_text(context.get("input_object_path")),
         "output_object_path": _clean_text(context.get("output_object_path")),
         "validation_subject_path": _clean_text(context.get("validation_subject_path")),
+        "object_controls": copy.deepcopy(context.get("object_controls") or []),
       }
       for context in gateway_contexts
     ],

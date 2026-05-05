@@ -142,6 +142,23 @@ class DraftWorkbookData:
     rows = self.schedules.get("rows")
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
+  @property
+  def stage_ramp_contract(self) -> Dict[str, Any]:
+    payload = self.planning_run_json if isinstance(self.planning_run_json, dict) else {}
+    candidates = [
+      payload.get("stage_ramp_contract"),
+      ((payload.get("unified_convergence_context") or {}).get("business_world_contract") or {}).get("stage_ramp_contract"),
+      ((payload.get("unified_convergence_context") or {}).get("planning_context_summary") or {}).get("stage_ramp_contract"),
+      ((payload.get("first_pass_handoff") or {}).get("business_world_contract") or {}).get("stage_ramp_contract"),
+    ]
+    for candidate in candidates:
+      if not isinstance(candidate, dict):
+        continue
+      ramp_rows = candidate.get("quarter_ramp_grid")
+      if isinstance(ramp_rows, list) and ramp_rows:
+        return candidate
+    return {}
+
 
 def draft_data_from_row(row: Dict[str, Any]) -> DraftWorkbookData:
   return DraftWorkbookData(

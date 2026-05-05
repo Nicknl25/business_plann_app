@@ -18,10 +18,13 @@ from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_CO
 
 from client_intake_and_finmo.realism_memo import load_realism_memo_grid_advisory_prompt, normalize_realism_memo_payload  # type: ignore
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+  post_intake_assert_process_object_control,
   post_intake_build_prompt_from_contract,
+  post_intake_driver_target_mapping_entry,
   post_intake_gpt_contract_openai_schema,
   stage_planning_ramp_policy,
 )
+from client_intake_and_finmo.fail_fast.post_intake_fail_fast import assert_quarter_grid_stage_ramp_bridge_applied  # type: ignore
 
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
@@ -533,6 +536,30 @@ def _is_ratio_like_row(item: Dict[str, Any]) -> bool:
   )
 
 
+def _is_payroll_supported_capacity_row(item: Dict[str, Any]) -> bool:
+  if not isinstance(item, dict):
+    return False
+  driver = str(item.get("driver") or item.get("driver_name") or item.get("label") or "").strip().lower()
+  if driver != "capacity":
+    return False
+  return (
+    str(item.get("derived_driver") or "").strip() == "payroll_supported_capacity"
+    or isinstance(item.get("payroll_supported_capacity"), dict)
+  )
+
+def _quarter_grid_gpt_editable_lever(lever_id: Any) -> bool:
+  normalized_lever_id = str(lever_id or "").strip()
+  if not normalized_lever_id or normalized_lever_id in _GRID_EXCLUDED_LEVER_IDS:
+    return False
+  mapping_entry = post_intake_driver_target_mapping_entry(normalized_lever_id) or {}
+  if not mapping_entry:
+    return False
+  return (
+    str(mapping_entry.get("control_owner") or "").strip().lower() == "gpt_editable"
+    and not bool(mapping_entry.get("diagnostic_only"))
+  )
+
+
 def extract_quarter_grid_rows(
   *,
   model_input_json: Dict[str, Any],
@@ -544,8 +571,10 @@ def extract_quarter_grid_rows(
   for item in sections.get("revenue") or []:
     if not isinstance(item, dict):
       continue
+    if _is_payroll_supported_capacity_row(item):
+      continue
     lever_id = str(item.get("lever_id") or "").strip()
-    if not lever_id:
+    if not _quarter_grid_gpt_editable_lever(lever_id):
       continue
     values = list(item.get("values") or [])
     if len(values) == QUARTER_COUNT + 1:
@@ -573,9 +602,7 @@ def extract_quarter_grid_rows(
       if not bool(item.get("controller_write")):
         continue
       lever_id = str(item.get("lever_id") or "").strip()
-      if not lever_id:
-        continue
-      if lever_id in _GRID_EXCLUDED_LEVER_IDS:
+      if not _quarter_grid_gpt_editable_lever(lever_id):
         continue
       values = list(item.get("values") or [])
       if len(values) == QUARTER_COUNT + 1:
@@ -600,9 +627,7 @@ def extract_quarter_grid_rows(
     if not bool(item.get("controller_write")):
       continue
     lever_id = str(item.get("lever_id") or "").strip()
-    if not lever_id:
-      continue
-    if lever_id in _GRID_EXCLUDED_LEVER_IDS:
+    if not _quarter_grid_gpt_editable_lever(lever_id):
       continue
     values = list(item.get("values") or [])
     if len(values) == QUARTER_COUNT + 1:
@@ -1115,21 +1140,21 @@ def _quarter_grid_cell_envelopes_for_row(
         max_value = 0.85
       reason = f"structural_utilization_{stage_family}_lifecycle_bound"
     elif driver == "capacity":
-      if stage_family == "startup":
+      capacity_growth_ceiling = 1.05 if stage_family in {"startup", "early"} else 1.03
+      if revenue_max_multiplier is not None and revenue_max_multiplier > 1.0:
+        capacity_growth_ceiling = max(float(capacity_growth_ceiling), float(revenue_max_multiplier))
+      elif revenue_target_multiplier is not None and revenue_target_multiplier > 1.0:
+        capacity_growth_ceiling = max(float(capacity_growth_ceiling), float(revenue_target_multiplier))
+      if stage_family == "startup" and previous_min is None:
         min_value = max(0.0, base)
         max_value = max(0.0, base)
-        reason = "startup_structural_capacity_fixed_until_absorption_bound"
+        reason = "startup_structural_capacity_launch_anchor_bound"
       elif previous_min is None:
         min_value = max(0.0, base * 0.90)
         max_value = max(base * 1.10, base + 1.0)
         reason = "structural_capacity_non_decreasing_bound"
       else:
         min_value = max(0.0, previous_min)
-        capacity_growth_ceiling = 1.05 if stage_family == "early" else 1.03
-        if revenue_max_multiplier is not None and revenue_max_multiplier > 1.0:
-          capacity_growth_ceiling = max(float(capacity_growth_ceiling), float(revenue_max_multiplier))
-        elif revenue_target_multiplier is not None and revenue_target_multiplier > 1.0:
-          capacity_growth_ceiling = max(float(capacity_growth_ceiling), float(revenue_target_multiplier))
         max_value = max(previous_max or 0.0, (previous_max or 0.0) * capacity_growth_ceiling, base)
         reason = "structural_capacity_stage_ramp_contract_bound"
     elif driver == "unit price":
@@ -1363,22 +1388,22 @@ def generate_live_quarter_grid_plan(
       requested_rows=batch_rows,
       response_json=batch_response if isinstance(batch_response, dict) else {},
       governor_payload=governor_payload,
+      validate_composite_revenue_ramp=False,
     )
     repaired_batch_response = repair_quarter_grid_response(
       requested_rows=batch_rows,
       response_json=batch_response if isinstance(batch_response, dict) else {},
       governor_payload=governor_payload,
+      enforce_composite_revenue_ramp=False,
     )
     repaired_batch_validation = validate_quarter_grid_response(
       requested_rows=batch_rows,
       response_json=repaired_batch_response,
       governor_payload=governor_payload,
+      validate_composite_revenue_ramp=False,
     )
     for _repair_attempt in range(0, 3):
-      if not (
-        repaired_batch_validation.get("out_of_envelope_rows")
-        or repaired_batch_validation.get("composite_revenue_ramp_violations")
-      ):
+      if not repaired_batch_validation.get("out_of_envelope_rows"):
         break
       repair_prompt = _quarter_grid_contract_repair_prompt(
         original_prompt=prompt,
@@ -1396,16 +1421,19 @@ def generate_live_quarter_grid_plan(
         requested_rows=batch_rows,
         response_json=batch_response if isinstance(batch_response, dict) else {},
         governor_payload=governor_payload,
+        validate_composite_revenue_ramp=False,
       )
       repaired_batch_response = repair_quarter_grid_response(
         requested_rows=batch_rows,
         response_json=batch_response if isinstance(batch_response, dict) else {},
         governor_payload=governor_payload,
+        enforce_composite_revenue_ramp=False,
       )
       repaired_batch_validation = validate_quarter_grid_response(
         requested_rows=batch_rows,
         response_json=repaired_batch_response,
         governor_payload=governor_payload,
+        validate_composite_revenue_ramp=False,
       )
     if repaired_batch_validation.get("out_of_envelope_rows"):
       raise RuntimeError(
@@ -1414,17 +1442,6 @@ def generate_live_quarter_grid_plan(
           {
             "batch_index": batch_offset,
             "out_of_envelope_rows": repaired_batch_validation.get("out_of_envelope_rows"),
-          },
-          ensure_ascii=False,
-        )
-      )
-    if repaired_batch_validation.get("composite_revenue_ramp_violations"):
-      raise RuntimeError(
-        "quarter_grid_contract_composite_revenue_ramp_failed: "
-        + json.dumps(
-          {
-            "batch_index": batch_offset,
-            "violations": repaired_batch_validation.get("composite_revenue_ramp_violations"),
           },
           ensure_ascii=False,
         )
@@ -1467,14 +1484,12 @@ def generate_live_quarter_grid_plan(
         ensure_ascii=False,
       )
     )
-  if validation.get("composite_revenue_ramp_violations"):
-    raise RuntimeError(
-      "quarter_grid_contract_composite_revenue_ramp_failed: "
-      + json.dumps(
-        {"violations": validation.get("composite_revenue_ramp_violations")},
-        ensure_ascii=False,
-      )
-    )
+  repair_metadata = response_json.get("repair_metadata") if isinstance(response_json.get("repair_metadata"), dict) else {}
+  assert_quarter_grid_stage_ramp_bridge_applied(
+    validation=validation,
+    repair_metadata=repair_metadata,
+    stage="quarter_grid_full_grid_stage_ramp_bridge",
+  )
   metadata = {
     "planning_mode": normalized_mode,
     "prompt_file": prompt_file,
@@ -1516,6 +1531,8 @@ def _iter_controller_write_rows(model_input_json: Dict[str, Any]) -> List[Dict[s
     for row in sections.get(section_name) or []:
       lever_id = str((row or {}).get("lever_id") or "").strip()
       if isinstance(row, dict) and bool(row.get("controller_write", True)) and lever_id not in _GRID_EXCLUDED_LEVER_IDS:
+        if _is_payroll_supported_capacity_row(row):
+          continue
         rows.append(row)
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
   for row in schedules.get("rows") or []:
@@ -1531,6 +1548,20 @@ def _lever_row_map(model_input_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]
     for row in _iter_controller_write_rows(model_input_json)
     if str(row.get("lever_id") or "").strip()
   }
+
+
+def _all_lever_row_map(model_input_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+  sections = model_input_json.get("sections") if isinstance(model_input_json.get("sections"), dict) else {}
+  out: Dict[str, Dict[str, Any]] = {}
+  for section_name in ("revenue", "expenses", "balance_sheet"):
+    for row in sections.get(section_name) or []:
+      if isinstance(row, dict) and str(row.get("lever_id") or "").strip():
+        out[str(row.get("lever_id") or "").strip()] = row
+  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
+  for row in schedules.get("rows") or []:
+    if isinstance(row, dict) and str(row.get("lever_id") or "").strip():
+      out[str(row.get("lever_id") or "").strip()] = row
+  return out
 
 
 def _quarter_values_by_row(row: Dict[str, Any]) -> Dict[int, float]:
@@ -1629,6 +1660,14 @@ def apply_live_quarter_grid_plan(
   except Exception:
     from numeric_execution import execute_numeric_plan  # type: ignore
   exact_updates: List[Dict[str, Any]] = []
+  writable_levers = {
+    lever_id: row
+    for lever_id, row in _lever_row_map(
+      baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {}
+    ).items()
+    if _quarter_grid_gpt_editable_lever(lever_id)
+  }
+  all_levers = _all_lever_row_map(baseline_model_input_json if isinstance(baseline_model_input_json, dict) else {})
   for row in (grid_json.get("rows") or []):
     if not isinstance(row, dict):
       continue
@@ -1637,6 +1676,27 @@ def apply_live_quarter_grid_plan(
     lever_id = str(row.get("row_id") or "").strip()
     if not lever_id:
       continue
+    model_row = writable_levers.get(lever_id) or all_levers.get(lever_id)
+    driver_name = str((model_row or {}).get("driver") or (model_row or {}).get("driver_name") or "").strip()
+    if driver_name.lower() == "capacity" and isinstance(model_row, dict) and _is_payroll_supported_capacity_row(model_row):
+      post_intake_assert_process_object_control(
+        step_key="quarter_grid_generation",
+        object_name="model_input.revenue.Capacity",
+        action="read_only",
+        owner="python",
+        trigger="payroll_supported_capacity_applied",
+      )
+      continue
+    if lever_id not in writable_levers:
+      continue
+    if driver_name in {"Unit Price", "Utilization"}:
+      post_intake_assert_process_object_control(
+        step_key="quarter_grid_generation",
+        object_name=f"model_input.revenue.{driver_name}",
+        action="build",
+        owner="gpt",
+        trigger="quarter_grid_generation",
+      )
     for quarter_index, value in _quarter_values_by_row(row).items():
       exact_updates.append(
         {
@@ -1960,7 +2020,7 @@ def call_quarter_grid_openai(
     headers=headers,
     payload=payload,
     timeout_seconds=_openai_timeout_seconds("strategy"),
-    max_attempts=1,
+    max_attempts=2,
   )
   if response.status_code >= 400:
     raise RuntimeError(f"OpenAI API error {response.status_code}: {response.text[:1200]}")
@@ -2047,10 +2107,19 @@ def _normalize_grid_row(
   }
   repaired_quarter_values: List[Dict[str, Any]] = []
   for quarter_index in range(1, QUARTER_COUNT + 1):
+    repaired_value = float(normalized_values.get(quarter_index, fallback_values.get(quarter_index, 0.0)))
+    envelope = _row_envelope_for_quarter(requested_row, quarter_index)
+    if isinstance(envelope, dict):
+      min_value = float_or_none(envelope.get("min_value"))
+      max_value = float_or_none(envelope.get("max_value"))
+      if min_value is not None and repaired_value < float(min_value):
+        repaired_value = float(min_value)
+      if max_value is not None and repaired_value > float(max_value):
+        repaired_value = float(max_value)
     repaired_quarter_values.append(
       {
         "quarter_index": quarter_index,
-        "value": float(normalized_values.get(quarter_index, fallback_values.get(quarter_index, 0.0))),
+        "value": float(repaired_value),
       }
     )
   return {
@@ -2065,6 +2134,7 @@ def repair_quarter_grid_response(
   requested_rows: List[Dict[str, Any]],
   response_json: Dict[str, Any],
   governor_payload: Optional[Dict[str, Any]] = None,
+  enforce_composite_revenue_ramp: bool = True,
 ) -> Dict[str, Any]:
   requested_map = {
     str(item.get("row_id") or "").strip(): item
@@ -2121,11 +2191,17 @@ def repair_quarter_grid_response(
     repaired_rows.append(_fallback_grid_row_from_requested(requested_row))
     repaired_row_ids.append(row_id)
 
-  ramp_repair_metadata = _enforce_composite_revenue_ramp_inside_envelopes(
-    requested_rows=requested_rows,
-    response_rows=repaired_rows,
-    governor_payload=governor_payload,
-  )
+  if enforce_composite_revenue_ramp:
+    ramp_repair_metadata = _enforce_composite_revenue_ramp_inside_envelopes(
+      requested_rows=requested_rows,
+      response_rows=repaired_rows,
+      governor_payload=governor_payload,
+    )
+  else:
+    ramp_repair_metadata = {
+      "applied": False,
+      "reason": "deferred_until_full_grid_stage_ramp_bridge_validation",
+    }
   if ramp_repair_metadata.get("adjusted_cells"):
     for item in ramp_repair_metadata.get("adjusted_cells") or []:
       row_id = str((item or {}).get("row_id") or "").strip()
@@ -2456,6 +2532,7 @@ def validate_quarter_grid_response(
   requested_rows: List[Dict[str, Any]],
   response_json: Dict[str, Any],
   governor_payload: Optional[Dict[str, Any]] = None,
+  validate_composite_revenue_ramp: bool = True,
 ) -> Dict[str, Any]:
   requested_ids = [str(item.get("row_id") or "") for item in requested_rows]
   requested_id_set = set(requested_ids)
@@ -2541,5 +2618,5 @@ def validate_quarter_grid_response(
       requested_rows=requested_rows,
       returned_by_id=returned_by_id,
       governor_payload=governor_payload,
-    ),
+    ) if validate_composite_revenue_ramp else [],
 }

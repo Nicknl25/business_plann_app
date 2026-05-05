@@ -23,6 +23,7 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_contract_errors,
   post_intake_gpt_contract_openai_schema,
   post_intake_gpt_contract_rows,
+  post_intake_process_sequence_step,
   post_intake_process_step_context,
   post_intake_process_sequence_errors,
 )
@@ -102,6 +103,25 @@ def _assert_payroll_headcount_initialization_contract(errors: List[str]) -> None
       errors.append("payroll_headcount_initialization_oews_title_catalog_missing")
   except Exception as exc:
     errors.append(f"payroll_headcount_initialization_context_check_unavailable: {exc}")
+
+  try:
+    sequence_row = post_intake_process_sequence_step("payroll_headcount_schedule", required=True) or {}
+    quarter_row = post_intake_process_sequence_step("quarter_grid_generation", required=True) or {}
+    timing = _clean_text(sequence_row.get("python_timing"))
+    notes = _clean_text(sequence_row.get("notes")).lower()
+    action = _clean_text(sequence_row.get("python_action")).lower()
+    payroll_order = float(sequence_row.get("step_order") or sequence_row.get("sequence_order") or sequence_row.get("order_index") or 0)
+    quarter_order = float(quarter_row.get("step_order") or quarter_row.get("sequence_order") or quarter_row.get("order_index") or 0)
+    if timing == "after_quarter_grid_before_convergence":
+      errors.append("payroll_headcount_initialization_legacy_reverse_timing_present")
+    if payroll_order and quarter_order and payroll_order > quarter_order:
+      errors.append("payroll_headcount_initialization_legacy_reverse_order_present")
+    if "after the quarter grid" in notes or "against the applied quarter grid" in action:
+      errors.append("payroll_headcount_initialization_legacy_capacity_demand_sequence_present")
+    if "derive" not in action or "capacity" not in action:
+      errors.append("payroll_headcount_initialization_capacity_derivation_action_missing")
+  except Exception as exc:
+    errors.append(f"payroll_headcount_initialization_process_sequence_check_unavailable: {exc}")
 
 
 def _assert_callable(name: str, fn: Any, errors: List[str]) -> None:

@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 import calendar
 import logging
@@ -14,6 +15,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from flask import jsonify
 
 logger = logging.getLogger(__name__)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+  sys.path.insert(0, str(_REPO_ROOT))
 import requests
 from client_intake_and_finmo.intake_consult_draft import (
   append_messages,
@@ -5308,20 +5312,27 @@ def _post_openai(*, url: str, headers: Dict[str, str], payload: Dict[str, Any]) 
   remaining = _active_openai_deadline_remaining_seconds()
   max_attempts = 3
   if remaining is not None:
-    guard_seconds = float(_ACTIVE_OPENAI_DEADLINE_RETURN_GUARD_SECONDS)
+    guard_seconds = min(
+      float(_ACTIVE_OPENAI_DEADLINE_RETURN_GUARD_SECONDS),
+      max(2.0, float(remaining) * 0.10),
+    )
     request_budget = float(remaining) - guard_seconds
     if request_budget <= 1.0:
       raise TimeoutError(
         "active OpenAI deadline has insufficient guarded budget before request could start: "
         f"remaining_seconds={round(float(remaining), 3)} guard_seconds={round(guard_seconds, 3)}"
       )
-    # Small bounded GPT contracts need one full attempt more than two half-sized
-    # attempts. Splitting a 45s pre-convergence budget into ~18s attempts caused
-    # valid strict structured-output requests to fail before the model could
-    # complete, while still consuming the whole budget.
-    max_attempts = 2 if request_budget >= 100.0 else 1
+    strict_format = ((payload or {}).get("text") or {}).get("format") if isinstance((payload or {}).get("text"), dict) else {}
+    is_strict_structured_output = (
+      isinstance(strict_format, dict)
+      and str(strict_format.get("type") or "").strip().lower() == "json_schema"
+    )
+    # Bounded strict structured-output calls need one full attempt more than two
+    # partial attempts. Splitting the active deadline can strand the model while
+    # still consuming the whole cycle budget.
+    max_attempts = 1 if is_strict_structured_output else (2 if request_budget >= 100.0 else 1)
     per_attempt_budget = max(1.0, (request_budget - (0.75 if max_attempts > 1 else 0.0)) / max_attempts)
-    timeout = max(1, int(math.floor(min(float(timeout or per_attempt_budget), per_attempt_budget))))
+    timeout = max(1, int(math.floor(per_attempt_budget)))
   try:
     return post_openai_with_retries(
       url=url,

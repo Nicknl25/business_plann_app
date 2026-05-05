@@ -238,6 +238,11 @@ def _mapping_row_applicable(
   if key in {"always", "revenue_positive"}:
     return _revenue_positive(finmo_rows, financials_json), key
   if key == "revenue_positive_ar_applicable":
+    if _financial_seed(financials_json, "ar_balance") > 0.0:
+      return True, key
+    seed_row = _contextual_seed_row_for_lever(model_input_json, _clean(mapping_row.get("lever_id")))
+    if isinstance(seed_row, dict) and "applicable" in seed_row:
+      return bool(seed_row.get("applicable")), key
     return _revenue_positive(finmo_rows, financials_json), key
   if key == "operating_expense_positive_ap_applicable":
     no_vendor_tokens = _tokens_from_mapping_row(mapping_row, "applicability_negative_tokens")

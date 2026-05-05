@@ -18,6 +18,7 @@ from .excel_utils import (
   FIRST_LIVE_COL,
   LAST_LIVE_COL,
   MODEL_INPUT_SHEET,
+  NUMBER_FORMAT,
   PAYROLL_SHEET,
   PERIOD_COUNT,
   PERIOD_END_COL,
@@ -256,11 +257,21 @@ def _add_payroll_detail_math_checks(ws, row: int, ctx: WorkbookBuildContext) -> 
     return row
   q_parts = []
   fte_summary = ctx.schedule_row(PAYROLL_SHEET, "Total Ending FTE")
+  avg_fte_summary = ctx.schedule_row(PAYROLL_SHEET, "Total Average FTE")
   payroll_summary = ctx.schedule_row(PAYROLL_SHEET, "Total Payroll")
+  revenue_summary = ctx.schedule_row(PAYROLL_SHEET, "Total Revenue")
+  capacity_summary = ctx.schedule_row(PAYROLL_SHEET, "Total Capacity Units")
+  revenue_per_employee = ctx.schedule_row(PAYROLL_SHEET, "Revenue per Employee")
+  units_per_employee = ctx.schedule_row(PAYROLL_SHEET, "Units per Employee")
+  payroll_percent = ctx.schedule_row(PAYROLL_SHEET, "Payroll % of Revenue")
   for idx in range(PERIOD_COUNT):
     col = PERIOD_START_COL + idx
     fte_sum = (
       f"SUMIFS({qsheet(PAYROLL_SHEET)}!$G${first}:$G${last},"
+      f"{qsheet(PAYROLL_SHEET)}!$A${first}:$A${last},{idx})"
+    )
+    avg_fte_sum = (
+      f"SUMIFS({qsheet(PAYROLL_SHEET)}!$H${first}:$H${last},"
       f"{qsheet(PAYROLL_SHEET)}!$A${first}:$A${last},{idx})"
     )
     payroll_sum = (
@@ -268,6 +279,7 @@ def _add_payroll_detail_math_checks(ws, row: int, ctx: WorkbookBuildContext) -> 
       f"{qsheet(PAYROLL_SHEET)}!$A${first}:$A${last},{idx})"
     )
     q_parts.append(f"ABS({ref(PAYROLL_SHEET, fte_summary, col)}-{fte_sum})")
+    q_parts.append(f"ABS({ref(PAYROLL_SHEET, avg_fte_summary, col)}-{avg_fte_sum})")
     q_parts.append(f"ABS({ref(PAYROLL_SHEET, payroll_summary, col)}-{payroll_sum})")
   _write_check(
     ws,
@@ -282,6 +294,31 @@ def _add_payroll_detail_math_checks(ws, row: int, ctx: WorkbookBuildContext) -> 
     notes="If this fails, payroll summary is no longer tied to detail FTE/payroll rows.",
   )
   row += 1
+  if all([avg_fte_summary, payroll_summary, revenue_summary, capacity_summary, revenue_per_employee, units_per_employee, payroll_percent]):
+    productivity_parts = []
+    for idx in range(PERIOD_COUNT):
+      col = PERIOD_START_COL + idx
+      avg = ref(PAYROLL_SHEET, avg_fte_summary, col)
+      revenue = ref(PAYROLL_SHEET, revenue_summary, col)
+      capacity = ref(PAYROLL_SHEET, capacity_summary, col)
+      payroll = ref(PAYROLL_SHEET, payroll_summary, col)
+      productivity_parts.append(f"ABS({ref(PAYROLL_SHEET, revenue_per_employee, col)}-IFERROR({revenue}/{avg},0))")
+      productivity_parts.append(f"ABS({ref(PAYROLL_SHEET, units_per_employee, col)}-IFERROR({capacity}/{avg},0))")
+      productivity_parts.append(f"ABS({ref(PAYROLL_SHEET, payroll_percent, col)}-IFERROR({payroll}/{revenue},0))")
+    _write_check(
+      ws,
+      row,
+      category="Schedule Coherence",
+      line_item="Payroll productivity metrics",
+      sheet=PAYROLL_SHEET,
+      range_or_cell=f"A{avg_fte_summary}:W{payroll_percent}",
+      actual=f"=SUM({','.join(productivity_parts)})",
+      expected=0,
+      tolerance=0.01,
+      notes="Revenue per employee, units per employee, and payroll percent must stay tied to revenue/capacity and average FTE.",
+      number_format=NUMBER_FORMAT,
+    )
+    row += 1
   _write_check(
     ws,
     row,
@@ -349,8 +386,11 @@ def _write_sum_abs_logic_check(
 
 
 def _add_revenue_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
+  capacity_rows = []
   revenue_rows = []
   for key, source_row in ctx.schedule_rows.get(REVENUE_SHEET, {}).items():
+    if key.endswith("::Capacity"):
+      capacity_rows.append(source_row)
     if key.endswith("::Revenue") and key != "Total Revenue":
       slot = key.removesuffix("::Revenue")
       cap = ctx.schedule_row(REVENUE_SHEET, f"{slot}::Capacity")
@@ -386,6 +426,19 @@ def _add_revenue_logic_checks(ws, row: int, ctx: WorkbookBuildContext) -> int:
       actual_formula=f"=SUMPRODUCT(ABS({total_range}-({'+'.join(range_ref(REVENUE_SHEET, r, PERIOD_START_COL, PERIOD_END_COL) for r in revenue_rows)})))",
       tolerance=1.0,
       notes="Total revenue must stay tied to all revenue-product rows.",
+    )
+  total_capacity = ctx.schedule_row(REVENUE_SHEET, "Total Capacity Units")
+  if total_capacity and capacity_rows:
+    total_capacity_range = range_ref(REVENUE_SHEET, total_capacity, PERIOD_START_COL, PERIOD_END_COL)
+    row = _write_sum_abs_logic_check(
+      ws,
+      row,
+      line_item="Revenue total capacity equals all capacity products",
+      sheet=REVENUE_SHEET,
+      range_or_cell=total_capacity_range,
+      actual_formula=f"=SUMPRODUCT(ABS({total_capacity_range}-({'+'.join(range_ref(REVENUE_SHEET, r, PERIOD_START_COL, PERIOD_END_COL) for r in capacity_rows)})))",
+      tolerance=0.01,
+      notes="Total capacity units must stay tied to all revenue-driver capacity rows.",
     )
   return row
 
@@ -658,8 +711,16 @@ def build_checks_sheet(wb, ctx: WorkbookBuildContext) -> None:
 
   for line_item, sheet, source_row, first_col in [
     ("Revenue Drivers - Total Revenue", REVENUE_SHEET, ctx.schedule_row(REVENUE_SHEET, "Total Revenue"), PERIOD_START_COL),
+    ("Revenue Drivers - Total Capacity Units", REVENUE_SHEET, ctx.schedule_row(REVENUE_SHEET, "Total Capacity Units"), PERIOD_START_COL),
+    ("Revenue Drivers - Actual Revenue QoQ Growth", REVENUE_SHEET, ctx.schedule_row(REVENUE_SHEET, "Actual Revenue QoQ Growth"), PERIOD_START_COL),
     ("Payroll Schedule - Total Ending FTE", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Total Ending FTE"), PERIOD_START_COL),
+    ("Payroll Schedule - Total Average FTE", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Total Average FTE"), PERIOD_START_COL),
     ("Payroll Schedule - Total Payroll", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Total Payroll"), PERIOD_START_COL),
+    ("Payroll Schedule - Total Revenue", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Total Revenue"), PERIOD_START_COL),
+    ("Payroll Schedule - Total Capacity Units", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Total Capacity Units"), PERIOD_START_COL),
+    ("Payroll Schedule - Revenue per Employee", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Revenue per Employee"), PERIOD_START_COL),
+    ("Payroll Schedule - Units per Employee", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Units per Employee"), PERIOD_START_COL),
+    ("Payroll Schedule - Payroll % of Revenue", PAYROLL_SHEET, ctx.schedule_row(PAYROLL_SHEET, "Payroll % of Revenue"), PERIOD_START_COL),
     ("CapEx Schedule - Lease Additions", CAPEX_SHEET, ctx.schedule_row(CAPEX_SHEET, "Lease Additions"), FIRST_LIVE_COL),
     ("CapEx Schedule - Closing PPE", CAPEX_SHEET, ctx.schedule_row(CAPEX_SHEET, "Closing PPE"), PERIOD_START_COL),
   ]:

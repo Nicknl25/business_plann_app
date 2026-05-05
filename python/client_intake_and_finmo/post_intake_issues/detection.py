@@ -125,6 +125,7 @@ def _cost_structure_direct_metric_specs_for_quarter(
   marketing = float(_safe_float(row.get("marketing")) or 0.0)
   research_and_development = float(_safe_float(row.get("research_and_development")) or 0.0)
   lease_rent = float(_safe_float(row.get("lease_rent")) or 0.0)
+  payroll = float(_safe_float(row.get("payroll")) or 0.0)
   g_and_a = float(_safe_float(row.get("g_and_a")) or 0.0)
   gross_margin_floor = {"early": 0.18, "mid": 0.20, "late": 0.22}[phase]
   gross_margin_ceiling = {"early": 0.65, "mid": 0.60, "late": 0.55}[phase]
@@ -134,6 +135,7 @@ def _cost_structure_direct_metric_specs_for_quarter(
     "marketing": {"early": 0.45, "mid": 0.40, "late": 0.35}[phase],
     "research_and_development": {"early": 0.35, "mid": 0.30, "late": 0.25}[phase],
     "lease_rent": {"early": 0.35, "mid": 0.30, "late": 0.25}[phase],
+    "payroll": {"early": 0.80, "mid": 0.70, "late": 0.60}[phase],
     "g_and_a": {"early": 0.35, "mid": 0.30, "late": 0.25}[phase],
   }
   spec = _dep("_table_target_currency_metric_spec")
@@ -177,6 +179,19 @@ def _cost_structure_direct_metric_specs_for_quarter(
       score_scale=max(revenue * 0.08, 1000.0),
       source_metric_names=["lease_rent", "revenue"],
       metric_definition="Lease/rent dollars must stay inside the direct table-backed operating cost band implied by revenue.",
+    ))
+  if "payroll" in allowed_metrics:
+    specs.append(spec(
+      "payroll",
+      actual_value=payroll,
+      target_floor=0.0,
+      target_ceiling=revenue * cost_component_ceiling_pct["payroll"],
+      score_scale=max(revenue * 0.10, 1000.0),
+      source_metric_names=["payroll", "revenue", "payroll_headcount_schedule"],
+      metric_definition=(
+        "Payroll dollars must stay economically coherent with revenue through the table-backed headcount schedule. "
+        "Repair must rebuild payroll FTE/productivity and supported capacity rather than clipping payroll output."
+      ),
     ))
   if "g_and_a" in allowed_metrics:
     specs.append(spec(
@@ -375,6 +390,41 @@ def _build_capacity_support_issue_status_records(
     return []
   model_input = model_input_json if isinstance(model_input_json, dict) else {}
   lever_value_map = _dep("_solved_lever_value_map")(model_input) if model_input else {}
+  payroll_feasibility_by_quarter: Dict[int, Dict[str, Any]] = {}
+  if model_input:
+    try:
+      from client_intake_and_finmo.post_intake_headcount import payroll_revenue_feasibility_violations  # type: ignore
+
+      runtime = (
+        model_input.get("derived_driver_runtime")
+        if isinstance(model_input.get("derived_driver_runtime"), dict)
+        else {}
+      )
+      payroll_runtime = (
+        runtime.get("expenses::Payroll")
+        if isinstance(runtime.get("expenses::Payroll"), dict)
+        else {}
+      )
+      payroll_schedule = (
+        payroll_runtime.get("payroll_headcount")
+        if isinstance(payroll_runtime.get("payroll_headcount"), dict)
+        else {}
+      )
+      for item in payroll_revenue_feasibility_violations(
+        payroll_headcount=copy.deepcopy(payroll_schedule),
+        finmo_json=copy.deepcopy(finmo_json or {}),
+      ):
+        if not isinstance(item, dict):
+          continue
+        quarter = int(_safe_float(item.get("quarter_index")) or 0)
+        if quarter >= 1:
+          payroll_feasibility_by_quarter[quarter] = copy.deepcopy(item)
+    except Exception as exc:
+      payroll_feasibility_by_quarter[1] = {
+        "error": "payroll_revenue_sanity_lookup_failed",
+        "reason": str(exc),
+        "required_action": "Repair payroll feasibility lookup before capacity support can be accepted.",
+      }
   metric_specs: List[Dict[str, Any]] = []
   problem_quarters: List[int] = []
   for quarter_index in range(1, _contract_forecast_quarter_count() + 1):
@@ -411,6 +461,37 @@ def _build_capacity_support_issue_status_records(
         quarter_index=quarter_index,
         quarter_row=quarter_row,
       )
+    payroll_violation = payroll_feasibility_by_quarter.get(quarter_index)
+    if isinstance(payroll_violation, dict) and payroll_violation:
+      driver_math = (
+        payroll_violation.get("deterministic_driver_math")
+        if isinstance(payroll_violation.get("deterministic_driver_math"), dict)
+        else {}
+      )
+      required_revenue = _safe_float(driver_math.get("required_revenue_at_policy_bound"))
+      repair_key = str(payroll_violation.get("repair_rule_key") or "").strip().lower()
+      if required_revenue is not None and required_revenue > 0:
+        quarter_specs.append(_dep("_table_target_currency_metric_spec")(
+          "revenue",
+          actual_value=actual_revenue,
+          target_floor=float(required_revenue) if repair_key == "payroll_revenue_ratio_high" else None,
+          target_ceiling=float(required_revenue) if repair_key == "payroll_revenue_ratio_low" else None,
+          score_scale=max(abs(float(required_revenue) - actual_revenue), actual_revenue * 0.05, 1000.0),
+          source_metric_names=[
+            "revenue",
+            "capacity",
+            "unit_price",
+            "utilization",
+            "payroll",
+            "payroll_headcount_schedule",
+          ],
+          metric_definition=(
+            "Capacity support must pass payroll/revenue economic truth, not just formula truth. "
+            "Repair must recompute payroll FTE/productivity, capacity, price, utilization, and revenue together; "
+            "do not clip payroll or revenue outputs."
+          ),
+        ))
+        quarter_specs[-1]["payroll_revenue_feasibility_violation"] = copy.deepcopy(payroll_violation)
     actionable_specs = [
       copy.deepcopy(spec)
       for spec in quarter_specs
@@ -619,6 +700,10 @@ def _build_stage_maturity_cost_structure_issue_status_records(
     "cost_structure_mismatch",
     phase="convergence",
   )
+  revenue_levers = post_intake_issue_candidate_lever_ids(
+    "capacity_support_mismatch",
+    phase="convergence",
+  )
   if not r_and_d_enabled:
     rd_levers = {
       str(row.get("lever_id") or "").strip()
@@ -647,6 +732,32 @@ def _build_stage_maturity_cost_structure_issue_status_records(
     component_specs.insert(2, ("research_and_development", "research_and_development", None, "rd_percent_of_revenue_max"))
   metric_specs: List[Dict[str, Any]] = []
   problem_quarters: List[int] = []
+  payroll_violations: List[Dict[str, Any]] = []
+  try:
+    from client_intake_and_finmo.post_intake_headcount import payroll_revenue_feasibility_violations  # type: ignore
+
+    runtime = (
+      (model_input_json or {}).get("derived_driver_runtime")
+      if isinstance(model_input_json, dict) and isinstance((model_input_json or {}).get("derived_driver_runtime"), dict)
+      else {}
+    )
+    payroll_runtime = runtime.get("expenses::Payroll") if isinstance(runtime.get("expenses::Payroll"), dict) else {}
+    payroll_schedule = payroll_runtime.get("payroll_headcount") if isinstance(payroll_runtime.get("payroll_headcount"), dict) else {}
+    payroll_violations = payroll_revenue_feasibility_violations(
+      payroll_headcount=copy.deepcopy(payroll_schedule),
+      finmo_json=copy.deepcopy(finmo_json),
+    )
+  except Exception as exc:
+    payroll_violations = [{
+      "error": "payroll_revenue_sanity_lookup_failed",
+      "reason": str(exc),
+      "required_action": "Fix payroll feasibility lookup/runtime schedule wiring before accepting FINMO.",
+    }]
+  payroll_violation_by_quarter = {
+    int(_safe_float(item.get("quarter_index")) or 0): item
+    for item in payroll_violations
+    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
+  }
   for quarter_index in range(1, _contract_forecast_quarter_count() + 1):
     quarter_row = rows_by_q.get(quarter_index) or {}
     ramp_row = ramp_rows.get(quarter_index) or {}
@@ -682,9 +793,100 @@ def _build_stage_maturity_cost_structure_issue_status_records(
         continue
       if direct_cost_values.get(metric_name, 0.0) > (revenue * float(cap_ratio)) + 1.0:
         cap_violations.append(metric_name)
-    if not cap_violations:
-      continue
+    profit_floor_violation = bool(
+      floor_margin is not None
+      and actual_margin < float(floor_margin) - 0.0001
+    )
+    if not cap_violations and not profit_floor_violation:
+      payroll_violation = payroll_violation_by_quarter.get(quarter_index)
+      if not payroll_violation:
+        continue
     problem_quarters.append(quarter_index)
+    payroll_violation = payroll_violation_by_quarter.get(quarter_index)
+    if payroll_violation:
+      actual_payroll = float(_safe_float(quarter_row.get("payroll")) or 0.0)
+      actual_revenue = max(0.0, revenue)
+      floor_pct = _safe_float(payroll_violation.get("effective_min_pct_with_tolerance"))
+      ceiling_pct = _safe_float(payroll_violation.get("effective_max_pct_with_tolerance"))
+      spec = _dep("_table_target_currency_metric_spec")(
+        "payroll",
+        actual_value=actual_payroll,
+        target_floor=(actual_revenue * float(floor_pct)) if floor_pct is not None else None,
+        target_ceiling=(actual_revenue * float(ceiling_pct)) if ceiling_pct is not None else None,
+        score_scale=max(actual_revenue * 0.05, abs(actual_payroll), 1000.0),
+        source_metric_names=["payroll", "revenue", "headcount_policy", "stage_maturity_contract"],
+        metric_definition=(
+          "Payroll/revenue feasibility is detected from post_intake_headcount_policy_lookup. "
+          "Repair must recompute upstream drivers and rebuild payroll-supported capacity, revenue, payroll, and FINMO; "
+          "payroll is not an output to clip."
+        ),
+      )
+      if isinstance(spec, dict):
+        spec["quarter_index"] = int(quarter_index)
+        spec["payroll_feasibility_violation"] = copy.deepcopy(payroll_violation)
+        spec["schedule_owned_by"] = "payroll_headcount_schedule"
+        metric_specs.append(spec)
+    if profit_floor_violation:
+      required_net_income = float(revenue) * float(floor_margin)
+      margin_gap = max(0.0, required_net_income - net_income)
+      if margin_gap > 1.0:
+        all_cost_values = {
+          **direct_cost_values,
+          "payroll": float(_safe_float(quarter_row.get("payroll")) or 0.0),
+        }
+        adjustable_total = sum(max(0.0, value) for value in all_cost_values.values())
+        revenue_spec = _dep("_table_target_currency_metric_spec")(
+          "revenue",
+          actual_value=revenue,
+          target_floor=revenue + margin_gap,
+          score_scale=max(margin_gap, revenue * 0.05, 1000.0),
+          source_metric_names=["revenue", "net_income", "stage_maturity_contract"],
+          metric_definition=(
+            "Planning mode and business stage require a viable profitability floor. "
+            "Repair must recompute upstream revenue drivers with costs and payroll, not override final outputs."
+          ),
+        )
+        if isinstance(revenue_spec, dict):
+          revenue_spec["quarter_index"] = int(quarter_index)
+          revenue_spec["stage_maturity_floor_margin"] = round(float(floor_margin), 4)
+          revenue_spec["actual_net_income_margin"] = round(float(actual_margin), 4)
+          revenue_spec["profitability_gap"] = round(float(margin_gap), 2)
+          metric_specs.append(revenue_spec)
+        for metric_name, actual_value in all_cost_values.items():
+          if actual_value <= 0.0 or adjustable_total <= 0.0:
+            continue
+          allocated_gap = margin_gap * (actual_value / adjustable_total)
+          target_ceiling = max(0.0, actual_value - allocated_gap)
+          spec = _dep("_table_target_currency_metric_spec")(
+            metric_name,
+            actual_value=actual_value,
+            target_floor=0.0,
+            target_ceiling=target_ceiling,
+            score_scale=max(abs(allocated_gap), revenue * 0.03, 1000.0),
+            source_metric_names=[
+              metric_name,
+              "revenue",
+              "net_income",
+              "stage_maturity_contract",
+              "payroll_headcount_schedule" if metric_name == "payroll" else metric_name,
+            ],
+            metric_definition=(
+              "Planning mode/stage profitability floor failed. "
+              + (
+                "Payroll repair must rebuild the headcount schedule and payroll-supported capacity; payroll is not a writable output."
+                if metric_name == "payroll"
+                else "Repair must adjust table-backed cost drivers as part of a full model rebuild."
+              )
+            ),
+          )
+          if isinstance(spec, dict):
+            spec["quarter_index"] = int(quarter_index)
+            spec["stage_maturity_floor_margin"] = round(float(floor_margin), 4)
+            spec["actual_net_income_margin"] = round(float(actual_margin), 4)
+            spec["profitability_gap"] = round(float(margin_gap), 2)
+            if metric_name == "payroll":
+              spec["schedule_owned_by"] = "payroll_headcount_schedule"
+            metric_specs.append(spec)
     for metric_name, row_field, target_field, cap_field in component_specs:
       if metric_name not in cap_violations:
         continue
@@ -719,21 +921,29 @@ def _build_stage_maturity_cost_structure_issue_status_records(
         metric_specs.append(spec)
   if not problem_quarters or not metric_specs:
     return []
+  next_required_levers = []
+  for lever_id in [*allowed_levers, *revenue_levers]:
+    if str(lever_id or "").strip() and str(lever_id or "").strip() not in next_required_levers:
+      next_required_levers.append(str(lever_id or "").strip())
   return [
     _dep("_normalize_issue_record_to_controller_truth")(
       {
         "issue": "cost_structure_mismatch",
         "issue_code": "cost_structure_mismatch",
         "detail": (
-          "Stage maturity cost cap guardrail failed. Direct operating costs must be adjusted "
-          "through table-backed cost_structure_mismatch levers so the business matures naturally."
+          "Stage maturity cost/profitability guardrail failed. Direct operating costs, payroll schedule, "
+          "and revenue drivers must be recomputed through table-backed levers so the business matures naturally."
         ),
         "candidate_kind": "stage_maturity_cost_structure_detector",
         "remaining_problem_quarters": sorted(set(problem_quarters)),
         "remaining_issue_materiality": "material",
         "remaining_issue_severity_score": 92,
-        "next_required_lever_ids": copy.deepcopy(allowed_levers),
+        "next_required_lever_ids": copy.deepcopy(next_required_levers),
         "metric_debug": metric_specs,
+        "payroll_revenue_feasibility_violations": copy.deepcopy(payroll_violations[:20]),
+        "hard_issue": True,
+        "tolerance_allowed": False,
+        "hard_gate_basis": "stage_ramp_cost_profitability_and_payroll_revenue_feasibility",
         "first_detected_iteration": max(1, int(iteration or 1)),
         "last_seen_iteration": max(1, int(iteration or 1)),
         "verifier_status": "not_resolved",

@@ -32,6 +32,7 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_gpt_contract_openai_schema,
   post_intake_gpt_contract_payload_errors,
   post_intake_gpt_contract_prompt_field_spec,
+  post_intake_normalize_lever_value,
 )
 from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
   bind_table_safe_runtime_dependencies,
@@ -82,6 +83,15 @@ _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
 }
 for _hard_issue_code in ("accounting_integrity_failure", "structural_impossibility"):
   _ISSUE_CODE_REGISTRY.setdefault(_hard_issue_code, {"title": _hard_issue_code})
+
+
+def _safe_float(value: Any) -> Optional[float]:
+  if value is None or value == "":
+    return None
+  try:
+    return float(value)
+  except Exception:
+    return None
 
 
 def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
@@ -1868,6 +1878,58 @@ def _compact_formula_envelope_for_prompt(envelope: Any) -> Optional[Dict[str, An
     }
   return compact or None
 
+def _compact_business_world_contract_for_prompt(contract: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  source = contract if isinstance(contract, dict) else {}
+  stage_ramp_contract = (
+    source.get("stage_ramp_contract")
+    if isinstance(source.get("stage_ramp_contract"), dict)
+    else {}
+  )
+  ramp_rows: List[Dict[str, Any]] = []
+  for row in stage_ramp_contract.get("quarter_ramp_grid") or []:
+    if not isinstance(row, dict):
+      continue
+    compact_row: Dict[str, Any] = {
+      "quarter_index": row.get("quarter_index"),
+      "revenue_qoq_target": row.get("revenue_qoq_target"),
+      "revenue_qoq_max": row.get("revenue_qoq_max"),
+      "revenue_qoq_spike_allowed": row.get("revenue_qoq_spike_allowed"),
+      "revenue_qoq_spike_max": row.get("revenue_qoq_spike_max"),
+      "utilization_cap": row.get("utilization_cap"),
+      "cogs_percent_of_revenue_target": row.get("cogs_percent_of_revenue_target"),
+      "cogs_percent_of_revenue_max": row.get("cogs_percent_of_revenue_max"),
+      "marketing_percent_of_revenue_max": row.get("marketing_percent_of_revenue_max"),
+      "rd_percent_of_revenue_max": row.get("rd_percent_of_revenue_max"),
+      "g_and_a_percent_of_revenue_max": row.get("g_and_a_percent_of_revenue_max"),
+      "lease_percent_of_revenue_max": row.get("lease_percent_of_revenue_max"),
+      "net_income_margin_floor": row.get("net_income_margin_floor"),
+      "profitability_posture": row.get("profitability_posture"),
+    }
+    for key, value in row.items():
+      key_text = str(key or "").strip()
+      if "payroll" in key_text.lower() and key_text not in compact_row:
+        compact_row[key_text] = copy.deepcopy(value)
+    ramp_rows.append({key: value for key, value in compact_row.items() if value is not None})
+  return {
+    "contract_version": source.get("contract_version"),
+    "business_stage": source.get("business_stage"),
+    "stage_family": source.get("stage_family"),
+    "business_stage_source": source.get("business_stage_source"),
+    "business_start_date": source.get("business_start_date"),
+    "business_age_months_at_run": source.get("business_age_months_at_run"),
+    "planning_mode": source.get("planning_mode"),
+    "planning_mode_reason": source.get("planning_mode_reason"),
+    "mode_prompt_text": source.get("mode_prompt_text"),
+    "profitability_maturity_month": source.get("profitability_maturity_month"),
+    "rule_summary": source.get("rule_summary"),
+    "stage_ramp_contract": {
+      "contract_version": stage_ramp_contract.get("contract_version"),
+      "decision_source": stage_ramp_contract.get("decision_source"),
+      "stage_family": stage_ramp_contract.get("stage_family"),
+      "quarter_ramp_grid": ramp_rows,
+    },
+  }
+
 def _compact_locked_target_fill_grid_for_prompt(grid: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   source = grid if isinstance(grid, dict) else {}
   rows: List[Dict[str, Any]] = []
@@ -1878,8 +1940,6 @@ def _compact_locked_target_fill_grid_for_prompt(grid: Optional[Dict[str, Any]]) 
       {
         "quarter_index": row.get("quarter_index"),
         "metric_name": row.get("metric_name"),
-        "target_value_kind": row.get("target_value_kind"),
-        "current_value": row.get("current_value"),
         "minimum_target_value": row.get("minimum_target_value"),
         "maximum_target_value": row.get("maximum_target_value"),
         "recommended_target_value": row.get("recommended_target_value"),
@@ -1973,6 +2033,8 @@ def _apply_unified_convergence_context_transforms(
       continue
     if transform_kind == "compact_full_horizon_repair_contract":
       context_packet[key] = _compact_full_horizon_repair_contract_for_prompt(context_packet.get(key))
+    elif transform_kind == "compact_business_world_contract":
+      context_packet[key] = _compact_business_world_contract_for_prompt(context_packet.get(key))
     elif transform_kind == "compact_locked_target_fill_grid":
       context_packet[key] = _compact_locked_target_fill_grid_for_prompt(context_packet.get(key))
     elif transform_kind == "compact_issue_repair_envelope":
@@ -2115,6 +2177,27 @@ def _target_metric_value_by_quarter(
         break
   return out
 
+def _exact_updates_from_model_input_repair_cells(
+  *,
+  model_input_repair_cells: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+  updates: List[Dict[str, Any]] = []
+  for cell in [item for item in (model_input_repair_cells or []) if isinstance(item, dict)]:
+    lever_id = str(cell.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(cell.get("quarter_index")) or 0)
+    value = _safe_float(cell.get("value"))
+    if not lever_id or quarter_index < 1 or value is None:
+      continue
+    updates.append(
+      {
+        "lever_id": lever_id,
+        "quarter_index": quarter_index,
+        "exact_value": float(value),
+        "source_cell_id": str(cell.get("cell_id") or "").strip(),
+      }
+    )
+  return updates
+
 def _target_metric_tolerance(
   *,
   target_tolerances: Any,
@@ -2200,6 +2283,7 @@ def _normalize_formula_targets_from_model_input_repair_cells(
     return None
 
   normalized_quarters: List[int] = []
+  preserved_locked_quarters: List[int] = []
   for row in (decision.get("targets_by_quarter") or []):
     if not isinstance(row, dict):
       continue
@@ -2219,22 +2303,221 @@ def _normalize_formula_targets_from_model_input_repair_cells(
     if not complete:
       continue
     normalized_value = int(round(float(computed_revenue)))
-    row["revenue"] = normalized_value
     metric_rows = row.get("metric_targets") if isinstance(row.get("metric_targets"), list) else []
+    existing_revenue_target = None
     for metric_row in metric_rows:
       if not isinstance(metric_row, dict):
         continue
       if str(metric_row.get("metric_name") or "").strip().lower() == "revenue":
-        metric_row["target_value"] = normalized_value
-        metric_row["target_value_source"] = "derived_from_gpt_model_input_repair_cells"
+        existing_revenue_target = metric_row
         break
+    existing_target_value = (
+      _safe_float(existing_revenue_target.get("target_value"))
+      if isinstance(existing_revenue_target, dict)
+      else None
+    )
+    if existing_target_value is not None:
+      row["revenue"] = int(round(float(existing_target_value)))
+      preserved_locked_quarters.append(quarter_index)
+      continue
+    row["revenue"] = normalized_value
+    if isinstance(existing_revenue_target, dict):
+      existing_revenue_target["target_value"] = normalized_value
+      existing_revenue_target["target_value_source"] = "derived_from_gpt_model_input_repair_cells"
+    elif isinstance(metric_rows, list):
+      metric_rows.append(
+        {
+          "metric_name": "revenue",
+          "target_value": normalized_value,
+          "target_value_source": "derived_from_gpt_model_input_repair_cells",
+        }
+      )
     normalized_quarters.append(quarter_index)
   return {
     "normalized": bool(normalized_quarters),
     "metric_names": ["revenue"],
     "quarters": copy.deepcopy(normalized_quarters),
+    "preserved_existing_target_quarters": copy.deepcopy(preserved_locked_quarters),
     "source": "derived_from_gpt_model_input_repair_cells",
-    "rule": "formula targets are not independently authored; model_input_json driver cells are the decision truth",
+    "rule": (
+      "derive formula target rows only when the target is absent; existing locked target values remain "
+      "authoritative and driver cells must satisfy them."
+    ),
+  }
+
+def _reconcile_revenue_formula_driver_cells_to_targets(
+  *,
+  parsed: Optional[Dict[str, Any]],
+  baseline_map: Optional[Dict[str, List[float]]],
+) -> Dict[str, Any]:
+  """Adjust authored upstream revenue drivers so formula cells meet locked targets."""
+  decision = parsed if isinstance(parsed, dict) else {}
+  primary_metrics = {
+    str(item or "").strip().lower()
+    for item in (decision.get("primary_target_metric_names") or [])
+    if str(item or "").strip()
+  }
+  if "revenue" not in primary_metrics:
+    return {"reconciled": False, "metric_names": []}
+  revenue_targets = _target_metric_value_by_quarter(
+    targets_by_quarter=decision.get("targets_by_quarter") or [],
+    metric_name="revenue",
+  )
+  if not revenue_targets:
+    return {"reconciled": False, "metric_names": ["revenue"], "reason": "no_revenue_targets"}
+
+  repair_cells = [
+    item for item in (decision.get("model_input_repair_cells") or [])
+    if isinstance(item, dict)
+  ]
+  cells_by_lever_quarter: Dict[Tuple[str, int], Dict[str, Any]] = {}
+  for cell in repair_cells:
+    lever_id = str(cell.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(cell.get("quarter_index")) or 0)
+    if lever_id and quarter_index >= 1:
+      cells_by_lever_quarter[(lever_id, quarter_index)] = cell
+
+  exact_updates = _exact_updates_from_model_input_repair_cells(
+    model_input_repair_cells=copy.deepcopy(repair_cells)
+  )
+  updates_by_lever_quarter: Dict[str, Dict[int, float]] = {}
+  for update in exact_updates:
+    lever_id = str(update.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(update.get("quarter_index")) or 0)
+    exact_value = _safe_float(update.get("exact_value"))
+    if lever_id and quarter_index >= 1 and exact_value is not None:
+      updates_by_lever_quarter.setdefault(lever_id, {})[quarter_index] = float(exact_value)
+
+  baseline = baseline_map if isinstance(baseline_map, dict) else {}
+  revenue_formula_groups: Dict[str, Dict[str, str]] = {}
+  for lever_id in baseline.keys():
+    mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+    if str(mapping_entry.get("target_metric_name") or "").strip().lower() != "revenue":
+      continue
+    if str(mapping_entry.get("driver_bundle") or "").strip().lower() != "revenue_formula_bundle":
+      continue
+    target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+    if target_driver not in {"capacity", "unit_price", "utilization"}:
+      continue
+    group_key = str(lever_id).rsplit("::", 1)[0]
+    revenue_formula_groups.setdefault(group_key, {})[target_driver] = lever_id
+  complete_groups = [
+    drivers
+    for drivers in revenue_formula_groups.values()
+    if all(driver in drivers for driver in ("capacity", "unit_price", "utilization"))
+  ]
+  if len(complete_groups) != 1:
+    return {
+      "reconciled": False,
+      "metric_names": ["revenue"],
+      "reason": "revenue_formula_reconciliation_requires_single_complete_group",
+      "complete_group_count": len(complete_groups),
+    }
+  drivers = complete_groups[0]
+
+  def _value_for(lever_id: str, quarter_index: int) -> Optional[float]:
+    if quarter_index in (updates_by_lever_quarter.get(lever_id) or {}):
+      return float((updates_by_lever_quarter.get(lever_id) or {}).get(quarter_index) or 0.0)
+    values = baseline.get(lever_id)
+    if isinstance(values, list) and 1 <= quarter_index <= len(values):
+      return float(_safe_float(values[quarter_index - 1]) or 0.0)
+    return None
+
+  reconciled_rows: List[Dict[str, Any]] = []
+  for quarter_index, target_value in sorted(revenue_targets.items()):
+    capacity = _value_for(drivers["capacity"], quarter_index)
+    unit_price = _value_for(drivers["unit_price"], quarter_index)
+    utilization = _value_for(drivers["utilization"], quarter_index)
+    if capacity is None or unit_price is None or utilization is None:
+      continue
+    computed_revenue = float(capacity) * float(unit_price) * float(utilization)
+    tolerance = _target_metric_tolerance(
+      target_tolerances=decision.get("target_tolerances") or [],
+      metric_name="revenue",
+      target_value=float(target_value),
+    )
+    if abs(float(computed_revenue) - float(target_value)) <= tolerance:
+      continue
+    candidates: List[Tuple[str, Optional[float]]] = []
+    if float(capacity) > 0 and float(unit_price) > 0:
+      candidates.append(("utilization", float(target_value) / (float(capacity) * float(unit_price))))
+    if float(capacity) > 0 and float(utilization) > 0:
+      candidates.append(("unit_price", float(target_value) / (float(capacity) * float(utilization))))
+    if float(unit_price) > 0 and float(utilization) > 0:
+      candidates.append(("capacity", float(target_value) / (float(unit_price) * float(utilization))))
+    ranked_candidates: List[Dict[str, Any]] = []
+    for driver_name, raw_value in candidates:
+      if raw_value is None:
+        continue
+      if driver_name == "utilization" and not (0.0 <= float(raw_value) <= 1.0):
+        continue
+      if driver_name in {"unit_price", "capacity"} and float(raw_value) < 0.0:
+        continue
+      lever_id = drivers[driver_name]
+      cell = cells_by_lever_quarter.get((lever_id, quarter_index))
+      if not isinstance(cell, dict):
+        continue
+      normalized_value = post_intake_normalize_lever_value(lever_id, raw_value)
+      candidate_capacity = float(capacity)
+      candidate_unit_price = float(unit_price)
+      candidate_utilization = float(utilization)
+      normalized_float = float(_safe_float(normalized_value) or 0.0)
+      if driver_name == "capacity":
+        candidate_capacity = normalized_float
+      elif driver_name == "unit_price":
+        candidate_unit_price = normalized_float
+      elif driver_name == "utilization":
+        candidate_utilization = normalized_float
+      candidate_revenue = candidate_capacity * candidate_unit_price * candidate_utilization
+      candidate_gap = abs(float(candidate_revenue) - float(target_value))
+      ranked_candidates.append(
+        {
+          "driver_name": driver_name,
+          "lever_id": lever_id,
+          "cell": cell,
+          "normalized_value": normalized_value,
+          "candidate_revenue": candidate_revenue,
+          "candidate_gap": candidate_gap,
+          "within_tolerance": candidate_gap <= tolerance,
+        }
+      )
+    adjusted = False
+    for candidate in sorted(
+      ranked_candidates,
+      key=lambda item: (
+        0 if bool(item.get("within_tolerance")) else 1,
+        float(item.get("candidate_gap") or 0.0),
+      ),
+    ):
+      driver_name = str(candidate.get("driver_name") or "").strip()
+      lever_id = str(candidate.get("lever_id") or "").strip()
+      cell = candidate.get("cell")
+      if not isinstance(cell, dict) or not lever_id:
+        continue
+      normalized_value = candidate.get("normalized_value")
+      cell["value"] = normalized_value
+      updates_by_lever_quarter.setdefault(lever_id, {})[quarter_index] = float(_safe_float(normalized_value) or 0.0)
+      reconciled_rows.append(
+        {
+          "quarter_index": quarter_index,
+          "adjusted_driver": driver_name,
+          "lever_id": lever_id,
+          "previous_computed_revenue": int(round(float(computed_revenue))),
+          "reconciled_computed_revenue": int(round(float(_safe_float(candidate.get("candidate_revenue")) or 0.0))),
+          "target_revenue": int(round(float(target_value))),
+          "normalized_driver_value": normalized_value,
+          "source": "table_formula_driver_reconciliation",
+        }
+      )
+      adjusted = True
+      break
+    if not adjusted:
+      continue
+  return {
+    "reconciled": bool(reconciled_rows),
+    "metric_names": ["revenue"],
+    "rows": copy.deepcopy(reconciled_rows[:20]),
+    "rule": "adjust already-authored formula driver cells to satisfy locked revenue targets before solver application",
   }
 
 def _revenue_formula_driver_cells_contract_error(
@@ -2932,8 +3215,13 @@ def _run_unified_convergence_openai(
     full_horizon_model_input_repair_contract=copy.deepcopy(full_horizon_model_input_repair_contract),
   )
   formula_target_derivation_summary = {}
+  formula_driver_reconciliation_summary = {}
   if not model_input_cell_contract_error:
     formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+      parsed=parsed,
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+    )
+    formula_driver_reconciliation_summary = _reconcile_revenue_formula_driver_cells_to_targets(
       parsed=parsed,
       baseline_map=copy.deepcopy(scoped_baseline_map),
     )
@@ -2950,6 +3238,10 @@ def _run_unified_convergence_openai(
   )
   if not model_input_cell_contract_error:
     formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+      parsed=parsed,
+      baseline_map=copy.deepcopy(scoped_baseline_map),
+    )
+    formula_driver_reconciliation_summary = _reconcile_revenue_formula_driver_cells_to_targets(
       parsed=parsed,
       baseline_map=copy.deepcopy(scoped_baseline_map),
     )
@@ -3142,8 +3434,13 @@ def _run_unified_convergence_openai(
       full_horizon_model_input_repair_contract=copy.deepcopy(full_horizon_model_input_repair_contract),
     )
     retry_formula_target_derivation_summary = {}
+    retry_formula_driver_reconciliation_summary = {}
     if not retry_model_input_cell_contract_error:
       retry_formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+        parsed=parsed_retry,
+        baseline_map=copy.deepcopy(scoped_baseline_map),
+      )
+      retry_formula_driver_reconciliation_summary = _reconcile_revenue_formula_driver_cells_to_targets(
         parsed=parsed_retry,
         baseline_map=copy.deepcopy(scoped_baseline_map),
       )
@@ -3160,6 +3457,10 @@ def _run_unified_convergence_openai(
     )
     if not retry_model_input_cell_contract_error:
       retry_formula_target_derivation_summary = _normalize_formula_targets_from_model_input_repair_cells(
+        parsed=parsed_retry,
+        baseline_map=copy.deepcopy(scoped_baseline_map),
+      )
+      retry_formula_driver_reconciliation_summary = _reconcile_revenue_formula_driver_cells_to_targets(
         parsed=parsed_retry,
         baseline_map=copy.deepcopy(scoped_baseline_map),
       )
@@ -3183,9 +3484,11 @@ def _run_unified_convergence_openai(
         "detail": str(retry_contract_error).strip(),
         "decision": {},
         "formula_target_derivation": copy.deepcopy(retry_formula_target_derivation_summary),
+        "formula_driver_reconciliation": copy.deepcopy(retry_formula_driver_reconciliation_summary),
       }
     parsed = parsed_retry
     formula_target_derivation_summary = copy.deepcopy(retry_formula_target_derivation_summary)
+    formula_driver_reconciliation_summary = copy.deepcopy(retry_formula_driver_reconciliation_summary)
   return {
     "contract_version": "unified_convergence_decision_v1",
     "numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
@@ -3198,6 +3501,7 @@ def _run_unified_convergence_openai(
     "detail": "",
     "decision": parsed,
     "formula_target_derivation": copy.deepcopy(formula_target_derivation_summary),
+    "formula_driver_reconciliation": copy.deepcopy(formula_driver_reconciliation_summary),
     "full_horizon_model_input_repair_contract": copy.deepcopy(full_horizon_model_input_repair_contract),
   }
 

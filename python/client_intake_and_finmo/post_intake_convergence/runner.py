@@ -6,6 +6,7 @@ runtime helpers once and then calls this module as the convergence phase owner.
 
 from __future__ import annotations
 
+import copy
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,7 +30,7 @@ from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ig
 )
 
 _CYCLE_DEADLINE_GUARD_SECONDS = 8.0
-_PLANNER_GPT_MAX_SECONDS = 75.0
+_PLANNER_GPT_MAX_SECONDS = 150.0
 _PLAN_BUILDER_MAX_SECONDS = 35.0
 _VERIFICATION_GPT_MAX_SECONDS = 45.0
 _RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
@@ -39,6 +40,15 @@ _RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
 _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
 _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
+
+
+def _safe_float(value: Any) -> Optional[float]:
+  if value is None or value == "":
+    return None
+  try:
+    return float(value)
+  except Exception:
+    return None
 
 
 def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
@@ -101,7 +111,7 @@ def _reset_non_productive_cycle_tracker(retry_memory: Dict[str, Any]) -> None:
 
 def _hard_rule_failure_count(assessment: Optional[Dict[str, Any]]) -> int:
   payload = assessment if isinstance(assessment, dict) else {}
-  if bool(payload.get("all_hard_rules_cleared")) or bool(payload.get("all_cleared")):
+  if bool(payload.get("all_hard_rules_cleared")):
     return 0
   for key in ("failed_count", "violation_count", "failure_count", "open_violation_count"):
     value = _safe_float(payload.get(key))
@@ -113,6 +123,140 @@ def _hard_rule_failure_count(assessment: Optional[Dict[str, Any]]) -> int:
     if isinstance(value, list):
       count += len(value)
   return count
+
+
+def _apply_stage_ramp_revenue_driver_limits(
+  *,
+  model_input_json: Optional[Dict[str, Any]],
+  finmo_json: Optional[Dict[str, Any]],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  """Use mapped revenue formula drivers to enforce the stage-ramp max path."""
+  from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
+  from client_intake_and_finmo.post_intake_convergence.runtime import _solved_lever_value_map  # type: ignore
+  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+    post_intake_driver_target_mapping_entry,
+    post_intake_normalize_lever_value,
+  )
+  from client_intake_and_finmo.quarter_grid import apply_exact_lever_updates_to_model_input  # type: ignore
+
+  def _stage_rows(contract: Any) -> Dict[int, Dict[str, Any]]:
+    payload = contract if isinstance(contract, dict) else {}
+    return {
+      int(_safe_float(row.get("quarter_index") or row.get("q")) or 0): row
+      for row in (payload.get("quarter_ramp_grid") or [])
+      if isinstance(row, dict) and int(_safe_float(row.get("quarter_index") or row.get("q")) or 0) >= 1
+    }
+
+  def _growth_multiplier(value: Any) -> Optional[float]:
+    parsed = _safe_float(value)
+    if parsed is None or parsed <= 0:
+      return None
+    return float(parsed) if parsed >= 1.0 else 1.0 + float(parsed)
+
+  next_model_input = copy.deepcopy(model_input_json if isinstance(model_input_json, dict) else {})
+  next_finmo = copy.deepcopy(finmo_json if isinstance(finmo_json, dict) else {})
+  ramp_rows = _stage_rows(stage_ramp_contract)
+  if not next_model_input or not ramp_rows:
+    return next_model_input, next_finmo, {"applied": False, "reason": "missing_model_or_stage_ramp"}
+
+  adjustment_rows: List[Dict[str, Any]] = []
+  for _attempt in range(4):
+    revenue_by_q = {
+      int(_safe_float(row.get("quarter_index")) or 0): float(_safe_float(row.get("revenue")) or 0.0)
+      for row in ((next_finmo or {}).get("quarter_rows") or [])
+      if isinstance(row, dict) and int(_safe_float(row.get("quarter_index")) or 0) >= 1
+    }
+    baseline = _solved_lever_value_map(next_model_input)
+    formula_groups: Dict[str, Dict[str, str]] = {}
+    for lever_id in baseline.keys():
+      mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+      if str(mapping_entry.get("target_metric_name") or "").strip().lower() != "revenue":
+        continue
+      if str(mapping_entry.get("driver_bundle") or "").strip().lower() != "revenue_formula_bundle":
+        continue
+      target_driver = str(mapping_entry.get("target_driver") or "").strip().lower()
+      if target_driver in {"capacity", "unit_price", "utilization"}:
+        formula_groups.setdefault(str(lever_id).rsplit("::", 1)[0], {})[target_driver] = str(lever_id)
+    complete_groups = [
+      group for group in formula_groups.values()
+      if all(driver in group for driver in ("capacity", "unit_price", "utilization"))
+    ]
+    if len(complete_groups) != 1:
+      return next_model_input, next_finmo, {
+        "applied": bool(adjustment_rows),
+        "reason": "requires_single_revenue_formula_group",
+        "adjustments": adjustment_rows,
+      }
+    drivers = complete_groups[0]
+    updates: List[Dict[str, Any]] = []
+
+    for quarter in range(2, 21):
+      previous_revenue = revenue_by_q.get(quarter - 1)
+      current_revenue = revenue_by_q.get(quarter)
+      ramp_row = ramp_rows.get(quarter) or {}
+      max_growth = _growth_multiplier(ramp_row.get("revenue_qoq_max") or ramp_row.get("rev_max"))
+      if previous_revenue is None or current_revenue is None or previous_revenue <= 0.0 or max_growth is None:
+        continue
+      maximum_revenue = float(previous_revenue) * float(max_growth)
+      if float(current_revenue) <= maximum_revenue + max(1.0, maximum_revenue * 0.001):
+        continue
+
+      def _lever_value(driver_name: str) -> Optional[float]:
+        values = baseline.get(drivers[driver_name])
+        if isinstance(values, list) and 1 <= quarter <= len(values):
+          return _safe_float(values[quarter - 1])
+        return None
+
+      capacity = _lever_value("capacity")
+      unit_price = _lever_value("unit_price")
+      utilization = _lever_value("utilization")
+      if capacity is None or unit_price is None or utilization is None:
+        continue
+      candidates: List[Dict[str, Any]] = []
+      if float(capacity) > 0.0 and float(utilization) > 0.0:
+        lever_id = drivers["unit_price"]
+        normalized = post_intake_normalize_lever_value(
+          lever_id,
+          maximum_revenue / (float(capacity) * float(utilization)),
+        )
+        projected = float(capacity) * float(_safe_float(normalized) or 0.0) * float(utilization)
+        candidates.append({"lever_id": lever_id, "exact_value": normalized, "projected_revenue": projected})
+      if float(capacity) > 0.0 and float(unit_price) > 0.0:
+        raw_utilization = maximum_revenue / (float(capacity) * float(unit_price))
+        if 0.0 <= raw_utilization <= 1.0:
+          lever_id = drivers["utilization"]
+          normalized = post_intake_normalize_lever_value(lever_id, raw_utilization)
+          projected = float(capacity) * float(unit_price) * float(_safe_float(normalized) or 0.0)
+          candidates.append({"lever_id": lever_id, "exact_value": normalized, "projected_revenue": projected})
+      candidates.sort(key=lambda item: abs(float(item.get("projected_revenue") or 0.0) - maximum_revenue))
+      if not candidates:
+        continue
+      chosen = candidates[0]
+      updates.append({"lever_id": chosen["lever_id"], "quarter_index": quarter, "exact_value": chosen["exact_value"]})
+      adjustment_rows.append(
+        {
+          "quarter_index": quarter,
+          "previous_revenue": int(round(float(previous_revenue))),
+          "actual_revenue": int(round(float(current_revenue))),
+          "maximum_revenue": int(round(float(maximum_revenue))),
+          "adjusted_lever_id": chosen["lever_id"],
+          "adjusted_value": chosen["exact_value"],
+          "projected_revenue": int(round(float(chosen.get("projected_revenue") or 0.0))),
+        }
+      )
+    if not updates:
+      break
+    next_model_input = apply_exact_lever_updates_to_model_input(
+      model_input_json=copy.deepcopy(next_model_input),
+      exact_updates=updates,
+    )
+    next_finmo = build_python_finmo_json(model_input_json=copy.deepcopy(next_model_input))
+  return next_model_input, next_finmo, {
+    "applied": bool(adjustment_rows),
+    "adjustments": adjustment_rows,
+    "rule": "stage_ramp_revenue_max_enforced_by_revenue_formula_driver_adjustment",
+  }
 
 
 def _controller_issue_records(state: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -176,6 +320,90 @@ def _controller_issue_gap_summary(state: Optional[Dict[str, Any]]) -> Dict[str, 
     "total_gap_abs": total_gap_abs,
     "total_severity_score": total_severity,
     "by_issue": by_issue,
+  }
+
+
+def _payroll_repair_trigger_from_failure(previous_contract_failure: Dict[str, Any]) -> str:
+  failure_text = str(previous_contract_failure or "").lower()
+  if "payroll_stage_profitability_feasibility_failed" in failure_text:
+    return "payroll_stage_profitability_feasibility_failed"
+  return "payroll_revenue_economic_feasibility_failed"
+
+
+def _payroll_repair_failure_from_issue_ledger(
+  issue_status_records: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+  candidate_records: List[Dict[str, Any]] = []
+  stage_profitability_failure = False
+  for record in issue_status_records or []:
+    if not isinstance(record, dict):
+      continue
+    text = str(record).lower()
+    metric_debug = record.get("metric_debug") if isinstance(record.get("metric_debug"), list) else []
+    metric_names = {
+      str(item.get("metric_name") or "").strip().lower()
+      for item in metric_debug
+      if isinstance(item, dict)
+    }
+    if (
+      "payroll_revenue_economic_feasibility_failed" in text
+      or "payroll_stage_profitability_feasibility_failed" in text
+      or "payroll_revenue_feasibility_violations" in text
+      or "payroll_headcount_schedule" in text and "profitability" in text
+      or "payroll" in metric_names
+    ):
+      if (
+        "payroll_stage_profitability_feasibility_failed" in text
+        or "stage_maturity" in text
+        or "profitability" in text
+        or any(
+          isinstance(item, dict)
+          and (
+            item.get("actual_net_income_margin") is not None
+            or item.get("stage_maturity_floor_margin") is not None
+          )
+          for item in metric_debug
+        )
+      ):
+        stage_profitability_failure = True
+      candidate_records.append(copy.deepcopy(record))
+  if not candidate_records:
+    return {}
+  signature_bits: List[str] = []
+  for record in candidate_records[:3]:
+    issue_code = str(record.get("issue_code") or record.get("issue") or "").strip().lower()
+    quarters = [
+      int(_safe_float(item) or 0)
+      for item in (record.get("remaining_problem_quarters") or [])
+      if int(_safe_float(item) or 0) >= 1
+    ]
+    payroll_metrics = [
+      {
+        "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
+        "actual_value": _safe_float(item.get("actual_value")),
+        "target_floor": _safe_float(item.get("target_floor")),
+        "target_ceiling": _safe_float(item.get("target_ceiling")),
+      }
+      for item in (record.get("metric_debug") or [])
+      if isinstance(item, dict)
+      and str(item.get("metric_name") or "").strip().lower() == "payroll"
+    ][:4]
+    signature_bits.append(
+      f"{issue_code}:{','.join(str(q) for q in quarters[:8])}:{payroll_metrics}"
+    )
+  return {
+    "error": (
+      "payroll_stage_profitability_feasibility_failed"
+      if stage_profitability_failure
+      else "payroll_revenue_economic_feasibility_failed"
+    ),
+    "source": "convergence_issue_ledger",
+    "signature": "|".join(signature_bits),
+    "required_rebuild": (
+      "Rebuild payroll_headcount_schedule using GPT's OEWS title/FTE/productivity contract, "
+      "then rederive payroll-supported Capacity, rebuild revenue and payroll, and rerun FINMO."
+    ),
+    "issue_records": candidate_records[:5],
   }
 
 
@@ -325,6 +553,76 @@ def _run_unified_post_grid_system_run(
     catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json or {}),
   )
   final_payroll_headcount_payload = copy.deepcopy(payroll_headcount or {})
+
+  def _apply_payroll_authority(
+    *,
+    process_step_key: str = "payroll_headcount_schedule",
+  ) -> None:
+    nonlocal final_model_input_json, final_finmo_json
+    if not isinstance(final_payroll_headcount_payload, dict) or not final_payroll_headcount_payload:
+      return
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      apply_derived_driver_policies_to_model_input,
+      build_python_finmo_json,
+    )
+    from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
+      apply_payroll_headcount_payload_to_model_input,
+      apply_payroll_supported_capacity_to_model_input,
+    )
+
+    horizon = int(
+      post_intake_contract_forecast_horizon_quarter_count(
+        contract_name="payroll_headcount_schedule",
+      )
+      or _contract_forecast_quarter_count()
+    )
+    capacity_model_input_json = apply_payroll_supported_capacity_to_model_input(
+      copy.deepcopy(final_model_input_json),
+      copy.deepcopy(final_payroll_headcount_payload),
+      live_count=horizon,
+      process_step_key=process_step_key,
+      control_action="derive",
+      control_trigger="payroll_headcount_changed",
+    )
+    final_model_input_json = apply_payroll_headcount_payload_to_model_input(
+      copy.deepcopy(capacity_model_input_json),
+      copy.deepcopy(final_payroll_headcount_payload),
+      live_count=horizon,
+      process_step_key=process_step_key,
+      control_action="derive",
+      control_trigger="payroll_headcount_changed",
+    )
+    final_model_input_json = apply_derived_driver_policies_to_model_input(
+      copy.deepcopy(final_model_input_json),
+    )
+    final_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(final_model_input_json))
+
+  def _reapply_payroll_authority() -> None:
+    _apply_payroll_authority()
+
+  def _rebuild_payroll_authority(previous_contract_failure: Dict[str, Any]) -> None:
+    nonlocal final_payroll_headcount_payload
+    from client_intake_and_finmo.post_intake_headcount import estimate_payroll_headcount_schedule_with_gpt  # type: ignore
+
+    final_payroll_headcount_payload = estimate_payroll_headcount_schedule_with_gpt(
+      business_facts=copy.deepcopy(business_facts or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      people_json=copy.deepcopy(people_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      finmo_json=copy.deepcopy(final_finmo_json or {}),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+      draft_id=str(draft_id).strip(),
+      client_id=str((business_facts or {}).get("client_id") or "").strip(),
+      previous_contract_failure=copy.deepcopy(previous_contract_failure or {}),
+    )
+    _apply_payroll_authority(
+      process_step_key="payroll_feasibility_repair",
+    )
+
   if not isinstance(stage_ramp_contract, dict) or not stage_ramp_contract:
     raise RuntimeError(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
@@ -429,6 +727,7 @@ def _run_unified_post_grid_system_run(
     "latest_validation_error": {},
     "recent_validation_errors": [],
     "attempt_records": [],
+    "payroll_repair_attempt_signatures": [],
     "prior_controller_state_summary": {},
     "latest_controller_state_summary": {
       "overall_completion_score_pct": int(_safe_float(controller_resolution_state.get("overall_completion_score_pct")) or 0),
@@ -468,6 +767,60 @@ def _run_unified_post_grid_system_run(
       latest_quality_assessment=latest_quality_assessment,
     )
     return next_context, copy.deepcopy(next_hard_rules)
+
+  def _refresh_current_issue_state_from_scan(*, iteration: int) -> None:
+    nonlocal realism_issue_ledger, resolution_summary, realism_memo_json
+    nonlocal controller_resolution_state, protected_resolved_issue_constraints
+    scan_memo = {
+      "contract_version": "post_intake_deterministic_issue_detection_v1",
+      "status": "ready",
+      "source_of_truth": "deterministic_table_backed_issue_detectors",
+      "issues": [],
+      "remaining_issues": [],
+    }
+    capacity_support_scan_issue_set = _build_capacity_support_issue_status_records(
+      finmo_json=copy.deepcopy(final_finmo_json),
+      model_input_json=copy.deepcopy(final_model_input_json),
+      iteration=iteration,
+    )
+    flatline_scan_issue_set = _build_p_and_l_flatline_issue_status_records(
+      model_input_json=copy.deepcopy(final_model_input_json),
+      finmo_json=copy.deepcopy(final_finmo_json),
+      iteration=iteration,
+    )
+    stage_maturity_scan_issue_set = _build_stage_maturity_cost_structure_issue_status_records(
+      model_input_json=copy.deepcopy(final_model_input_json),
+      finmo_json=copy.deepcopy(final_finmo_json),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      iteration=iteration,
+    )
+    realism_issue_ledger = _refresh_issue_status_records_from_scan(
+      existing_issue_status_records=[],
+      scanned_issue_status_records=(
+        copy.deepcopy(capacity_support_scan_issue_set)
+        + copy.deepcopy(flatline_scan_issue_set)
+        + copy.deepcopy(stage_maturity_scan_issue_set)
+      ),
+      iteration=iteration,
+    )
+    resolution_summary = _build_resolution_summary_from_issue_ledger(
+      before_memo=copy.deepcopy(scan_memo),
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+    )
+    realism_memo_json = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(scan_memo),
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+      resolution_summary=copy.deepcopy(resolution_summary),
+      iteration=iteration,
+    )
+    controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+      iteration=iteration,
+      current_finmo_json=copy.deepcopy(final_finmo_json),
+    )
+    protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
+      copy.deepcopy(realism_issue_ledger)
+    )
 
   unified_convergence_context, hard_rule_assessment = _rebuild_unified_context()
   _persist_unified_convergence_state(
@@ -529,6 +882,72 @@ def _run_unified_post_grid_system_run(
     }
     phase_started_at = cycle_started_at
     previous_cycle_openai_deadline = _set_active_openai_deadline(cycle_deadline)
+
+    payroll_repair_failure = _payroll_repair_failure_from_issue_ledger(realism_issue_ledger)
+    payroll_repair_signature = str(payroll_repair_failure.get("signature") or "").strip()
+    attempted_payroll_repairs = [
+      str(item or "").strip()
+      for item in (retry_memory.get("payroll_repair_attempt_signatures") or [])
+      if str(item or "").strip()
+    ]
+    if payroll_repair_failure and payroll_repair_signature not in attempted_payroll_repairs:
+      phase_started_at = time.perf_counter()
+      _rebuild_payroll_authority(copy.deepcopy(payroll_repair_failure))
+      retry_memory["payroll_repair_attempt_signatures"] = _bounded_tail(
+        attempted_payroll_repairs + [payroll_repair_signature],
+        _RETRY_MEMORY_MAX_ATTEMPT_RECORDS,
+      )
+      _refresh_current_issue_state_from_scan(iteration=unified_convergence_cycle_count)
+      unified_convergence_context, hard_rule_assessment = _rebuild_unified_context()
+      _mark_unified_convergence_cycle_phase(
+        cycle_timing=cycle_timing,
+        cycle_started_at=cycle_started_at,
+        phase_name="payroll_feasibility_repair",
+        phase_started_at=phase_started_at,
+        detail=str(payroll_repair_failure.get("error") or "").strip(),
+      )
+      _persist_unified_convergence_state(
+        conn=conn,
+        draft_id=str(draft_id).strip(),
+        stage="convergence_running",
+        status="running",
+        planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+        controller_resolution_state=copy.deepcopy(controller_resolution_state),
+        resolution_summary=copy.deepcopy(resolution_summary),
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        prompt_file=prompt_file,
+        grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+        realism_memo_before_resolution=copy.deepcopy(realism_memo_before_resolution),
+        realism_memo_json=copy.deepcopy(realism_memo_json),
+        unified_convergence_context=copy.deepcopy(unified_convergence_context),
+        unified_convergence_decision=copy.deepcopy(unified_convergence_decision),
+        unified_convergence_plan=copy.deepcopy(unified_convergence_plan),
+        unified_convergence_result={
+          "contract_version": "unified_convergence_result_v1",
+          "status": "payroll_feasibility_rebuilt",
+          "payroll_repair_failure": copy.deepcopy(payroll_repair_failure),
+        },
+        unified_convergence_iterations=copy.deepcopy(unified_convergence_iterations),
+        unified_convergence_cycle_count=unified_convergence_cycle_count,
+        model_input_json=copy.deepcopy(final_model_input_json),
+        finmo_json=copy.deepcopy(final_finmo_json),
+      )
+      _raise_unified_convergence_cycle_timeout_if_needed(
+        cycle=unified_convergence_cycle_count,
+        cycle_started_at=cycle_started_at,
+        stage="payroll_feasibility_repair",
+        detail=str(payroll_repair_failure.get("error") or "").strip(),
+        cycle_timing=cycle_timing,
+      )
+      if (
+        bool(controller_resolution_state.get("all_cleared"))
+        and bool(hard_rule_assessment.get("all_hard_rules_cleared"))
+      ):
+        _set_active_openai_deadline(previous_cycle_openai_deadline)
+        continue
+      _set_active_openai_deadline(previous_cycle_openai_deadline)
+      continue
 
     baseline_model_input_json = copy.deepcopy(final_model_input_json)
     baseline_finmo_json = copy.deepcopy(final_finmo_json)
@@ -715,7 +1134,10 @@ def _run_unified_post_grid_system_run(
       cycle_started_at=cycle_started_at,
       stage="planner_gpt_start",
       minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
-      detail="Planner GPT call cannot start without enough cycle budget to return before the 180s wall.",
+      detail=(
+        "Planner GPT call cannot start without enough cycle budget to return before the "
+        f"{_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS:.0f}s wall."
+      ),
       cycle_timing=cycle_timing,
     )
     phase_started_at = time.perf_counter()
@@ -1089,6 +1511,7 @@ def _run_unified_post_grid_system_run(
       catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json or {}),
     )
     final_finmo_json = copy.deepcopy(unified_convergence_result.get("updated_finmo_json") or {})
+    _reapply_payroll_authority()
 
     post_solver_business_world_contract = _business_world_contract(
       business_facts=copy.deepcopy(business_facts or {}),
@@ -1346,7 +1769,7 @@ def _run_unified_post_grid_system_run(
         ),
         iteration=next_iteration,
       )
-      realism_issue_ledger = _merge_new_scan_detected_issues(
+      realism_issue_ledger = _refresh_issue_status_records_from_scan(
         existing_issue_status_records=copy.deepcopy(verified_issue_ledger),
         scanned_issue_status_records=copy.deepcopy(scan_issue_set),
         iteration=next_iteration,
@@ -2056,6 +2479,22 @@ def _run_unified_post_grid_system_run(
     ],
     required_horizon_rule="validate_all_q1_to_q20",
   )
+  final_model_input_json, final_finmo_json, stage_ramp_revenue_limit_repair = _apply_stage_ramp_revenue_driver_limits(
+    model_input_json=copy.deepcopy(final_model_input_json),
+    finmo_json=copy.deepcopy(final_finmo_json),
+    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+  )
+  if bool((stage_ramp_revenue_limit_repair or {}).get("applied")):
+    cash_pass_phase_trace = _record_cash_pass_phase(
+      cash_pass_phase_trace,
+      cash_pass_phase_contract,
+      "stage_ramp_revenue_driver_limit_repair",
+      model_input_json=copy.deepcopy(final_model_input_json),
+      finmo_json=copy.deepcopy(final_finmo_json),
+      detail="Adjusted mapped revenue formula drivers so final revenue stays inside the stage-ramp max path.",
+    )
+    cash_strategy_second_pass_result["stage_ramp_revenue_limit_repair"] = copy.deepcopy(stage_ramp_revenue_limit_repair)
+    cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   _raise_p_and_l_flatline_if_needed(
     final_model_input_json=copy.deepcopy(final_model_input_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),

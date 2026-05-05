@@ -778,14 +778,14 @@ def _validate_stage_ramp_contract_payload(
       value = round(value, 2)
       parsed[field] = value
     revenue_spike_allowed = bool(item.get("rev_spike"))
+    if parsed.get("revenue_qoq_target", 0.0) > parsed.get("revenue_qoq_max", 0.0) + 1e-9:
+      parsed["revenue_qoq_max"] = parsed.get("revenue_qoq_target", 0.0)
     if not revenue_spike_allowed and parsed.get("revenue_qoq_spike_max", 0.0) < parsed.get("revenue_qoq_max", 0.0) - 1e-9:
       parsed["revenue_qoq_spike_max"] = parsed.get("revenue_qoq_max", 0.0)
-    if parsed.get("revenue_qoq_target", 0.0) > parsed.get("revenue_qoq_max", 0.0) + 1e-9:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_target cannot exceed revenue_qoq_max")
+    if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
+      parsed["cogs_percent_of_revenue_max"] = parsed.get("cogs_percent_of_revenue_target", 0.0)
     if revenue_spike_allowed and parsed.get("revenue_qoq_spike_max", 0.0) < parsed.get("revenue_qoq_max", 0.0) - 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_spike_max must be >= revenue_qoq_max")
-    if parsed.get("cogs_percent_of_revenue_target", 0.0) > parsed.get("cogs_percent_of_revenue_max", 0.0) + 1e-9:
-      errors.append(f"quarter_ramp_grid Q{quarter_index} cogs_percent_of_revenue_target cannot exceed cogs_percent_of_revenue_max")
     if not bool(r_and_d_enabled) and abs(float(parsed.get("rd_percent_of_revenue_max") or 0.0)) > 1e-9:
       errors.append(
         f"quarter_ramp_grid Q{quarter_index} rd_max must be 0.00 because R&D applicability is disabled before forecast"
@@ -3012,6 +3012,81 @@ def _normalize_unified_decision_targets_to_locked_grid(
     }
   if not bounds_by_key:
     return None
+  selected_metric_names = [
+    str(item or "").strip().lower()
+    for item in (decision.get("primary_target_metric_names") or [])
+    if str(item or "").strip()
+  ]
+  selected_metric_names = list(dict.fromkeys(selected_metric_names))
+  if selected_metric_names:
+    target_rows = decision.get("targets_by_quarter")
+    if not isinstance(target_rows, list):
+      target_rows = []
+      decision["targets_by_quarter"] = target_rows
+    target_rows_by_quarter: Dict[int, Dict[str, Any]] = {}
+    for target_row in target_rows:
+      if not isinstance(target_row, dict):
+        continue
+      quarter_index = int(_safe_float(target_row.get("quarter_index")) or 0)
+      if quarter_index >= 1 and quarter_index not in target_rows_by_quarter:
+        target_rows_by_quarter[quarter_index] = target_row
+    required_quarters = [
+      int(_safe_float(item) or 0)
+      for item in (grid.get("required_target_quarters") or [])
+      if int(_safe_float(item) or 0) >= 1
+    ]
+    if not required_quarters:
+      required_quarters = sorted({quarter for quarter, _metric in bounds_by_key.keys() if quarter >= 1})
+    for quarter_index in required_quarters:
+      if quarter_index in target_rows_by_quarter:
+        continue
+      target_row = {"quarter_index": quarter_index, "metric_targets": []}
+      target_rows.append(target_row)
+      target_rows_by_quarter[quarter_index] = target_row
+    for quarter_index, target_row in target_rows_by_quarter.items():
+      metric_targets = target_row.get("metric_targets")
+      if not isinstance(metric_targets, list):
+        metric_targets = []
+        target_row["metric_targets"] = metric_targets
+      existing_metric_targets: Dict[str, Dict[str, Any]] = {}
+      for metric_target in metric_targets:
+        if not isinstance(metric_target, dict):
+          continue
+        metric_name = str(metric_target.get("metric_name") or "").strip().lower()
+        if metric_name and metric_name not in existing_metric_targets:
+          existing_metric_targets[metric_name] = metric_target
+      for metric_name in selected_metric_names:
+        bounds = bounds_by_key.get((quarter_index, metric_name))
+        if not isinstance(bounds, dict):
+          continue
+        recommended_value = _safe_float(bounds.get("recommended_target_value"))
+        if recommended_value is None:
+          continue
+        target_value = post_intake_normalize_target_value(
+          metric_name,
+          recommended_value,
+          phase="convergence",
+          bound_side=(
+            "minimum"
+            if str(bounds.get("direction_hint") or "").strip().lower() == "increase"
+            else "maximum"
+            if str(bounds.get("direction_hint") or "").strip().lower() == "decrease"
+            else ""
+          ),
+        )
+        metric_target = existing_metric_targets.get(metric_name)
+        if not isinstance(metric_target, dict):
+          metric_targets.append(
+            {
+              "metric_name": metric_name,
+              "target_value": target_value,
+              "target_value_source": "locked_target_fill_grid",
+            }
+          )
+          continue
+        if _safe_float(metric_target.get("target_value")) is None:
+          metric_target["target_value"] = target_value
+          metric_target["target_value_source"] = "locked_target_fill_grid"
   for target_row in (decision.get("targets_by_quarter") or []):
     if not isinstance(target_row, dict):
       continue

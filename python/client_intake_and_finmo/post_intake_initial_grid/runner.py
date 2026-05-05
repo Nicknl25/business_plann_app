@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Optional
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_assert_required_process_sequence,
   post_intake_contract_forecast_horizon_quarter_count,
+  post_intake_process_sequence_step,
   post_intake_process_step_context,
 )
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: ignore
@@ -148,6 +149,7 @@ def prepare_initial_grid_for_draft(
   from client_intake_and_finmo.financials_consultant import estimate_marketing_baseline_from_context  # type: ignore
   from client_intake_and_finmo.financials_year1 import assemble_financials_year1  # type: ignore
   from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+    apply_derived_driver_policies_to_model_input,
     apply_r_and_d_applicability_policy_to_model_input,
     build_python_finmo_json,
     sync_planning_state_to_finmo,
@@ -156,11 +158,13 @@ def prepare_initial_grid_for_draft(
     apply_balance_sheet_contextual_seed_to_model_input,
   )
   from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
+    apply_payroll_supported_capacity_to_model_input,
     apply_payroll_headcount_payload_to_model_input,
     assert_finmo_payroll_matches_headcount_schedule,
     assert_payroll_headcount_model_input_applied,
     assert_payroll_headcount_payload_ready,
     estimate_payroll_headcount_schedule_with_gpt,
+    payroll_revenue_feasibility_violations,
   )
   from client_intake_and_finmo.quarter_grid import determine_planning_mode, generate_live_quarter_grid_plan, apply_live_quarter_grid_plan  # type: ignore
 
@@ -565,6 +569,7 @@ def prepare_initial_grid_for_draft(
     current_model_input_json: Dict[str, Any],
     current_finmo_json: Dict[str, Any],
     stage_prefix: str,
+    previous_contract_failure: Optional[Dict[str, Any]] = None,
   ) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     sequence_trace["payroll_headcount_schedule"] = post_intake_process_step_context(
       step_key="payroll_headcount_schedule",
@@ -593,6 +598,7 @@ def prepare_initial_grid_for_draft(
       stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
       draft_id=normalized_draft_id,
       client_id=str(draft.get("client_id") or "").strip(),
+      previous_contract_failure=copy.deepcopy(previous_contract_failure or {}),
     )
     payroll_horizon = int(
       post_intake_contract_forecast_horizon_quarter_count(
@@ -605,15 +611,34 @@ def prepare_initial_grid_for_draft(
         "payroll_headcount_schedule_horizon_lookup_failed: "
         "post_intake_gpt_contract_lookup must define payroll_headcount_schedule horizon."
       )
+    payroll_control_step_key = (
+      "payroll_feasibility_repair"
+      if isinstance(previous_contract_failure, dict) and previous_contract_failure
+      else "payroll_headcount_schedule"
+    )
     assert_payroll_headcount_payload_ready(
       copy.deepcopy(schedule_payload),
       model_input_json=copy.deepcopy(current_model_input_json or {}),
       stage=f"{stage_prefix}_payroll_headcount_schedule_built",
     )
-    next_model_input_json = apply_payroll_headcount_payload_to_model_input(
+    capacity_model_input_json = apply_payroll_supported_capacity_to_model_input(
       copy.deepcopy(current_model_input_json),
       copy.deepcopy(schedule_payload),
       live_count=payroll_horizon,
+      process_step_key=payroll_control_step_key,
+      control_action="derive",
+      control_trigger="payroll_headcount_changed",
+    )
+    next_model_input_json = apply_payroll_headcount_payload_to_model_input(
+      copy.deepcopy(capacity_model_input_json),
+      copy.deepcopy(schedule_payload),
+      live_count=payroll_horizon,
+      process_step_key=payroll_control_step_key,
+      control_action="derive",
+      control_trigger="payroll_headcount_changed",
+    )
+    next_model_input_json = apply_derived_driver_policies_to_model_input(
+      copy.deepcopy(next_model_input_json),
     )
     assert_payroll_headcount_model_input_applied(
       copy.deepcopy(next_model_input_json),
@@ -639,6 +664,49 @@ def prepare_initial_grid_for_draft(
         if key in {"contract_version", "schedule_horizon_quarters", "quarter_totals"}
       }
     return schedule_payload, next_model_input_json, next_finmo_json
+
+  def _apply_existing_payroll_authority(
+    *,
+    schedule_payload: Dict[str, Any],
+    current_model_input_json: Dict[str, Any],
+    stage_prefix: str,
+  ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    payroll_horizon = int(
+      post_intake_contract_forecast_horizon_quarter_count(
+        contract_name="payroll_headcount_schedule",
+      )
+      or 0
+    )
+    if payroll_horizon <= 0:
+      raise RuntimeError(
+        "payroll_headcount_schedule_horizon_lookup_failed: "
+        "post_intake_gpt_contract_lookup must define payroll_headcount_schedule horizon."
+      )
+    capacity_model_input_json = apply_payroll_supported_capacity_to_model_input(
+      copy.deepcopy(current_model_input_json),
+      copy.deepcopy(schedule_payload),
+      live_count=payroll_horizon,
+    )
+    next_model_input_json = apply_payroll_headcount_payload_to_model_input(
+      copy.deepcopy(capacity_model_input_json),
+      copy.deepcopy(schedule_payload),
+      live_count=payroll_horizon,
+    )
+    next_model_input_json = apply_derived_driver_policies_to_model_input(
+      copy.deepcopy(next_model_input_json),
+    )
+    assert_payroll_headcount_model_input_applied(
+      copy.deepcopy(next_model_input_json),
+      copy.deepcopy(schedule_payload),
+      stage=f"{stage_prefix}_payroll_authority_reapplied",
+    )
+    next_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(next_model_input_json))
+    assert_finmo_payroll_matches_headcount_schedule(
+      copy.deepcopy(next_finmo_json),
+      copy.deepcopy(schedule_payload),
+      stage=f"{stage_prefix}_payroll_authority_reapplied",
+    )
+    return next_model_input_json, next_finmo_json
 
   if resume_from_checkpoint_state:
     planning_result = {
@@ -691,118 +759,164 @@ def prepare_initial_grid_for_draft(
       payroll_headcount_payload=payroll_headcount_payload,
     )
   else:
-    sequence_trace["quarter_grid_generation"] = post_intake_process_step_context(
-      step_key="quarter_grid_generation",
-      expected_phase="initial_grid",
-      expected_handler_key="generate_live_quarter_grid_plan",
-      required_contract_name="quarter_grid_probe",
-      required_context_contract_name="quarter_grid_probe",
-      required_context_include_phase="initial_grid",
-      required_lookup_tables=[
-        "post_intak_mapping_lookup",
-        "post_intake_gpt_contract_lookup",
-        "post_intake_gpt_context_lookup",
-      ],
-      required_horizon_rule="q1_to_q20_model_input_state",
-    )
-    persist_system_stage(
-      stage="quarter_grid_running",
-      status="running",
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
-      model_input_payload=model_input_json,
-      finmo_payload=finmo_json,
-      payroll_headcount_payload=payroll_headcount_payload,
-    )
-    planning_result = generate_live_quarter_grid_plan(
-      business_name=str(business_facts.get("name") or "").strip(),
-      planning_mode=planning_mode,
-      model_input_json=copy.deepcopy(model_input_json),
-      finmo_json=copy.deepcopy(finmo_json),
-      ops_json=ops_json,
-      target_market_json=market_json,
-      people_json=people_json,
-      financials_json=financials_json,
-      financials_year1_json=financials_year1_json,
-      fulfillment_json=fulfillment_json,
-      marketing_model_json=marketing_model_json,
-      realism_memo_json=parse_json_dict(draft.get("realism_memo_json")),
-      business_facts=copy.deepcopy(business_facts or {}),
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-    )
-    validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
-    if (
-      list(validation.get("missing_rows") or [])
-      or list(validation.get("extra_rows") or [])
-      or list(validation.get("duplicate_rows") or [])
-      or list(validation.get("malformed_rows") or [])
-    ):
-      raise RuntimeError("planning_grid_validation_failed")
-    persist_system_stage(
-      stage="quarter_grid_ready",
-      status="ready_for_grid_application",
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=str(planning_result.get("prompt_file") or "").strip(),
-      gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
-      gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
-      model_input_payload=model_input_json,
-      finmo_payload=finmo_json,
-      payroll_headcount_payload=payroll_headcount_payload,
-    )
-    assert_r_and_d_applicability_policy_applied(
-      model_input_json=model_input_json,
-      finmo_json=finmo_json,
-      planning_result=planning_result,
-      stage="quarter_grid_ready",
-    )
-    grid_application_result = apply_live_quarter_grid_plan(
-      baseline_model_input_json=copy.deepcopy(model_input_json),
-      grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
-    )
-    grid_application_summary = (
-      grid_application_result.get("application_summary")
-      if isinstance(grid_application_result.get("application_summary"), dict)
-      else {}
-    )
-    applied_model_input_json = (
-      grid_application_result.get("applied_model_input_json")
-      if isinstance(grid_application_result.get("applied_model_input_json"), dict)
-      else {}
-    )
-    applied_finmo_json = (
-      grid_application_result.get("applied_finmo_json")
-      if isinstance(grid_application_result.get("applied_finmo_json"), dict)
-      else {}
-    )
-    payroll_headcount_payload, applied_model_input_json, applied_finmo_json = _build_and_apply_payroll_schedule(
-      current_model_input_json=copy.deepcopy(applied_model_input_json),
-      current_finmo_json=copy.deepcopy(applied_finmo_json),
-      stage_prefix="quarter_grid_applied",
-    )
-    assert_payroll_headcount_model_input_applied(
-      copy.deepcopy(applied_model_input_json),
-      copy.deepcopy(payroll_headcount_payload),
-      stage="quarter_grid_applied",
-    )
-    assert_finmo_payroll_matches_headcount_schedule(
-      copy.deepcopy(applied_finmo_json),
-      copy.deepcopy(payroll_headcount_payload),
-      stage="quarter_grid_applied",
-    )
-    assert_r_and_d_applicability_policy_applied(
-      model_input_json=applied_model_input_json,
-      finmo_json=applied_finmo_json,
-      stage="quarter_grid_applied",
-    )
-    assert_post_intake_global_invariants(
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-      model_input_json=copy.deepcopy(applied_model_input_json),
-      finmo_json=copy.deepcopy(applied_finmo_json),
-      stage="quarter_grid_applied",
-      payroll_headcount=copy.deepcopy(payroll_headcount_payload),
-    )
+    payroll_feasibility_failure: Dict[str, Any] = {}
+    payroll_sequence_row = post_intake_process_sequence_step("payroll_headcount_schedule", required=True) or {}
+    payroll_grid_rebuild_limit = max(1, int(payroll_sequence_row.get("max_attempts") or 1))
+    for payroll_grid_attempt in range(1, payroll_grid_rebuild_limit + 1):
+      payroll_headcount_payload, model_input_json, finmo_json = _build_and_apply_payroll_schedule(
+        current_model_input_json=copy.deepcopy(model_input_json),
+        current_finmo_json=copy.deepcopy(finmo_json),
+        stage_prefix="pre_quarter_grid",
+        previous_contract_failure=copy.deepcopy(payroll_feasibility_failure),
+      )
+      assert_post_intake_global_invariants(
+        stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+        model_input_json=copy.deepcopy(model_input_json),
+        finmo_json=copy.deepcopy(finmo_json),
+        stage="pre_quarter_grid_payroll_ready",
+        payroll_headcount=copy.deepcopy(payroll_headcount_payload),
+      )
+      sequence_trace["quarter_grid_generation"] = post_intake_process_step_context(
+        step_key="quarter_grid_generation",
+        expected_phase="initial_grid",
+        expected_handler_key="generate_live_quarter_grid_plan",
+        required_contract_name="quarter_grid_probe",
+        required_context_contract_name="quarter_grid_probe",
+        required_context_include_phase="initial_grid",
+        required_lookup_tables=[
+          "post_intak_mapping_lookup",
+          "post_intake_gpt_contract_lookup",
+          "post_intake_gpt_context_lookup",
+        ],
+        required_horizon_rule="q1_to_q20_model_input_state",
+      )
+      persist_system_stage(
+        stage="quarter_grid_running",
+        status="running",
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        prompt_file=str(planning_choice.get("prompt_file") or "").strip(),
+        model_input_payload=model_input_json,
+        finmo_payload=finmo_json,
+        payroll_headcount_payload=payroll_headcount_payload,
+      )
+      planning_result = generate_live_quarter_grid_plan(
+        business_name=str(business_facts.get("name") or "").strip(),
+        planning_mode=planning_mode,
+        model_input_json=copy.deepcopy(model_input_json),
+        finmo_json=copy.deepcopy(finmo_json),
+        ops_json=ops_json,
+        target_market_json=market_json,
+        people_json=people_json,
+        financials_json=financials_json,
+        financials_year1_json=financials_year1_json,
+        fulfillment_json=fulfillment_json,
+        marketing_model_json=marketing_model_json,
+        realism_memo_json=parse_json_dict(draft.get("realism_memo_json")),
+        business_facts=copy.deepcopy(business_facts or {}),
+        stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      )
+      validation = planning_result.get("validation") if isinstance(planning_result.get("validation"), dict) else {}
+      if (
+        list(validation.get("missing_rows") or [])
+        or list(validation.get("extra_rows") or [])
+        or list(validation.get("duplicate_rows") or [])
+        or list(validation.get("malformed_rows") or [])
+      ):
+        raise RuntimeError("planning_grid_validation_failed")
+      persist_system_stage(
+        stage="quarter_grid_ready",
+        status="ready_for_grid_application",
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
+        prompt_file=str(planning_result.get("prompt_file") or "").strip(),
+        gpt_narrative=str(planning_result.get("gpt_narrative") or "").strip(),
+        gpt_grid_metadata=copy.deepcopy(planning_result.get("metadata") or {}),
+        model_input_payload=model_input_json,
+        finmo_payload=finmo_json,
+        payroll_headcount_payload=payroll_headcount_payload,
+      )
+      assert_r_and_d_applicability_policy_applied(
+        model_input_json=model_input_json,
+        finmo_json=finmo_json,
+        planning_result=planning_result,
+        stage="quarter_grid_ready",
+      )
+      grid_application_result = apply_live_quarter_grid_plan(
+        baseline_model_input_json=copy.deepcopy(model_input_json),
+        grid_json=copy.deepcopy(planning_result.get("grid_json") or {}),
+      )
+      grid_application_summary = (
+        grid_application_result.get("application_summary")
+        if isinstance(grid_application_result.get("application_summary"), dict)
+        else {}
+      )
+      applied_model_input_json = (
+        grid_application_result.get("applied_model_input_json")
+        if isinstance(grid_application_result.get("applied_model_input_json"), dict)
+        else {}
+      )
+      applied_finmo_json = (
+        grid_application_result.get("applied_finmo_json")
+        if isinstance(grid_application_result.get("applied_finmo_json"), dict)
+        else {}
+      )
+      applied_model_input_json, applied_finmo_json = _apply_existing_payroll_authority(
+        schedule_payload=copy.deepcopy(payroll_headcount_payload),
+        current_model_input_json=copy.deepcopy(applied_model_input_json),
+        stage_prefix="quarter_grid_applied",
+      )
+      assert_payroll_headcount_model_input_applied(
+        copy.deepcopy(applied_model_input_json),
+        copy.deepcopy(payroll_headcount_payload),
+        stage="quarter_grid_applied",
+      )
+      assert_finmo_payroll_matches_headcount_schedule(
+        copy.deepcopy(applied_finmo_json),
+        copy.deepcopy(payroll_headcount_payload),
+        stage="quarter_grid_applied",
+      )
+      assert_r_and_d_applicability_policy_applied(
+        model_input_json=applied_model_input_json,
+        finmo_json=applied_finmo_json,
+        stage="quarter_grid_applied",
+      )
+      try:
+        assert_post_intake_global_invariants(
+          stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+          model_input_json=copy.deepcopy(applied_model_input_json),
+          finmo_json=copy.deepcopy(applied_finmo_json),
+          stage="quarter_grid_applied",
+          payroll_headcount=copy.deepcopy(payroll_headcount_payload),
+        )
+        break
+      except Exception as exc:
+        failure_text = str(exc)
+        if (
+          payroll_grid_attempt < payroll_grid_rebuild_limit
+          and (
+            "payroll_revenue_economic_feasibility_failed" in failure_text
+            or "payroll_stage_profitability_feasibility_failed" in failure_text
+          )
+        ):
+          payroll_violation_rows = payroll_revenue_feasibility_violations(
+            payroll_headcount=copy.deepcopy(payroll_headcount_payload),
+            finmo_json=copy.deepcopy(applied_finmo_json),
+          )
+          payroll_feasibility_failure = {
+            "error": failure_text[:6000],
+            "attempt": payroll_grid_attempt,
+            "failed_state_source": "quarter_grid_applied_model_input_and_finmo",
+            "payroll_revenue_feasibility_violations": copy.deepcopy(payroll_violation_rows[:20]),
+            "required_rebuild": (
+              "Rebuild payroll_headcount_schedule from GPT's OEWS role/FTE/productivity contract, "
+              "then rederive payroll-supported Capacity, rerun quarter-grid revenue drivers, and rebuild FINMO."
+            ),
+          }
+          model_input_json = copy.deepcopy(applied_model_input_json)
+          finmo_json = copy.deepcopy(applied_finmo_json)
+          continue
+        raise
 
   return {
     "planning_run_id": active_planning_run_id,

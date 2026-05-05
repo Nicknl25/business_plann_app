@@ -58,6 +58,52 @@ def _fmt_for_row(row: Dict[str, object]) -> str:
   return CURRENCY_FORMAT
 
 
+def _annual_quarter_bounds(year_index: int) -> tuple[int, int]:
+  start_col = FIRST_LIVE_COL + ((year_index - 1) * 4)
+  return start_col, start_col + 3
+
+
+def _add_annual_average_formulas(ws, row: int, *, number_format: str) -> None:
+  for year in range(1, 6):
+    start_col, end_col = _annual_quarter_bounds(year)
+    cell = ws.cell(
+      row=row,
+      column=ANNUAL_START_COL + year - 1,
+      value=f"=AVERAGE({local_ref(row, start_col)}:{local_ref(row, end_col)})",
+    )
+    set_formula_style(cell, number_format=number_format)
+
+
+def _add_annual_ratio_formulas(
+  ws,
+  row: int,
+  *,
+  numerator_row: int,
+  denominator_row: int,
+  number_format: str,
+) -> None:
+  for year in range(1, 6):
+    col = ANNUAL_START_COL + year - 1
+    cell = ws.cell(
+      row=row,
+      column=col,
+      value=f"=IFERROR({local_ref(numerator_row, col)}/{local_ref(denominator_row, col)},0)",
+    )
+    set_formula_style(cell, number_format=number_format)
+
+
+def _stage_ramp_values(data: DraftWorkbookData, field: str) -> List[float]:
+  values = [0.0 for _ in range(PERIOD_COUNT)]
+  ramp_rows = data.stage_ramp_contract.get("quarter_ramp_grid") if isinstance(data.stage_ramp_contract, dict) else []
+  for item in ramp_rows or []:
+    if not isinstance(item, dict):
+      continue
+    quarter_index = int(number(item.get("quarter_index")))
+    if 1 <= quarter_index < PERIOD_COUNT:
+      values[quarter_index] = number(item.get(field))
+  return values
+
+
 def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
   ws = create_sheet(wb, REVENUE_SHEET)
   apply_base_style(ws)
@@ -74,6 +120,7 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
       revenue_groups[slot] = {}
     revenue_groups[slot][text(source_row.get("driver"))] = source_row
 
+  total_capacity_rows: List[int] = []
   total_revenue_rows: List[int] = []
   for slot in ordered:
     group = revenue_groups[slot]
@@ -97,6 +144,8 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
         number_format=fmt,
       )
       ctx.add_schedule_row(REVENUE_SHEET, f"{slot}::{driver}", row)
+      if driver == "Capacity":
+        total_capacity_rows.append(row)
       style_row(ws, row, number_format=fmt)
       row += 1
     revenue_row = row
@@ -115,6 +164,18 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
     total_revenue_rows.append(revenue_row)
     row += 2
 
+  ws.cell(row=row, column=1, value="Total Capacity Units")
+  ws.cell(row=row, column=2, value="All revenue driver capacity units")
+  for idx in range(PERIOD_COUNT):
+    col = PERIOD_START_COL + idx
+    refs = [local_ref(r, col) for r in total_capacity_rows]
+    ws.cell(row=row, column=col, value=f"=SUM({','.join(refs)})" if refs else "=0")
+    set_formula_style(ws.cell(row=row, column=col), number_format=NUMBER_FORMAT)
+  add_annual_formulas(ws, row, number_format=NUMBER_FORMAT)
+  style_row(ws, row, fill=FILL_LIGHT, bold=True, number_format=NUMBER_FORMAT, border_top=True)
+  ctx.add_schedule_row(REVENUE_SHEET, "Total Capacity Units", row)
+  row += 1
+
   ws.cell(row=row, column=1, value="Total Revenue")
   ws.cell(row=row, column=2, value="All revenue products")
   for idx in range(PERIOD_COUNT):
@@ -125,6 +186,50 @@ def build_revenue_drivers_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildC
   add_annual_formulas(ws, row)
   style_row(ws, row, fill=FILL_BLUE, bold=True, number_format=CURRENCY_FORMAT, border_top=True)
   ctx.add_schedule_row(REVENUE_SHEET, "Total Revenue", row)
+  total_revenue_row = row
+  row += 2
+
+  write_section_header(ws, row, "Stage Ramp Contract")
+  row += 1
+
+  ws.cell(row=row, column=1, value="Actual Revenue QoQ Growth")
+  ws.cell(row=row, column=2, value="Total revenue growth from modeled revenue drivers")
+  for idx in range(PERIOD_COUNT):
+    col = PERIOD_START_COL + idx
+    formula = "=0" if idx == 0 else f"=IFERROR({local_ref(total_revenue_row, col)}/{local_ref(total_revenue_row, col - 1)}-1,0)"
+    cell = ws.cell(row=row, column=col, value=formula)
+    set_formula_style(cell, number_format=PERCENT_FORMAT, internal_link=True)
+  _add_annual_average_formulas(ws, row, number_format=PERCENT_FORMAT)
+  style_row(ws, row, fill=FILL_LIGHT, number_format=PERCENT_FORMAT)
+  ctx.add_schedule_row(REVENUE_SHEET, "Actual Revenue QoQ Growth", row)
+  row += 1
+
+  ramp_definitions = [
+    ("Stage Ramp Revenue QoQ Target", "revenue_qoq_target", PERCENT_FORMAT),
+    ("Stage Ramp Revenue QoQ Max", "revenue_qoq_max", PERCENT_FORMAT),
+    ("Stage Ramp Revenue QoQ Spike Max", "revenue_qoq_spike_max", PERCENT_FORMAT),
+    ("Stage Ramp Utilization Cap", "utilization_cap", PERCENT_FORMAT),
+    ("Stage Ramp COGS % Revenue Target", "cogs_percent_of_revenue_target", PERCENT_FORMAT),
+    ("Stage Ramp COGS % Revenue Max", "cogs_percent_of_revenue_max", PERCENT_FORMAT),
+    ("Stage Ramp Marketing % Revenue Max", "marketing_percent_of_revenue_max", PERCENT_FORMAT),
+    ("Stage Ramp R&D % Revenue Max", "rd_percent_of_revenue_max", PERCENT_FORMAT),
+    ("Stage Ramp G&A % Revenue Max", "g_and_a_percent_of_revenue_max", PERCENT_FORMAT),
+    ("Stage Ramp Lease % Revenue Max", "lease_percent_of_revenue_max", PERCENT_FORMAT),
+    ("Stage Ramp Net Income Margin Floor", "net_income_margin_floor", PERCENT_FORMAT),
+  ]
+  for label, field, fmt in ramp_definitions:
+    write_values_row(
+      ws,
+      row,
+      label,
+      _stage_ramp_values(data, field),
+      detail="GPT-selected stage ramp contract",
+      number_format=fmt,
+    )
+    _add_annual_average_formulas(ws, row, number_format=fmt)
+    style_row(ws, row, number_format=fmt)
+    ctx.add_schedule_row(REVENUE_SHEET, label, row)
+    row += 1
 
 
 def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext) -> None:
@@ -155,10 +260,21 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   summary_rows: Dict[str, tuple[int, str, str]] = {}
   for label, key, fmt in [
     ("Total Ending FTE", "ending_fte", NUMBER_FORMAT),
+    ("Total Average FTE", "average_fte", NUMBER_FORMAT),
     ("Total Payroll", "payroll", CURRENCY_FORMAT),
+    ("Total Revenue", "revenue", CURRENCY_FORMAT),
+    ("Total Capacity Units", "capacity_units", NUMBER_FORMAT),
+    ("Revenue per Employee", "revenue_per_employee", CURRENCY_FORMAT),
+    ("Units per Employee", "units_per_employee", NUMBER_FORMAT),
+    ("Payroll % of Revenue", "payroll_percent_of_revenue", PERCENT_FORMAT),
   ]:
     ws.cell(row=row, column=1, value=label)
-    ws.cell(row=row, column=2, value="Formula output from payroll detail")
+    detail = "Formula output from payroll detail"
+    if key in {"revenue", "capacity_units"}:
+      detail = "Linked from Revenue Drivers"
+    elif key in {"revenue_per_employee", "units_per_employee", "payroll_percent_of_revenue"}:
+      detail = "Python-built productivity formula"
+    ws.cell(row=row, column=2, value=detail)
     ctx.add_schedule_row(PAYROLL_SHEET, label, row)
     summary_rows[label] = (row, key, fmt)
     row += 1
@@ -218,24 +334,63 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   ctx.add_schedule_row(PAYROLL_SHEET, "Payroll Detail Last Row", detail_last_row)
 
   for label, (summary_output_row, key, fmt) in summary_rows.items():
-    source_col_letter = "G" if key == "ending_fte" else "M"
     for q in range(PERIOD_COUNT):
       col = PERIOD_START_COL + q
-      if detail_last_row >= detail_start_row:
+      if key in {"ending_fte", "average_fte", "payroll"} and detail_last_row >= detail_start_row:
+        source_col_letter = {"ending_fte": "G", "average_fte": "H", "payroll": "M"}[key]
         formula = (
           f"=SUMIFS(${source_col_letter}${detail_start_row}:${source_col_letter}${detail_last_row},"
           f"$A${detail_start_row}:$A${detail_last_row},{q})"
         )
+      elif key == "revenue":
+        source_row = ctx.schedule_row(REVENUE_SHEET, "Total Revenue")
+        formula = f"={ref(REVENUE_SHEET, source_row, col)}" if source_row else "=0"
+      elif key == "capacity_units":
+        source_row = ctx.schedule_row(REVENUE_SHEET, "Total Capacity Units")
+        formula = f"={ref(REVENUE_SHEET, source_row, col)}" if source_row else "=0"
+      elif key == "revenue_per_employee":
+        formula = f"=IFERROR({local_ref(summary_rows['Total Revenue'][0], col)}/{local_ref(summary_rows['Total Average FTE'][0], col)},0)"
+      elif key == "units_per_employee":
+        formula = f"=IFERROR({local_ref(summary_rows['Total Capacity Units'][0], col)}/{local_ref(summary_rows['Total Average FTE'][0], col)},0)"
+      elif key == "payroll_percent_of_revenue":
+        formula = f"=IFERROR({local_ref(summary_rows['Total Payroll'][0], col)}/{local_ref(summary_rows['Total Revenue'][0], col)},0)"
       else:
         formula = "=0"
       cell = ws.cell(row=summary_output_row, column=col, value=formula)
       set_formula_style(cell, number_format=fmt, internal_link=True)
-    add_annual_formulas(ws, summary_output_row, use_year_end=(key == "ending_fte"), number_format=fmt)
+    if key == "average_fte":
+      _add_annual_average_formulas(ws, summary_output_row, number_format=fmt)
+    elif key == "revenue_per_employee":
+      _add_annual_ratio_formulas(
+        ws,
+        summary_output_row,
+        numerator_row=summary_rows["Total Revenue"][0],
+        denominator_row=summary_rows["Total Average FTE"][0],
+        number_format=fmt,
+      )
+    elif key == "units_per_employee":
+      _add_annual_ratio_formulas(
+        ws,
+        summary_output_row,
+        numerator_row=summary_rows["Total Capacity Units"][0],
+        denominator_row=summary_rows["Total Average FTE"][0],
+        number_format=fmt,
+      )
+    elif key == "payroll_percent_of_revenue":
+      _add_annual_ratio_formulas(
+        ws,
+        summary_output_row,
+        numerator_row=summary_rows["Total Payroll"][0],
+        denominator_row=summary_rows["Total Revenue"][0],
+        number_format=fmt,
+      )
+    else:
+      add_annual_formulas(ws, summary_output_row, use_year_end=(key == "ending_fte"), number_format=fmt)
     style_row(
       ws,
       summary_output_row,
-      fill=FILL_GREEN if key == "payroll" else FILL_LIGHT,
-      bold=(key == "payroll"),
+      fill=FILL_GREEN if key in {"payroll", "revenue_per_employee", "units_per_employee"} else FILL_LIGHT,
+      bold=(key in {"payroll", "revenue_per_employee", "units_per_employee"}),
       number_format=fmt,
     )
 

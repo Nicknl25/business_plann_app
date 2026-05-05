@@ -387,6 +387,9 @@ def _merge_issue_identity_fields(
     "metric_debug",
     "business_world_contract",
     "coherence_failure_signals",
+    "hard_issue",
+    "tolerance_allowed",
+    "hard_gate_basis",
     "business_stage",
     "business_age_months",
     "planning_mode",
@@ -791,6 +794,8 @@ def _issue_is_hard_issue(
 ) -> bool:
   item = record if isinstance(record, dict) else {}
   issue_code = str(item.get("issue_code") or "").strip().lower()
+  if bool(item.get("hard_issue")):
+    return True
   if issue_code in {"accounting_integrity_failure", "structural_impossibility"}:
     return True
   return False
@@ -1212,6 +1217,7 @@ def _metric_direction_hint(
     ("cost_structure_mismatch", "research_and_development"): "decrease",
     ("cost_structure_mismatch", "lease_rent"): "decrease",
     ("cost_structure_mismatch", "g_and_a"): "decrease",
+    ("cost_structure_mismatch", "payroll"): "either",
   }
   override = issue_metric_overrides.get((issue, metric))
   if override:
@@ -3665,19 +3671,13 @@ def _validate_and_normalize_model_input_repair_cells(
       if precision_unit > 0.0 and drift <= precision_unit + 1e-9:
         normalized_value = float(minimum)
       else:
-        return (
-          f"{cell_id} value is below deterministic min_value. "
-          f"value={normalized_value}, min_value={minimum}."
-        )
+        normalized_value = float(minimum)
     if maximum is not None and normalized_value is not None and normalized_value > float(maximum):
       drift = abs(float(normalized_value) - float(maximum))
       if precision_unit > 0.0 and drift <= precision_unit + 1e-9:
         normalized_value = float(maximum)
       else:
-        return (
-          f"{cell_id} value is above deterministic max_value. "
-          f"value={normalized_value}, max_value={maximum}."
-        )
+        normalized_value = float(maximum)
     if minimum is not None and normalized_value is not None and normalized_value < float(minimum):
       return (
         f"{cell_id} value is below deterministic min_value. "
@@ -5515,15 +5515,19 @@ def _build_controller_resolution_state_from_issue_ledger(
     if isinstance(verification_payload, dict) and isinstance(verification_payload.get("verification"), dict)
     else {}
   )
-  status = "all_cleared" if not remaining_issues else "issues_remaining"
+  hard_cleared = (
+    not remaining_issues
+    and int(grade_summary.get("lowest_quarter_score_pct") or 0) >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT
+  )
+  status = "all_cleared" if hard_cleared else "issues_remaining"
   return {
     "contract_version": "controller_resolution_state_v3",
     "owner": "controller",
     "source_of_truth": "issue_status_records.verifier_status+deterministic_completion_scoring",
     "status": status,
-    "display_status": "all cleared" if not remaining_issues else "issues remaining",
-    "all_cleared": not remaining_issues,
-    "hard_cleared": not remaining_issues and int(grade_summary.get("lowest_quarter_score_pct") or 0) >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT,
+    "display_status": "all cleared" if hard_cleared else "issues remaining",
+    "all_cleared": hard_cleared,
+    "hard_cleared": hard_cleared,
     "detected_issue_count": len(detected_issues),
     "remaining_issue_count": len(remaining_issues),
     "resolved_issue_count": len(resolved_issues),

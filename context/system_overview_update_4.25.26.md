@@ -1757,8 +1757,8 @@ Follow-up class fixes after that gate:
 - `balance_sheet_contextual_seed` is now a SQL-backed pre-convergence GPT contract. GPT decides applicable AR/AP/inventory/prepaid/deferred driver seed values from business context/type; Python validates completeness and bounds against the mapping table, applies the seeds to model_input Q1-Q20, and fail-fasts if the contract is missing or invalid.
 - This specifically prevents AR/AP/prepaids/deferred revenue from staying at zero merely because intake omitted them, without replacing business judgment with hardcoded default numbers.
 - Inventory formula validation now uses actual quarter-day counts from the FINMO row date instead of assuming every quarter is 90 days.
-- Payroll now passes capacity/utilization guardrails from `post_intake_headcount_policy_lookup` into the payroll contract context.
-- GPT still chooses supporting-staff roles, OEWS titles, labor model, labor intensity, wage positioning, and capacity productivity, but Python deterministically enforces the SQL capacity policy while building the persisted payroll schedule.
+- Payroll now passes capacity/utilization context from `post_intake_headcount_policy_lookup` into the payroll contract context.
+- GPT chooses supporting-staff OEWS titles, labor model, labor intensity, wage positioning, capacity productivity, and Q1-Q20 FTE. Python validates the contract and deterministically converts FTE into payroll-supported Capacity and payroll dollars.
 
 Latest proof point:
 
@@ -1902,17 +1902,17 @@ New policy-table metadata:
 
 Important invariant:
 
-- The correct payroll direction is `capacity -> FTE -> payroll`.
-- Revenue remains `capacity x utilization x price`.
-- Revenue can be sanity context, but it must not be the primary payroll driver.
-- GPT now supplies `target_payroll_percent_of_revenue` as a sanity target in the payroll contract. Python compares final model/FINMO payroll percent of revenue to that target and to the table-backed sanity bounds.
-- The old universal revenue shortcut cap/floor and default wage fallback are legacy and should not exist in active payroll logic.
+- The correct payroll direction is `FTE -> payroll-supported Capacity -> revenue -> Payroll -> FINMO`.
+- Revenue remains `capacity x utilization x price`, but Capacity is derived from payroll FTE when the payroll schedule owns capacity.
+- Revenue can be sanity context, but it must not be the payroll driver.
+- GPT supplies `target_payroll_percent_of_revenue` as nonbinding reasonableness context inside the payroll contract. Python does not force FTE or final payroll dollars to land on that target.
+- The old universal revenue shortcut cap/floor, default wage fallback, and capacity-demand-to-payroll refresh loop are legacy and should not exist in active payroll logic.
 
 Validation status:
 
-- `post_intake_headcount_policy_lookup` now validates that the active policy is capacity-primary, has productivity bounds by labor model/intensity, has payroll/revenue sanity bounds, bans `policy_default_wage`, and does not allow generic OEWS fallback behavior.
+- `post_intake_headcount_policy_lookup` now validates that the active policy is payroll/FTE capacity-primary, has payroll/revenue sanity context for GPT's contract target, bans `policy_default_wage`, and does not allow generic OEWS fallback behavior.
 - `payroll_headcount_schedule` contract now has root fields for labor model, intensity, wage tier, and capacity productivity.
-- Payroll fail-fast now includes capacity assumptions, Q1-Q20 capacity grid completeness, capacity coverage validation, utilization/capacity no-decline checks, and final payroll/revenue sanity validation.
+- Payroll fail-fast now includes capacity assumptions, Q1-Q20 context completeness, exact OEWS title validation, title/FTE continuity, payroll math validation, payroll-supported Capacity application, and model-input/FINMO tie-out.
 - Initialization should catch an active legacy revenue-per-employee payroll policy before a run spends time/money.
 
 ## Update: 2026-05-04 Exact OEWS-Title Payroll And Runtime Gate Standard
@@ -1926,8 +1926,8 @@ The role-based payroll schedule is no longer the active design. Do not revive it
 - GPT does not provide wages and does not output role families, role categories, role titles, aliases, or catch-all staffing buckets.
 - Python calculates annual wages from the selected OEWS title row, applies wage positioning, applies payroll taxes/benefits and wage inflation, calculates quarter payroll dollars, applies the Payroll model-input row, persists `intake_consult_drafts.payroll_headcount`, rebuilds FINMO, and validates model-input/FINMO reconciliation.
 - Python does not honor nonpositive key-person wages as valid overrides. Before the payroll GPT call, it resolves missing key-person wages through the same NAICS OEWS title universe when the person's title/responsibilities are OEWS-resolvable; otherwise payroll fails fast before schedule spend.
-- Python derives the mechanical Q1-Q20 FTE schedule from GPT's exact OEWS title set, capacity productivity assumption, and table-backed capacity/utilization guardrails. GPT owns the business judgments; Python owns deterministic continuity and capacity math.
-- Capacity/utilization remains the FTE driver. Payroll/revenue is a final sanity check from GPT's own target and table-backed labor-intensity sanity bounds; the target is an anchor, not an exact landing point that overrides capacity FTE.
+- Python preserves GPT's Q1-Q20 FTE schedule, injects key people, resolves wages, enforces title/FTE continuity, and derives payroll-supported Capacity from total average FTE and `capacity_units_per_supporting_fte`.
+- Payroll/FTE is the Capacity source. Capacity constrains revenue. Payroll/revenue target is nonbinding reasonableness context, not a final gate or exact landing point.
 
 Core files for the exact-title payroll system:
 
@@ -1944,9 +1944,30 @@ Important runtime behavior:
 - `oews_role_catalog` is deleted from the active payroll context.
 - Old `payroll_headcount_grid[].role_family`, `payroll_headcount_grid[].role_category`, and `payroll_headcount_grid[].role_title` contract rows are deleted from the active payroll contract.
 - Initialization fails before OpenAI spend if the old role contract or old role catalog reappears.
+- Initialization also fails if the payroll process sequence regresses to the legacy "after quarter grid, support applied capacity" timing or wording.
 - Payroll preflight resolves the source-draft CFO zero wage to an exact OEWS title/wage instead of carrying a broken `client_override=0` into the schedule.
 - Finalization fails if the persisted payroll schedule does not reconcile to model input and FINMO.
 - Payroll contract timing is owned by `post_intake_process_sequence_lookup`, not a hardcoded timeout. The active payroll step uses a 180-second total cycle budget and `max_attempts=2`; `schedule.py` reads those values through `post_intake_process_sequence_step`.
+
+## Update: 2026-05-04 Payroll Causality Fix
+
+The payroll system is now explicitly FTE-caused instead of demand-caused.
+
+Removed/converted legacy behavior:
+
+- The active payroll builder no longer calls a capacity-driven contract rewrite after GPT returns.
+- The post-convergence runner no longer converts stage-ramp revenue into capacity demand and refreshes payroll FTE from that demand.
+- `refresh_payroll_headcount_payload_for_model_input` was removed from the active post-intake headcount API.
+- Quarter-grid excludes `payroll_supported_capacity` Capacity rows from GPT row requests and numeric lever updates.
+- Convergence may reapply the existing persisted payroll schedule to Capacity and Payroll, but it may not mutate FTE.
+
+Active flow:
+
+- GPT selects exact OEWS titles, productivity, and Q1-Q20 FTE.
+- Python builds the persisted payroll schedule, resolves wages, calculates payroll dollars, and derives payroll-supported Capacity.
+- Quarter-grid starts from that payroll-supported capacity and can adjust other writable drivers, but not payroll-owned Capacity.
+- Convergence applies numeric repairs around the model; after a convergence update, Python reapplies the same payroll schedule as the authority for Capacity and Payroll.
+- Finalization validates payroll schedule -> model input Payroll, payroll schedule -> model input Capacity, and FINMO Payroll tie-out.
 
 Golden Rule runtime standard:
 

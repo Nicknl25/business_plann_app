@@ -390,6 +390,56 @@ _BALANCE_SHEET_STUB_CONTINUITY_EXCLUDED_LABELS = {
   "Short Term Debt",
 }
 
+_BALANCE_SHEET_STOCK_LEVEL_LABELS = {
+  "Owner's Capital",
+  "Other Equity",
+}
+
+
+def _enforce_balance_sheet_stock_level_carryforward(
+  model_input_json: Dict[str, Any],
+  *,
+  live_count: int,
+) -> Dict[str, Any]:
+  payload = model_input_json if isinstance(model_input_json, dict) else {}
+  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
+  normalized_live_count = max(0, int(live_count or 0))
+  if normalized_live_count <= 0:
+    return payload
+  for row in balance_rows:
+    label = str(row.get("label") or "").strip()
+    if label not in _BALANCE_SHEET_STOCK_LEVEL_LABELS:
+      continue
+    stub_value, live_values = _row_stub_and_live_values(
+      row.get("values") or [],
+      live_count=normalized_live_count,
+    )
+    carry_value = max(0.0, round(float(stub_value or 0.0), 6))
+    normalized_live_values: List[float] = []
+    adjusted_quarters: List[int] = []
+    for quarter_index, raw_value in enumerate(live_values, start=1):
+      current_value = max(0.0, round(_safe_float(raw_value) or 0.0, 6))
+      if carry_value > 1e-6 and current_value <= 1e-6:
+        current_value = carry_value
+        adjusted_quarters.append(quarter_index)
+      elif current_value + 1e-6 < carry_value:
+        current_value = carry_value
+        adjusted_quarters.append(quarter_index)
+      carry_value = max(carry_value, current_value)
+      normalized_live_values.append(round(current_value, 6))
+    row["values"] = _compose_period_values(
+      stub_value=stub_value,
+      live_values=normalized_live_values,
+    )
+    if adjusted_quarters:
+      row["balance_sheet_stock_carryforward"] = {
+        "source": "deterministic_balance_sheet_stock_level_carryforward",
+        "reason": "Opening and contributed equity are balance-sheet stock levels; distributions are modeled separately.",
+        "adjusted_quarters": adjusted_quarters,
+      }
+  return payload
+
 
 def _enforce_balance_sheet_stub_continuity(
   balance_rows: Sequence[Dict[str, Any]],
@@ -1276,6 +1326,10 @@ def _shape_revenue_capacity_and_utilization(
     capacity_row = group["rows"]["capacity"]
     utilization_row = group["rows"]["utilization"]
     unit_price_row = group["rows"]["unit price"]
+    payroll_supported_capacity = (
+      str(capacity_row.get("derived_driver") or "").strip() == "payroll_supported_capacity"
+      or isinstance(capacity_row.get("payroll_supported_capacity"), dict)
+    )
     capacity_stub = round(float(group["stub_values"].get("capacity") or 0.0), 6)
     capacity_values = group["live_values"].get("capacity") or [0.0 for _ in range(live_count)]
     initial_capacity = next(
@@ -1312,6 +1366,44 @@ def _shape_revenue_capacity_and_utilization(
       utilization_if_no_expansion = 0.0
       expansion_triggered = False
       capacity_delta = 0.0
+      if payroll_supported_capacity:
+        shaped_capacity = original_capacity
+        shaped_utilization = min(max(0.0, original_utilization), utilization_ceiling)
+        shaped_revenue = round(shaped_capacity * unit_price * shaped_utilization, 6)
+        if intended_revenue > shaped_revenue + 1e-6:
+          capacity_delta = 0.0
+          expansion_triggered = False
+          utilization_if_no_expansion = round(
+            intended_revenue / max(shaped_capacity * unit_price, 1e-9),
+            6,
+          ) if shaped_capacity > 0.0 and unit_price > 0.0 else 0.0
+        shaped_capacity_values.append(round(shaped_capacity, 6))
+        shaped_utilization_values.append(round(shaped_utilization, 6))
+        total_capacity_by_quarter[idx] += round(shaped_capacity, 6)
+        total_revenue_before_by_quarter[idx] += intended_revenue
+        total_revenue_after_by_quarter[idx] += shaped_revenue
+        quarter_logs.append(
+          {
+            "quarter_index": quarter_index,
+            "original_capacity": original_capacity,
+            "unit_price": unit_price,
+            "original_utilization": original_utilization,
+            "intended_revenue": intended_revenue,
+            "previous_structural_capacity": round(previous_capacity, 6),
+            "utilization_if_no_expansion": utilization_if_no_expansion,
+            "utilization_ceiling": utilization_ceiling,
+            "post_expansion_utilization": post_expansion_utilization,
+            "shaped_capacity": round(shaped_capacity, 6),
+            "shaped_utilization": round(shaped_utilization, 6),
+            "capacity_delta": 0.0,
+            "expansion_triggered": False,
+            "payroll_supported_capacity_enforced": True,
+            "shaped_revenue": shaped_revenue,
+          }
+        )
+        previous_capacity = round(shaped_capacity, 6)
+        continue
+
       if intended_revenue <= 0.0 or unit_price <= 0.0:
         shaped_capacity = previous_capacity
         shaped_utilization = 0.0
@@ -2045,7 +2137,9 @@ def apply_derived_driver_policies_to_model_input(
   sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
   if not isinstance(sections, dict):
     return next_payload
+  revenue_rows = [row for row in (sections.get("revenue") or []) if isinstance(row, dict)]
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
+  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
   schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
   schedule_rows = [row for row in ((schedules or {}).get("rows") or []) if isinstance(row, dict)]
   period_live_count = len([
@@ -2055,7 +2149,7 @@ def apply_derived_driver_policies_to_model_input(
   value_live_count = max(
     [
       max(0, len(list(row.get("values") or [])) - 1)
-      for row in (expense_rows + schedule_rows)
+      for row in (revenue_rows + expense_rows + balance_rows + schedule_rows)
       if isinstance(row, dict)
     ] or [0]
   )
@@ -2124,6 +2218,10 @@ def apply_derived_driver_policies_to_model_input(
     live_count=live_count,
   )
   next_payload = _apply_contextual_balance_sheet_driver_seed_policy(
+    next_payload,
+    live_count=live_count,
+  )
+  next_payload = _enforce_balance_sheet_stock_level_carryforward(
     next_payload,
     live_count=live_count,
   )
