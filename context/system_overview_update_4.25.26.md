@@ -2041,3 +2041,510 @@ Golden baseline update:
 - `post_intake_lookup_table_snapshot` remains the audit/deploy/admin snapshot table, not a runtime dependency.
 - For the active baseline, `post_intake_lookup_table_snapshot` should be associated with the most recent successful run that produced the exact OEWS-title payroll and FINMO Excel workbook output.
 - Runtime initialize/finalize validation must continue to exclude `post_intake_lookup_table_snapshot` and static source-code scans.
+
+## Industry Baseline Lookup System (added 2026-05-05)
+
+This section documents **four new SQL tables** that together supply NAICS-keyed
+industry-typical benchmark ratios for every line in the three financial statements
+plus workforce, capital structure, and stage-ramp realism. They exist so the
+post-intake system can stop silently defaulting missing intake values to `0.0` and
+instead fall back to real industry data with explicit coverage cascade and
+confidence flags. No app code reads these tables yet; they are populated and
+ready for the next wiring step.
+
+### Quick reference
+
+**Tables (4)**:
+| Table | Rows | Read pattern | Purpose |
+|---|---|---|---|
+| `post_intake_industry_baseline_lookup` | 47,700 | production-runtime read (point lookup) | NAICS-keyed benchmark bands for 49 metrics across 14 data sources |
+| `post_intake_industry_metric_registry` |     49 | production-runtime read (small, can cache) | metric_key contracts: domain, unit, primary/secondary sources, governed model_input lever, fail_if_no_coverage flag |
+| `post_intake_industry_baseline_coverage_audit` |     49 | offline diagnostics only | per-metric coverage report: rows at each NAICS level + dominant data source |
+| `sec_edgar_facts` | 644,812 | offline-loader-only (never read at runtime) | raw SEC EDGAR XBRL fact rows; staging input for `load_from_sec_edgar()` aggregation |
+
+**Data sources mined (14 distinct `data_source` values)**:
+9 underlying public datasets + 3 derived sources + 2 expert/hand-curated sources.
+
+| Source | Rows in baseline | Origin |
+|---|---|---|
+| `industry_metrics_raw` (Alpha Vantage public-co quarterly financial ratios; pre-aggregated) | 15,353 | preexisting DB table |
+| `SEC_EDGAR` (XBRL Frames API, 49 GAAP concepts x 8 quarters) | 8,618 | **NEW pull this session** -> `sec_edgar_facts` staging |
+| `IRS_SOI` (Statistics of Income corporate tax returns) | 6,000 | preexisting DB table `SOI_corporate_tax_returns` |
+| `SBA_7A` (SBA 7(a) loan approvals) | 4,243 | preexisting DB table `sba_loan_7a_raw` |
+| `Census_CBP` (County Business Patterns 2022) | 4,000 | preexisting DB table `cbp_2022_raw` |
+| `Census_BDS` (Business Dynamics Statistics) | 2,270 | preexisting DB table `bds_firm_age` |
+| `alpha_data` (Alpha Vantage company fundamentals JOIN ticker->NAICS) | 1,751 | preexisting DB tables `alpha_data` + `alpha_match_naics_industry` |
+| `derived_CBP_SOI` (CBP payroll JOIN SOI revenue at exact NAICS match) | 1,632 | derived offline in loader |
+| `derived_CBP_SOI_rollup` (same join, rolled up by truncation for broader coverage) | 1,623 | derived offline in loader |
+| `industry_growth_table` (NAICS-quarter pre-aggregated public-co growth) | 1,010 | preexisting DB table |
+| `derived_depreciation_proxy` (maintenance_capex from min(depreciation%, capex%)) | 675 | derived offline in loader |
+| `BLS_OEWS` (Occupational Employment and Wage Statistics, May 2023 release) | 412 | preexisting DB table `oews_state_wages` |
+| `expert_naics2_default` (NAICS-2 expert defaults for rent/lease) | 72 | hand-curated this session in loader |
+| `expert_default` (cross-industry generic_default at level 0) | 41 | hand-curated this session in loader |
+
+**Files added/modified this session (production)**:
+| File | Role |
+|---|---|
+| [`scripts/load_industry_baseline_lookup.py`](../scripts/load_industry_baseline_lookup.py) | Idempotent loader. Reads each data source, computes ratios + percentile bands, writes flat rows to `post_intake_industry_baseline_lookup`. Run offline. |
+| [`python/data_pull/sec_edgar_xbrl_pull.py`](../python/data_pull/sec_edgar_xbrl_pull.py) | SEC EDGAR XBRL Frames API pull. Downloads ticker->CIK map, joins with `alpha_match_naics_industry` for CIK->NAICS, iterates 49 GAAP concepts x 8 quarters, lands raw rows in `sec_edgar_facts`. Run offline. |
+| [`context/system_overview_update_4.25.26.md`](system_overview_update_4.25.26.md) | This documentation. |
+
+**Refresh cadence**:
+1. Quarterly (after public earnings season) -- run `python python/data_pull/sec_edgar_xbrl_pull.py` (~2 min). Refreshes `sec_edgar_facts` from latest SEC filings.
+2. After any data-source refresh -- run `python scripts/load_industry_baseline_lookup.py` (~1 min). Re-aggregates everything into `post_intake_industry_baseline_lookup`.
+3. Both scripts are idempotent (DELETE-by-source then re-insert). Safe to re-run anytime.
+
+**Production-runtime read contract**:
+
+```sql
+-- The ONLY query the app should make at runtime against this system:
+SELECT benchmark_min, benchmark_target, benchmark_max,
+       confidence_tier, data_source, sample_size, naics_level
+FROM post_intake_industry_baseline_lookup
+WHERE metric_key = ?
+  AND naics_code = ?       -- cascade caller passes 6 then 5 then 4 then 3 then 2 then '*'
+  AND naics_level = ?
+  AND active = 1
+ORDER BY confidence_tier ASC, sample_size DESC
+LIMIT 1
+```
+
+Single-table indexed point lookup. No joins. Cascade is implemented in the calling code by walking 6 -> 5 -> 4 -> 3 -> 2 -> 0 and stopping at the first hit.
+
+### Why this exists
+
+Audit finding (2026-05-05): every cost/balance-sheet line in the app silently fell
+through to `0.0` when the corresponding intake field was null. Examples:
+
+- `taxes_percent` null -> `0.0` at `finmo_bridge.py:3461`
+- `marketing_percent_of_revenue` null -> `0.0` at `finmo_bridge.py:946-948`
+- `cogs_percent_of_revenue` null -> `0.0` at `quarter_grid.py:107-121`
+- `ar_balance` / `ap_balance` / inventory null -> `0.0` at `finmo_bridge.py:3470-3472`
+- No NAICS-keyed industry-baseline lookup existed anywhere in the app.
+
+This violated the Golden Rule's "must work for any business type" invariant: a $10M
+retail superstore was emitting $0 taxes, $0 AR, $0 AP, payroll under 10% of revenue.
+The fix is structural: a SQL-backed industry baseline registry the runtime can
+consult when intake omits a value.
+
+The user's stated requirement: NAICS coverage must be explicit and traceable.
+"NAICS should guide realism, but only when coverage is actually present and
+traceable." That means a per-metric coverage cascade `6 -> 5 -> 4 -> 3 -> 2 ->
+generic_default -> no_coverage`, with the level used and confidence stamped on
+every benchmark.
+
+### New SQL tables
+
+#### `post_intake_industry_baseline_lookup` (47,700 rows)
+
+Long-format. One row per `(naics_code, naics_level, metric_key, data_source,
+source_year)` tuple. Confidence and provenance are inline.
+
+```
+naics_code, naics_level, naics_title,
+metric_domain, metric_key, metric_label, unit,
+benchmark_min, benchmark_target, benchmark_max,
+data_source, source_year, sample_size,
+confidence_tier, derivation_formula,
+active, notes, created_at, updated_at
+```
+
+`naics_level` values: `6/5/4/3/2/0`. Level 0 with `naics_code='*'` is the
+cross-industry generic_default row used when the cascade exhausts NAICS-specific
+coverage.
+
+`confidence_tier` enum: `high | medium | low | generic_default`. Tier is
+downgraded automatically when rolling up to a higher NAICS level (e.g., a high-confidence
+NAICS-6 benchmark resolved at NAICS-3 fallback gets stamped medium).
+
+#### `post_intake_industry_metric_registry` (49 rows)
+
+One row per `metric_key`. Defines the metric's domain, unit, intended financial
+statement, the post-intake `model_input_lever_id` it eventually governs (when
+applicable), the primary and secondary preferred sources, and a `fail_if_no_coverage`
+flag (currently 0 for all metrics; flip to 1 when you want a metric to block the
+run when no coverage exists). This is the contract describing what each metric
+means and which `post_intak_mapping_lookup` lever it should drive.
+
+#### `post_intake_industry_baseline_coverage_audit` (49 rows)
+
+One row per metric_key, regenerated each loader run. Reports total rows, rows at
+each NAICS level (6/5/4/3/2/0), `highest_level_with_coverage`, whether a generic
+default exists, and the dominant data source. This is the "is this metric
+trustworthy yet" dashboard.
+
+#### `sec_edgar_facts` (644,812 rows -- raw XBRL staging)
+
+Staging table. **Production runtime never reads this table directly.** It exists
+only so `load_from_sec_edgar()` can aggregate raw XBRL facts into NAICS-keyed
+bands and write them to `post_intake_industry_baseline_lookup`.
+
+Schema:
+
+```
+cik              VARCHAR(10) NOT NULL    -- SEC Central Index Key, zero-padded to 10
+ticker           VARCHAR(20)             -- joined from SEC company_tickers.json
+naics_code       VARCHAR(6)              -- joined from alpha_match_naics_industry (confidence>=0.7)
+concept_name     VARCHAR(120) NOT NULL   -- e.g., 'DeferredRevenueCurrent', 'Revenues'
+taxonomy         VARCHAR(20)             -- 'us-gaap' (could be 'dei' for entity-level facts)
+units            VARCHAR(20)             -- 'USD' for our pull
+fiscal_period    VARCHAR(20) NOT NULL    -- 'CY2024Q1' (duration) or 'CY2024Q1I' (instant)
+fiscal_year      SMALLINT
+fiscal_quarter   TINYINT
+is_instant       TINYINT(1)              -- 1 for balance-sheet snapshots, 0 for income/cashflow flows
+value            DECIMAL(28,4)           -- the reported XBRL value
+accession_number VARCHAR(40)             -- SEC filing accession (e.g., '0001193125-24-000123') for traceability
+filed_at         DATE                    -- date the filing was submitted to SEC
+form_type        VARCHAR(10)             -- '10-K', '10-Q', etc.
+fp_end_at        DATE                    -- end-of-period date for this fact
+pulled_at        DATETIME
+
+UNIQUE KEY uniq_fact (cik, concept_name, fiscal_period, accession_number)
+INDEX idx_concept_period (concept_name, fiscal_period)
+INDEX idx_naics_concept  (naics_code, concept_name)
+```
+
+Each row has full provenance back to a specific SEC filing (via
+`accession_number`). When `load_from_sec_edgar()` aggregates a NAICS-6 median
+COGS%, you can trace any number to the underlying ~70 public-company quarterly
+filings that contributed to it.
+
+### Data sources used
+
+All sourced from public datasets that were already loaded in the user's MySQL
+schema. No external network pulls were required. Each row carries its
+`data_source` tag for provenance.
+
+| data_source           | rows  | what it gives                                                                  | source table                |
+|-----------------------|-------|--------------------------------------------------------------------------------|------------------------------|
+| `IRS_SOI`             | 6,000 | effective_tax_rate, cogs%, gross_margin, net_income_margin, depreciation%, ppe/rev, total_assets/rev, equity/assets, debt_to_equity | `SOI_corporate_tax_returns` |
+| `industry_metrics_raw`|15,353 | cogs%, gross_margin, operating_margin, ebitda_margin, net_income_margin, sga%, r_and_d%, dso, dpo, inventory_days, current_ratio, quick_ratio, debt_to_equity, debt_to_assets, interest_coverage, capex%, depreciation% | `industry_metrics_raw` (Alpha Vantage / public-co quarterly financials) |
+| `Census_CBP`          | 4,002 | avg_wage_per_fte, employees_per_establishment                                  | `cbp_2022_raw` (Census County Business Patterns 2022) |
+| `derived_CBP_SOI`     | 1,632 | payroll_percent_of_revenue, revenue_per_fte, fte_per_million_revenue (exact NAICS match)          | cross-source: CBP payroll + SOI revenue, joined at matching NAICS level |
+| `derived_CBP_SOI_rollup` | 1,623 | payroll_percent_of_revenue, revenue_per_fte, fte_per_million_revenue (rolled-up coverage)        | cross-source: CBP and SOI separately rolled up to NAICS-2/3/4/5/6 by truncation, then joined |
+| `BLS_OEWS`            |   413 | avg_wage_per_fte (national, employment-weighted across occupations)           | `oews_state_wages` (BLS Occupational Employment and Wage Statistics, May 2023 release) |
+| `SBA_7A`              | 4,243 | sba_initial_interest_rate, sba_typical_loan_size, sba_typical_loan_term_months | `sba_loan_7a_raw` (SBA 7(a) Approvals; FY>=2018, status PIF/EXEMPT/COMMIT/ACTIVE) |
+| `Census_BDS`          |  ~1100 | year1_to_year5_employment_ratio, startup_year1_exit_rate, mature_exit_rate, startup/early/mature_net_job_growth_rate, startup_qoq_growth_typical, early_qoq_growth_typical (employment-derived QoQ proxies) | `bds_firm_age` (Census Business Dynamics Statistics) |
+| `industry_growth_table` | 1,010 | mature_qoq_growth_typical (P25/P50/P75 bands of public-co quarterly revenue growth) | `industry_growth_table` (NAICS-quarter pre-aggregated public-co medians) |
+| `alpha_data`          |  ~830 | distributions_percent_of_net_income, effective_tax_rate (NAICS-6 from public-co filings) | `alpha_data` JOIN `alpha_match_naics_industry` on confidence>=0.7 |
+| `derived_depreciation_proxy` |  676 | maintenance_capex_percent_of_revenue (depreciation-as-proxy when depreciation < capex) | derived from already-loaded depreciation% and capex% rows |
+| `expert_naics2_default` |   72 | rent_percent_of_revenue, lease_percent_of_revenue, occupancy_total_percent_of_revenue (NAICS-2 sector-typical bands for the 24 NAICS-2 sectors) | research-derived from IBISWorld profiles, industry trade studies; replaces silent $0 lease default in `finmo_bridge.py:937` |
+| `SEC_EDGAR` | 8,618 | deferred_revenue%, prepaid_expenses%, marketing%, advertising%, rent% (data-backed), R&D%, SG&A%, COGS%, effective_tax_rate, distributions%, capex%, operating_cash_flow_margin (NEW), stock_based_comp_percent_of_revenue (NEW), PP&E% | `sec_edgar_facts` staging table populated by `python/data_pull/sec_edgar_xbrl_pull.py` from SEC EDGAR XBRL Frames API; 644,812 raw fact rows across 49 GAAP concepts x 8 quarters x 3,242 CIK->NAICS-mapped public companies |
+| `expert_default`      |    41 | cross-industry typical band for every metric (level 0 fallback)               | hand-curated cross-industry typicals (federal corporate tax statutory rate, BLS national avg wages, etc.) |
+
+### Metric catalog (49 metrics)
+
+| metric_domain      | metric_keys |
+|--------------------|-------------|
+| `p_and_l` (16)     | effective_tax_rate, cogs_percent_of_revenue, gross_margin_percent, net_income_margin, operating_margin_percent, ebitda_margin, sga_percent_of_revenue, r_and_d_percent_of_revenue, depreciation_percent_of_revenue, interest_coverage, rent_percent_of_revenue, lease_percent_of_revenue, occupancy_total_percent_of_revenue, **marketing_percent_of_revenue** (SEC EDGAR), **advertising_percent_of_revenue** (SEC EDGAR), **stock_based_compensation_percent_of_revenue** (SEC EDGAR) |
+| `balance_sheet` (12) | ar_days_dso, ap_days_dpo, inventory_days, current_ratio, quick_ratio, debt_to_equity, debt_to_assets, ppe_percent_of_revenue, total_assets_to_revenue, owners_capital_percent_of_assets, **prepaid_expenses_percent_of_revenue** (SEC EDGAR closed gap), **deferred_revenue_percent_of_revenue** (SEC EDGAR closed gap) |
+| `cash_flow` (4)    | capex_percent_of_revenue, maintenance_capex_percent_of_revenue, distributions_percent_of_net_income, **operating_cash_flow_margin** (SEC EDGAR) |
+| `workforce` (5)    | avg_wage_per_fte, revenue_per_fte, payroll_percent_of_revenue, fte_per_million_revenue, employees_per_establishment |
+| `capital_structure` (3) | sba_initial_interest_rate, sba_typical_loan_size, sba_typical_loan_term_months |
+| `stage_ramp` (9)   | year1_to_year5_employment_ratio, startup_year1_exit_rate, mature_exit_rate, startup_net_job_growth_rate, early_net_job_growth_rate, mature_net_job_growth_rate, startup_qoq_growth_typical, early_qoq_growth_typical, mature_qoq_growth_typical |
+
+Total: 49 metric_keys. **Bold** entries were added by the SEC EDGAR pull this
+session (4 net-new metrics + 2 closed-gap metrics that previously had only
+generic_default coverage). See `post_intake_industry_metric_registry` for full
+per-metric metadata including which `governs_model_input_lever` each metric maps
+to (e.g., `effective_tax_rate -> expenses::Taxes`, `payroll_percent_of_revenue
+-> expenses::Payroll`, `marketing_percent_of_revenue -> expenses::Marketing`,
+`rent_percent_of_revenue -> expenses::Lease`).
+
+### Coverage cascade contract
+
+This is the resolver contract that future code in `python/client_intake_and_finmo/`
+must obey when reading from the table. It is documented here because the loader
+produces the data shape that satisfies it; the resolver itself has not been
+written yet.
+
+```
+post_intake_industry_baseline_for_naics(naics_6, metric_key) returns:
+  benchmark_min, benchmark_target, benchmark_max
+  naics_code_used, naics_level_used (6, 5, 4, 3, 2, or 0)
+  data_source, source_year, sample_size, confidence_tier
+  trust_flag in {naics_6_direct, naics_5_fallback, naics_4_fallback,
+                 naics_3_fallback, naics_2_fallback, generic_default,
+                 no_coverage}
+  fallback_chain_attempted: [naics_6, naics_5, naics_4, naics_3, naics_2,
+                             generic]
+```
+
+Cascade rules (resolver responsibility, not loader responsibility):
+
+1. Try 6-digit. If row exists at the metric's preferred `data_source` (from
+   `post_intake_industry_metric_registry.primary_source`) AND
+   `confidence_tier IN ('high','medium')`, use it -> `naics_6_direct`.
+2. Try 5-digit. If row exists, use it -> `naics_5_fallback`. Downgrade trust to
+   medium if it was high.
+3. Try 4-digit. -> `naics_4_fallback`. Cap trust at medium.
+4. Try 3-digit. -> `naics_3_fallback`. Cap trust at low.
+5. Try 2-digit. -> `naics_2_fallback`. Cap trust at low.
+6. Try level=0 (generic_default). -> `generic_default`. Confidence = generic_default.
+7. None of the above. -> `no_coverage`. Caller decides: fail-fast (if
+   `metric_registry.fail_if_no_coverage = 1`) or hold the line at $0.
+
+Every model_input row that gets seeded from this lookup must carry the
+`trust_flag` and `naics_level_used` as provenance fields so the workbook and
+finalize gate can flag low-confidence numbers.
+
+### Concrete cascade example: ValueMart Superstores (NAICS 455211)
+
+Verified end-to-end with `Test Files/_verify_baseline_tables.py`:
+
+| metric                          | resolves to | source                | sample size | trust    |
+|---------------------------------|-------------|-----------------------|-------------|----------|
+| `effective_tax_rate`            | 13.33% at NAICS 45521 (L5)   | IRS_SOI               | 12,226       | high     |
+| `cogs_percent_of_revenue`       | 81.67% at NAICS 455211 (L6)   | industry_metrics_raw  | 78           | high     |
+| `ebitda_margin`                 | 5.49% at NAICS 455211 (L6)    | industry_metrics_raw  | 78           | high     |
+| `capex_percent_of_revenue`      | 2.80% at NAICS 455211 (L6)    | industry_metrics_raw  | 78           | high     |
+| `avg_wage_per_fte`              | $39,165 at NAICS 455 (L3)     | BLS_OEWS              | 32,755,360   | high     |
+| `payroll_percent_of_revenue`    | 20% at L0 generic             | expert_default        | 0            | generic_default |
+| `revenue_per_fte`               | $250K at L0 generic           | expert_default        | 0            | generic_default |
+
+Real values now exist for the metrics that matter most (taxes, COGS, EBITDA,
+capex, wages). The two workforce-realism metrics that derive from a CBP-SOI
+join (payroll_percent_of_revenue, revenue_per_fte) fall to the generic default
+for ValueMart specifically because CBP and SOI did not both have NAICS 455211
+at the same level. This is a real coverage gap that will improve as future
+refresh runs broaden the cross-source join. See "Known limitations" below.
+
+### Loader script
+
+`scripts/load_industry_baseline_lookup.py`. Idempotent (deletes-by-source then
+re-inserts). Re-run any time the underlying public-data tables refresh.
+Prints a coverage audit at the end. Run with:
+
+```
+.\.venv\Scripts\python.exe scripts\load_industry_baseline_lookup.py
+```
+
+### Coverage status by metric (post gap-fill iteration)
+
+After the gap-fill iteration on 2026-05-05, NAICS-specific coverage for the
+critical realism metrics is significantly broader than the initial load. Counts
+shown are distinct (NAICS x metric x source) rows, separated by NAICS level.
+
+| metric_key                            | total | L6 | L5 | L4 | L3 | L2 | gen | status |
+|---------------------------------------|------:|---:|---:|---:|---:|---:|----:|--------|
+| `cogs_percent_of_revenue`             | 1,686 | 589 | 503 | 386 | 160 | 47 | 1 | strong |
+| `rent_percent_of_revenue`             |    25 |   0 |   0 |   0 |   0 | 24 | 1 | universal-cascade (NAICS-2 expert defaults; replaces silent $0 lease in `finmo_bridge.py:937`) |
+| `lease_percent_of_revenue`            |    25 |   0 |   0 |   0 |   0 | 24 | 1 | universal-cascade (NAICS-2 expert defaults; operating equipment/vehicle lease only -- excludes ASC 842 capitalized leases) |
+| `occupancy_total_percent_of_revenue`  |    25 |   0 |   0 |   0 |   0 | 24 | 1 | universal-cascade (combined rent + lease; matches `expenses::Lease` model_input lever) |
+| `gross_margin_percent`                | 1,686 | 589 | 503 | 386 | 160 | 47 | 1 | strong |
+| `net_income_margin`                   | 1,686 | 589 | 503 | 386 | 160 | 47 | 1 | strong |
+| `debt_to_equity`                      | 1,688 | 590 | 504 | 386 | 160 | 47 | 1 | strong |
+| `effective_tax_rate`                  | 1,519 | 520 | 454 | 349 | 148 | 47 | 1 | strong (post gap-fill: alpha_data added L6) |
+| `mature_qoq_growth_typical`           | 1,011 | 387 | 306 | 212 |  81 | 24 | 1 | filled (was generic-only) |
+| `revenue_per_fte`                     | 1,103 | 302 | 316 | 310 | 135 | 39 | 1 | filled (was generic-only) |
+| `payroll_percent_of_revenue`          | 1,052 | 298 | 308 | 294 | 120 | 31 | 1 | filled (was generic-only) |
+| `fte_per_million_revenue`             | 1,102 | 302 | 316 | 310 | 135 | 39 | 0 | filled (was generic-only) |
+| `distributions_percent_of_net_income` |   830 | 299 | 247 | 181 |  78 | 24 | 1 | filled (was generic-only) |
+| `maintenance_capex_percent_of_revenue`|   676 | 202 | 197 | 174 |  79 | 23 | 1 | filled (was generic-only; depreciation proxy) |
+| `year1_to_year5_employment_ratio`     |   287 |   0 |   0 | 286 |   0 |  0 | 1 | filled at NAICS-4 from BDS |
+| `mature_exit_rate`                    |   283 |   0 |   0 | 282 |   0 |  0 | 1 | filled (was generic-only) |
+| `startup_year1_exit_rate`             |   275 |   0 |   0 | 274 |   0 |  0 | 1 | filled (was generic-only; BDS age-1 cohort) |
+| `mature_net_job_growth_rate`          |   286 |   0 |   0 | 286 |   0 |  0 | 0 | filled (was generic-only) |
+| `startup_qoq_growth_typical`          |   287 |   0 |   0 | 286 |   0 |  0 | 1 | filled (BDS employment-proxy) |
+| `early_qoq_growth_typical`            |   285 |   0 |   0 | 284 |   0 |  0 | 1 | filled (BDS employment-proxy) |
+| `avg_wage_per_fte`                    | 2,413 | 983 | 704 | 519 | 171 | 35 | 1 | strong |
+| `employees_per_establishment`         | 2,001 | 968 | 638 | 290 |  86 | 18 | 1 | strong |
+| `sba_typical_loan_size`               | 2,103 | 968 | 686 | 323 | 101 | 24 | 1 | strong |
+| `sba_typical_loan_term_months`        | 2,103 | 968 | 686 | 323 | 101 | 24 | 1 | strong |
+| `sba_initial_interest_rate`           |    40 |   8 |   8 |   8 |   8 |  7 | 1 | weak (fewer NAICS pass rate-not-zero filter; falls to generic) |
+| `deferred_revenue_percent_of_revenue` |   745 |  269 |  218 |  162 |   72 | 23 | 1 | CLOSED via SEC_EDGAR (XBRL Frames; was generic-only) |
+| `prepaid_expenses_percent_of_revenue` |   827 |  298 |  243 |  183 |   78 | 24 | 1 | CLOSED via SEC_EDGAR (XBRL Frames; was generic-only) |
+| `marketing_percent_of_revenue`        |   421 |  137 |  117 |   96 |   49 | 22 | 0 | NEW via SEC_EDGAR (data-backed at NAICS-6) |
+| `advertising_percent_of_revenue`      |   188 |   50 |   49 |   44 |   29 | 16 | 0 | NEW via SEC_EDGAR |
+| `operating_cash_flow_margin`          |   555 |  169 |  154 |  138 |   71 | 23 | 0 | NEW via SEC_EDGAR |
+| `stock_based_compensation_percent_of_revenue` | 576 | 182 | 161 | 139 | 71 | 23 | 0 | NEW via SEC_EDGAR |
+
+### Remaining limitations
+
+- **`lease_percent_of_revenue`, `occupancy_total_percent_of_revenue`** still rely on the expert NAICS-2 default because most public companies report `OperatingLeaseExpense` (which we capture under `rent_percent_of_revenue`) rather than a separate equipment-only lease line. The expert NAICS-2 estimate at 1.5-6% covers the equipment-lease intensity for transportation-heavy industries; the cascade falls through to it when no SEC-data row exists.
+- **`rent_percent_of_revenue` is data-backed at NAICS-6 from SEC EDGAR for restaurants, retail, and industries with material public-company rent disclosure**. Where SEC data is sparse (smaller NAICS like specialty retail), the cascade falls through to the expert NAICS-2 default. Validation: SEC-data 8.39% rent at NAICS 722511 (restaurants, n=8) closely matches the expert NAICS-2 estimate of 9.0% for accommodation/food sector -- expert defaults are validated by data where overlap exists.
+- **No app code reads these tables yet.** The lookup function
+  `post_intake_industry_baseline_for_naics()` and the wiring into
+  `finmo_bridge.py` to replace the silent-zero fallbacks are the next step.
+  When that lands, every silent `or 0.0` site documented in the
+  Realism Audit (2026-05-05) becomes a NAICS-cascade lookup.
+- **`fail_if_no_coverage` is 0 for all metrics.** None of the metrics block the
+  run today when coverage is missing; the runtime falls through to the
+  generic_default. Flip to 1 metric-by-metric if a stronger gate is desired.
+
+### Design contract: augment, don't replace
+
+These tables are explicitly scoped to AUGMENT existing logic, not replace it:
+
+- They are consulted only when intake omits a value (silent `or 0.0` fallback
+  sites). Explicit intake values still win.
+- They provide min/max bands for GPT to pick within, not specific values that
+  override GPT decisions.
+- They feed finalize-stage realism gates (planned, not yet wired) that flag
+  outputs outside NAICS-typical bands -- they do not force values; they fail-fast
+  when the produced model violates the band, surfacing the upstream input that's
+  wrong.
+- Existing logic that stays untouched: payroll headcount schedule (FTE-driven),
+  debt schedule, depreciation schedule, sequence controller, SQL mapping table,
+  all SQL contract definitions. The Golden Rule's `FTE -> capacity -> revenue`
+  causal chain stays unchanged.
+
+### Reliability and consistency wins
+
+- **Universal coverage**: every NAICS at any level resolves to *something* via
+  the cascade. No business type produces $0 taxes / $0 AR / $0 inventory just
+  because intake omitted it.
+- **Run-to-run determinism**: GPT bounded by NAICS-specific min/max means two
+  runs of the same business produce numerically similar plans. Today GPT can
+  pick anywhere in wide labor-intensity bands; with NAICS bands, the spread
+  tightens.
+- **Auditability and trust flags**: every benchmark stamps `naics_level_used`,
+  `data_source`, `sample_size`, `confidence_tier`, `derivation_formula`. When
+  you see a value in the workbook, you can trace it to the exact row that
+  produced it. Low-confidence values can be flagged in the model output so you
+  (or your client) know which numbers are NAICS-direct vs cross-industry generic.
+
+### SEC EDGAR XBRL pipeline (added 2026-05-05)
+
+The EDGAR pipeline closed both known data gaps (deferred_revenue, prepaid_expenses) and added 4 new metrics by pulling structured XBRL financial facts directly from SEC filings.
+
+**Pipeline:**
+
+```
+SEC EDGAR Frames API (data.sec.gov)
+   |
+   +---> python/data_pull/sec_edgar_xbrl_pull.py (offline, ~2 minutes)
+   |        - downloads SEC ticker -> CIK map (one HTTP call)
+   |        - joins with alpha_match_naics_industry to get CIK -> NAICS map
+   |        - iterates 49 GAAP concepts x 8 calendar quarters
+   |        - inserts raw values into sec_edgar_facts staging table
+   |
+   +---> sec_edgar_facts (staging table; 644,812 rows; 3,242 distinct CIKs)
+   |        - one row per (cik, concept, fiscal_period, accession)
+   |        - includes: cik, ticker, naics_code, concept_name, fiscal_period,
+   |          is_instant, value, accession_number, filed_at, form_type
+   |        - INDEX on (concept_name, fiscal_period) and (naics_code, concept_name)
+   |
+   +---> scripts/load_industry_baseline_lookup.py:load_from_sec_edgar() (offline)
+   |        - reads sec_edgar_facts
+   |        - pairs each numerator concept (e.g. DeferredRevenue) with same-quarter
+   |          revenue per CIK
+   |        - aggregates by NAICS-6/5/4/3/2 with P25/P50/P75 bands
+   |        - writes flat rows to post_intake_industry_baseline_lookup with
+   |          data_source='SEC_EDGAR'
+   |
+   +---> post_intake_industry_baseline_lookup (production-read; 8,618 EDGAR rows)
+            - production runtime never touches sec_edgar_facts
+            - production runtime does single-table indexed point lookups only
+```
+
+**Production runtime contract:** sec_edgar_facts is a STAGING table populated and consumed only by offline jobs. The cascade resolver at runtime hits `post_intake_industry_baseline_lookup` with a primary-key-indexed point lookup -- no joins, no aggregations.
+
+**Refresh cadence:** SEC EDGAR Frames API is updated daily as new 10-K and 10-Q filings post. Re-run `python/data_pull/sec_edgar_xbrl_pull.py` quarterly (or whenever quarterly earnings season completes) to refresh the staging table, then re-run `scripts/load_industry_baseline_lookup.py` to flatten into the lookup. Both scripts are idempotent.
+
+**Concepts pulled (49 total):**
+
+| Domain | XBRL concept tags |
+|---|---|
+| Deferred revenue | `DeferredRevenue`, `DeferredRevenueCurrent`, `DeferredRevenueNoncurrent`, `ContractWithCustomerLiabilityCurrent`, `ContractWithCustomerLiabilityNoncurrent`, `ContractWithCustomerLiability` |
+| Prepaid expenses | `PrepaidExpenseCurrent`, `PrepaidExpenseAndOtherAssetsCurrent`, `PrepaidExpenseAndOtherAssets` |
+| Marketing/advertising | `AdvertisingExpense`, `MarketingExpense`, `MarketingAndAdvertisingExpense`, `SellingAndMarketingExpense` |
+| Operating lease/rent | `OperatingLeaseExpense`, `OperatingLeasesRentExpenseNet`, `LeaseAndRentalExpense`, `OperatingLeaseRightOfUseAsset`, `OperatingLeaseLiability` |
+| R&D | `ResearchAndDevelopmentExpense` |
+| P&L core | `Revenues`, `RevenueFromContractWithCustomerExcludingAssessedTax`, `CostOfRevenue`, `CostOfGoodsAndServicesSold`, `GrossProfit`, `SellingGeneralAndAdministrativeExpense`, `GeneralAndAdministrativeExpense`, `DepreciationAndAmortization`, `Depreciation`, `InterestExpense`, `IncomeTaxExpenseBenefit`, `IncomeLossFromContinuingOperations...BeforeIncomeTaxes...`, `OperatingIncomeLoss`, `NetIncomeLoss` |
+| Balance sheet | `Assets`, `AssetsCurrent`, `Liabilities`, `LiabilitiesCurrent`, `StockholdersEquity`, `AccountsReceivableNetCurrent`, `AccountsPayableCurrent`, `InventoryNet`, `PropertyPlantAndEquipmentNet`, `LongTermDebtNoncurrent`, `LongTermDebtCurrent` |
+| Cash flow | `PaymentsToAcquirePropertyPlantAndEquipment`, `PaymentsOfDividendsCommonStock`, `PaymentsOfDividends`, `ShareBasedCompensation`, `NetCashProvidedByUsedInOperatingActivities` |
+
+**SEC fair-access policy:** Pull script sets `User-Agent: TitheFinancial Business Plan App ignatius.henry@tithefinancial.com` per SEC requirement, paces at ~7 req/s (under the 10 req/s limit), and handles HTTP 429 (rate limit) with exponential backoff.
+
+**Concrete coverage examples (after EDGAR pull):**
+
+| Business / NAICS | Metric | Resolved at | Target | Source |
+|---|---|---|---|---|
+| ValueMart Superstores / 455211 | `prepaid_expenses_percent_of_revenue` | NAICS-6 direct | 0.6% | SEC_EDGAR (n=16, medium) |
+| Software Publishers / 511 | `deferred_revenue_percent_of_revenue` | NAICS-3 direct | 12.33% | SEC_EDGAR (n=1267, medium) |
+| ValueMart Superstores / 45 | `marketing_percent_of_revenue` | NAICS-2 direct | 12.41% | SEC_EDGAR (n=65, medium) |
+| Software Publishers / 51 | `marketing_percent_of_revenue` | NAICS-2 direct | 24.65% | SEC_EDGAR (n=1032, medium) |
+| Full-Service Restaurants / 722511 | `rent_percent_of_revenue` | NAICS-6 direct | 8.39% | SEC_EDGAR (n=8, medium) |
+
+The Software/SaaS examples are particularly powerful: deferred revenue at 12-34% of revenue and marketing at 13-37% are the sort of NAICS-specific industry truths that no expert default could confidently produce, because the band is so wide that you really need the data.
+
+### Files added in this change
+
+```
+scripts/load_industry_baseline_lookup.py             -- idempotent loader (offline)
+python/data_pull/sec_edgar_xbrl_pull.py              -- SEC EDGAR XBRL pull (offline)
+context/system_overview_update_4.25.26.md            -- this section
+```
+
+Four new SQL tables created (post-EDGAR final state):
+
+```
+post_intake_industry_baseline_lookup            (47,700 rows)
+post_intake_industry_metric_registry            (    49 rows -- 49 metric_keys)
+post_intake_industry_baseline_coverage_audit    (    49 rows)
+sec_edgar_facts                                 ( 644,812 rows -- raw XBRL staging)
+```
+
+Production-runtime read path: `post_intake_industry_baseline_lookup` only (single-table indexed point lookup, no joins).
+
+No application code paths were modified in this change. The new tables exist as
+the data substrate for the next wiring step; nothing in the runtime currently
+reads from them.
+
+### End-to-end audit trail
+
+To answer "where did this benchmark come from?" for any row in
+`post_intake_industry_baseline_lookup`:
+
+1. Look at `data_source` and `derivation_formula` on the row.
+2. If `data_source = 'SEC_EDGAR'`: the row was aggregated from raw `sec_edgar_facts`
+   rows by `load_from_sec_edgar()`. Trace back via:
+   `SELECT * FROM sec_edgar_facts WHERE concept_name IN (...derivation tags...)
+    AND naics_code = <row.naics_code>` -- each fact has `accession_number`
+   pointing at the specific SEC filing on edgar.sec.gov.
+3. If `data_source = 'IRS_SOI'`: aggregated from `SOI_corporate_tax_returns`
+   matching the NAICS level. The derivation_formula column shows which SOI
+   columns were divided.
+4. If `data_source = 'industry_metrics_raw'` or `'alpha_data'`: aggregated from
+   public-company quarterly financials via `alpha_match_naics_industry` ticker
+   to NAICS map (confidence>=0.7).
+5. If `data_source = 'Census_CBP'` or `'Census_BDS'`: aggregated from Census
+   Business Patterns or Business Dynamics Statistics by NAICS.
+6. If `data_source = 'BLS_OEWS'`: aggregated from BLS Occupational Employment
+   and Wage Statistics, employment-weighted across occupations.
+7. If `data_source = 'SBA_7A'`: aggregated from SBA 7(a) loan approvals (status
+   PIF/EXEMPT/COMMIT/ACTIVE, FY>=2018).
+8. If `data_source = 'derived_CBP_SOI'` or `'derived_CBP_SOI_rollup'`: cross-source
+   join of CBP payroll/employment with SOI revenue at matching or rolled-up NAICS
+   level.
+9. If `data_source = 'derived_depreciation_proxy'`: derived from already-loaded
+   `depreciation_percent_of_revenue` and `capex_percent_of_revenue` rows via
+   accounting-economic identity (maintenance capex ~ depreciation).
+10. If `data_source = 'industry_growth_table'`: aggregated from pre-computed
+    NAICS-quarter public-co growth medians in `industry_growth_table`.
+11. If `data_source = 'expert_naics2_default'`: research-derived NAICS-2 expert
+    estimate (rent and lease only). Hand-curated from IBISWorld profiles and
+    industry trade studies.
+12. If `data_source = 'expert_default'`: cross-industry generic_default at NAICS
+    level 0. Hand-curated cross-industry typicals (federal corporate tax
+    statutory rate, BLS national avg wages, etc.) for ultimate fallback.
+
+### Inputs the pipeline does NOT use (and why)
+
+For completeness, here are tables in the database that this baseline pipeline
+consciously does NOT mine:
+
+- `acs_zip_2022_part1/2` (Census ACS demographics by ZIP) -- demographic, not
+  industry-financial. Useful for target-market sizing, not for cost ratios.
+- `hud_zip_cbsa/county/tract` (HUD ZIP crosswalks) -- geography mapping only.
+- `fred_macro_quarterly` (FRED macro indicators) -- macro, not NAICS-keyed.
+  Could be useful for stage-ramp adjustments by economic cycle in a future
+  iteration.
+- `industry_growth_index` (1,014 rows) -- this is a coverage-tracker metadata
+  table, not a metric source. Documents which NAICS codes have trustworthy
+  pre-aggregated growth in `industry_growth_table`.
+- `intake_consult_drafts`, `planning_runs`, `planning_run_checkpoints`, etc. --
+  per-client run artifacts, not industry benchmarks.
+- `post_intak_mapping_lookup`, `post_intake_cash_policy_lookup`, etc. -- existing
+  application contracts (different system; the runtime already uses these).

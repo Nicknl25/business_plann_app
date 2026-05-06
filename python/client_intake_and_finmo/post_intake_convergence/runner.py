@@ -14,7 +14,11 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_assert_required_process_sequence,
   post_intake_contract_forecast_horizon_quarter_count,
   post_intake_process_sequence_step,
-  post_intake_process_step_context,
+)
+from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+  assert_post_intake_sequence_controller_authoritative,
+  build_post_intake_sequence_controller,
+  build_single_step_handler_registry,
 )
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (
   CASH_STRATEGY_TEST_MODE_FAIL_FLAGS,
@@ -39,7 +43,7 @@ _RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
 _RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
 _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
 _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
-_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
+_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 3
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -420,8 +424,16 @@ def _issue_gap_materially_improved(
   if gap_delta <= 0.0:
     return False
   # A cycle is productive when it materially shrinks the table-backed issue
-  # diagnostic, even if the issue needs another cycle to fully clear.
-  return gap_delta >= max(1000.0, before_gap * 0.02)
+  # diagnostic, even if the issue needs another cycle to fully clear. Large
+  # gaps still need a large move, while near-boundary residual gaps should not
+  # be rejected just because the remaining dollar gap is already small.
+  if before_gap >= 50000.0:
+    absolute_floor = 1000.0
+    percent_floor = before_gap * 0.02
+  else:
+    absolute_floor = 25.0
+    percent_floor = before_gap * 0.005
+  return gap_delta >= max(absolute_floor, percent_floor)
 
 
 def _build_unified_cycle_quality_assessment(
@@ -552,6 +564,7 @@ def _run_unified_post_grid_system_run(
     model_input_json=copy.deepcopy(applied_model_input_json or {}),
     catalog_source_model_input_json=copy.deepcopy(catalog_source_model_input_json or {}),
   )
+  final_finmo_json = copy.deepcopy(applied_finmo_json or {})
   final_payroll_headcount_payload = copy.deepcopy(payroll_headcount or {})
 
   def _apply_payroll_authority(
@@ -568,6 +581,8 @@ def _run_unified_post_grid_system_run(
     from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
       apply_payroll_headcount_payload_to_model_input,
       apply_payroll_supported_capacity_to_model_input,
+      assert_finmo_payroll_matches_headcount_schedule,
+      assert_payroll_headcount_model_input_applied,
     )
 
     horizon = int(
@@ -576,26 +591,89 @@ def _run_unified_post_grid_system_run(
       )
       or _contract_forecast_quarter_count()
     )
-    capacity_model_input_json = apply_payroll_supported_capacity_to_model_input(
-      copy.deepcopy(final_model_input_json),
-      copy.deepcopy(final_payroll_headcount_payload),
-      live_count=horizon,
-      process_step_key=process_step_key,
-      control_action="derive",
-      control_trigger="payroll_headcount_changed",
+    capacity_model_input_json = _execute_sequence_step(
+      "payroll_capacity_derivation",
+      apply_payroll_supported_capacity_to_model_input,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={
+          "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
+          "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+        },
+      ),
+      handler_kwargs={
+        "model_input_json": copy.deepcopy(final_model_input_json),
+        "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
+        "live_count": horizon,
+        "process_step_key": process_step_key,
+        "control_action": "derive",
+        "control_trigger": "payroll_headcount_changed",
+      },
+      expected_phase="initial_grid",
+      expected_handler_key="apply_payroll_supported_capacity_to_model_input",
+      required_horizon_rule="payroll_supported_capacity_derivation_q1_to_q20",
     )
-    final_model_input_json = apply_payroll_headcount_payload_to_model_input(
-      copy.deepcopy(capacity_model_input_json),
-      copy.deepcopy(final_payroll_headcount_payload),
-      live_count=horizon,
-      process_step_key=process_step_key,
-      control_action="derive",
-      control_trigger="payroll_headcount_changed",
+
+    def _apply_payroll_model_input_authority() -> Dict[str, Any]:
+      next_model_input = apply_payroll_headcount_payload_to_model_input(
+        copy.deepcopy(capacity_model_input_json),
+        copy.deepcopy(final_payroll_headcount_payload),
+        live_count=horizon,
+        process_step_key=process_step_key,
+        control_action="derive",
+        control_trigger="payroll_headcount_changed",
+      )
+      next_model_input = apply_derived_driver_policies_to_model_input(
+        copy.deepcopy(next_model_input),
+      )
+      assert_payroll_headcount_model_input_applied(
+        copy.deepcopy(next_model_input),
+        copy.deepcopy(final_payroll_headcount_payload),
+        stage="convergence_payroll_authority_reapplied",
+      )
+      return next_model_input
+
+    final_model_input_json = _execute_sequence_step(
+      "payroll_model_input_application",
+      _apply_payroll_model_input_authority,
+      runtime_context=_runtime_context(
+        current_model_input_json=capacity_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={
+          "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
+          "capacity_outputs": {
+            "source": "payroll_supported_capacity_applied",
+            "model_input_path": "model_input_json.sections.revenue[Capacity]",
+          },
+        },
+      ),
+      expected_phase="initial_grid",
+      expected_handler_key="apply_payroll_headcount_payload_to_model_input",
+      required_horizon_rule="payroll_expense_derivation_q1_to_q20",
     )
-    final_model_input_json = apply_derived_driver_policies_to_model_input(
-      copy.deepcopy(final_model_input_json),
+
+    def _rebuild_payroll_finmo_authority() -> Dict[str, Any]:
+      next_finmo = build_python_finmo_json(model_input_json=copy.deepcopy(final_model_input_json))
+      assert_finmo_payroll_matches_headcount_schedule(
+        copy.deepcopy(next_finmo),
+        copy.deepcopy(final_payroll_headcount_payload),
+        stage="convergence_payroll_authority_reapplied",
+      )
+      return next_finmo
+
+    final_finmo_json = _execute_sequence_step(
+      "payroll_finmo_rebuild_validation",
+      _rebuild_payroll_finmo_authority,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={"payroll_headcount": copy.deepcopy(final_payroll_headcount_payload)},
+      ),
+      expected_phase="initial_grid",
+      expected_handler_key="assert_finmo_payroll_matches_headcount_schedule",
+      required_horizon_rule="payroll_finmo_reconciliation_q1_to_q20",
     )
-    final_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(final_model_input_json))
 
   def _reapply_payroll_authority() -> None:
     _apply_payroll_authority()
@@ -604,20 +682,45 @@ def _run_unified_post_grid_system_run(
     nonlocal final_payroll_headcount_payload
     from client_intake_and_finmo.post_intake_headcount import estimate_payroll_headcount_schedule_with_gpt  # type: ignore
 
-    final_payroll_headcount_payload = estimate_payroll_headcount_schedule_with_gpt(
-      business_facts=copy.deepcopy(business_facts or {}),
-      ops_json=copy.deepcopy(ops_json or {}),
-      people_json=copy.deepcopy(people_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      model_input_json=copy.deepcopy(final_model_input_json or {}),
-      finmo_json=copy.deepcopy(final_finmo_json or {}),
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
-      draft_id=str(draft_id).strip(),
-      client_id=str((business_facts or {}).get("client_id") or "").strip(),
-      previous_contract_failure=copy.deepcopy(previous_contract_failure or {}),
+    final_payroll_headcount_payload = _execute_sequence_step(
+      "payroll_feasibility_repair",
+      estimate_payroll_headcount_schedule_with_gpt,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={
+          "previous_contract_failure": copy.deepcopy(previous_contract_failure or {}),
+          "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload or {}),
+          "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+        },
+      ),
+      handler_kwargs={
+        "business_facts": copy.deepcopy(business_facts or {}),
+        "ops_json": copy.deepcopy(ops_json or {}),
+        "people_json": copy.deepcopy(people_json or {}),
+        "financials_json": copy.deepcopy(financials_json or {}),
+        "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
+        "planning_mode": planning_mode,
+        "planning_mode_reason": planning_mode_reason,
+        "model_input_json": copy.deepcopy(final_model_input_json or {}),
+        "finmo_json": copy.deepcopy(final_finmo_json or {}),
+        "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+        "draft_id": str(draft_id).strip(),
+        "client_id": str((business_facts or {}).get("client_id") or "").strip(),
+        "previous_contract_failure": copy.deepcopy(previous_contract_failure or {}),
+      },
+      expected_phase="initial_grid",
+      expected_handler_key="retry_payroll_headcount_schedule_from_feasibility_failure",
+      required_contract_name="payroll_headcount_schedule",
+      required_context_contract_name="payroll_headcount_schedule",
+      required_context_include_phase="pre_convergence",
+      required_lookup_tables=[
+        "post_intak_mapping_lookup",
+        "post_intake_gpt_contract_lookup",
+        "post_intake_gpt_context_lookup",
+        "post_intake_headcount_policy_lookup",
+      ],
+      required_horizon_rule="q1_to_q20_at_least_once",
     )
     _apply_payroll_authority(
       process_step_key="payroll_feasibility_repair",
@@ -628,30 +731,89 @@ def _run_unified_post_grid_system_run(
       "stage_ramp_contract_missing_before_convergence: GPT stage ramp contract must be generated before post-intake convergence."
     )
   process_sequence_trace: Dict[str, Any] = {}
+  sequence_controller = build_post_intake_sequence_controller()
+  process_sequence_trace["sequence_controller_authority"] = (
+    assert_post_intake_sequence_controller_authoritative()
+  )
+
+  def _execute_sequence_step(
+    step_key: str,
+    handler,
+    *,
+    runtime_context: Optional[Dict[str, Any]] = None,
+    handler_kwargs: Optional[Dict[str, Any]] = None,
+    expected_phase: str = "",
+    expected_handler_key: str = "",
+    required_contract_name: str = "",
+    required_context_contract_name: str = "",
+    required_context_include_phase: str = "",
+    required_lookup_tables: Optional[List[str]] = None,
+    required_horizon_rule: str = "",
+  ) -> Any:
+    result = sequence_controller.execute_registered_step(
+      step_key,
+      handler_registry=build_single_step_handler_registry(
+        step_key,
+        handler,
+        extra_keys=[expected_handler_key],
+      ),
+      runtime_context=runtime_context or {},
+      handler_kwargs=handler_kwargs or {},
+      isolated=False,
+      allow_side_effects=True,
+    )
+    trace_rows = sequence_controller.trace()
+    if trace_rows:
+      process_sequence_trace[step_key] = copy.deepcopy(trace_rows[-1])
+    return result
+
+  def _assert_global_invariants_via_sequence(
+    step_key: str,
+    *,
+    model_input_payload: Dict[str, Any],
+    finmo_payload: Dict[str, Any],
+    payroll_headcount_payload: Dict[str, Any],
+    stage: str,
+    debt_schedule_payload: Optional[Dict[str, Any]] = None,
+    enforce_cash_buffer: bool = False,
+  ) -> Dict[str, Any]:
+    def _run_global_invariants() -> Dict[str, Any]:
+      assert_post_intake_global_invariants(
+        stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+        model_input_json=copy.deepcopy(model_input_payload),
+        finmo_json=copy.deepcopy(finmo_payload),
+        stage=stage,
+        payroll_headcount=copy.deepcopy(payroll_headcount_payload),
+        debt_schedule=copy.deepcopy(debt_schedule_payload or {}),
+        financials_json=copy.deepcopy(financials_json or {}),
+        enforce_cash_buffer=bool(enforce_cash_buffer),
+      )
+      return {"status": "completed", "stage": stage}
+
+    return _execute_sequence_step(
+      step_key,
+      _run_global_invariants,
+      runtime_context=_runtime_context(
+        current_model_input_json=model_input_payload,
+        current_finmo_json=finmo_payload,
+        extra={
+          "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+          "payroll_headcount": copy.deepcopy(payroll_headcount_payload or {}),
+          "debt_schedule": copy.deepcopy(debt_schedule_payload or {}),
+          "financials_json": copy.deepcopy(financials_json or {}),
+        },
+      ),
+      expected_handler_key="assert_post_intake_global_invariants",
+      required_lookup_tables=[
+        "post_intak_mapping_lookup",
+        "post_intake_headcount_policy_lookup",
+        "post_intake_cash_policy_lookup",
+      ],
+      required_horizon_rule="global_invariants_all_q1_to_q20",
+    )
+
   process_sequence_trace["runtime_table_integrity"] = post_intake_assert_runtime_table_integrity()
   process_sequence_trace["required_process_sequence"] = post_intake_assert_required_process_sequence()
-  process_sequence_trace["issue_detection"] = post_intake_process_step_context(
-    step_key="issue_detection",
-    expected_phase="convergence",
-    expected_handler_key="detect_post_intake_issues",
-    required_lookup_tables=["post_intak_mapping_lookup", "post_intake_gpt_contract_lookup"],
-    required_horizon_rule="scan_all_q1_to_q20",
-  )
-  process_sequence_trace["unified_convergence_decision"] = post_intake_process_step_context(
-    step_key="unified_convergence_decision",
-    expected_phase="convergence",
-    expected_handler_key="run_unified_convergence_cycle",
-    required_contract_name="unified_convergence_decision",
-    required_context_contract_name="unified_convergence_decision",
-    required_context_include_phase="planner",
-    required_lookup_tables=[
-      "post_intak_mapping_lookup",
-      "post_intake_gpt_contract_lookup",
-      "post_intake_gpt_context_lookup",
-    ],
-    required_horizon_rule="q1_to_q20_model_input_repair_cells",
-  )
-  final_finmo_json = copy.deepcopy(applied_finmo_json or {})
   realism_memo_before_resolution = {
     "contract_version": "post_intake_deterministic_issue_detection_v1",
     "status": "ready",
@@ -659,48 +821,107 @@ def _run_unified_post_grid_system_run(
     "issues": [],
     "remaining_issues": [],
   }
-  capacity_support_issue_ledger = _build_capacity_support_issue_status_records(
-    finmo_json=copy.deepcopy(final_finmo_json),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    iteration=0,
+  def _detect_initial_post_intake_issues() -> Dict[str, Any]:
+    capacity_ledger = _build_capacity_support_issue_status_records(
+      finmo_json=copy.deepcopy(final_finmo_json),
+      model_input_json=copy.deepcopy(final_model_input_json),
+      iteration=0,
+    )
+    flatline_ledger = _build_p_and_l_flatline_issue_status_records(
+      model_input_json=copy.deepcopy(final_model_input_json),
+      finmo_json=copy.deepcopy(final_finmo_json),
+      iteration=0,
+    )
+    stage_maturity_ledger = _build_stage_maturity_cost_structure_issue_status_records(
+      model_input_json=copy.deepcopy(final_model_input_json),
+      finmo_json=copy.deepcopy(final_finmo_json),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      iteration=0,
+    )
+    issue_ledger = _refresh_issue_status_records_from_scan(
+      existing_issue_status_records=[],
+      scanned_issue_status_records=(
+        copy.deepcopy(capacity_ledger)
+        + copy.deepcopy(flatline_ledger)
+        + copy.deepcopy(stage_maturity_ledger)
+      ),
+      iteration=0,
+    )
+    return {
+      "capacity_support_issue_ledger": capacity_ledger,
+      "flatline_issue_ledger": flatline_ledger,
+      "stage_maturity_issue_ledger": stage_maturity_ledger,
+      "issue_ledger": issue_ledger,
+    }
+
+  initial_issue_detection = _execute_sequence_step(
+    "issue_detection",
+    _detect_initial_post_intake_issues,
+    runtime_context={
+      "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
+      "model_input_json": copy.deepcopy(final_model_input_json),
+      "finmo_json": copy.deepcopy(final_finmo_json),
+      "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
+    },
+    expected_phase="convergence",
+    expected_handler_key="detect_post_intake_issues",
+    required_lookup_tables=["post_intak_mapping_lookup", "post_intake_gpt_contract_lookup"],
+    required_horizon_rule="scan_all_q1_to_q20",
   )
-  flatline_issue_ledger = _build_p_and_l_flatline_issue_status_records(
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    iteration=0,
+  capacity_support_issue_ledger = copy.deepcopy(initial_issue_detection.get("capacity_support_issue_ledger") or [])
+  flatline_issue_ledger = copy.deepcopy(initial_issue_detection.get("flatline_issue_ledger") or [])
+  stage_maturity_issue_ledger = copy.deepcopy(initial_issue_detection.get("stage_maturity_issue_ledger") or [])
+  realism_issue_ledger = copy.deepcopy(initial_issue_detection.get("issue_ledger") or [])
+
+  def _build_initial_issue_repair_scope() -> Dict[str, Any]:
+    summary_payload = _build_resolution_summary_from_issue_ledger(
+      before_memo=copy.deepcopy(realism_memo_before_resolution),
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+    )
+    realism_payload = _build_realism_memo_from_issue_ledger(
+      before_memo=copy.deepcopy(realism_memo_before_resolution),
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+      resolution_summary=copy.deepcopy(summary_payload),
+      iteration=0,
+    )
+    controller_payload = _build_controller_resolution_state_from_issue_ledger(
+      issue_status_records=copy.deepcopy(realism_issue_ledger),
+      iteration=0,
+      current_finmo_json=copy.deepcopy(final_finmo_json),
+    )
+    return {
+      "resolution_summary": summary_payload,
+      "realism_memo_json": realism_payload,
+      "controller_resolution_state": controller_payload,
+      "protected_resolved_issue_constraints": _build_strategy_resolved_issue_constraints(
+        copy.deepcopy(realism_issue_ledger)
+      ),
+      "repair_scope": {
+        "source": "mapping_table_backed_issue_ledger",
+        "issue_count": len(realism_issue_ledger),
+      },
+    }
+
+  initial_repair_scope = _execute_sequence_step(
+    "issue_repair_scope_build",
+    _build_initial_issue_repair_scope,
+    runtime_context={
+      "issue_ledger": copy.deepcopy(realism_issue_ledger),
+      "model_input_json": copy.deepcopy(final_model_input_json),
+      "finmo_json": copy.deepcopy(final_finmo_json),
+      "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
+      "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
+    },
+    expected_phase="convergence",
+    expected_handler_key="build_post_intake_issue_repair_scope",
+    required_lookup_tables=["post_intak_mapping_lookup"],
+    required_horizon_rule="scan_all_q1_to_q20",
   )
-  stage_maturity_issue_ledger = _build_stage_maturity_cost_structure_issue_status_records(
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-    iteration=0,
-  )
-  realism_issue_ledger = _refresh_issue_status_records_from_scan(
-    existing_issue_status_records=[],
-    scanned_issue_status_records=(
-      copy.deepcopy(capacity_support_issue_ledger)
-      + copy.deepcopy(flatline_issue_ledger)
-      + copy.deepcopy(stage_maturity_issue_ledger)
-    ),
-    iteration=0,
-  )
-  resolution_summary = _build_resolution_summary_from_issue_ledger(
-    before_memo=copy.deepcopy(realism_memo_before_resolution),
-    issue_status_records=copy.deepcopy(realism_issue_ledger),
-  )
-  realism_memo_json = _build_realism_memo_from_issue_ledger(
-    before_memo=copy.deepcopy(realism_memo_before_resolution),
-    issue_status_records=copy.deepcopy(realism_issue_ledger),
-    resolution_summary=copy.deepcopy(resolution_summary),
-    iteration=0,
-  )
-  controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
-    issue_status_records=copy.deepcopy(realism_issue_ledger),
-    iteration=0,
-    current_finmo_json=copy.deepcopy(final_finmo_json),
-  )
-  protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
-    copy.deepcopy(realism_issue_ledger)
+  resolution_summary = copy.deepcopy(initial_repair_scope.get("resolution_summary") or {})
+  realism_memo_json = copy.deepcopy(initial_repair_scope.get("realism_memo_json") or {})
+  controller_resolution_state = copy.deepcopy(initial_repair_scope.get("controller_resolution_state") or {})
+  protected_resolved_issue_constraints = copy.deepcopy(
+    initial_repair_scope.get("protected_resolved_issue_constraints") or {}
   )
   prior_numeric_feedback = _build_numeric_solver_feedback_payload(
     copy.deepcopy(grid_application_summary if isinstance(grid_application_summary, dict) else {})
@@ -710,6 +931,7 @@ def _run_unified_post_grid_system_run(
   unified_convergence_decision: Dict[str, Any] = {}
   unified_convergence_plan: Dict[str, Any] = {}
   unified_convergence_result: Dict[str, Any] = {}
+  unified_convergence_context: Dict[str, Any] = {}
   cash_strategy_review_context: Dict[str, Any] = {}
   cash_strategy_review_decision: Dict[str, Any] = {}
   cash_strategy_second_pass_plan: Dict[str, Any] = {}
@@ -739,23 +961,97 @@ def _run_unified_post_grid_system_run(
     },
   }
 
+  def _runtime_context(
+    *,
+    current_model_input_json: Optional[Dict[str, Any]] = None,
+    current_finmo_json: Optional[Dict[str, Any]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+  ) -> Dict[str, Any]:
+    context = {
+      "business_facts": copy.deepcopy(business_facts or {}),
+      "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+      "business_naics": str(
+        (people_json or {}).get("business_naics_6")
+        or (ops_json or {}).get("naics_code")
+        or (ops_json or {}).get("business_naics")
+        or ""
+      ).strip(),
+      "operating_model_json": copy.deepcopy(ops_json or {}),
+      "target_market_json": copy.deepcopy(target_market_json or {}),
+      "people_json": copy.deepcopy(people_json or {}),
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
+      "fulfillment_json": copy.deepcopy(fulfillment_json or {}),
+      "marketing_model_json": copy.deepcopy(marketing_model_json or {}),
+      "planning_context_summary_json": copy.deepcopy(planning_context_summary_json or {}),
+      "planning_mode_decision": {
+        "planning_mode": planning_mode,
+        "planning_mode_reason": planning_mode_reason,
+        "prompt_file": prompt_file,
+      },
+      "model_input_json": copy.deepcopy(current_model_input_json or final_model_input_json or {}),
+      "finmo_json": copy.deepcopy(current_finmo_json or final_finmo_json or {}),
+      "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+      "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload or {}),
+      "issue_ledger": copy.deepcopy(realism_issue_ledger or []),
+      "repair_scope": {
+        "source": "mapping_table_backed_issue_ledger",
+        "issue_count": len(realism_issue_ledger or []),
+      },
+      "numeric_guidance_packet": copy.deepcopy(prior_numeric_feedback or {}),
+      "writable_lever_catalog": copy.deepcopy(
+        (unified_convergence_context or {}).get("writable_lever_catalog")
+        if isinstance(unified_convergence_context, dict)
+        else {}
+      ),
+      "controller_resolution_state": copy.deepcopy(controller_resolution_state or {}),
+      "resolution_summary": copy.deepcopy(resolution_summary or {}),
+      "unified_convergence_context": copy.deepcopy(unified_convergence_context or {}),
+      "unified_convergence_decision": copy.deepcopy(unified_convergence_decision or {}),
+      "unified_convergence_plan": copy.deepcopy(unified_convergence_plan or {}),
+      "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context or {}),
+      "cash_strategy_review_decision": copy.deepcopy(cash_strategy_review_decision or {}),
+      "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan or {}),
+      "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result or {}),
+    }
+    if isinstance(extra, dict):
+      context.update(copy.deepcopy(extra))
+    return context
+
   def _rebuild_unified_context() -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    next_context = _build_unified_convergence_context_payload(
-      draft_id=str(draft_id).strip(),
-      business_facts=copy.deepcopy(business_facts or {}),
-      ops_json=copy.deepcopy(ops_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=prompt_file,
-      current_model_input_json=copy.deepcopy(final_model_input_json),
-      current_finmo_json=copy.deepcopy(final_finmo_json),
-      controller_resolution_state=copy.deepcopy(controller_resolution_state),
-      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
-      protected_resolved_issue_constraints=copy.deepcopy(protected_resolved_issue_constraints),
-      prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+    next_context = _execute_sequence_step(
+      "unified_convergence_context_build",
+      _build_unified_convergence_context_payload,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+      ),
+      handler_kwargs={
+        "draft_id": str(draft_id).strip(),
+        "business_facts": copy.deepcopy(business_facts or {}),
+        "ops_json": copy.deepcopy(ops_json or {}),
+        "financials_json": copy.deepcopy(financials_json or {}),
+        "planning_context_summary_json": copy.deepcopy(planning_context_summary_json or {}),
+        "planning_mode": planning_mode,
+        "planning_mode_reason": planning_mode_reason,
+        "prompt_file": prompt_file,
+        "current_model_input_json": copy.deepcopy(final_model_input_json),
+        "current_finmo_json": copy.deepcopy(final_finmo_json),
+        "controller_resolution_state": copy.deepcopy(controller_resolution_state),
+        "grid_application_summary": copy.deepcopy(grid_application_summary or {}),
+        "protected_resolved_issue_constraints": copy.deepcopy(protected_resolved_issue_constraints),
+        "prior_numeric_feedback": copy.deepcopy(prior_numeric_feedback),
+        "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
+      },
+      expected_phase="convergence",
+      expected_handler_key="build_unified_convergence_context",
+      required_context_contract_name="unified_convergence_decision",
+      required_context_include_phase="planner",
+      required_lookup_tables=[
+        "post_intak_mapping_lookup",
+        "post_intake_gpt_context_lookup",
+      ],
+      required_horizon_rule="q1_to_q20_model_input_repair_cells",
     )
     next_hard_rules = (
       next_context.get("hard_rule_assessment")
@@ -778,48 +1074,92 @@ def _run_unified_post_grid_system_run(
       "issues": [],
       "remaining_issues": [],
     }
-    capacity_support_scan_issue_set = _build_capacity_support_issue_status_records(
-      finmo_json=copy.deepcopy(final_finmo_json),
-      model_input_json=copy.deepcopy(final_model_input_json),
-      iteration=iteration,
-    )
-    flatline_scan_issue_set = _build_p_and_l_flatline_issue_status_records(
-      model_input_json=copy.deepcopy(final_model_input_json),
-      finmo_json=copy.deepcopy(final_finmo_json),
-      iteration=iteration,
-    )
-    stage_maturity_scan_issue_set = _build_stage_maturity_cost_structure_issue_status_records(
-      model_input_json=copy.deepcopy(final_model_input_json),
-      finmo_json=copy.deepcopy(final_finmo_json),
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-      iteration=iteration,
-    )
-    realism_issue_ledger = _refresh_issue_status_records_from_scan(
-      existing_issue_status_records=[],
-      scanned_issue_status_records=(
-        copy.deepcopy(capacity_support_scan_issue_set)
-        + copy.deepcopy(flatline_scan_issue_set)
-        + copy.deepcopy(stage_maturity_scan_issue_set)
+    def _detect_refreshed_issues() -> Dict[str, Any]:
+      capacity_support_scan_issue_set = _build_capacity_support_issue_status_records(
+        finmo_json=copy.deepcopy(final_finmo_json),
+        model_input_json=copy.deepcopy(final_model_input_json),
+        iteration=iteration,
+      )
+      flatline_scan_issue_set = _build_p_and_l_flatline_issue_status_records(
+        model_input_json=copy.deepcopy(final_model_input_json),
+        finmo_json=copy.deepcopy(final_finmo_json),
+        iteration=iteration,
+      )
+      stage_maturity_scan_issue_set = _build_stage_maturity_cost_structure_issue_status_records(
+        model_input_json=copy.deepcopy(final_model_input_json),
+        finmo_json=copy.deepcopy(final_finmo_json),
+        stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+        iteration=iteration,
+      )
+      return {
+        "issue_ledger": _refresh_issue_status_records_from_scan(
+          existing_issue_status_records=[],
+          scanned_issue_status_records=(
+            copy.deepcopy(capacity_support_scan_issue_set)
+            + copy.deepcopy(flatline_scan_issue_set)
+            + copy.deepcopy(stage_maturity_scan_issue_set)
+          ),
+          iteration=iteration,
+        )
+      }
+
+    refreshed_issues = _execute_sequence_step(
+      "issue_detection",
+      _detect_refreshed_issues,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
       ),
-      iteration=iteration,
+      expected_phase="convergence",
+      expected_handler_key="detect_post_intake_issues",
+      required_lookup_tables=["post_intak_mapping_lookup", "post_intake_gpt_contract_lookup"],
+      required_horizon_rule="scan_all_q1_to_q20",
     )
-    resolution_summary = _build_resolution_summary_from_issue_ledger(
-      before_memo=copy.deepcopy(scan_memo),
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
+    realism_issue_ledger = copy.deepcopy(refreshed_issues.get("issue_ledger") or [])
+
+    def _build_refreshed_issue_repair_scope() -> Dict[str, Any]:
+      summary_payload = _build_resolution_summary_from_issue_ledger(
+        before_memo=copy.deepcopy(scan_memo),
+        issue_status_records=copy.deepcopy(realism_issue_ledger),
+      )
+      realism_payload = _build_realism_memo_from_issue_ledger(
+        before_memo=copy.deepcopy(scan_memo),
+        issue_status_records=copy.deepcopy(realism_issue_ledger),
+        resolution_summary=copy.deepcopy(summary_payload),
+        iteration=iteration,
+      )
+      controller_payload = _build_controller_resolution_state_from_issue_ledger(
+        issue_status_records=copy.deepcopy(realism_issue_ledger),
+        iteration=iteration,
+        current_finmo_json=copy.deepcopy(final_finmo_json),
+      )
+      return {
+        "resolution_summary": summary_payload,
+        "realism_memo_json": realism_payload,
+        "controller_resolution_state": controller_payload,
+        "protected_resolved_issue_constraints": _build_strategy_resolved_issue_constraints(
+          copy.deepcopy(realism_issue_ledger)
+        ),
+      }
+
+    refreshed_scope = _execute_sequence_step(
+      "issue_repair_scope_build",
+      _build_refreshed_issue_repair_scope,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={"issue_ledger": copy.deepcopy(realism_issue_ledger)},
+      ),
+      expected_phase="convergence",
+      expected_handler_key="build_post_intake_issue_repair_scope",
+      required_lookup_tables=["post_intak_mapping_lookup"],
+      required_horizon_rule="scan_all_q1_to_q20",
     )
-    realism_memo_json = _build_realism_memo_from_issue_ledger(
-      before_memo=copy.deepcopy(scan_memo),
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-      resolution_summary=copy.deepcopy(resolution_summary),
-      iteration=iteration,
-    )
-    controller_resolution_state = _build_controller_resolution_state_from_issue_ledger(
-      issue_status_records=copy.deepcopy(realism_issue_ledger),
-      iteration=iteration,
-      current_finmo_json=copy.deepcopy(final_finmo_json),
-    )
-    protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
-      copy.deepcopy(realism_issue_ledger)
+    resolution_summary = copy.deepcopy(refreshed_scope.get("resolution_summary") or {})
+    realism_memo_json = copy.deepcopy(refreshed_scope.get("realism_memo_json") or {})
+    controller_resolution_state = copy.deepcopy(refreshed_scope.get("controller_resolution_state") or {})
+    protected_resolved_issue_constraints = copy.deepcopy(
+      refreshed_scope.get("protected_resolved_issue_constraints") or {}
     )
 
   unified_convergence_context, hard_rule_assessment = _rebuild_unified_context()
@@ -1145,15 +1485,42 @@ def _run_unified_post_grid_system_run(
       _bounded_cycle_deadline(cycle_deadline, _PLANNER_GPT_MAX_SECONDS)
     )
     try:
-      unified_convergence_decision = _run_unified_convergence_openai(
-        draft_id=str(draft_id).strip(),
-        planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        planning_mode_prompt_file=prompt_file,
-        unified_convergence_context=copy.deepcopy(unified_convergence_context),
-        prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
-        controller_retry_context=copy.deepcopy(controller_retry_context),
+      unified_convergence_decision = _execute_sequence_step(
+        "unified_convergence_gpt_decision",
+        _run_unified_convergence_openai,
+        runtime_context=_runtime_context(
+          current_model_input_json=final_model_input_json,
+          current_finmo_json=final_finmo_json,
+          extra={
+            "unified_convergence_context": copy.deepcopy(unified_convergence_context),
+            "numeric_guidance_packet": copy.deepcopy(prior_numeric_feedback),
+            "writable_lever_catalog": copy.deepcopy(
+              (unified_convergence_context or {}).get("writable_lever_catalog")
+              if isinstance(unified_convergence_context, dict)
+              else {}
+            ),
+          },
+        ),
+        handler_kwargs={
+          "draft_id": str(draft_id).strip(),
+          "planning_context_summary_json": copy.deepcopy(planning_context_summary_json or {}),
+          "planning_mode": planning_mode,
+          "planning_mode_reason": planning_mode_reason,
+          "planning_mode_prompt_file": prompt_file,
+          "unified_convergence_context": copy.deepcopy(unified_convergence_context),
+          "prior_numeric_feedback": copy.deepcopy(prior_numeric_feedback),
+          "controller_retry_context": copy.deepcopy(controller_retry_context),
+        },
+        expected_phase="convergence",
+        expected_handler_key="run_unified_convergence_cycle",
+        required_contract_name="unified_convergence_decision",
+        required_context_contract_name="unified_convergence_decision",
+        required_context_include_phase="planner",
+        required_lookup_tables=[
+          "post_intake_gpt_contract_lookup",
+          "post_intake_gpt_context_lookup",
+        ],
+        required_horizon_rule="q1_to_q20_model_input_repair_cells",
       )
     finally:
       _set_active_openai_deadline(previous_openai_deadline)
@@ -1197,22 +1564,38 @@ def _run_unified_post_grid_system_run(
         stage="plan_builder_start",
         cycle_timing=cycle_timing,
       )
-      unified_convergence_plan = _build_unified_convergence_pass_plan(
-        draft_id=str(draft_id).strip(),
-        business_facts=copy.deepcopy(business_facts or {}),
-        planning_mode=planning_mode,
-        planning_mode_reason=planning_mode_reason,
-        review_decision_payload=copy.deepcopy(unified_convergence_decision),
-        solved_model_input_json=copy.deepcopy(final_model_input_json),
-        solved_finmo_json=copy.deepcopy(final_finmo_json),
-        ops_json=copy.deepcopy(ops_json or {}),
-        people_json=copy.deepcopy(people_json or {}),
-        financials_json=copy.deepcopy(financials_json or {}),
-        financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-        marketing_model_json=copy.deepcopy(marketing_model_json or {}),
-        numeric_solver_contract=copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
-        deterministic_numeric_guidance=copy.deepcopy(cycle_numeric_guidance_packet),
-        stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+      unified_convergence_plan = _execute_sequence_step(
+        "unified_convergence_plan_translation",
+        _build_unified_convergence_pass_plan,
+        runtime_context=_runtime_context(
+          current_model_input_json=final_model_input_json,
+          current_finmo_json=final_finmo_json,
+          extra={
+            "unified_convergence_decision": copy.deepcopy(unified_convergence_decision),
+            "numeric_guidance_packet": copy.deepcopy(cycle_numeric_guidance_packet),
+          },
+        ),
+        handler_kwargs={
+          "draft_id": str(draft_id).strip(),
+          "business_facts": copy.deepcopy(business_facts or {}),
+          "planning_mode": planning_mode,
+          "planning_mode_reason": planning_mode_reason,
+          "review_decision_payload": copy.deepcopy(unified_convergence_decision),
+          "solved_model_input_json": copy.deepcopy(final_model_input_json),
+          "solved_finmo_json": copy.deepcopy(final_finmo_json),
+          "ops_json": copy.deepcopy(ops_json or {}),
+          "people_json": copy.deepcopy(people_json or {}),
+          "financials_json": copy.deepcopy(financials_json or {}),
+          "financials_year1_json": copy.deepcopy(financials_year1_json or {}),
+          "marketing_model_json": copy.deepcopy(marketing_model_json or {}),
+          "numeric_solver_contract": copy.deepcopy((unified_convergence_context or {}).get("numeric_solver_contract") or {}),
+          "deterministic_numeric_guidance": copy.deepcopy(cycle_numeric_guidance_packet),
+          "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
+        },
+        expected_phase="convergence",
+        expected_handler_key="translate_unified_convergence_decision_to_updates",
+        required_lookup_tables=["post_intak_mapping_lookup"],
+        required_horizon_rule="mapped_model_input_update_plan_only",
       )
     finally:
       _set_active_openai_deadline(previous_openai_deadline)
@@ -1336,8 +1719,7 @@ def _run_unified_post_grid_system_run(
         _RETRY_MEMORY_MAX_VALIDATION_ERRORS,
       )
       if (
-        _convergence_test_mode_enabled()
-        and bool(non_productive_tracker.get("repeated_same_pattern"))
+        bool(non_productive_tracker.get("repeated_same_pattern"))
         and isinstance((diagnostics.get("pre_solver_validation") or {}), dict)
         and (
           (diagnostics.get("pre_solver_validation") or {}).get("errors")
@@ -1349,8 +1731,7 @@ def _run_unified_post_grid_system_run(
           diagnostics=progress_failure_diagnostics,
         )
       if (
-        _convergence_test_mode_enabled()
-        and int(_safe_float(non_productive_tracker.get("consecutive_non_productive_cycles")) or 0)
+        int(_safe_float(non_productive_tracker.get("consecutive_non_productive_cycles")) or 0)
         >= _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT
       ):
         raise StructuredSystemRunFailure(
@@ -1443,11 +1824,24 @@ def _run_unified_post_grid_system_run(
       cycle_timing=cycle_timing,
     )
     phase_started_at = time.perf_counter()
-    unified_convergence_result = _apply_followup_exact_updates(
-      review_plan=copy.deepcopy(unified_convergence_plan),
-      current_model_input_json=copy.deepcopy(final_model_input_json),
-      contract_version="unified_convergence_result_v1",
-      solver_deadline_monotonic=cycle_deadline,
+    unified_convergence_result = _execute_sequence_step(
+      "unified_convergence_apply_updates",
+      _apply_followup_exact_updates,
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={"unified_convergence_plan": copy.deepcopy(unified_convergence_plan)},
+      ),
+      handler_kwargs={
+        "review_plan": copy.deepcopy(unified_convergence_plan),
+        "current_model_input_json": copy.deepcopy(final_model_input_json),
+        "contract_version": "unified_convergence_result_v1",
+        "solver_deadline_monotonic": cycle_deadline,
+      },
+      expected_phase="convergence",
+      expected_handler_key="apply_unified_convergence_updates",
+      required_lookup_tables=["post_intak_mapping_lookup"],
+      required_horizon_rule="apply_mapped_repair_updates_and_rebuild_finmo",
     )
     _mark_unified_convergence_cycle_phase(
       cycle_timing=cycle_timing,
@@ -1833,6 +2227,26 @@ def _run_unified_post_grid_system_run(
           ]
         ),
       }
+    _execute_sequence_step(
+      "unified_convergence_verify_progress",
+      lambda: {
+        "controller_resolution_state": copy.deepcopy(controller_resolution_state),
+        "resolution_summary": copy.deepcopy(resolution_summary),
+        "quality_assessment": copy.deepcopy(quality_assessment),
+      },
+      runtime_context=_runtime_context(
+        current_model_input_json=final_model_input_json,
+        current_finmo_json=final_finmo_json,
+        extra={
+          "unified_convergence_plan": copy.deepcopy(unified_convergence_plan),
+          "issue_ledger": copy.deepcopy(realism_issue_ledger),
+        },
+      ),
+      expected_phase="convergence",
+      expected_handler_key="verify_unified_convergence_progress",
+      required_lookup_tables=["post_intak_mapping_lookup"],
+      required_horizon_rule="validate_convergence_progress_all_q1_to_q20",
+    )
     accepted_attempt = bool(quality_assessment.get("accepted"))
     latest_quality_assessment = copy.deepcopy(quality_assessment)
     if accepted_attempt:
@@ -1909,8 +2323,7 @@ def _run_unified_post_grid_system_run(
       finmo_json=copy.deepcopy(final_finmo_json),
     )
     if (
-      _convergence_test_mode_enabled()
-      and int(consecutive_no_progress_cycles or 0) >= _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT
+      int(consecutive_no_progress_cycles or 0) >= _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT
       and not bool(quality_assessment.get("meaningful_progress"))
       and not bool(controller_resolution_state.get("all_cleared"))
     ):
@@ -1953,12 +2366,12 @@ def _run_unified_post_grid_system_run(
   # cycle's nearly expired OpenAI deadline turns a cleared convergence run into
   # a false terminal timeout.
   _set_active_openai_deadline(None)
-  assert_post_intake_global_invariants(
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
+  _assert_global_invariants_via_sequence(
+    "post_convergence_global_validation",
+    model_input_payload=copy.deepcopy(final_model_input_json),
+    finmo_payload=copy.deepcopy(final_finmo_json),
+    payroll_headcount_payload=copy.deepcopy(final_payroll_headcount_payload),
     stage="post_convergence_pre_cash",
-    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
   )
 
   pre_cash_model_input_json = copy.deepcopy(final_model_input_json)
@@ -1968,44 +2381,42 @@ def _run_unified_post_grid_system_run(
   pre_cash_realism_memo_json = copy.deepcopy(realism_memo_json)
   pre_cash_controller_resolution_state = copy.deepcopy(controller_resolution_state)
   pre_cash_hard_rule_assessment = copy.deepcopy(hard_rule_assessment)
-  process_sequence_trace["cash_minimum_debt_schedule"] = post_intake_process_step_context(
-    step_key="cash_minimum_debt_schedule",
+  cash_pass_phase_contract = _cash_pass_phase_contract(financials_json=copy.deepcopy(financials_json or {}))
+  cash_pass_phase_trace = _new_cash_pass_phase_trace(cash_pass_phase_contract)
+  _execute_sequence_step(
+    "cash_minimum_debt_schedule",
+    lambda: {
+      "status": "cash_minimum_debt_schedule_started",
+      "cash_pass_phase_contract": copy.deepcopy(cash_pass_phase_contract),
+    },
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+    ),
     expected_phase="cash_pass",
     expected_handler_key="apply_cash_pass_minimum_debt_schedule",
     required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
     required_horizon_rule="q1_to_q20_debt_schedule",
   )
-  process_sequence_trace["cash_strategy_review"] = post_intake_process_step_context(
-    step_key="cash_strategy_review",
-    expected_phase="cash_pass",
-    expected_handler_key="run_cash_strategy_review",
-    required_contract_name="cash_strategy_review",
-    required_context_contract_name="cash_strategy_review",
-    required_context_include_phase="cash_pass",
-    required_lookup_tables=[
-      "post_intake_cash_policy_lookup",
-      "post_intak_mapping_lookup",
-      "post_intake_gpt_contract_lookup",
-      "post_intake_gpt_context_lookup",
-    ],
-    required_horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
-  )
-  process_sequence_trace["cash_pass_validation"] = post_intake_process_step_context(
-    step_key="cash_pass_validation",
-    expected_phase="cash_pass",
-    expected_handler_key="validate_cash_pass",
-    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
-    required_horizon_rule="validate_all_q1_to_q20",
-  )
-  cash_pass_phase_contract = _cash_pass_phase_contract(financials_json=copy.deepcopy(financials_json or {}))
-  cash_pass_phase_trace = _new_cash_pass_phase_trace(cash_pass_phase_contract)
-  pre_cash_debt_schedule_seed = _apply_cash_pass_minimum_debt_schedule(
-    cash_strategy_result={
-      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
-      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
-      "applied_updates": [],
+  pre_cash_debt_schedule_seed = _execute_sequence_step(
+    "cash_debt_schedule_seed",
+    _apply_cash_pass_minimum_debt_schedule,
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+    ),
+    handler_kwargs={
+      "cash_strategy_result": {
+        "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+        "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+        "applied_updates": [],
+      },
+      "financials_json": copy.deepcopy(financials_json or {}),
     },
-    financials_json=copy.deepcopy(financials_json or {}),
+    expected_phase="cash_pass",
+    expected_handler_key="apply_cash_pass_minimum_debt_schedule",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="q1_to_q20_debt_schedule",
   )
   pre_cash_model_input_json = copy.deepcopy(
     pre_cash_debt_schedule_seed.get("updated_model_input_json")
@@ -2025,12 +2436,25 @@ def _run_unified_post_grid_system_run(
     finmo_json=copy.deepcopy(pre_cash_finmo_json),
     detail="Applied SQL cash-policy minimum debt schedule before cash review context.",
   )
-  pre_cash_debt_semantics_seed = _apply_cash_pass_short_term_debt_current_portion(
-    cash_strategy_result={
-      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
-      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
-      "applied_updates": copy.deepcopy(pre_cash_debt_schedule_seed.get("applied_updates") or []),
-    }
+  pre_cash_debt_semantics_seed = _execute_sequence_step(
+    "cash_short_term_debt_seed",
+    _apply_cash_pass_short_term_debt_current_portion,
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+      extra={"debt_schedule": copy.deepcopy(pre_cash_debt_schedule_seed or {})},
+    ),
+    handler_kwargs={
+      "cash_strategy_result": {
+        "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+        "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+        "applied_updates": copy.deepcopy(pre_cash_debt_schedule_seed.get("applied_updates") or []),
+      }
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="seed_cash_short_term_debt_current_portion",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="short_term_debt_current_portion_before_cash_review",
   )
   pre_cash_model_input_json = copy.deepcopy(
     pre_cash_debt_semantics_seed.get("updated_model_input_json")
@@ -2091,18 +2515,66 @@ def _run_unified_post_grid_system_run(
       finmo_json=copy.deepcopy(finmo_payload or pre_cash_finmo_json or {}),
     )
 
-  cash_strategy_review_context = _build_cash_strategy_review_context_payload(
-    draft_id=str(draft_id).strip(),
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    prompt_file=prompt_file,
-    solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
-    solved_finmo_json=copy.deepcopy(pre_cash_finmo_json),
-    controller_resolution_state=copy.deepcopy(pre_cash_controller_resolution_state),
-    prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
+  _execute_sequence_step(
+    "cash_strategy_review",
+    lambda: {
+      "status": "cash_strategy_review_started",
+      "cash_pass_phase_contract": copy.deepcopy(cash_pass_phase_contract),
+    },
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+      extra={
+        "debt_schedule": copy.deepcopy(pre_cash_debt_schedule_seed or {}),
+        "controller_resolution_state": copy.deepcopy(pre_cash_controller_resolution_state or {}),
+      },
+    ),
+    expected_phase="cash_pass",
+    expected_handler_key="run_cash_strategy_review",
+    required_contract_name="cash_strategy_review",
+    required_context_contract_name="cash_strategy_review",
+    required_context_include_phase="cash_pass",
+    required_lookup_tables=[
+      "post_intake_cash_policy_lookup",
+      "post_intak_mapping_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
+  )
+  cash_strategy_review_context = _execute_sequence_step(
+    "cash_review_context_build",
+    _build_cash_strategy_review_context_payload,
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+      extra={
+        "debt_schedule": copy.deepcopy(pre_cash_debt_schedule_seed or {}),
+        "controller_resolution_state": copy.deepcopy(pre_cash_controller_resolution_state or {}),
+      },
+    ),
+    handler_kwargs={
+      "draft_id": str(draft_id).strip(),
+      "business_facts": copy.deepcopy(business_facts or {}),
+      "ops_json": copy.deepcopy(ops_json or {}),
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "planning_mode": planning_mode,
+      "planning_mode_reason": planning_mode_reason,
+      "prompt_file": prompt_file,
+      "solved_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "solved_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+      "controller_resolution_state": copy.deepcopy(pre_cash_controller_resolution_state),
+      "prior_numeric_feedback": copy.deepcopy(prior_numeric_feedback),
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="build_cash_strategy_review_context",
+    required_context_contract_name="cash_strategy_review",
+    required_context_include_phase="cash_pass",
+    required_lookup_tables=[
+      "post_intake_cash_policy_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
   )
   cash_strategy_review_context["cash_pass_phase_contract"] = copy.deepcopy(cash_pass_phase_contract)
   cash_strategy_review_context["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
@@ -2125,20 +2597,44 @@ def _run_unified_post_grid_system_run(
     cash_controller_resolution_state=copy.deepcopy(cash_pass_review_controller_state),
     cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
   )
-  cash_strategy_review_decision = _run_cash_strategy_review_openai(
-    draft_id=str(draft_id).strip(),
-    business_facts=copy.deepcopy(business_facts or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    planning_mode_prompt_file=prompt_file,
-    first_pass_handoff={},
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
-    solved_finmo_json=copy.deepcopy(pre_cash_finmo_json),
-    prior_numeric_feedback=copy.deepcopy(prior_numeric_feedback),
-    controller_retry_context={},
+  cash_strategy_review_decision = _execute_sequence_step(
+    "cash_gpt_review",
+    _run_cash_strategy_review_openai,
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+      extra={
+        "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context),
+        "cash_envelope": copy.deepcopy((cash_strategy_review_context or {}).get("cash_envelope") or {}),
+        "liquidity_violation_grid": copy.deepcopy((cash_strategy_review_context or {}).get("liquidity_violation_grid") or []),
+        "debt_schedule": copy.deepcopy(pre_cash_debt_schedule_seed or {}),
+      },
+    ),
+    handler_kwargs={
+      "draft_id": str(draft_id).strip(),
+      "business_facts": copy.deepcopy(business_facts or {}),
+      "ops_json": copy.deepcopy(ops_json or {}),
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "planning_mode": planning_mode,
+      "planning_mode_reason": planning_mode_reason,
+      "planning_mode_prompt_file": prompt_file,
+      "first_pass_handoff": {},
+      "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context),
+      "solved_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "solved_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+      "prior_numeric_feedback": copy.deepcopy(prior_numeric_feedback),
+      "controller_retry_context": {},
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="run_cash_strategy_review",
+    required_contract_name="cash_strategy_review",
+    required_context_contract_name="cash_strategy_review",
+    required_context_include_phase="cash_pass",
+    required_lookup_tables=[
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2192,15 +2688,31 @@ def _run_unified_post_grid_system_run(
     cash_strategy_review_context_payload=copy.deepcopy(cash_strategy_review_context),
     cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
   )
-  cash_strategy_second_pass_plan = _build_cash_strategy_second_pass_plan(
-    review_decision_payload=copy.deepcopy(review_payload_with_context),
-    solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
-    financials_json=copy.deepcopy(financials_json or {}),
-    numeric_solver_contract=copy.deepcopy(
-      cash_strategy_review_context.get("numeric_solver_contract")
-      if isinstance(cash_strategy_review_context.get("numeric_solver_contract"), dict)
-      else {}
+  cash_strategy_second_pass_plan = _execute_sequence_step(
+    "cash_translation_plan",
+    _build_cash_strategy_second_pass_plan,
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+      extra={
+        "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context),
+        "cash_strategy_review_decision": copy.deepcopy(cash_strategy_review_decision),
+      },
     ),
+    handler_kwargs={
+      "review_decision_payload": copy.deepcopy(review_payload_with_context),
+      "solved_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "numeric_solver_contract": copy.deepcopy(
+        cash_strategy_review_context.get("numeric_solver_contract")
+        if isinstance(cash_strategy_review_context.get("numeric_solver_contract"), dict)
+        else {}
+      ),
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="translate_cash_strategy_decision_to_updates",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="mapped_cash_update_plan_only",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2255,10 +2767,25 @@ def _run_unified_post_grid_system_run(
     cash_strategy_review_decision_payload=copy.deepcopy(cash_strategy_review_decision),
     cash_strategy_second_pass_plan_payload=copy.deepcopy(cash_strategy_second_pass_plan),
   )
-  cash_strategy_second_pass_result = _apply_cash_strategy_exact_updates(
-    review_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-    current_model_input_json=copy.deepcopy(pre_cash_model_input_json),
-    current_finmo_json=copy.deepcopy(pre_cash_finmo_json),
+  cash_strategy_second_pass_result = _execute_sequence_step(
+    "cash_apply_exact_updates",
+    _apply_cash_strategy_exact_updates,
+    runtime_context=_runtime_context(
+      current_model_input_json=pre_cash_model_input_json,
+      current_finmo_json=pre_cash_finmo_json,
+      extra={
+        "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan),
+      },
+    ),
+    handler_kwargs={
+      "review_plan": copy.deepcopy(cash_strategy_second_pass_plan),
+      "current_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "current_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="apply_cash_strategy_exact_updates",
+    required_lookup_tables=["post_intak_mapping_lookup"],
+    required_horizon_rule="apply_cash_updates_and_rebuild_finmo",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2270,9 +2797,25 @@ def _run_unified_post_grid_system_run(
   )
   cash_strategy_second_pass_result["cash_pass_phase_contract"] = copy.deepcopy(cash_pass_phase_contract)
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
-  cash_strategy_second_pass_result = _apply_cash_pass_minimum_debt_schedule(
-    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
-    financials_json=copy.deepcopy(financials_json or {}),
+  cash_strategy_second_pass_result = _execute_sequence_step(
+    "cash_debt_schedule_rebuild",
+    _apply_cash_pass_minimum_debt_schedule,
+    runtime_context=_runtime_context(
+      current_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+      current_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+      extra={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+        "debt_schedule": copy.deepcopy(pre_cash_debt_schedule_seed or {}),
+      },
+    ),
+    handler_kwargs={
+      "cash_strategy_result": copy.deepcopy(cash_strategy_second_pass_result),
+      "financials_json": copy.deepcopy(financials_json or {}),
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="rebuild_cash_debt_schedule_after_updates",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="minimum_debt_schedule_floor_preserved_after_cash_updates",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2283,8 +2826,24 @@ def _run_unified_post_grid_system_run(
     detail="Reapplied SQL cash-policy minimum debt schedule floor after cash strategy updates.",
   )
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
-  cash_strategy_second_pass_result = _apply_cash_pass_short_term_debt_current_portion(
-    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result)
+  cash_strategy_second_pass_result = _execute_sequence_step(
+    "cash_short_term_debt_current_portion",
+    _apply_cash_pass_short_term_debt_current_portion,
+    runtime_context=_runtime_context(
+      current_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+      current_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+      extra={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+        "debt_schedule": copy.deepcopy(cash_strategy_second_pass_result or {}),
+      },
+    ),
+    handler_kwargs={
+      "cash_strategy_result": copy.deepcopy(cash_strategy_second_pass_result),
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="apply_cash_short_term_debt_current_portion",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="short_term_debt_current_portion_applied_after_cash_updates",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2295,9 +2854,24 @@ def _run_unified_post_grid_system_run(
     detail="Applied post-cash current portion debt semantics and rebuilt FINMO.",
   )
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
-  cash_strategy_second_pass_result = _apply_cash_policy_surplus_cleanup(
-    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
-    financials_json=copy.deepcopy(financials_json or {}),
+  cash_strategy_second_pass_result = _execute_sequence_step(
+    "cash_surplus_cleanup",
+    _apply_cash_policy_surplus_cleanup,
+    runtime_context=_runtime_context(
+      current_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+      current_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+      extra={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+      },
+    ),
+    handler_kwargs={
+      "cash_strategy_result": copy.deepcopy(cash_strategy_second_pass_result),
+      "financials_json": copy.deepcopy(financials_json or {}),
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="deploy_cash_surplus_above_policy_ceiling",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="surplus_above_policy_ceiling_deployed",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2312,13 +2886,48 @@ def _run_unified_post_grid_system_run(
     int(_safe_float(pre_cash_controller_resolution_state.get("last_review_iteration")) or unified_convergence_cycle_count),
     unified_convergence_cycle_count,
   ) + 1
-  cash_post_validation = _validate_cash_strategy_post_pass(
-    ops_json=copy.deepcopy(ops_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
-    baseline_issue_ledger=copy.deepcopy(pre_cash_issue_ledger),
-    candidate_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
-    candidate_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
-    iteration=cash_validation_iteration,
+  _execute_sequence_step(
+    "cash_pass_validation",
+    lambda: {
+      "status": "cash_pass_validation_started",
+      "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+    },
+    runtime_context=_runtime_context(
+      current_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+      current_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+      extra={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+        "debt_schedule": copy.deepcopy(cash_strategy_second_pass_result or {}),
+      },
+    ),
+    expected_phase="cash_pass",
+    expected_handler_key="validate_cash_pass",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="validate_all_q1_to_q20",
+  )
+  cash_post_validation = _execute_sequence_step(
+    "cash_post_validation",
+    _validate_cash_strategy_post_pass,
+    runtime_context=_runtime_context(
+      current_model_input_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+      current_finmo_json=copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+      extra={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+        "debt_schedule": copy.deepcopy(cash_strategy_second_pass_result or {}),
+      },
+    ),
+    handler_kwargs={
+      "ops_json": copy.deepcopy(ops_json or {}),
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "baseline_issue_ledger": copy.deepcopy(pre_cash_issue_ledger),
+      "candidate_model_input_json": copy.deepcopy(cash_strategy_second_pass_result.get("updated_model_input_json") or {}),
+      "candidate_finmo_json": copy.deepcopy(cash_strategy_second_pass_result.get("updated_finmo_json") or {}),
+      "iteration": cash_validation_iteration,
+    },
+    expected_phase="cash_pass",
+    expected_handler_key="validate_cash_pass",
+    required_lookup_tables=["post_intake_cash_policy_lookup", "post_intak_mapping_lookup"],
+    required_horizon_rule="cash_post_pass_validation_all_q1_to_q20",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2430,7 +3039,43 @@ def _run_unified_post_grid_system_run(
       )
     )
   from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
-  final_finmo_json = build_python_finmo_json(model_input_json=copy.deepcopy(final_model_input_json))
+  _execute_sequence_step(
+    "final_hard_gates",
+    lambda: {
+      "status": "final_hard_gates_started",
+      "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+    },
+    runtime_context=_runtime_context(
+      current_model_input_json=final_model_input_json,
+      current_finmo_json=final_finmo_json,
+      extra={
+        "debt_schedule": copy.deepcopy(cash_strategy_second_pass_result or {}),
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+      },
+    ),
+    expected_phase="final_validation",
+    expected_handler_key="validate_final_post_intake_state",
+    required_lookup_tables=[
+      "post_intak_mapping_lookup",
+      "post_intake_cash_policy_lookup",
+      "post_intake_gpt_contract_lookup",
+      "post_intake_gpt_context_lookup",
+    ],
+    required_horizon_rule="validate_all_q1_to_q20",
+  )
+  final_finmo_json = _execute_sequence_step(
+    "cash_final_finmo_rebuild",
+    build_python_finmo_json,
+    runtime_context=_runtime_context(
+      current_model_input_json=final_model_input_json,
+      current_finmo_json=final_finmo_json,
+      extra={"cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result)},
+    ),
+    handler_kwargs={"model_input_json": copy.deepcopy(final_model_input_json)},
+    expected_phase="final_validation",
+    expected_handler_key="build_python_finmo_json",
+    required_horizon_rule="fresh_final_finmo_from_model_input",
+  )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
     cash_pass_phase_contract,
@@ -2440,14 +3085,29 @@ def _run_unified_post_grid_system_run(
     detail="Rebuilt final FINMO from final model_input_json before hard cash gate.",
   )
   cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
-  _raise_cash_pass_unresolved_liquidity_if_needed(
-    financials_json=copy.deepcopy(financials_json or {}),
-    final_model_input_json=copy.deepcopy(final_model_input_json),
-    final_finmo_json=copy.deepcopy(final_finmo_json),
-    cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
-    cash_strategy_review_decision=copy.deepcopy(cash_strategy_review_decision),
-    cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+  _execute_sequence_step(
+    "cash_final_liquidity_gate",
+    _raise_cash_pass_unresolved_liquidity_if_needed,
+    runtime_context=_runtime_context(
+      current_model_input_json=final_model_input_json,
+      current_finmo_json=final_finmo_json,
+      extra={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+      },
+    ),
+    handler_kwargs={
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "final_model_input_json": copy.deepcopy(final_model_input_json),
+      "final_finmo_json": copy.deepcopy(final_finmo_json),
+      "cash_strategy_review_context": copy.deepcopy(cash_strategy_review_context),
+      "cash_strategy_review_decision": copy.deepcopy(cash_strategy_review_decision),
+      "cash_strategy_second_pass_plan": copy.deepcopy(cash_strategy_second_pass_plan),
+      "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+    },
+    expected_phase="final_validation",
+    expected_handler_key="assert_post_intake_cash_buffer_integrity",
+    required_lookup_tables=["post_intake_cash_policy_lookup"],
+    required_horizon_rule="ending_cash_gte_required_buffer_all_20q",
   )
   cash_pass_phase_trace = _record_cash_pass_phase(
     cash_pass_phase_trace,
@@ -2467,48 +3127,38 @@ def _run_unified_post_grid_system_run(
     final_debt_schedule_payload["selected_cash_strategy"] = _resolved_cash_strategy(financials_json)
     final_debt_schedule_payload["source_stage"] = "cash_pass_completed"
     final_debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
-  process_sequence_trace["final_hard_gates"] = post_intake_process_step_context(
-    step_key="final_hard_gates",
-    expected_phase="final_validation",
-    expected_handler_key="validate_final_post_intake_state",
-    required_lookup_tables=[
-      "post_intak_mapping_lookup",
-      "post_intake_cash_policy_lookup",
-      "post_intake_gpt_contract_lookup",
-      "post_intake_gpt_context_lookup",
-    ],
-    required_horizon_rule="validate_all_q1_to_q20",
-  )
-  final_model_input_json, final_finmo_json, stage_ramp_revenue_limit_repair = _apply_stage_ramp_revenue_driver_limits(
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-  )
-  if bool((stage_ramp_revenue_limit_repair or {}).get("applied")):
-    cash_pass_phase_trace = _record_cash_pass_phase(
-      cash_pass_phase_trace,
-      cash_pass_phase_contract,
-      "stage_ramp_revenue_driver_limit_repair",
+  stage_ramp_limit_result = _execute_sequence_step(
+    "final_stage_ramp_revenue_limit_check",
+    lambda: _apply_stage_ramp_revenue_driver_limits(
       model_input_json=copy.deepcopy(final_model_input_json),
       finmo_json=copy.deepcopy(final_finmo_json),
-      detail="Adjusted mapped revenue formula drivers so final revenue stays inside the stage-ramp max path.",
-    )
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
+    ),
+    runtime_context=_runtime_context(
+      current_model_input_json=final_model_input_json,
+      current_finmo_json=final_finmo_json,
+    ),
+    expected_phase="final_validation",
+    expected_handler_key="apply_stage_ramp_revenue_driver_limits",
+    required_lookup_tables=["post_intak_mapping_lookup"],
+    required_horizon_rule="final_revenue_within_stage_ramp_max_path",
+  )
+  final_model_input_json, final_finmo_json, stage_ramp_revenue_limit_repair = stage_ramp_limit_result
+  if bool((stage_ramp_revenue_limit_repair or {}).get("applied")):
     cash_strategy_second_pass_result["stage_ramp_revenue_limit_repair"] = copy.deepcopy(stage_ramp_revenue_limit_repair)
-    cash_strategy_second_pass_result["cash_pass_phase_trace"] = copy.deepcopy(cash_pass_phase_trace)
   _raise_p_and_l_flatline_if_needed(
     final_model_input_json=copy.deepcopy(final_model_input_json),
     final_finmo_json=copy.deepcopy(final_finmo_json),
     stage="post_cash_pass_final",
   )
-  assert_post_intake_global_invariants(
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    stage="post_cash_pass_final",
-    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
-    debt_schedule=copy.deepcopy(final_debt_schedule_payload),
-    financials_json=copy.deepcopy(financials_json or {}),
+  _assert_global_invariants_via_sequence(
+    "final_global_validation",
+    model_input_payload=copy.deepcopy(final_model_input_json),
+    finmo_payload=copy.deepcopy(final_finmo_json),
+    payroll_headcount_payload=copy.deepcopy(final_payroll_headcount_payload),
+    debt_schedule_payload=copy.deepcopy(final_debt_schedule_payload),
     enforce_cash_buffer=True,
+    stage="post_cash_pass_final",
   )
   _persist_unified_convergence_state(
     conn=conn,
@@ -2537,19 +3187,34 @@ def _run_unified_post_grid_system_run(
     cash_strategy_second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
     cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
   )
-  finalize_validation = run_finalize_post_intake_validation(
-    draft_id=str(draft_id).strip(),
-    planning_run_id=active_planning_run_id,
-    stage_ramp_contract=copy.deepcopy(stage_ramp_contract),
-    model_input_json=copy.deepcopy(final_model_input_json),
-    finmo_json=copy.deepcopy(final_finmo_json),
-    payroll_headcount=copy.deepcopy(final_payroll_headcount_payload),
-    debt_schedule=copy.deepcopy(final_debt_schedule_payload),
-    financials_json=copy.deepcopy(financials_json or {}),
-    ops_json=copy.deepcopy(ops_json or {}),
-    cash_strategy_second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+  finalize_validation = _execute_sequence_step(
+    "post_intake_finalize_validation",
+    run_finalize_post_intake_validation,
+    runtime_context=_runtime_context(
+      current_model_input_json=final_model_input_json,
+      current_finmo_json=final_finmo_json,
+      extra={
+        "debt_schedule": copy.deepcopy(final_debt_schedule_payload or {}),
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+      },
+    ),
+    handler_kwargs={
+      "draft_id": str(draft_id).strip(),
+      "planning_run_id": active_planning_run_id,
+      "stage_ramp_contract": copy.deepcopy(stage_ramp_contract),
+      "model_input_json": copy.deepcopy(final_model_input_json),
+      "finmo_json": copy.deepcopy(final_finmo_json),
+      "payroll_headcount": copy.deepcopy(final_payroll_headcount_payload),
+      "debt_schedule": copy.deepcopy(final_debt_schedule_payload),
+      "financials_json": copy.deepcopy(financials_json or {}),
+      "ops_json": copy.deepcopy(ops_json or {}),
+      "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result),
+    },
+    expected_phase="runtime_validation",
+    expected_handler_key="run_finalize_post_intake_validation",
+    required_horizon_rule="validate_lookup_machine_after_post_intake",
   )
-  process_sequence_trace["post_intake_finalize_validation"] = copy.deepcopy(finalize_validation)
+  process_sequence_trace["post_intake_finalize_validation_payload"] = copy.deepcopy(finalize_validation)
   cash_strategy_second_pass_result["post_intake_finalize_validation"] = copy.deepcopy(finalize_validation)
   _persist_unified_convergence_state(
     conn=conn,

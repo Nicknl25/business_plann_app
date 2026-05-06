@@ -2374,6 +2374,26 @@ def _unified_target_fill_grid(
       ceiling_value = _safe_float(repair_target.get("target_ceiling") or repair_target.get("maximum_target_value"))
       existing_floor = _safe_float(existing.get("minimum_target_value"))
       existing_ceiling = _safe_float(existing.get("maximum_target_value"))
+      actual_value = _safe_float(repair_target.get("actual_value"))
+      repair_envelope = (
+        repair_target.get("repair_envelope")
+        if isinstance(repair_target.get("repair_envelope"), dict)
+        else {}
+      )
+      recommended_delta = _safe_float(repair_envelope.get("recommended_delta"))
+      recommended_target_value = (
+        float(actual_value) + float(recommended_delta)
+        if actual_value is not None and recommended_delta is not None
+        else None
+      )
+      existing_recommended = _safe_float(existing.get("recommended_target_value"))
+      if recommended_target_value is not None and floor_value is not None:
+        recommended_target_value = max(float(recommended_target_value), float(floor_value))
+      if recommended_target_value is not None and ceiling_value is not None:
+        recommended_target_value = min(float(recommended_target_value), float(ceiling_value))
+      normalized_direction_hint = str(
+        repair_target.get("direction") or existing.get("direction_hint") or ""
+      ).strip().lower()
       repair_bounds_by_key[key] = {
         "minimum_target_value": (
           max(float(existing_floor), float(floor_value))
@@ -2385,7 +2405,16 @@ def _unified_target_fill_grid(
           if existing_ceiling is not None and ceiling_value is not None
           else (float(ceiling_value) if ceiling_value is not None else existing.get("maximum_target_value"))
         ),
-        "direction_hint": str(repair_target.get("direction") or existing.get("direction_hint") or "").strip().lower() or None,
+        "recommended_target_value": (
+          float(recommended_target_value)
+          if existing_recommended is None and recommended_target_value is not None
+          else max(float(existing_recommended), float(recommended_target_value))
+          if normalized_direction_hint == "increase" and existing_recommended is not None and recommended_target_value is not None
+          else min(float(existing_recommended), float(recommended_target_value))
+          if normalized_direction_hint == "decrease" and existing_recommended is not None and recommended_target_value is not None
+          else existing.get("recommended_target_value")
+        ),
+        "direction_hint": normalized_direction_hint or None,
       }
   rows: List[Dict[str, Any]] = []
 
@@ -2400,6 +2429,85 @@ def _unified_target_fill_grid(
       bound_side=bound_side,
     )
 
+  def _operational_target_buffer(
+    *,
+    metric_name: str,
+    current_value: Any,
+    boundary_value: Any,
+  ) -> float:
+    current = _safe_float(current_value)
+    boundary = _safe_float(boundary_value)
+    precision_unit = max(
+      post_intake_precision_unit(
+        post_intake_target_precision_for_metric(metric_name, phase="convergence")
+      ),
+      1.0,
+    )
+    magnitude = max(
+      abs(float(current or 0.0)),
+      abs(float(boundary or 0.0)),
+      precision_unit,
+    )
+    gap = (
+      abs(float(boundary) - float(current))
+      if current is not None and boundary is not None
+      else 0.0
+    )
+    return max(float(precision_unit), float(magnitude) * 0.01, float(gap) * 0.25)
+
+  def _apply_operational_buffer_to_target(
+    *,
+    metric_name: str,
+    direction_hint: str,
+    current_value: Any,
+    minimum_target_value: Any,
+    maximum_target_value: Any,
+    recommended_target_value: Any,
+  ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    minimum = _safe_float(minimum_target_value)
+    maximum = _safe_float(maximum_target_value)
+    recommended = _safe_float(recommended_target_value)
+    direction = str(direction_hint or "").strip().lower()
+    if direction == "increase" and minimum is not None:
+      buffer = _operational_target_buffer(
+        metric_name=metric_name,
+        current_value=current_value,
+        boundary_value=minimum,
+      )
+      candidate = max(
+        float(recommended) if recommended is not None else float(minimum),
+        float(minimum) + float(buffer),
+      )
+      if maximum is not None:
+        candidate = min(float(candidate), float(maximum))
+        if candidate <= float(minimum) and float(maximum) > float(minimum):
+          candidate = (float(minimum) + float(maximum)) / 2.0
+      if candidate > float(minimum):
+        minimum = float(candidate)
+      recommended = float(candidate)
+    elif direction == "decrease" and maximum is not None:
+      buffer = _operational_target_buffer(
+        metric_name=metric_name,
+        current_value=current_value,
+        boundary_value=maximum,
+      )
+      candidate = min(
+        float(recommended) if recommended is not None else float(maximum),
+        float(maximum) - float(buffer),
+      )
+      if minimum is not None:
+        candidate = max(float(candidate), float(minimum))
+        if candidate >= float(maximum) and float(minimum) < float(maximum):
+          candidate = (float(minimum) + float(maximum)) / 2.0
+      if candidate < float(maximum):
+        maximum = float(candidate)
+      recommended = float(candidate)
+    return (
+      float(minimum) if minimum is not None else None,
+      float(maximum) if maximum is not None else None,
+      float(recommended) if recommended is not None else None,
+    )
+
   for quarter in quarters:
     baseline = baseline_by_quarter.get(quarter) or {}
     for metric_name in allowed_metrics:
@@ -2407,9 +2515,12 @@ def _unified_target_fill_grid(
       repair_bounds = repair_bounds_by_key.get((quarter, metric_name)) or {}
       minimum_target_value = _safe_float(repair_bounds.get("minimum_target_value"))
       maximum_target_value = _safe_float(repair_bounds.get("maximum_target_value"))
+      recommended_bound_value = _safe_float(repair_bounds.get("recommended_target_value"))
       direction_hint = str(repair_bounds.get("direction_hint") or "").strip().lower()
       recommended_target_value: Optional[float] = None
-      if direction_hint == "decrease" and maximum_target_value is not None:
+      if recommended_bound_value is not None:
+        recommended_target_value = float(recommended_bound_value)
+      elif direction_hint == "decrease" and maximum_target_value is not None:
         recommended_target_value = float(maximum_target_value)
       elif direction_hint == "increase" and minimum_target_value is not None:
         recommended_target_value = float(minimum_target_value)
@@ -2429,7 +2540,7 @@ def _unified_target_fill_grid(
             max_revenue = float(math.floor(max(0.0, float(previous_revenue) * (1.0 + allowed_growth))))
             if minimum_target_value is not None and float(minimum_target_value) > max_revenue:
               minimum_target_value = max_revenue
-            if maximum_target_value is not None and float(maximum_target_value) > max_revenue:
+            if maximum_target_value is None or float(maximum_target_value) > max_revenue:
               maximum_target_value = max_revenue
             if recommended_target_value is not None and float(recommended_target_value) > max_revenue:
               recommended_target_value = max_revenue
@@ -2444,10 +2555,53 @@ def _unified_target_fill_grid(
               growth = (float(chosen_revenue) - float(previous_revenue)) / max(float(previous_revenue), 1e-9)
               if bool(limit.get("spike_available")) and growth > ordinary_growth_max + 1e-9:
                 stage_ramp_state["spike_count_used"] = int(_safe_float(stage_ramp_state.get("spike_count_used")) or 0) + 1
+          anti_flatline_floor = float(previous_revenue) + max(1000.0, float(previous_revenue) * 0.01)
+          plateau_epsilon = max(1.0, float(previous_revenue) * 0.001)
+          if (
+            quarter >= 8
+            and recommended_target_value is not None
+            and abs(float(recommended_target_value) - float(previous_revenue)) <= plateau_epsilon
+          ):
+            anti_flatline_target = anti_flatline_floor
+            if maximum_target_value is not None:
+              anti_flatline_target = min(float(anti_flatline_target), float(maximum_target_value))
+            if minimum_target_value is not None:
+              anti_flatline_target = max(float(anti_flatline_target), float(minimum_target_value))
+            if anti_flatline_target > float(recommended_target_value) + plateau_epsilon:
+              recommended_target_value = float(anti_flatline_target)
+              if minimum_target_value is None or float(minimum_target_value) < float(anti_flatline_target):
+                minimum_target_value = float(anti_flatline_target)
+              if not direction_hint:
+                direction_hint = "increase"
+        (
+          minimum_target_value,
+          maximum_target_value,
+          recommended_target_value,
+        ) = _apply_operational_buffer_to_target(
+          metric_name=metric_name,
+          direction_hint=direction_hint,
+          current_value=current_value,
+          minimum_target_value=minimum_target_value,
+          maximum_target_value=maximum_target_value,
+          recommended_target_value=recommended_target_value,
+        )
         if recommended_target_value is not None:
           revenue_target_state_by_quarter[quarter] = max(0.0, float(recommended_target_value))
         elif current_value is not None:
           revenue_target_state_by_quarter[quarter] = max(0.0, float(current_value))
+      else:
+        (
+          minimum_target_value,
+          maximum_target_value,
+          recommended_target_value,
+        ) = _apply_operational_buffer_to_target(
+          metric_name=metric_name,
+          direction_hint=direction_hint,
+          current_value=current_value,
+          minimum_target_value=minimum_target_value,
+          maximum_target_value=maximum_target_value,
+          recommended_target_value=recommended_target_value,
+        )
       displayed_current_value = _target_display_value(current_value, metric_name=metric_name)
       displayed_minimum_target_value = _target_display_value(
         minimum_target_value,
@@ -2534,7 +2688,8 @@ def _unified_target_fill_grid(
     "contract_version": "unified_convergence_locked_target_fill_grid_v1",
     "grid_rule": (
       "GPT may only choose primary_target_metric_names from allowed_target_metric_names and may only fill targets "
-      "for required_target_quarters. When a row has recommended_target_value, copy it exactly into target_value."
+      "for required_target_quarters. When a row has recommended_target_value, copy it exactly into target_value. "
+      "Recommended targets are buffered inside validator boundaries so the solver does not aim at a pass/fail edge."
     ),
     "required_target_quarters": copy.deepcopy(quarters),
     "allowed_target_metric_names": copy.deepcopy(allowed_metrics),
@@ -3149,6 +3304,119 @@ def _table_backed_formula_driver_cell_bounds(
     },
   }
 
+def _envelope_revenue_bounds_for_quarter_groups(
+  quarter_groups: List[Tuple[str, Dict[str, Dict[str, Any]]]],
+) -> Tuple[float, float]:
+  revenue_min = 0.0
+  revenue_max = 0.0
+  for _group_key, driver_rows in quarter_groups:
+    group_min = 1.0
+    group_max = 1.0
+    valid = True
+    for driver in ("capacity", "unit_price", "utilization"):
+      row = driver_rows.get(driver)
+      if not isinstance(row, dict):
+        valid = False
+        break
+      min_value = _safe_float(row.get("min_value"))
+      max_value = _safe_float(row.get("max_value"))
+      if min_value is None or max_value is None:
+        valid = False
+        break
+      group_min *= max(0.0, float(min(min_value, max_value)))
+      group_max *= max(0.0, float(max(min_value, max_value)))
+    if valid:
+      revenue_min += float(group_min)
+      revenue_max += float(group_max)
+  return revenue_min, revenue_max
+
+
+def _relax_revenue_formula_envelope_to_admit_target(
+  *,
+  quarter_groups: List[Tuple[str, Dict[str, Dict[str, Any]]]],
+  target_value: float,
+  tolerance: float,
+) -> List[Dict[str, Any]]:
+  """Open editable cell envelopes so revenue = Capacity * Unit Price * Utilization
+  can produce the intake-derived target. Used when the static stage caps and
+  capacity baselines pin the envelope outside the actual business size. Class fix
+  for the universal-business requirement in the Golden Rule.
+
+  Modifies row min_value/max_value in place. Returns relaxation trace records.
+  """
+  trace: List[Dict[str, Any]] = []
+  if not quarter_groups:
+    return trace
+  revenue_min, revenue_max = _envelope_revenue_bounds_for_quarter_groups(quarter_groups)
+  if float(target_value) < float(revenue_min) - float(tolerance) and float(revenue_min) > 0.0:
+    required_total = max(0.0, float(target_value) - float(tolerance) * 0.5)
+    scale_down = min(1.0, max(0.0, float(required_total) / float(revenue_min)))
+    driver_scale = math.sqrt(max(float(scale_down), 1e-9))
+    for group_key, driver_rows in quarter_groups:
+      for driver in ("capacity", "utilization"):
+        row = driver_rows.get(driver)
+        if not isinstance(row, dict):
+          continue
+        old_min = _safe_float(row.get("min_value"))
+        max_value_now = _safe_float(row.get("max_value"))
+        if old_min is None:
+          continue
+        new_min = max(0.0, float(old_min) * float(driver_scale))
+        if max_value_now is not None and new_min > float(max_value_now):
+          new_min = float(max_value_now)
+        lever_id = str(row.get("lever_id") or "").strip()
+        normalized_min = (
+          post_intake_normalize_lever_value(lever_id, new_min, bound_side="minimum")
+          if lever_id
+          else new_min
+        )
+        row["min_value"] = normalized_min
+        trace.append(
+          {
+            "group_key": group_key,
+            "driver": driver,
+            "scope": "downward_to_admit_target_value",
+            "old_min_value": float(old_min),
+            "new_min_value": float(new_min),
+          }
+        )
+  elif float(target_value) > float(revenue_max) + float(tolerance) and float(revenue_max) > 0.0:
+    required_total = float(target_value) + float(tolerance) * 0.5
+    scale_up = max(1.0, float(required_total) / float(revenue_max))
+    driver_scale = math.sqrt(max(float(scale_up), 1.0))
+    for group_key, driver_rows in quarter_groups:
+      for driver in ("capacity", "utilization"):
+        row = driver_rows.get(driver)
+        if not isinstance(row, dict):
+          continue
+        old_max = _safe_float(row.get("max_value"))
+        min_value_now = _safe_float(row.get("min_value"))
+        if old_max is None:
+          continue
+        new_max = float(old_max) * float(driver_scale)
+        if driver == "utilization":
+          new_max = min(new_max, 1.0)
+        if min_value_now is not None and new_max < float(min_value_now):
+          new_max = float(min_value_now)
+        lever_id = str(row.get("lever_id") or "").strip()
+        normalized_max = (
+          post_intake_normalize_lever_value(lever_id, new_max, bound_side="maximum")
+          if lever_id
+          else new_max
+        )
+        row["max_value"] = normalized_max
+        trace.append(
+          {
+            "group_key": group_key,
+            "driver": driver,
+            "scope": "upward_to_admit_target_value",
+            "old_max_value": float(old_max),
+            "new_max_value": float(new_max),
+          }
+        )
+  return trace
+
+
 def _table_backed_formula_envelope_feasibility_errors(
   *,
   rows: List[Dict[str, Any]],
@@ -3183,33 +3451,23 @@ def _table_backed_formula_envelope_feasibility_errors(
     target_value = _safe_float(target_payload.get("target_value"))
     if target_value is None:
       continue
-    revenue_min = 0.0
-    revenue_max = 0.0
-    complete_group_count = 0
-    for (_row_quarter, group_key), driver_rows in rows_by_quarter_group.items():
-      if _row_quarter != quarter_index:
-        continue
-      if not all(driver in driver_rows for driver in ("capacity", "unit_price", "utilization")):
-        continue
-      group_min = 1.0
-      group_max = 1.0
-      for driver in ("capacity", "unit_price", "utilization"):
-        row = driver_rows[driver]
-        min_value = _safe_float(row.get("min_value"))
-        max_value = _safe_float(row.get("max_value"))
-        if min_value is None or max_value is None:
-          group_min = 0.0
-          group_max = -1.0
-          break
-        group_min *= max(0.0, float(min(min_value, max_value)))
-        group_max *= max(0.0, float(max(min_value, max_value)))
-      if group_max >= 0.0:
-        revenue_min += float(group_min)
-        revenue_max += float(group_max)
-        complete_group_count += 1
-    if complete_group_count <= 0:
+    quarter_groups = [
+      (group_key, driver_rows)
+      for (_q, group_key), driver_rows in rows_by_quarter_group.items()
+      if _q == quarter_index
+      and all(driver in driver_rows for driver in ("capacity", "unit_price", "utilization"))
+    ]
+    if not quarter_groups:
       continue
+    revenue_min, revenue_max = _envelope_revenue_bounds_for_quarter_groups(quarter_groups)
     tolerance = max(1.0, abs(float(target_value)) * 0.05)
+    if float(target_value) < revenue_min - tolerance or float(target_value) > revenue_max + tolerance:
+      _relax_revenue_formula_envelope_to_admit_target(
+        quarter_groups=quarter_groups,
+        target_value=float(target_value),
+        tolerance=float(tolerance),
+      )
+      revenue_min, revenue_max = _envelope_revenue_bounds_for_quarter_groups(quarter_groups)
     if float(target_value) < revenue_min - tolerance or float(target_value) > revenue_max + tolerance:
       errors.append(
         "formula_envelope_impossible: "
@@ -3222,7 +3480,7 @@ def _table_backed_formula_envelope_feasibility_errors(
             "envelope_max_revenue": int(round(float(revenue_max))),
             "mapping_table": "post_intak_mapping_lookup",
             "formula": "revenue = Capacity * Unit Price * Utilization",
-            "detail": "Driver cell bounds generated from the mapping table cannot produce the mapped revenue target.",
+            "detail": "Driver cell bounds generated from the mapping table cannot produce the mapped revenue target even after relaxation.",
           },
           ensure_ascii=False,
         )

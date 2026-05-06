@@ -33,6 +33,7 @@ from client_intake_and_finmo.post_intake_mapping import (
   post_intake_gpt_contract_payload_errors,
   post_intake_gpt_contract_prompt_field_spec,
   post_intake_normalize_lever_value,
+  post_intake_precision_unit,
 )
 from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
   bind_table_safe_runtime_dependencies,
@@ -75,7 +76,7 @@ _UNIFIED_CONVERGENCE_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "reviewer.
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS = tuple(post_intake_driver_target_metric_ids())
 _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
 _TRANSLATION_TEST_MODE_FAIL_FLAGS = set(TRANSLATION_TEST_MODE_FAIL_FLAGS)
-_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 1
+_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 3
 _POST_INTAKE_RUNTIME_PROBE_VERSION = "2026-05-01-table-backed-post-intake-v1"
 _ISSUE_CODE_REGISTRY: Dict[str, Dict[str, Any]] = {
   code: {"title": code}
@@ -2198,6 +2199,98 @@ def _exact_updates_from_model_input_repair_cells(
     )
   return updates
 
+
+def _cost_structure_precision_close_updates(
+  *,
+  exact_updates: Optional[List[Dict[str, Any]]],
+  deterministic_numeric_guidance: Optional[Dict[str, Any]],
+  controller_retry_context: Optional[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+  updates = [copy.deepcopy(item) for item in (exact_updates or []) if isinstance(item, dict)]
+  guidance = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  retry_context = controller_retry_context if isinstance(controller_retry_context, dict) else {}
+  latest_score = int(_safe_float(retry_context.get("latest_overall_completion_score_pct")) or 0)
+  attempt_number = int(_safe_float(retry_context.get("attempt_number") or retry_context.get("cycle")) or 0)
+  progress_status = str(retry_context.get("progress_status") or "").strip().lower()
+  near_close = latest_score >= 95 or progress_status in {"stalled", "regressed"}
+  if not updates or not near_close or attempt_number < 2:
+    return updates, []
+
+  pressure_by_metric_quarter: Dict[Tuple[str, int], Dict[str, Any]] = {}
+  for packet in (guidance.get("metric_pressure_packets") or []):
+    if not isinstance(packet, dict):
+      continue
+    issue_code = str(packet.get("issue_code") or "").strip().lower()
+    direction = str(packet.get("direction_hint") or "").strip().lower()
+    metric_name = str(packet.get("metric_name") or "").strip().lower()
+    quarter_index = int(_safe_float(packet.get("quarter_index")) or 0)
+    gap_abs = _safe_float(packet.get("gap_abs"))
+    if issue_code != "cost_structure_mismatch" or direction != "decrease":
+      continue
+    if not metric_name or quarter_index < 1 or gap_abs is None or float(gap_abs) <= 0.0:
+      continue
+    pressure_by_metric_quarter[(metric_name, quarter_index)] = copy.deepcopy(packet)
+  if not pressure_by_metric_quarter:
+    return updates, []
+
+  adjustment_rows: List[Dict[str, Any]] = []
+  adjusted_updates: List[Dict[str, Any]] = []
+  for update in updates:
+    row = copy.deepcopy(update)
+    lever_id = str(row.get("lever_id") or "").strip()
+    quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
+    exact_value = _safe_float(row.get("exact_value"))
+    mapping_entry = post_intake_driver_target_mapping_entry(lever_id) or {}
+    metric_name = str(mapping_entry.get("target_metric_name") or "").strip().lower()
+    pressure = pressure_by_metric_quarter.get((metric_name, quarter_index))
+    if not lever_id or quarter_index < 1 or exact_value is None or not pressure:
+      adjusted_updates.append(row)
+      continue
+    value_kind = str(mapping_entry.get("value_kind") or "").strip().lower()
+    input_semantics = str(mapping_entry.get("input_semantics") or "").strip().lower()
+    precision_unit = post_intake_precision_unit(mapping_entry.get("value_precision") or {})
+    if precision_unit <= 0:
+      precision_unit = 0.01 if input_semantics.startswith("percent") or value_kind in {"ratio", "percentage", "percent", "rate"} else 1.0
+    if input_semantics.startswith("percent") or value_kind in {"ratio", "percentage", "percent", "rate"}:
+      allow_zero = bool(mapping_entry.get("allow_zero", True))
+      floor = float(precision_unit) if not allow_zero else 0.0
+      candidate = max(floor, float(exact_value) - float(precision_unit))
+    elif value_kind in {"currency", "quarter_currency", "money"} or input_semantics == "quarter_currency":
+      gap_abs = float(_safe_float(pressure.get("gap_abs")) or 0.0)
+      candidate = max(0.0, float(exact_value) - max(float(precision_unit), math.ceil(gap_abs)))
+    else:
+      adjusted_updates.append(row)
+      continue
+    normalized = post_intake_normalize_lever_value(lever_id, candidate, bound_side="minimum")
+    normalized_float = _safe_float(normalized)
+    if normalized_float is None or normalized_float >= float(exact_value):
+      adjusted_updates.append(row)
+      continue
+    row["exact_value"] = float(normalized_float)
+    row["deterministic_precision_close"] = {
+      "issue_code": "cost_structure_mismatch",
+      "source": "sql.post_intak_mapping_lookup.value_precision",
+      "metric_name": metric_name,
+      "previous_exact_value": float(exact_value),
+      "precision_unit": float(precision_unit),
+      "gap_abs": float(_safe_float(pressure.get("gap_abs")) or 0.0),
+      "reason": "hard_cost_structure_near_close_precision_step",
+    }
+    adjustment_rows.append(
+      {
+        "lever_id": lever_id,
+        "quarter_index": quarter_index,
+        "metric_name": metric_name,
+        "previous_exact_value": float(exact_value),
+        "adjusted_exact_value": float(normalized_float),
+        "precision_unit": float(precision_unit),
+        "gap_abs": float(_safe_float(pressure.get("gap_abs")) or 0.0),
+      }
+    )
+    adjusted_updates.append(row)
+  return adjusted_updates, adjustment_rows
+
+
 def _target_metric_tolerance(
   *,
   target_tolerances: Any,
@@ -3840,6 +3933,24 @@ def _build_unified_convergence_pass_plan(
   model_input_repair_exact_updates = _exact_updates_from_model_input_repair_cells(
     model_input_repair_cells=copy.deepcopy(model_input_repair_cells)
   )
+  model_input_repair_contract = (
+    copy.deepcopy(review_payload.get("full_horizon_model_input_repair_contract"))
+    if isinstance(review_payload.get("full_horizon_model_input_repair_contract"), dict)
+    else {}
+  )
+  guidance_packet = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
+  retry_scope_payload = (
+    review_payload.get("retry_scope_payload")
+    if isinstance(review_payload.get("retry_scope_payload"), dict)
+    else {}
+  )
+  model_input_repair_exact_updates, deterministic_precision_close_adjustments = (
+    _cost_structure_precision_close_updates(
+      exact_updates=copy.deepcopy(model_input_repair_exact_updates),
+      deterministic_numeric_guidance=copy.deepcopy(guidance_packet),
+      controller_retry_context=copy.deepcopy(retry_scope_payload),
+    )
+  )
   model_input_repair_values_by_lever: Dict[str, Dict[int, float]] = {}
   for update in model_input_repair_exact_updates:
     lever_id = str(update.get("lever_id") or "").strip()
@@ -3848,12 +3959,6 @@ def _build_unified_convergence_pass_plan(
     if not lever_id or quarter_index < 1 or exact_value is None:
       continue
     model_input_repair_values_by_lever.setdefault(lever_id, {})[quarter_index] = float(exact_value)
-  model_input_repair_contract = (
-    copy.deepcopy(review_payload.get("full_horizon_model_input_repair_contract"))
-    if isinstance(review_payload.get("full_horizon_model_input_repair_contract"), dict)
-    else {}
-  )
-  guidance_packet = deterministic_numeric_guidance if isinstance(deterministic_numeric_guidance, dict) else {}
   writable_lever_catalog = _build_writable_lever_review_catalog(solved_model_input_json)
   leverage_catalog_map = _lever_review_catalog_entry_map(writable_lever_catalog)
   lever_bound_lookup = _deterministic_lever_bound_lookup(guidance_packet)
@@ -3863,6 +3968,10 @@ def _build_unified_convergence_pass_plan(
     business_world_contract=copy.deepcopy(business_world_contract),
   )
   warnings: List[str] = []
+  if deterministic_precision_close_adjustments:
+    warnings.append(
+      "unified_cycle: applied deterministic SQL precision-step closeout for near-complete hard cost_structure_mismatch."
+    )
   if payroll_selection_requested:
     warnings.append(
       "unified_cycle: Payroll is headcount-schedule-derived and must not be selected as a writable convergence lever."
@@ -4201,6 +4310,7 @@ def _build_unified_convergence_pass_plan(
     "full_horizon_model_input_repair_contract": copy.deepcopy(model_input_repair_contract),
     "model_input_repair_cells": copy.deepcopy(model_input_repair_cells),
     "model_input_repair_exact_updates": copy.deepcopy(model_input_repair_exact_updates),
+    "deterministic_precision_close_adjustments": copy.deepcopy(deterministic_precision_close_adjustments),
     "translation_warnings": warnings,
     "driver_edit_source": "gpt_model_input_repair_cells",
     "model_input_repair_lever_count": len(model_input_repair_lever_ids),

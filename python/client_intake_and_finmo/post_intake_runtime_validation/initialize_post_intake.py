@@ -23,10 +23,12 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_gpt_contract_errors,
   post_intake_gpt_contract_openai_schema,
   post_intake_gpt_contract_rows,
+  post_intake_process_context_errors,
+  post_intake_process_context_rows,
   post_intake_process_sequence_step,
-  post_intake_process_step_context,
   post_intake_process_sequence_errors,
 )
+from client_intake_and_finmo.post_intake_sequence import build_post_intake_sequence_controller  # type: ignore
 
 
 def _clean_text(value: Any) -> str:
@@ -152,6 +154,7 @@ def run_initialize_post_intake_validation(
   schema_contracts: Dict[str, Any] = {}
   draft_row: Dict[str, Any] = {}
   balance_sheet_driver_sample: Dict[str, Any] = {}
+  process_context_row_count = 0
 
   try:
     runtime_table_integrity = post_intake_assert_runtime_table_integrity()
@@ -192,6 +195,7 @@ def run_initialize_post_intake_validation(
     ("gpt_contract", post_intake_gpt_contract_errors),
     ("gpt_context", post_intake_gpt_context_errors),
     ("process_sequence", post_intake_process_sequence_errors),
+    ("process_context", post_intake_process_context_errors),
   ]:
     try:
       errors.extend(f"{source_name}: {item}" for item in (source_errors() or []))
@@ -205,7 +209,12 @@ def run_initialize_post_intake_validation(
   except Exception as exc:
     errors.append(f"headcount_policy_validation_unavailable: {exc}")
   _assert_payroll_headcount_initialization_contract(errors)
+  try:
+    process_context_row_count = len(post_intake_process_context_rows(active_only=True))
+  except Exception as exc:
+    errors.append(f"process_context_rows_unavailable: {exc}")
 
+  sequence_controller = build_post_intake_sequence_controller()
   for step_key in [
     "post_intake_initialize_validation",
     "baseline_model_input",
@@ -223,7 +232,10 @@ def run_initialize_post_intake_validation(
     "post_intake_finalize_validation",
   ]:
     try:
-      process_step_contexts[step_key] = post_intake_process_step_context(step_key=step_key)
+      process_step_contexts[step_key] = sequence_controller.step_context(
+        step_key=step_key,
+        resolve_inputs=False,
+      )
     except Exception as exc:
       errors.append(f"process_step_context_unavailable: {step_key}: {exc}")
 
@@ -298,6 +310,7 @@ def run_initialize_post_intake_validation(
     "schema_contracts": copy.deepcopy(schema_contracts),
     "balance_sheet_driver_initialization_sample": copy.deepcopy(balance_sheet_driver_sample),
     "mapping_formula_contract_count": len(formula_rows),
+    "process_context_row_count": process_context_row_count,
     "validated_tables": [
       "post_intak_mapping_lookup",
       "post_intake_cash_policy_lookup",
@@ -305,5 +318,6 @@ def run_initialize_post_intake_validation(
       "post_intake_gpt_context_lookup",
       "post_intake_headcount_policy_lookup",
       "post_intake_process_sequence_lookup",
+      "post_intake_process_context_lookup",
     ],
   }

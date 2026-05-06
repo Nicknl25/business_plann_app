@@ -20,8 +20,10 @@ from client_intake_and_finmo.realism_memo import load_realism_memo_grid_advisory
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_assert_process_object_control,
   post_intake_build_prompt_from_contract,
+  post_intake_driver_formula_contract_rows,
   post_intake_driver_target_mapping_entry,
   post_intake_gpt_contract_openai_schema,
+  post_intake_precision_unit,
   stage_planning_ramp_policy,
 )
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import assert_quarter_grid_stage_ramp_bridge_applied  # type: ignore
@@ -51,6 +53,20 @@ _GRID_EXCLUDED_LEVER_IDS = {
 _R_AND_D_LEVER_ID = "expenses::Research & Development"
 
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _assert_quarter_grid_sequence_step(
+  *,
+  allowed_step_keys: Sequence[str],
+  allowed_executor_functions: Sequence[str],
+) -> Dict[str, Any]:
+  from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+    assert_post_intake_sequence_controller_active,
+  )
+  return assert_post_intake_sequence_controller_active(
+    allowed_step_keys=allowed_step_keys,
+    allowed_executor_functions=allowed_executor_functions,
+  )
 
 
 def _r_and_d_applicability_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -394,6 +410,10 @@ def determine_planning_mode(
   finmo_json: Dict[str, Any],
   business_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+  _assert_quarter_grid_sequence_step(
+    allowed_step_keys=["planning_mode_determination"],
+    allowed_executor_functions=["determine_planning_mode"],
+  )
   del ops_json, target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
   baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or _build_baseline_financial_summary(
     financials_json=financials_json,
@@ -1331,6 +1351,10 @@ def generate_live_quarter_grid_plan(
   batch_size: int = 12,
   use_real_strategy_prompt: bool = True,
 ) -> Dict[str, Any]:
+  _assert_quarter_grid_sequence_step(
+    allowed_step_keys=["quarter_grid_gpt_plan"],
+    allowed_executor_functions=["generate_live_quarter_grid_plan"],
+  )
   normalized_mode = resolve_planning_mode(planning_mode)
   prompt_file = planning_mode_prompt_file(normalized_mode)
   baseline_inputs = FinancialModelInputs.from_model_input_json(model_input_json)
@@ -1579,6 +1603,31 @@ def _quarter_values_by_row(row: Dict[str, Any]) -> Dict[int, float]:
   return values
 
 
+def _sql_mapping_nonzero_floor_by_lever() -> Dict[str, float]:
+  floors: Dict[str, float] = {}
+  for contract in post_intake_driver_formula_contract_rows():
+    if not isinstance(contract, dict):
+      continue
+    lever_id = str(contract.get("lever_id") or "").strip()
+    if not lever_id or bool(contract.get("allow_zero", True)):
+      continue
+    required_when_key = str(contract.get("required_when_key") or "").strip().lower()
+    if required_when_key in {"optional", ""}:
+      continue
+    minimum_live_value = float_or_none(contract.get("minimum_live_value"))
+    precision_unit = post_intake_precision_unit(contract.get("value_precision") or {})
+    input_semantics = str(contract.get("input_semantics") or "").strip().lower()
+    value_kind = str(contract.get("value_kind") or "").strip().lower()
+    default_floor = 0.01 if input_semantics.startswith("percent") or value_kind in {"ratio", "percentage", "percent", "rate"} else 1.0
+    candidates = [
+      float(item)
+      for item in (minimum_live_value, precision_unit, default_floor)
+      if item is not None and float(item) > 0
+    ]
+    floors[lever_id] = max(candidates) if candidates else default_floor
+  return floors
+
+
 def apply_exact_lever_updates_to_model_input(
   *,
   model_input_json: Dict[str, Any],
@@ -1598,6 +1647,7 @@ def apply_exact_lever_updates_to_model_input(
     "balance_sheet::Owner's Capital",
     "balance_sheet::Other Equity",
   }
+  sql_mapping_nonzero_floor_by_lever = _sql_mapping_nonzero_floor_by_lever()
   explicit_quarters_by_lever: Dict[str, set[int]] = {}
   for update in exact_updates:
     if not isinstance(update, dict):
@@ -1610,6 +1660,9 @@ def apply_exact_lever_updates_to_model_input(
       continue
     if lever_id in nonnegative_only_levers:
       value = max(0.0, float(value))
+    nonzero_floor = sql_mapping_nonzero_floor_by_lever.get(lever_id)
+    if nonzero_floor is not None and float(value) <= 0.0:
+      value = float(nonzero_floor)
     values = list(row.get("values") or [])
     has_stub = len(values) >= QUARTER_COUNT + 1
     target_length = QUARTER_COUNT + 1 if has_stub else QUARTER_COUNT
@@ -1655,6 +1708,10 @@ def apply_live_quarter_grid_plan(
   baseline_model_input_json: Dict[str, Any],
   grid_json: Dict[str, Any],
 ) -> Dict[str, Any]:
+  _assert_quarter_grid_sequence_step(
+    allowed_step_keys=["quarter_grid_apply_model_input"],
+    allowed_executor_functions=["apply_live_quarter_grid_plan"],
+  )
   try:
     from client_intake_and_finmo.numeric_execution import execute_numeric_plan  # type: ignore
   except Exception:

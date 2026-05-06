@@ -338,6 +338,10 @@ def _application_report_lines(
 
 
 def main() -> int:
+  raise RuntimeError(
+    "legacy_nonsequenced_engine_replay_disabled: "
+    "post-intake replay must run through the post-intake sequence controller or targeted process execution."
+  )
   parser = argparse.ArgumentParser()
   parser.add_argument("--draft-id", default="", help="intake_consult_drafts.draft_id")
   parser.add_argument("--client-id", default="", help="intake_consult_drafts.client_id")

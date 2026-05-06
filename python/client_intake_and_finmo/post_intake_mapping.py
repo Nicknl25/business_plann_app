@@ -24,6 +24,7 @@ _CASH_POLICY_TABLE_NAME = "post_intake_cash_policy_lookup"
 _GPT_CONTRACT_TABLE_NAME = "post_intake_gpt_contract_lookup"
 _GPT_CONTEXT_TABLE_NAME = "post_intake_gpt_context_lookup"
 _PROCESS_SEQUENCE_TABLE_NAME = "post_intake_process_sequence_lookup"
+_PROCESS_CONTEXT_TABLE_NAME = "post_intake_process_context_lookup"
 _LOOKUP_SNAPSHOT_TABLE_NAME = "post_intake_lookup_table_snapshot"
 _GOLDEN_BASELINE_NAME = "post_intake_golden_f949316"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
@@ -33,12 +34,14 @@ _ENSURE_CASH_POLICY_TABLE_READY = False
 _ENSURE_GPT_CONTRACT_TABLE_READY = False
 _ENSURE_GPT_CONTEXT_TABLE_READY = False
 _ENSURE_PROCESS_SEQUENCE_TABLE_READY = False
+_ENSURE_PROCESS_CONTEXT_TABLE_READY = False
 _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
 _ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
 _ENSURE_GPT_CONTRACT_TABLE_LOCK = threading.Lock()
 _ENSURE_GPT_CONTEXT_TABLE_LOCK = threading.Lock()
 _ENSURE_PROCESS_SEQUENCE_TABLE_LOCK = threading.Lock()
+_ENSURE_PROCESS_CONTEXT_TABLE_LOCK = threading.Lock()
 _ENSURE_LOOKUP_SNAPSHOT_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
@@ -459,6 +462,34 @@ def _gpt_context_row(
   }
 
 
+def _process_sequence_context_keys_from_paths(value: Any) -> List[str]:
+  raw = str(value or "").strip()
+  if not raw:
+    return []
+  ordered: List[str] = []
+  for token in re.split(r"[;,]", raw):
+    key = str(token or "").strip()
+    if not key:
+      continue
+    key = re.sub(r"\s+", "_", key)
+    if key and key not in ordered:
+      ordered.append(key)
+  return ordered
+
+
+def _process_sequence_path(
+  *,
+  phase: str,
+  step_key: str,
+  parent_step_key: str = "",
+) -> str:
+  parent = str(parent_step_key or "").strip().lower()
+  key = str(step_key or "").strip().lower()
+  if parent:
+    return f"{parent}.{key}"
+  return f"{str(phase or '').strip().lower()}.{key}".strip(".")
+
+
 def _process_sequence_row(
   phase: str,
   step_order: int,
@@ -481,17 +512,59 @@ def _process_sequence_row(
   input_object_path: str = "",
   output_object_path: str = "",
   validation_subject_path: str = "",
+  parent_step_key: str = "",
+  step_kind: str = "process",
+  hierarchy_level: Optional[int] = None,
+  sequence_path: str = "",
+  executor_function: str = "",
+  required_context_keys: Optional[List[str]] = None,
+  produced_output_keys: Optional[List[str]] = None,
+  output_storage: Optional[List[Dict[str, Any]]] = None,
+  recompute_triggers: Optional[List[Dict[str, Any]]] = None,
+  output_finality: str = "stage_final_no_downstream_mutation",
   object_controls: Optional[List[Dict[str, Any]]] = None,
   notes: str = "",
 ) -> Dict[str, Any]:
+  resolved_input_path = input_object_path or f"{step_key}.input"
+  resolved_output_path = output_object_path or f"{step_key}.output"
+  resolved_required_context_keys = list(
+    required_context_keys
+    if required_context_keys is not None
+    else _process_sequence_context_keys_from_paths(resolved_input_path)
+  )
+  resolved_produced_outputs = list(
+    produced_output_keys
+    if produced_output_keys is not None
+    else _process_sequence_context_keys_from_paths(resolved_output_path)
+  )
+  normalized_parent = str(parent_step_key or "").strip().lower()
+  resolved_hierarchy_level = (
+    int(hierarchy_level)
+    if hierarchy_level is not None
+    else (2 if normalized_parent else 1)
+  )
   return {
     "phase": phase,
     "step_order": int(step_order),
     "step_key": step_key,
     "handler_key": handler_key,
+    "parent_step_key": normalized_parent,
+    "step_kind": step_kind or "process",
+    "hierarchy_level": resolved_hierarchy_level,
+    "sequence_path": sequence_path or _process_sequence_path(
+      phase=phase,
+      step_key=step_key,
+      parent_step_key=normalized_parent,
+    ),
+    "executor_function": executor_function or handler_key,
     "contract_name": contract_name,
     "context_contract_name": context_contract_name,
     "context_include_phase": context_include_phase,
+    "required_context_keys": resolved_required_context_keys,
+    "produced_output_keys": resolved_produced_outputs,
+    "output_storage": copy.deepcopy(output_storage or []),
+    "recompute_triggers": copy.deepcopy(recompute_triggers or []),
+    "output_finality": output_finality or "stage_final_no_downstream_mutation",
     "required_lookup_tables": list(required_lookup_tables or []),
     "horizon_rule": horizon_rule,
     "timeout_seconds": timeout_seconds,
@@ -502,10 +575,35 @@ def _process_sequence_row(
     "python_role": python_role or "deterministic_step_executor",
     "python_timing": python_timing or phase,
     "python_action": python_action or notes or f"Execute {handler_key} for {step_key}.",
-    "input_object_path": input_object_path or f"{step_key}.input",
-    "output_object_path": output_object_path or f"{step_key}.output",
-    "validation_subject_path": validation_subject_path or output_object_path or f"{step_key}.output",
+    "input_object_path": resolved_input_path,
+    "output_object_path": resolved_output_path,
+    "validation_subject_path": validation_subject_path or resolved_output_path,
     "object_controls": copy.deepcopy(object_controls or []),
+    "notes": notes,
+  }
+
+
+def _process_context_row(
+  step_key: str,
+  context_key: str,
+  *,
+  context_domain: str = "",
+  source_kind: str = "runtime_context",
+  source_path: str = "",
+  transform_kind: str = "copy",
+  required: bool = True,
+  immutable_input: bool = True,
+  notes: str = "",
+) -> Dict[str, Any]:
+  return {
+    "step_key": step_key,
+    "context_key": context_key,
+    "context_domain": context_domain,
+    "source_kind": source_kind,
+    "source_path": source_path or context_key,
+    "transform_kind": transform_kind,
+    "required": bool(required),
+    "immutable_input": bool(immutable_input),
     "notes": notes,
   }
 
@@ -521,6 +619,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _CASH_POLICY_TABLE_NAME,
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
       "post_intake_headcount_policy_lookup",
       _PROCESS_SEQUENCE_TABLE_NAME,
     ],
@@ -550,6 +649,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     timeout_seconds=60,
     max_attempts=2,
     fail_fast_code="post_intake_sequence_realism_memo_contract_missing",
+    required_context_keys=["operating_model_json", "financials_json", "model_input_json", "finmo_json"],
     notes="Optional pre-grid realism memo must use SQL contract/context tables when invoked.",
   ),
   _process_sequence_row(
@@ -564,6 +664,15 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     ],
     horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
     fail_fast_code="post_intake_sequence_baseline_contract_missing",
+    required_context_keys=[
+      "business_facts",
+      "operating_model_json",
+      "target_market_json",
+      "people_json",
+      "financials_json",
+      "financials_year1_json",
+      "marketing_model_json",
+    ],
     notes="Builds the initial model_input/finmo state. Stub Q0 remains historical; forecast horizon is Q1-Q20.",
   ),
   _process_sequence_row(
@@ -577,6 +686,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     timeout_seconds=30,
     max_attempts=1,
     fail_fast_code="post_intake_sequence_maintenance_capex_contract_missing",
+    required_context_keys=["business_facts", "operating_model_json", "financials_json", "financials_year1_json"],
     notes="GPT decides one maintenance capex percent; Python applies it deterministically.",
   ),
   _process_sequence_row(
@@ -590,6 +700,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     timeout_seconds=20,
     max_attempts=1,
     fail_fast_code="post_intake_sequence_rd_contract_missing",
+    required_context_keys=["business_facts", "operating_model_json", "financials_json", "financials_year1_json", "model_input_json"],
     notes="GPT selects R&D on/off before forecast generation; Python enforces the toggle.",
   ),
   _process_sequence_row(
@@ -623,6 +734,36 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
   _process_sequence_row(
     "pre_convergence",
     50,
+    "planning_mode_determination",
+    "determine_planning_mode",
+    required_lookup_tables=[
+      _MAPPING_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
+    ],
+    required_context_keys=[
+      "business_facts",
+      "operating_model_json",
+      "financials_json",
+      "financials_year1_json",
+      "model_input_json",
+      "finmo_json",
+      "planning_context_summary_json",
+    ],
+    horizon_rule="single_pre_convergence_planning_mode_decision",
+    fail_fast_code="post_intake_sequence_planning_mode_missing",
+    output_storage=[
+      {
+        "output_key": "planning_mode_decision",
+        "storage_kind": "planning_run_json",
+        "storage_path": "planning_run_json.planning_mode",
+        "final_for_stage": True,
+      },
+    ],
+    notes="Determine normalize/rebalance/turnaround mode from explicit intake and derived forecast context before stage-ramp selection.",
+  ),
+  _process_sequence_row(
+    "pre_convergence",
+    55,
     "stage_ramp_contract",
     "estimate_stage_ramp_contract_with_gpt",
     contract_name="stage_ramp_contract",
@@ -661,10 +802,55 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _GPT_CONTEXT_TABLE_NAME,
       "post_intake_headcount_policy_lookup",
       _PROCESS_SEQUENCE_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
+    ],
+    required_context_keys=[
+      "business_facts",
+      "business_type",
+      "business_naics",
+      "operating_model_json",
+      "people_json",
+      "financials_json",
+      "financials_year1_json",
+      "model_input_json",
+      "finmo_json",
+      "stage_ramp_contract",
+      "oews_title_catalog",
+      "headcount_policy",
+      "productivity_assumptions",
+      "payroll_economic_guardrails",
+      "revenue_drivers",
+    ],
+    output_storage=[
+      {
+        "output_key": "payroll_headcount",
+        "storage_kind": "draft_domain_column",
+        "storage_path": "intake_consult_drafts.payroll_headcount",
+        "final_for_stage": True,
+      },
+      {
+        "output_key": "model_input.expenses.Payroll",
+        "storage_kind": "domain_json_path",
+        "storage_path": "model_input_json.sections.expenses[Payroll]",
+        "final_for_stage": True,
+      },
+      {
+        "output_key": "model_input.revenue.Capacity",
+        "storage_kind": "domain_json_path",
+        "storage_path": "model_input_json.sections.revenue[Capacity]",
+        "final_for_stage": True,
+      },
+    ],
+    recompute_triggers=[
+      {
+        "downstream_step_key": "quarter_grid_generation",
+        "trigger": "payroll_supported_capacity_required_change",
+        "recompute_from_step_key": "payroll_headcount_schedule",
+      }
     ],
     horizon_rule="q1_to_q20_at_least_once",
     timeout_seconds=180,
-    max_attempts=2,
+    max_attempts=3,
     fail_fast_code="post_intake_sequence_headcount_contract_missing",
     python_role="contract_request_and_schedule_builder",
     python_timing="after_stage_ramp_before_quarter_grid_and_convergence",
@@ -714,6 +900,8 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     65,
     "payroll_feasibility_repair",
     "retry_payroll_headcount_schedule_from_feasibility_failure",
+    parent_step_key="payroll_headcount_schedule",
+    step_kind="subprocess",
     contract_name="payroll_headcount_schedule",
     context_contract_name="payroll_headcount_schedule",
     context_include_phase="pre_convergence",
@@ -723,10 +911,51 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _GPT_CONTEXT_TABLE_NAME,
       "post_intake_headcount_policy_lookup",
       _PROCESS_SEQUENCE_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
+    ],
+    required_context_keys=[
+      "previous_contract_failure",
+      "payroll_feasibility_mapping",
+      "model_input_json",
+      "finmo_json",
+      "payroll_headcount",
+      "headcount_policy",
+      "payroll_economic_guardrails",
+      "revenue_drivers",
+    ],
+    output_storage=[
+      {
+        "output_key": "payroll_headcount",
+        "storage_kind": "draft_domain_column",
+        "storage_path": "intake_consult_drafts.payroll_headcount",
+        "final_for_stage": True,
+        "recompute_of_step_key": "payroll_headcount_schedule",
+      },
+      {
+        "output_key": "model_input.expenses.Payroll",
+        "storage_kind": "domain_json_path",
+        "storage_path": "model_input_json.sections.expenses[Payroll]",
+        "final_for_stage": True,
+        "recompute_of_step_key": "payroll_headcount_schedule",
+      },
+      {
+        "output_key": "model_input.revenue.Capacity",
+        "storage_kind": "domain_json_path",
+        "storage_path": "model_input_json.sections.revenue[Capacity]",
+        "final_for_stage": True,
+        "recompute_of_step_key": "payroll_headcount_schedule",
+      },
+    ],
+    recompute_triggers=[
+      {
+        "downstream_step_key": "quarter_grid_generation",
+        "trigger": "payroll_revenue_economic_feasibility_failed",
+        "recompute_from_step_key": "payroll_feasibility_repair",
+      }
     ],
     horizon_rule="q1_to_q20_at_least_once",
     timeout_seconds=180,
-    max_attempts=2,
+    max_attempts=3,
     fail_fast_code="post_intake_sequence_payroll_feasibility_repair_missing",
     python_role="table_driven_retry_gateway",
     python_timing="after_payroll_or_quarter_grid_feasibility_failure_before_retry",
@@ -779,6 +1008,44 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _MAPPING_TABLE_NAME,
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
+    ],
+    required_context_keys=[
+      "business_facts",
+      "business_type",
+      "operating_model_json",
+      "target_market_json",
+      "people_json",
+      "financials_json",
+      "financials_year1_json",
+      "fulfillment_json",
+      "marketing_model_json",
+      "model_input_json",
+      "finmo_json",
+      "stage_ramp_contract",
+      "payroll_headcount",
+      "revenue_drivers",
+      "capacity_outputs",
+    ],
+    output_storage=[
+      {
+        "output_key": "quarter_grid_plan",
+        "storage_kind": "planning_run_json",
+        "storage_path": "planning_run_json.grid_json",
+        "final_for_stage": True,
+      },
+      {
+        "output_key": "model_input_json",
+        "storage_kind": "draft_domain_column",
+        "storage_path": "intake_consult_drafts.model_input_json",
+        "final_for_stage": True,
+      },
+      {
+        "output_key": "finmo_json",
+        "storage_kind": "draft_domain_column",
+        "storage_path": "intake_consult_drafts.finmo_json",
+        "final_for_stage": True,
+      },
     ],
     horizon_rule="q1_to_q20_model_input_state",
     fail_fast_code="post_intake_sequence_quarter_grid_contract_missing",
@@ -818,6 +1085,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     "issue_detection",
     "detect_post_intake_issues",
     required_lookup_tables=[_MAPPING_TABLE_NAME, _GPT_CONTRACT_TABLE_NAME],
+    required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json", "payroll_headcount", "revenue_drivers"],
     horizon_rule="scan_all_q1_to_q20",
     fail_fast_code="post_intake_sequence_issue_detection_mapping_missing",
     notes="Issue detection may only produce issues with direct mapping-table repair paths or hard gates.",
@@ -839,6 +1107,16 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     timeout_seconds=240,
     max_attempts=10,
     fail_fast_code="post_intake_sequence_unified_convergence_contract_missing",
+    required_context_keys=[
+      "issue_ledger",
+      "repair_scope",
+      "numeric_guidance_packet",
+      "writable_lever_catalog",
+      "stage_ramp_contract",
+      "model_input_json",
+      "finmo_json",
+      "payroll_headcount",
+    ],
     notes="Convergence GPT sees table-approved planner context and fills only the full-horizon model-input repair contract.",
   ),
   _process_sequence_row(
@@ -858,6 +1136,15 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     timeout_seconds=180,
     max_attempts=1,
     fail_fast_code="post_intake_sequence_unified_convergence_retry_contract_missing",
+    required_context_keys=[
+      "previous_contract_failure",
+      "issue_ledger",
+      "repair_scope",
+      "numeric_guidance_packet",
+      "writable_lever_catalog",
+      "model_input_json",
+      "finmo_json",
+    ],
     notes="Contract repair uses a compact planner_retry context slice, not original-plus-retry legacy payloads.",
   ),
   _process_sequence_row(
@@ -866,6 +1153,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     "cash_minimum_debt_schedule",
     "apply_cash_pass_minimum_debt_schedule",
     required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME],
+    required_context_keys=["financials_json", "model_input_json", "finmo_json", "cash_policy", "debt_schedule_policy"],
     horizon_rule="q1_to_q20_debt_schedule",
     fail_fast_code="post_intake_sequence_cash_debt_schedule_policy_missing",
     notes="Debt schedule semantics come from post_intake_debt_schedule, cash policy lookup, and mapping-table financing levers.",
@@ -888,7 +1176,14 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     timeout_seconds=90,
     max_attempts=1,
     fail_fast_code="post_intake_sequence_cash_strategy_contract_missing",
-    notes="Cash GPT fills only needed cash gap rows; validation inspects full Q1-Q20.",
+    required_context_keys=[
+      "financials_json",
+      "model_input_json",
+      "finmo_json",
+      "cash_policy",
+      "debt_schedule",
+    ],
+    notes="Parent cash review marker starts the sequenced cash pass; nested context-build step produces cash_envelope and liquidity_violation_grid before the GPT review step consumes them.",
   ),
   _process_sequence_row(
     "cash_pass",
@@ -896,6 +1191,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     "cash_pass_validation",
     "validate_cash_pass",
     required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME],
+    required_context_keys=["model_input_json", "finmo_json", "cash_policy", "cash_strategy_second_pass_result", "debt_schedule"],
     horizon_rule="validate_all_q1_to_q20",
     fail_fast_code="post_intake_sequence_cash_validation_policy_missing",
     notes="Hard cash viability gate and cash policy validation after cash actions are applied.",
@@ -911,6 +1207,15 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
     ],
+    required_context_keys=[
+      "stage_ramp_contract",
+      "model_input_json",
+      "finmo_json",
+      "payroll_headcount",
+      "debt_schedule",
+      "financials_json",
+      "cash_strategy_second_pass_result",
+    ],
     horizon_rule="validate_all_q1_to_q20",
     fail_fast_code="post_intake_sequence_final_validation_missing",
     notes="Final table-backed hard gates before a run can complete.",
@@ -925,6 +1230,7 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
       _CASH_POLICY_TABLE_NAME,
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
       "post_intake_headcount_policy_lookup",
       _PROCESS_SEQUENCE_TABLE_NAME,
     ],
@@ -942,6 +1248,983 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     notes="Production finalize gate. Completion is blocked unless final outputs obey the table-backed contracts.",
   ),
 ]
+
+
+_DEFAULT_PROCESS_SEQUENCE_ROWS.extend(
+  [
+    _process_sequence_row(
+      "pre_convergence",
+      10,
+      "shared_context_build",
+      "build_shared_context",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["business_facts", "operating_model_json", "target_market_json", "people_json", "financials_json"],
+      produced_output_keys=["shared_context"],
+      output_storage=[{"output_key": "shared_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="build_post_intake_shared_context_from_intake_inputs",
+      fail_fast_code="post_intake_sequence_shared_context_failed",
+      python_action="Build the shared context from the completed intake row before downstream derived facts are assembled.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      11,
+      "ops_context_load",
+      "load_operating_model_context",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["operating_model_json", "business_facts"],
+      produced_output_keys=["ops_context"],
+      output_storage=[{"output_key": "ops_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="load_intake_operating_model_context",
+      fail_fast_code="post_intake_sequence_ops_context_missing",
+      python_action="Load the operating model intake facts into the process context before baseline model construction.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      12,
+      "market_context_load",
+      "load_target_market_context",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["target_market_json", "business_facts"],
+      produced_output_keys=["market_context"],
+      output_storage=[{"output_key": "market_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="load_intake_market_context",
+      fail_fast_code="post_intake_sequence_market_context_missing",
+      python_action="Load target market intake facts into the process context before baseline model construction.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      13,
+      "people_context_load",
+      "load_people_context",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["people_json", "business_facts"],
+      produced_output_keys=["people_context"],
+      output_storage=[{"output_key": "people_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="load_intake_people_context",
+      fail_fast_code="post_intake_sequence_people_context_missing",
+      python_action="Load people/staffing intake facts into the process context before payroll and baseline model construction.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      14,
+      "financials_context_load",
+      "load_financials_context",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["financials_json", "business_facts"],
+      produced_output_keys=["financials_context"],
+      output_storage=[{"output_key": "financials_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="load_intake_financials_context",
+      fail_fast_code="post_intake_sequence_financials_context_missing",
+      python_action="Load financial intake facts into the process context before year-one assembly and baseline model construction.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      15,
+      "financials_year1_assembly",
+      "assemble_financials_year1",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["ops_context", "market_context", "people_context", "financials_context", "financials_year1_json"],
+      produced_output_keys=["financials_year1_json", "financials_year1_context"],
+      output_storage=[{"output_key": "financials_year1_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="derive_authoritative_year1_financial_context",
+      fail_fast_code="post_intake_sequence_financials_year1_assembly_failed",
+      python_action="Assemble authoritative year-one financial context from intake and shared context.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      16,
+      "marketing_context_build",
+      "compute_marketing_model_json",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["ops_context", "market_context", "people_context", "financials_year1_context", "business_facts"],
+      produced_output_keys=["marketing_model_json", "marketing_context"],
+      output_storage=[{"output_key": "marketing_context", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="derive_marketing_context_before_baseline_finmo",
+      fail_fast_code="post_intake_sequence_marketing_context_failed",
+      python_action="Compute or preserve marketing model context before baseline FINMO synchronization.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      17,
+      "baseline_finmo_sync",
+      "sync_planning_state_to_finmo",
+      parent_step_key="baseline_model_input",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=[
+        "business_facts",
+        "operating_model_json",
+        "people_json",
+        "financials_json",
+        "financials_year1_json",
+        "marketing_model_json",
+      ],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      output_storage=[
+        {"output_key": "model_input_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.model_input_json", "final_for_stage": True},
+        {"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True},
+      ],
+      horizon_rule="q1_to_q20_forecast_state_excludes_stub_q0",
+      fail_fast_code="post_intake_sequence_baseline_finmo_sync_failed",
+      python_action="Synchronize post-intake intake facts into baseline model_input_json and finmo_json.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      35,
+      "r_and_d_policy_application",
+      "apply_r_and_d_applicability_policy_to_model_input",
+      parent_step_key="r_and_d_applicability",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["r_and_d_applicability", "model_input_json", "finmo_json"],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      output_storage=[
+        {"output_key": "model_input_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.model_input_json", "final_for_stage": True},
+        {"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True},
+      ],
+      horizon_rule="apply_single_pre_convergence_r_and_d_toggle",
+      fail_fast_code="post_intake_sequence_rd_policy_application_failed",
+      python_action="Apply the R&D applicability decision to model_input_json and rebuild FINMO.",
+    ),
+    _process_sequence_row(
+      "pre_convergence",
+      45,
+      "balance_sheet_seed_application",
+      "apply_balance_sheet_contextual_seed_to_model_input",
+      parent_step_key="balance_sheet_contextual_seed",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["balance_sheet_contextual_seed", "model_input_json", "finmo_json"],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      output_storage=[
+        {"output_key": "model_input_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.model_input_json", "final_for_stage": True},
+        {"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True},
+      ],
+      horizon_rule="apply_balance_sheet_contextual_seed_to_model_input",
+      fail_fast_code="post_intake_sequence_balance_sheet_seed_application_failed",
+      python_action="Apply the validated balance-sheet contextual seed to mapped model-input rows and rebuild FINMO.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      61,
+      "payroll_context_build",
+      "build_payroll_headcount_context",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      context_contract_name="payroll_headcount_schedule",
+      context_include_phase="pre_convergence",
+      required_lookup_tables=[_GPT_CONTEXT_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=[
+        "business_facts",
+        "business_type",
+        "business_naics",
+        "operating_model_json",
+        "people_json",
+        "financials_json",
+        "financials_year1_json",
+        "model_input_json",
+        "finmo_json",
+        "stage_ramp_contract",
+      ],
+      produced_output_keys=["payroll_context_payload"],
+      output_storage=[{"output_key": "payroll_context_payload", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="payroll_context_inputs_only_no_mutation",
+      fail_fast_code="post_intake_sequence_payroll_context_missing",
+      python_action="Build the payroll-specific process context from immutable intake inputs and current derived forecast facts.",
+      notes="Payroll context is an input package, not mutable state.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      62,
+      "payroll_oews_title_catalog",
+      "load_payroll_oews_title_catalog",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=["post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["business_naics", "business_type", "people_json"],
+      produced_output_keys=["oews_title_catalog", "headcount_policy", "productivity_assumptions"],
+      output_storage=[{"output_key": "oews_title_catalog", "storage_kind": "sql_lookup_result", "storage_path": "oews_state_wages", "final_for_stage": True}],
+      horizon_rule="naics_filtered_oews_titles_before_gpt_selection",
+      fail_fast_code="post_intake_sequence_payroll_oews_catalog_missing",
+      python_action="Load the NAICS/OEWS title catalog, wage policy, and productivity assumptions before GPT selects titles and FTE.",
+      notes="GPT may choose only from this table-backed title context.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      63,
+      "payroll_gpt_contract_request",
+      "estimate_payroll_headcount_schedule_with_gpt",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      contract_name="payroll_headcount_schedule",
+      context_contract_name="payroll_headcount_schedule",
+      context_include_phase="pre_convergence",
+      required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=[
+        "payroll_context_payload",
+        "oews_title_catalog",
+        "headcount_policy",
+        "productivity_assumptions",
+        "payroll_economic_guardrails",
+        "revenue_drivers",
+      ],
+      produced_output_keys=["payroll_headcount_contract"],
+      output_storage=[{"output_key": "payroll_headcount_contract", "storage_kind": "gpt_contract_payload", "final_for_stage": True}],
+      horizon_rule="q1_to_q20_oews_title_fte_contract",
+      timeout_seconds=180,
+      max_attempts=3,
+      fail_fast_code="post_intake_sequence_payroll_gpt_contract_missing",
+      python_action="Request and receive only the table-defined payroll_headcount_schedule contract.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      64,
+      "payroll_contract_validation",
+      "assert_payroll_headcount_payload_ready",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["payroll_headcount_contract", "model_input_json", "headcount_policy", "oews_title_catalog"],
+      produced_output_keys=["payroll_headcount"],
+      output_storage=[{"output_key": "payroll_headcount", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.payroll_headcount", "final_for_stage": True}],
+      horizon_rule="q1_to_q20_contract_and_oews_validation",
+      fail_fast_code="post_intake_sequence_payroll_contract_validation_failed",
+      python_action="Validate the payroll contract mechanically before any model-input writes occur.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      66,
+      "payroll_capacity_derivation",
+      "apply_payroll_supported_capacity_to_model_input",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_SEQUENCE_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["payroll_headcount", "model_input_json", "productivity_assumptions", "revenue_drivers"],
+      produced_output_keys=["model_input.revenue.Capacity", "capacity_outputs"],
+      output_storage=[{"output_key": "model_input.revenue.Capacity", "storage_kind": "domain_json_path", "storage_path": "model_input_json.sections.revenue[Capacity]", "final_for_stage": True}],
+      horizon_rule="payroll_supported_capacity_derivation_q1_to_q20",
+      fail_fast_code="post_intake_sequence_payroll_capacity_derivation_failed",
+      python_action="Derive payroll-supported Capacity from final payroll headcount; downstream steps may read but not overwrite it.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      67,
+      "payroll_model_input_application",
+      "apply_payroll_headcount_payload_to_model_input",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_SEQUENCE_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["payroll_headcount", "model_input_json", "capacity_outputs"],
+      produced_output_keys=["model_input.expenses.Payroll", "model_input_json"],
+      output_storage=[{"output_key": "model_input.expenses.Payroll", "storage_kind": "domain_json_path", "storage_path": "model_input_json.sections.expenses[Payroll]", "final_for_stage": True}],
+      horizon_rule="payroll_expense_derivation_q1_to_q20",
+      fail_fast_code="post_intake_sequence_payroll_model_input_application_failed",
+      python_action="Write payroll expense rows from the validated schedule after capacity has been derived.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      68,
+      "payroll_finmo_rebuild_validation",
+      "assert_finmo_payroll_matches_headcount_schedule",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["payroll_headcount", "model_input_json", "finmo_json"],
+      produced_output_keys=["finmo_json"],
+      output_storage=[{"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True}],
+      horizon_rule="payroll_finmo_reconciliation_q1_to_q20",
+      fail_fast_code="post_intake_sequence_payroll_finmo_validation_failed",
+      python_action="Rebuild FINMO from payroll-updated model_input_json and validate payroll reconciliation.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      69,
+      "pre_quarter_grid_global_validation",
+      "assert_post_intake_global_invariants",
+      parent_step_key="payroll_headcount_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json", "payroll_headcount"],
+      produced_output_keys=["pre_quarter_grid_global_validation"],
+      output_storage=[{"output_key": "pre_quarter_grid_global_validation", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="pre_quarter_grid_global_invariants_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_pre_quarter_grid_global_validation_failed",
+      python_action="Validate payroll-ready model_input_json and FINMO through the sequence controller before quarter-grid generation.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      71,
+      "quarter_grid_context_build",
+      "build_quarter_grid_context",
+      parent_step_key="quarter_grid_generation",
+      step_kind="subprocess",
+      context_contract_name="quarter_grid_probe",
+      context_include_phase="initial_grid",
+      required_lookup_tables=[_GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=[
+        "business_facts",
+        "operating_model_json",
+        "target_market_json",
+        "people_json",
+        "financials_json",
+        "financials_year1_json",
+        "fulfillment_json",
+        "marketing_model_json",
+        "model_input_json",
+        "finmo_json",
+        "stage_ramp_contract",
+        "payroll_headcount",
+        "capacity_outputs",
+      ],
+      produced_output_keys=["quarter_grid_context_payload"],
+      output_storage=[{"output_key": "quarter_grid_context_payload", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="quarter_grid_context_inputs_only_no_mutation",
+      fail_fast_code="post_intake_sequence_quarter_grid_context_missing",
+      python_action="Build the quarter-grid process context from final payroll/capacity outputs and intake facts.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      72,
+      "quarter_grid_gpt_plan",
+      "generate_live_quarter_grid_plan",
+      parent_step_key="quarter_grid_generation",
+      step_kind="subprocess",
+      contract_name="quarter_grid_probe",
+      context_contract_name="quarter_grid_probe",
+      context_include_phase="initial_grid",
+      required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["quarter_grid_context_payload", "stage_ramp_contract", "payroll_headcount", "model_input_json", "finmo_json"],
+      produced_output_keys=["quarter_grid_plan"],
+      output_storage=[{"output_key": "quarter_grid_plan", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.grid_json", "final_for_stage": True}],
+      horizon_rule="q1_to_q20_model_input_state",
+      fail_fast_code="post_intake_sequence_quarter_grid_plan_failed",
+      python_action="Generate the live quarter-grid plan from final upstream context.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      73,
+      "quarter_grid_validation",
+      "validate_live_quarter_grid_plan",
+      parent_step_key="quarter_grid_generation",
+      step_kind="subprocess",
+      required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["quarter_grid_plan", "stage_ramp_contract", "model_input_json"],
+      produced_output_keys=["validated_quarter_grid_plan"],
+      output_storage=[{"output_key": "validated_quarter_grid_plan", "storage_kind": "in_memory_stage_context", "final_for_stage": True}],
+      horizon_rule="q1_to_q20_quarter_grid_contract_validation",
+      fail_fast_code="post_intake_sequence_quarter_grid_validation_failed",
+      python_action="Validate quarter-grid rows before model-input application.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      74,
+      "quarter_grid_apply_model_input",
+      "apply_live_quarter_grid_plan",
+      parent_step_key="quarter_grid_generation",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_SEQUENCE_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["validated_quarter_grid_plan", "model_input_json", "payroll_headcount", "capacity_outputs"],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      output_storage=[
+        {"output_key": "model_input_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.model_input_json", "final_for_stage": True},
+        {"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True},
+      ],
+      recompute_triggers=[
+        {
+          "downstream_step_key": "issue_detection",
+          "trigger": "quarter_grid_requires_capacity_change",
+          "recompute_from_step_key": "payroll_headcount_schedule",
+        }
+      ],
+      horizon_rule="q1_to_q20_model_input_application",
+      fail_fast_code="post_intake_sequence_quarter_grid_application_failed",
+      python_action="Apply the validated quarter-grid plan while preserving final upstream capacity/payroll outputs.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      75,
+      "quarter_grid_reapply_locked_payroll",
+      "reapply_payroll_authority_after_quarter_grid",
+      parent_step_key="quarter_grid_generation",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_SEQUENCE_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["payroll_headcount", "model_input_json", "finmo_json"],
+      produced_output_keys=["model_input.expenses.Payroll", "model_input.revenue.Capacity", "finmo_json"],
+      output_storage=[
+        {
+          "output_key": "model_input.expenses.Payroll",
+          "storage_kind": "domain_json_path",
+          "storage_path": "model_input_json.sections.expenses[Payroll]",
+          "final_for_stage": True,
+          "preserves_upstream_output": True,
+        },
+        {
+          "output_key": "model_input.revenue.Capacity",
+          "storage_kind": "domain_json_path",
+          "storage_path": "model_input_json.sections.revenue[Capacity]",
+          "final_for_stage": True,
+          "preserves_upstream_output": True,
+        },
+      ],
+      horizon_rule="preserve_upstream_payroll_and_capacity_outputs",
+      fail_fast_code="post_intake_sequence_quarter_grid_payroll_lock_failed",
+      python_action="Reapply payroll-owned outputs after grid application so quarter-grid cannot mutate them.",
+    ),
+    _process_sequence_row(
+      "initial_grid",
+      76,
+      "quarter_grid_global_validation",
+      "assert_post_intake_global_invariants",
+      parent_step_key="quarter_grid_generation",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json", "payroll_headcount"],
+      produced_output_keys=["quarter_grid_global_validation"],
+      output_storage=[{"output_key": "quarter_grid_global_validation", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="quarter_grid_global_invariants_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_quarter_grid_global_validation_failed",
+      python_action="Validate quarter-grid outputs after payroll authority is reapplied, with no direct validator bypass.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      81,
+      "issue_repair_scope_build",
+      "build_post_intake_issue_repair_scope",
+      parent_step_key="issue_detection",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["model_input_json", "finmo_json", "stage_ramp_contract", "payroll_headcount"],
+      produced_output_keys=["issue_ledger", "repair_scope"],
+      output_storage=[{"output_key": "issue_ledger", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.controller_resolution_state.detected_issues", "final_for_stage": True}],
+      horizon_rule="scan_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_issue_repair_scope_failed",
+      python_action="Detect issues and bind each issue to table-approved repair levers before GPT planning.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      91,
+      "unified_convergence_context_build",
+      "build_unified_convergence_context",
+      parent_step_key="unified_convergence_decision",
+      step_kind="subprocess",
+      context_contract_name="unified_convergence_decision",
+      context_include_phase="planner",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["issue_ledger", "repair_scope", "model_input_json", "finmo_json", "payroll_headcount", "stage_ramp_contract"],
+      produced_output_keys=["unified_convergence_context"],
+      output_storage=[{"output_key": "unified_convergence_context", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.unified_convergence_context", "final_for_stage": True}],
+      horizon_rule="q1_to_q20_model_input_repair_cells",
+      fail_fast_code="post_intake_sequence_unified_context_failed",
+      python_action="Build the table-filtered convergence context from issue and model-input facts.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      92,
+      "unified_convergence_gpt_decision",
+      "run_unified_convergence_cycle",
+      parent_step_key="unified_convergence_decision",
+      step_kind="subprocess",
+      contract_name="unified_convergence_decision",
+      context_contract_name="unified_convergence_decision",
+      context_include_phase="planner",
+      required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["unified_convergence_context", "numeric_guidance_packet", "writable_lever_catalog"],
+      produced_output_keys=["unified_convergence_decision"],
+      output_storage=[{"output_key": "unified_convergence_decision", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.unified_convergence_decision", "final_for_stage": True}],
+      horizon_rule="q1_to_q20_model_input_repair_cells",
+      timeout_seconds=240,
+      max_attempts=10,
+      fail_fast_code="post_intake_sequence_unified_gpt_decision_failed",
+      python_action="Request the table-defined convergence decision contract.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      93,
+      "unified_convergence_plan_translation",
+      "translate_unified_convergence_decision_to_updates",
+      parent_step_key="unified_convergence_decision",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["unified_convergence_decision", "model_input_json", "repair_scope"],
+      produced_output_keys=["unified_convergence_plan"],
+      output_storage=[{"output_key": "unified_convergence_plan", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.unified_convergence_plan", "final_for_stage": True}],
+      horizon_rule="mapped_model_input_update_plan_only",
+      fail_fast_code="post_intake_sequence_unified_plan_translation_failed",
+      python_action="Translate the GPT decision into exact mapped model-input updates.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      94,
+      "unified_convergence_apply_updates",
+      "apply_unified_convergence_updates",
+      parent_step_key="unified_convergence_decision",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_SEQUENCE_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["unified_convergence_plan", "model_input_json", "finmo_json", "payroll_headcount"],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      output_storage=[
+        {"output_key": "model_input_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.model_input_json", "final_for_stage": True},
+        {"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True},
+      ],
+      horizon_rule="apply_mapped_repair_updates_and_rebuild_finmo",
+      fail_fast_code="post_intake_sequence_unified_apply_updates_failed",
+      python_action="Apply mapped updates and rebuild FINMO; upstream final outputs require recompute triggers rather than direct mutation.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      95,
+      "unified_convergence_verify_progress",
+      "verify_unified_convergence_progress",
+      parent_step_key="unified_convergence_decision",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["issue_ledger", "model_input_json", "finmo_json", "unified_convergence_plan"],
+      produced_output_keys=["controller_resolution_state", "resolution_summary"],
+      output_storage=[{"output_key": "controller_resolution_state", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.controller_resolution_state", "final_for_stage": True}],
+      horizon_rule="validate_convergence_progress_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_unified_progress_verification_failed",
+      python_action="Verify that the convergence cycle materially improved or cleared table-backed issues.",
+    ),
+    _process_sequence_row(
+      "convergence",
+      96,
+      "post_convergence_global_validation",
+      "assert_post_intake_global_invariants",
+      parent_step_key="unified_convergence_decision",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json", "payroll_headcount"],
+      produced_output_keys=["post_convergence_global_validation"],
+      output_storage=[{"output_key": "post_convergence_global_validation", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="post_convergence_global_invariants_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_post_convergence_global_validation_failed",
+      python_action="Validate the converged state through the sequence controller before cash execution starts.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      101,
+      "cash_debt_schedule_seed",
+      "apply_cash_pass_minimum_debt_schedule",
+      parent_step_key="cash_minimum_debt_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["financials_json", "model_input_json", "finmo_json", "cash_policy", "debt_schedule_policy"],
+      produced_output_keys=["debt_schedule", "model_input_json", "finmo_json"],
+      output_storage=[
+        {
+          "output_key": "debt_schedule",
+          "storage_kind": "draft_domain_column",
+          "storage_path": "intake_consult_drafts.debt_schedule",
+          "final_for_stage": True,
+        }
+      ],
+      horizon_rule="q1_to_q20_debt_schedule",
+      fail_fast_code="post_intake_sequence_cash_debt_seed_failed",
+      python_action="Seed the minimum debt schedule before cash review.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      102,
+      "cash_short_term_debt_seed",
+      "seed_cash_short_term_debt_current_portion",
+      parent_step_key="cash_minimum_debt_schedule",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["debt_schedule", "model_input_json", "finmo_json", "cash_policy"],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      horizon_rule="short_term_debt_current_portion_before_cash_review",
+      fail_fast_code="post_intake_sequence_cash_short_term_debt_seed_failed",
+      python_action="Normalize short-term debt/current-portion semantics before building the cash envelope.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      111,
+      "cash_review_context_build",
+      "build_cash_strategy_review_context",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      context_contract_name="cash_strategy_review",
+      context_include_phase="cash_pass",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["financials_json", "model_input_json", "finmo_json", "cash_policy", "debt_schedule", "controller_resolution_state"],
+      produced_output_keys=["cash_strategy_review_context", "cash_envelope", "liquidity_violation_grid"],
+      output_storage=[{"output_key": "cash_strategy_review_context", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.cash_strategy_review_context", "final_for_stage": True}],
+      horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_cash_review_context_failed",
+      python_action="Build the cash review context envelope from the current FINMO and cash policy.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      112,
+      "cash_gpt_review",
+      "run_cash_strategy_review",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      contract_name="cash_strategy_review",
+      context_contract_name="cash_strategy_review",
+      context_include_phase="cash_pass",
+      required_lookup_tables=[_GPT_CONTRACT_TABLE_NAME, _GPT_CONTEXT_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_strategy_review_context", "cash_policy", "cash_envelope", "liquidity_violation_grid", "debt_schedule"],
+      produced_output_keys=["cash_strategy_review_decision"],
+      output_storage=[{"output_key": "cash_strategy_review_decision", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.cash_strategy_review_decision", "final_for_stage": True}],
+      horizon_rule="cash_gap_rows_subset_validation_all_q1_to_q20",
+      timeout_seconds=90,
+      max_attempts=1,
+      fail_fast_code="post_intake_sequence_cash_gpt_review_failed",
+      python_action="Request the table-defined cash strategy contract.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      113,
+      "cash_translation_plan",
+      "translate_cash_strategy_decision_to_updates",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_strategy_review_decision", "cash_strategy_review_context", "model_input_json", "finmo_json"],
+      produced_output_keys=["cash_strategy_second_pass_plan"],
+      output_storage=[{"output_key": "cash_strategy_second_pass_plan", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.cash_strategy_second_pass_plan", "final_for_stage": True}],
+      horizon_rule="mapped_cash_update_plan_only",
+      fail_fast_code="post_intake_sequence_cash_translation_failed",
+      python_action="Translate the cash decision into exact mapped updates.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      114,
+      "cash_apply_exact_updates",
+      "apply_cash_strategy_exact_updates",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_SEQUENCE_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_strategy_second_pass_plan", "model_input_json", "finmo_json"],
+      produced_output_keys=["model_input_json", "finmo_json", "cash_strategy_second_pass_result"],
+      output_storage=[{"output_key": "cash_strategy_second_pass_result", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.cash_strategy_second_pass_result", "final_for_stage": True}],
+      horizon_rule="apply_cash_updates_and_rebuild_finmo",
+      fail_fast_code="post_intake_sequence_cash_apply_updates_failed",
+      python_action="Apply the exact mapped cash updates and rebuild FINMO.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      115,
+      "cash_debt_schedule_rebuild",
+      "rebuild_cash_debt_schedule_after_updates",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_strategy_second_pass_result", "debt_schedule", "model_input_json", "finmo_json", "cash_policy"],
+      produced_output_keys=["debt_schedule", "model_input_json", "finmo_json"],
+      output_storage=[
+        {
+          "output_key": "debt_schedule",
+          "storage_kind": "draft_domain_column",
+          "storage_path": "intake_consult_drafts.debt_schedule",
+          "final_for_stage": True,
+          "recompute_of_step_key": "cash_debt_schedule_seed",
+        }
+      ],
+      horizon_rule="minimum_debt_schedule_floor_preserved_after_cash_updates",
+      fail_fast_code="post_intake_sequence_cash_debt_rebuild_failed",
+      python_action="Rebuild the debt schedule after cash strategy changes while preserving required minimum principal.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      116,
+      "cash_short_term_debt_current_portion",
+      "apply_cash_short_term_debt_current_portion",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["debt_schedule", "model_input_json", "finmo_json"],
+      produced_output_keys=["model_input_json", "finmo_json"],
+      horizon_rule="short_term_debt_current_portion_applied_after_cash_updates",
+      fail_fast_code="post_intake_sequence_cash_current_portion_failed",
+      python_action="Apply the current portion of long-term debt after cash updates.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      117,
+      "cash_surplus_cleanup",
+      "deploy_cash_surplus_above_policy_ceiling",
+      parent_step_key="cash_strategy_review",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_policy", "model_input_json", "finmo_json", "cash_strategy_second_pass_result"],
+      produced_output_keys=["model_input_json", "finmo_json", "cash_strategy_second_pass_result"],
+      horizon_rule="surplus_above_policy_ceiling_deployed",
+      fail_fast_code="post_intake_sequence_cash_surplus_cleanup_failed",
+      python_action="Deploy residual surplus above the policy ceiling through mapped cash levers.",
+    ),
+    _process_sequence_row(
+      "cash_pass",
+      121,
+      "cash_post_validation",
+      "validate_cash_pass",
+      parent_step_key="cash_pass_validation",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_strategy_second_pass_result", "model_input_json", "finmo_json", "cash_policy", "debt_schedule"],
+      produced_output_keys=["cash_post_validation", "controller_resolution_state"],
+      output_storage=[{"output_key": "cash_post_validation", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.cash_strategy_second_pass_result.cash_post_validation", "final_for_stage": True}],
+      horizon_rule="cash_post_pass_validation_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_cash_post_validation_failed",
+      python_action="Validate post-cash-pass state before final hard gates.",
+    ),
+    _process_sequence_row(
+      "final_validation",
+      131,
+      "cash_final_finmo_rebuild",
+      "build_python_finmo_json",
+      parent_step_key="final_hard_gates",
+      step_kind="subprocess",
+      required_lookup_tables=[_PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["model_input_json", "cash_strategy_second_pass_result"],
+      produced_output_keys=["finmo_json"],
+      output_storage=[{"output_key": "finmo_json", "storage_kind": "draft_domain_column", "storage_path": "intake_consult_drafts.finmo_json", "final_for_stage": True}],
+      horizon_rule="fresh_final_finmo_from_model_input",
+      fail_fast_code="post_intake_sequence_final_finmo_rebuild_failed",
+      python_action="Rebuild final FINMO directly from final model_input_json before hard gates.",
+    ),
+    _process_sequence_row(
+      "final_validation",
+      132,
+      "cash_final_liquidity_gate",
+      "assert_post_intake_cash_buffer_integrity",
+      parent_step_key="final_hard_gates",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["financials_json", "model_input_json", "finmo_json", "cash_policy"],
+      produced_output_keys=["cash_liquidity_gate"],
+      output_storage=[{"output_key": "cash_liquidity_gate", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="ending_cash_gte_required_buffer_all_20q",
+      fail_fast_code="post_intake_sequence_final_liquidity_gate_failed",
+      python_action="Hard fail unless ending cash meets the required buffer in every live quarter.",
+    ),
+    _process_sequence_row(
+      "final_validation",
+      133,
+      "final_stage_ramp_revenue_limit_check",
+      "apply_stage_ramp_revenue_driver_limits",
+      parent_step_key="final_hard_gates",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json"],
+      produced_output_keys=["model_input_json", "finmo_json", "stage_ramp_revenue_limit_repair"],
+      output_storage=[{"output_key": "stage_ramp_revenue_limit_repair", "storage_kind": "planning_run_json", "storage_path": "planning_run_json.cash_strategy_second_pass_result.stage_ramp_revenue_limit_repair", "final_for_stage": True}],
+      horizon_rule="final_revenue_within_stage_ramp_max_path",
+      fail_fast_code="post_intake_sequence_final_revenue_limit_failed",
+      python_action="Ensure final revenue remains inside the stage-ramp max path through mapped revenue drivers.",
+    ),
+    _process_sequence_row(
+      "final_validation",
+      134,
+      "final_global_validation",
+      "assert_post_intake_global_invariants",
+      parent_step_key="final_hard_gates",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _CASH_POLICY_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json", "payroll_headcount", "debt_schedule", "financials_json"],
+      produced_output_keys=["final_global_validation"],
+      output_storage=[{"output_key": "final_global_validation", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="final_global_invariants_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_final_global_validation_failed",
+      python_action="Run final global invariants as a declared final-validation process, including cash-buffer enforcement.",
+    ),
+    _process_sequence_row(
+      "runtime_validation",
+      141,
+      "finalize_mapping_integrity",
+      "assert_post_intake_mapping_formula_application_integrity",
+      parent_step_key="post_intake_finalize_validation",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["model_input_json", "finmo_json"],
+      produced_output_keys=["finalize_mapping_integrity"],
+      output_storage=[{"output_key": "finalize_mapping_integrity", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="validate_mapping_formula_application_q1_to_q20",
+      fail_fast_code="post_intake_sequence_finalize_mapping_integrity_failed",
+      python_action="Validate formula metadata and application in the completed model.",
+    ),
+    _process_sequence_row(
+      "runtime_validation",
+      142,
+      "finalize_payroll_reconciliation",
+      "assert_finmo_payroll_matches_headcount_schedule",
+      parent_step_key="post_intake_finalize_validation",
+      step_kind="subprocess",
+      required_lookup_tables=["post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["payroll_headcount", "model_input_json", "finmo_json"],
+      produced_output_keys=["finalize_payroll_reconciliation"],
+      output_storage=[{"output_key": "finalize_payroll_reconciliation", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="payroll_schedule_reconciliation_q1_to_q20",
+      fail_fast_code="post_intake_sequence_finalize_payroll_failed",
+      python_action="Validate final payroll schedule, model_input payroll rows, and FINMO payroll.",
+    ),
+    _process_sequence_row(
+      "runtime_validation",
+      143,
+      "finalize_debt_reconciliation",
+      "assert_finmo_matches_debt_schedule",
+      parent_step_key="post_intake_finalize_validation",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["debt_schedule", "finmo_json"],
+      produced_output_keys=["finalize_debt_reconciliation"],
+      output_storage=[{"output_key": "finalize_debt_reconciliation", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="debt_schedule_reconciliation_q1_to_q20",
+      fail_fast_code="post_intake_sequence_finalize_debt_failed",
+      python_action="Validate final debt schedule against FINMO.",
+    ),
+    _process_sequence_row(
+      "runtime_validation",
+      144,
+      "finalize_cash_phase_trace",
+      "assert_cash_phase_trace_complete",
+      parent_step_key="post_intake_finalize_validation",
+      step_kind="subprocess",
+      required_lookup_tables=[_CASH_POLICY_TABLE_NAME, _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["cash_strategy_second_pass_result", "cash_policy"],
+      produced_output_keys=["finalize_cash_phase_trace"],
+      output_storage=[{"output_key": "finalize_cash_phase_trace", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="cash_phase_trace_complete",
+      fail_fast_code="post_intake_sequence_finalize_cash_trace_failed",
+      python_action="Validate that every required cash-pass substep completed in order.",
+    ),
+    _process_sequence_row(
+      "runtime_validation",
+      145,
+      "finalize_global_invariants",
+      "assert_post_intake_global_invariants",
+      parent_step_key="post_intake_finalize_validation",
+      step_kind="subprocess",
+      required_lookup_tables=[_MAPPING_TABLE_NAME, _CASH_POLICY_TABLE_NAME, "post_intake_headcount_policy_lookup", _PROCESS_CONTEXT_TABLE_NAME],
+      required_context_keys=["stage_ramp_contract", "model_input_json", "finmo_json", "payroll_headcount", "debt_schedule", "financials_json"],
+      produced_output_keys=["finalize_global_invariants"],
+      output_storage=[{"output_key": "finalize_global_invariants", "storage_kind": "validation_result", "final_for_stage": True}],
+      horizon_rule="finalize_global_invariants_all_q1_to_q20",
+      fail_fast_code="post_intake_sequence_finalize_global_invariants_failed",
+      python_action="Re-run final global invariants during runtime finalize through the declared sequence step.",
+    ),
+  ]
+)
+
+
+_PROCESS_CONTEXT_KEY_DEFAULTS: Dict[str, Dict[str, Any]] = {
+  "business_facts": {"context_domain": "intake", "source_kind": "runtime_context", "source_path": "business_facts"},
+  "business_type": {"context_domain": "intake", "source_kind": "derived_fact", "source_path": "operating_model_json.business_type"},
+  "business_naics": {"context_domain": "intake", "source_kind": "derived_fact", "source_path": "people_json.business_naics_6"},
+  "operating_model_json": {"context_domain": "intake", "source_kind": "draft_column", "source_path": "operating_model_json"},
+  "ops_context": {"context_domain": "ops", "source_kind": "domain_output", "source_path": "ops_context"},
+  "target_market_json": {"context_domain": "intake", "source_kind": "draft_column", "source_path": "target_market_json"},
+  "market_context": {"context_domain": "market", "source_kind": "domain_output", "source_path": "market_context"},
+  "people_json": {"context_domain": "intake", "source_kind": "draft_column", "source_path": "people_json"},
+  "people_context": {"context_domain": "people", "source_kind": "domain_output", "source_path": "people_context"},
+  "financials_json": {"context_domain": "intake", "source_kind": "draft_column", "source_path": "financials_json"},
+  "financials_context": {"context_domain": "financials", "source_kind": "domain_output", "source_path": "financials_context"},
+  "financials_year1_json": {"context_domain": "derived_fact", "source_kind": "runtime_context", "source_path": "financials_year1_json"},
+  "financials_year1_context": {"context_domain": "financials", "source_kind": "domain_output", "source_path": "financials_year1_context"},
+  "fulfillment_json": {"context_domain": "intake", "source_kind": "draft_column", "source_path": "fulfillment_json"},
+  "marketing_model_json": {"context_domain": "derived_fact", "source_kind": "runtime_context", "source_path": "marketing_model_json"},
+  "marketing_context": {"context_domain": "marketing", "source_kind": "domain_output", "source_path": "marketing_context"},
+  "planning_context_summary_json": {"context_domain": "planning", "source_kind": "runtime_context", "source_path": "planning_context_summary_json"},
+  "planning_mode_decision": {"context_domain": "planning", "source_kind": "domain_output", "source_path": "planning_mode_decision"},
+  "shared_context": {"context_domain": "planning", "source_kind": "domain_output", "source_path": "shared_context"},
+  "model_input_json": {"context_domain": "financial_model", "source_kind": "domain_output", "source_path": "model_input_json"},
+  "final_model_input_json": {"context_domain": "financial_model", "source_kind": "domain_output", "source_path": "model_input_json"},
+  "finmo_json": {"context_domain": "financial_model", "source_kind": "domain_output", "source_path": "finmo_json"},
+  "final_finmo_json": {"context_domain": "financial_model", "source_kind": "domain_output", "source_path": "finmo_json"},
+  "stage_ramp_contract": {"context_domain": "contract", "source_kind": "domain_output", "source_path": "stage_ramp_contract"},
+  "r_and_d_applicability": {"context_domain": "contract", "source_kind": "domain_output", "source_path": "r_and_d_applicability"},
+  "balance_sheet_contextual_seed": {"context_domain": "balance_sheet", "source_kind": "domain_output", "source_path": "balance_sheet_contextual_seed"},
+  "post_intak_mapping_lookup": {"context_domain": "mapping", "source_kind": "sql_lookup", "source_path": "post_intak_mapping_lookup"},
+  "payroll_context_payload": {"context_domain": "payroll", "source_kind": "domain_output", "source_path": "payroll_context_payload"},
+  "payroll_headcount_contract": {"context_domain": "payroll", "source_kind": "domain_output", "source_path": "payroll_headcount_contract"},
+  "payroll_headcount": {"context_domain": "payroll", "source_kind": "domain_output", "source_path": "payroll_headcount"},
+  "oews_title_catalog": {"context_domain": "payroll", "source_kind": "sql_lookup", "source_path": "oews_state_wages"},
+  "headcount_policy": {"context_domain": "payroll", "source_kind": "sql_lookup", "source_path": "post_intake_headcount_policy_lookup"},
+  "productivity_assumptions": {"context_domain": "payroll", "source_kind": "sql_lookup", "source_path": "post_intake_headcount_policy_lookup.productivity_assumptions"},
+  "payroll_economic_guardrails": {"context_domain": "payroll", "source_kind": "sql_lookup", "source_path": "post_intake_headcount_policy_lookup.economic_guardrails"},
+  "payroll_feasibility_mapping": {"context_domain": "payroll", "source_kind": "sql_lookup", "source_path": "post_intak_mapping_lookup.repair_direction_rules_json"},
+  "previous_contract_failure": {"context_domain": "retry", "source_kind": "runtime_context", "source_path": "previous_contract_failure"},
+  "revenue_drivers": {"context_domain": "revenue", "source_kind": "derived_fact", "source_path": "model_input_json.sections.revenue"},
+  "capacity_outputs": {"context_domain": "revenue", "source_kind": "domain_output", "source_path": "capacity_outputs"},
+  "quarter_grid_context_payload": {"context_domain": "quarter_grid", "source_kind": "domain_output", "source_path": "quarter_grid_context_payload"},
+  "quarter_grid_plan": {"context_domain": "quarter_grid", "source_kind": "domain_output", "source_path": "quarter_grid_plan"},
+  "validated_quarter_grid_plan": {"context_domain": "quarter_grid", "source_kind": "domain_output", "source_path": "validated_quarter_grid_plan"},
+  "issue_ledger": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "issue_ledger"},
+  "repair_scope": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "repair_scope"},
+  "unified_convergence_context": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "unified_convergence_context"},
+  "unified_convergence_decision": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "unified_convergence_decision"},
+  "unified_convergence_plan": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "unified_convergence_plan"},
+  "numeric_guidance_packet": {"context_domain": "convergence", "source_kind": "runtime_context", "source_path": "numeric_guidance_packet"},
+  "writable_lever_catalog": {"context_domain": "convergence", "source_kind": "runtime_context", "source_path": "writable_lever_catalog"},
+  "controller_resolution_state": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "controller_resolution_state"},
+  "resolution_summary": {"context_domain": "convergence", "source_kind": "domain_output", "source_path": "resolution_summary"},
+  "financials_json": {"context_domain": "intake", "source_kind": "draft_column", "source_path": "financials_json"},
+  "cash_policy": {"context_domain": "cash", "source_kind": "sql_lookup", "source_path": "post_intake_cash_policy_lookup"},
+  "debt_schedule_policy": {"context_domain": "cash", "source_kind": "sql_lookup", "source_path": "post_intake_cash_policy_lookup.debt_schedule_policy"},
+  "debt_schedule": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "debt_schedule"},
+  "cash_strategy_review_context": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "cash_strategy_review_context"},
+  "cash_envelope": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "cash_envelope"},
+  "liquidity_violation_grid": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "liquidity_violation_grid"},
+  "cash_strategy_review_decision": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "cash_strategy_review_decision"},
+  "cash_strategy_second_pass_plan": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "cash_strategy_second_pass_plan"},
+  "cash_strategy_second_pass_result": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "cash_strategy_second_pass_result"},
+  "cash_post_validation": {"context_domain": "cash", "source_kind": "domain_output", "source_path": "cash_post_validation"},
+  "cash_liquidity_gate": {"context_domain": "cash", "source_kind": "validation_result", "source_path": "cash_liquidity_gate"},
+  "stage_ramp_revenue_limit_repair": {"context_domain": "final_validation", "source_kind": "domain_output", "source_path": "stage_ramp_revenue_limit_repair"},
+}
+
+
+def _default_process_context_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  seen: Set[tuple[str, str]] = set()
+  for sequence_row in _DEFAULT_PROCESS_SEQUENCE_ROWS:
+    step_key = str(sequence_row.get("step_key") or "").strip().lower()
+    if not step_key:
+      continue
+    for context_key in sequence_row.get("required_context_keys") or []:
+      normalized_key = str(context_key or "").strip()
+      if not normalized_key:
+        continue
+      dedupe_key = (step_key, normalized_key)
+      if dedupe_key in seen:
+        continue
+      seen.add(dedupe_key)
+      defaults = copy.deepcopy(_PROCESS_CONTEXT_KEY_DEFAULTS.get(normalized_key) or {})
+      rows.append(
+        _process_context_row(
+          step_key,
+          normalized_key,
+          context_domain=str(defaults.get("context_domain") or "process_input").strip(),
+          source_kind=str(defaults.get("source_kind") or "runtime_context").strip(),
+          source_path=str(defaults.get("source_path") or normalized_key).strip(),
+          transform_kind=str(defaults.get("transform_kind") or "copy").strip(),
+          required=True,
+          immutable_input=True,
+          notes=(
+            "Process input declared by sql.post_intake_process_sequence_lookup.required_context_keys_json. "
+            "Context rows define inputs only; process outputs must be written to their domain storage."
+          ),
+        )
+      )
+  return rows
+
+
+_DEFAULT_PROCESS_CONTEXT_ROWS: List[Dict[str, Any]] = _default_process_context_rows()
 
 
 _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
@@ -3054,9 +4337,19 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
           step_order INT NOT NULL,
           step_key VARCHAR(128) NOT NULL,
           handler_key VARCHAR(128) NOT NULL,
+          parent_step_key VARCHAR(128) NOT NULL DEFAULT '',
+          step_kind VARCHAR(64) NOT NULL DEFAULT 'process',
+          hierarchy_level INT NOT NULL DEFAULT 1,
+          sequence_path VARCHAR(255) NOT NULL DEFAULT '',
+          executor_function VARCHAR(255) NOT NULL DEFAULT '',
           contract_name VARCHAR(128) NOT NULL DEFAULT '',
           context_contract_name VARCHAR(128) NOT NULL DEFAULT '',
           context_include_phase VARCHAR(64) NOT NULL DEFAULT '',
+          required_context_keys_json LONGTEXT NOT NULL,
+          produced_output_keys_json LONGTEXT NOT NULL,
+          output_storage_json LONGTEXT NULL,
+          recompute_triggers_json LONGTEXT NULL,
+          output_finality VARCHAR(128) NOT NULL DEFAULT 'stage_final_no_downstream_mutation',
           required_lookup_tables_json LONGTEXT NOT NULL,
           horizon_rule VARCHAR(128) NOT NULL DEFAULT '',
           timeout_seconds DECIMAL(10,2) NULL,
@@ -3076,6 +4369,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
           updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
           UNIQUE KEY uniq_post_intake_process_sequence_step (step_key),
+          KEY idx_post_intake_process_sequence_parent (parent_step_key),
           KEY idx_post_intake_process_sequence_phase_order (phase, step_order),
           KEY idx_post_intake_process_sequence_status (sequence_status),
           KEY idx_post_intake_process_sequence_handler (handler_key)
@@ -3090,6 +4384,16 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_object_path LONGTEXT NULL AFTER input_object_path",
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN validation_subject_path LONGTEXT NULL AFTER output_object_path",
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN object_controls_json LONGTEXT NULL AFTER validation_subject_path",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN parent_step_key VARCHAR(128) NOT NULL DEFAULT '' AFTER handler_key",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN step_kind VARCHAR(64) NOT NULL DEFAULT 'process' AFTER parent_step_key",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN hierarchy_level INT NOT NULL DEFAULT 1 AFTER step_kind",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN sequence_path VARCHAR(255) NOT NULL DEFAULT '' AFTER hierarchy_level",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN executor_function VARCHAR(255) NOT NULL DEFAULT '' AFTER sequence_path",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN required_context_keys_json LONGTEXT NULL AFTER context_include_phase",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN produced_output_keys_json LONGTEXT NULL AFTER required_context_keys_json",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_storage_json LONGTEXT NULL AFTER produced_output_keys_json",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN recompute_triggers_json LONGTEXT NULL AFTER output_storage_json",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_finality VARCHAR(128) NOT NULL DEFAULT 'stage_final_no_downstream_mutation' AFTER recompute_triggers_json",
       ]:
         try:
           cur.execute(ddl)
@@ -3104,9 +4408,19 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             step_order,
             step_key,
             handler_key,
+            parent_step_key,
+            step_kind,
+            hierarchy_level,
+            sequence_path,
+            executor_function,
             contract_name,
             context_contract_name,
             context_include_phase,
+            required_context_keys_json,
+            produced_output_keys_json,
+            output_storage_json,
+            recompute_triggers_json,
+            output_finality,
             required_lookup_tables_json,
             horizon_rule,
             timeout_seconds,
@@ -3123,14 +4437,24 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             object_controls_json,
             sequence_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             phase = VALUES(phase),
             step_order = VALUES(step_order),
             handler_key = VALUES(handler_key),
+            parent_step_key = VALUES(parent_step_key),
+            step_kind = VALUES(step_kind),
+            hierarchy_level = VALUES(hierarchy_level),
+            sequence_path = VALUES(sequence_path),
+            executor_function = VALUES(executor_function),
             contract_name = VALUES(contract_name),
             context_contract_name = VALUES(context_contract_name),
             context_include_phase = VALUES(context_include_phase),
+            required_context_keys_json = VALUES(required_context_keys_json),
+            produced_output_keys_json = VALUES(produced_output_keys_json),
+            output_storage_json = VALUES(output_storage_json),
+            recompute_triggers_json = VALUES(recompute_triggers_json),
+            output_finality = VALUES(output_finality),
             required_lookup_tables_json = VALUES(required_lookup_tables_json),
             horizon_rule = VALUES(horizon_rule),
             timeout_seconds = VALUES(timeout_seconds),
@@ -3153,9 +4477,19 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             int(row.get("step_order") or 0),
             _clean_text(row.get("step_key")).lower(),
             _clean_text(row.get("handler_key")),
+            _clean_text(row.get("parent_step_key")).lower(),
+            _clean_text(row.get("step_kind")).lower() or "process",
+            int(row.get("hierarchy_level") or 1),
+            _clean_text(row.get("sequence_path")).lower(),
+            _clean_text(row.get("executor_function")) or _clean_text(row.get("handler_key")),
             _clean_text(row.get("contract_name")).lower(),
             _clean_text(row.get("context_contract_name")).lower(),
             _clean_text(row.get("context_include_phase")).lower(),
+            _json_dumps_value(row.get("required_context_keys") or []),
+            _json_dumps_value(row.get("produced_output_keys") or []),
+            _json_dumps_value(row.get("output_storage") or []),
+            _json_dumps_value(row.get("recompute_triggers") or []),
+            _clean_text(row.get("output_finality")).lower() or "stage_final_no_downstream_mutation",
             _json_dumps_value(row.get("required_lookup_tables") or []),
             _clean_text(row.get("horizon_rule")).lower(),
             row.get("timeout_seconds"),
@@ -3182,6 +4516,97 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         pass
 
 
+def _ensure_process_context_lookup_table(conn) -> None:
+  global _ENSURE_PROCESS_CONTEXT_TABLE_READY
+  if _ENSURE_PROCESS_CONTEXT_TABLE_READY:
+    return
+  with _ENSURE_PROCESS_CONTEXT_TABLE_LOCK:
+    if _ENSURE_PROCESS_CONTEXT_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_PROCESS_CONTEXT_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          step_key VARCHAR(128) NOT NULL,
+          context_key VARCHAR(128) NOT NULL,
+          context_domain VARCHAR(64) NOT NULL DEFAULT '',
+          source_kind VARCHAR(64) NOT NULL DEFAULT 'runtime_context',
+          source_path LONGTEXT NULL,
+          transform_kind VARCHAR(64) NOT NULL DEFAULT 'copy',
+          required TINYINT(1) NOT NULL DEFAULT 1,
+          immutable_input TINYINT(1) NOT NULL DEFAULT 1,
+          context_status VARCHAR(32) NOT NULL DEFAULT 'active',
+          notes LONGTEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_post_intake_process_context (step_key, context_key),
+          KEY idx_post_intake_process_context_step (step_key),
+          KEY idx_post_intake_process_context_status (context_status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      for ddl in [
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN context_domain VARCHAR(64) NOT NULL DEFAULT '' AFTER context_key",
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN source_kind VARCHAR(64) NOT NULL DEFAULT 'runtime_context' AFTER context_domain",
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN source_path LONGTEXT NULL AFTER source_kind",
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN transform_kind VARCHAR(64) NOT NULL DEFAULT 'copy' AFTER source_path",
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN required TINYINT(1) NOT NULL DEFAULT 1 AFTER transform_kind",
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN immutable_input TINYINT(1) NOT NULL DEFAULT 1 AFTER required",
+        f"ALTER TABLE {_PROCESS_CONTEXT_TABLE_NAME} ADD COLUMN context_status VARCHAR(32) NOT NULL DEFAULT 'active' AFTER immutable_input",
+      ]:
+        try:
+          cur.execute(ddl)
+        except Exception as exc:
+          if "Duplicate column" not in str(exc):
+            raise
+      for row in _DEFAULT_PROCESS_CONTEXT_ROWS:
+        cur.execute(
+          f"""
+          INSERT INTO {_PROCESS_CONTEXT_TABLE_NAME} (
+            step_key,
+            context_key,
+            context_domain,
+            source_kind,
+            source_path,
+            transform_kind,
+            required,
+            immutable_input,
+            context_status,
+            notes
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ON DUPLICATE KEY UPDATE
+            context_domain = VALUES(context_domain),
+            source_kind = VALUES(source_kind),
+            source_path = VALUES(source_path),
+            transform_kind = VALUES(transform_kind),
+            required = VALUES(required),
+            immutable_input = VALUES(immutable_input),
+            context_status = VALUES(context_status),
+            notes = VALUES(notes)
+          """,
+          (
+            _clean_text(row.get("step_key")).lower(),
+            _clean_text(row.get("context_key")),
+            _clean_text(row.get("context_domain")).lower(),
+            _clean_text(row.get("source_kind")).lower() or "runtime_context",
+            _clean_text(row.get("source_path")),
+            _clean_text(row.get("transform_kind")).lower() or "copy",
+            1 if bool(row.get("required")) else 0,
+            1 if bool(row.get("immutable_input")) else 0,
+            _clean_text(row.get("notes")),
+          ),
+        )
+      conn.commit()
+      _ENSURE_PROCESS_CONTEXT_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
 def _ensure_headcount_policy_lookup_table(conn) -> None:
   try:
     from client_intake_and_finmo.post_intake_headcount import ensure_post_intake_headcount_policy_lookup_table  # type: ignore
@@ -3198,6 +4623,7 @@ def _post_intake_snapshot_source_tables() -> List[str]:
     _GPT_CONTEXT_TABLE_NAME,
     "post_intake_headcount_policy_lookup",
     _PROCESS_SEQUENCE_TABLE_NAME,
+    _PROCESS_CONTEXT_TABLE_NAME,
   ]
 
 
@@ -3246,6 +4672,7 @@ def _ensure_all_post_intake_lookup_tables(conn) -> None:
   _ensure_gpt_context_lookup_table(conn)
   _ensure_headcount_policy_lookup_table(conn)
   _ensure_process_sequence_lookup_table(conn)
+  _ensure_process_context_lookup_table(conn)
   _ensure_lookup_snapshot_table(conn)
 
 
@@ -3939,6 +5366,7 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
     _ensure_gpt_contract_lookup_table(conn)
     _ensure_gpt_context_lookup_table(conn)
     _ensure_process_sequence_lookup_table(conn)
+    _ensure_process_context_lookup_table(conn)
     cur = conn.cursor(dictionary=True)
     try:
       cur.execute(
@@ -3948,9 +5376,19 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
           step_order,
           step_key,
           handler_key,
+          parent_step_key,
+          step_kind,
+          hierarchy_level,
+          sequence_path,
+          executor_function,
           contract_name,
           context_contract_name,
           context_include_phase,
+          required_context_keys_json,
+          produced_output_keys_json,
+          output_storage_json,
+          recompute_triggers_json,
+          output_finality,
           required_lookup_tables_json,
           horizon_rule,
           timeout_seconds,
@@ -3989,15 +5427,39 @@ def load_post_intake_process_sequence_rows() -> List[Dict[str, Any]]:
     if not step_key:
       continue
     required_lookup_tables = _json_value(raw_row.get("required_lookup_tables_json"), [])
+    required_context_keys = _json_value(raw_row.get("required_context_keys_json"), [])
+    produced_output_keys = _json_value(raw_row.get("produced_output_keys_json"), [])
     rows.append(
       {
         "phase": _clean_text(raw_row.get("phase")).lower(),
         "step_order": int(raw_row.get("step_order") or 0),
         "step_key": step_key,
         "handler_key": _clean_text(raw_row.get("handler_key")),
+        "parent_step_key": _clean_text(raw_row.get("parent_step_key")).lower(),
+        "step_kind": _clean_text(raw_row.get("step_kind")).lower() or "process",
+        "hierarchy_level": int(raw_row.get("hierarchy_level") or 1),
+        "sequence_path": _clean_text(raw_row.get("sequence_path")).lower() or _process_sequence_path(
+          phase=_clean_text(raw_row.get("phase")).lower(),
+          step_key=step_key,
+          parent_step_key=_clean_text(raw_row.get("parent_step_key")).lower(),
+        ),
+        "executor_function": _clean_text(raw_row.get("executor_function")) or _clean_text(raw_row.get("handler_key")),
         "contract_name": _clean_text(raw_row.get("contract_name")).lower(),
         "context_contract_name": _clean_text(raw_row.get("context_contract_name")).lower(),
         "context_include_phase": _clean_text(raw_row.get("context_include_phase")).lower(),
+        "required_context_keys": [
+          _clean_text(item)
+          for item in (required_context_keys if isinstance(required_context_keys, list) else [])
+          if _clean_text(item)
+        ],
+        "produced_output_keys": [
+          _clean_text(item)
+          for item in (produced_output_keys if isinstance(produced_output_keys, list) else [])
+          if _clean_text(item)
+        ],
+        "output_storage": _json_value(raw_row.get("output_storage_json"), []),
+        "recompute_triggers": _json_value(raw_row.get("recompute_triggers_json"), []),
+        "output_finality": _clean_text(raw_row.get("output_finality")).lower() or "stage_final_no_downstream_mutation",
         "required_lookup_tables": [
           _clean_text(item)
           for item in (required_lookup_tables if isinstance(required_lookup_tables, list) else [])
@@ -4032,6 +5494,71 @@ def _phase_matches(row: Dict[str, Any], phase: Any = None) -> bool:
     return True
   row_phase = _clean_text(row.get("post_intake_phase")).lower()
   return row_phase in {requested, "both"}
+
+
+@lru_cache(maxsize=1)
+def load_post_intake_process_context_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_process_sequence_lookup_table(conn)
+    _ensure_process_context_lookup_table(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          step_key,
+          context_key,
+          context_domain,
+          source_kind,
+          source_path,
+          transform_kind,
+          required,
+          immutable_input,
+          context_status,
+          notes
+        FROM {_PROCESS_CONTEXT_TABLE_NAME}
+        ORDER BY step_key ASC, id ASC
+        """
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  for raw_row in raw_rows:
+    if not isinstance(raw_row, dict):
+      continue
+    step_key = _clean_text(raw_row.get("step_key")).lower()
+    context_key = _clean_text(raw_row.get("context_key"))
+    if not step_key or not context_key:
+      continue
+    rows.append(
+      {
+        "step_key": step_key,
+        "context_key": context_key,
+        "context_domain": _clean_text(raw_row.get("context_domain")).lower(),
+        "source_kind": _clean_text(raw_row.get("source_kind")).lower() or "runtime_context",
+        "source_path": _clean_text(raw_row.get("source_path")) or context_key,
+        "transform_kind": _clean_text(raw_row.get("transform_kind")).lower() or "copy",
+        "required": _clean_bool(raw_row.get("required"), default=True),
+        "immutable_input": _clean_bool(raw_row.get("immutable_input"), default=True),
+        "context_status": _clean_text(raw_row.get("context_status")).lower() or "active",
+        "notes": _clean_text(raw_row.get("notes")),
+        "source_of_truth": f"sql.{_PROCESS_CONTEXT_TABLE_NAME}",
+      }
+    )
+  if not rows:
+    raise RuntimeError(f"{_PROCESS_CONTEXT_TABLE_NAME}_empty: post-intake process context lookup table has no rows")
+  return rows
 
 
 class PostIntakeMappingLookup:
@@ -5728,6 +7255,193 @@ class PostIntakeGptContextLookup:
     return errors
 
 
+def _process_context_get_path(payload: Any, source_path: Any) -> Any:
+  if not isinstance(payload, dict):
+    return None
+  raw_path = _clean_text(source_path)
+  if not raw_path:
+    return None
+  if raw_path in payload:
+    return copy.deepcopy(payload.get(raw_path))
+  current: Any = payload
+  for token in [part for part in raw_path.split(".") if part]:
+    if not isinstance(current, dict):
+      return None
+    if token not in current:
+      return None
+    current = current.get(token)
+  return copy.deepcopy(current)
+
+
+class PostIntakeProcessContextLookup:
+  """SQL-backed declaration of immutable input context required by each process step."""
+
+  _ALLOWED_SOURCE_KINDS = {
+    "draft_column",
+    "runtime_context",
+    "domain_output",
+    "derived_fact",
+    "sql_lookup",
+    "validation_result",
+  }
+
+  def __init__(self, rows: Iterable[Dict[str, Any]]) -> None:
+    self._rows = [dict(row) for row in rows if isinstance(row, dict)]
+    self._active_rows = [
+      dict(row)
+      for row in self._rows
+      if _clean_text(row.get("context_status")).lower() == "active"
+    ]
+    self._by_step_key: Dict[str, List[Dict[str, Any]]] = {}
+    self._by_step_context_key: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in self._active_rows:
+      step_key = _clean_text(row.get("step_key")).lower()
+      context_key = _clean_text(row.get("context_key"))
+      if not step_key or not context_key:
+        continue
+      self._by_step_key.setdefault(step_key, []).append(dict(row))
+      self._by_step_context_key[(step_key, context_key)] = dict(row)
+
+  def rows(self, *, step_key: Any = None, active_only: bool = True) -> List[Dict[str, Any]]:
+    wanted_step = _clean_text(step_key).lower()
+    source = self._active_rows if active_only else self._rows
+    return [
+      dict(row)
+      for row in source
+      if not wanted_step or _clean_text(row.get("step_key")).lower() == wanted_step
+    ]
+
+  def context_keys_for_step(self, step_key: Any, *, required_only: bool = True) -> List[str]:
+    ordered: List[str] = []
+    for row in self.rows(step_key=step_key, active_only=True):
+      if required_only and not bool(row.get("required")):
+        continue
+      context_key = _clean_text(row.get("context_key"))
+      if context_key and context_key not in ordered:
+        ordered.append(context_key)
+    return ordered
+
+  def spec_for_step_key(
+    self,
+    *,
+    step_key: Any,
+    context_key: Any,
+    required: bool = False,
+  ) -> Optional[Dict[str, Any]]:
+    step = _clean_text(step_key).lower()
+    key = _clean_text(context_key)
+    spec = self._by_step_context_key.get((step, key))
+    if spec is None and required:
+      raise RuntimeError(
+        f"post_intake_process_context_key_missing: step_key={step or 'missing'} "
+        f"context_key={key or 'missing'} source=sql.{_PROCESS_CONTEXT_TABLE_NAME}"
+      )
+    return copy.deepcopy(spec) if isinstance(spec, dict) else None
+
+  def manifest_for_step(
+    self,
+    step_key: Any,
+    *,
+    required_context_keys: Optional[Iterable[Any]] = None,
+  ) -> List[Dict[str, Any]]:
+    requested = [
+      _clean_text(item)
+      for item in (required_context_keys or [])
+      if _clean_text(item)
+    ]
+    if not requested:
+      return self.rows(step_key=step_key, active_only=True)
+    manifest: List[Dict[str, Any]] = []
+    for context_key in requested:
+      manifest.append(
+        self.spec_for_step_key(
+          step_key=step_key,
+          context_key=context_key,
+          required=True,
+        )
+        or {}
+      )
+    return manifest
+
+  def resolve_step_context(
+    self,
+    *,
+    step_key: Any,
+    required_context_keys: Optional[Iterable[Any]] = None,
+    runtime_context: Optional[Dict[str, Any]] = None,
+  ) -> Dict[str, Any]:
+    runtime_payload = runtime_context if isinstance(runtime_context, dict) else {}
+    manifest = self.manifest_for_step(
+      step_key,
+      required_context_keys=required_context_keys,
+    )
+    resolved: Dict[str, Any] = {}
+    missing: List[Dict[str, Any]] = []
+    for spec in manifest:
+      context_key = _clean_text(spec.get("context_key"))
+      if not context_key:
+        continue
+      source_kind = _clean_text(spec.get("source_kind")).lower()
+      source_path = _clean_text(spec.get("source_path")) or context_key
+      value = _process_context_get_path(runtime_payload, context_key)
+      if value is None:
+        value = _process_context_get_path(runtime_payload, source_path)
+      if value is None and source_kind == "sql_lookup":
+        value = {
+          "source_kind": "sql_lookup",
+          "source_path": source_path,
+          "resolved_by_process_function": True,
+        }
+      if value is None and bool(spec.get("required")):
+        missing.append(
+          {
+            "context_key": context_key,
+            "source_kind": source_kind,
+            "source_path": source_path,
+          }
+        )
+        continue
+      resolved[context_key] = copy.deepcopy(value)
+    if missing:
+      raise RuntimeError(
+        "post_intake_process_context_required_inputs_missing: "
+        f"step_key={_clean_text(step_key).lower()} missing={missing[:20]} "
+        f"source=sql.{_PROCESS_CONTEXT_TABLE_NAME}"
+      )
+    return {
+      "step_key": _clean_text(step_key).lower(),
+      "source_of_truth": f"sql.{_PROCESS_CONTEXT_TABLE_NAME}",
+      "lookup_function": "post_intake_process_context_lookup.resolve_step_context",
+      "resolved_context": resolved,
+      "resolved_context_keys": sorted(resolved.keys()),
+      "required_context_manifest": copy.deepcopy(manifest),
+      "context_is_mutable_state_store": False,
+    }
+
+  def validation_errors(self) -> List[str]:
+    errors: List[str] = []
+    seen: Set[tuple[str, str]] = set()
+    for row in self._rows:
+      step_key = _clean_text(row.get("step_key")).lower()
+      context_key = _clean_text(row.get("context_key"))
+      if not step_key:
+        errors.append("process context row missing step_key")
+      if not context_key:
+        errors.append(f"{step_key or 'missing_step'} process context row missing context_key")
+      dedupe_key = (step_key, context_key)
+      if dedupe_key in seen:
+        errors.append(f"duplicate process context key for step={step_key} context_key={context_key}")
+      seen.add(dedupe_key)
+      source_kind = _clean_text(row.get("source_kind")).lower()
+      if source_kind not in self._ALLOWED_SOURCE_KINDS:
+        errors.append(f"{step_key}.{context_key} unsupported source_kind={source_kind or 'missing'}")
+      if not _clean_text(row.get("source_path")):
+        errors.append(f"{step_key}.{context_key} missing source_path")
+      if not bool(row.get("immutable_input")):
+        errors.append(f"{step_key}.{context_key} must be immutable_input=1; context is not mutable runtime state")
+    return errors
+
+
 class PostIntakeProcessSequenceLookup:
   """Single gateway for SQL-backed post-intake step sequencing."""
 
@@ -5772,6 +7486,7 @@ class PostIntakeProcessSequenceLookup:
       _GPT_CONTRACT_TABLE_NAME,
       _GPT_CONTEXT_TABLE_NAME,
       _PROCESS_SEQUENCE_TABLE_NAME,
+      _PROCESS_CONTEXT_TABLE_NAME,
       "post_intake_headcount_policy_lookup",
     }
     for table_name in row.get("required_lookup_tables") or []:
@@ -5790,6 +7505,8 @@ class PostIntakeProcessSequenceLookup:
           table_errors = post_intake_gpt_contract_lookup().validation_errors()
         elif normalized_table == _GPT_CONTEXT_TABLE_NAME:
           table_errors = post_intake_gpt_context_lookup().validation_errors()
+        elif normalized_table == _PROCESS_CONTEXT_TABLE_NAME:
+          table_errors = post_intake_process_context_lookup().validation_errors()
         elif normalized_table == "post_intake_headcount_policy_lookup":
           try:
             from client_intake_and_finmo.post_intake_headcount import post_intake_headcount_policy_errors  # type: ignore
@@ -5874,6 +7591,16 @@ class PostIntakeProcessSequenceLookup:
           "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
           "active_step_count": len(lookup.rows(active_only=True)),
         }
+      elif normalized_table == _PROCESS_CONTEXT_TABLE_NAME:
+        lookup = post_intake_process_context_lookup()
+        step_key = _clean_text(row.get("step_key")).lower()
+        context[normalized_table] = {
+          "lookup_function": "post_intake_process_context_lookup",
+          "source_of_truth": f"sql.{_PROCESS_CONTEXT_TABLE_NAME}",
+          "step_key": step_key or None,
+          "required_context_keys": lookup.context_keys_for_step(step_key) if step_key else [],
+          "active_row_count": len(lookup.rows(step_key=step_key)) if step_key else len(lookup.rows()),
+        }
     return context
 
   def assert_step(
@@ -5934,6 +7661,34 @@ class PostIntakeProcessSequenceLookup:
         errors.append(
           f"context table has no active prompt rows for {context_contract_name}/{_clean_text(row.get('context_include_phase')).lower()}"
         )
+    process_context_manifest: List[Dict[str, Any]] = []
+    declared_context_keys = [
+      _clean_text(item)
+      for item in (row.get("required_context_keys") or [])
+      if _clean_text(item)
+    ]
+    if declared_context_keys:
+      try:
+        context_lookup = post_intake_process_context_lookup()
+        process_context_manifest = context_lookup.manifest_for_step(
+          row.get("step_key"),
+          required_context_keys=declared_context_keys,
+        )
+        manifest_keys = {
+          _clean_text(item.get("context_key"))
+          for item in process_context_manifest
+          if isinstance(item, dict)
+        }
+        missing_context_specs = sorted(set(declared_context_keys) - manifest_keys)
+        if missing_context_specs:
+          errors.append(
+            f"required_context_keys missing process context rows={missing_context_specs} "
+            f"source=sql.{_PROCESS_CONTEXT_TABLE_NAME}"
+          )
+      except Exception as exc:
+        errors.append(f"process context lookup unavailable for required_context_keys: {exc}")
+    else:
+      errors.append("required_context_keys_json is empty")
     errors.extend(self._lookup_table_errors(row))
     if errors:
       raise RuntimeError(
@@ -5943,6 +7698,7 @@ class PostIntakeProcessSequenceLookup:
     return {
       **copy.deepcopy(row),
       "required_lookup_context": self._required_lookup_context(row),
+      "required_process_context": copy.deepcopy(process_context_manifest),
       "object_controls": copy.deepcopy(row.get("object_controls") or []),
       "sequence_enforced": True,
       "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
@@ -5953,20 +7709,20 @@ class PostIntakeProcessSequenceLookup:
     errors: List[str] = []
     seen_step_keys: Set[str] = set()
     required_steps = {
-      "post_intake_initialize_validation",
-      "stage_ramp_contract",
-      "payroll_headcount_schedule",
-      "payroll_feasibility_repair",
-      "quarter_grid_generation",
-      "issue_detection",
-      "unified_convergence_decision",
-      "unified_convergence_retry",
-      "cash_minimum_debt_schedule",
-      "cash_strategy_review",
-      "cash_pass_validation",
-      "final_hard_gates",
-      "post_intake_finalize_validation",
+      _clean_text(row.get("step_key")).lower()
+      for row in _DEFAULT_PROCESS_SEQUENCE_ROWS
+      if bool(row.get("required")) and _clean_text(row.get("step_key"))
     }
+    active_step_keys = {
+      _clean_text(row.get("step_key")).lower()
+      for row in self._active_rows
+      if _clean_text(row.get("step_key"))
+    }
+    context_lookup: Optional[PostIntakeProcessContextLookup] = None
+    try:
+      context_lookup = post_intake_process_context_lookup()
+    except Exception as exc:
+      errors.append(f"process context lookup unavailable: {exc}")
     for row in self._rows:
       step_key = _clean_text(row.get("step_key")).lower()
       if not step_key:
@@ -5979,10 +7735,54 @@ class PostIntakeProcessSequenceLookup:
         errors.append(f"{step_key} missing phase")
       if not _clean_text(row.get("handler_key")):
         errors.append(f"{step_key} missing handler_key")
+      if not _clean_text(row.get("executor_function")):
+        errors.append(f"{step_key} missing executor_function")
+      if _clean_text(row.get("step_kind")).lower() not in {"stage", "process", "subprocess", "operation", "validation"}:
+        errors.append(f"{step_key} unsupported step_kind={row.get('step_kind')}")
+      parent_step_key = _clean_text(row.get("parent_step_key")).lower()
+      if parent_step_key and parent_step_key not in active_step_keys:
+        errors.append(f"{step_key} parent_step_key missing active parent={parent_step_key}")
+      if int(row.get("hierarchy_level") or 0) <= 0:
+        errors.append(f"{step_key} hierarchy_level must be positive")
+      if not _clean_text(row.get("sequence_path")):
+        errors.append(f"{step_key} missing sequence_path")
       if bool(row.get("required")) and not bool(row.get("enabled")):
         errors.append(f"{step_key} is required but disabled")
       if not row.get("required_lookup_tables"):
         errors.append(f"{step_key} missing required_lookup_tables")
+      declared_context_keys = [
+        _clean_text(item)
+        for item in (row.get("required_context_keys") or [])
+        if _clean_text(item)
+      ]
+      if not declared_context_keys:
+        errors.append(f"{step_key} missing required_context_keys_json")
+      elif context_lookup is not None:
+        context_keys = set(context_lookup.context_keys_for_step(step_key, required_only=False))
+        missing_context_specs = sorted(set(declared_context_keys) - context_keys)
+        if missing_context_specs:
+          errors.append(
+            f"{step_key} required_context_keys missing process context rows={missing_context_specs}"
+          )
+      if not row.get("produced_output_keys"):
+        errors.append(f"{step_key} missing produced_output_keys_json")
+      if _clean_text(row.get("output_finality")).lower() not in {
+        "stage_final_no_downstream_mutation",
+        "validation_result_final",
+        "read_only_context",
+      }:
+        errors.append(f"{step_key} unsupported output_finality={row.get('output_finality')}")
+      output_storage = row.get("output_storage") if isinstance(row.get("output_storage"), list) else []
+      for storage in output_storage:
+        if not isinstance(storage, dict):
+          errors.append(f"{step_key} has non-object output_storage_json entry")
+          continue
+        if not _clean_text(storage.get("output_key")):
+          errors.append(f"{step_key} output_storage entry missing output_key")
+        if not _clean_text(storage.get("storage_kind")):
+          errors.append(f"{step_key} output_storage entry missing storage_kind")
+        if bool(storage.get("writes_core_context")):
+          errors.append(f"{step_key} output_storage may not write outputs back to core context")
       if not _clean_text(row.get("horizon_rule")):
         errors.append(f"{step_key} missing horizon_rule")
       if not _clean_text(row.get("python_role")):
@@ -6119,6 +7919,11 @@ def post_intake_gpt_contract_lookup() -> PostIntakeGptContractLookup:
 @lru_cache(maxsize=1)
 def post_intake_gpt_context_lookup() -> PostIntakeGptContextLookup:
   return PostIntakeGptContextLookup(load_post_intake_gpt_context_rows())
+
+
+@lru_cache(maxsize=1)
+def post_intake_process_context_lookup() -> PostIntakeProcessContextLookup:
+  return PostIntakeProcessContextLookup(load_post_intake_process_context_rows())
 
 
 @lru_cache(maxsize=1)
@@ -6807,6 +8612,51 @@ def post_intake_gpt_context_errors() -> List[str]:
   return post_intake_gpt_context_lookup().validation_errors()
 
 
+def post_intake_process_context_rows(
+  *,
+  step_key: Any = None,
+  active_only: bool = True,
+) -> List[Dict[str, Any]]:
+  return post_intake_process_context_lookup().rows(
+    step_key=step_key,
+    active_only=active_only,
+  )
+
+
+def post_intake_process_context_errors() -> List[str]:
+  return post_intake_process_context_lookup().validation_errors()
+
+
+def post_intake_process_context_manifest(
+  step_key: Any,
+  *,
+  required_context_keys: Optional[Iterable[Any]] = None,
+) -> List[Dict[str, Any]]:
+  return post_intake_process_context_lookup().manifest_for_step(
+    step_key,
+    required_context_keys=required_context_keys,
+  )
+
+
+def post_intake_resolve_process_context(
+  *,
+  step_key: Any,
+  runtime_context: Optional[Dict[str, Any]] = None,
+  required_context_keys: Optional[Iterable[Any]] = None,
+) -> Dict[str, Any]:
+  row = post_intake_process_sequence_step(step_key, required=True) or {}
+  resolved_required_keys = (
+    list(required_context_keys)
+    if required_context_keys is not None
+    else list(row.get("required_context_keys") or [])
+  )
+  return post_intake_process_context_lookup().resolve_step_context(
+    step_key=step_key,
+    required_context_keys=resolved_required_keys,
+    runtime_context=runtime_context,
+  )
+
+
 def post_intake_process_sequence_rows(
   *,
   phase: Any = None,
@@ -6906,12 +8756,15 @@ def post_intake_assert_required_process_sequence() -> Dict[str, Any]:
     )
   rows = lookup.rows(active_only=True)
   gateway_contexts = lookup.gateway_contexts()
+  process_context_rows = post_intake_process_context_rows(active_only=True)
   return {
     "sequence_enforced": True,
     "source_of_truth": f"sql.{_PROCESS_SEQUENCE_TABLE_NAME}",
     "lookup_function": "post_intake_assert_required_process_sequence",
     "gateway_context_loaded": True,
     "active_step_count": len(rows),
+    "process_context_source_of_truth": f"sql.{_PROCESS_CONTEXT_TABLE_NAME}",
+    "process_context_row_count": len(process_context_rows),
     "active_steps": [
       _clean_text(row.get("step_key")).lower()
       for row in rows
@@ -6921,15 +8774,25 @@ def post_intake_assert_required_process_sequence() -> Dict[str, Any]:
       {
         "step_key": _clean_text(context.get("step_key")).lower(),
         "phase": _clean_text(context.get("phase")).lower(),
+        "parent_step_key": _clean_text(context.get("parent_step_key")).lower(),
+        "step_kind": _clean_text(context.get("step_kind")).lower(),
+        "sequence_path": _clean_text(context.get("sequence_path")).lower(),
         "handler_key": _clean_text(context.get("handler_key")),
+        "executor_function": _clean_text(context.get("executor_function")),
+        "required_context_keys": copy.deepcopy(context.get("required_context_keys") or []),
+        "produced_output_keys": copy.deepcopy(context.get("produced_output_keys") or []),
         "required_lookup_tables": copy.deepcopy(context.get("required_lookup_tables") or []),
         "required_lookup_context": copy.deepcopy(context.get("required_lookup_context") or {}),
+        "required_process_context": copy.deepcopy(context.get("required_process_context") or []),
         "horizon_rule": _clean_text(context.get("horizon_rule")).lower(),
         "python_role": _clean_text(context.get("python_role")),
         "python_timing": _clean_text(context.get("python_timing")),
         "input_object_path": _clean_text(context.get("input_object_path")),
         "output_object_path": _clean_text(context.get("output_object_path")),
         "validation_subject_path": _clean_text(context.get("validation_subject_path")),
+        "output_storage": copy.deepcopy(context.get("output_storage") or []),
+        "recompute_triggers": copy.deepcopy(context.get("recompute_triggers") or []),
+        "output_finality": _clean_text(context.get("output_finality")).lower(),
         "object_controls": copy.deepcopy(context.get("object_controls") or []),
       }
       for context in gateway_contexts

@@ -45,6 +45,20 @@ PAYROLL_HEADCOUNT_LEVER_ID = "expenses::Payroll"
 PAYROLL_HEADCOUNT_CONTRACT_NAME = "payroll_headcount_schedule"
 
 
+def _assert_payroll_sequence_step(
+  *,
+  allowed_step_keys: Sequence[str],
+  allowed_executor_functions: Sequence[str],
+) -> Dict[str, Any]:
+  from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+    assert_post_intake_sequence_controller_active,
+  )
+  return assert_post_intake_sequence_controller_active(
+    allowed_step_keys=allowed_step_keys,
+    allowed_executor_functions=allowed_executor_functions,
+  )
+
+
 def _payroll_fail_fast(
   code: str,
   message: str = "",
@@ -316,10 +330,21 @@ def apply_payroll_headcount_policy_to_model_input(
         stage="payroll_headcount_policy_application",
       )
     return payload
-  return apply_payroll_headcount_payload_to_model_input(
+  capacity_payload = apply_payroll_supported_capacity_to_model_input(
     payload,
     schedule,
     live_count=live_count,
+    process_step_key="payroll_headcount_schedule",
+    control_action="derive",
+    control_trigger="payroll_headcount_changed",
+  )
+  return apply_payroll_headcount_payload_to_model_input(
+    capacity_payload,
+    schedule,
+    live_count=live_count,
+    process_step_key="payroll_headcount_schedule",
+    control_action="derive",
+    control_trigger="payroll_headcount_changed",
   )
 
 
@@ -445,16 +470,21 @@ def _openai_model() -> str:
   return (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
 
 
-def _payroll_process_sequence_settings() -> Dict[str, Any]:
+def _payroll_process_sequence_settings(*, step_key: Any = "") -> Dict[str, Any]:
+  resolved_step_key = str(step_key or "").strip() or "payroll_headcount_schedule"
   try:
-    sequence_row = post_intake_process_sequence_step("payroll_headcount_schedule", required=True) or {}
+    sequence_row = post_intake_process_sequence_step(resolved_step_key, required=True) or {}
   except Exception as exc:
-    _payroll_fail_fast(
-      "payroll_headcount_process_sequence_lookup_failed",
-      f"payroll_headcount_schedule process sequence lookup failed: {exc}",
-      stage="payroll_headcount_process_sequence",
-    )
-    sequence_row = {}
+    if resolved_step_key != "payroll_headcount_schedule":
+      sequence_row = post_intake_process_sequence_step("payroll_headcount_schedule", required=True) or {}
+      resolved_step_key = "payroll_headcount_schedule"
+    else:
+      _payroll_fail_fast(
+        "payroll_headcount_process_sequence_lookup_failed",
+        f"{resolved_step_key} process sequence lookup failed: {exc}",
+        stage="payroll_headcount_process_sequence",
+      )
+      sequence_row = {}
   timeout_seconds = _safe_float(sequence_row.get("timeout_seconds"))
   if timeout_seconds is None or timeout_seconds <= 0:
     timeout_seconds = 180.0
@@ -468,7 +498,7 @@ def _payroll_process_sequence_settings() -> Dict[str, Any]:
     "timeout_seconds": float(timeout_seconds),
     "max_attempts": max_attempts,
     "source_table": "post_intake_process_sequence_lookup",
-    "step_key": "payroll_headcount_schedule",
+    "step_key": resolved_step_key,
   }
 
 
@@ -479,6 +509,137 @@ def _payroll_repair_trigger_from_failure(previous_contract_failure: Optional[Dic
   if "payroll_stage_profitability_feasibility_failed" in failure_text:
     return "payroll_stage_profitability_feasibility_failed"
   return "payroll_revenue_economic_feasibility_failed"
+
+
+def _compact_payroll_failure_for_gpt(
+  failure: Optional[Dict[str, Any]],
+  *,
+  max_violations: int = 8,
+) -> Dict[str, Any]:
+  source = failure if isinstance(failure, dict) else {}
+  if not source:
+    return {}
+
+  def _compact_violation(item: Any) -> Dict[str, Any]:
+    row = item if isinstance(item, dict) else {}
+    compact = {
+      key: deepcopy(row.get(key))
+      for key in (
+        "error",
+        "quarter_index",
+        "revenue",
+        "payroll",
+        "payroll_percent_of_revenue",
+        "labor_intensity_class",
+        "policy_min_pct",
+        "policy_max_pct",
+        "effective_min_pct_with_tolerance",
+        "effective_max_pct_with_tolerance",
+        "repair_rule_key",
+        "previous_revenue",
+        "current_revenue",
+        "previous_payroll",
+        "current_payroll",
+        "rule",
+      )
+      if row.get(key) is not None
+    }
+    if isinstance(row.get("deterministic_driver_math"), dict):
+      compact["deterministic_driver_math"] = deepcopy(row.get("deterministic_driver_math"))
+    if row.get("required_action"):
+      compact["required_action"] = str(row.get("required_action") or "")[:700]
+    return compact
+
+  compact_failure = {
+    key: deepcopy(source.get(key))
+    for key in ("attempt", "failed_state_source", "required_rebuild")
+    if source.get(key) is not None
+  }
+  if source.get("error"):
+    compact_failure["error"] = str(source.get("error") or "")[:3000]
+  violation_rows = (
+    source.get("payroll_revenue_feasibility_violations")
+    if isinstance(source.get("payroll_revenue_feasibility_violations"), list)
+    else (source.get("violations") if isinstance(source.get("violations"), list) else [])
+  )
+  if violation_rows:
+    compact_failure["violation_count"] = len(violation_rows)
+    compact_failure["violations"] = [
+      _compact_violation(item)
+      for item in violation_rows[: max(1, int(max_violations or 1))]
+      if isinstance(item, dict)
+    ]
+    productivity_caps: List[Dict[str, Any]] = []
+    productivity_floors: List[Dict[str, Any]] = []
+    for item in violation_rows:
+      if not isinstance(item, dict):
+        continue
+      math_payload = item.get("deterministic_driver_math")
+      if not isinstance(math_payload, dict):
+        continue
+      target = _safe_float(math_payload.get("safe_capacity_units_per_supporting_fte_target_with_buffer"))
+      direction = str(math_payload.get("required_capacity_units_per_supporting_fte_direction") or "").strip()
+      if target is None or target <= 0.0 or direction not in {"at_or_below", "at_or_above"}:
+        continue
+      target_row = {
+        "quarter_index": item.get("quarter_index"),
+        "payroll_percent_of_revenue": item.get("payroll_percent_of_revenue"),
+        "safe_capacity_units_per_supporting_fte_target_with_buffer": round(float(target), 6),
+        "required_capacity_units_per_supporting_fte_direction": direction,
+      }
+      if direction == "at_or_below":
+        productivity_caps.append(target_row)
+      else:
+        productivity_floors.append(target_row)
+    repair_constraints: Dict[str, Any] = {
+      "source_of_truth": "post_intake_headcount_policy_lookup + payroll_revenue_feasibility_violations.deterministic_driver_math",
+      "rule": (
+        "Apply these all-quarter bounds as hard repair constraints. Directional movement alone is not enough; "
+        "the corrected schedule must satisfy every violating quarter after Python rebuilds payroll-supported capacity and FINMO."
+      ),
+    }
+    if productivity_caps:
+      most_restrictive_cap = min(
+        productivity_caps,
+        key=lambda row: float(row.get("safe_capacity_units_per_supporting_fte_target_with_buffer") or 0.0),
+      )
+      hard_cap = float(most_restrictive_cap.get("safe_capacity_units_per_supporting_fte_target_with_buffer") or 0.0)
+      repair_constraints["capacity_units_per_supporting_fte_must_be_at_or_below"] = round(hard_cap, 6)
+      repair_constraints["recommended_capacity_units_per_supporting_fte_or_lower"] = round(max(0.0001, hard_cap * 0.90), 6)
+      repair_constraints["most_restrictive_cap_quarter"] = most_restrictive_cap
+      repair_constraints["cap_violation_count"] = len(productivity_caps)
+      repair_constraints["cap_instruction"] = (
+        "Payroll/revenue is too low. Choose capacity_units_per_supporting_fte at or below the hard cap, "
+        "preferably at or below the recommended value when changing OEWS title, FTE, benefits, wage tier, or wage multiplier. "
+        "Do not round upward to a nearby convenient value."
+      )
+    if productivity_floors:
+      most_restrictive_floor = max(
+        productivity_floors,
+        key=lambda row: float(row.get("safe_capacity_units_per_supporting_fte_target_with_buffer") or 0.0),
+      )
+      hard_floor = float(most_restrictive_floor.get("safe_capacity_units_per_supporting_fte_target_with_buffer") or 0.0)
+      repair_constraints["capacity_units_per_supporting_fte_must_be_at_or_above"] = round(hard_floor, 6)
+      repair_constraints["recommended_capacity_units_per_supporting_fte_or_higher"] = round(hard_floor * 1.10, 6)
+      repair_constraints["most_restrictive_floor_quarter"] = most_restrictive_floor
+      repair_constraints["floor_violation_count"] = len(productivity_floors)
+      repair_constraints["floor_instruction"] = (
+        "Payroll/revenue is too high. Choose capacity_units_per_supporting_fte at or above the hard floor, "
+        "preferably at or above the recommended value when changing OEWS title, FTE, benefits, wage tier, or wage multiplier. "
+        "Do not round downward to a nearby convenient value."
+      )
+    if len(repair_constraints) > 2:
+      compact_failure["gpt_repair_constraints"] = repair_constraints
+    compact_failure["lookup_rule_reference"] = (
+      "Use payroll_feasibility_mapping.rows[].repair_direction_rules from sql.post_intak_mapping_lookup; "
+      "mapping rules are provided once in the main context and are not repeated per violation."
+    )
+  details = source.get("details") if isinstance(source.get("details"), dict) else {}
+  if details and details is not source:
+    nested = _compact_payroll_failure_for_gpt(details, max_violations=max_violations)
+    if nested:
+      compact_failure["details"] = nested
+  return compact_failure
 
 
 def _post_openai(
@@ -1811,6 +1972,13 @@ def estimate_payroll_headcount_schedule_with_gpt(
   client_id: Any = "",
   previous_contract_failure: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+  _assert_payroll_sequence_step(
+    allowed_step_keys=["payroll_gpt_contract_request", "payroll_feasibility_repair"],
+    allowed_executor_functions=[
+      "estimate_payroll_headcount_schedule_with_gpt",
+      "retry_payroll_headcount_schedule_from_feasibility_failure",
+    ],
+  )
   api_key = _openai_key()
   if not api_key:
     _payroll_fail_fast(
@@ -1923,7 +2091,7 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "for directional movement. Do not invent lever direction and do not use inline assumptions as the source of truth. "
         "Do not clip payroll or revenue and do not ask Python to patch output rows."
       ),
-      "failure_details": deepcopy(previous_contract_failure),
+      "failure_details": _compact_payroll_failure_for_gpt(previous_contract_failure),
     }
   user_context = post_intake_gpt_context_filter_payload(
     contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
@@ -1955,7 +2123,13 @@ def estimate_payroll_headcount_schedule_with_gpt(
       }
     },
   }
-  sequence_settings = _payroll_process_sequence_settings()
+  sequence_settings = _payroll_process_sequence_settings(
+    step_key=(
+      "payroll_feasibility_repair"
+      if isinstance(previous_contract_failure, dict) and previous_contract_failure
+      else "payroll_gpt_contract_request"
+    )
+  )
   timeout_seconds = float(sequence_settings.get("timeout_seconds") or 180.0)
   max_attempts = int(sequence_settings.get("max_attempts") or 1)
   payroll_control_trigger = _payroll_repair_trigger_from_failure(previous_contract_failure)
@@ -2007,10 +2181,12 @@ def estimate_payroll_headcount_schedule_with_gpt(
           "For every title, Qn starting_fte must equal that title's Q(n-1) ending_fte. "
           "When staffing grows, keep starting_fte at the prior ending value and put the increase in hires. "
           "Use stage-ramp, revenue-driver, and payroll_capacity_grid context to make the FTE ramp operationally realistic, "
-          "but do not solve backward from those rows as hard demand floors. Python derives supported capacity from your FTE."
+          "but do not solve backward from those rows as hard demand floors. Python derives supported capacity from your FTE. "
+          "If previous_contract_failure.failure_details.gpt_repair_constraints is present, those all-quarter bounds are hard "
+          "SQL-backed repair constraints; satisfy the recommended bound, not just the direction."
         ),
         "error": last_contract_error[:6000],
-        "failure_details": deepcopy(last_contract_details),
+        "failure_details": _compact_payroll_failure_for_gpt(last_contract_details),
         "invalid_response_excerpt": json.dumps(last_parsed, ensure_ascii=False)[:6000],
       }
     system_prompt = post_intake_build_prompt_from_contract(
@@ -2039,6 +2215,8 @@ def estimate_payroll_headcount_schedule_with_gpt(
         "If prior failure says a title had zero FTE in every quarter, fix it by assigning real FTE to that same selected business role or by choosing a different real hired title with positive FTE; never return another all-zero title. "
         "If prior failure involves payroll/revenue feasibility, use payroll_feasibility_mapping from sql.post_intak_mapping_lookup "
         "for the allowed direction of payroll, capacity, price, utilization, and productivity movements. "
+        "When previous_contract_failure includes gpt_repair_constraints, treat its capacity_units_per_supporting_fte "
+        "cap or floor as binding across all violating quarters and choose the recommended value or more conservative. "
         "Use the OEWS titles needed to operate the business; one catch-all staffing bucket is invalid. "
         "Do not provide wages and do not include key people; Python owns those. "
         "Use payroll_capacity_grid as operating context only. Do not force FTE to a hard capacity demand floor; "
@@ -2312,6 +2490,10 @@ def apply_payroll_headcount_payload_to_model_input(
   control_action: str = "derive",
   control_trigger: str = "payroll_headcount_changed",
 ) -> Dict[str, Any]:
+  _assert_payroll_sequence_step(
+    allowed_step_keys=[],
+    allowed_executor_functions=[],
+  )
   post_intake_assert_process_object_control(
     step_key=process_step_key,
     object_name="model_input.expenses.Payroll",
@@ -2431,6 +2613,10 @@ def apply_payroll_supported_capacity_to_model_input(
   control_trigger: str = "payroll_headcount_changed",
 ) -> Dict[str, Any]:
   """Use payroll FTE as the causal capacity envelope for revenue drivers."""
+  _assert_payroll_sequence_step(
+    allowed_step_keys=[],
+    allowed_executor_functions=[],
+  )
   post_intake_assert_process_object_control(
     step_key=process_step_key,
     object_name="model_input.revenue.Capacity",
@@ -2794,6 +2980,32 @@ def payroll_revenue_feasibility_violations(
         if revenue_multiplier_to_bound is not None and productivity > 0.0
         else None
       )
+      if too_low:
+        revenue_bound_direction = "at_or_below"
+        productivity_bound_direction = "at_or_below"
+        safe_productivity_target = (
+          round(float(implied_productivity_at_bound) * 0.98, 6)
+          if implied_productivity_at_bound is not None
+          else None
+        )
+        productivity_target_instruction = (
+          "Payroll/revenue is too low. If FTE, price, and utilization are unchanged, "
+          "capacity_units_per_supporting_fte must be less than or equal to the implied bound; "
+          "choosing slightly above the bound remains infeasible."
+        )
+      else:
+        revenue_bound_direction = "at_or_above"
+        productivity_bound_direction = "at_or_above"
+        safe_productivity_target = (
+          round(float(implied_productivity_at_bound) * 1.02, 6)
+          if implied_productivity_at_bound is not None
+          else None
+        )
+        productivity_target_instruction = (
+          "Payroll/revenue is too high. If FTE, price, and utilization are unchanged, "
+          "capacity_units_per_supporting_fte must be greater than or equal to the implied bound; "
+          "choosing slightly below the bound remains infeasible."
+        )
       violations.append({
         "error": "payroll_revenue_economic_feasibility_failed",
         "quarter_index": quarter_index,
@@ -2812,13 +3024,17 @@ def payroll_revenue_feasibility_violations(
           "current_capacity_units_per_supporting_fte": productivity,
           "total_average_fte": round(float(average_fte_by_quarter.get(quarter_index) or 0.0), 6),
           "required_revenue_at_policy_bound": required_revenue_at_bound,
+          "required_revenue_direction": revenue_bound_direction,
           "revenue_multiplier_to_policy_bound": revenue_multiplier_to_bound,
           "implied_capacity_units_per_supporting_fte_if_price_utilization_and_fte_unchanged": implied_productivity_at_bound,
+          "required_capacity_units_per_supporting_fte_direction": productivity_bound_direction,
+          "safe_capacity_units_per_supporting_fte_target_with_buffer": safe_productivity_target,
+          "target_instruction": productivity_target_instruction,
           "math_source": "payroll / policy_bound; payroll_supported_revenue scales linearly with capacity_units_per_supporting_fte when FTE, unit price, and utilization are unchanged",
         },
         "required_action": (
           "Read mapping_direction_rules from sql.post_intak_mapping_lookup, recompute allowed upstream drivers, "
-          "use deterministic_driver_math as the minimum quantitative target when price/utilization/FTE are unchanged, "
+          "use deterministic_driver_math.required_capacity_units_per_supporting_fte_direction as the binding quantitative target when price/utilization/FTE are unchanged, "
           "then rebuild payroll-supported capacity, revenue, payroll, and FINMO. "
           "Do not clip payroll or revenue."
         ),
@@ -2946,9 +3162,6 @@ def validate_payroll_headcount_model_input_contract(
       "validation_category": "payroll_headcount_schedule",
     })
   if schedule and not schedule_payload_errors:
-    expected_payload = apply_payroll_supported_capacity_to_model_input(deepcopy(payload), schedule, live_count=live_count)
-    expected_payload = apply_payroll_headcount_payload_to_model_input(expected_payload, schedule, live_count=live_count)
-    expected_row = payroll_row_from_model_input(expected_payload)
     capacity_violations = _payroll_supported_capacity_model_input_violations(
       payload,
       schedule,
@@ -2963,11 +3176,40 @@ def validate_payroll_headcount_model_input_contract(
         "validation_category": "payroll_supported_capacity",
       })
     current_values = list(current_row.get("values") or [])
-    expected_values = list((expected_row or {}).get("values") or [])
-    if len(current_values) >= live_count + 1 and len(expected_values) >= live_count + 1:
+    totals_by_quarter = {
+      int(item.get("quarter_index") or 0): int(round(float(_safe_float(item.get("payroll")) or 0.0)))
+      for item in (schedule.get("quarter_totals") or [])
+      if isinstance(item, dict)
+    }
+    missing_quarters = [
+      quarter_index
+      for quarter_index in range(1, live_count + 1)
+      if quarter_index not in totals_by_quarter
+    ]
+    if missing_quarters:
+      details.append({
+        "error": "payroll_headcount_schedule_missing_live_quarters",
+        "lever_id": PAYROLL_HEADCOUNT_LEVER_ID,
+        "quarter": int(missing_quarters[0] or 0),
+        "reason": "Payroll headcount schedule quarter_totals must cover every live forecast quarter.",
+        "validation_category": "payroll_headcount_schedule",
+        "missing_quarters": missing_quarters[:20],
+      })
+    elif len(current_values) < live_count + 1:
+      details.append({
+        "error": "payroll_headcount_schedule_missing_full_horizon",
+        "lever_id": PAYROLL_HEADCOUNT_LEVER_ID,
+        "quarter": live_count,
+        "reason": "Payroll model-input row must include stub plus every live forecast quarter.",
+        "validation_category": "payroll_headcount_schedule",
+        "expected_value_count": live_count + 1,
+        "actual_value_count": len(current_values),
+      })
+    else:
+      _stub_value, current_live_values = _row_stub_and_live_values(current_values, live_count=live_count)
       for quarter_index in range(1, live_count + 1):
-        current_value = _safe_float(current_values[quarter_index])
-        expected_value = _safe_float(expected_values[quarter_index])
+        current_value = _safe_float(current_live_values[quarter_index - 1])
+        expected_value = _safe_float(totals_by_quarter.get(quarter_index))
         if current_value is None or expected_value is None or int(round(float(current_value))) != int(round(float(expected_value))):
           details.append({
             "error": "payroll_values_not_headcount_schedule_derived",

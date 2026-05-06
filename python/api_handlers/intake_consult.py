@@ -52,6 +52,7 @@ from client_intake_and_finmo.post_intake_contracts.runner import (  # type: igno
 )
 from client_intake_and_finmo.post_intake_contracts.runner import *  # type: ignore
 from client_intake_and_finmo.post_intake_initial_grid import prepare_initial_grid_for_draft  # type: ignore
+from client_intake_and_finmo.post_intake_sequence import run_targeted_process_step  # type: ignore
 from client_intake_and_finmo.post_intake_state.runner import (  # type: ignore
   bind_runtime_dependencies as bind_state_runtime_dependencies,
 )
@@ -6775,6 +6776,105 @@ def _run_planning_system_for_draft(
   )
 
 
+def _targeted_process_runtime_context_from_rows(
+  *,
+  draft: Dict[str, Any],
+  planning_run: Optional[Dict[str, Any]] = None,
+  checkpoint: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  draft_row = draft if isinstance(draft, dict) else {}
+  run_row = planning_run if isinstance(planning_run, dict) else {}
+  checkpoint_row = checkpoint if isinstance(checkpoint, dict) else {}
+
+  def _json_payload(name: str) -> Dict[str, Any]:
+    for row in (checkpoint_row, run_row, draft_row):
+      value = _parse_json_dict(row.get(name)) if isinstance(row, dict) else {}
+      if value:
+        return copy.deepcopy(value)
+    return {}
+
+  ops_json = _json_payload("operating_model_json")
+  target_market_json = _json_payload("target_market_json")
+  people_json = _json_payload("people_json")
+  financials_json = _json_payload("financials_json")
+  financials_year1_json = _json_payload("financials_year1_json")
+  fulfillment_json = _json_payload("fulfillment_json")
+  marketing_model_json = _json_payload("marketing_model_json")
+  planning_context_summary_json = _json_payload("planning_context_summary_json")
+  planning_run_json = _json_payload("planning_run_json")
+  model_input_json = _json_payload("model_input_json")
+  finmo_json = _json_payload("finmo_json")
+  payroll_headcount = _json_payload("payroll_headcount")
+  debt_schedule = _json_payload("debt_schedule")
+  business_facts = {
+    "draft_id": str(draft_row.get("draft_id") or run_row.get("draft_id") or "").strip(),
+    "client_id": str(draft_row.get("client_id") or run_row.get("client_id") or "").strip(),
+    "business_name": draft_row.get("business_name"),
+    "name": draft_row.get("business_name"),
+    "business_address": draft_row.get("business_address"),
+    "business_start_date": draft_row.get("business_start_date"),
+    "address_street": draft_row.get("address_street"),
+    "address_city": draft_row.get("address_city"),
+    "address_state": draft_row.get("address_state"),
+    "address_zip": draft_row.get("address_zip"),
+    "address_country": draft_row.get("address_country"),
+  }
+  context: Dict[str, Any] = {
+    "business_facts": business_facts,
+    "business_type": str((ops_json or {}).get("business_type") or "").strip(),
+    "business_naics": str(
+      (people_json or {}).get("business_naics_6")
+      or (ops_json or {}).get("naics_code")
+      or (ops_json or {}).get("business_naics")
+      or ""
+    ).strip(),
+    "operating_model_json": ops_json,
+    "ops_json": ops_json,
+    "ops_context": ops_json,
+    "target_market_json": target_market_json,
+    "market_json": target_market_json,
+    "market_context": target_market_json,
+    "people_json": people_json,
+    "people_context": people_json,
+    "financials_json": financials_json,
+    "financials_context": financials_json,
+    "financials_year1_json": financials_year1_json,
+    "financials_year1_context": financials_year1_json,
+    "fulfillment_json": fulfillment_json,
+    "marketing_model_json": marketing_model_json,
+    "marketing_context": marketing_model_json,
+    "planning_context_summary_json": planning_context_summary_json,
+    "planning_run_json": planning_run_json,
+    "model_input_json": model_input_json,
+    "finmo_json": finmo_json,
+    "payroll_headcount": payroll_headcount,
+    "debt_schedule": debt_schedule,
+  }
+  for key in [
+    "stage_ramp_contract",
+    "planning_mode",
+    "planning_mode_reason",
+    "grid_application_summary",
+    "controller_resolution_state",
+    "issue_repair_scope",
+    "unified_convergence_context",
+    "unified_convergence_decision",
+    "unified_convergence_result",
+    "cash_strategy_review_context",
+    "cash_strategy_review_decision",
+    "cash_strategy_second_pass_plan",
+    "cash_strategy_second_pass_result",
+    "cash_strategy_effect_summary",
+    "final_hard_gate_assessment",
+  ]:
+    value = planning_run_json.get(key) if isinstance(planning_run_json, dict) else None
+    if value is not None:
+      context[key] = copy.deepcopy(value)
+  if not context.get("stage_ramp_contract"):
+    context["stage_ramp_contract"] = _json_payload("stage_ramp_contract")
+  return context
+
+
 
 
 
@@ -6972,14 +7072,20 @@ def post_intake_consult_system_run_control_handler(*, app, request):
   planning_run_id = str(payload.get("planning_run_id") or "").strip()
   action = str(payload.get("action") or "").strip().lower()
   reason = str(payload.get("reason") or "").strip()
+  step_key = str(payload.get("step_key") or payload.get("process_step_key") or "").strip()
   if not draft_id and not planning_run_id:
     return (
       jsonify({"error": "invalid_request", "detail": "draft_id or planning_run_id is required"}),
       400,
     )
-  if action not in {"pause", "stop"}:
+  if action not in {"pause", "stop", "run_process_step", "run_step", "run_targeted_process"}:
     return (
-      jsonify({"error": "invalid_request", "detail": "action must be pause or stop"}),
+      jsonify({"error": "invalid_request", "detail": "action must be pause, stop, or run_process_step"}),
+      400,
+    )
+  if action in {"run_process_step", "run_step", "run_targeted_process"} and not step_key:
+    return (
+      jsonify({"error": "invalid_request", "detail": "step_key is required for targeted process execution"}),
       400,
     )
 
@@ -6991,6 +7097,41 @@ def post_intake_consult_system_run_control_handler(*, app, request):
 
   conn = get_mysql_connection()
   try:
+    if action in {"run_process_step", "run_step", "run_targeted_process"}:
+      run_row = get_planning_run(conn, planning_run_id=planning_run_id) if planning_run_id else {}
+      resolved_draft_id = draft_id or str((run_row or {}).get("draft_id") or "").strip()
+      if not resolved_draft_id:
+        return (
+          jsonify({"error": "invalid_request", "detail": "draft_id is required when planning_run_id has no draft_id"}),
+          400,
+        )
+      draft_row = get_draft(conn, draft_id=resolved_draft_id)
+      checkpoint = (
+        get_latest_planning_run_checkpoint(
+          conn,
+          planning_run_id=planning_run_id or str((run_row or {}).get("planning_run_id") or "").strip(),
+        )
+        if (planning_run_id or str((run_row or {}).get("planning_run_id") or "").strip())
+        else {}
+      )
+      targeted_result = run_targeted_process_step(
+        step_key,
+        runtime_context=_targeted_process_runtime_context_from_rows(
+          draft=draft_row or {},
+          planning_run=run_row or {},
+          checkpoint=checkpoint or {},
+        ),
+      )
+      return jsonify(
+        {
+          "status": "ok",
+          "action": "targeted_process_step_completed",
+          "draft_id": resolved_draft_id,
+          "planning_run_id": planning_run_id or str((run_row or {}).get("planning_run_id") or "").strip(),
+          "step_key": step_key,
+          "targeted_process": targeted_result,
+        }
+      )
     try:
       run_row = request_planning_run_action(
         conn,

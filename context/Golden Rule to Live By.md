@@ -48,6 +48,27 @@ If something is consistent, structural, repeatable, or contract-like, it belongs
 
 If something requires business judgment, GPT decides it, but only inside a table-defined schema, context, and contract.
 
+## Sequence Controller Rule
+
+All post-intake execution must flow through the sequence controller.
+
+`post_intake_process_sequence_lookup` is the runtime authority for process order. It must define every top-level stage, sub-process, and nested step with:
+
+- stable `step_key`
+- strict order and parent relationship
+- required context keys
+- produced output keys
+- executor function and handler key
+- required lookup tables
+- output storage/finality metadata
+- recompute triggers where a downstream change requires an upstream rerun
+
+`post_intake_process_context_lookup` is the runtime authority for each step's input contract. Context means the specific intake data and derived facts required to run that step. It is not a mutable scratchpad and it is not where step outputs belong.
+
+Outputs belong in their domain storage, such as payroll schedule, capacity outputs, cash/debt schedule, model inputs, FINMO, or validation payloads. Once a step completes, downstream steps may read those outputs but may not mutate them directly. If a downstream requirement changes an upstream output, the correct action is to rerun the upstream step through the sequence controller.
+
+Every process must be independently addressable by `step_key` and runnable through the sequence controller using only its declared context inputs. Direct function execution outside the sequence controller is legacy behavior and must fail or be removed.
+
 ## Distinct Jobs
 
 The controller runs the play.
@@ -206,28 +227,28 @@ Infrastructure is mostly there:
 - post-intake has been split out of `intake_consult.py`
 - cash, headcount, contracts, context, mapping, prompts, issue detection, and sequence are moving through table-backed structure
 
-Enforcement now exists, but operational proof is still incomplete:
+Enforcement now exists, and the current generation has one clean persisted sequence-controller E2E:
 
 - Golden Rule checks validate table availability and alignment
 - retired issue-code literals are guarded against
 - issue detector sets are checked against SQL issue mappings
 - cash issue emission is gated through SQL-owned cash-pass issue codes
 - prompt/schema/context generation is table-backed for post-intake GPT contracts
+- persisted E2E on May 5, 2026 completed through the sequence controller with final draft `442e0577341a4968aaabac409196c867`, `all_cleared`, and `remaining_issue_count = 0`
+- second persisted E2E on May 5, 2026 (different industry, retail superstore) passed with final draft `ec8b23cffeeb4d7c8df3e7ae9a324ca0`, `all_cleared`, and `remaining_issue_count = 0` after two universal-business class fixes: (a) revenue formula envelope now relaxes capacity/utilization min/max to admit intake-derived targets when stage-cap bounds over-constrain small/atypical businesses; (b) convergence non-productive cycle bailout fires in production, not only test mode, so unviable intakes fail fast instead of burning the full `_UNIFIED_CONVERGENCE_MAX_CYCLES` budget
 
-Stability proof is not fully there yet:
-
-- we have not run enough clean E2Es after the latest separation to say the app consistently obeys the table-first architecture
+More E2Es are still useful for stochastic robustness, but the Golden Rule bar is now operationally represented by the refreshed sequence/context SQL snapshot and the passing sequence-controller run.
 
 Current estimate:
 
 - structurally: near 100 percent for the intended table-backed skeleton
-- operationally proven: still not fully proven until repeated E2Es pass after the latest cleanup
+- operationally proven: one clean persisted sequence-controller E2E after the latest cleanup
 
 ## Remaining Work
 
 The remaining work is not to invent the architecture. The architecture is clear.
 
-The remaining work is enforcement:
+The remaining work is enforcement discipline:
 
 - audit every post-intake phase and confirm it gets sequence, context, contract, mapping, cash, and headcount rules through lookup functions
 - delete or convert anything that still defines those rules locally
@@ -250,6 +271,7 @@ The enforcement layer validates these lookup authorities before post-intake star
 - `post_intake_gpt_context_lookup`
 - `post_intake_headcount_policy_lookup`
 - `post_intake_process_sequence_lookup`
+- `post_intake_process_context_lookup`
 
 Runtime dependency binding from `intake_consult.py` is intentionally table-safe. Post-intake modules may receive shared helper functions from the API handler, but uppercase deterministic authority values such as horizons, mapping constants, prompt paths, cash levers, and contract constants are not allowed to overwrite post-intake module/table authority.
 
@@ -259,11 +281,12 @@ The structural guard fails fast if:
 - required contracts or prompt-context rows are missing
 - forecast horizons do not resolve to the contract-backed Q1-Q20 horizon
 - process sequence steps do not declare required lookup tables and horizon rules
+- process sequence steps do not declare required context inputs and produced outputs
 - issue codes are not backed by mapping-table levers/targets where required
 - post-intake prompt files do not reference SQL table authority
 - `intake_consult.py` reintroduces forbidden post-intake authority constants
 
-This does not prove operational E2E stability by itself. It proves the structure now has a fail-fast wall around the table-first architecture so later E2E failures should expose real remaining code paths or data gaps instead of silently bypassing the lookup tables.
+This does not remove the need for E2E proof. It proves the structure now has a fail-fast wall around the table-first architecture so later E2E failures should expose real remaining code paths or data gaps instead of silently bypassing the lookup tables.
 
 ## Table-Rendered Prompt Concept
 
@@ -310,6 +333,7 @@ Runtime validation gates are operational gates, not golden snapshot audits. Runt
 - `post_intake_gpt_context_lookup`
 - `post_intake_headcount_policy_lookup`
 - `post_intake_process_sequence_lookup`
+- `post_intake_process_context_lookup`
 
 Runtime initialize/finalize validation must explicitly exclude `post_intake_lookup_table_snapshot` and static source-code scans. Snapshot comparison belongs to preflight, deploy, or admin audit only. It must not block or govern a normal client run unless the operator deliberately runs the Golden preflight.
 
@@ -380,7 +404,7 @@ The app must preserve that behavior unless we intentionally change the baseline:
 - Historical golden tag: `post-intake-golden-payroll-debt-depr-tables`
 - Historical golden run doc: `context/post_intake_golden_baseline_f949316.md`
 - Golden SQL baseline table: `post_intake_lookup_table_snapshot`
-- Active baseline name: `post_intake_golden_current_payroll_roles_excel_model`
+- Active SQL baseline name: `post_intake_golden_f949316`
 
 The snapshot table freezes the semantic contents of the critical lookup tables:
 
@@ -390,12 +414,13 @@ The snapshot table freezes the semantic contents of the critical lookup tables:
 - `post_intake_gpt_context_lookup`
 - `post_intake_headcount_policy_lookup`
 - `post_intake_process_sequence_lookup`
+- `post_intake_process_context_lookup`
 
 Future fixes must not silently drift away from these tables.
 
 The snapshot table is the audit baseline, not a production runtime dependency. `post_intake_lookup_table_snapshot` is checked by `scripts/post_intake_golden_preflight.py` and by deploy/admin review. It is intentionally excluded from runtime initialize/finalize gates so a normal client run validates the live operational machine instead of comparing itself to a stored audit snapshot.
 
-For the current active baseline, `post_intake_lookup_table_snapshot` should be associated with the most recent successful run that produced the payroll roles logic and FINMO Excel workbook output. Refreshing that snapshot is an intentional admin/deploy action, not a runtime side effect.
+For the current active baseline, `post_intake_lookup_table_snapshot` should be associated with the most recent successful run that proved the sequence/controller plus context model, payroll roles logic, cash/debt schedule, and FINMO Excel workbook output. Refreshing that snapshot is an intentional admin/deploy action, not a runtime side effect.
 
 If an E2E failure appears after the golden baseline:
 

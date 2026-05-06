@@ -16,7 +16,12 @@ from client_intake_and_finmo.post_intake_foundation import (  # type: ignore
 )
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_assert_required_process_sequence,
-  post_intake_process_step_context,
+  post_intake_process_context_errors,
+  post_intake_process_context_rows,
+)
+from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+  build_post_intake_sequence_controller,
+  build_single_step_handler_registry,
 )
 from client_intake_and_finmo.post_intake_runtime_validation.balance_sheet_driver_validation import (  # type: ignore
   balance_sheet_driver_finalize_errors,
@@ -408,6 +413,7 @@ def run_finalize_post_intake_validation(
   runtime_table_integrity: Dict[str, Any] = {}
   required_process_sequence: Dict[str, Any] = {}
   process_step_contexts: Dict[str, Any] = {}
+  process_context_row_count = 0
 
   try:
     runtime_table_integrity = post_intake_assert_runtime_table_integrity()
@@ -417,6 +423,14 @@ def run_finalize_post_intake_validation(
     required_process_sequence = post_intake_assert_required_process_sequence()
   except Exception as exc:
     errors.append(f"process_sequence_unavailable: {exc}")
+  try:
+    context_errors = post_intake_process_context_errors()
+    if context_errors:
+      errors.extend(f"process_context: {item}" for item in context_errors)
+    process_context_row_count = len(post_intake_process_context_rows(active_only=True))
+  except Exception as exc:
+    errors.append(f"process_context_unavailable: {exc}")
+  sequence_controller = build_post_intake_sequence_controller()
   for step_key in [
     "post_intake_finalize_validation",
     "cash_minimum_debt_schedule",
@@ -425,34 +439,72 @@ def run_finalize_post_intake_validation(
     "final_hard_gates",
   ]:
     try:
-      process_step_contexts[step_key] = post_intake_process_step_context(step_key=step_key)
+      process_step_contexts[step_key] = sequence_controller.step_context(
+        step_key=step_key,
+        resolve_inputs=False,
+      )
     except Exception as exc:
       errors.append(f"process_step_context_unavailable: {step_key}: {exc}")
 
   try:
-    assert_post_intake_mapping_formula_contract_integrity(stage="post_intake_finalize_validation_mapping_contract")
-  except Exception as exc:
-    errors.append(f"mapping_formula_contract_invalid: {exc}")
-  try:
-    assert_post_intake_mapping_formula_application_integrity(
-      model_input_json=copy.deepcopy(model_input_json or {}),
-      finmo_json=copy.deepcopy(finmo_json or {}),
-      stage="post_intake_finalize_validation_mapping_application",
-      contract_name=contract_name,
+    def _run_finalize_mapping_integrity() -> Dict[str, Any]:
+      assert_post_intake_mapping_formula_contract_integrity(stage="post_intake_finalize_validation_mapping_contract")
+      assert_post_intake_mapping_formula_application_integrity(
+        model_input_json=copy.deepcopy(model_input_json or {}),
+        finmo_json=copy.deepcopy(finmo_json or {}),
+        stage="post_intake_finalize_validation_mapping_application",
+        contract_name=contract_name,
+      )
+      return {"status": "completed"}
+
+    sequence_controller.execute_registered_step(
+      "finalize_mapping_integrity",
+      handler_registry=build_single_step_handler_registry(
+        "finalize_mapping_integrity",
+        _run_finalize_mapping_integrity,
+        extra_keys=["assert_post_intake_mapping_formula_application_integrity"],
+      ),
+      runtime_context={
+        "model_input_json": copy.deepcopy(model_input_json or {}),
+        "finmo_json": copy.deepcopy(finmo_json or {}),
+      },
+      isolated=False,
+      allow_side_effects=True,
     )
   except Exception as exc:
-    errors.append(f"mapping_formula_application_invalid: {exc}")
+    errors.append(f"mapping_formula_integrity_invalid: {exc}")
   try:
-    assert_post_intake_global_invariants(
-      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
-      model_input_json=copy.deepcopy(model_input_json or {}),
-      finmo_json=copy.deepcopy(finmo_json or {}),
-      payroll_headcount=copy.deepcopy(payroll_headcount or {}),
-      debt_schedule=copy.deepcopy(debt_schedule or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      enforce_cash_buffer=True,
-      stage="post_intake_finalize_validation_global",
-      contract_name=contract_name,
+    def _run_finalize_global_invariants() -> Dict[str, Any]:
+      assert_post_intake_global_invariants(
+        stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+        model_input_json=copy.deepcopy(model_input_json or {}),
+        finmo_json=copy.deepcopy(finmo_json or {}),
+        payroll_headcount=copy.deepcopy(payroll_headcount or {}),
+        debt_schedule=copy.deepcopy(debt_schedule or {}),
+        financials_json=copy.deepcopy(financials_json or {}),
+        enforce_cash_buffer=True,
+        stage="post_intake_finalize_validation_global",
+        contract_name=contract_name,
+      )
+      return {"status": "completed"}
+
+    sequence_controller.execute_registered_step(
+      "finalize_global_invariants",
+      handler_registry=build_single_step_handler_registry(
+        "finalize_global_invariants",
+        _run_finalize_global_invariants,
+        extra_keys=["assert_post_intake_global_invariants"],
+      ),
+      runtime_context={
+        "stage_ramp_contract": copy.deepcopy(stage_ramp_contract or {}),
+        "model_input_json": copy.deepcopy(model_input_json or {}),
+        "finmo_json": copy.deepcopy(finmo_json or {}),
+        "payroll_headcount": copy.deepcopy(payroll_headcount or {}),
+        "debt_schedule": copy.deepcopy(debt_schedule or {}),
+        "financials_json": copy.deepcopy(financials_json or {}),
+      },
+      isolated=False,
+      allow_side_effects=True,
     )
   except Exception as exc:
     errors.append(f"global_invariants_invalid: {exc}")
@@ -489,17 +541,50 @@ def run_finalize_post_intake_validation(
     finmo_json=copy.deepcopy(finmo_json or {}),
     errors=errors,
   )
-  _assert_payroll_schedule_reconciles(
-    payroll_headcount=copy.deepcopy(payroll_headcount or {}),
-    model_input_json=copy.deepcopy(model_input_json or {}),
-    finmo_json=copy.deepcopy(finmo_json or {}),
-    errors=errors,
-  )
-  _assert_debt_schedule_reconciles(
-    debt_schedule=copy.deepcopy(debt_schedule or {}),
-    finmo_json=copy.deepcopy(finmo_json or {}),
-    errors=errors,
-  )
+  try:
+    sequence_controller.execute_registered_step(
+      "finalize_payroll_reconciliation",
+      handler_registry=build_single_step_handler_registry(
+        "finalize_payroll_reconciliation",
+        lambda: _assert_payroll_schedule_reconciles(
+          payroll_headcount=copy.deepcopy(payroll_headcount or {}),
+          model_input_json=copy.deepcopy(model_input_json or {}),
+          finmo_json=copy.deepcopy(finmo_json or {}),
+          errors=errors,
+        ),
+        extra_keys=["assert_finmo_payroll_matches_headcount_schedule"],
+      ),
+      runtime_context={
+        "payroll_headcount": copy.deepcopy(payroll_headcount or {}),
+        "model_input_json": copy.deepcopy(model_input_json or {}),
+        "finmo_json": copy.deepcopy(finmo_json or {}),
+      },
+      isolated=False,
+      allow_side_effects=True,
+    )
+  except Exception as exc:
+    errors.append(f"payroll_reconciliation_sequence_failed: {exc}")
+  try:
+    sequence_controller.execute_registered_step(
+      "finalize_debt_reconciliation",
+      handler_registry=build_single_step_handler_registry(
+        "finalize_debt_reconciliation",
+        lambda: _assert_debt_schedule_reconciles(
+          debt_schedule=copy.deepcopy(debt_schedule or {}),
+          finmo_json=copy.deepcopy(finmo_json or {}),
+          errors=errors,
+        ),
+        extra_keys=["assert_finmo_matches_debt_schedule"],
+      ),
+      runtime_context={
+        "debt_schedule": copy.deepcopy(debt_schedule or {}),
+        "finmo_json": copy.deepcopy(finmo_json or {}),
+      },
+      isolated=False,
+      allow_side_effects=True,
+    )
+  except Exception as exc:
+    errors.append(f"debt_reconciliation_sequence_failed: {exc}")
   try:
     errors.extend(
       balance_sheet_driver_finalize_errors(
@@ -513,12 +598,27 @@ def run_finalize_post_intake_validation(
     )
   except Exception as exc:
     errors.append(f"balance_sheet_driver_validation_unavailable: {exc}")
-  _assert_cash_phase_trace_complete(
-    (cash_strategy_second_pass_result or {}).get("cash_pass_phase_trace")
-    if isinstance(cash_strategy_second_pass_result, dict)
-    else None,
-    errors,
-  )
+  try:
+    sequence_controller.execute_registered_step(
+      "finalize_cash_phase_trace",
+      handler_registry=build_single_step_handler_registry(
+        "finalize_cash_phase_trace",
+        lambda: _assert_cash_phase_trace_complete(
+          (cash_strategy_second_pass_result or {}).get("cash_pass_phase_trace")
+          if isinstance(cash_strategy_second_pass_result, dict)
+          else None,
+          errors,
+        ),
+        extra_keys=["assert_cash_phase_trace_complete"],
+      ),
+      runtime_context={
+        "cash_strategy_second_pass_result": copy.deepcopy(cash_strategy_second_pass_result or {}),
+      },
+      isolated=False,
+      allow_side_effects=True,
+    )
+  except Exception as exc:
+    errors.append(f"cash_phase_trace_sequence_failed: {exc}")
 
   _raise_if_errors(errors)
   return {
@@ -529,6 +629,7 @@ def run_finalize_post_intake_validation(
     "runtime_table_integrity": copy.deepcopy(runtime_table_integrity),
     "required_process_sequence": copy.deepcopy(required_process_sequence),
     "process_step_contexts": copy.deepcopy(process_step_contexts),
+    "process_context_row_count": process_context_row_count,
     "validated_outputs": [
       "model_input_json",
       "finmo_json",

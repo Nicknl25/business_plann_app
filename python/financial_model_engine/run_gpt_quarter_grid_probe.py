@@ -115,6 +115,10 @@ def _report_lines(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+  raise RuntimeError(
+    "legacy_nonsequenced_quarter_grid_probe_disabled: "
+    "quarter-grid probing must run through the post-intake sequence controller or targeted process execution."
+  )
   parser = argparse.ArgumentParser(description="Probe whether GPT can fill a full quarter-by-quarter band grid.")
   parser.add_argument("--draft-id", dest="draft_id")
   parser.add_argument("--client-id", dest="client_id")
