@@ -2118,7 +2118,11 @@ def estimate_payroll_headcount_schedule_with_gpt(
       "format": {
         "type": "json_schema",
         "name": PAYROLL_HEADCOUNT_CONTRACT_NAME,
-        "schema": post_intake_gpt_contract_openai_schema(contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME),
+        "schema": post_intake_gpt_contract_openai_schema(
+          contract_name=PAYROLL_HEADCOUNT_CONTRACT_NAME,
+          # Module 3 v3 — NAICS-bound `target_payroll_percent_of_revenue`.
+          business_naics=str((ops_json or {}).get("business_naics_6") or "").strip() or None,
+        ),
         "strict": True,
       }
     },

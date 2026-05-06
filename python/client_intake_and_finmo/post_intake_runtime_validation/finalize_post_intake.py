@@ -620,6 +620,60 @@ def run_finalize_post_intake_validation(
   except Exception as exc:
     errors.append(f"cash_phase_trace_sequence_failed: {exc}")
 
+  # Module 3 Tasks 3.6 + 3.8 — finalize realism gate. Runs after the formula /
+  # balance-sheet / cash-phase-trace checks; raises on the first hard_fail
+  # band violation and accumulates warn-mode breaches in the return
+  # payload so the workbook can surface them.
+  #
+  # Two passes: line-level (the ~28 NAICS-keyed line ratios from the
+  # `post_intake_finalize_realism_check_lookup` table) and schedule-level
+  # (wage realism, productivity realism, debt rate realism, capex/PPE
+  # consistency from master-diagnostic Part 6.2).
+  realism_gate_payload: Dict[str, Any] = {
+    "checked": False,
+    "warnings": [],
+    "warning_count": 0,
+    "result_count": 0,
+    "line_level": {},
+    "schedule_level": {},
+  }
+  try:
+    from client_intake_and_finmo.post_intake_realism import (  # type: ignore
+      validate_industry_realism_bands,
+      validate_schedule_sanity,
+    )
+    business_naics_6 = ""
+    if isinstance(ops_json, dict):
+      business_naics_6 = "".join(
+        ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
+      )
+    line_payload = validate_industry_realism_bands(
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      business_naics_6=business_naics_6 or None,
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+    )
+    schedule_payload = validate_schedule_sanity(
+      model_input_json=copy.deepcopy(model_input_json or {}),
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      business_naics_6=business_naics_6 or None,
+      payroll_headcount=copy.deepcopy(payroll_headcount or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+    )
+    combined_warnings = list(line_payload.get("warnings") or []) + list(schedule_payload.get("warnings") or [])
+    realism_gate_payload = {
+      "checked": True,
+      "warnings": combined_warnings,
+      "warning_count": len(combined_warnings),
+      "result_count": int(line_payload.get("result_count") or 0) + int(schedule_payload.get("result_count") or 0),
+      "line_level": line_payload,
+      "schedule_level": schedule_payload,
+    }
+  except Exception as exc:
+    # Hard-fail violations propagate via _raise_if_errors below.
+    errors.append(f"finalize_realism_band_violation: {exc}")
+
   _raise_if_errors(errors)
   return {
     "validation_gate": "post_intake_finalize_validation",
@@ -630,6 +684,7 @@ def run_finalize_post_intake_validation(
     "required_process_sequence": copy.deepcopy(required_process_sequence),
     "process_step_contexts": copy.deepcopy(process_step_contexts),
     "process_context_row_count": process_context_row_count,
+    "realism_gate": realism_gate_payload,
     "validated_outputs": [
       "model_input_json",
       "finmo_json",
@@ -638,5 +693,6 @@ def run_finalize_post_intake_validation(
       "debt_schedule",
       "cash_pass_phase_trace",
       "balance_sheet_driver_formula_application",
+      "industry_realism_bands",
     ],
   }

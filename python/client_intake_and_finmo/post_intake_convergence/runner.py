@@ -44,6 +44,14 @@ _RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
 _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
 _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
 _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 3
+# Module 2 Task 2.2 — total wall budget for the unified convergence loop.
+# Per-cycle budget is 180s; at max_attempts=10 the historical worst case
+# was ~30 minutes. 12 minutes (720s) gives ~4 cycles of room and matches
+# the master-diagnostic Phase 5 recommendation. The two recorded
+# baselines (NexGen ~365s, ValueMart ~133s) complete with comfortable
+# margin. Move to a `post_intake_process_sequence_lookup` column in a
+# follow-up DDL pass (Module 2 Task 2.1, deferred).
+_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS = 720.0
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -1198,6 +1206,9 @@ def _run_unified_post_grid_system_run(
     event_summary="convergence:stage_gate",
   )
 
+  # Module 2 Task 2.2 — capture the total-phase start once. Used to enforce
+  # the loop-wide wall budget (`_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS`).
+  unified_convergence_phase_started_at = time.perf_counter()
   while (
     not bool(controller_resolution_state.get("all_cleared"))
     or not bool(hard_rule_assessment.get("all_hard_rules_cleared"))
@@ -1210,6 +1221,22 @@ def _run_unified_post_grid_system_run(
     unified_convergence_cycle_count += 1
     if unified_convergence_cycle_count > _UNIFIED_CONVERGENCE_MAX_CYCLES:
       raise RuntimeError("unified_convergence_unresolved_after_max_cycles")
+    # Module 2 Task 2.2 — total-phase budget guard. Fires before any cycle
+    # work so a runaway loop fails fast with diagnostics, not at the per-
+    # cycle 180s wall on the 8th cycle.
+    total_elapsed_seconds = time.perf_counter() - unified_convergence_phase_started_at
+    if total_elapsed_seconds > _CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS:
+      raise StructuredSystemRunFailure(
+        detail="convergence_total_phase_budget_exceeded",
+        diagnostics={
+          "stage": "convergence",
+          "cycles_attempted": int(unified_convergence_cycle_count - 1),
+          "total_elapsed_seconds": round(float(total_elapsed_seconds), 3),
+          "total_phase_budget_seconds": float(_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS),
+          "last_controller_resolution_state": copy.deepcopy(controller_resolution_state),
+          "last_hard_rule_assessment": copy.deepcopy(hard_rule_assessment),
+        },
+      )
     cycle_started_at = time.perf_counter()
     cycle_deadline = cycle_started_at + float(_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS)
     cycle_timing: Dict[str, Any] = {

@@ -1,6 +1,6 @@
 # Module 2: Convergence Determinism + NAICS-Tightened Stage Ramp
 
-**Status:** not_started
+**Status:** in_progress (Tasks 2.2, 2.4, 2.5, 2.6 landed. Tasks 2.1, 2.3, 2.7, 2.8 deferred per session direction — see Notes.)
 **Scope:** post-intake only.
 **Depends on:** Module 1 (resolver must exist for the stage ramp NAICS read).
 **Unblocks:** none structurally, but reduces brittleness that Modules 5 and 6 would otherwise inherit.
@@ -149,4 +149,28 @@ These all live inside `post_intake_convergence/` and `numeric_solver.py` plus th
 
 ## Notes from a future session
 
-(Empty.)
+### 2026-05-06 — Stages B + A + C (partial) landed
+
+**Files added / changed:**
+- `python/client_intake_and_finmo/numeric_solver.py` — Task 2.4: algebraic one-dimensional fit runs BEFORE the GPT-anchor evaluation when the task is single-lever / single-target / single-quarter / direct mapping. Fixes the May 2 "lucky anchor escape hatch" bug. Adds `algebraic_path_attempted` and `algebraic_path_result_code` per-attempt telemetry.
+- `python/client_intake_and_finmo/post_intake_convergence/runner.py` — Task 2.2: `_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS = 720.0` (12 min) and a top-of-cycle guard that raises `StructuredSystemRunFailure(detail="convergence_total_phase_budget_exceeded", ...)` when exceeded. Capture `unified_convergence_phase_started_at` at the top of the loop.
+- `python/client_intake_and_finmo/post_intake_mapping.py` — Task 2.6 (partial): `stage_planning_ramp_policy()` now takes an optional `business_naics` kwarg. When supplied, the policy payload carries `naics_qoq_metric_key`, `naics_level_used`, `confidence_tier_used`, `qoq_growth_band` (the resolver payload). The hardcoded `early_revenue_share_ceiling_of_late_run_rate` fractions are unchanged for runtime behavior; the metadata is the foundation Module 3's GPT contract bound work consumes.
+- `python/client_intake_and_finmo/quarter_grid.py` — passes `business_naics=ops.business_naics_6` to the stage_ramp_policy call at `_stage_governance_context`.
+- (new) `Test Files/test_solver_direct_fit_priority.py` — 5/5 pass. Verifies algebraic-first wins over a "lucky anchor" using a deterministic linear-in-driver fake.
+- (new) `Test Files/test_module2_stage_ramp_naics.py` — 6/6 pass. Verifies the budget constant exists + is referenced in a runner function, and the stage ramp policy attaches NAICS qoq metadata when naics is supplied (backward-compatible without it).
+
+**Total regression suite:** 37/37 pass across the 4 test files (resolver 17, M1 wiring 9, solver direct-fit 5, M2 stage-ramp 6).
+
+**Budget choice — 720s (12 min).** User direction was "do what you think is best." Master-diagnostic Phase 5 recommends 12 min. Both passing baselines complete with comfortable margin (NexGen 365s, ValueMart 133s). 4 minutes (the user's earlier comment) was too tight given the per-cycle 180s wall — would fail before 2 cycles complete. 24 minutes (the natural max from `max_attempts=10 × 180s`) defeats the purpose.
+
+**The May 2 reproduction.** Confirmed all four draft IDs (`fa63518a...`, `bf8152f1...`, `5a7da398...`, `9709cb77...`) are still in the DB; all four are "Precision Aesthetics Lab". Their `numeric_solver_feedback_json` shows the exact bug shape: 1 lever (`expenses::Cost of Goods Sold`), 1 target (`cogs`), 1 quarter (Q1), `attempt_count=1`, `quarters_with_target_misses=1`, `best_objective=0.067`. The deterministic-fake unit tests reproduce the bug shape (anchor lucky vs. algebraic exact) without needing to load these drafts at runtime; running the actual drafts through the new code is a future verification step.
+
+**Tasks deferred (with reason):**
+
+- **Task 2.1 — sequence-row column move.** The DDL change (5 new columns on `post_intake_process_sequence_lookup`) is a high-risk schema operation for marginal value while module constants are still the runtime source. The runtime guard added in Task 2.2 uses the constant directly; flipping it to read from a sequence-row column is a clean follow-up that can land safely on its own. Documented in code comment at `_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS`.
+- **Task 2.3 — oscillation state-hash detection.** Defining the state hash structure (`active_lever_ids_sorted`, `target_metric_names_sorted`, `scoped_baseline_signature`, `decision_lever_adjustments_signature`) and integrating it with `retry_memory["non_productive_cycle_tracker"]` requires a focused integration pass. The existing `consecutive_non_productive_cycles >= 3` bailout (line 1735) catches the validation-error pattern case; the hash-based detector catches the data-driven case the existing check misses. Worth landing on its own change.
+- **Task 2.6 ceiling replacement (the `(1+qoq)^q` math).** The metadata is in place; replacing the hardcoded `Q1=0.25, Q2=0.40, Q3=0.60, Q4=0.80` block with NAICS-derived values needs an empirical pass to confirm the new ceilings do not surface latent contract violations on baselines that pass today. The conservative ratio interpretation (`Qn_share = 1/(1+qoq)^(20-n)`) yields tighter ceilings than the universal 0.25/0.80 for many NAICS — that may surface real bugs that need separate attention.
+- **Task 2.7 — three new validators (`fte_qoq_max`, `utilization_high_watermark`, `max_spike_count`).** Each is a fail-fast gate that may surface latent contract violations on real intakes. The spec recommends path (b) — fail-fast with the failing constraint named. Better landed when the post-intake pipeline is more stable.
+- **Task 2.8 — sequence sub-step declarations for the validators.** Depends on Task 2.7; structural cleanup, no behavior change.
+
+**One observation from this session.** The convergence runner is ~3,400 lines in a single function-level scope. Adding Task 2.2's guard required tracing 600+ lines of cycle logic to find a safe insertion point. The existing `_apply_stage_ramp_revenue_driver_limits` helper is the right pattern for new validators (Task 2.7) but they should land as separate sequence sub-steps (Task 2.8) to avoid making the runner even larger. Worth keeping in mind as the runner gets touched.

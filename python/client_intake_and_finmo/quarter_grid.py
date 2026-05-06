@@ -27,6 +27,9 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   stage_planning_ramp_policy,
 )
 from client_intake_and_finmo.fail_fast.post_intake_fail_fast import assert_quarter_grid_stage_ramp_bridge_applied  # type: ignore
+from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+  post_intake_industry_baseline_for_naics,
+)
 
 _PLANNING_MODE_DEFAULTS: Dict[str, str] = {
   "turnaround": (
@@ -104,7 +107,13 @@ def _safe_ratio(value: Any) -> Optional[float]:
   return ratio
 
 
-def _cogs_dollars_from_financials(financials: Dict[str, Any], year1: Dict[str, Any], revenue: float) -> float:
+def _cogs_dollars_from_financials(
+  financials: Dict[str, Any],
+  year1: Dict[str, Any],
+  revenue: float,
+  *,
+  ops_json: Optional[Dict[str, Any]] = None,
+) -> float:
   for key in ("cogs_percent_of_revenue", "cogs_percent", "estimated_cogs_percent"):
     ratio = _safe_ratio(financials.get(key))
     if ratio is not None and ratio > 0.0:
@@ -115,21 +124,41 @@ def _cogs_dollars_from_financials(financials: Dict[str, Any], year1: Dict[str, A
     or year1.get("cogs_total_year1")
     or financials.get("current_cogs")
   )
-  implied_ratio = (cogs_value / revenue) if revenue > 0.0 else 0.0
-  if 1.0 < cogs_value <= 100.0 and implied_ratio < 0.05:
-    return max(0.0, revenue * (cogs_value / 100.0))
-  return max(0.0, cogs_value)
+  if cogs_value is not None and cogs_value > 0.0:
+    implied_ratio = (cogs_value / revenue) if revenue > 0.0 else 0.0
+    if 1.0 < cogs_value <= 100.0 and implied_ratio < 0.05:
+      return max(0.0, revenue * (cogs_value / 100.0))
+    return max(0.0, cogs_value)
+  # Module 1 Task 1.3: NAICS-cascade substitution when intake omitted both
+  # the explicit ratio and the dollar value. Only applies when revenue base
+  # exists; quarter_grid baseline summary is used for forecast realism, not
+  # stub 0 — substitution is safe here.
+  if isinstance(ops_json, dict) and revenue and revenue > 0.0:
+    naics_6 = re.sub(r"[^0-9]", "", str(ops_json.get("business_naics_6") or "").strip())
+    if naics_6:
+      try:
+        band = post_intake_industry_baseline_for_naics(
+          metric_key="cogs_percent_of_revenue", naics_6=naics_6
+        )
+      except Exception:
+        band = None
+      if band and band.get("benchmark_target") is not None:
+        target = float(band["benchmark_target"])
+        if target > 0.0:
+          return max(0.0, float(revenue) * target)
+  return 0.0
 
 
 def _build_baseline_financial_summary(
   *,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  ops_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   financials = financials_json if isinstance(financials_json, dict) else {}
   year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
   revenue = _safe_float(year1.get("company_revenue_total_year1") or financials.get("current_revenue"))
-  cogs = _cogs_dollars_from_financials(financials, year1, revenue)
+  cogs = _cogs_dollars_from_financials(financials, year1, revenue, ops_json=ops_json)
   gross_profit = revenue - cogs
   payroll = _safe_float(
     financials.get("current_payroll")
@@ -414,11 +443,13 @@ def determine_planning_mode(
     allowed_step_keys=["planning_mode_determination"],
     allowed_executor_functions=["determine_planning_mode"],
   )
-  del ops_json, target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
+  del target_market_json, people_json, fulfillment_json, marketing_model_json, business_facts
   baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or _build_baseline_financial_summary(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
+    ops_json=ops_json,
   )
+  del ops_json
   diagnosis = _diagnose_planning_case(baseline_summary=baseline_summary)
   classification = classify_planning_mode(
     baseline_summary=baseline_summary,
@@ -871,6 +902,9 @@ def _stage_governance_context(
     if isinstance(ramp_contract.get("stage_profitability_policy"), dict)
     else "",
     business_stage=stage,
+    # Module 2 Task 2.6 — NAICS metadata flows through to Module 3's GPT
+    # contract bound work + the finalize realism gate.
+    business_naics=str(ops.get("business_naics_6") or "").strip(),
   )
   context = {
     "contract_version": "quarter_grid_lifecycle_governance_v1",
@@ -1297,6 +1331,7 @@ def build_governor_payload_from_context(
   baseline_summary = _baseline_summary_from_finmo_json(finmo_json) or _build_baseline_financial_summary(
     financials_json=financials_json,
     financials_year1_json=financials_year1_json,
+    ops_json=ops_json,
   )
   cash_strategy_context = _cash_strategy_context(financials_json)
   stage_governance_context = _stage_governance_context(

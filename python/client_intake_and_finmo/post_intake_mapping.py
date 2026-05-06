@@ -8,7 +8,7 @@ import json
 import math
 import re
 from functools import lru_cache
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 from client_intake_and_finmo.intake_submission import get_mysql_connection
@@ -324,6 +324,17 @@ def _gpt_contract_row(
   json_schema_type: str = "",
   min_value: Optional[float] = None,
   max_value: Optional[float] = None,
+  # Module 3 Task 3.1 — NAICS-baseline bound injection. When
+  # `naics_baseline_metric_key` is set, the contract field's runtime
+  # `min_value`/`max_value` are populated from the NAICS resolver cascade
+  # at prompt-build time. Static `min_value`/`max_value` (above) become the
+  # mapping-table outer envelope when `mapping_table_outer_envelope=True`,
+  # so the static bound is the absolute hard cap and NAICS narrows inside.
+  naics_baseline_metric_key: str = "",
+  naics_baseline_band_kind: str = "",  # 'min_target_max' | 'target_only'
+  naics_baseline_min_quantile: Optional[float] = None,
+  naics_baseline_max_quantile: Optional[float] = None,
+  mapping_table_outer_envelope: bool = True,
   min_items: Optional[int] = None,
   max_items: Optional[int] = None,
   item_contract_grid_name: str = "",
@@ -399,6 +410,11 @@ def _gpt_contract_row(
     "json_schema_type": resolved_json_schema_type,
     "min_value": min_value,
     "max_value": max_value,
+    "naics_baseline_metric_key": naics_baseline_metric_key or "",
+    "naics_baseline_band_kind": naics_baseline_band_kind or "",
+    "naics_baseline_min_quantile": naics_baseline_min_quantile,
+    "naics_baseline_max_quantile": naics_baseline_max_quantile,
+    "mapping_table_outer_envelope": bool(mapping_table_outer_envelope),
     "min_items": min_items,
     "max_items": max_items,
     "item_contract_grid_name": item_contract_grid_name,
@@ -2246,12 +2262,59 @@ _STAGE_RAMP_GRID_FIELDS: List[Dict[str, Any]] = [
     allowed_aliases=["utilization_cap"],
     prompt_required_instruction="Utilization cap must be non-decreasing. For Q2-Q20, utilization-cap growth cannot exceed that row's allowed revenue growth: use rev_spike_max when rev_spike=true, otherwise use rev_max.",
   ),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_target", "cogs_target", "ratio_2dp", min_value=0.05, max_value=0.90, is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_target"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_max", "cogs_max", "ratio_2dp", min_value=0.20, max_value=0.95, is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].marketing_max", "marketing_max", "ratio_2dp", min_value=0.00, max_value=0.40, is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["marketing_percent_of_revenue_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rd_max", "rd_max", "ratio_2dp", min_value=0.00, max_value=0.50, is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["rd_percent_of_revenue_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].ga_max", "ga_max", "ratio_2dp", min_value=0.00, max_value=0.60, is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["g_and_a_percent_of_revenue_max"]),
-  _gpt_contract_row("stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].lease_max", "lease_max", "ratio_2dp", min_value=0.00, max_value=0.50, is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp", validation_kind="stage_ramp_numeric", allowed_aliases=["lease_percent_of_revenue_max"]),
+  # Module 3 v3 Task 3.3 — stage_ramp_contract cost-cap fields are now
+  # NAICS-bound. Static (min, max) is the mapping outer envelope; the
+  # NAICS cascade narrows inside. When `business_naics` is supplied at
+  # prompt-build time, GPT receives an industry-typical band; without
+  # NAICS the static envelope still applies.
+  _gpt_contract_row(
+    "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_target", "cogs_target", "ratio_2dp",
+    min_value=0.05, max_value=0.90,
+    naics_baseline_metric_key="cogs_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
+    validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_target"],
+  ),
+  _gpt_contract_row(
+    "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].cogs_max", "cogs_max", "ratio_2dp",
+    min_value=0.20, max_value=0.95,
+    naics_baseline_metric_key="cogs_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
+    validation_kind="stage_ramp_numeric", allowed_aliases=["cogs_percent_of_revenue_max"],
+  ),
+  _gpt_contract_row(
+    "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].marketing_max", "marketing_max", "ratio_2dp",
+    min_value=0.00, max_value=0.40,
+    naics_baseline_metric_key="marketing_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
+    validation_kind="stage_ramp_numeric", allowed_aliases=["marketing_percent_of_revenue_max"],
+  ),
+  _gpt_contract_row(
+    "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].rd_max", "rd_max", "ratio_2dp",
+    min_value=0.00, max_value=0.50,
+    naics_baseline_metric_key="r_and_d_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
+    validation_kind="stage_ramp_numeric", allowed_aliases=["rd_percent_of_revenue_max"],
+  ),
+  _gpt_contract_row(
+    "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].ga_max", "ga_max", "ratio_2dp",
+    min_value=0.00, max_value=0.60,
+    naics_baseline_metric_key="sga_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
+    validation_kind="stage_ramp_numeric", allowed_aliases=["g_and_a_percent_of_revenue_max"],
+  ),
+  _gpt_contract_row(
+    "stage_ramp_contract", "quarter_ramp_grid", "quarter_ramp_grid[].lease_max", "lease_max", "ratio_2dp",
+    min_value=0.00, max_value=0.50,
+    naics_baseline_metric_key="rent_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    is_array_item=True, parent_field_path="quarter_ramp_grid", normalization_kind="ratio_2dp",
+    validation_kind="stage_ramp_numeric", allowed_aliases=["lease_percent_of_revenue_max"],
+  ),
   _gpt_contract_row(
     "stage_ramp_contract",
     "quarter_ramp_grid",
@@ -2301,7 +2364,28 @@ _BALANCE_SHEET_CONTEXTUAL_SEED_GRID_FIELDS: List[Dict[str, Any]] = [
 
 
 _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
-  _gpt_contract_row("maintenance_capex_percent", "root", "maintenance_capex_percent", "maintenance_capex_percent", "ratio_2dp", min_value=2.00, max_value=15.00, normalization_kind="ratio_2dp", validation_kind="maintenance_capex_percent_range", contract_phase="pre_forecast"),
+  # Module 3 Task 3.3 — maintenance capex bound is now NAICS-driven via the
+  # `maintenance_capex_percent_of_revenue` resolver cascade. The previous
+  # hardcoded 2.00-15.00 universal range was a 2-15% catch-all that did not
+  # reflect industry reality (capital-light services and capital-heavy
+  # manufacturing should not share the same bound). Static `min_value`/
+  # `max_value` are intentionally omitted; with `naics_baseline_metric_key`
+  # set, prompt-build time fills them in from the cascade. Both
+  # `mapping_table_outer_envelope` and the static fallback are inactive
+  # because there is no longer a meaningful universal-business range.
+  _gpt_contract_row(
+    "maintenance_capex_percent",
+    "root",
+    "maintenance_capex_percent",
+    "maintenance_capex_percent",
+    "ratio_2dp",
+    naics_baseline_metric_key="maintenance_capex_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    mapping_table_outer_envelope=False,
+    normalization_kind="ratio_2dp",
+    validation_kind="maintenance_capex_percent_range",
+    contract_phase="pre_forecast",
+  ),
   _gpt_contract_row(
     "balance_sheet_contextual_seed",
     "root",
@@ -2353,7 +2437,21 @@ _DEFAULT_GPT_CONTRACT_ROWS: List[Dict[str, Any]] = [
   _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_tier", "wage_positioning_tier", "enum", validation_kind="enum", enum_values=["floor", "market", "premium", "specialized"], lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Choose one wage positioning tier from post_intake_headcount_policy_lookup. OEWS is the wage floor; GPT must also provide the exact wage_positioning_multiplier inside this tier's table-backed bounds."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "wage_positioning_multiplier", "wage_positioning_multiplier", "number", min_value=1.0, max_value=3.0, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment wage multiplier applied to OEWS wages. Must be inside post_intake_headcount_policy_lookup.wage_positioning_multiplier bounds for the selected wage_positioning_tier. Python applies this exact multiplier; Python does not choose a default."),
   _gpt_contract_row("payroll_headcount_schedule", "root", "capacity_units_per_supporting_fte", "capacity_units_per_supporting_fte", "number", min_value=0.0001, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-specific productivity judgment: how many structural capacity units one supporting FTE can support per quarter. Python multiplies this by payroll FTE to derive supported Capacity. Python does not reject it using fake universal capacity-per-FTE reasonableness bounds. Do not use revenue-per-employee."),
-  _gpt_contract_row("payroll_headcount_schedule", "root", "target_payroll_percent_of_revenue", "target_payroll_percent_of_revenue", "ratio_2dp", min_value=0.01, max_value=0.90, normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule", lookup_source="post_intake_headcount_policy_lookup", prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. This does not drive payroll math or force FTE. Python uses it as reasonableness context for GPT's own contract assumptions."),
+  # Module 3 v3 Task 3.3 — target_payroll_percent_of_revenue is NAICS-bound.
+  # The mapping outer envelope (0.01-0.90) covers all labor-intensity
+  # classes; NAICS narrows to the industry-typical band. Crucially, this
+  # remains a REASONABLENESS TARGET only — Python does NOT clip payroll to
+  # match revenue (Golden Rule preservation). The realism gate at finalize
+  # checks the produced payroll/revenue ratio independently.
+  _gpt_contract_row(
+    "payroll_headcount_schedule", "root", "target_payroll_percent_of_revenue", "target_payroll_percent_of_revenue", "ratio_2dp",
+    min_value=0.01, max_value=0.90,
+    naics_baseline_metric_key="payroll_percent_of_revenue",
+    naics_baseline_band_kind="min_target_max",
+    normalization_kind="ratio_2dp", validation_kind="payroll_headcount_schedule",
+    lookup_source="post_intake_headcount_policy_lookup",
+    prompt_required_instruction="Business-judgment sanity target for final payroll as a percent of revenue. This does not drive payroll math or force FTE. Python uses it as reasonableness context for GPT's own contract assumptions.",
+  ),
   _gpt_contract_row("payroll_headcount_schedule", "root", "rationale", "rationale", "string"),
   *_PAYROLL_HEADCOUNT_GRID_FIELDS,
   _gpt_contract_row("r_and_d_applicability", "root", "r_and_d_enabled", "r_and_d_enabled", "boolean", validation_kind="boolean"),
@@ -2816,8 +2914,47 @@ def stage_planning_ramp_policy(
   planning_mode: Any,
   planning_mode_reason: Any = "",
   business_stage: Any = "",
+  business_naics: Any = None,
 ) -> Dict[str, Any]:
-  """Deterministic lifecycle policy shared by ramp GPT, validation, and quarter-grid."""
+  """Deterministic lifecycle policy shared by ramp GPT, validation, and quarter-grid.
+
+  Module 2 Task 2.6 — when `business_naics` is supplied, the policy payload
+  carries NAICS-cascaded `qoq_growth_band` metadata for downstream consumers.
+
+  Module 3 v3 status of the legacy hardcodes that used to live here:
+
+  - The hardcoded "2 to 15" maintenance-capex prose bound was DELETED in v1
+    (Module 3 Task 3.3) — the gpt_contract_lookup row now carries
+    `naics_baseline_metric_key="maintenance_capex_percent_of_revenue"` and
+    the prompt-build pipeline injects the NAICS band per business.
+
+  - The hardcoded universal cost-ratio caps on `stage_ramp_contract`
+    (cogs_target/cogs_max/marketing_max/rd_max/ga_max/lease_max — the
+    `{"type": "number", "minimum": 0, "maximum": 1}` field-schema overrides
+    in `_stage_ramp_contract_schema`) were DELETED in v3. Those fields are
+    now NAICS-bound at the contract row level via Module 3 Task 3.3.
+
+  - The hardcoded `target_payroll_percent_of_revenue` bound (0.01..0.90)
+    on `payroll_headcount_schedule` is still the mapping outer envelope
+    but a `naics_baseline_metric_key="payroll_percent_of_revenue"` row was
+    added in v3, so prompt-build narrows it to the NAICS band when
+    `business_naics` flows through to the schema build.
+
+  - `early_revenue_share_ceiling_of_late_run_rate` (Q1-Q4 fractions like
+    {Q1: 0.25, Q2: 0.40, Q3: 0.60, Q4: 0.80}) STAYS in this function. They
+    are NOT a universal-business hardcode in the same sense as the cost
+    bounds above — they're hand-calibrated stage-shape guidance for the
+    quarter-grid prompt context (revenue as a share of late-horizon
+    run-rate). The NAICS qoq metric (`startup_qoq_growth_typical` etc.)
+    measures employment growth via Census BDS, which does not translate
+    cleanly to "share of late run rate" via a closed-form formula:
+    applying `Qn_share = 1/(1+qoq)^(20-n)` to BDS values produces share
+    fractions in the 1-5% range for startups (BDS startup employment
+    qoq is ~50%) — far tighter than is operationally realistic.
+    Replacing these fractions with NAICS-derived values needs either a
+    different upstream metric (revenue ramp shape per NAICS-and-stage) or
+    an empirical recalibration. Documented as a future module's work.
+  """
   family = _clean_text(stage_family).lower() or "operational"
   raw_mode = _clean_text(planning_mode).lower()
   mode = raw_mode if raw_mode in _POST_INTAKE_PLANNING_MODES else "turnaround"
@@ -2828,6 +2965,27 @@ def stage_planning_ramp_policy(
     mode == "turnaround"
     or any(token in reason for token in distress_tokens)
   )
+
+  # Module 2 Task 2.6 — pull the NAICS-typical QoQ growth band when caller
+  # supplied a NAICS code. Falls through silently to None when the resolver
+  # is unavailable (e.g., during table-init paths) or the cascade returns
+  # no_coverage.
+  qoq_metric_key = {
+    "startup": "startup_qoq_growth_typical",
+    "early": "early_qoq_growth_typical",
+  }.get(family, "mature_qoq_growth_typical")
+  qoq_growth_band: Optional[Dict[str, Any]] = None
+  naics_clean = _clean_text(business_naics)
+  if naics_clean:
+    try:
+      from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+        post_intake_industry_baseline_for_naics,
+      )
+      qoq_growth_band = post_intake_industry_baseline_for_naics(
+        metric_key=qoq_metric_key, naics_6=naics_clean
+      )
+    except Exception:
+      qoq_growth_band = None
 
   policy: Dict[str, Any] = {
     "policy_version": "stage_planning_ramp_policy_v1",
@@ -2842,6 +3000,22 @@ def stage_planning_ramp_policy(
       "q10_min_net_income_margin_floor": -0.02,
       "q11_to_q20_min_net_income_margin_floor": 0.0,
     },
+    # Module 2 Task 2.6 — NAICS metadata for downstream consumers.
+    "naics_qoq_metric_key": qoq_metric_key,
+    "naics_level_used": (qoq_growth_band or {}).get("naics_level_used"),
+    "confidence_tier_used": (qoq_growth_band or {}).get("confidence_tier"),
+    "qoq_growth_band": (
+      {
+        "metric_key": qoq_growth_band.get("metric_key"),
+        "benchmark_min": qoq_growth_band.get("benchmark_min"),
+        "benchmark_target": qoq_growth_band.get("benchmark_target"),
+        "benchmark_max": qoq_growth_band.get("benchmark_max"),
+        "data_source": qoq_growth_band.get("data_source"),
+        "trust_flag": qoq_growth_band.get("trust_flag"),
+      }
+      if isinstance(qoq_growth_band, dict)
+      else None
+    ),
   }
 
   if family == "startup":
@@ -3877,6 +4051,11 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
           json_schema_type VARCHAR(64) NOT NULL DEFAULT 'string',
           min_value DECIMAL(20,6) NULL,
           max_value DECIMAL(20,6) NULL,
+          naics_baseline_metric_key VARCHAR(128) NULL,
+          naics_baseline_band_kind VARCHAR(32) NULL,
+          naics_baseline_min_quantile DECIMAL(6,4) NULL,
+          naics_baseline_max_quantile DECIMAL(6,4) NULL,
+          mapping_table_outer_envelope TINYINT(1) NOT NULL DEFAULT 1,
           min_items INT NULL,
           max_items INT NULL,
           item_contract_grid_name VARCHAR(128) NULL,
@@ -3994,6 +4173,35 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
         ADD COLUMN failure_code VARCHAR(255) NULL
         AFTER prompt_label
         """,
+        # Module 3 Task 3.1 — NAICS-baseline bound columns. When set,
+        # `min_value`/`max_value` are populated at prompt-build time from
+        # the resolver cascade for `naics_baseline_metric_key`. Replaces
+        # the hardcoded universal bounds previously living in code.
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN naics_baseline_metric_key VARCHAR(128) NULL
+        AFTER max_value
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN naics_baseline_band_kind VARCHAR(32) NULL
+        AFTER naics_baseline_metric_key
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN naics_baseline_min_quantile DECIMAL(6,4) NULL
+        AFTER naics_baseline_band_kind
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN naics_baseline_max_quantile DECIMAL(6,4) NULL
+        AFTER naics_baseline_min_quantile
+        """,
+        f"""
+        ALTER TABLE {_GPT_CONTRACT_TABLE_NAME}
+        ADD COLUMN mapping_table_outer_envelope TINYINT(1) NOT NULL DEFAULT 1
+        AFTER naics_baseline_max_quantile
+        """,
       ):
         try:
           cur.execute(alter_sql)
@@ -4017,6 +4225,11 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             json_schema_type,
             min_value,
             max_value,
+            naics_baseline_metric_key,
+            naics_baseline_band_kind,
+            naics_baseline_min_quantile,
+            naics_baseline_max_quantile,
+            mapping_table_outer_envelope,
             min_items,
             max_items,
             item_contract_grid_name,
@@ -4039,7 +4252,7 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             failure_code,
             contract_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             field_name = VALUES(field_name),
             field_type = VALUES(field_type),
@@ -4052,6 +4265,11 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             json_schema_type = VALUES(json_schema_type),
             min_value = VALUES(min_value),
             max_value = VALUES(max_value),
+            naics_baseline_metric_key = VALUES(naics_baseline_metric_key),
+            naics_baseline_band_kind = VALUES(naics_baseline_band_kind),
+            naics_baseline_min_quantile = VALUES(naics_baseline_min_quantile),
+            naics_baseline_max_quantile = VALUES(naics_baseline_max_quantile),
+            mapping_table_outer_envelope = VALUES(mapping_table_outer_envelope),
             min_items = VALUES(min_items),
             max_items = VALUES(max_items),
             item_contract_grid_name = VALUES(item_contract_grid_name),
@@ -4090,6 +4308,11 @@ def _ensure_gpt_contract_lookup_table(conn) -> None:
             _clean_text(row.get("json_schema_type")).lower() or "string",
             row.get("min_value"),
             row.get("max_value"),
+            _clean_text(row.get("naics_baseline_metric_key")) or None,
+            _clean_text(row.get("naics_baseline_band_kind")) or None,
+            row.get("naics_baseline_min_quantile"),
+            row.get("naics_baseline_max_quantile"),
+            1 if _clean_bool(row.get("mapping_table_outer_envelope"), default=True) else 0,
             row.get("min_items"),
             row.get("max_items"),
             _clean_text(row.get("item_contract_grid_name")).lower(),
@@ -5193,6 +5416,11 @@ def load_post_intake_gpt_contract_rows() -> List[Dict[str, Any]]:
           json_schema_type,
           min_value,
           max_value,
+          naics_baseline_metric_key,
+          naics_baseline_band_kind,
+          naics_baseline_min_quantile,
+          naics_baseline_max_quantile,
+          mapping_table_outer_envelope,
           min_items,
           max_items,
           item_contract_grid_name,
@@ -5255,6 +5483,11 @@ def load_post_intake_gpt_contract_rows() -> List[Dict[str, Any]]:
         "json_schema_type": _clean_text(raw_row.get("json_schema_type")).lower() or "string",
         "min_value": float(raw_row.get("min_value")) if raw_row.get("min_value") is not None else None,
         "max_value": float(raw_row.get("max_value")) if raw_row.get("max_value") is not None else None,
+        "naics_baseline_metric_key": _clean_text(raw_row.get("naics_baseline_metric_key")) or None,
+        "naics_baseline_band_kind": _clean_text(raw_row.get("naics_baseline_band_kind")) or None,
+        "naics_baseline_min_quantile": float(raw_row.get("naics_baseline_min_quantile")) if raw_row.get("naics_baseline_min_quantile") is not None else None,
+        "naics_baseline_max_quantile": float(raw_row.get("naics_baseline_max_quantile")) if raw_row.get("naics_baseline_max_quantile") is not None else None,
+        "mapping_table_outer_envelope": _clean_bool(raw_row.get("mapping_table_outer_envelope"), default=True),
         "min_items": int(raw_row.get("min_items")) if raw_row.get("min_items") is not None else None,
         "max_items": int(raw_row.get("max_items")) if raw_row.get("max_items") is not None else None,
         "item_contract_grid_name": _clean_text(raw_row.get("item_contract_grid_name")).lower(),
@@ -6457,12 +6690,118 @@ class PostIntakeGptContractLookup:
           aliases[alias_name] = field_name
     return aliases
 
+  def _resolve_naics_bound(
+    self,
+    row: Dict[str, Any],
+    *,
+    business_naics: Optional[str],
+  ) -> Tuple[Optional[float], Optional[float], Optional[Dict[str, Any]]]:
+    """Module 3 Task 3.2 — resolve NAICS-derived min/max for one contract row.
+
+    Returns a tuple of (effective_min, effective_max, provenance).
+    When the row has no `naics_baseline_metric_key`, returns the row's
+    static min/max unchanged. When the resolver succeeds, narrows the
+    bounds inside the static envelope (when `mapping_table_outer_envelope`
+    is True). Provenance describes the source (None when no NAICS lookup
+    was attempted).
+    """
+    static_min = row.get("min_value")
+    static_max = row.get("max_value")
+    metric_key = _clean_text(row.get("naics_baseline_metric_key"))
+    naics_clean = _clean_text(business_naics)
+    if not metric_key or not naics_clean:
+      return static_min, static_max, None
+    try:
+      from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+        post_intake_industry_baseline_for_naics,
+      )
+      band = post_intake_industry_baseline_for_naics(
+        metric_key=metric_key, naics_6=naics_clean
+      )
+    except Exception:
+      return static_min, static_max, None
+    if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
+      return static_min, static_max, None
+    band_kind = _clean_text(row.get("naics_baseline_band_kind")).lower() or "min_target_max"
+    bench_min = band.get("benchmark_min")
+    bench_target = band.get("benchmark_target")
+    bench_max = band.get("benchmark_max")
+    # Module 3 v2 — quantile widening for target-only bands.
+    #
+    # Some upstream data sources only supply target (e.g., the
+    # `derived_depreciation_proxy` source for maintenance_capex). With
+    # naics_baseline_band_kind = "min_target_max" and bench_min/bench_max
+    # absent, the v1 implementation returned target as both min and max —
+    # producing a degenerate point constraint instead of a usable range.
+    # The fix: when band_kind = "min_target_max" but bench_min/bench_max
+    # are missing, widen target by the row's `naics_baseline_min_quantile`
+    # / `naics_baseline_max_quantile` multipliers (defaults 0.5 / 1.5 — i.e.
+    # +/- 50% of target). When band_kind = "target_only", keep the target
+    # exact (caller asked for a point constraint).
+    min_quantile = row.get("naics_baseline_min_quantile")
+    max_quantile = row.get("naics_baseline_max_quantile")
+    min_quantile_f = float(min_quantile) if min_quantile is not None else 0.5
+    max_quantile_f = float(max_quantile) if max_quantile is not None else 1.5
+    naics_min: Optional[float]
+    naics_max: Optional[float]
+    if band_kind == "target_only" and bench_target is not None:
+      target = float(bench_target)
+      naics_min = target
+      naics_max = target
+    else:
+      # min_target_max (default) — prefer real bench_min/bench_max; widen
+      # target with the configured quantiles when min/max are missing.
+      if bench_min is not None and bench_max is not None:
+        naics_min = float(bench_min)
+        naics_max = float(bench_max)
+      elif bench_target is not None:
+        target = float(bench_target)
+        naics_min = target * min_quantile_f
+        naics_max = target * max_quantile_f
+      else:
+        naics_min = float(bench_min) if bench_min is not None else None
+        naics_max = float(bench_max) if bench_max is not None else None
+    if naics_min is None or naics_max is None:
+      return static_min, static_max, None
+    if naics_min > naics_max:
+      naics_min, naics_max = naics_max, naics_min
+    outer_envelope = bool(row.get("mapping_table_outer_envelope"))
+    effective_min: Optional[float] = naics_min
+    effective_max: Optional[float] = naics_max
+    if outer_envelope:
+      if static_min is not None:
+        effective_min = max(float(static_min), naics_min)
+      if static_max is not None:
+        effective_max = min(float(static_max), naics_max)
+    if effective_min is not None and effective_max is not None and effective_min > effective_max:
+      # NAICS band falls outside the static envelope — keep the static
+      # envelope and surface the provenance for diagnostics.
+      effective_min, effective_max = static_min, static_max
+    provenance = {
+      "metric_key": metric_key,
+      "naics_level_used": band.get("naics_level_used"),
+      "naics_code_used": band.get("naics_code_used"),
+      "confidence_tier": band.get("confidence_tier"),
+      "data_source": band.get("data_source"),
+      "trust_flag": band.get("trust_flag"),
+      "source_min": naics_min,
+      "source_max": naics_max,
+      "static_min": static_min,
+      "static_max": static_max,
+      "band_kind": band_kind,
+      "outer_envelope_applied": outer_envelope,
+      "effective_min": effective_min,
+      "effective_max": effective_max,
+    }
+    return effective_min, effective_max, provenance
+
   def _field_schema(
     self,
     row: Dict[str, Any],
     *,
     field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    business_naics: Optional[str] = None,
   ) -> Dict[str, Any]:
     overrides = field_schema_overrides if isinstance(field_schema_overrides, dict) else {}
     item_overrides = array_item_schema_overrides if isinstance(array_item_schema_overrides, dict) else {}
@@ -6479,12 +6818,20 @@ class PostIntakeGptContractLookup:
     enum_values = _json_list(row.get("enum_values"))
     if enum_values:
       schema["enum"] = enum_values + ([None] if bool(row.get("allow_null")) else [])
-    min_value = row.get("min_value")
-    max_value = row.get("max_value")
-    if min_value is not None and schema_type in {"integer", "number"}:
-      schema["minimum"] = int(min_value) if schema_type == "integer" else float(min_value)
-    if max_value is not None and schema_type in {"integer", "number"}:
-      schema["maximum"] = int(max_value) if schema_type == "integer" else float(max_value)
+    # Module 3 Task 3.2 — NAICS-band injection (narrows the schema's
+    # min/max when the row declares a `naics_baseline_metric_key`).
+    effective_min, effective_max, naics_provenance = self._resolve_naics_bound(
+      row, business_naics=business_naics
+    )
+    if effective_min is not None and schema_type in {"integer", "number"}:
+      schema["minimum"] = int(effective_min) if schema_type == "integer" else float(effective_min)
+    if effective_max is not None and schema_type in {"integer", "number"}:
+      schema["maximum"] = int(effective_max) if schema_type == "integer" else float(effective_max)
+    if naics_provenance is not None:
+      # Annotate the schema for downstream prompt-trace + workbook
+      # provenance. OpenAI ignores `_naics_band` but it makes the rendered
+      # contract self-describing.
+      schema["_naics_band"] = naics_provenance
     if schema_type == "array":
       min_items = row.get("min_items")
       max_items = row.get("max_items")
@@ -6503,6 +6850,7 @@ class PostIntakeGptContractLookup:
           grid_name=item_grid,
           field_schema_overrides=overrides,
           array_item_schema_overrides=item_overrides,
+          business_naics=business_naics,
         )
       else:
         schema["items"] = {"type": "string"}
@@ -6519,6 +6867,7 @@ class PostIntakeGptContractLookup:
     grid_name: Any = "root",
     field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    business_naics: Optional[str] = None,
   ) -> Dict[str, Any]:
     rows = self.fields_for_grid(contract_name=contract_name, grid_name=grid_name)
     properties: Dict[str, Any] = {}
@@ -6531,6 +6880,7 @@ class PostIntakeGptContractLookup:
         row,
         field_schema_overrides=field_schema_overrides,
         array_item_schema_overrides=array_item_schema_overrides,
+        business_naics=business_naics,
       )
       if bool(row.get("strict_required")):
         required.append(field_name)
@@ -6547,12 +6897,14 @@ class PostIntakeGptContractLookup:
     contract_name: Any,
     field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    business_naics: Optional[str] = None,
   ) -> Dict[str, Any]:
     return self.object_schema_for_grid(
       contract_name=contract_name,
       grid_name="root",
       field_schema_overrides=field_schema_overrides,
       array_item_schema_overrides=array_item_schema_overrides,
+      business_naics=business_naics,
     )
 
   def prompt_field_spec(self, contract_name: Any) -> Dict[str, Any]:
@@ -8338,11 +8690,13 @@ def post_intake_gpt_contract_openai_schema(
   contract_name: Any,
   field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
   array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  business_naics: Optional[str] = None,
 ) -> Dict[str, Any]:
   return post_intake_gpt_contract_lookup().openai_schema(
     contract_name=contract_name,
     field_schema_overrides=field_schema_overrides,
     array_item_schema_overrides=array_item_schema_overrides,
+    business_naics=business_naics,
   )
 
 

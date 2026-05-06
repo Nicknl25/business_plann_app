@@ -268,10 +268,13 @@ Phases are ordered by *realism impact landed first* with *regression risk minimi
 
 ### Phase 0 — Prep (no behavior change)
 1. Add a `post_intake_industry_baseline/` package with `lookup.py` containing `post_intake_industry_baseline_for_naics(metric_key, naics_6)` resolver implementing the 6→5→4→3→2→0 cascade against `post_intake_industry_baseline_lookup`. Return the documented payload (`benchmark_min/target/max`, `naics_level_used`, `data_source`, `sample_size`, `confidence_tier`, `trust_flag`, `fallback_chain_attempted`).
-2. Add unit tests for the resolver against the verified ValueMart NAICS 455211 cascade (`effective_tax_rate` resolves to NAICS-5 IRS_SOI; `cogs_percent_of_revenue` to NAICS-6 industry_metrics_raw; `payroll_percent_of_revenue` to L0 generic_default).
+   - **L6 selection rule (clarified 2026-05-06):** at the NAICS-6 level the resolver MUST filter to `data_source = registry.primary_source AND confidence_tier IN ('high','medium')`. A naive `ORDER BY confidence_tier ASC, sample_size DESC LIMIT 1` over all L6 rows produces wrong answers when a non-primary source has any L6 coverage — e.g., `effective_tax_rate` at NAICS 455211 has alpha_data L6 (n=151, high) and IRS_SOI L5 (n=12,226, high). The cascade contract intends IRS_SOI L5 to win; that only happens when the L6 step is filtered to primary_source. Levels 5/4/3/2/0 are unfiltered (any data source) per the system overview cascade contract; their confidence_tier is downgraded by level, not by source.
+2. Add unit tests for the resolver against the verified ValueMart NAICS 455211 cascade (`effective_tax_rate` resolves to NAICS-5 IRS_SOI; `cogs_percent_of_revenue` to NAICS-6 industry_metrics_raw). Test the contract behavior, not specific values — coverage shifts across gap-fill loads (e.g., `payroll_percent_of_revenue` at NAICS 455211 resolved to L0 generic_default in early 2026-05-05 loads, then to L2 derived_CBP_SOI_rollup after the gap-fill iteration).
 3. Add `post_intake_industry_metric_registry` lookup function that returns `governs_model_input_lever`, `primary_source`, `fail_if_no_coverage` for a metric_key.
 
 **Exit criteria:** Resolver tests pass. No existing E2E touched.
+
+**Status (2026-05-06):** Phase 0 complete. Resolver landed at `python/client_intake_and_finmo/post_intake_industry_baseline/lookup.py`. 17/17 unit tests pass against live DB.
 
 ### Phase 1 — Producer-side substitution at the four silent-zero sites
 Replace the silent zeros in `finmo_bridge.py` and `quarter_grid.py` (P1 fix). Each site, when intake omits the value, calls the resolver and uses `benchmark_target` × revenue base as the seed. Carry provenance in `model_input_json` driver metadata under a new `seed_source` tag.

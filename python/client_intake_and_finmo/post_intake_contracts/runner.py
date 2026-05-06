@@ -489,6 +489,7 @@ def _post_intake_contract_schema(
   *,
   field_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
   array_item_schema_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+  business_naics: Optional[str] = None,
 ) -> Dict[str, Any]:
   errors = _post_intake_gpt_contract_table_errors()
   if errors:
@@ -501,6 +502,7 @@ def _post_intake_contract_schema(
       contract_name=contract_name,
       field_schema_overrides=field_schema_overrides,
       array_item_schema_overrides=array_item_schema_overrides,
+      business_naics=business_naics,
     )
   except Exception as exc:
     raise RuntimeError(
@@ -594,28 +596,26 @@ def _stage_ramp_validation_subject_for_step(
     "rationale": copy.deepcopy(candidate.get("rationale")),
   }
 
-def _maintenance_capex_percent_schema() -> Dict[str, Any]:
-  return _post_intake_contract_schema("maintenance_capex_percent")
+def _maintenance_capex_percent_schema(*, business_naics: Optional[str] = None) -> Dict[str, Any]:
+  return _post_intake_contract_schema("maintenance_capex_percent", business_naics=business_naics)
 
-def _stage_ramp_contract_schema() -> Dict[str, Any]:
+def _stage_ramp_contract_schema(*, business_naics: Optional[str] = None) -> Dict[str, Any]:
+  # Module 3 v3 — overrides for cogs_target / cogs_max / marketing_max /
+  # rd_max / ga_max / lease_max were deleted in v3 because those fields
+  # are now NAICS-bound at the contract row level (see Module 3 Task 3.3).
+  # Keeping a hardcoded `{"type": "number", "minimum": 0, "maximum": 1}`
+  # override here would silently bypass the NAICS injection.
   rate_schema = {"type": "number", "minimum": 0, "maximum": 2.5}
-  ratio_schema = {"type": "number", "minimum": 0, "maximum": 1}
   margin_schema = {"type": "number", "minimum": -1, "maximum": 1}
-  del ratio_schema
   return _post_intake_contract_schema(
     "stage_ramp_contract",
+    business_naics=business_naics,
     field_schema_overrides={
       "q": {"type": "integer", "minimum": 1, "maximum": 20},
       "rev_target": rate_schema,
       "rev_max": rate_schema,
       "rev_spike_max": rate_schema,
       "max_util": {"type": "number", "minimum": 0, "maximum": 1},
-      "cogs_target": {"type": "number", "minimum": 0, "maximum": 1},
-      "cogs_max": {"type": "number", "minimum": 0, "maximum": 1},
-      "marketing_max": {"type": "number", "minimum": 0, "maximum": 1},
-      "rd_max": {"type": "number", "minimum": 0, "maximum": 1},
-      "ga_max": {"type": "number", "minimum": 0, "maximum": 1},
-      "lease_max": {"type": "number", "minimum": 0, "maximum": 1},
       "ni_floor": margin_schema,
     },
   )
@@ -1127,7 +1127,9 @@ def _estimate_maintenance_capex_percent_with_gpt(
       "format": {
         "type": "json_schema",
         "name": "maintenance_capex_percent",
-        "schema": _maintenance_capex_percent_schema(),
+        "schema": _maintenance_capex_percent_schema(
+          business_naics=str(ops.get("business_naics_6") or "").strip() or None,
+        ),
         "strict": True,
       }
     },
@@ -1863,7 +1865,9 @@ def _estimate_stage_ramp_contract_with_gpt(
       "format": {
         "type": "json_schema",
         "name": "stage_ramp_contract",
-        "schema": _stage_ramp_contract_schema(),
+        "schema": _stage_ramp_contract_schema(
+          business_naics=str(ops.get("business_naics_6") or "").strip() or None,
+        ),
         "strict": True,
       }
     },

@@ -26,6 +26,11 @@ from client_intake_and_finmo.post_intake_headcount import (  # type: ignore
   default_payroll_headcount_policy,
 )
 from client_intake_and_finmo.post_intake_driver_formulas import apply_seed_formula  # type: ignore
+from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+  baseline_seed_provenance,
+  post_intake_baseline_applicability_for_naics2,
+  post_intake_industry_baseline_for_naics,
+)
 
 
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
@@ -321,7 +326,36 @@ def _safe_ratio(value: Any) -> Optional[float]:
   return ratio
 
 
+def _naics_6_from_ops(ops_json: Any) -> Optional[str]:
+  if not isinstance(ops_json, dict):
+    return None
+  digits = re.sub(r"[^0-9]", "", str(ops_json.get("business_naics_6") or "").strip())
+  return digits or None
+
+
+def _attach_seed_provenance(row: Dict[str, Any], payload: Dict[str, Any]) -> None:
+  """Stamp a model_input row with the NAICS-cascade provenance metadata so the
+  workbook + Module 3 finalize gate can surface it. No-op when payload has no
+  trust_flag (caller supplied something unresolved).
+  """
+  if not isinstance(row, dict) or not isinstance(payload, dict):
+    return
+  if not payload.get("trust_flag"):
+    return
+  prov = baseline_seed_provenance(payload)
+  bucket = row.setdefault("seed_provenance_json", {})
+  if isinstance(bucket, dict):
+    metric_key = str(prov.get("metric_key") or "").strip()
+    if metric_key:
+      bucket[metric_key] = prov
+
+
 def _cogs_ratio_from_financials(financials: Optional[Dict[str, Any]], revenue_total_year1: Any) -> float:
+  """Return the intake-derived COGS ratio. Returns 0.0 when intake omitted COGS;
+  the caller is responsible for any NAICS-cascade forecast substitution
+  (Module 1 Task 1.3) so stub 0 (= intake fact) stays at the intake value
+  while forecast Q1-Q20 can use a NAICS substitute.
+  """
   payload = financials if isinstance(financials, dict) else {}
   for key in ("cogs_percent_of_revenue", "cogs_percent", "estimated_cogs_percent"):
     explicit_ratio = _safe_ratio(payload.get(key))
@@ -339,6 +373,42 @@ def _cogs_ratio_from_financials(financials: Optional[Dict[str, Any]], revenue_to
   if 1.0 < cogs_value <= 100.0 and direct_ratio < 0.05:
     return cogs_value / 100.0
   return max(0.0, direct_ratio)
+
+
+def _naics_substitute_ratio(
+  metric_key: str,
+  naics_6: Optional[str],
+  *,
+  applicability_naics_2: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+  """Resolve a NAICS-typical ratio for forecast substitution.
+
+  Returns the resolver payload when a non-zero `benchmark_target` is found
+  AND (if applicability_naics_2 is provided) the metric is applicable for
+  that sector. Returns None to signal "leave the silent zero in place"
+  (legitimate zero per Part 9.1) when:
+   - naics_6 is missing
+   - the resolver returns no_coverage / zero target
+   - the applicability check rejects the metric for the sector
+  """
+  if not naics_6:
+    return None
+  if applicability_naics_2:
+    gate = post_intake_baseline_applicability_for_naics2(
+      metric_key=metric_key, naics_2=applicability_naics_2
+    )
+    if not gate.get("applicable"):
+      return None
+  try:
+    band = post_intake_industry_baseline_for_naics(metric_key=metric_key, naics_6=naics_6)
+  except Exception:
+    return None
+  if not band or band.get("benchmark_target") is None:
+    return None
+  target = float(band["benchmark_target"])
+  if target <= 0.0:
+    return None
+  return band
 
 
 def _placeholder_index(value: Any, prefix: str) -> Optional[int]:
@@ -920,65 +990,6 @@ def apply_r_and_d_applicability_policy_to_model_input(
 def r_and_d_enabled_from_model_input(model_input_json: Optional[Dict[str, Any]]) -> bool:
   payload = model_input_json if isinstance(model_input_json, dict) else {}
   return bool(_normalized_r_and_d_applicability_policy(payload).get("r_and_d_enabled", True))
-
-
-def _operating_anchor_baseline_inputs(
-  *,
-  people_json: Optional[Dict[str, Any]],
-  financials_json: Optional[Dict[str, Any]],
-  financials_year1_json: Optional[Dict[str, Any]],
-  marketing_model_json: Optional[Dict[str, Any]],
-) -> Dict[str, float]:
-  financials = financials_json if isinstance(financials_json, dict) else {}
-  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
-  marketing_model = marketing_model_json if isinstance(marketing_model_json, dict) else {}
-  people = people_json if isinstance(people_json, dict) else {}
-
-  lease_amount = _quarter_lease_amount(financials)
-  revenue_total_year1 = max(
-    0.0,
-    _safe_float(year1.get("company_revenue_total_year1"))
-    or _safe_float(year1.get("revenue_total_year1"))
-    or _safe_float(financials.get("current_revenue"))
-    or 0.0,
-  )
-  cogs_ratio_baseline = _cogs_ratio_from_financials(financials, revenue_total_year1)
-  marketing_ratio_baseline = _safe_ratio(marketing_model.get("marketing_percent_of_revenue"))
-  if marketing_ratio_baseline is None:
-    marketing_ratio_baseline = _safe_ratio(financials.get("marketing_percent_of_revenue"))
-  payroll_total_year1 = (
-    _safe_float(financials.get("payroll_total_year1"))
-    or _safe_float(financials.get("current_payroll"))
-    or 0.0
-  )
-  if payroll_total_year1 <= 0:
-    payroll_total_year1 = sum(
-      max(0.0, _safe_float(item.get("annual_wage")) or 0.0)
-      for item in ((people.get("people") or []) if isinstance(people.get("people"), list) else [])
-      if isinstance(item, dict)
-    )
-  quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
-  non_rent_opex_year1 = _non_rent_g_and_a_year1(financials)
-  g_and_a_ratio_baseline = _table_seed_ratio_for_lever(
-    "expenses::General & Administrative",
-    financials_json=financials,
-    annual_revenue=revenue_total_year1,
-    default_value=_ratio(non_rent_opex_year1, revenue_total_year1),
-  )
-  interest_rate_baseline = _ratio(financials.get("annual_interest_payment"), financials.get("total_debt_outstanding"))
-  depreciation_ratio_baseline = _ratio(financials.get("accumulated_depreciation"), revenue_total_year1)
-  tax_rate_baseline = _safe_ratio(financials.get("taxes_percent")) or 0.0
-  return {
-    "revenue_total_year1": round(revenue_total_year1, 6),
-    "lease_amount": round(lease_amount, 6),
-    "cogs_ratio_baseline": round(cogs_ratio_baseline, 6),
-    "marketing_ratio_baseline": round(marketing_ratio_baseline or 0.0, 6),
-    "quarterly_payroll": round(quarterly_payroll, 6),
-    "g_and_a_ratio_baseline": round(g_and_a_ratio_baseline, 6),
-    "interest_rate_baseline": round(interest_rate_baseline, 6),
-    "depreciation_ratio_baseline": round(depreciation_ratio_baseline, 6),
-    "tax_rate_baseline": round(tax_rate_baseline, 6),
-  }
 
 
 _CAPEX_DEPRECIATION_POLICY_KEY = "capex_depreciation_policy"
@@ -3360,12 +3371,34 @@ def _build_model_input_overlay(
     or 0.0,
   )
   cogs_ratio_baseline = _cogs_ratio_from_financials(financials_json, revenue_total_year1)
+  # Module 1 Tasks 1.3-1.5: NAICS-cascade substitution for forecast Q1-Q20
+  # ONLY. Stub 0 (= intake fact per Part 9.1) keeps the intake-derived values
+  # below; the *_forecast variables carry the substituted target into the
+  # forecast slot loop. When no NAICS coverage / applicability fails / no
+  # naics_6 available, the *_forecast variables stay equal to the *_baseline
+  # variables and the silent zero is preserved as a legitimate zero.
+  naics_6 = _naics_6_from_ops(ops_json)
+  naics_2 = naics_6[:2] if naics_6 and len(naics_6) >= 2 else None
+  baseline_substitution_provenance: Dict[str, Dict[str, Any]] = {}
+  cogs_ratio_forecast = cogs_ratio_baseline
+  if cogs_ratio_forecast <= 0.0:
+    band = _naics_substitute_ratio("cogs_percent_of_revenue", naics_6)
+    if band:
+      cogs_ratio_forecast = float(band["benchmark_target"])
+      baseline_substitution_provenance["cogs_percent_of_revenue"] = band
   marketing_ratio_baseline = (
     _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
     if isinstance(marketing_model_json, dict) else None
   )
   if marketing_ratio_baseline is None:
     marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
+  marketing_ratio_forecast = marketing_ratio_baseline
+  if not marketing_ratio_forecast:
+    # NOTE: replaced by marketing schedule in Module 6.
+    band = _naics_substitute_ratio("marketing_percent_of_revenue", naics_6)
+    if band:
+      marketing_ratio_forecast = float(band["benchmark_target"])
+      baseline_substitution_provenance["marketing_percent_of_revenue"] = band
   r_and_d_ratio_baseline = (
     _safe_ratio((financials_json or {}).get("r_and_d_percent"))
     or _safe_ratio((financials_json or {}).get("research_and_development_percent"))
@@ -3399,6 +3432,16 @@ def _build_model_input_overlay(
     ops_json,
     financials_json,
   )
+  # Module 1 Task 1.5: NAICS-cascade tax rate substitution. Stub 0 keeps the
+  # intake-derived value (None -> falls back to base_stub_value below);
+  # forecast quarters use tax_rate_forecast.
+  intake_tax_rate = _safe_ratio((financials_json or {}).get("taxes_percent"))
+  tax_rate_forecast: Optional[float] = intake_tax_rate
+  if not tax_rate_forecast:
+    band = _naics_substitute_ratio("effective_tax_rate", naics_6)
+    if band:
+      tax_rate_forecast = float(band["benchmark_target"])
+      baseline_substitution_provenance["effective_tax_rate"] = band
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -3442,9 +3485,24 @@ def _build_model_input_overlay(
       elif seed_slots and label == "Taxes":
         values.append(round(_safe_float(slot.get("tax_percent")) or 0.0, 6))
       elif label == "Cost of Goods Sold":
-        values.append(round(cogs_ratio_baseline if not projection_mode else _ratio(slot.get("cogs"), revenue), 6))
+        if projection_mode:
+          projected = _ratio(slot.get("cogs"), revenue)
+          # Module 1 Task 1.3: substitute when projection-mode produced 0
+          # (intake omitted COGS AND quarter grid plan did not fill it).
+          if projected <= 0.0 and cogs_ratio_forecast > 0.0:
+            projected = cogs_ratio_forecast
+          values.append(round(projected, 6))
+        else:
+          values.append(round(cogs_ratio_forecast, 6))
       elif label == "Marketing":
-        values.append(round((marketing_ratio_baseline or 0.0) if not projection_mode else _ratio(slot.get("marketing"), revenue), 6))
+        if projection_mode:
+          projected = _ratio(slot.get("marketing"), revenue)
+          # Module 1 Task 1.5.
+          if projected <= 0.0 and (marketing_ratio_forecast or 0.0) > 0.0:
+            projected = float(marketing_ratio_forecast or 0.0)
+          values.append(round(projected, 6))
+        else:
+          values.append(round(marketing_ratio_forecast or 0.0, 6))
       elif label == "Research & Development":
         values.append(0.0)
       elif label == "Lease":
@@ -3458,9 +3516,25 @@ def _build_model_input_overlay(
       elif label == "Depreciation":
         values.append(0.0)
       elif label == "Taxes":
-        values.append(round(_safe_ratio((financials_json or {}).get("taxes_percent")) or (_ratio(slot.get("taxes"), revenue) if projection_mode else 0.0), 6))
+        if projection_mode:
+          projected = _safe_ratio((financials_json or {}).get("taxes_percent")) or _ratio(slot.get("taxes"), revenue)
+          # Module 1 Task 1.5.
+          if (not projected or projected <= 0.0) and (tax_rate_forecast or 0.0) > 0.0:
+            projected = float(tax_rate_forecast or 0.0)
+          values.append(round(projected or 0.0, 6))
+        else:
+          values.append(round(tax_rate_forecast or 0.0, 6))
       else:
         values.append(base_live_values[0] if base_live_values else 0.0)
+    # Module 1: stamp NAICS-cascade provenance on rows whose forecast values
+    # were substituted. Stub 0 is unchanged; provenance describes the seed
+    # source for forecast Q1-Q20.
+    if label == "Cost of Goods Sold" and "cogs_percent_of_revenue" in baseline_substitution_provenance:
+      _attach_seed_provenance(row, baseline_substitution_provenance["cogs_percent_of_revenue"])
+    elif label == "Marketing" and "marketing_percent_of_revenue" in baseline_substitution_provenance:
+      _attach_seed_provenance(row, baseline_substitution_provenance["marketing_percent_of_revenue"])
+    elif label == "Taxes" and "effective_tax_rate" in baseline_substitution_provenance:
+      _attach_seed_provenance(row, baseline_substitution_provenance["effective_tax_rate"])
     row["values"] = _compose_period_values(
       stub_value=intake_stub_value,
       live_values=values,
@@ -3472,6 +3546,21 @@ def _build_model_input_overlay(
   ap_balance_seed = max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0)
   days_in_quarter = 90.0
   deferred_revenue_applicable = _deferred_revenue_applicable(ops_json or {}, financials_json or {})
+  # Module 1 Tasks 1.4 + 1.6: NAICS-cascade days/percent substitution for the
+  # working-capital and Tier-D balance-sheet lines. Each `*_days_band` is the
+  # resolver payload (or None when no coverage / applicability rejects). Stub
+  # 0 rows below keep base_stub_value untouched.
+  ar_days_band = _naics_substitute_ratio("ar_days_dso", naics_6)
+  ap_days_band = _naics_substitute_ratio("ap_days_dpo", naics_6)
+  inventory_days_band = _naics_substitute_ratio(
+    "inventory_days", naics_6, applicability_naics_2=naics_2
+  )
+  prepaid_pct_band = _naics_substitute_ratio("prepaid_expenses_percent_of_revenue", naics_6)
+  deferred_pct_band = _naics_substitute_ratio(
+    "deferred_revenue_percent_of_revenue",
+    naics_6,
+    applicability_naics_2=naics_2,
+  ) if deferred_revenue_applicable else None
   for row in balance_rows:
     label = str(row.get("label") or "").strip()
     values: List[float] = []
@@ -3490,29 +3579,37 @@ def _build_model_input_overlay(
         explicit_value = _safe_float(working_capital.get("dso"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
+        elif revenue > 0.0 and ar_balance_seed > 0.0:
+          values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
+        elif revenue > 0.0 and ar_days_band:
+          # Module 1 Task 1.4: NAICS substitution when intake omitted AR
+          # balance and forecast revenue exists.
+          values.append(round(float(ar_days_band["benchmark_target"]), 6))
         else:
-          if revenue > 0.0 and ar_balance_seed > 0.0:
-            values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
-          else:
-            values.append(0.0)
+          values.append(0.0)
       elif label == "Inventory Days":
         explicit_value = _safe_float(working_capital.get("inventory_days"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
+        elif cogs > 0.0 and inventory_balance_seed > 0.0:
+          values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
+        elif cogs > 0.0 and inventory_days_band:
+          # Module 1 Task 1.4: substitution gated by NAICS-2 applicability
+          # (e.g., software businesses keep 0 — legitimate, not silent).
+          values.append(round(float(inventory_days_band["benchmark_target"]), 6))
         else:
-          if cogs > 0.0 and inventory_balance_seed > 0.0:
-            values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
-          else:
-            values.append(0.0)
+          values.append(0.0)
       elif label == "Accounts Payable Days":
         explicit_value = _safe_float(working_capital.get("dpo"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
+        elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
+          values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
+        elif ap_expense_base > 0.0 and ap_days_band:
+          # Module 1 Task 1.4.
+          values.append(round(float(ap_days_band["benchmark_target"]), 6))
         else:
-          if ap_expense_base > 0.0 and ap_balance_seed > 0.0:
-            values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
-          else:
-            values.append(0.0)
+          values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":
         existing = (
           _safe_float(base_values[min(slot_idx, len(base_values) - 1)])
@@ -3521,6 +3618,9 @@ def _build_model_input_overlay(
         )
         if existing is not None and existing > 0.0:
           values.append(round(existing, 6))
+        elif revenue > 0.0 and prepaid_pct_band:
+          # Module 1 Task 1.6.
+          values.append(round(float(prepaid_pct_band["benchmark_target"]), 6))
         else:
           values.append(0.0)
       elif label == "Deferred Revenue (% of Revenue)":
@@ -3531,6 +3631,10 @@ def _build_model_input_overlay(
         )
         if existing is not None and existing > 0.0:
           values.append(round(existing, 6))
+        elif revenue > 0.0 and deferred_pct_band:
+          # Module 1 Task 1.6: gated by `_deferred_revenue_applicable` AND
+          # NAICS-2 sector applicability.
+          values.append(round(float(deferred_pct_band["benchmark_target"]), 6))
         else:
           values.append(0.0)
       elif label == "Short Term Debt (% of LTD)":
@@ -3552,6 +3656,18 @@ def _build_model_input_overlay(
         "business_applicability_key": "deferred_revenue_business",
         "applicable": bool(deferred_revenue_applicable),
       }
+    # Module 1: stamp NAICS-cascade provenance on balance-sheet rows that
+    # were forecast-substituted.
+    if label == "Accounts Receivable Days" and ar_days_band:
+      _attach_seed_provenance(row, ar_days_band)
+    elif label == "Accounts Payable Days" and ap_days_band:
+      _attach_seed_provenance(row, ap_days_band)
+    elif label == "Inventory Days" and inventory_days_band:
+      _attach_seed_provenance(row, inventory_days_band)
+    elif label == "Prepaid Expenses (% of Revenue)" and prepaid_pct_band:
+      _attach_seed_provenance(row, prepaid_pct_band)
+    elif label == "Deferred Revenue (% of Revenue)" and deferred_pct_band:
+      _attach_seed_provenance(row, deferred_pct_band)
     if label == "Owner's Capital":
       stub_value = round(_safe_float((financials_json or {}).get("initial_equity")) or base_stub_value or 0.0, 6)
     elif label == "Other Equity":

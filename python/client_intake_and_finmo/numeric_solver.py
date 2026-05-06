@@ -890,25 +890,128 @@ def solve_review_plan(
     optimizer_message = "baseline_only"
     optimizer_success = False
 
-    anchor_score, anchor_model_input_json, anchor_finmo_json, anchor_metrics = _evaluate_candidate(
-      anchor_vector,
-      stage="anchor",
-    )
-    anchor_within_tolerance = all(
-      float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
-      for payload in anchor_metrics.values()
-    )
-    if float(anchor_score) < float(best_score) - 1e-9:
-      best_score = float(anchor_score)
-      best_vector = list(anchor_vector)
-      updated_model_input_json = copy.deepcopy(anchor_model_input_json)
-      updated_finmo_json = copy.deepcopy(anchor_finmo_json)
-      metric_results = copy.deepcopy(anchor_metrics)
-      optimizer_message = "gpt_anchor_evaluated"
-      optimizer_success = bool(anchor_within_tolerance)
-    if anchor_within_tolerance:
-      optimizer_message = "gpt_anchor_within_tolerance"
-      optimizer_success = True
+    # ---------------------------------------------------------------------
+    # Module 2 Task 2.4 — algebraic one-dimensional fit BEFORE anchor.
+    #
+    # When this task targets exactly one driver, one target metric, one
+    # quarter, AND the lever's direct_target_metric_name matches the target
+    # metric, run the algebraic linear-interpolation fit first. If it lands
+    # within tolerance we return immediately so a "lucky" GPT anchor can
+    # never short-circuit the deterministic algebraic answer (the May 2 COGS
+    # bug). When the algebra cannot close (probe out of bounds, divisor
+    # near zero, mapping non-direct), fall through to the existing anchor /
+    # seed / optimizer pathway untouched.
+    # ---------------------------------------------------------------------
+    algebraic_path_attempted = False
+    algebraic_path_result_code = "not_applicable"
+    if len(variable_specs) == 1 and len(target_metrics) == 1:
+      sole_metric_name, sole_target_value = next(iter(target_metrics.items()))
+      sole_metric_key = str(sole_metric_name or "").strip().lower()
+      sole_spec = variable_specs[0]
+      sole_direct_metric = str(sole_spec.get("direct_target_metric_name") or "").strip().lower()
+      if sole_metric_key and sole_direct_metric and sole_metric_key == sole_direct_metric:
+        algebraic_path_attempted = True
+        sole_baseline = float(sole_spec.get("baseline_value") or 0.0)
+        sole_low = float(sole_spec.get("min_value") or sole_baseline)
+        sole_high = float(sole_spec.get("max_value") or sole_baseline)
+        if sole_low > sole_high:
+          sole_low, sole_high = sole_high, sole_low
+        baseline_payload = baseline_metrics.get(sole_metric_name) if isinstance(baseline_metrics, dict) else {}
+        baseline_actual = _safe_float((baseline_payload or {}).get("actual_value"))
+        # Pick a probe point that differs from baseline; prefer high, fall
+        # back to low.
+        probe_value: Optional[float] = None
+        if abs(sole_high - sole_baseline) > 1e-9:
+          probe_value = sole_high
+        elif abs(sole_low - sole_baseline) > 1e-9:
+          probe_value = sole_low
+        if baseline_actual is None or probe_value is None or abs(sole_high - sole_low) <= 1e-9:
+          algebraic_path_result_code = "probe_oob"
+        else:
+          _, _, _, probe_metrics = _evaluate_candidate(
+            [float(probe_value)],
+            stage="algebraic_one_dim_probe",
+          )
+          probe_payload = probe_metrics.get(sole_metric_name) if isinstance(probe_metrics, dict) else {}
+          probe_actual = _safe_float((probe_payload or {}).get("actual_value"))
+          slope_denominator = (
+            (float(probe_actual) - float(baseline_actual))
+            if probe_actual is not None
+            else 0.0
+          )
+          if probe_actual is None or abs(slope_denominator) <= 1e-9:
+            algebraic_path_result_code = "non_invertible"
+          else:
+            estimated = float(sole_baseline) + (
+              (float(sole_target_value) - float(baseline_actual))
+              * (float(probe_value) - float(sole_baseline))
+              / float(slope_denominator)
+            )
+            clamped_estimated = min(max(estimated, sole_low), sole_high)
+            estimate_score, estimate_model_input_json, estimate_finmo_json, estimate_metric_results = _evaluate_candidate(
+              [float(clamped_estimated)],
+              stage="algebraic_one_dim_fit",
+            )
+            algebraic_within_tolerance = all(
+              float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
+              for payload in (estimate_metric_results or {}).values()
+            )
+            if algebraic_within_tolerance:
+              best_score = float(estimate_score)
+              best_vector = [float(clamped_estimated)]
+              updated_model_input_json = copy.deepcopy(estimate_model_input_json)
+              updated_finmo_json = copy.deepcopy(estimate_finmo_json)
+              metric_results = copy.deepcopy(estimate_metric_results)
+              optimizer_message = "direct_algebraic_one_dim_fit"
+              optimizer_success = True
+              algebraic_path_result_code = "direct_fit"
+            elif abs(clamped_estimated - estimated) > 1e-9:
+              # Algebra wanted a value outside the variable's bounds.
+              algebraic_path_result_code = "probe_oob"
+              # Still consider the clamped estimate as a candidate — it may
+              # improve the score even if it does not close tolerance.
+              if float(estimate_score) < float(best_score) - 1e-9:
+                best_score = float(estimate_score)
+                best_vector = [float(clamped_estimated)]
+                updated_model_input_json = copy.deepcopy(estimate_model_input_json)
+                updated_finmo_json = copy.deepcopy(estimate_finmo_json)
+                metric_results = copy.deepcopy(estimate_metric_results)
+                optimizer_message = "direct_algebraic_one_dim_fit_partial_clamped"
+            else:
+              algebraic_path_result_code = "did_not_close_tolerance"
+              if float(estimate_score) < float(best_score) - 1e-9:
+                best_score = float(estimate_score)
+                best_vector = [float(clamped_estimated)]
+                updated_model_input_json = copy.deepcopy(estimate_model_input_json)
+                updated_finmo_json = copy.deepcopy(estimate_finmo_json)
+                metric_results = copy.deepcopy(estimate_metric_results)
+                optimizer_message = "direct_algebraic_one_dim_fit_partial"
+
+    # If the algebraic path closed tolerance, skip the GPT-anchor / seed /
+    # optimizer pathway entirely. This is the structural fix for the May 2
+    # bug: a lucky anchor cannot bypass the deterministic answer.
+    if optimizer_success and optimizer_message == "direct_algebraic_one_dim_fit":
+      anchor_within_tolerance = True  # ensures downstream gates honor success
+    else:
+      anchor_score, anchor_model_input_json, anchor_finmo_json, anchor_metrics = _evaluate_candidate(
+        anchor_vector,
+        stage="anchor",
+      )
+      anchor_within_tolerance = all(
+        float(_safe_float((payload or {}).get("residual_after_tolerance")) or 0.0) <= 1e-9
+        for payload in anchor_metrics.values()
+      )
+      if float(anchor_score) < float(best_score) - 1e-9:
+        best_score = float(anchor_score)
+        best_vector = list(anchor_vector)
+        updated_model_input_json = copy.deepcopy(anchor_model_input_json)
+        updated_finmo_json = copy.deepcopy(anchor_finmo_json)
+        metric_results = copy.deepcopy(anchor_metrics)
+        optimizer_message = "gpt_anchor_evaluated"
+        optimizer_success = bool(anchor_within_tolerance)
+      if anchor_within_tolerance and not optimizer_success:
+        optimizer_message = "gpt_anchor_within_tolerance"
+        optimizer_success = True
 
     direct_target_vectors = _direct_target_metric_actual_vectors(
       variable_specs=variable_specs,
@@ -1160,6 +1263,10 @@ def solve_review_plan(
         "message": str(optimizer_message),
         "objective_evaluation_count": int(quarter_objective_evaluation_count),
         "objective_evaluation_limit": int(max_quarter_objective_evaluations),
+        # Module 2 Task 2.4 telemetry — surface whether the algebraic
+        # one-dimensional fit ran and how it concluded.
+        "algebraic_path_attempted": bool(algebraic_path_attempted),
+        "algebraic_path_result_code": str(algebraic_path_result_code),
       }
     )
     quarter_results.append(
