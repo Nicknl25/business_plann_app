@@ -5,6 +5,7 @@ from .contextual_seed import (
   balance_sheet_contextual_seed_candidate_rows,
   validate_balance_sheet_contextual_seed_payload,
   apply_balance_sheet_contextual_seed_to_model_input,
+  propose_balance_sheet_contextual_seed_payload,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
   "balance_sheet_contextual_seed_candidate_rows",
   "validate_balance_sheet_contextual_seed_payload",
   "apply_balance_sheet_contextual_seed_to_model_input",
+  "propose_balance_sheet_contextual_seed_payload",
 ]

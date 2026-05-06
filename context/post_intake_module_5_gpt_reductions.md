@@ -1,9 +1,15 @@
 # Module 5: GPT Reductions
 
-**Status:** not_started
+**Status:** completed (2026-05-06)
 **Scope:** post-intake only.
 **Depends on:** Module 1 (resolver), Module 3 (contract NAICS bound machinery + finalize realism gate).
 **Unblocks:** none structurally. Reduces GPT cost, latency, and variance.
+
+## Architecture used: "Python proposes structure; GPT critiques structure"
+
+Tasks 5.1, 5.2, 5.4 followed the original spec (delete or short-circuit GPT for unambiguous cases). Tasks 5.3, 5.5, and 5.6 — where the spec called for a deterministic replacement — landed on a stronger architecture: **Python builds a deterministic proposal from SQL/NAICS/intake data; GPT receives the proposal as input and either accepts, amends specific fields, or rejects; Python applies corrections; if GPT fails, the proposal stands as the safety floor.**
+
+This pattern preserves GPT's domain judgment (timing nuance, edge-case applicability) without paying GPT's variance/latency on every decision. The shared critique infrastructure lives in `python/client_intake_and_finmo/post_intake_critique/`. See `feedback_python_proposes_gpt_critiques.md` memory entry for the full rationale.
 
 ## Why this module
 
@@ -191,4 +197,36 @@ Per master diagnostic Part 11.5: the GPT call already operates inside a Python-n
 
 ## Notes from a future session
 
-(Empty.)
+### 2026-05-06 — Tasks 5.3, 5.5, 5.6 implemented as Python proposer + GPT critic
+
+The spec called for "deterministic replacement" of these three GPT calls. Implementation took a stronger architecture: Python builds a deterministic proposal (always contract-valid), GPT critiques specific fields, Python applies corrections, and the proposal stands as the safety floor when GPT fails.
+
+**Task 5.3 (`balance_sheet_contextual_seed`)**
+- New: `propose_balance_sheet_contextual_seed_payload` in `post_intake_balance_sheet/contextual_seed.py`
+- Per-lever NAICS-2 applicability gate; Tier A intake anchor priority over NAICS cascade fallback; mapping-band midpoint final fallback
+- `_estimate_balance_sheet_contextual_seed_with_gpt` rewritten as proposer + critic
+- New helper `_finalize_balance_sheet_seed_with_critique` slims the rich proposer payload to the strict contract shape before validation
+
+**Task 5.5 (`cash_strategy_review`)**
+- New: `propose_cash_strategy_review_decision` in `post_intake_cash/cash_strategy_proposer.py`
+- Walks each `required_funding_quarter` and picks one funding source via policy priority order, validated against per-quarter `lever_bounds` (with `cash_support_multiplier` gross-up for debt issuance)
+- Underfunded fallback path: when no source has enough headroom, allocate the highest-headroom source's max and surface shortfall in `proposer_diagnostics`
+- `_run_cash_strategy_review_openai` rewritten as proposer + critic; the legacy "GPT writes from scratch + retry-on-invalid" loop was REMOVED (≈530 lines deleted) because the proposer guarantees a valid baseline
+- New helper `_wrap_cash_strategy_review_decision` standardizes the cash review return envelope
+
+**Task 5.6 (`unified_convergence_verification`)**
+- New: `propose_realism_verification_payload` in `post_intake_realism/verification_proposer.py`
+- Per-issue verdict derived from `applied_updates` ∩ `affected_quarters`: resolved (all touched) / improved (some touched) / stalled (none touched) / needs_review (malformed packet)
+- `_run_realism_verification_openai` rewritten as proposer + critic; legacy heavy prompt-build path removed
+
+**Shared infrastructure**
+- New package `post_intake_critique/` with `CRITIQUE_CONTRACT_SCHEMA`, `CritiqueResponse`, `CritiqueCorrection`, `apply_corrections_to_proposal`, `proposal_only_response`
+- Field-path notation supports bracket indexing: `quarter_funding_plan[0].funding_sources[0].lever_id`
+- Corrections targeting non-existent paths are silently dropped and surfaced in `_critique_diagnostics`
+
+**Tests**
+- `Test Files/test_module5_gpt_reductions.py` — 23/23 passing, covers all six tasks + critique contract behavior + safety-floor semantics
+
+**What was NOT done**
+- Snapshot refresh (Task 5.7) deferred to user-driven freeze step; the existing contract rows remain `active` because all six contracts are still used (now as critique surfaces, not blank-slate prompts).
+

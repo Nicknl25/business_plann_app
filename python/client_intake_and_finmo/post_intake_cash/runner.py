@@ -1759,6 +1759,54 @@ def _cash_strategy_review_failure_payload(
     "decision": {},
   }
 
+
+def _wrap_cash_strategy_review_decision(
+  *,
+  selected_cash_strategy: str,
+  prompt_file: str,
+  context_payload: Dict[str, Any],
+  decision: Dict[str, Any],
+  prompt_trace: Optional[Dict[str, Any]],
+  raw_openai_response: Optional[Dict[str, Any]],
+  decision_source: str,
+  detail: str = "",
+  critique_summary: str = "",
+  proposer_diagnostics: Optional[Dict[str, Any]] = None,
+  critique_diagnostics: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """Wrap a validated `decision` payload in the cash_strategy_review_decision_v2
+  envelope expected by every downstream caller (cash plan builder, second-pass
+  solver translator, post-cash state validator).
+
+  This helper replaces the per-call hand-built return dict from the legacy
+  GPT-from-scratch flow. It centralizes:
+    - prompt_trace structure
+    - raw_openai_response wrapping
+    - decision_source tagging (python_proposer_only / python_proposer_plus_gpt_critic_*)
+    - proposer + critique diagnostics for traceability
+  """
+  return {
+    "contract_version": "cash_strategy_review_decision_v2",
+    "status": "completed",
+    "prompt_file": prompt_file,
+    "selected_cash_strategy": selected_cash_strategy,
+    "review_status": "completed",
+    "decision_source": decision_source,
+    "cash_strategy_review_context": copy.deepcopy(context_payload),
+    "numeric_solver_contract": copy.deepcopy(
+      context_payload.get("numeric_solver_contract")
+      if isinstance(context_payload.get("numeric_solver_contract"), dict)
+      else {}
+    ),
+    "prompt_trace": copy.deepcopy(prompt_trace or {}),
+    "raw_openai_response": copy.deepcopy(raw_openai_response or {}),
+    "detail": str(detail or "").strip(),
+    "critique_summary": str(critique_summary or "").strip(),
+    "proposer_diagnostics": copy.deepcopy(proposer_diagnostics or {}),
+    "critique_diagnostics": copy.deepcopy(critique_diagnostics or {}),
+    "decision": copy.deepcopy(decision),
+  }
+
 def _cash_strategy_gross_up_effective_support(amount: int, multiplier: float) -> int:
   target = max(0, int(round(float(amount or 0))))
   factor = float(multiplier or 1.0)
@@ -2070,579 +2118,243 @@ def _run_cash_strategy_review_openai(
   prior_numeric_feedback: Optional[Dict[str, Any]] = None,
   controller_retry_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+  """Module 5 Task 5.5 — Python proposes the cash funding plan; GPT critiques.
+
+  Workflow:
+    1. `propose_cash_strategy_review_decision` walks each
+       `required_funding_quarter` and selects ONE allowed funding source
+       per quarter using the deterministic policy priority order, validated
+       against the per-quarter `lever_bounds`. The proposer always returns
+       a valid payload (maintain when no required quarters; adjust with one
+       source per quarter otherwise).
+    2. The Python proposal is validated via the contract error checker
+       BEFORE the critic runs. If the proposer produces an invalid payload,
+       that's a true Python bug (not a recoverable failure), so we surface
+       it as a failure payload.
+    3. The OpenAI critic receives the proposal as input and may amend
+       specific quarters' lever choices, amounts, or business rationale.
+       The critic's surface area is the shared `CRITIQUE_CONTRACT_SCHEMA`.
+    4. Corrections are applied via `apply_corrections_to_proposal`. The
+       amended payload is re-validated; if validation fails, Python's
+       proposal stands as the safety floor.
+    5. The legacy "GPT writes from scratch + retry-on-invalid" loop is
+       removed. It existed because GPT could produce invalid contracts;
+       with proposer-as-floor, retry is redundant.
+
+  This restructure preserves the same return shape (cash_strategy_review_decision_v2)
+  so all downstream callers (cash pass plan builder, second-pass solver
+  contract translator) are unchanged.
+  """
   prompt_file = "client_intake_and_finmo/prompts/cash_strategy_review/reviewer.md"
   del first_pass_handoff, solved_finmo_json, prior_numeric_feedback, controller_retry_context
+  del draft_id, business_facts, ops_json, planning_mode, planning_mode_reason, planning_mode_prompt_file
   selected_cash_strategy = _resolved_cash_strategy(financials_json)
+  context_payload = cash_strategy_review_context if isinstance(cash_strategy_review_context, dict) else {}
   prompt_trace: Dict[str, Any] = {}
+
+  # ----- Step 1: build the Python proposal deterministically. -----
+  from client_intake_and_finmo.post_intake_cash.cash_strategy_proposer import (  # type: ignore
+    propose_cash_strategy_review_decision,
+  )
+  from client_intake_and_finmo.post_intake_critique import (  # type: ignore
+    CRITIQUE_CONTRACT_SCHEMA,
+    CritiqueResponse,
+    apply_corrections_to_proposal,
+    proposal_only_response,
+  )
+  proposal = propose_cash_strategy_review_decision(
+    cash_strategy_review_context=context_payload,
+    selected_cash_strategy=selected_cash_strategy,
+    default_funding_source_lever_ids=list(_CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS),
+    debt_issuance_lever_id=_CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID,
+  )
+  proposer_diagnostics = proposal.pop("proposer_diagnostics", {})
+  contract_proposal = _normalize_post_intake_contract_payload(
+    contract_name="cash_strategy_review",
+    payload=proposal,
+  )
+  contract_proposal_error = _cash_strategy_review_decision_contract_error(
+    parsed=contract_proposal,
+    cash_strategy_review_context=context_payload,
+  )
+  if contract_proposal_error:
+    return _cash_strategy_review_failure_payload(
+      selected_cash_strategy=selected_cash_strategy,
+      prompt_file=prompt_file,
+      status="failed_proposer_invalid_contract",
+      detail=(
+        "Python proposer produced an invalid cash_strategy_review payload — this is a Python bug, "
+        "not a GPT failure. " + str(contract_proposal_error)
+      ),
+      prompt_trace={"proposer_diagnostics": proposer_diagnostics},
+      decision_source="python_proposer",
+    )
+
   api_key = _openai_key()
   if not api_key:
-    return _cash_strategy_review_failure_payload(
+    return _wrap_cash_strategy_review_decision(
       selected_cash_strategy=selected_cash_strategy,
       prompt_file=prompt_file,
-      status="skipped_missing_openai_key",
-      detail="OPENAI_API_KEY is not configured.",
-      prompt_trace=prompt_trace,
+      context_payload=context_payload,
+      decision=contract_proposal,
+      prompt_trace={"proposer_diagnostics": proposer_diagnostics},
+      raw_openai_response=None,
+      decision_source="python_proposer_only",
+      detail="OPENAI_API_KEY is not configured; Python proposal stands as the safety floor.",
+      critique_summary="no_critic_invoked",
+      proposer_diagnostics=proposer_diagnostics,
     )
-  context_payload = cash_strategy_review_context if isinstance(cash_strategy_review_context, dict) else {}
-  allowed_quarters = [
-    int(_safe_float(item) or 0)
-    for item in (context_payload.get("allowed_quarters") or [])
-    if int(_safe_float(item) or 0) >= 1
-  ]
-  allowed_lever_ids = [
-    str(item or "").strip()
-    for item in (((context_payload.get("writable_lever_catalog") or {}) if isinstance(context_payload.get("writable_lever_catalog"), dict) else {}).get("lever_ids") or [])
-    if str(item or "").strip()
-  ]
-  if not allowed_lever_ids:
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      status="failed_missing_levers",
-      detail="No writable lever ids were available for cash strategy review.",
-      prompt_trace=prompt_trace,
-    )
-  if not allowed_quarters:
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      status="failed_missing_quarters",
-      detail="No allowed quarter window was available for cash strategy review.",
-      prompt_trace=prompt_trace,
-    )
-  scoped_lever_catalog = copy.deepcopy((((context_payload.get("writable_lever_catalog") or {}) if isinstance(context_payload.get("writable_lever_catalog"), dict) else {}).get("entries") or []))
-  solved_lever_values = _solved_lever_value_map(solved_model_input_json)
-  scoped_lever_values = _subset_lever_value_map(
-    solved_lever_values,
-    allowed_lever_ids,
-    allowed_quarters,
-  )
-  scoped_lever_values = {
-    lever_id: [
-      int(round(float(_safe_float(value) or 0.0)))
-      for value in (values or [])
-    ]
-    for lever_id, values in scoped_lever_values.items()
-  }
-  required_funding_quarters = [
-    copy.deepcopy(item)
-    for item in (context_payload.get("required_funding_quarters") or [])
-    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
-  ]
-  required_funding_quarter_indexes = [
-    int(_safe_float(item.get("quarter_index")) or 0)
-    for item in required_funding_quarters
-    if int(_safe_float(item.get("quarter_index")) or 0) >= 1
-  ]
-  required_funding_quarter_set = set(required_funding_quarter_indexes)
-  raw_violation_envelope = (
-    context_payload.get("cash_violation_envelope")
-    if isinstance(context_payload.get("cash_violation_envelope"), dict)
-    else {}
-  )
-  surplus_deployment_quarter_indexes = [
-    int(_safe_float(item) or 0)
-    for item in (raw_violation_envelope.get("surplus_deployment_quarters") or [])
-    if int(_safe_float(item) or 0) >= 1
-  ]
-  surplus_deployment_quarter_set = set(surplus_deployment_quarter_indexes)
-  decision_quarter_set = set(required_funding_quarter_set) | set(surplus_deployment_quarter_set)
-  required_surplus_deployment_quarters = [
-    {
-      "quarter_index": int(_safe_float(item.get("quarter_index")) or 0),
-      "required_surplus_deployment": int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))),
-      "ending_cash_after_hard_rules": int(round(float(_safe_float(item.get("ending_cash_after_hard_rules")) or 0.0))),
-      "cash_ceiling": int(round(float(_safe_float(item.get("cash_ceiling")) or 0.0))),
-      "max_additional_distribution": int(round(float(_safe_float(item.get("max_additional_distribution")) or 0.0))),
-      "max_additional_debt_paydown": int(round(float(_safe_float(item.get("max_additional_debt_paydown")) or 0.0))),
-    }
-    for item in (raw_violation_envelope.get("quarter_envelopes") or [])
-    if isinstance(item, dict)
-    and int(_safe_float(item.get("quarter_index")) or 0) >= 1
-    and int(round(float(_safe_float(item.get("deployable_surplus_above_ceiling")) or 0.0))) > 0
-  ]
-  funding_source_policy = (
-    context_payload.get("funding_source_policy")
-    if isinstance(context_payload.get("funding_source_policy"), dict)
-    else {}
-  )
-  prompt_allowed_funding_sources = {
-    str(item).strip()
-    for item in (
-      funding_source_policy.get("allowed_funding_source_lever_ids")
-      or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
-    )
-    if str(item).strip()
-  }
-  prompt_cash_violation_envelope = {
-    "contract_version": str(raw_violation_envelope.get("contract_version") or "cash_strategy_violation_envelope_v1"),
-    "selected_cash_strategy": str(raw_violation_envelope.get("selected_cash_strategy") or "").strip(),
-    "has_violations": bool(raw_violation_envelope.get("has_violations")),
-    "violation_quarters": copy.deepcopy(raw_violation_envelope.get("violation_quarters") or []),
-    "residual_gap_quarters": copy.deepcopy(raw_violation_envelope.get("residual_gap_quarters") or []),
-    "surplus_deployment_quarters": copy.deepcopy(raw_violation_envelope.get("surplus_deployment_quarters") or []),
-    "allowed_review_quarters": copy.deepcopy(raw_violation_envelope.get("allowed_review_quarters") or []),
-    "capital_structure_guidance": copy.deepcopy(raw_violation_envelope.get("capital_structure_guidance") or {}),
-    "validation_requirements": copy.deepcopy(raw_violation_envelope.get("validation_requirements") or {}),
-  }
-  raw_summary_metrics = (
-    context_payload.get("summary_metrics")
-    if isinstance(context_payload.get("summary_metrics"), dict)
-    else {}
-  )
-  prompt_summary_metrics = copy.deepcopy(raw_summary_metrics)
-  if isinstance(prompt_summary_metrics.get("buffer_quarters"), list) and decision_quarter_set:
-    prompt_summary_metrics["buffer_quarters"] = [
-      item for item in prompt_summary_metrics.get("buffer_quarters") or []
-      if isinstance(item, dict)
-      and int(_safe_float(item.get("quarter_index")) or 0) in decision_quarter_set
-    ]
-  raw_lever_bounds = (
-    context_payload.get("lever_bounds")
-    if isinstance(context_payload.get("lever_bounds"), dict)
-    else {}
-  )
-  prompt_lever_bounds_rows: Dict[str, List[Dict[str, Any]]] = {}
-  surplus_deployment_lever_ids = {
-    _CASH_STRATEGY_DISTRIBUTIONS_LEVER_ID,
-    _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID,
-  }
-  for lever_id, rows in (raw_lever_bounds.get("lever_bounds") or {}).items():
-    lever_key = str(lever_id or "").strip()
-    if (
-      prompt_allowed_funding_sources
-      and lever_key not in prompt_allowed_funding_sources
-      and not (surplus_deployment_quarter_set and lever_key in surplus_deployment_lever_ids)
-    ):
-      continue
-    compact_rows: List[Dict[str, Any]] = []
-    for row in rows or []:
-      if not isinstance(row, dict):
-        continue
-      quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
-      if decision_quarter_set and quarter_index not in decision_quarter_set:
-        continue
-      supporting_metrics = (
-        row.get("supporting_metrics")
-        if isinstance(row.get("supporting_metrics"), dict)
-        else {}
-      )
-      compact_rows.append(
-        {
-          "quarter_index": quarter_index,
-          "current_value": int(round(float(_safe_float(row.get("current_value")) or 0.0))),
-          "min_value": int(round(float(_safe_float(row.get("min_value")) or 0.0))),
-          "max_value": int(round(float(_safe_float(row.get("max_value")) or 0.0))),
-          "supporting_metrics": {
-            "buffer": int(round(float(_safe_float(supporting_metrics.get("buffer")) or 0.0))),
-            "cash_ceiling": int(round(float(_safe_float(supporting_metrics.get("cash_ceiling")) or 0.0))),
-            "ending_cash_after_hard_rules": int(round(float(_safe_float(supporting_metrics.get("ending_cash_after_hard_rules")) or 0.0))),
-            "residual_funding_gap": int(round(float(_safe_float(supporting_metrics.get("residual_funding_gap")) or 0.0))),
-            "deployable_surplus_above_ceiling": int(round(float(_safe_float(supporting_metrics.get("deployable_surplus_above_ceiling")) or 0.0))),
-            "carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("carryforward_headroom")) or 0.0))),
-            "grossed_up_carryforward_headroom": int(round(float(_safe_float(supporting_metrics.get("grossed_up_carryforward_headroom")) or 0.0))),
-            "cash_support_multiplier": round(float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0), 6),
-            "allowed_action": str(supporting_metrics.get("allowed_action") or "").strip(),
-          },
-        }
-      )
-    if compact_rows:
-      prompt_lever_bounds_rows[lever_key] = compact_rows
-  raw_debt_schedule = (
-    context_payload.get("debt_schedule_snapshot")
-    if isinstance(context_payload.get("debt_schedule_snapshot"), dict)
-    else {}
-  )
-  prompt_debt_rows = [
-    {
-      "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
-      "opening_debt": int(round(float(_safe_float(row.get("opening_debt")) or 0.0))),
-      "actual_debt_issuance": int(round(float(_safe_float(row.get("actual_debt_issuance")) or 0.0))),
-      "actual_debt_repayment": int(round(float(_safe_float(row.get("actual_debt_repayment")) or 0.0))),
-      "closing_debt": int(round(float(_safe_float(row.get("closing_debt")) or 0.0))),
-      "interest_rate": round(float(_safe_float(row.get("interest_rate")) or 0.0), 6),
-      "interest_expense": int(round(float(_safe_float(row.get("interest_expense")) or 0.0))),
-    }
-    for row in (raw_debt_schedule.get("rows") or [])
-    if isinstance(row, dict)
-    and (
-      not decision_quarter_set
-      or int(_safe_float(row.get("quarter_index")) or 0) in decision_quarter_set
-    )
-  ]
-  prompt_safe_cash_strategy_review_context = {
-    "contract_version": str(context_payload.get("contract_version") or "cash_strategy_review_context_v2"),
-    "status": str(context_payload.get("status") or "").strip(),
-    "review_required": bool(context_payload.get("review_required")),
-    "review_role": str(context_payload.get("review_role") or "").strip(),
-    "draft_id": str(context_payload.get("draft_id") or "").strip(),
-    "planning_mode": str(context_payload.get("planning_mode") or "").strip(),
-    "planning_mode_reason": str(context_payload.get("planning_mode_reason") or "").strip(),
-    "selected_cash_strategy": str(context_payload.get("selected_cash_strategy") or "").strip(),
-    "cash_pass_phase_contract": copy.deepcopy(context_payload.get("cash_pass_phase_contract") or {}),
-    "business_snapshot": copy.deepcopy(context_payload.get("business_snapshot") or {}),
-    "cash_profile_summary": copy.deepcopy(context_payload.get("cash_profile_summary") or {}),
-    "strategy_policy": copy.deepcopy(context_payload.get("strategy_policy") or {}),
-    "funding_source_policy": copy.deepcopy(funding_source_policy),
-    "cash_violation_envelope": copy.deepcopy(prompt_cash_violation_envelope),
-    "debt_schedule_snapshot": {
-      "contract_version": str(raw_debt_schedule.get("contract_version") or "cash_strategy_debt_schedule_snapshot_v1"),
-      "rows": prompt_debt_rows,
-    },
-    "required_funding_quarters": copy.deepcopy(required_funding_quarters),
-    "required_surplus_deployment_quarters": copy.deepcopy(required_surplus_deployment_quarters),
-    "allowed_quarters": copy.deepcopy(allowed_quarters),
-    "summary_metrics": copy.deepcopy(prompt_summary_metrics),
-    "lever_bounds": {
-      "contract_version": str(raw_lever_bounds.get("contract_version") or "cash_strategy_lever_bounds_v2"),
-      "allowed_quarters": [
-        quarter for quarter in (raw_lever_bounds.get("allowed_quarters") or allowed_quarters)
-        if not decision_quarter_set or int(_safe_float(quarter) or 0) in decision_quarter_set
-      ],
-      "lever_bounds": prompt_lever_bounds_rows,
-    },
-    "validation_requirements": copy.deepcopy(context_payload.get("validation_requirements") or {}),
-  }
-
-  static_cash_prompt = _load_cash_strategy_review_prompt()
-  cash_policy_prompt = {
+  # ----- Step 2: invoke the GPT critic with the proposal as input. -----
+  business_summary = {
     "selected_cash_strategy": selected_cash_strategy,
-    "planning_mode": str(planning_mode or "").strip(),
-    "planning_mode_reason": str(planning_mode_reason or "").strip(),
-    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
-    "business_snapshot": copy.deepcopy(context_payload.get("business_snapshot") or {}),
     "strategy_policy": copy.deepcopy(context_payload.get("strategy_policy") or {}),
-    "funding_source_policy": copy.deepcopy(funding_source_policy),
-    "cash_profile_summary": copy.deepcopy(context_payload.get("cash_profile_summary") or {}),
-    "cash_pass_phase_contract": copy.deepcopy(context_payload.get("cash_pass_phase_contract") or {}),
-  }
-  cash_envelope_prompt = {
-    "cash_violation_envelope": copy.deepcopy(prompt_cash_violation_envelope),
-    "summary_metrics": copy.deepcopy(prompt_summary_metrics),
-    "allowed_quarters": copy.deepcopy(allowed_quarters),
-  }
-  funding_action_cells_prompt = {
-    "required_funding_quarters": copy.deepcopy(required_funding_quarters),
-    "required_surplus_deployment_quarters": copy.deepcopy(required_surplus_deployment_quarters),
-    "lever_bounds": {
-      "contract_version": str(raw_lever_bounds.get("contract_version") or "cash_strategy_lever_bounds_v2"),
-      "allowed_quarters": [
-        quarter for quarter in (raw_lever_bounds.get("allowed_quarters") or allowed_quarters)
-        if not decision_quarter_set or int(_safe_float(quarter) or 0) in decision_quarter_set
-      ],
-      "lever_bounds": prompt_lever_bounds_rows,
+    "funding_source_policy": copy.deepcopy(context_payload.get("funding_source_policy") or {}),
+    "cash_violation_envelope": {
+      "has_violations": bool(((context_payload.get("cash_violation_envelope") or {}) if isinstance(context_payload.get("cash_violation_envelope"), dict) else {}).get("has_violations")),
+      "violation_quarters": copy.deepcopy(((context_payload.get("cash_violation_envelope") or {}) if isinstance(context_payload.get("cash_violation_envelope"), dict) else {}).get("violation_quarters") or []),
+      "residual_gap_quarters": copy.deepcopy(((context_payload.get("cash_violation_envelope") or {}) if isinstance(context_payload.get("cash_violation_envelope"), dict) else {}).get("residual_gap_quarters") or []),
     },
-    "writable_lever_current_values": copy.deepcopy(scoped_lever_values),
+    "required_funding_quarters": copy.deepcopy(context_payload.get("required_funding_quarters") or []),
   }
-  user_context = {
-    "cash_policy": cash_policy_prompt,
-    "cash_envelope": cash_envelope_prompt,
-    "liquidity_violation_grid": copy.deepcopy(required_funding_quarters),
-    "debt_schedule_summary": copy.deepcopy(prompt_safe_cash_strategy_review_context.get("debt_schedule_snapshot") or {}),
-    "funding_action_cells": funding_action_cells_prompt,
-    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("cash_strategy_review"),
+  proposal_for_critic = {
+    "recommendation_mode": contract_proposal.get("recommendation_mode"),
+    "quarter_funding_plan": copy.deepcopy(contract_proposal.get("quarter_funding_plan") or []),
+    "recommended_adjustments": copy.deepcopy(contract_proposal.get("recommended_adjustments") or []),
+    "executive_summary": contract_proposal.get("executive_summary"),
+    "capital_posture_summary": contract_proposal.get("capital_posture_summary"),
+    "funding_mix_summary": contract_proposal.get("funding_mix_summary"),
+    "confidence": contract_proposal.get("confidence"),
   }
-  prompt_budget = post_intake_gpt_context_request_char_budget(
-    contract_name="cash_strategy_review",
-    include_phase="cash_pass",
-  )
-  user_context_chars = len(json.dumps(user_context, ensure_ascii=False))
-  if prompt_budget is not None and user_context_chars > int(prompt_budget):
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      status="failed_prompt_context_budget_exceeded",
-      detail=(
-        "cash_strategy_review_prompt_context_budget_exceeded: "
-        f"user_payload_chars={user_context_chars}; sql_budget={int(prompt_budget)}"
-      ),
-      prompt_trace={"user_payload_chars": user_context_chars, "sql_budget": int(prompt_budget)},
-    )
-  system_prompt = post_intake_build_prompt_from_contract(
-    "cash_strategy_review",
-    context_payload=user_context,
-    include_phase="cash_pass",
-    static_instruction=static_cash_prompt,
-    task_instruction=(
-      "Return only JSON matching the SQL-backed cash_strategy_review contract. Use only mapping-table cash levers, "
-      "respect the cash policy lookup, and fill only the contract-authorized funding/action rows."
-    ),
-  )
-  prompt_trace = {
-    "system_prompt": system_prompt,
-    "user_payload": copy.deepcopy(user_context),
-  }
-  payload = {
-    "model": _openai_model(),
-    "input": [
-      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+  critic_context = {
+    "proposal": proposal_for_critic,
+    "business_summary": business_summary,
+    "proposer_diagnostics": proposer_diagnostics,
+    "review_instructions": [
+      "You are reviewing a Python-built cash strategy funding plan that already satisfies the deterministic contract.",
+      "Accept the proposal when each quarter's funding source choice and language is reasonable for THIS business and cash policy.",
+      "Amend ONLY when the business context contradicts the proposed source choice (e.g., a chronic-leverage business should swap debt issuance for owner equity).",
+      "field_path uses bracket notation, e.g. quarter_funding_plan[0].funding_sources[0].lever_id or recommended_adjustments[0].business_reason.",
+      "Only edit fields that already exist in the proposal. Do not add or remove quarters.",
+      "If you change a quarter's lever_id, also update the matching recommended_adjustments[].lever_id and re-derive exact_value (debt issuance levers gross up by cash_support_multiplier).",
+      "Reject only if the proposal is structurally unusable; Python's proposal will then stand as the safety floor.",
     ],
+  }
+  from client_intake_and_finmo.post_intake_contracts.runner import _openai_strict_json_schema  # type: ignore
+  critic_schema = _openai_strict_json_schema(CRITIQUE_CONTRACT_SCHEMA)
+  payload_base = {
+    "model": _openai_model(),
+    "temperature": 0,
     "text": {
       "format": {
         "type": "json_schema",
-        "name": "cash_strategy_review_decision",
-        "schema": _cash_strategy_review_schema(
-          allowed_lever_ids,
-          allowed_quarters,
-          required_funding_quarter_indexes,
-          [
-            lever_id
-            for lever_id in allowed_lever_ids
-            if lever_id in (
-              set(
-                str(item).strip()
-                for item in (
-                  (
-                    context_payload.get("funding_source_policy")
-                    if isinstance(context_payload.get("funding_source_policy"), dict)
-                    else {}
-                  ).get("allowed_funding_source_lever_ids")
-                  or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
-                )
-                if str(item).strip()
-              )
-            )
-          ],
-        ),
+        "name": "cash_strategy_review_critique",
+        "schema": critic_schema,
         "strict": True,
       }
     },
   }
-  raw_openai_response: Dict[str, Any] = {}
+  system_prompt = (
+    "You are reviewing a deterministic Python proposal for the cash funding plan. "
+    "Python is the engineer (it allocated each required-funding quarter to a single source via the "
+    "policy priority list and validated against per-quarter lever bounds); you are the consultant. "
+    "Return review_status=accepted when the proposal is correct. Return review_status=amended with "
+    "surgical corrections when the proposal misjudges a lever choice for THIS business and cash policy. "
+    "Return review_status=rejected only when the structure is unusable; in that case, Python falls back "
+    "to the proposal as the safety floor. Output only JSON conforming to the critique schema."
+  )
+  prompt_trace = {
+    "proposer_diagnostics": copy.deepcopy(proposer_diagnostics),
+    "critic_context": copy.deepcopy(critic_context),
+    "system_prompt": system_prompt,
+  }
   cash_review_deadline_seconds = 45.0
   previous_cash_review_deadline = _set_active_openai_deadline(
     time.perf_counter() + cash_review_deadline_seconds
   )
+  raw_openai_response: Optional[Dict[str, Any]] = None
   try:
+    payload = copy.deepcopy(payload_base)
+    payload["input"] = [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(critic_context, ensure_ascii=False)}]},
+    ]
     resp = _post_openai(
       url="https://api.openai.com/v1/responses",
       headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
       payload=payload,
     )
+    if resp.status_code >= 400:
+      logger.warning(
+        "cash_strategy_review_critic_http_error: status=%s body=%s",
+        resp.status_code, resp.text[:500],
+      )
+      response = proposal_only_response(reason=f"critic_http_status_{resp.status_code}")
+    else:
+      raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+      parsed = _parse_responses_json_dict(raw_openai_response)
+      try:
+        response = CritiqueResponse.from_payload(parsed)
+      except RuntimeError as exc:
+        logger.warning("cash_strategy_review_critic_invalid_payload: %s", exc)
+        response = proposal_only_response(reason=f"critic_invalid_payload: {exc}")
   except Exception as exc:
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      status="failed_openai_request",
-      detail=str(exc),
-      prompt_trace=prompt_trace,
-    )
+    logger.warning("cash_strategy_review_critic_unexpected_error: %s", exc)
+    response = proposal_only_response(reason=f"critic_unexpected_error: {exc}")
   finally:
     _set_active_openai_deadline(previous_cash_review_deadline)
-  if resp.status_code >= 400:
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      status="failed_openai_status",
-      detail=resp.text[:1200],
-      prompt_trace=prompt_trace,
-    )
-  raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
-  parsed = _parse_responses_json_dict(raw_openai_response)
-  if not isinstance(parsed, dict):
-    return _cash_strategy_review_failure_payload(
-      selected_cash_strategy=selected_cash_strategy,
-      prompt_file=prompt_file,
-      status="failed_parse",
-      detail="Unable to parse cash strategy review JSON.",
-      prompt_trace=prompt_trace,
-      raw_openai_response=raw_openai_response,
-    )
-  parsed = _normalize_cash_strategy_review_decision_from_funding_plan(
-    parsed=parsed,
+
+  # ----- Step 3: apply critic corrections to the proposal. -----
+  amended = apply_corrections_to_proposal(proposal=proposal_for_critic, response=response)
+  critique_diagnostics = amended.pop("_critique_diagnostics", None) if isinstance(amended, dict) else None
+  amended_full = copy.deepcopy(contract_proposal)
+  amended_full["recommendation_mode"] = amended.get("recommendation_mode") or contract_proposal.get("recommendation_mode")
+  amended_full["quarter_funding_plan"] = amended.get("quarter_funding_plan") or contract_proposal.get("quarter_funding_plan") or []
+  amended_full["recommended_adjustments"] = amended.get("recommended_adjustments") or contract_proposal.get("recommended_adjustments") or []
+  for key in ("executive_summary", "capital_posture_summary", "funding_mix_summary", "confidence"):
+    if key in amended:
+      amended_full[key] = amended.get(key)
+  amended_full = _normalize_cash_strategy_review_decision_from_funding_plan(
+    parsed=amended_full,
     cash_strategy_review_context=context_payload,
   )
-  parsed = _normalize_post_intake_contract_payload(
+  amended_full = _normalize_post_intake_contract_payload(
     contract_name="cash_strategy_review",
-    payload=parsed,
+    payload=amended_full,
   )
-  contract_error = _cash_strategy_review_decision_contract_error(
-    parsed=parsed,
+  amended_error = _cash_strategy_review_decision_contract_error(
+    parsed=amended_full,
     cash_strategy_review_context=context_payload,
   )
-  provisional_review_payload = {
-    "contract_version": "cash_strategy_review_decision_v2",
-    "status": "completed",
-    "prompt_file": prompt_file,
-    "selected_cash_strategy": selected_cash_strategy,
-    "review_status": "completed",
-    "decision_source": "gpt",
-    "cash_strategy_review_context": copy.deepcopy(context_payload),
-    "numeric_solver_contract": copy.deepcopy(
-      context_payload.get("numeric_solver_contract")
-      if isinstance(context_payload.get("numeric_solver_contract"), dict)
-      else {}
-    ),
-    "prompt_trace": copy.deepcopy(prompt_trace),
-    "raw_openai_response": copy.deepcopy(raw_openai_response),
-    "detail": "",
-    "decision": copy.deepcopy(parsed),
-  }
-  provisional_plan = _build_cash_strategy_second_pass_plan(
-    review_decision_payload=copy.deepcopy(provisional_review_payload),
-    solved_model_input_json=copy.deepcopy(solved_model_input_json or {}),
-    financials_json=copy.deepcopy(financials_json or {}),
+  if amended_error:
+    logger.warning(
+      "cash_strategy_review_critic_amended_invalid: %s; falling back to Python proposal as safety floor.",
+      amended_error,
+    )
+    final_decision = contract_proposal
+    final_decision_source = "python_proposer_with_critic_fallback"
+    final_detail = f"Critic amendments produced an invalid contract; Python proposal stands. {amended_error}"
+  else:
+    final_decision = amended_full
+    final_decision_source = (
+      "python_proposer_plus_gpt_critic_amended"
+      if response.review_status == "amended"
+      else "python_proposer_plus_gpt_critic_accepted"
+    )
+    final_detail = ""
+  return _wrap_cash_strategy_review_decision(
+    selected_cash_strategy=selected_cash_strategy,
+    prompt_file=prompt_file,
+    context_payload=context_payload,
+    decision=final_decision,
+    prompt_trace=prompt_trace,
+    raw_openai_response=raw_openai_response,
+    decision_source=final_decision_source,
+    detail=final_detail,
+    critique_summary=getattr(response, "critique_summary", "") or "",
+    proposer_diagnostics=proposer_diagnostics,
+    critique_diagnostics=critique_diagnostics,
   )
-  provisional_plan_status = str(provisional_plan.get("status") or "").strip().lower()
-  provisional_plan_fail_flags = {
-    str(item).strip()
-    for item in (provisional_plan.get("translation_fail_flags") or [])
-    if str(item).strip()
-  }
-  should_retry = bool(contract_error) or provisional_plan_status == "ready_no_valid_solver_contract" or bool(
-    provisional_plan_fail_flags & {
-      "cash_required_action_missing",
-      "cash_quarter_coverage_missing",
-      "cash_quarter_underfunded",
-      "cash_quarter_overfunded",
-      "cash_translation_failed",
-    }
-  )
-  if should_retry:
-    retry_payload = copy.deepcopy(payload)
-    retry_payload["input"] = list(retry_payload.get("input") or []) + [
-      {
-        "role": "user",
-        "content": [
-          {
-            "type": "input_text",
-            "text": json.dumps(
-              {
-                "repair_contract_violation": str(contract_error or "").strip() or "cash_strategy_plan_did_not_fully_cover_required_funding_quarters",
-                "required_funding_quarters": copy.deepcopy(required_funding_quarters),
-                "required_surplus_deployment_quarters": copy.deepcopy(required_surplus_deployment_quarters),
-                "provisional_translation_fail_flags": sorted(provisional_plan_fail_flags),
-                "provisional_translation_warnings": copy.deepcopy(provisional_plan.get("translation_warnings") or []),
-                "instruction": (
-                  "You must fully cover every required incremental funding quarter with integer whole-dollar amounts only. "
-                  "You must also deploy every surplus_deployment_quarter by increasing Distributions and/or Debt Repayment enough "
-                  "to eliminate cash above the strategy cash ceiling, using only Python-provided lever bounds. "
-                  "Return recommendation_mode='adjust', include quarter_funding_plan entries for every required funding quarter, "
-                  "and make recommended_adjustments sufficient so the translated financing plan covers the full residual funding gap "
-                  "for each required incremental quarter. Every quarter_funding_plan funding_sources list must contain exactly one source, and that "
-                  "single funding_sources.amount must equal that quarter's required incremental funding gap exactly using integer amounts with no decimals and no cents. "
-                  "For debt-based levers, use the Python-provided "
-                  "cash_support_multiplier guidance: quarter_funding_plan funding_sources.amount is the effective cash support toward the gap, "
-                  "while recommended_adjustments.exact_value must be the grossed-up actual lever value needed to deliver that support. "
-                  "For equity levers, the funding_sources amount and exact_value can match 1:1. Do not split a quarter across multiple funding sources. "
-                  "A balanced strategy may mix source types across different quarters, but each quarter must reconcile with one source exactly. "
-                  "Underfunded or overfunded quarters will fail. Do not re-fund prior quarter support in later quarters."
-                ),
-              },
-              ensure_ascii=False,
-            ),
-          }
-        ],
-      }
-    ]
-    previous_cash_review_retry_deadline = _set_active_openai_deadline(
-      time.perf_counter() + cash_review_deadline_seconds
-    )
-    try:
-      retry_resp = _post_openai(
-        url="https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        payload=retry_payload,
-      )
-    except Exception as exc:
-      return _cash_strategy_review_failure_payload(
-        selected_cash_strategy=selected_cash_strategy,
-        prompt_file=prompt_file,
-        status="failed_contract_retry_request",
-        detail=f"{str(contract_error or provisional_plan_status or 'cash_strategy_review_invalid_contract').strip()} Retry error: {exc}",
-        prompt_trace=prompt_trace,
-        raw_openai_response=raw_openai_response,
-      )
-    finally:
-      _set_active_openai_deadline(previous_cash_review_retry_deadline)
-    if retry_resp.status_code >= 400:
-      return _cash_strategy_review_failure_payload(
-        selected_cash_strategy=selected_cash_strategy,
-        prompt_file=prompt_file,
-        status="failed_contract_retry_status",
-        detail=f"{str(contract_error or provisional_plan_status or 'cash_strategy_review_invalid_contract').strip()} Retry status body: {retry_resp.text[:1200]}",
-        prompt_trace=prompt_trace,
-        raw_openai_response=raw_openai_response,
-      )
-    retry_raw_openai_response = retry_resp.json() if isinstance(retry_resp.json(), dict) else {"response": retry_resp.text[:4000]}
-    parsed_retry = _parse_responses_json_dict(retry_raw_openai_response)
-    if not isinstance(parsed_retry, dict):
-      return _cash_strategy_review_failure_payload(
-        selected_cash_strategy=selected_cash_strategy,
-        prompt_file=prompt_file,
-        status="failed_contract_retry_parse",
-        detail="Cash strategy review retry returned an unparsable response.",
-        prompt_trace=prompt_trace,
-        raw_openai_response=retry_raw_openai_response,
-      )
-    parsed_retry = _normalize_cash_strategy_review_decision_from_funding_plan(
-      parsed=parsed_retry,
-      cash_strategy_review_context=context_payload,
-    )
-    parsed_retry = _normalize_post_intake_contract_payload(
-      contract_name="cash_strategy_review",
-      payload=parsed_retry,
-    )
-    retry_contract_error = _cash_strategy_review_decision_contract_error(
-      parsed=parsed_retry,
-      cash_strategy_review_context=context_payload,
-    )
-    retry_review_payload = copy.deepcopy(provisional_review_payload)
-    retry_review_payload["raw_openai_response"] = copy.deepcopy(retry_raw_openai_response)
-    retry_review_payload["decision"] = copy.deepcopy(parsed_retry)
-    retry_plan = _build_cash_strategy_second_pass_plan(
-      review_decision_payload=copy.deepcopy(retry_review_payload),
-      solved_model_input_json=copy.deepcopy(solved_model_input_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-    )
-    retry_plan_status = str(retry_plan.get("status") or "").strip().lower()
-    retry_plan_fail_flags = {
-      str(item).strip()
-      for item in (retry_plan.get("translation_fail_flags") or [])
-      if str(item).strip()
-    }
-    if retry_contract_error or retry_plan_status == "ready_no_valid_solver_contract" or bool(
-      retry_plan_fail_flags & {
-        "cash_required_action_missing",
-        "cash_quarter_coverage_missing",
-        "cash_quarter_underfunded",
-        "cash_quarter_overfunded",
-        "cash_translation_failed",
-      }
-    ):
-      return _cash_strategy_review_failure_payload(
-        selected_cash_strategy=selected_cash_strategy,
-        prompt_file=prompt_file,
-        status="failed_invalid_contract",
-        detail=str(
-          retry_contract_error
-          or "; ".join(copy.deepcopy(retry_plan.get("translation_warnings") or []))
-          or "Cash strategy review retry still did not fully cover the required funding quarters."
-        ).strip(),
-        prompt_trace=prompt_trace,
-        raw_openai_response=retry_raw_openai_response,
-      )
-    raw_openai_response = retry_raw_openai_response
-    parsed = parsed_retry
-  return {
-    "contract_version": "cash_strategy_review_decision_v2",
-    "status": "completed",
-    "prompt_file": prompt_file,
-    "selected_cash_strategy": selected_cash_strategy,
-    "review_status": "completed",
-    "decision_source": "gpt",
-    "cash_strategy_review_context": copy.deepcopy(context_payload),
-    "numeric_solver_contract": copy.deepcopy(
-      context_payload.get("numeric_solver_contract")
-      if isinstance(context_payload.get("numeric_solver_contract"), dict)
-      else {}
-    ),
-    "prompt_trace": copy.deepcopy(prompt_trace),
-    "raw_openai_response": copy.deepcopy(raw_openai_response),
-    "detail": "",
-    "decision": parsed,
-  }
+
 
 def _translate_cash_strategy_adjustment(
   *,

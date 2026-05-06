@@ -1,8 +1,16 @@
 """Business-context balance-sheet driver seeding.
 
-This module owns the deterministic side of the balance-sheet seed contract:
-mapping-table candidates, payload validation, and model_input application.
-GPT decides business-specific seed values; Python applies them.
+Module 5 Task 5.3 — Python proposes the balance-sheet seed grid; GPT
+critiques. Python's `propose_balance_sheet_contextual_seed_payload`
+builds the full payload from:
+  1. Tier A intake anchors (stub-0 ar_balance, ap_balance, inventory_balance,
+     prepaid_expenses, deferred_revenue when present)
+  2. NAICS-cascade days/percent values (Module 1 resolver) for Q1+ trajectory
+  3. Per-lever applicability gates from NAICS-2 sectors
+GPT receives the proposal and may amend specific applicable / seed_value
+fields based on business-specific judgment (e.g., a retail superstore with
+a membership program → flip deferred_revenue.applicable=true). Python
+applies the corrections via the shared critique contract.
 """
 
 from __future__ import annotations
@@ -240,3 +248,243 @@ def apply_balance_sheet_contextual_seed_to_model_input(
       "applied_rows": applied_rows,
     }
   return next_payload
+
+
+# ===========================================================================
+# Module 5 Task 5.3 — Python proposer for the balance-sheet contextual seed.
+#
+# Maps each candidate lever to its NAICS metric, applicability rule, and
+# trajectory formula. The proposer never invents new levers — it walks the
+# `balance_sheet_contextual_seed_candidate_rows()` list and produces one row
+# per candidate, in the same payload shape `validate_balance_sheet_contextual_seed_payload`
+# accepts. GPT critiques the proposal; if GPT amends, Python applies the
+# corrections via the shared critique contract; if GPT rejects or fails,
+# the proposal stands as the safety floor.
+# ===========================================================================
+
+
+# Lever-to-NAICS-metric map. When the lever's resolver metric is None, the
+# proposer falls back to the legacy mapping-table band midpoint.
+_LEVER_TO_NAICS_METRIC: Dict[str, str] = {
+  "balance_sheet::Accounts Receivable Days": "ar_days_dso",
+  "balance_sheet::Accounts Payable Days": "ap_days_dpo",
+  "balance_sheet::Inventory Days": "inventory_days",
+  "balance_sheet::Prepaid Expenses (% of Revenue)": "prepaid_expenses_percent_of_revenue",
+  "balance_sheet::Deferred Revenue (% of Revenue)": "deferred_revenue_percent_of_revenue",
+}
+
+
+# NAICS-2 sectors where each lever applies. None = always applies.
+_LEVER_APPLICABILITY_NAICS_2: Dict[str, Optional[set]] = {
+  "balance_sheet::Accounts Receivable Days": None,  # universal — every business with revenue has some AR cycle
+  "balance_sheet::Accounts Payable Days": None,    # universal — every business with operating expenses has some AP cycle
+  "balance_sheet::Inventory Days": {"31", "32", "33", "42", "44", "45", "72"},
+  "balance_sheet::Prepaid Expenses (% of Revenue)": None,  # universal but small for most businesses
+  "balance_sheet::Deferred Revenue (% of Revenue)": {"51", "52", "53", "54", "62"},
+}
+
+
+def _proposer_clamp_to_bounds(value: float, min_value: float, max_value: float) -> float:
+  if min_value > max_value:
+    min_value, max_value = max_value, min_value
+  return max(min_value, min(max_value, float(value)))
+
+
+def _proposer_intake_implied_seed(
+  *,
+  lever_id: str,
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+) -> Optional[float]:
+  """Tier A: when intake stub-0 supplies the balance, return the implied
+  days/percent for the trajectory anchor. None when intake didn't provide.
+  """
+  revenue_year_one = (
+    _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
+    or _safe_float((financials_year1_json or {}).get("revenue_total_year1"))
+    or _safe_float((financials_json or {}).get("current_revenue"))
+  )
+  if revenue_year_one is None or revenue_year_one <= 0.0:
+    return None
+  quarter_revenue = float(revenue_year_one) / 4.0
+  if lever_id == "balance_sheet::Accounts Receivable Days":
+    ar = _safe_float((financials_json or {}).get("ar_balance"))
+    if ar is None or ar <= 0.0:
+      return None
+    return (float(ar) / quarter_revenue) * 90.0
+  if lever_id == "balance_sheet::Accounts Payable Days":
+    ap = _safe_float((financials_json or {}).get("ap_balance"))
+    if ap is None or ap <= 0.0:
+      return None
+    # Approximate ap_expense_base = revenue × (1 - typical_gross_margin)
+    # Conservative anchor: scale by quarter revenue. The Module 1 wiring
+    # uses the actual operating-expense base in the live row computation.
+    return (float(ap) / quarter_revenue) * 90.0
+  if lever_id == "balance_sheet::Inventory Days":
+    inventory = _safe_float((financials_json or {}).get("inventory_balance"))
+    if inventory is None or inventory <= 0.0:
+      return None
+    return (float(inventory) / quarter_revenue) * 90.0
+  if lever_id == "balance_sheet::Prepaid Expenses (% of Revenue)":
+    prepaid = _safe_float((financials_json or {}).get("prepaid_expenses"))
+    if prepaid is None or prepaid <= 0.0:
+      return None
+    return float(prepaid) / quarter_revenue
+  if lever_id == "balance_sheet::Deferred Revenue (% of Revenue)":
+    deferred = _safe_float((financials_json or {}).get("deferred_revenue"))
+    if deferred is None or deferred <= 0.0:
+      return None
+    return float(deferred) / quarter_revenue
+  return None
+
+
+def _proposer_naics_seed(*, lever_id: str, business_naics_6: str) -> Optional[Dict[str, Any]]:
+  """NAICS-cascade fallback: returns the resolver payload's benchmark_target
+  for the lever's metric, or None when the lever is not in the metric map
+  or the cascade has no coverage.
+  """
+  metric_key = _LEVER_TO_NAICS_METRIC.get(lever_id)
+  if not metric_key or not business_naics_6:
+    return None
+  try:
+    from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+      post_intake_industry_baseline_for_naics,
+    )
+    band = post_intake_industry_baseline_for_naics(metric_key=metric_key, naics_6=business_naics_6)
+  except Exception:
+    return None
+  if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
+    return None
+  target = band.get("benchmark_target")
+  if target is None:
+    target = band.get("benchmark_min") or band.get("benchmark_max")
+  if target is None:
+    return None
+  return {
+    "benchmark_target": float(target),
+    "metric_key": metric_key,
+    "naics_code_used": band.get("naics_code_used"),
+    "naics_level_used": band.get("naics_level_used"),
+    "confidence_tier": band.get("confidence_tier"),
+    "data_source": band.get("data_source"),
+    "trust_flag": band.get("trust_flag"),
+  }
+
+
+def _proposer_applicability_for_lever(*, lever_id: str, business_naics_6: str) -> Dict[str, Any]:
+  """Determines whether each lever applies for a given business based on
+  NAICS-2 sector. Returns dict with `applicable` bool and `reason` string.
+  """
+  naics_2 = "".join(ch for ch in str(business_naics_6 or "") if ch.isdigit())[:2]
+  applicable_set = _LEVER_APPLICABILITY_NAICS_2.get(lever_id)
+  if applicable_set is None:
+    return {"applicable": True, "reason": "lever_universally_applicable"}
+  if not naics_2:
+    # Conservative default for ambiguous-sector levers when NAICS missing.
+    return {"applicable": False, "reason": f"lever_gated_by_naics2_unknown_naics"}
+  if naics_2 in applicable_set:
+    return {"applicable": True, "reason": f"naics2_{naics_2}_in_applicable_set"}
+  return {"applicable": False, "reason": f"naics2_{naics_2}_not_in_applicable_set"}
+
+
+def propose_balance_sheet_contextual_seed_payload(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """Module 5 Task 5.3 — build the balance-sheet seed proposal deterministically.
+
+  Per-lever logic:
+    1. Determine `applicable` from NAICS-2 sector.
+    2. When applicable=False → seed_value = 0 (legitimate zero).
+    3. When applicable=True:
+       a. Tier A intake anchor (stub-0 balance × 90 / revenue) takes
+          priority when present.
+       b. Otherwise, NAICS-cascade benchmark_target.
+       c. Clamp to mapping-table min/max bounds.
+    4. Carry NAICS provenance for every row that used the cascade.
+
+  Returns the same payload shape `validate_balance_sheet_contextual_seed_payload`
+  expects so downstream `apply_balance_sheet_contextual_seed_to_model_input`
+  works unchanged.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  financials = financials_json if isinstance(financials_json, dict) else {}
+  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
+
+  business_naics_6 = "".join(ch for ch in str(ops.get("business_naics_6") or "") if ch.isdigit())
+  candidate_rows = balance_sheet_contextual_seed_candidate_rows()
+
+  proposed_rows: List[Dict[str, Any]] = []
+  for candidate in candidate_rows:
+    lever_id = _clean(candidate.get("lever_id"))
+    if not lever_id:
+      continue
+    minimum, maximum = _bounds_for_row(candidate)
+    value_kind = _lower(candidate.get("value_kind"))
+
+    applicability = _proposer_applicability_for_lever(
+      lever_id=lever_id, business_naics_6=business_naics_6
+    )
+    naics_provenance: Optional[Dict[str, Any]] = None
+    rationale_parts: List[str] = []
+
+    if not applicability["applicable"]:
+      seed_value = 0.0
+      rationale_parts.append(f"applicable=false ({applicability['reason']})")
+    else:
+      intake_implied = _proposer_intake_implied_seed(
+        lever_id=lever_id,
+        financials_json=financials,
+        financials_year1_json=year1,
+      )
+      if intake_implied is not None and intake_implied > 0.0:
+        seed_value = _proposer_clamp_to_bounds(intake_implied, minimum, maximum)
+        rationale_parts.append(f"tier_a_intake_anchor (raw={intake_implied:.4f})")
+      else:
+        naics_band = _proposer_naics_seed(lever_id=lever_id, business_naics_6=business_naics_6)
+        if naics_band is not None:
+          seed_value = _proposer_clamp_to_bounds(naics_band["benchmark_target"], minimum, maximum)
+          naics_provenance = {
+            "metric_key": naics_band["metric_key"],
+            "naics_code_used": naics_band["naics_code_used"],
+            "naics_level_used": naics_band["naics_level_used"],
+            "confidence_tier": naics_band["confidence_tier"],
+            "data_source": naics_band["data_source"],
+            "trust_flag": naics_band["trust_flag"],
+          }
+          rationale_parts.append(
+            f"naics_cascade ({naics_band['metric_key']} target={naics_band['benchmark_target']:.4f})"
+          )
+        else:
+          # No intake anchor, no NAICS coverage → mapping-band midpoint.
+          seed_value = (float(minimum) + float(maximum)) / 2.0
+          rationale_parts.append("mapping_band_midpoint_fallback")
+
+    row: Dict[str, Any] = {
+      "lever_id": lever_id,
+      "applicable": bool(applicability["applicable"]),
+      "seed_value": round(float(seed_value), 6),
+      "value_kind": value_kind,
+      "rationale": "; ".join(rationale_parts) or "deterministic_proposer",
+    }
+    if naics_provenance is not None:
+      row["naics_provenance"] = naics_provenance
+    proposed_rows.append(row)
+
+  return {
+    "contract_version": "balance_sheet_contextual_seed_proposal_v1",
+    "decision_source": "python_proposer",
+    "balance_sheet_seed_grid": proposed_rows,
+    "rationale": (
+      "Python proposer: per-lever applicability gated by NAICS-2; seed values "
+      "from Tier A intake anchors when present, else NAICS resolver, else "
+      "mapping-table band midpoint. GPT critique may amend specific rows."
+    ),
+    "source_of_truth": "python_proposer + sql.post_intake_industry_baseline_lookup",
+    "naics_6": business_naics_6 or None,
+  }
+

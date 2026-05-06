@@ -1593,9 +1593,26 @@ def _estimate_balance_sheet_contextual_seed_with_gpt(
   model_input_json: Optional[Dict[str, Any]],
   finmo_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-  api_key = _openai_key()
-  if not api_key:
-    raise RuntimeError("balance_sheet_contextual_seed_openai_key_missing: OPENAI_API_KEY is not configured.")
+  """Module 5 Task 5.3 — Python proposes, GPT critiques.
+
+  Workflow:
+    1. `propose_balance_sheet_contextual_seed_payload` builds the full seed
+       grid deterministically from NAICS + intake anchors + applicability.
+    2. The OpenAI critic receives the proposal and may return amendments
+       to specific rows (e.g., flip applicable=true for a retail business
+       that runs a membership program).
+    3. Python applies amendments via the shared critique contract.
+    4. The amended payload is normalized via the existing validator so
+       downstream `apply_balance_sheet_contextual_seed_to_model_input` is
+       unchanged.
+    5. When GPT fails (no key, timeout, garbage response), Python's
+       proposal is the safety floor — every value already has data
+       provenance, so the floor is always reasonable.
+
+  This replaces the from-scratch GPT decision with a focused critique
+  step. Latency drops because the prompt is much smaller; variance drops
+  because GPT can only edit, not invent.
+  """
   facts = business_facts if isinstance(business_facts, dict) else {}
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
@@ -1604,12 +1621,37 @@ def _estimate_balance_sheet_contextual_seed_with_gpt(
     row for row in ((finmo_json or {}).get("quarter_rows") or [])
     if isinstance(row, dict)
   ]
-  user_context = {
+  # ----- Step 1: build the Python proposal deterministically. -----
+  from client_intake_and_finmo.post_intake_balance_sheet.contextual_seed import (  # type: ignore
+    propose_balance_sheet_contextual_seed_payload,
+  )
+  from client_intake_and_finmo.post_intake_critique import (  # type: ignore
+    CRITIQUE_CONTRACT_SCHEMA,
+    CritiqueResponse,
+    apply_corrections_to_proposal,
+    proposal_only_response,
+  )
+  proposal = propose_balance_sheet_contextual_seed_payload(
+    business_facts=facts,
+    ops_json=ops,
+    financials_json=financials,
+    financials_year1_json=year1,
+    model_input_json=model_input_json,
+  )
+
+  # ----- Step 2: invoke the GPT critic with the proposal as input. -----
+  api_key = _openai_key()
+  if not api_key:
+    response = proposal_only_response(reason="openai_key_missing_proposal_stands")
+    return _finalize_balance_sheet_seed_with_critique(
+      proposal=proposal, response=response, raw_openai_response=None,
+    )
+  business_summary = {
     "business_identity": {
       "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
       "business_type": ops.get("business_type"),
       "business_stage": ops.get("business_stage") or facts.get("business_stage"),
-      "business_start_date": facts.get("business_start_date") or facts.get("start_date") or ops.get("business_start_date"),
+      "business_naics_6": ops.get("business_naics_6"),
     },
     "business_context": {
       "description": ops.get("business_description_summary") or ops.get("business_description"),
@@ -1628,87 +1670,73 @@ def _estimate_balance_sheet_contextual_seed_with_gpt(
         or year1.get("revenue_total_year1")
         or financials.get("current_revenue")
       ),
-      "cash_on_hand": financials.get("cash_on_hand"),
       "ar_balance": financials.get("ar_balance"),
       "ap_balance": financials.get("ap_balance"),
       "inventory_balance": financials.get("inventory_balance"),
       "prepaid_expenses": financials.get("prepaid_expenses"),
       "deferred_revenue": financials.get("deferred_revenue"),
-      "total_debt_outstanding": financials.get("total_debt_outstanding"),
     },
+  }
+  proposal_for_critic = {
+    "balance_sheet_seed_grid": [
+      {
+        "lever_id": row.get("lever_id"),
+        "applicable": bool(row.get("applicable")),
+        "seed_value": row.get("seed_value"),
+        "value_kind": row.get("value_kind"),
+        "rationale": row.get("rationale"),
+        "naics_provenance": row.get("naics_provenance"),
+      }
+      for row in (proposal.get("balance_sheet_seed_grid") or [])
+    ],
+    "decision_source": proposal.get("decision_source"),
+    "naics_6": proposal.get("naics_6"),
+  }
+  critic_context = {
+    "proposal": proposal_for_critic,
+    "business_summary": business_summary,
     "seed_candidates": _balance_sheet_seed_candidate_prompt_rows(),
-    "current_model_snapshot": {
-      "balance_sheet_seed_rows": _balance_sheet_seed_current_snapshot(model_input_json),
-      "finmo_first_4_live_rows": [
-        {
-          "quarter_index": int(_safe_float(row.get("quarter_index")) or 0),
-          "revenue": int(round(float(_safe_float(row.get("revenue")) or 0.0))),
-          "cost_of_goods_sold": int(round(float(_safe_float(row.get("cost_of_goods_sold")) or 0.0))),
-          "accounts_receivable": int(round(float(_safe_float(row.get("accounts_receivable")) or 0.0))),
-          "accounts_payable": int(round(float(_safe_float(row.get("accounts_payable")) or 0.0))),
-          "inventory": int(round(float(_safe_float(row.get("inventory")) or 0.0))),
-          "prepaid_expenses": int(round(float(_safe_float(row.get("prepaid_expenses")) or 0.0))),
-          "deferred_revenue": int(round(float(_safe_float(row.get("deferred_revenue")) or 0.0))),
-        }
-        for row in finmo_rows[:4]
-      ],
-    },
-    "hard_rules": [
-      "Return one row for every seed_candidate, no more and no fewer.",
-      "Set applicable=true only when the business context/type should carry that balance-sheet driver in the forecast.",
-      "If applicable=true, choose a business-context-specific seed_value inside the candidate min/max bounds.",
-      "If applicable=false, return seed_value=0. Do not use a default fallback.",
-      "For day_count rows, seed_value is days. For ratio rows, seed_value is a decimal ratio, such as 0.05 for 5%.",
+    "review_instructions": [
+      "You are reviewing a Python-built balance-sheet seed proposal that already has data provenance.",
+      "Accept the proposal when every row is reasonable for THIS business.",
+      "Amend ONLY rows where the business context contradicts the proposed applicability or value.",
+      "field_path uses bracket notation, e.g. balance_sheet_seed_grid[2].applicable or balance_sheet_seed_grid[0].seed_value.",
+      "Only edit fields that already exist in the proposal. Do not add new rows or fields.",
+      "If you flip applicable from false to true, also amend that row's seed_value to a value inside the seed_candidate min/max bounds.",
+      "If you flip applicable from true to false, also amend that row's seed_value to 0.",
+      "Reject only if the proposal is structurally unusable; Python's proposal will then stand as the safety floor.",
     ],
   }
-  user_context = post_intake_gpt_context_filter_payload(
-    contract_name="balance_sheet_contextual_seed",
-    payload=user_context,
-    include_phase="pre_convergence",
-  )
-  system_prompt = post_intake_build_prompt_from_contract(
-    "balance_sheet_contextual_seed",
-    context_payload=user_context,
-    include_phase="pre_convergence",
-    static_instruction=(
-      "You make one pre-convergence balance-sheet driver applicability and seed decision for a 3-statement planning app."
-    ),
-    task_instruction=(
-      "Return only JSON matching the SQL-backed balance_sheet_contextual_seed contract. "
-      "Use the supplied mapping-backed seed_candidates and business context. Do not invent fields, rows, or universal defaults."
-    ),
-  )
-  context_budget = post_intake_gpt_context_request_char_budget(
-    contract_name="balance_sheet_contextual_seed",
-    include_phase="pre_convergence",
-    default=None,
-  )
-  if context_budget is not None:
-    context_chars = len(json.dumps(user_context, ensure_ascii=False))
-    if context_chars > int(context_budget):
-      raise RuntimeError(
-        f"balance_sheet_contextual_seed_gpt_context_payload_budget_exceeded: chars={context_chars} budget={int(context_budget)}"
-      )
+  critic_schema = _openai_strict_json_schema(CRITIQUE_CONTRACT_SCHEMA)
   payload_base = {
     "model": _openai_model(),
     "temperature": 0,
     "text": {
       "format": {
         "type": "json_schema",
-        "name": "balance_sheet_contextual_seed",
-        "schema": _balance_sheet_contextual_seed_schema(),
+        "name": "balance_sheet_contextual_seed_critique",
+        "schema": critic_schema,
         "strict": True,
       }
     },
   }
+  system_prompt = (
+    "You are reviewing a deterministic Python proposal for balance-sheet seed drivers. "
+    "Python is the engineer (it built the proposal from NAICS data and intake anchors); "
+    "you are the consultant. Return review_status=accepted when the proposal is correct. "
+    "Return review_status=amended with surgical corrections when the proposal misjudges "
+    "applicability or seed value for THIS business. Return review_status=rejected only "
+    "when the structure is unusable; in that case, Python falls back to the proposal as "
+    "the safety floor. Output only JSON conforming to the critique schema."
+  )
   timeout_seconds = _balance_sheet_contextual_seed_timeout_seconds()
   prior_deadline = _set_active_openai_deadline(time.perf_counter() + timeout_seconds)
-  raw_openai_response: Dict[str, Any] = {}
+  raw_openai_response: Optional[Dict[str, Any]] = None
   try:
     payload = copy.deepcopy(payload_base)
     payload["input"] = [
       {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(critic_context, ensure_ascii=False)}]},
     ]
     resp = _post_openai(
       url="https://api.openai.com/v1/responses",
@@ -1716,20 +1744,121 @@ def _estimate_balance_sheet_contextual_seed_with_gpt(
       payload=payload,
     )
     if resp.status_code >= 400:
-      raise RuntimeError(f"balance_sheet_contextual_seed_openai_status: {resp.text[:1200]}")
+      logger.warning(
+        "balance_sheet_contextual_seed_critic_http_error: status=%s body=%s",
+        resp.status_code, resp.text[:500],
+      )
+      response = proposal_only_response(reason=f"critic_http_status_{resp.status_code}")
+      return _finalize_balance_sheet_seed_with_critique(
+        proposal=proposal, response=response, raw_openai_response=None,
+      )
     raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
     parsed = _parse_responses_json_dict(raw_openai_response)
-    if not isinstance(parsed, dict):
-      raise RuntimeError("balance_sheet_contextual_seed_parse_failed: GPT did not return a JSON object.")
-    decision = _validate_balance_sheet_contextual_seed_payload(parsed)
-  except TimeoutError as exc:
-    raise RuntimeError(
-      f"balance_sheet_contextual_seed_timeout: GPT balance-sheet seed selection exceeded {timeout_seconds:.0f}s before convergence."
-    ) from exc
+    try:
+      response = CritiqueResponse.from_payload(parsed)
+    except RuntimeError as exc:
+      logger.warning("balance_sheet_contextual_seed_critic_invalid_payload: %s", exc)
+      response = proposal_only_response(reason=f"critic_invalid_payload: {exc}")
+  except TimeoutError:
+    logger.warning(
+      "balance_sheet_contextual_seed_critic_timeout: critic exceeded %.0fs; using proposal as safety floor.",
+      timeout_seconds,
+    )
+    response = proposal_only_response(reason="critic_timeout")
+  except Exception as exc:
+    logger.warning("balance_sheet_contextual_seed_critic_unexpected_error: %s", exc)
+    response = proposal_only_response(reason=f"critic_unexpected_error: {exc}")
   finally:
     _set_active_openai_deadline(prior_deadline)
-  decision["prompt_context"] = user_context
+  return _finalize_balance_sheet_seed_with_critique(
+    proposal=proposal,
+    response=response,
+    raw_openai_response=raw_openai_response,
+  )
+
+
+_BALANCE_SHEET_SEED_CONTRACT_ROW_FIELDS = (
+  "lever_id",
+  "applicable",
+  "seed_value",
+  "value_kind",
+  "rationale",
+)
+
+
+def _slim_balance_sheet_seed_proposal_for_contract(proposal: Dict[str, Any]) -> Dict[str, Any]:
+  """Project the rich proposer payload onto the strict GPT contract shape.
+
+  The proposer attaches metadata (`naics_provenance`, `decision_source`,
+  `naics_6`, `source_of_truth`) that's useful for traceability but not part
+  of the SQL-backed contract schema. The validator rejects extra fields, so
+  we slim the payload before calling it. Metadata is re-attached after
+  validation.
+  """
+  rows = proposal.get("balance_sheet_seed_grid") if isinstance(proposal, dict) else []
+  slim_rows: List[Dict[str, Any]] = []
+  for row in (rows or []):
+    if not isinstance(row, dict):
+      continue
+    slim_rows.append({field: row.get(field) for field in _BALANCE_SHEET_SEED_CONTRACT_ROW_FIELDS})
+  rationale = str((proposal or {}).get("rationale") or "").strip() or (
+    "Python proposer built deterministic seed grid from NAICS resolver and intake anchors; "
+    "GPT critic may amend specific rows."
+  )
+  return {
+    "balance_sheet_seed_grid": slim_rows,
+    "rationale": rationale,
+  }
+
+
+def _finalize_balance_sheet_seed_with_critique(
+  *,
+  proposal: Dict[str, Any],
+  response: Any,
+  raw_openai_response: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Apply a CritiqueResponse to the proposal and normalize via the validator.
+
+  When the critic accepted (or rejected, the safety-floor case), the proposal
+  flows straight through the validator. When amended, corrections are applied
+  via the shared field-path resolver — corrections that target paths that
+  don't exist are silently dropped and surfaced in `_critique_diagnostics`.
+
+  The validator may raise if the amended payload is structurally invalid
+  (e.g., out-of-bounds seed_value). When that happens we fall back to the
+  raw proposal as the safety floor and log the validator failure for review.
+  """
+  from client_intake_and_finmo.post_intake_critique import (  # type: ignore
+    apply_corrections_to_proposal,
+    proposal_only_response,
+  )
+  slim_proposal = _slim_balance_sheet_seed_proposal_for_contract(proposal)
+  amended_payload = apply_corrections_to_proposal(proposal=slim_proposal, response=response)
+  critique_diagnostics = amended_payload.pop("_critique_diagnostics", None) if isinstance(amended_payload, dict) else None
+  try:
+    decision = _validate_balance_sheet_contextual_seed_payload(amended_payload)
+  except RuntimeError as exc:
+    logger.warning(
+      "balance_sheet_contextual_seed_validator_rejected_amended_payload: %s; using proposal as safety floor.", exc
+    )
+    decision = _validate_balance_sheet_contextual_seed_payload(slim_proposal)
+    if critique_diagnostics is None:
+      critique_diagnostics = {
+        "review_status": getattr(response, "review_status", "unknown"),
+        "applied_corrections": [],
+        "dropped_corrections": [],
+        "critique_summary": getattr(response, "critique_summary", "") or f"validator_rejected: {exc}",
+      }
+    critique_diagnostics["validator_fallback"] = str(exc)
+  decision["proposal"] = proposal
+  decision["critique"] = critique_diagnostics or {
+    "review_status": getattr(response, "review_status", "accepted"),
+    "applied_corrections": [],
+    "dropped_corrections": [],
+    "critique_summary": getattr(response, "critique_summary", ""),
+  }
   decision["raw_openai_response"] = raw_openai_response
+  decision["decision_source"] = "python_proposer_plus_gpt_critic"
   return decision
 
 def _estimate_stage_ramp_contract_with_gpt(
@@ -3663,15 +3792,24 @@ def _run_realism_verification_openai(
   updated_model_input_json: Dict[str, Any],
   updated_finmo_json: Dict[str, Any],
 ) -> Dict[str, Any]:
-  prompt_file = "client_intake_and_finmo/prompts/unified_convergence/verifier.md"
-  api_key = _openai_key()
-  if not api_key:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="skipped_missing_openai_key",
-      detail="OPENAI_API_KEY is not configured.",
-    )
+  """Module 5 Task 5.6 — Python proposes per-issue verdicts; GPT critiques.
 
+  Workflow:
+    1. `propose_realism_verification_payload` walks each issue_packet
+       (from the plan/decision/result) and derives a deterministic
+       per-issue verdict from `applied_updates`:
+         - resolved: every affected quarter saw an applied lever change
+         - improved: some affected quarters were touched
+         - stalled: no candidate lever was touched
+    2. The OpenAI critic receives the proposal and may amend specific
+       per-issue verdicts (e.g., flip "improved" → "resolved" when the
+       residual gap is judged acceptable).
+    3. Python applies amendments via the shared critique contract.
+    4. When GPT fails (no key, timeout, garbage), Python's verdicts
+       stand as the safety floor — every verdict has data provenance
+       back to the convergence result.
+  """
+  prompt_file = "client_intake_and_finmo/prompts/unified_convergence/verifier.md"
   decision_payload = (
     unified_convergence_decision.get("decision")
     if isinstance(unified_convergence_decision.get("decision"), dict)
@@ -3702,171 +3840,198 @@ def _run_realism_verification_openai(
       status="failed_missing_issue_packets",
       detail="No issue packets were available for realism verification.",
     )
-  compact_issue_packets = _compact_issue_packets_for_prompt(issue_packets)
 
-  lever_catalog = _build_writable_lever_review_catalog(updated_model_input_json)
-  allowed_lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
-  if not allowed_lever_ids:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_missing_levers",
-      detail="No writable lever ids were available for realism verification.",
-    )
-
-  try:
-    static_verify_prompt = _UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH.read_text(encoding="utf-8").strip()
-  except Exception as exc:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_load_prompt",
-      detail=str(exc),
-    )
-  applied_updates = [
+  # ----- Step 1: build the Python verification proposal deterministically. -----
+  from client_intake_and_finmo.post_intake_realism.verification_proposer import (  # type: ignore
+    propose_realism_verification_payload,
+  )
+  from client_intake_and_finmo.post_intake_critique import (  # type: ignore
+    CRITIQUE_CONTRACT_SCHEMA,
+    CritiqueResponse,
+    apply_corrections_to_proposal,
+    proposal_only_response,
+  )
+  applied_updates_for_proposal = [
     item for item in ((unified_convergence_result or {}).get("applied_updates") or []) if isinstance(item, dict)
   ]
+  proposal = propose_realism_verification_payload(
+    issue_packets=issue_packets,
+    applied_updates=applied_updates_for_proposal,
+    realism_memo_before_resolution=realism_memo_before_resolution,
+  )
+  proposer_diagnostics = proposal.pop("_proposer_diagnostics", {}) if isinstance(proposal, dict) else {}
+
+  api_key = _openai_key()
+  if not api_key:
+    decision_validated = _normalize_post_intake_contract_payload(
+      contract_name="unified_convergence_verification",
+      payload=proposal,
+    )
+    return {
+      "contract_version": "unified_convergence_verification_v1",
+      "status": "completed",
+      "prompt_file": prompt_file,
+      "verification_status": "completed",
+      "detail": "OPENAI_API_KEY is not configured; Python proposal stands as the safety floor.",
+      "decision_source": "python_proposer_only",
+      "proposer_diagnostics": copy.deepcopy(proposer_diagnostics),
+      "verification": decision_validated,
+    }
+
+  # ----- Step 2: invoke the GPT critic with the proposal as input. -----
+  compact_issue_packets = _compact_issue_packets_for_prompt(issue_packets)
+  lever_catalog = _build_writable_lever_review_catalog(updated_model_input_json)
+  allowed_lever_ids = [str(item.get("lever_id") or "").strip() for item in lever_catalog if str(item.get("lever_id") or "").strip()]
   touched_lever_ids = sorted(
     {
       str(item.get("lever_id") or "").strip()
-      for item in applied_updates
+      for item in applied_updates_for_proposal
       if str(item.get("lever_id") or "").strip()
     }
   )
   memo_before = realism_memo_before_resolution if isinstance(realism_memo_before_resolution, dict) else {}
   compact_realism_memo_before = {
-    "storage_mode": "compact_verification_context",
     "status": str(memo_before.get("status") or "").strip(),
     "remaining_issue_count": int(_safe_float(memo_before.get("remaining_issue_count")) or 0),
     "resolved_issue_count": int(_safe_float(memo_before.get("resolved_issue_count")) or 0),
     "tolerated_issue_count": int(_safe_float(memo_before.get("tolerated_issue_count")) or 0),
     "issue_packets": copy.deepcopy(compact_issue_packets),
   }
-  compact_unified_convergence_plan = {
-    "status": str((unified_convergence_plan or {}).get("status") or "").strip(),
-    "strategy_class": str((unified_convergence_plan or {}).get("strategy_class") or "").strip(),
-    "change_type": str((unified_convergence_plan or {}).get("change_type") or "").strip(),
-    "progress_expectation": str((unified_convergence_plan or {}).get("progress_expectation") or "").strip(),
-    "retry_reason": str((unified_convergence_plan or {}).get("retry_reason") or "").strip(),
-    "lever_selection": copy.deepcopy((unified_convergence_plan or {}).get("lever_selection") or []),
-    "target_tolerances": copy.deepcopy((unified_convergence_plan or {}).get("target_tolerances") or []),
-    "targets_by_quarter": copy.deepcopy((unified_convergence_plan or {}).get("targets_by_quarter") or []),
-    "translated_control_count": int(_safe_float((unified_convergence_plan or {}).get("translated_control_count")) or 0),
-    "touched_lever_ids": copy.deepcopy((unified_convergence_plan or {}).get("touched_lever_ids") or []),
+  proposal_for_critic = {
+    "overall_assessment": proposal.get("overall_assessment"),
+    "executive_summary": proposal.get("executive_summary"),
+    "issue_results": copy.deepcopy(proposal.get("issue_results") or []),
   }
-
-  user_context = {
-    "draft_id": str(draft_id or "").strip(),
-    "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
-    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("unified_convergence_verification"),
-    "required_numeric_resolution_contract": _unified_solver_target_contract_spec_payload(),
-    "verification_scope": _realism_verification_scope_payload(
-      strategy_recheck_context=strategy_recheck_context,
-      realism_pass_consistency_context=realism_pass_consistency_context,
-    ),
-    "planning_mode_context": _build_planning_mode_context(
-      planning_mode=planning_mode,
-      planning_mode_reason=planning_mode_reason,
-      prompt_file=planning_mode_prompt_file,
-    ),
-    "realism_memo_before_resolution": compact_realism_memo_before,
+  critic_context = {
+    "proposal": proposal_for_critic,
+    "proposer_diagnostics": proposer_diagnostics,
     "issue_packets": compact_issue_packets,
-    "unified_convergence_plan": compact_unified_convergence_plan,
-    "applied_updates": copy.deepcopy(applied_updates),
-    "updated_model_input_json": _compact_model_input_for_verification(
-      updated_model_input_json,
-      lever_ids=touched_lever_ids,
-    ),
-    "updated_finmo_quarter_rows": _compact_quarter_metric_rows_for_storage(
-      [row for row in ((updated_finmo_json or {}).get("quarter_rows") or []) if isinstance(row, dict)]
-    ),
-    "protected_resolved_issue_constraints": [
-      item for item in (protected_resolved_issue_constraints or []) if isinstance(item, dict)
+    "applied_updates": copy.deepcopy(applied_updates_for_proposal),
+    "touched_lever_ids": touched_lever_ids,
+    "realism_memo_before_resolution": compact_realism_memo_before,
+    "business_summary": {
+      "business_name": str((business_facts or {}).get("name") or (business_facts or {}).get("business_name") or "").strip(),
+      "draft_id": str(draft_id or "").strip(),
+      "planning_mode": str(planning_mode or "").strip(),
+      "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    },
+    "review_instructions": [
+      "You are reviewing Python-derived per-issue verdicts for a convergence pass.",
+      "Accept the proposal when each issue's verdict (resolved/improved/stalled/needs_review) is reasonable given the applied_updates.",
+      "Amend ONLY when domain judgment overrides the deterministic heuristic — e.g., 'improved' should be 'resolved' because the residual gap is acceptable for THIS business.",
+      "field_path uses bracket notation, e.g. issue_results[0].status or issue_results[2].observed_improvement_summary.",
+      "Only edit fields that already exist in the proposal. Do not add or remove issue_results entries.",
+      "Reject only if the proposal is structurally unusable; Python's verdicts will then stand as the safety floor.",
     ],
-    "strategy_recheck_context": copy.deepcopy(strategy_recheck_context or {}),
-    "realism_pass_consistency_context": copy.deepcopy(realism_pass_consistency_context or {}),
-    "writable_lever_catalog": _compact_writable_lever_catalog_entries(lever_catalog),
   }
-  try:
-    verify_prompt = post_intake_build_prompt_from_contract(
-      "unified_convergence_verification",
-      context_payload=user_context,
-      include_phase="verifier",
-      static_instruction=static_verify_prompt,
-      task_instruction=(
-        "Return only JSON matching the unified_convergence_verification contract. Verify the "
-        "actual table-backed plan result and do not introduce fields, targets, or issue concepts "
-        "outside the SQL contract/context lookup rows."
-      ),
-    )
-  except Exception as exc:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_table_prompt_render",
-      detail=str(exc),
-    )
-  payload = {
+  critic_schema = _openai_strict_json_schema(CRITIQUE_CONTRACT_SCHEMA)
+  payload_base = {
     "model": _openai_model(),
-    "input": [
-      {"role": "system", "content": [{"type": "input_text", "text": verify_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
-    ],
+    "temperature": 0,
     "text": {
       "format": {
         "type": "json_schema",
-        "name": "unified_convergence_verification",
-        "schema": _realism_verification_schema(allowed_lever_ids),
+        "name": "unified_convergence_verification_critique",
+        "schema": critic_schema,
         "strict": True,
       }
     },
   }
+  system_prompt = (
+    "You are reviewing Python-built per-issue verdicts for a convergence pass. Python is the engineer "
+    "(it derived each verdict from applied_updates and issue affected_quarters); you are the consultant. "
+    "Return review_status=accepted when verdicts are reasonable. Return review_status=amended with "
+    "surgical corrections when domain judgment overrides the heuristic. Return review_status=rejected "
+    "only when the structure is unusable; in that case, Python falls back to the proposal as the safety "
+    "floor. Output only JSON conforming to the critique schema."
+  )
+  raw_openai_response: Optional[Dict[str, Any]] = None
   try:
+    payload = copy.deepcopy(payload_base)
+    payload["input"] = [
+      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(critic_context, ensure_ascii=False)}]},
+    ]
     resp = _post_openai(
       url="https://api.openai.com/v1/responses",
       headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
       payload=payload,
     )
+    if resp.status_code >= 400:
+      logger.warning(
+        "realism_verification_critic_http_error: status=%s body=%s",
+        resp.status_code, resp.text[:500],
+      )
+      response = proposal_only_response(reason=f"critic_http_status_{resp.status_code}")
+    else:
+      raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
+      parsed_critique = _parse_responses_json_dict(raw_openai_response)
+      try:
+        response = CritiqueResponse.from_payload(parsed_critique)
+      except RuntimeError as exc:
+        logger.warning("realism_verification_critic_invalid_payload: %s", exc)
+        response = proposal_only_response(reason=f"critic_invalid_payload: {exc}")
   except Exception as exc:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_openai_request",
-      detail=str(exc),
-    )
-  if resp.status_code >= 400:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_openai_status",
-      detail=resp.text[:1200],
-    )
-  parsed = _parse_responses_json_dict(resp.json())
-  if not isinstance(parsed, dict):
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_parse",
-      detail="Unable to parse realism verification JSON.",
-    )
-  parsed = _normalize_post_intake_contract_payload(
+    logger.warning("realism_verification_critic_unexpected_error: %s", exc)
+    response = proposal_only_response(reason=f"critic_unexpected_error: {exc}")
+
+  # ----- Step 3: apply critic corrections to the proposal. -----
+  amended = apply_corrections_to_proposal(proposal=proposal_for_critic, response=response)
+  critique_diagnostics = amended.pop("_critique_diagnostics", None) if isinstance(amended, dict) else None
+  amended_for_validation = {
+    "overall_assessment": amended.get("overall_assessment") or proposal.get("overall_assessment"),
+    "executive_summary": amended.get("executive_summary") or proposal.get("executive_summary"),
+    "issue_results": amended.get("issue_results") or proposal.get("issue_results") or [],
+  }
+  amended_for_validation = _normalize_post_intake_contract_payload(
     contract_name="unified_convergence_verification",
-    payload=parsed,
+    payload=amended_for_validation,
   )
   table_contract_errors = _post_intake_contract_payload_errors(
     contract_name="unified_convergence_verification",
-    payload=parsed,
+    payload=amended_for_validation,
   )
   if table_contract_errors:
-    return _realism_verification_failure_payload(
-      prompt_file=prompt_file,
-      status="failed_table_contract",
-      detail=(
-        "unified_convergence_verification_table_contract_invalid: "
-        + "; ".join(str(item) for item in table_contract_errors[:20])
-      ),
+    logger.warning(
+      "realism_verification_critic_amended_invalid: %s; falling back to Python proposal as safety floor.",
+      "; ".join(str(item) for item in table_contract_errors[:5]),
     )
+    fallback_payload = _normalize_post_intake_contract_payload(
+      contract_name="unified_convergence_verification",
+      payload=proposal_for_critic,
+    )
+    return {
+      "contract_version": "unified_convergence_verification_v1",
+      "status": "completed",
+      "prompt_file": prompt_file,
+      "verification_status": "completed",
+      "detail": (
+        "Critic amendments produced an invalid contract; Python proposal stands. "
+        + "; ".join(str(item) for item in table_contract_errors[:3])
+      ),
+      "decision_source": "python_proposer_with_critic_fallback",
+      "proposer_diagnostics": copy.deepcopy(proposer_diagnostics),
+      "critique_diagnostics": copy.deepcopy(critique_diagnostics or {}),
+      "raw_openai_response": copy.deepcopy(raw_openai_response or {}),
+      "verification": fallback_payload,
+    }
+  decision_source = (
+    "python_proposer_plus_gpt_critic_amended"
+    if response.review_status == "amended"
+    else "python_proposer_plus_gpt_critic_accepted"
+  )
   return {
     "contract_version": "unified_convergence_verification_v1",
     "status": "completed",
     "prompt_file": prompt_file,
     "verification_status": "completed",
     "detail": "",
-    "verification": parsed,
+    "decision_source": decision_source,
+    "proposer_diagnostics": copy.deepcopy(proposer_diagnostics),
+    "critique_diagnostics": copy.deepcopy(critique_diagnostics or {}),
+    "raw_openai_response": copy.deepcopy(raw_openai_response or {}),
+    "critique_summary": getattr(response, "critique_summary", "") or "",
+    "verification": amended_for_validation,
   }
 
 def _validate_payroll_headcount_contract(
