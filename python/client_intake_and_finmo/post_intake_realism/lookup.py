@@ -344,12 +344,21 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     metric_key="ebitda_margin",
     finmo_line_label="EBITDA",
     derivation_formula_key="ebitda_div_revenue",
+    applicability_rule_key="skip_when_revenue_zero",
     tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="hard_fail",
-    notes="EBITDA / revenue. Promoted to hard_fail — strong NAICS coverage; out-of-band is the cleanest signal of an implausible cost stack.",
+    gate_kind="warn",
+    notes=(
+      "EBITDA / revenue. Demoted to warn — Q1 of a forecast routinely shows "
+      "launch-quarter volatility (low fixed costs not yet absorbed, revenue "
+      "ramping unevenly) that lands outside steady-state NAICS bands without "
+      "indicating an implausible cost stack. Cost realism is enforced upstream "
+      "by `cogs_to_revenue_ratio` and the line-level expense ratio bands, "
+      "which are still hard_fail. Promote back to hard_fail once the gate "
+      "applies a steady-state-quarter rule (e.g., Q5+) or a per-stage band."
+    ),
   ),
   _row(
     metric_key="operating_margin_percent",
