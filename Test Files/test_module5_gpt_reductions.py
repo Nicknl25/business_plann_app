@@ -253,7 +253,7 @@ def test_r_and_d_deterministic_returns_none_for_missing_naics() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_balance_sheet_proposer_uses_intake_anchors_for_retail() -> None:
+def test_balance_sheet_proposer_uses_naics_for_q1_trajectory_with_tier_a_traceability() -> None:
   payload = propose_balance_sheet_contextual_seed_payload(
     business_facts={"business_name": "Acme Retail"},
     ops_json={"business_naics_6": "452990"},
@@ -267,11 +267,14 @@ def test_balance_sheet_proposer_uses_intake_anchors_for_retail() -> None:
   assert ar_row and ar_row["applicable"] is True, ar_row
   assert ap_row and ap_row["applicable"] is True, ap_row
   assert inv_row and inv_row["applicable"] is True, inv_row
-  # Tier A intake anchor: ar_balance/quarter_revenue * 90.
-  # 50000 / (4000000/4) * 90 = 4.5 days.
-  assert abs(ar_row["seed_value"] - 4.5) < 0.01, ar_row
-  # Provenance: Tier A intake anchor takes priority over NAICS cascade.
-  assert "tier_a_intake_anchor" in ar_row["rationale"]
+  # The seed_value drives the Q1+ trajectory and uses the NAICS-cascade target,
+  # NOT the Tier A intake-implied days (Tier A is for stub 0 only). Tier A is
+  # surfaced as `tier_a_intake_anchor_days` for traceability.
+  # AR: ar_balance / quarter_revenue * 90 = 50000 / 1000000 * 90 = 4.5 days (Tier A).
+  assert abs(ar_row.get("tier_a_intake_anchor_days") - 4.5) < 0.01, ar_row
+  # The seed_value should come from NAICS cascade — assert provenance is present.
+  assert ar_row.get("naics_provenance"), ar_row
+  assert "naics_cascade" in ar_row["rationale"], ar_row
 
 
 def test_balance_sheet_proposer_gates_inventory_for_software() -> None:
@@ -429,33 +432,35 @@ def test_verification_proposer_marks_resolved_when_all_quarters_touched() -> Non
   result = out["issue_results"][0]
   assert result["status"] == "resolved"
   assert result["remaining_problem_quarters"] == []
-  assert result["remaining_issue_materiality"] == "none"
+  assert result["remaining_issue_materiality"] == "immaterial"
 
 
-def test_verification_proposer_marks_improved_with_partial_coverage() -> None:
+def test_verification_proposer_marks_partial_with_partial_coverage() -> None:
   out = propose_realism_verification_payload(
     issue_packets=[
       {"issue_code": "liquidity_failure", "severity": "high", "affected_quarters": [3, 4, 5], "candidate_lever_ids": ["lev::A"], "remaining_issue_severity_score": 80},
     ],
     applied_updates=[{"lever_id": "lev::A", "quarter_index": 3}],
   )
-  assert out["overall_assessment"] == "no_progress" or out["overall_assessment"] == "partial_resolution"
+  assert out["overall_assessment"] == "partially_resolved"
   result = out["issue_results"][0]
-  assert result["status"] == "improved"
-  assert result["remaining_problem_quarters"] == [4, 5]
+  assert result["status"] == "partially_resolved"
+  assert result["remaining_problem_quarters"] == ["Q4", "Q5"]
+  assert result["remaining_issue_materiality"] == "material"
 
 
-def test_verification_proposer_marks_stalled_when_no_lever_touched() -> None:
+def test_verification_proposer_marks_not_resolved_when_no_lever_touched() -> None:
   out = propose_realism_verification_payload(
     issue_packets=[
       {"issue_code": "gross_margin_below_naics_floor", "severity": "medium", "affected_quarters": [1, 2], "candidate_lever_ids": ["lev::COGS"], "remaining_issue_severity_score": 50},
     ],
     applied_updates=[{"lever_id": "lev::Other", "quarter_index": 1}],
   )
-  assert out["overall_assessment"] == "no_progress"
+  assert out["overall_assessment"] == "not_resolved"
   result = out["issue_results"][0]
-  assert result["status"] == "stalled"
-  assert result["remaining_problem_quarters"] == [1, 2]
+  assert result["status"] == "not_resolved"
+  assert result["remaining_problem_quarters"] == ["Q1", "Q2"]
+  assert result["remaining_issue_materiality"] == "material"
 
 
 # --------------------------------------------------------------------------
@@ -560,15 +565,15 @@ def main() -> int:
     ("r_and_d_deterministic_not_applicable_decision", test_r_and_d_deterministic_returns_decision_for_not_applicable),
     ("r_and_d_optional_falls_through_to_gpt", test_r_and_d_deterministic_returns_none_for_optional_falls_through_to_gpt),
     ("r_and_d_missing_naics_returns_none", test_r_and_d_deterministic_returns_none_for_missing_naics),
-    ("balance_sheet_proposer_uses_intake_anchors", test_balance_sheet_proposer_uses_intake_anchors_for_retail),
+    ("balance_sheet_proposer_uses_naics_for_q1_trajectory", test_balance_sheet_proposer_uses_naics_for_q1_trajectory_with_tier_a_traceability),
     ("balance_sheet_proposer_gates_inventory_for_software", test_balance_sheet_proposer_gates_inventory_for_software),
     ("balance_sheet_safety_floor_when_no_critic", test_balance_sheet_finalize_safety_floor_when_no_critic),
     ("cash_proposer_picks_first_priority_source", test_cash_proposer_picks_first_priority_source_with_headroom),
     ("cash_proposer_falls_through_to_debt", test_cash_proposer_falls_through_to_debt_when_owners_exhausted),
     ("cash_proposer_emits_maintain_when_no_required", test_cash_proposer_emits_maintain_when_no_required_quarters),
     ("verification_proposer_resolved_when_all_touched", test_verification_proposer_marks_resolved_when_all_quarters_touched),
-    ("verification_proposer_improved_with_partial_coverage", test_verification_proposer_marks_improved_with_partial_coverage),
-    ("verification_proposer_stalled_when_no_lever", test_verification_proposer_marks_stalled_when_no_lever_touched),
+    ("verification_proposer_partial_with_partial_coverage", test_verification_proposer_marks_partial_with_partial_coverage),
+    ("verification_proposer_not_resolved_when_no_lever", test_verification_proposer_marks_not_resolved_when_no_lever_touched),
     ("critique_applies_corrections_via_field_path", test_critique_contract_applies_corrections_via_field_path),
     ("critique_drops_corrections_for_missing_paths", test_critique_contract_drops_corrections_for_missing_paths),
     ("critique_proposal_only_response_accepted", test_critique_proposal_only_response_is_accepted),

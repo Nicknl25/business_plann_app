@@ -397,14 +397,24 @@ def propose_balance_sheet_contextual_seed_payload(
 ) -> Dict[str, Any]:
   """Module 5 Task 5.3 — build the balance-sheet seed proposal deterministically.
 
-  Per-lever logic:
+  Per-lever logic (per master diagnostic Part 12.6):
+    - Stub 0 (Q0) is intake fact and is owned upstream — never written here.
+    - The seed_value drives the Q1+ trajectory. Per the diagnostic:
+      "AR / AP / inventory: intake-anchored at stub 0 (Tier A); seed step's
+      residual job is the *trajectory* into Q1 (deterministic via NAICS days)."
+      So Q1+ uses the NAICS-cascade benchmark target — NOT the intake-implied
+      days, which would otherwise propagate the stub-0 intake fact across
+      the whole forecast and trigger M3's finalize realism gate when the
+      intake reality is well outside NAICS bands.
+
+  Per-lever order:
     1. Determine `applicable` from NAICS-2 sector.
     2. When applicable=False → seed_value = 0 (legitimate zero).
     3. When applicable=True:
-       a. Tier A intake anchor (stub-0 balance × 90 / revenue) takes
-          priority when present.
-       b. Otherwise, NAICS-cascade benchmark_target.
-       c. Clamp to mapping-table min/max bounds.
+       a. NAICS-cascade benchmark_target (clamped to mapping-table min/max).
+       b. Tier A intake-implied days surfaced as `tier_a_intake_anchor_days`
+          for traceability ONLY; not used as the trajectory seed.
+       c. Mapping-band midpoint as last resort when NAICS has no coverage.
     4. Carry NAICS provenance for every row that used the cascade.
 
   Returns the same payload shape `validate_balance_sheet_contextual_seed_payload`
@@ -430,39 +440,42 @@ def propose_balance_sheet_contextual_seed_payload(
       lever_id=lever_id, business_naics_6=business_naics_6
     )
     naics_provenance: Optional[Dict[str, Any]] = None
+    tier_a_intake_anchor_days: Optional[float] = None
     rationale_parts: List[str] = []
 
     if not applicability["applicable"]:
       seed_value = 0.0
       rationale_parts.append(f"applicable=false ({applicability['reason']})")
     else:
+      naics_band = _proposer_naics_seed(lever_id=lever_id, business_naics_6=business_naics_6)
       intake_implied = _proposer_intake_implied_seed(
         lever_id=lever_id,
         financials_json=financials,
         financials_year1_json=year1,
       )
       if intake_implied is not None and intake_implied > 0.0:
-        seed_value = _proposer_clamp_to_bounds(intake_implied, minimum, maximum)
-        rationale_parts.append(f"tier_a_intake_anchor (raw={intake_implied:.4f})")
-      else:
-        naics_band = _proposer_naics_seed(lever_id=lever_id, business_naics_6=business_naics_6)
-        if naics_band is not None:
-          seed_value = _proposer_clamp_to_bounds(naics_band["benchmark_target"], minimum, maximum)
-          naics_provenance = {
-            "metric_key": naics_band["metric_key"],
-            "naics_code_used": naics_band["naics_code_used"],
-            "naics_level_used": naics_band["naics_level_used"],
-            "confidence_tier": naics_band["confidence_tier"],
-            "data_source": naics_band["data_source"],
-            "trust_flag": naics_band["trust_flag"],
-          }
+        tier_a_intake_anchor_days = float(intake_implied)
+      if naics_band is not None:
+        seed_value = _proposer_clamp_to_bounds(naics_band["benchmark_target"], minimum, maximum)
+        naics_provenance = {
+          "metric_key": naics_band["metric_key"],
+          "naics_code_used": naics_band["naics_code_used"],
+          "naics_level_used": naics_band["naics_level_used"],
+          "confidence_tier": naics_band["confidence_tier"],
+          "data_source": naics_band["data_source"],
+          "trust_flag": naics_band["trust_flag"],
+        }
+        rationale_parts.append(
+          f"naics_cascade ({naics_band['metric_key']} target={naics_band['benchmark_target']:.4f})"
+        )
+        if tier_a_intake_anchor_days is not None:
           rationale_parts.append(
-            f"naics_cascade ({naics_band['metric_key']} target={naics_band['benchmark_target']:.4f})"
+            f"tier_a_intake_anchor_days={tier_a_intake_anchor_days:.4f}_used_for_stub0_only"
           )
-        else:
-          # No intake anchor, no NAICS coverage → mapping-band midpoint.
-          seed_value = (float(minimum) + float(maximum)) / 2.0
-          rationale_parts.append("mapping_band_midpoint_fallback")
+      else:
+        # No NAICS coverage → mapping-band midpoint as last resort.
+        seed_value = (float(minimum) + float(maximum)) / 2.0
+        rationale_parts.append("mapping_band_midpoint_fallback")
 
     row: Dict[str, Any] = {
       "lever_id": lever_id,
@@ -473,6 +486,8 @@ def propose_balance_sheet_contextual_seed_payload(
     }
     if naics_provenance is not None:
       row["naics_provenance"] = naics_provenance
+    if tier_a_intake_anchor_days is not None:
+      row["tier_a_intake_anchor_days"] = round(float(tier_a_intake_anchor_days), 6)
     proposed_rows.append(row)
 
   return {
@@ -481,8 +496,10 @@ def propose_balance_sheet_contextual_seed_payload(
     "balance_sheet_seed_grid": proposed_rows,
     "rationale": (
       "Python proposer: per-lever applicability gated by NAICS-2; seed values "
-      "from Tier A intake anchors when present, else NAICS resolver, else "
-      "mapping-table band midpoint. GPT critique may amend specific rows."
+      "drive the Q1+ trajectory and come from the NAICS resolver (or mapping "
+      "band midpoint when no NAICS coverage). Tier A intake-implied days are "
+      "preserved at stub 0 by upstream and surfaced for traceability only. "
+      "GPT critique may amend specific rows."
     ),
     "source_of_truth": "python_proposer + sql.post_intake_industry_baseline_lookup",
     "naics_6": business_naics_6 or None,

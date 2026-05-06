@@ -9,7 +9,6 @@ import calendar
 import logging
 import requests
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -27,8 +26,6 @@ _RETRY_MEMORY_MAX_PRIOR_TARGET_KEYS = 4
 _RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
 _RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
 _PASS_RETRY_NEGLIGIBLE_IMPROVEMENT_RATIO = 0.05
-_UNIFIED_CONVERGENCE_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "unified_convergence"
-_UNIFIED_CONVERGENCE_VERIFICATION_PROMPT_PATH = _UNIFIED_CONVERGENCE_PROMPTS_DIR / "verifier.md"
 R_AND_D_APPLICABILITY_LEVER_ID = "expenses::Research & Development"
 R_AND_D_APPLICABILITY_POLICY_VERSION = "r_and_d_applicability_pre_forecast_v1"
 
@@ -407,7 +404,6 @@ __all__ = [
   "_unified_convergence_decision_contract_error",
   "_realism_verification_failure_payload",
   "_target_miss_verification_fallback",
-  "_realism_verification_scope_payload",
   "_run_realism_verification_openai",
   "_validate_payroll_headcount_contract",
   "_normalize_retry_requirements_to_allowed_scope",
@@ -458,7 +454,6 @@ __all__ = [
   "_build_numeric_solver_feedback_payload",
   "_current_cycle_numeric_trace_summary",
   "_extract_numeric_solver_feedback_for_persistence",
-  "_realism_verification_schema",
   "_issue_quarter_gap_contributions",
   "_build_convergence_retry_focus_packet",
   "_controller_retry_heartbeat_from_snapshot",
@@ -1534,35 +1529,6 @@ def _estimate_r_and_d_applicability_with_gpt(
   decision["prompt_context"] = user_context
   decision["raw_openai_response"] = raw_openai_response
   return decision
-
-def _balance_sheet_seed_current_snapshot(model_input_json: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-  payload = model_input_json if isinstance(model_input_json, dict) else {}
-  sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
-  rows: List[Dict[str, Any]] = []
-  candidate_ids = {
-    str(row.get("lever_id") or "").strip()
-    for row in balance_sheet_contextual_seed_candidate_rows()
-    if str(row.get("lever_id") or "").strip()
-  }
-  for row in (sections.get("balance_sheet") or []):
-    if not isinstance(row, dict):
-      continue
-    lever_id = str(row.get("lever_id") or "").strip()
-    if lever_id not in candidate_ids:
-      continue
-    values = list(row.get("values") or [])
-    rows.append(
-      {
-        "lever_id": lever_id,
-        "label": str(row.get("label") or "").strip(),
-        "stub_value": _safe_float(values[0]) if values else None,
-        "first_4_live_values": [
-          round(float(_safe_float(value) or 0.0), 6)
-          for value in values[1:5]
-        ],
-      }
-    )
-  return rows
 
 def _balance_sheet_seed_candidate_prompt_rows() -> List[Dict[str, Any]]:
   prompt_rows: List[Dict[str, Any]] = []
@@ -3755,25 +3721,6 @@ def _target_miss_verification_fallback(
   }
   return fallback
 
-def _realism_verification_scope_payload(
-  *,
-  strategy_recheck_context: Optional[Dict[str, Any]],
-  realism_pass_consistency_context: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  if isinstance(strategy_recheck_context, dict) and strategy_recheck_context:
-    mode = "strategy_recheck_full_realism"
-  elif isinstance(realism_pass_consistency_context, dict) and realism_pass_consistency_context:
-    mode = "pass_exit_full_realism"
-  else:
-    mode = "final_full_realism"
-  return {
-    "mode": mode,
-    "policy": {
-      "in_pass_retries_use_local_target_hit_and_local_coherence_only": True,
-      "full_realism_verification_only_at_unified_pass_exit": True,
-    },
-  }
-
 def _run_realism_verification_openai(
   *,
   draft_id: str,
@@ -3860,13 +3807,26 @@ def _run_realism_verification_openai(
     realism_memo_before_resolution=realism_memo_before_resolution,
   )
   proposer_diagnostics = proposal.pop("_proposer_diagnostics", {}) if isinstance(proposal, dict) else {}
+  contract_proposal = _normalize_post_intake_contract_payload(
+    contract_name="unified_convergence_verification",
+    payload=proposal,
+  )
+  proposal_contract_errors = _post_intake_contract_payload_errors(
+    contract_name="unified_convergence_verification",
+    payload=contract_proposal,
+  )
+  if proposal_contract_errors:
+    return _realism_verification_failure_payload(
+      prompt_file=prompt_file,
+      status="failed_proposer_invalid_contract",
+      detail=(
+        "Python verification proposer produced an invalid payload — this is a Python bug, "
+        "not a GPT failure. " + "; ".join(str(item) for item in proposal_contract_errors[:5])
+      ),
+    )
 
   api_key = _openai_key()
   if not api_key:
-    decision_validated = _normalize_post_intake_contract_payload(
-      contract_name="unified_convergence_verification",
-      payload=proposal,
-    )
     return {
       "contract_version": "unified_convergence_verification_v1",
       "status": "completed",
@@ -3875,7 +3835,7 @@ def _run_realism_verification_openai(
       "detail": "OPENAI_API_KEY is not configured; Python proposal stands as the safety floor.",
       "decision_source": "python_proposer_only",
       "proposer_diagnostics": copy.deepcopy(proposer_diagnostics),
-      "verification": decision_validated,
+      "verification": contract_proposal,
     }
 
   # ----- Step 2: invoke the GPT critic with the proposal as input. -----
@@ -3898,9 +3858,9 @@ def _run_realism_verification_openai(
     "issue_packets": copy.deepcopy(compact_issue_packets),
   }
   proposal_for_critic = {
-    "overall_assessment": proposal.get("overall_assessment"),
-    "executive_summary": proposal.get("executive_summary"),
-    "issue_results": copy.deepcopy(proposal.get("issue_results") or []),
+    "overall_assessment": contract_proposal.get("overall_assessment"),
+    "executive_summary": contract_proposal.get("executive_summary"),
+    "issue_results": copy.deepcopy(contract_proposal.get("issue_results") or []),
   }
   critic_context = {
     "proposal": proposal_for_critic,
@@ -3915,10 +3875,18 @@ def _run_realism_verification_openai(
       "planning_mode": str(planning_mode or "").strip(),
       "planning_mode_reason": str(planning_mode_reason or "").strip(),
     },
+    "contract_enums": {
+      "overall_assessment": ["all_resolved", "partially_resolved", "not_resolved"],
+      "issue_status": ["resolved", "partially_resolved", "not_resolved"],
+      "remaining_issue_materiality": ["immaterial", "material"],
+      "remaining_issue_severity_score": "integer 0-100",
+      "remaining_problem_quarters": "array of strings like 'Q3'",
+    },
     "review_instructions": [
       "You are reviewing Python-derived per-issue verdicts for a convergence pass.",
-      "Accept the proposal when each issue's verdict (resolved/improved/stalled/needs_review) is reasonable given the applied_updates.",
-      "Amend ONLY when domain judgment overrides the deterministic heuristic — e.g., 'improved' should be 'resolved' because the residual gap is acceptable for THIS business.",
+      "Accept the proposal when each issue's verdict is reasonable given the applied_updates.",
+      "Amend ONLY when domain judgment overrides the deterministic heuristic — e.g., 'partially_resolved' should be 'resolved' because the residual gap is acceptable for THIS business.",
+      "Use ONLY the enum values shown in contract_enums. Any other string will be rejected by the contract validator.",
       "field_path uses bracket notation, e.g. issue_results[0].status or issue_results[2].observed_improvement_summary.",
       "Only edit fields that already exist in the proposal. Do not add or remove issue_results entries.",
       "Reject only if the proposal is structurally unusable; Python's verdicts will then stand as the safety floor.",
@@ -3979,9 +3947,9 @@ def _run_realism_verification_openai(
   amended = apply_corrections_to_proposal(proposal=proposal_for_critic, response=response)
   critique_diagnostics = amended.pop("_critique_diagnostics", None) if isinstance(amended, dict) else None
   amended_for_validation = {
-    "overall_assessment": amended.get("overall_assessment") or proposal.get("overall_assessment"),
-    "executive_summary": amended.get("executive_summary") or proposal.get("executive_summary"),
-    "issue_results": amended.get("issue_results") or proposal.get("issue_results") or [],
+    "overall_assessment": amended.get("overall_assessment") or contract_proposal.get("overall_assessment"),
+    "executive_summary": amended.get("executive_summary") or contract_proposal.get("executive_summary"),
+    "issue_results": amended.get("issue_results") or contract_proposal.get("issue_results") or [],
   }
   amended_for_validation = _normalize_post_intake_contract_payload(
     contract_name="unified_convergence_verification",
@@ -3996,10 +3964,6 @@ def _run_realism_verification_openai(
       "realism_verification_critic_amended_invalid: %s; falling back to Python proposal as safety floor.",
       "; ".join(str(item) for item in table_contract_errors[:5]),
     )
-    fallback_payload = _normalize_post_intake_contract_payload(
-      contract_name="unified_convergence_verification",
-      payload=proposal_for_critic,
-    )
     return {
       "contract_version": "unified_convergence_verification_v1",
       "status": "completed",
@@ -4013,7 +3977,7 @@ def _run_realism_verification_openai(
       "proposer_diagnostics": copy.deepcopy(proposer_diagnostics),
       "critique_diagnostics": copy.deepcopy(critique_diagnostics or {}),
       "raw_openai_response": copy.deepcopy(raw_openai_response or {}),
-      "verification": fallback_payload,
+      "verification": copy.deepcopy(contract_proposal),
     }
   decision_source = (
     "python_proposer_plus_gpt_critic_amended"
@@ -5690,17 +5654,6 @@ def _extract_numeric_solver_feedback_for_persistence(
   if current_cycle_trace:
     response["current_cycle_trace"] = copy.deepcopy(current_cycle_trace)
   return response
-
-def _realism_verification_schema(allowed_lever_ids: List[str]) -> Dict[str, Any]:
-  return _post_intake_contract_schema(
-    "unified_convergence_verification",
-    array_item_schema_overrides={
-      "remaining_problem_quarters": {"type": "integer", "minimum": 1, "maximum": 20},
-      "issue_results[].remaining_problem_quarters": {"type": "integer", "minimum": 1, "maximum": 20},
-      "next_required_lever_ids": {"type": "string", "enum": allowed_lever_ids or [""]},
-      "issue_results[].next_required_lever_ids": {"type": "string", "enum": allowed_lever_ids or [""]},
-    },
-  )
 
 def _issue_quarter_gap_contributions(
   issue_record: Optional[Dict[str, Any]],

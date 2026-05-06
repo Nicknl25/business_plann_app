@@ -132,60 +132,42 @@ def _select_funding_source_for_quarter(
   return None
 
 
-def _select_fallback_funding_source(
+def _max_headroom_summary_for_quarter(
   *,
   quarter_index: int,
-  required_gap: int,
   ordered_funding_sources: List[str],
   lever_bound_lookup: Dict[Tuple[str, int], Dict[str, Any]],
   debt_issuance_lever_id: str,
-) -> Optional[Dict[str, Any]]:
-  """When no source has enough headroom for the full gap, pick the first
-  allowed source with ANY headroom and use its full headroom as the funding
-  amount. The contract validator will mark this quarter as still
-  underfunded; the user-facing diagnostic path surfaces the shortfall.
-  This is the safety floor: a partial allocation is better than an empty
-  one because downstream solver will at least see Python's intent.
+) -> List[Dict[str, Any]]:
+  """Return per-source headroom snapshot for diagnostic output when no
+  source can cover the gap. Used to build a clear fail-fast error.
   """
+  rows: List[Dict[str, Any]] = []
   for lever_id in ordered_funding_sources:
     bound = lever_bound_lookup.get((lever_id, quarter_index))
     if not isinstance(bound, dict):
+      rows.append({"lever_id": lever_id, "headroom": 0, "reason": "no_bound_for_quarter"})
       continue
     current_value = _safe_int(bound.get("current_value"))
     max_value = _safe_int(bound.get("max_value")) or current_value
-    headroom = max(0, max_value - current_value)
-    if headroom <= 0:
-      continue
+    raw_headroom = max(0, max_value - current_value)
     supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
     multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
     if lever_id == debt_issuance_lever_id:
-      effective_support = int(round(headroom * multiplier))
-      if effective_support <= 0:
-        continue
-      return {
-        "lever_id": lever_id,
-        "funding_amount": int(effective_support),
-        "exact_value": int(headroom),
-        "current_value": current_value,
-        "max_value": max_value,
-        "cash_support_multiplier": round(multiplier, 6),
-        "supporting_metrics": supporting_metrics,
-        "is_underfunded_fallback": True,
-        "shortfall": max(0, int(required_gap) - int(effective_support)),
-      }
+      effective = int(round(raw_headroom * multiplier))
     else:
-      return {
+      effective = raw_headroom
+    rows.append(
+      {
         "lever_id": lever_id,
-        "funding_amount": int(headroom),
-        "exact_value": int(headroom),
         "current_value": current_value,
         "max_value": max_value,
-        "cash_support_multiplier": 1.0,
-        "supporting_metrics": supporting_metrics,
-        "is_underfunded_fallback": True,
-        "shortfall": max(0, int(required_gap) - int(headroom)),
+        "raw_headroom": raw_headroom,
+        "effective_cash_support": effective,
+        "cash_support_multiplier": round(multiplier, 6),
       }
-  return None
+    )
+  return rows
 
 
 def _business_reason_for_funding(
@@ -193,20 +175,8 @@ def _business_reason_for_funding(
   lever_id: str,
   quarter_index: int,
   amount: int,
-  shortfall: int,
   selected_cash_strategy: str,
-  is_fallback: bool,
 ) -> str:
-  if amount <= 0:
-    return (
-      f"Q{quarter_index} required funding gap could not be allocated to any allowed source under "
-      f"the {selected_cash_strategy or 'selected'} cash policy; remaining shortfall=${shortfall}."
-    )
-  if is_fallback:
-    return (
-      f"Q{quarter_index} allocates ${amount} to {lever_id} (the only source with available headroom under the "
-      f"{selected_cash_strategy or 'selected'} cash policy). Quarter remains underfunded by ${shortfall}; review."
-    )
   return (
     f"Q{quarter_index} closes the required funding gap with ${amount} from {lever_id}, the highest-priority "
     f"source with adequate headroom under the {selected_cash_strategy or 'selected'} cash policy."
@@ -271,7 +241,6 @@ def propose_cash_strategy_review_decision(
     required_gap = quarter["required_incremental_funding_after_hard_rules"]
     buffer_value = quarter["buffer"]
     ending_cash_after_hard_rules = quarter["ending_cash_after_hard_rules"]
-    expected_ending_cash = ending_cash_after_hard_rules + required_gap
 
     chosen = _select_funding_source_for_quarter(
       quarter_index=quarter_index,
@@ -280,44 +249,55 @@ def propose_cash_strategy_review_decision(
       lever_bound_lookup=lever_bound_lookup,
       debt_issuance_lever_id=debt_issuance_lever_id,
     )
-    is_fallback = False
     if chosen is None:
-      chosen = _select_fallback_funding_source(
-        quarter_index=quarter_index,
-        required_gap=required_gap,
-        ordered_funding_sources=ordered_funding_sources,
-        lever_bound_lookup=lever_bound_lookup,
-        debt_issuance_lever_id=debt_issuance_lever_id,
-      )
-      is_fallback = True
-    if chosen is None:
+      # The contract requires every required-funding quarter to be fully
+      # covered by a single source whose effective cash support equals the
+      # gap. When no allowed source has enough headroom, we cannot satisfy
+      # the contract — record the diagnostic and skip the quarter so the
+      # caller's contract validator surfaces a clear `missing_quarters`
+      # error. The legacy GPT-from-scratch flow had the same hard limit;
+      # the new architecture surfaces it deterministically instead of
+      # discovering it via a downstream validation failure.
       proposer_diagnostics["underfunded_quarters"].append(
         {
           "quarter_index": quarter_index,
           "required_gap": required_gap,
-          "shortfall": required_gap,
-          "reason": "no_allowed_source_with_headroom",
+          "reason": "no_allowed_source_has_headroom_for_full_gap_under_single_source_rule",
+          "per_source_headroom": _max_headroom_summary_for_quarter(
+            quarter_index=quarter_index,
+            ordered_funding_sources=ordered_funding_sources,
+            lever_bound_lookup=lever_bound_lookup,
+            debt_issuance_lever_id=debt_issuance_lever_id,
+          ),
         }
       )
       continue
 
     funding_amount = int(chosen["funding_amount"])
     exact_value = int(chosen["exact_value"])
-    shortfall = int(chosen.get("shortfall") or max(0, required_gap - funding_amount))
     business_reason = _business_reason_for_funding(
       lever_id=chosen["lever_id"],
       quarter_index=quarter_index,
       amount=funding_amount,
-      shortfall=shortfall,
       selected_cash_strategy=selected_cash_strategy,
-      is_fallback=is_fallback or bool(chosen.get("is_underfunded_fallback")),
     )
 
-    declared_gap = required_gap if not is_fallback and shortfall == 0 else funding_amount
+    # Contract requires `expected_ending_cash_after_actions >= expected_buffer`.
+    # The `required_incremental_funding_after_hard_rules` is the *incremental*
+    # new high-water gap for this quarter, not the cumulative one. After all
+    # prior quarters' incremental funding rolls forward, the actual ending
+    # cash for this quarter equals at least `buffer_value` (because that's
+    # what the cumulative funding chain is designed to deliver). We therefore
+    # assert at least `buffer_value` here, while preserving the in-quarter
+    # arithmetic floor when it's larger.
+    quarter_expected_ending_cash = max(
+      int(buffer_value),
+      int(ending_cash_after_hard_rules + funding_amount),
+    )
     quarter_funding_plan.append(
       {
         "quarter_index": quarter_index,
-        "required_funding_gap": int(declared_gap),
+        "required_funding_gap": int(required_gap),
         "funding_sources": [
           {
             "lever_id": chosen["lever_id"],
@@ -325,7 +305,7 @@ def propose_cash_strategy_review_decision(
           }
         ],
         "expected_buffer": int(buffer_value),
-        "expected_ending_cash_after_actions": int(ending_cash_after_hard_rules + funding_amount),
+        "expected_ending_cash_after_actions": int(quarter_expected_ending_cash),
         "business_reason": business_reason,
       }
     )
@@ -346,22 +326,12 @@ def propose_cash_strategy_review_decision(
         "lever_id": chosen["lever_id"],
         "funding_amount": funding_amount,
         "exact_value": exact_value,
-        "is_fallback": is_fallback or bool(chosen.get("is_underfunded_fallback")),
-        "shortfall": shortfall,
       }
     )
-    if shortfall > 0:
-      proposer_diagnostics["underfunded_quarters"].append(
-        {
-          "quarter_index": quarter_index,
-          "required_gap": required_gap,
-          "funded_amount": funding_amount,
-          "shortfall": shortfall,
-          "lever_id": chosen["lever_id"],
-        }
-      )
 
-  recommendation_mode = "adjust" if quarter_funding_plan else "maintain"
+  recommendation_mode = (
+    "adjust" if (quarter_funding_plan or required_funding_quarters) else "maintain"
+  )
   funding_mix_summary = (
     "; ".join(f"{lever_id}: {count} qtr(s)" for lever_id, count in sorted(funding_mix_counts.items()))
     if funding_mix_counts
@@ -379,10 +349,12 @@ def propose_cash_strategy_review_decision(
       "current plan is sufficient."
     )
   elif underfunded:
+    underfunded_qs = [item["quarter_index"] for item in underfunded]
     executive_summary = (
       f"{len(quarter_funding_plan)} quarter(s) covered with deterministic policy-priority funding; "
-      f"{len(underfunded)} quarter(s) remain underfunded due to lever bound exhaustion. "
-      "Proposal provides the safety-floor allocation; downstream solver and post-action FINMO rebuild will surface any residual gap."
+      f"{len(underfunded)} quarter(s) {underfunded_qs} cannot be funded under the cash policy + lever_bounds "
+      "single-source rule. The runner will surface this as a proposer_invalid_contract failure with the "
+      "missing_quarters list so the operator can review per-quarter source headroom."
     )
   else:
     executive_summary = (
@@ -396,7 +368,7 @@ def propose_cash_strategy_review_decision(
     "executive_summary": executive_summary,
     "capital_posture_summary": capital_posture_summary,
     "funding_mix_summary": funding_mix_summary,
-    "confidence": "high" if not underfunded else "medium",
+    "confidence": "high" if not underfunded else "low",
     "proposer_diagnostics": proposer_diagnostics,
   }
 

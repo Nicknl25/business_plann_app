@@ -1861,6 +1861,66 @@ def _apply_authoritative_working_capital_driver_policies(
     live_count=live_count,
   )
 
+  # Module 5 Task 5.3: When intake provides AR/AP/Inventory opening balances,
+  # the Q1+ trajectory now uses NAICS-cascade days as the steady-state target,
+  # not `intake_balance / per-quarter-activity` propagation. Per master diagnostic
+  # Part 12.6: "AR/AP/inventory: intake-anchored at stub 0 (Tier A); seed step's
+  # residual job is the *trajectory* into Q1 (deterministic via NAICS days)."
+  # The legacy "balance / activity" propagation produced quarter-1 lever values
+  # well outside NAICS bands for sectors where intake reality diverges from
+  # industry norms (e.g., software businesses with low AP balances), tripping
+  # the M3 finalize realism gate. Stub 0 is preserved unchanged (set by the
+  # initial intake/opening-balance build and never written here).
+  #
+  # Source priority for NAICS days target, in order:
+  #   1. `derived_driver_policies[balance_sheet_contextual_seed]` — written by
+  #      the M5 seed step; per-lever NAICS target is the `seed_value` field.
+  #      This is the authoritative source after the seed step runs.
+  #   2. NAICS resolver (post_intake_industry_baseline) — when the seed policy
+  #      hasn't been written yet (e.g., during initial model_input
+  #      construction before post-intake pipeline runs). Requires NAICS in the
+  #      payload; we look at `business_naics_6` first, then `ops.business_naics_6`.
+  policies = next_payload.get("derived_driver_policies") if isinstance(next_payload.get("derived_driver_policies"), dict) else {}
+  seed_policy = policies.get(BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY) if isinstance(policies, dict) else {}
+  seed_grid = (seed_policy or {}).get("balance_sheet_seed_grid") or []
+  seed_by_lever_id: Dict[str, float] = {}
+  for entry in seed_grid:
+    if not isinstance(entry, dict):
+      continue
+    lever_id = str(entry.get("lever_id") or "").strip()
+    if not lever_id or not bool(entry.get("applicable")):
+      continue
+    seed_value = _safe_float(entry.get("seed_value"))
+    if seed_value is None or seed_value <= 0.0:
+      continue
+    seed_by_lever_id[lever_id] = float(seed_value)
+
+  business_naics_6 = "".join(ch for ch in str(next_payload.get("business_naics_6") or "") if ch.isdigit())
+  if not business_naics_6:
+    ops_section = next_payload.get("ops") if isinstance(next_payload.get("ops"), dict) else {}
+    business_naics_6 = "".join(ch for ch in str(ops_section.get("business_naics_6") or "") if ch.isdigit())
+
+  def _naics_days_target(metric_key: str, lever_id: str) -> Optional[float]:
+    seeded = seed_by_lever_id.get(lever_id)
+    if seeded is not None:
+      return seeded
+    if not business_naics_6:
+      return None
+    try:
+      band = post_intake_industry_baseline_for_naics(metric_key=metric_key, naics_6=business_naics_6)
+    except Exception:
+      return None
+    if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
+      return None
+    target = band.get("benchmark_target")
+    if target is None:
+      target = band.get("benchmark_min") or band.get("benchmark_max")
+    return float(target) if target is not None else None
+
+  ar_naics_days = _naics_days_target("ar_days_dso", "balance_sheet::Accounts Receivable Days")
+  ap_naics_days = _naics_days_target("ap_days_dpo", "balance_sheet::Accounts Payable Days")
+  inv_naics_days = _naics_days_target("inventory_days", "balance_sheet::Inventory Days")
+
   runtime_rows: List[Dict[str, Any]] = []
   pending_dependency_rows: List[Dict[str, Any]] = []
   seen_working_capital_labels: set[str] = set()
@@ -1872,6 +1932,7 @@ def _apply_authoritative_working_capital_driver_policies(
     stub_value, _existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
     existing_live_values = list(_existing_live_values or [])
     live_values: List[float] = []
+    derivation_basis = "naics_target_days_for_q1_to_qN_trajectory"
     for idx in range(max(0, live_count)):
       revenue = max(0.0, float(revenue_series[idx]) if idx < len(revenue_series) else 0.0)
       cogs_ratio = max(0.0, float(cogs_ratio_series[idx]) if idx < len(cogs_ratio_series) else 0.0)
@@ -1882,28 +1943,27 @@ def _apply_authoritative_working_capital_driver_policies(
       g_and_a_ratio = max(0.0, float(g_and_a_ratio_series[idx]) if idx < len(g_and_a_ratio_series) else 0.0)
       cogs = revenue * cogs_ratio
       ap_expense_base = (revenue * marketing_ratio) + (revenue * r_and_d_ratio) + lease + payroll + (revenue * g_and_a_ratio)
+      existing_value = (
+        round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
+        if idx < len(existing_live_values)
+        else 0.0
+      )
       if label == "Accounts Receivable Days":
         if ar_balance_seed > 0.0 and revenue <= 0.0:
           raise ValueError(
             "working_capital_days_contract_failed: Accounts Receivable Days requires positive live revenue "
             f"when authoritative opening AR exists. quarter_index={idx + 1} ar_balance_seed={ar_balance_seed} revenue={revenue}"
           )
-        existing_value = (
-          round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
-          if idx < len(existing_live_values)
-          else 0.0
-        )
-        if revenue > 0.0 and ar_balance_seed > 0.0:
+        if revenue > 0.0 and ar_naics_days is not None:
+          value = ar_naics_days
+        elif revenue > 0.0 and ar_balance_seed > 0.0:
+          # No NAICS coverage; Tier A intake-implied days as last resort.
           value = (ar_balance_seed / revenue) * days_in_quarter
+          derivation_basis = "tier_a_intake_implied_days_naics_no_coverage_fallback"
         else:
           value = existing_value
       elif label == "Inventory Days":
         if inventory_balance_seed > 0.0 and cogs <= 0.0:
-          existing_value = (
-            round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
-            if idx < len(existing_live_values)
-            else 0.0
-          )
           pending_dependency_rows.append(
             {
               "label": label,
@@ -1915,46 +1975,47 @@ def _apply_authoritative_working_capital_driver_policies(
             }
           )
           value = existing_value
+        elif cogs > 0.0 and inv_naics_days is not None:
+          value = inv_naics_days
+        elif cogs > 0.0 and inventory_balance_seed > 0.0:
+          value = (inventory_balance_seed / cogs) * days_in_quarter
+          derivation_basis = "tier_a_intake_implied_days_naics_no_coverage_fallback"
         else:
-          existing_value = (
-            round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
-            if idx < len(existing_live_values)
-            else 0.0
-          )
-          if cogs > 0.0 and inventory_balance_seed > 0.0:
-            value = (inventory_balance_seed / cogs) * days_in_quarter
-          else:
-            value = existing_value
-      else:
+          value = existing_value
+      else:  # Accounts Payable Days
         if ap_balance_seed > 0.0 and ap_expense_base <= 0.0:
           raise ValueError(
             "working_capital_days_contract_failed: Accounts Payable Days requires positive live AP expense base "
             f"when authoritative opening AP exists. quarter_index={idx + 1} ap_balance_seed={ap_balance_seed} ap_expense_base={ap_expense_base}"
           )
-        existing_value = (
-          round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
-          if idx < len(existing_live_values)
-          else 0.0
-        )
-        if ap_expense_base > 0.0 and ap_balance_seed > 0.0:
+        if ap_expense_base > 0.0 and ap_naics_days is not None:
+          value = ap_naics_days
+        elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
           value = (ap_balance_seed / ap_expense_base) * days_in_quarter
+          derivation_basis = "tier_a_intake_implied_days_naics_no_coverage_fallback"
         else:
           value = existing_value
       if (
-        (label == "Accounts Receivable Days" and ar_balance_seed > 0.0)
+        (label == "Accounts Receivable Days" and ar_balance_seed > 0.0 and revenue > 0.0)
         or (label == "Inventory Days" and inventory_balance_seed > 0.0 and cogs > 0.0)
-        or (label == "Accounts Payable Days" and ap_balance_seed > 0.0)
+        or (label == "Accounts Payable Days" and ap_balance_seed > 0.0 and ap_expense_base > 0.0)
       ) and value <= 0.0:
         raise ValueError(
-          "working_capital_days_contract_failed: authoritative working-capital balance produced a non-positive live driver. "
+          "working_capital_days_contract_failed: authoritative working-capital trajectory produced a non-positive live driver. "
           f"label={label} quarter_index={idx + 1} value={value}"
         )
       live_values.append(round(float(value), 6))
     row["derived_driver"] = "authoritative_balance_sheet_working_capital_days"
     row["working_capital_derivation"] = {
-      "source": "authoritative_balance_sheet_opening_balances",
-      "driver_basis": "opening_balance_divided_by_current_quarter_model_input_activity",
+      "source": "naics_cascade_with_intake_anchored_stub_0",
+      "driver_basis": derivation_basis,
       "days_in_quarter": days_in_quarter,
+      "naics_6": business_naics_6 or None,
+      "naics_target_days": (
+        ar_naics_days if label == "Accounts Receivable Days"
+        else inv_naics_days if label == "Inventory Days"
+        else ap_naics_days
+      ),
       "opening_balance_seed": round(
         ar_balance_seed
         if label == "Accounts Receivable Days"
@@ -1970,6 +2031,7 @@ def _apply_authoritative_working_capital_driver_policies(
         "lever_id": str(row.get("lever_id") or "").strip(),
         "label": label,
         "opening_balance_seed": row["working_capital_derivation"]["opening_balance_seed"],
+        "naics_target_days": row["working_capital_derivation"]["naics_target_days"],
         "live_values": deepcopy(live_values),
       }
     )
@@ -2109,9 +2171,19 @@ def _apply_contextual_balance_sheet_driver_seed_policy(
         or (label == "Accounts Payable Days" and ap_expense_base > 0.0)
         or (label == "Inventory Days" and cogs > 0.0)
       )
-      if should_apply and existing_value <= 0.0:
+      # Module 5 Task 5.3: when the proposer/critic decided this lever is
+      # applicable, the seed_value (NAICS target, possibly amended by the
+      # critic) is the authoritative Q1+ trajectory. Overwrite any prior
+      # value the model_input overlay placed there. The legacy "fill zeros
+      # only" behavior preserved Tier A intake-implied days across Q1+,
+      # which violated the diagnostic Part 12.6 invariant ("Tier A for
+      # stub 0; NAICS for trajectory") and tripped the realism gate at
+      # finalize for sectors where intake reality is well outside NAICS
+      # bands (e.g., software businesses with low AP balances).
+      if should_apply:
         live_values.append(round(float(seed_value), 6))
-        changed_quarters.append(idx + 1)
+        if abs(float(seed_value) - float(existing_value)) > 1e-9:
+          changed_quarters.append(idx + 1)
       else:
         live_values.append(existing_value)
     if changed_quarters:
@@ -3576,38 +3648,46 @@ def _build_model_input_overlay(
       g_and_a = max(0.0, _safe_float(slot.get("g_and_a")) or 0.0)
       ap_expense_base = marketing + r_and_d + lease + payroll + g_and_a
       if label == "Accounts Receivable Days":
+        # Stub 0 (Q0) preserves the intake-implied days from `ar_balance` —
+        # that's the intake fact and is set elsewhere. The Q1+ trajectory
+        # uses NAICS days (per master diagnostic Part 12.6: "Tier A for
+        # stub 0; NAICS for trajectory"). Explicit working-capital input
+        # from intake still wins when present (operator-provided override).
         explicit_value = _safe_float(working_capital.get("dso"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
-        elif revenue > 0.0 and ar_balance_seed > 0.0:
-          values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
         elif revenue > 0.0 and ar_days_band:
-          # Module 1 Task 1.4: NAICS substitution when intake omitted AR
-          # balance and forecast revenue exists.
           values.append(round(float(ar_days_band["benchmark_target"]), 6))
+        elif revenue > 0.0 and ar_balance_seed > 0.0:
+          # No NAICS coverage; Tier A intake-implied days is the last-resort
+          # anchor. Realism gate will surface any out-of-band result.
+          values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
         else:
           values.append(0.0)
       elif label == "Inventory Days":
         explicit_value = _safe_float(working_capital.get("inventory_days"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
-        elif cogs > 0.0 and inventory_balance_seed > 0.0:
-          values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
         elif cogs > 0.0 and inventory_days_band:
-          # Module 1 Task 1.4: substitution gated by NAICS-2 applicability
-          # (e.g., software businesses keep 0 — legitimate, not silent).
+          # NAICS owns the trajectory. Software-style sectors keep 0 via
+          # NAICS-2 applicability gate (band returns no_coverage there).
           values.append(round(float(inventory_days_band["benchmark_target"]), 6))
+        elif cogs > 0.0 and inventory_balance_seed > 0.0:
+          # No NAICS coverage; Tier A intake-implied days as the last
+          # resort, only when COGS is present (inventory makes sense).
+          values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
         else:
           values.append(0.0)
       elif label == "Accounts Payable Days":
         explicit_value = _safe_float(working_capital.get("dpo"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
-        elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
-          values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
         elif ap_expense_base > 0.0 and ap_days_band:
-          # Module 1 Task 1.4.
+          # NAICS owns the Q1+ trajectory.
           values.append(round(float(ap_days_band["benchmark_target"]), 6))
+        elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
+          # No NAICS coverage; Tier A intake-implied days is the last resort.
+          values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
         else:
           values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":

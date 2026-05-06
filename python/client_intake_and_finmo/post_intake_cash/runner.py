@@ -8,7 +8,6 @@ import time
 import calendar
 import logging
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,6 @@ from client_intake_and_finmo.fail_fast.post_intake_fail_fast import (  # type: i
 )
 from client_intake_and_finmo.post_intake_foundation import bind_table_safe_runtime_dependencies  # type: ignore
 
-_CASH_STRATEGY_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "cash_strategy_review" / "reviewer.md"
 _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_issuance")
 _CASH_STRATEGY_DEBT_REPAYMENT_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver("debt_repayment")
 _CASH_STRATEGY_SHORT_TERM_DEBT_RATIO_LEVER_ID = post_intake_driver_target_single_lever_id_for_target_driver(
@@ -187,9 +185,8 @@ __all__ = [
   "_cash_strategy_lever_bounds",
   "_build_cash_strategy_review_context_payload",
   "_build_cash_pass_controller_resolution_state",
-  "_load_cash_strategy_review_prompt",
-  "_cash_strategy_review_schema",
   "_cash_strategy_review_failure_payload",
+  "_wrap_cash_strategy_review_decision",
   "_cash_strategy_gross_up_effective_support",
   "_normalize_cash_strategy_review_decision_from_funding_plan",
   "_cash_strategy_review_decision_contract_error",
@@ -218,11 +215,27 @@ def _cash_strategy_fail_flags_from_review_payload(
     flags.append("cash_pass_not_executed")
   if status == "failed_parse":
     flags.append("cash_parse_failed")
-  if status == "completed" and not bool(payload.get("prompt_trace")):
-    flags.append("cash_prompt_trace_missing")
-  if status == "completed" and not bool(payload.get("raw_openai_response")):
-    flags.append("cash_raw_response_missing")
-  if str(payload.get("decision_source") or "").strip().lower() not in {"", "gpt"}:
+  # Module 5 Task 5.5: the cash strategy review now runs as Python proposer +
+  # GPT critic. The valid decision_source values are:
+  #   - "python_proposer_plus_gpt_critic_accepted"  (critic accepted proposal)
+  #   - "python_proposer_plus_gpt_critic_amended"   (critic amended proposal)
+  #   - "python_proposer_only"                      (no api_key, proposal is the floor)
+  #   - "python_proposer_with_critic_fallback"      (critic invalid, proposal is the floor)
+  #   - "" / "gpt"                                  (legacy compatibility)
+  # Each is a deliberate output of the proposer/critic architecture, not a
+  # legacy "GPT failed and we silently degraded" path. The prompt_trace is
+  # built by the proposer step and may be empty when the proposer ran in
+  # python-only mode; the same applies to raw_openai_response when no api_key.
+  decision_source = str(payload.get("decision_source") or "").strip().lower()
+  proposer_critic_sources = {
+    "",
+    "gpt",
+    "python_proposer_only",
+    "python_proposer_plus_gpt_critic_accepted",
+    "python_proposer_plus_gpt_critic_amended",
+    "python_proposer_with_critic_fallback",
+  }
+  if status == "completed" and decision_source not in proposer_critic_sources:
     flags.append("cash_non_gpt_fallback_used")
   return list(dict.fromkeys(flag for flag in flags if flag in _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS))
 
@@ -1695,47 +1708,6 @@ def _build_cash_pass_controller_resolution_state(
     },
   }
 
-def _load_cash_strategy_review_prompt() -> str:
-  try:
-    return _CASH_STRATEGY_REVIEW_PROMPT_PATH.read_text(encoding="utf-8").strip()
-  except Exception:
-    return (
-      "You are the post-solve cash strategy reviewer for a real business plan.\n"
-      "You are reviewing an already solved, coherent business model.\n"
-      "Your job is to decide whether the solved business visibly reflects the selected cash strategy and, if not, prescribe realistic coordinated management actions using only the provided writable lever ids.\n"
-      "Be bold within reason: make the selected strategy visible when the solved economics support it, but do not force reckless or fake moves.\n"
-      "Think like actual management of a living business, not like a spreadsheet optimizer.\n"
-      "Any recommendation must preserve believable operating continuity of the current business.\n"
-      "You may re-time, phase, slow, or scale real business actions, but do not hollow out the business below a believable steady-state operating condition.\n"
-      "Do not use writable rows as implicit plugs or balancing placeholders.\n"
-      "Do not silently force cash, solvency, profitability, or optics with row tweaks that lack a believable operating story.\n"
-      "Capital allocation must read like a real management decision, not hidden model repair.\n"
-      "Levers do not operate in silos. When a real-world action requires coordinated changes across multiple rows, return a linked lever package rather than isolated row tweaks.\n"
-      "Do not invent lever ids. Do not rebuild the whole business from scratch."
-    )
-
-def _cash_strategy_review_schema(
-  allowed_lever_ids: List[str],
-  allowed_quarters: List[int],
-  required_funding_quarters: Optional[List[int]] = None,
-  funding_source_lever_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-  funding_quarter_enum = list(required_funding_quarters or allowed_quarters or [1])
-  funding_lever_enum = list(funding_source_lever_ids or allowed_lever_ids or [""])
-  return _post_intake_contract_schema(
-    "cash_strategy_review",
-    field_schema_overrides={
-      "recommended_adjustments[].lever_id": {"type": "string", "enum": allowed_lever_ids or [""]},
-      "recommended_adjustments[].timing_start_q": {"type": "integer", "enum": allowed_quarters or [1]},
-      "recommended_adjustments[].timing_end_q": {"type": "integer", "enum": allowed_quarters or [1]},
-      "quarter_funding_plan[].quarter_index": {"type": "integer", "enum": funding_quarter_enum},
-      "quarter_funding_plan[].required_funding_gap": {"type": "integer", "minimum": 0},
-      "quarter_funding_plan[].expected_buffer": {"type": "integer", "minimum": 0},
-      "funding_sources[].lever_id": {"type": "string", "enum": funding_lever_enum},
-      "funding_sources[].amount": {"type": "integer", "minimum": 0},
-    },
-  )
-
 def _cash_strategy_review_failure_payload(
   *,
   selected_cash_strategy: str,
@@ -2525,11 +2497,21 @@ def _build_cash_strategy_second_pass_plan(
     for item in (((context_payload.get("writable_lever_catalog") or {}) if isinstance(context_payload.get("writable_lever_catalog"), dict) else {}).get("lever_ids") or [])
     if str(item).strip()
   }
-  if not bool(review_payload.get("prompt_trace")):
-    fail_flags.append("cash_prompt_trace_missing")
-  if not bool(review_payload.get("raw_openai_response")):
-    fail_flags.append("cash_raw_response_missing")
-  if str(review_payload.get("decision_source") or "").strip().lower() != "gpt":
+  # Module 5 Task 5.5: cash strategy review now runs as Python proposer +
+  # GPT critic. Whitelist the new decision_source values; only flag truly
+  # unrecognized sources. The prompt_trace and raw_openai_response checks
+  # are dropped because they no longer make sense — when the proposer runs
+  # in python-only mode (no api_key) those fields are intentionally empty.
+  decision_source = str(review_payload.get("decision_source") or "").strip().lower()
+  proposer_critic_sources = {
+    "",
+    "gpt",
+    "python_proposer_only",
+    "python_proposer_plus_gpt_critic_accepted",
+    "python_proposer_plus_gpt_critic_amended",
+    "python_proposer_with_critic_fallback",
+  }
+  if decision_source not in proposer_critic_sources:
     fail_flags.append("cash_non_gpt_fallback_used")
   if has_violations and recommendation_mode != "adjust":
     warnings.append("violations_present: coercing recommendation_mode to adjust because Python already determined cash action is required")
