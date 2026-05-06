@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
   post_intake_cash_policy_errors,
+  post_intake_cash_policy_for,
   post_intake_cash_policy_phase_sequence,
   post_intake_build_prompt_from_contract,
   post_intake_contract_forecast_horizon_quarter_count,
@@ -76,8 +77,13 @@ _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS: Tuple[str, ...] = tuple(
 )
 _CASH_STRATEGY_BUFFER_MONTHS = 1.0
 _CASH_STRATEGY_MONTHS_PER_QUARTER = 3.0
-_CASH_STRATEGY_PREFERRED_DEBT_RATIO = 0.40
-_CASH_STRATEGY_PREFERRED_EQUITY_RATIO = 0.60
+# Module 4 Task 4.2 — the legacy `_CASH_STRATEGY_PREFERRED_DEBT_RATIO = 0.40`
+# and `_CASH_STRATEGY_PREFERRED_EQUITY_RATIO = 0.60` Python constants were
+# DELETED. Their values now live on `post_intake_cash_policy_lookup` rows
+# (preferred_debt_to_assets_ratio / preferred_equity_to_assets_ratio
+# columns) and are read at runtime via `_preferred_capital_ratios_for(...)`
+# below. Defaults in the DDL match the legacy values exactly so behavior
+# is identical until an operator deliberately tunes a row.
 _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS: Set[str] = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
 _UNIFIED_ALLOWED_TARGET_METRIC_KEYS: Tuple[str, ...] = tuple()
 _UNIFIED_PRIMARY_TARGET_MIN_COUNT = 1
@@ -640,18 +646,85 @@ def _hard_rules_can_defer_to_cash_strategy(
     return False
   return True
 
-def _cash_strategy_capital_structure_snapshot(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-  item = row if isinstance(row, dict) else {}
+def _preferred_capital_ratios_for(
+  *,
+  selected_cash_strategy: Any,
+  finmo_payload: Optional[Dict[str, Any]] = None,
+  debt_position_override: Optional[str] = None,
+) -> Tuple[float, float]:
+  """Module 4 Task 4.2 — read preferred (debt, equity) ratios from the
+  `post_intake_cash_policy_lookup` row matching the selected cash strategy
+  and the business's debt position.
+
+  Replaces the legacy `_CASH_STRATEGY_PREFERRED_DEBT_RATIO` /
+  `_CASH_STRATEGY_PREFERRED_EQUITY_RATIO` Python constants. The DDL
+  defaults (0.4000 / 0.6000) match the legacy constants exactly, so
+  behavior is identical until an operator tunes a row.
+
+  Raises `RuntimeError` when the policy row is missing — that's a
+  configuration bug worth surfacing, not a silent fallback.
+  """
+  cash_strategy = str(selected_cash_strategy or "").strip().lower()
+  if not cash_strategy:
+    raise RuntimeError(
+      "post_intake_cash_preferred_ratios_missing_strategy: "
+      "selected_cash_strategy is required to look up the cash policy row."
+    )
+  if debt_position_override is not None:
+    debt_position = str(debt_position_override).strip().lower()
+    debt_to_equity_estimate = (
+      0.25 if debt_position == "low_debt"
+      else 0.75 if debt_position == "healthy_debt"
+      else 1.5
+    )
+  else:
+    snapshot = _cash_strategy_capital_structure_snapshot_compute(finmo_payload or {})
+    debt_position = str(snapshot.get("debt_position") or "").strip().lower()
+    debt_to_equity_estimate = float(snapshot.get("debt_to_equity") or 0.0)
+  policy = post_intake_cash_policy_for(
+    cash_strategy=cash_strategy,
+    debt_to_equity=debt_to_equity_estimate,
+    debt_position=debt_position,
+    required=True,
+  )
+  if not isinstance(policy, dict):
+    raise RuntimeError(
+      f"post_intake_cash_preferred_ratios_missing_policy: "
+      f"cash_strategy={cash_strategy} debt_position={debt_position}"
+    )
+  return (
+    float(policy.get("preferred_debt_to_assets_ratio") or 0.40),
+    float(policy.get("preferred_equity_to_assets_ratio") or 0.60),
+  )
+
+
+def _cash_strategy_capital_structure_snapshot_compute(row_or_finmo: Any) -> Dict[str, Any]:
+  """Internal: compute (debt_level, equity_level, debt_position) from a row
+  dict OR from the latest quarter of a finmo payload. Used by both the
+  exported snapshot helper and the preferred-ratios helper.
+  """
+  source: Dict[str, Any] = {}
+  if isinstance(row_or_finmo, dict):
+    if "short_term_debt" in row_or_finmo or "total_equity" in row_or_finmo:
+      source = row_or_finmo
+    else:
+      quarter_rows = row_or_finmo.get("quarter_rows") if isinstance(row_or_finmo.get("quarter_rows"), list) else []
+      if quarter_rows:
+        latest = next(
+          (r for r in reversed(quarter_rows) if isinstance(r, dict)),
+          {},
+        )
+        source = latest
   debt_level = int(
     round(
       max(
         0.0,
-        float(_safe_float(item.get("short_term_debt")) or 0.0)
-        + float(_safe_float(item.get("long_term_debt")) or 0.0),
+        float(_safe_float(source.get("short_term_debt")) or 0.0)
+        + float(_safe_float(source.get("long_term_debt")) or 0.0),
       )
     )
   )
-  equity_level = int(round(max(0.0, float(_safe_float(item.get("total_equity")) or 0.0))))
+  equity_level = int(round(max(0.0, float(_safe_float(source.get("total_equity")) or 0.0))))
   capital_base = float(debt_level + equity_level)
   debt_ratio = round(float(debt_level / capital_base), 2) if capital_base > 1e-9 else None
   equity_ratio = round(float(equity_level / capital_base), 2) if capital_base > 1e-9 else None
@@ -668,16 +741,47 @@ def _cash_strategy_capital_structure_snapshot(row: Optional[Dict[str, Any]]) -> 
   else:
     debt_position = "high_debt"
   return {
-    "debt": debt_level,
-    "equity": equity_level,
     "debt_level": debt_level,
     "equity_level": equity_level,
     "debt_to_equity": debt_to_equity,
     "debt_position": debt_position,
     "debt_ratio": debt_ratio,
     "equity_ratio": equity_ratio,
-    "preferred_debt_ratio": round(float(_CASH_STRATEGY_PREFERRED_DEBT_RATIO), 2),
-    "preferred_equity_ratio": round(float(_CASH_STRATEGY_PREFERRED_EQUITY_RATIO), 2),
+  }
+
+
+def _cash_strategy_capital_structure_snapshot(
+  row: Optional[Dict[str, Any]],
+  *,
+  selected_cash_strategy: Any = None,
+) -> Dict[str, Any]:
+  computed = _cash_strategy_capital_structure_snapshot_compute(row or {})
+  preferred_debt: Optional[float] = None
+  preferred_equity: Optional[float] = None
+  if selected_cash_strategy:
+    try:
+      preferred_debt, preferred_equity = _preferred_capital_ratios_for(
+        selected_cash_strategy=selected_cash_strategy,
+        debt_position_override=computed["debt_position"],
+      )
+    except Exception:
+      preferred_debt = None
+      preferred_equity = None
+  return {
+    "debt": computed["debt_level"],
+    "equity": computed["equity_level"],
+    "debt_level": computed["debt_level"],
+    "equity_level": computed["equity_level"],
+    "debt_to_equity": computed["debt_to_equity"],
+    "debt_position": computed["debt_position"],
+    "debt_ratio": computed["debt_ratio"],
+    "equity_ratio": computed["equity_ratio"],
+    "preferred_debt_ratio": (
+      round(float(preferred_debt), 2) if preferred_debt is not None else None
+    ),
+    "preferred_equity_ratio": (
+      round(float(preferred_equity), 2) if preferred_equity is not None else None
+    ),
     "guidance_only": True,
   }
 
@@ -926,6 +1030,10 @@ def _cash_strategy_planning_violation_envelope(
   finmo_payload: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+  preferred_debt, preferred_equity = _preferred_capital_ratios_for(
+    selected_cash_strategy=selected_cash_strategy,
+    finmo_payload=finmo_payload,
+  )
   envelope = build_cash_planning_envelope(
     selected_cash_strategy=selected_cash_strategy,
     finmo_payload=copy.deepcopy(finmo_payload or {}),
@@ -933,8 +1041,8 @@ def _cash_strategy_planning_violation_envelope(
     lever_ids=_cash_strategy_envelope_lever_ids(),
     default_buffer_months=_CASH_STRATEGY_BUFFER_MONTHS,
     months_per_quarter=_CASH_STRATEGY_MONTHS_PER_QUARTER,
-    preferred_debt_ratio=_CASH_STRATEGY_PREFERRED_DEBT_RATIO,
-    preferred_equity_ratio=_CASH_STRATEGY_PREFERRED_EQUITY_RATIO,
+    preferred_debt_ratio=preferred_debt,
+    preferred_equity_ratio=preferred_equity,
   )
   assert_cash_envelope_lifecycle(envelope, "planning_pre_action")
   return envelope
@@ -945,6 +1053,10 @@ def _cash_strategy_validation_violation_envelope(
   finmo_payload: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+  preferred_debt, preferred_equity = _preferred_capital_ratios_for(
+    selected_cash_strategy=selected_cash_strategy,
+    finmo_payload=finmo_payload,
+  )
   envelope = build_cash_validation_envelope(
     selected_cash_strategy=selected_cash_strategy,
     finmo_payload=copy.deepcopy(finmo_payload or {}),
@@ -952,8 +1064,8 @@ def _cash_strategy_validation_violation_envelope(
     lever_ids=_cash_strategy_envelope_lever_ids(),
     default_buffer_months=_CASH_STRATEGY_BUFFER_MONTHS,
     months_per_quarter=_CASH_STRATEGY_MONTHS_PER_QUARTER,
-    preferred_debt_ratio=_CASH_STRATEGY_PREFERRED_DEBT_RATIO,
-    preferred_equity_ratio=_CASH_STRATEGY_PREFERRED_EQUITY_RATIO,
+    preferred_debt_ratio=preferred_debt,
+    preferred_equity_ratio=preferred_equity,
   )
   assert_cash_envelope_lifecycle(envelope, "validation_post_action_actual_state")
   return envelope

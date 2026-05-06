@@ -50,19 +50,19 @@ def _run(name: str, fn: Callable[[], None]) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_total_phase_budget_constant_exists() -> None:
-  assert hasattr(_runner, "_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS"), (
-    "module 2 task 2.2: total-phase budget constant missing"
-  )
-  budget = float(_runner._CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS)
-  # 720s (12 min) is the chosen value per spec — sanity-check it is in a
-  # reasonable range so a future bad edit (e.g., set to 0) is caught.
+def test_total_phase_budget_default_matches_legacy_constant() -> None:
+  # Module 4 Task 4.3 — the legacy `_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS`
+  # constant was DELETED. The value now lives on the
+  # `unified_convergence_decision` sequence row, with a 720s fallback
+  # default in `_CONVERGENCE_GUARD_DEFAULTS`. Verify the helper returns
+  # the expected runtime value.
+  budget = _runner._convergence_guard_float("total_phase_budget_seconds")
   assert 240.0 <= budget <= 1800.0, f"unexpected budget value {budget}"
 
 
 def test_total_phase_budget_is_used_in_loop() -> None:
-  # Read the source of `_run_unified_convergence_phase` and confirm the
-  # budget guard is wired up. We don't run the loop end-to-end here.
+  # Confirm a function in the runner references both the table-driven
+  # guard helper and the fail-fast detail string.
   import inspect
   for name, member in inspect.getmembers(_runner):
     if not callable(member) or not getattr(member, "__module__", "").endswith("runner"):
@@ -71,12 +71,23 @@ def test_total_phase_budget_is_used_in_loop() -> None:
       src = inspect.getsource(member)
     except Exception:
       continue
-    if "_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS" in src and "convergence_total_phase_budget_exceeded" in src:
+    if "total_phase_budget_seconds" in src and "convergence_total_phase_budget_exceeded" in src:
       return  # found a function that wires the guard
   raise AssertionError(
-    "no function in runner.py references both the budget constant and the "
-    "fail-fast detail string `convergence_total_phase_budget_exceeded`"
+    "no function in runner.py references both the budget guard helper "
+    "and the fail-fast detail string `convergence_total_phase_budget_exceeded`"
   )
+
+
+def test_convergence_guard_defaults_match_legacy_constants() -> None:
+  # Module 4 Task 4.3 — defaults must match the pre-v4 Python constants
+  # exactly so behavior is identical until an operator tunes a row.
+  defaults = _runner._CONVERGENCE_GUARD_DEFAULTS
+  assert defaults["cycle_deadline_guard_seconds"] == 8.0
+  assert defaults["planner_gpt_max_seconds"] == 150.0
+  assert defaults["verification_gpt_max_seconds"] == 45.0
+  assert defaults["non_productive_cycle_limit"] == 3.0
+  assert defaults["total_phase_budget_seconds"] == 720.0
 
 
 # --------------------------------------------------------------------------
@@ -166,8 +177,9 @@ def main() -> int:
   print("running test_module2_stage_ramp_naics.py")
   print("-" * 70)
   tests = [
-    ("total_phase_budget_constant_exists", test_total_phase_budget_constant_exists),
+    ("total_phase_budget_default_matches_legacy", test_total_phase_budget_default_matches_legacy_constant),
     ("total_phase_budget_is_used_in_loop", test_total_phase_budget_is_used_in_loop),
+    ("convergence_guard_defaults_match_legacy", test_convergence_guard_defaults_match_legacy_constants),
     ("stage_ramp_policy_backward_compat_no_naics", test_stage_ramp_policy_backward_compat_no_naics),
     ("stage_ramp_policy_with_naics_attaches_qoq_metadata", test_stage_ramp_policy_with_naics_attaches_qoq_metadata),
     ("stage_ramp_policy_qoq_metric_key_per_family", test_stage_ramp_policy_qoq_metric_key_per_family),

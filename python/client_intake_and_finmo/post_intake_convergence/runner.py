@@ -33,25 +33,25 @@ from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ig
   run_finalize_post_intake_validation,
 )
 
-_CYCLE_DEADLINE_GUARD_SECONDS = 8.0
-_PLANNER_GPT_MAX_SECONDS = 150.0
 _PLAN_BUILDER_MAX_SECONDS = 35.0
-_VERIFICATION_GPT_MAX_SECONDS = 45.0
 _RETRY_MEMORY_MAX_PRIOR_LEVER_UNIONS = 4
 _RETRY_MEMORY_MAX_PRIOR_TARGET_KEYS = 4
 _RETRY_MEMORY_MAX_VALIDATION_ERRORS = 3
 _RETRY_MEMORY_MAX_ATTEMPT_RECORDS = 3
 _CASH_STRATEGY_TEST_MODE_FAIL_FLAGS = set(CASH_STRATEGY_TEST_MODE_FAIL_FLAGS)
 _PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS = set(PAYROLL_HEADCOUNT_TEST_MODE_FAIL_FLAGS)
-_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 3
-# Module 2 Task 2.2 — total wall budget for the unified convergence loop.
-# Per-cycle budget is 180s; at max_attempts=10 the historical worst case
-# was ~30 minutes. 12 minutes (720s) gives ~4 cycles of room and matches
-# the master-diagnostic Phase 5 recommendation. The two recorded
-# baselines (NexGen ~365s, ValueMart ~133s) complete with comfortable
-# margin. Move to a `post_intake_process_sequence_lookup` column in a
-# follow-up DDL pass (Module 2 Task 2.1, deferred).
-_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS = 720.0
+# Module 4 Task 4.3 — convergence guard values now read from the
+# `post_intake_process_sequence_lookup` row for `unified_convergence_decision`.
+# Defaults below match the legacy Python constants exactly and are used as
+# the fail-safe fallback when the column is NULL (e.g., during initial
+# table-init paths or when a forked deployment hasn't run the v4 DDL yet).
+_CONVERGENCE_GUARD_DEFAULTS: Dict[str, float] = {
+  "cycle_deadline_guard_seconds": 8.0,
+  "planner_gpt_max_seconds": 150.0,
+  "verification_gpt_max_seconds": 45.0,
+  "non_productive_cycle_limit": 3.0,
+  "total_phase_budget_seconds": 720.0,
+}
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -71,6 +71,39 @@ def _sequence_numeric_setting(step_key: str, field_name: str) -> float:
       f"post_intake_process_sequence_missing_numeric_setting: step={step_key} field={field_name}"
     )
   return float(value)
+
+
+def _sequence_setting_or_default(step_key: str, field_name: str) -> float:
+  """Module 4 Task 4.3 — read a numeric guard column from the sequence row;
+  fall back to `_CONVERGENCE_GUARD_DEFAULTS[field_name]` when the column is
+  NULL/missing. Used for the convergence guard values that moved from
+  Python constants to sequence-row columns.
+
+  Raises if the field is unknown to the defaults map (catches typos).
+  """
+  if field_name not in _CONVERGENCE_GUARD_DEFAULTS:
+    raise RuntimeError(
+      f"post_intake_convergence_unknown_guard_field: {field_name}"
+    )
+  try:
+    row = post_intake_process_sequence_step(step_key, required=True) or {}
+  except Exception:
+    return float(_CONVERGENCE_GUARD_DEFAULTS[field_name])
+  value = row.get(field_name)
+  if value is None or value == "":
+    return float(_CONVERGENCE_GUARD_DEFAULTS[field_name])
+  try:
+    return float(value)
+  except Exception:
+    return float(_CONVERGENCE_GUARD_DEFAULTS[field_name])
+
+
+def _convergence_guard_int(field_name: str) -> int:
+  return int(round(_sequence_setting_or_default("unified_convergence_decision", field_name)))
+
+
+def _convergence_guard_float(field_name: str) -> float:
+  return float(_sequence_setting_or_default("unified_convergence_decision", field_name))
 
 
 _UNIFIED_CONVERGENCE_MAX_CYCLES = int(
@@ -99,7 +132,7 @@ def _contract_forecast_quarter_count() -> int:
 def _bounded_cycle_deadline(cycle_deadline: float, max_seconds: float) -> float:
   """Keep each subcall inside the total 180s cycle budget with a return guard."""
   now = time.perf_counter()
-  guarded_cycle_deadline = float(cycle_deadline) - float(_CYCLE_DEADLINE_GUARD_SECONDS)
+  guarded_cycle_deadline = float(cycle_deadline) - float(_convergence_guard_float("cycle_deadline_guard_seconds"))
   return min(guarded_cycle_deadline, now + max(1.0, float(max_seconds)))
 
 
@@ -1207,7 +1240,7 @@ def _run_unified_post_grid_system_run(
   )
 
   # Module 2 Task 2.2 — capture the total-phase start once. Used to enforce
-  # the loop-wide wall budget (`_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS`).
+  # the loop-wide wall budget (`_convergence_guard_float("total_phase_budget_seconds")`).
   unified_convergence_phase_started_at = time.perf_counter()
   while (
     not bool(controller_resolution_state.get("all_cleared"))
@@ -1225,14 +1258,14 @@ def _run_unified_post_grid_system_run(
     # work so a runaway loop fails fast with diagnostics, not at the per-
     # cycle 180s wall on the 8th cycle.
     total_elapsed_seconds = time.perf_counter() - unified_convergence_phase_started_at
-    if total_elapsed_seconds > _CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS:
+    if total_elapsed_seconds > _convergence_guard_float("total_phase_budget_seconds"):
       raise StructuredSystemRunFailure(
         detail="convergence_total_phase_budget_exceeded",
         diagnostics={
           "stage": "convergence",
           "cycles_attempted": int(unified_convergence_cycle_count - 1),
           "total_elapsed_seconds": round(float(total_elapsed_seconds), 3),
-          "total_phase_budget_seconds": float(_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS),
+          "total_phase_budget_seconds": float(_convergence_guard_float("total_phase_budget_seconds")),
           "last_controller_resolution_state": copy.deepcopy(controller_resolution_state),
           "last_hard_rule_assessment": copy.deepcopy(hard_rule_assessment),
         },
@@ -1500,7 +1533,7 @@ def _run_unified_post_grid_system_run(
       cycle=unified_convergence_cycle_count,
       cycle_started_at=cycle_started_at,
       stage="planner_gpt_start",
-      minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
+      minimum_remaining_seconds=_convergence_guard_float("cycle_deadline_guard_seconds") + 5.0,
       detail=(
         "Planner GPT call cannot start without enough cycle budget to return before the "
         f"{_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS:.0f}s wall."
@@ -1509,7 +1542,7 @@ def _run_unified_post_grid_system_run(
     )
     phase_started_at = time.perf_counter()
     previous_openai_deadline = _set_active_openai_deadline(
-      _bounded_cycle_deadline(cycle_deadline, _PLANNER_GPT_MAX_SECONDS)
+      _bounded_cycle_deadline(cycle_deadline, _convergence_guard_float("planner_gpt_max_seconds"))
     )
     try:
       unified_convergence_decision = _execute_sequence_step(
@@ -1570,7 +1603,7 @@ def _run_unified_post_grid_system_run(
       cycle=unified_convergence_cycle_count,
       cycle_started_at=cycle_started_at,
       stage="plan_builder_start",
-      minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
+      minimum_remaining_seconds=_convergence_guard_float("cycle_deadline_guard_seconds") + 5.0,
       detail="Plan builder cannot start without enough cycle budget to return before the 180s wall.",
       cycle_timing=cycle_timing,
     )
@@ -1759,7 +1792,7 @@ def _run_unified_post_grid_system_run(
         )
       if (
         int(_safe_float(non_productive_tracker.get("consecutive_non_productive_cycles")) or 0)
-        >= _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT
+        >= _convergence_guard_int("non_productive_cycle_limit")
       ):
         raise StructuredSystemRunFailure(
           detail="no_meaningful_progress",
@@ -1846,7 +1879,7 @@ def _run_unified_post_grid_system_run(
       cycle=unified_convergence_cycle_count,
       cycle_started_at=cycle_started_at,
       stage="solver_application_start",
-      minimum_remaining_seconds=_CYCLE_DEADLINE_GUARD_SECONDS + 5.0,
+      minimum_remaining_seconds=_convergence_guard_float("cycle_deadline_guard_seconds") + 5.0,
       detail="Solver/application cannot start without enough cycle budget to return before the 180s wall.",
       cycle_timing=cycle_timing,
     )
@@ -2096,7 +2129,7 @@ def _run_unified_post_grid_system_run(
     )
     phase_started_at = time.perf_counter()
     previous_openai_deadline = _set_active_openai_deadline(
-      _bounded_cycle_deadline(cycle_deadline, _VERIFICATION_GPT_MAX_SECONDS)
+      _bounded_cycle_deadline(cycle_deadline, _convergence_guard_float("verification_gpt_max_seconds"))
     )
     try:
       unified_convergence_verification = _run_realism_verification_openai(
@@ -2350,7 +2383,7 @@ def _run_unified_post_grid_system_run(
       finmo_json=copy.deepcopy(final_finmo_json),
     )
     if (
-      int(consecutive_no_progress_cycles or 0) >= _CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT
+      int(consecutive_no_progress_cycles or 0) >= _convergence_guard_int("non_productive_cycle_limit")
       and not bool(quality_assessment.get("meaningful_progress"))
       and not bool(controller_resolution_state.get("all_cleared"))
     ):

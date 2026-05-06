@@ -25,6 +25,8 @@ _GPT_CONTRACT_TABLE_NAME = "post_intake_gpt_contract_lookup"
 _GPT_CONTEXT_TABLE_NAME = "post_intake_gpt_context_lookup"
 _PROCESS_SEQUENCE_TABLE_NAME = "post_intake_process_sequence_lookup"
 _PROCESS_CONTEXT_TABLE_NAME = "post_intake_process_context_lookup"
+_PLANNING_MODE_POLICY_TABLE_NAME = "post_intake_planning_mode_policy_lookup"
+_R_AND_D_APPLICABILITY_TABLE_NAME = "post_intake_r_and_d_applicability_lookup"
 _LOOKUP_SNAPSHOT_TABLE_NAME = "post_intake_lookup_table_snapshot"
 _GOLDEN_BASELINE_NAME = "post_intake_golden_f949316"
 _FINMO_ROW_PREFIX = "finmo_json.quarter_rows[*]."
@@ -35,6 +37,8 @@ _ENSURE_GPT_CONTRACT_TABLE_READY = False
 _ENSURE_GPT_CONTEXT_TABLE_READY = False
 _ENSURE_PROCESS_SEQUENCE_TABLE_READY = False
 _ENSURE_PROCESS_CONTEXT_TABLE_READY = False
+_ENSURE_PLANNING_MODE_POLICY_TABLE_READY = False
+_ENSURE_R_AND_D_APPLICABILITY_TABLE_READY = False
 _ENSURE_LOOKUP_SNAPSHOT_TABLE_READY = False
 _ENSURE_MAPPING_TABLE_LOCK = threading.Lock()
 _ENSURE_CASH_POLICY_TABLE_LOCK = threading.Lock()
@@ -42,6 +46,8 @@ _ENSURE_GPT_CONTRACT_TABLE_LOCK = threading.Lock()
 _ENSURE_GPT_CONTEXT_TABLE_LOCK = threading.Lock()
 _ENSURE_PROCESS_SEQUENCE_TABLE_LOCK = threading.Lock()
 _ENSURE_PROCESS_CONTEXT_TABLE_LOCK = threading.Lock()
+_ENSURE_PLANNING_MODE_POLICY_TABLE_LOCK = threading.Lock()
+_ENSURE_R_AND_D_APPLICABILITY_TABLE_LOCK = threading.Lock()
 _ENSURE_LOOKUP_SNAPSHOT_TABLE_LOCK = threading.Lock()
 _POST_INTAKE_PLANNING_MODES = {"turnaround", "normalize", "rebalance"}
 
@@ -519,6 +525,13 @@ def _process_sequence_row(
   horizon_rule: str = "",
   timeout_seconds: Optional[float] = None,
   max_attempts: Optional[int] = None,
+  # Module 4 Task 4.3 — convergence guard columns. NULL by default; only
+  # the unified_convergence_decision row populates these in v4.
+  total_phase_budget_seconds: Optional[float] = None,
+  non_productive_cycle_limit: Optional[int] = None,
+  cycle_deadline_guard_seconds: Optional[float] = None,
+  planner_gpt_max_seconds: Optional[float] = None,
+  verification_gpt_max_seconds: Optional[float] = None,
   required: bool = True,
   enabled: bool = True,
   fail_fast_code: str = "",
@@ -585,6 +598,11 @@ def _process_sequence_row(
     "horizon_rule": horizon_rule,
     "timeout_seconds": timeout_seconds,
     "max_attempts": max_attempts,
+    "total_phase_budget_seconds": total_phase_budget_seconds,
+    "non_productive_cycle_limit": non_productive_cycle_limit,
+    "cycle_deadline_guard_seconds": cycle_deadline_guard_seconds,
+    "planner_gpt_max_seconds": planner_gpt_max_seconds,
+    "verification_gpt_max_seconds": verification_gpt_max_seconds,
     "required": bool(required),
     "enabled": bool(enabled),
     "fail_fast_code": fail_fast_code or f"{step_key}_sequence_violation",
@@ -1122,6 +1140,14 @@ _DEFAULT_PROCESS_SEQUENCE_ROWS: List[Dict[str, Any]] = [
     horizon_rule="q1_to_q20_model_input_repair_cells",
     timeout_seconds=240,
     max_attempts=10,
+    # Module 4 Task 4.3 — convergence guard values now live in this row.
+    # Defaults match the legacy Python constants exactly so behavior is
+    # identical until an operator deliberately tunes a value.
+    total_phase_budget_seconds=720.0,
+    non_productive_cycle_limit=3,
+    cycle_deadline_guard_seconds=8.0,
+    planner_gpt_max_seconds=150.0,
+    verification_gpt_max_seconds=45.0,
     fail_fast_code="post_intake_sequence_unified_convergence_contract_missing",
     required_context_keys=[
       "issue_ledger",
@@ -3018,6 +3044,15 @@ def stage_planning_ramp_policy(
     ),
   }
 
+  # Module 4 Task 4.5 — planning-mode validator values now come from the
+  # `post_intake_planning_mode_policy_lookup` row, replacing the inline
+  # if/else chains. Stage-family-specific items (`stage_rules` text and
+  # `early_revenue_share_ceiling_of_late_run_rate`) stay inline because
+  # they describe stage shape, not planning-mode posture. The two
+  # concerns intersect: planning_mode drives validator_rules; stage_family
+  # drives stage_rules + revenue ramp shape.
+  planning_mode_policy = post_intake_planning_mode_policy_for(mode) if mode else None
+
   if family == "startup":
     policy["stage_rules"] = [
       "Pre-revenue is a binding lifecycle state, not descriptive background.",
@@ -3047,6 +3082,9 @@ def stage_planning_ramp_policy(
       "Q2": 0.70,
       "Q3": 0.85,
     }
+    # Pre-v4 set this universally for early stage (regardless of mode).
+    # Continue that behavior; turnaround mode would also set it via the
+    # planning-mode policy table below, so it is idempotent.
     policy["validator_rules"]["loss_allowed_latest_quarter"] = 8
   elif explicit_distress_context:
     policy["stage_rules"] = [
@@ -3055,7 +3093,6 @@ def stage_planning_ramp_policy(
       "Do not model a mature company as a launch-stage startup; operational scale already exists even when profitability is damaged.",
       "Capacity expansion must be supported by operating recovery and stage reality.",
     ]
-    policy["validator_rules"]["operational_distress_allows_early_losses"] = True
   else:
     policy["profitability_postures"] = ["near_breakeven", "positive"]
     policy["stage_rules"] = [
@@ -3065,6 +3102,34 @@ def stage_planning_ramp_policy(
       "By Q5 the plan must use a positive profitability posture.",
       "Capacity expansion must be supported by operating earnings and stage reality.",
     ]
+
+  # Apply planning-mode validator values from the SQL table. Each value is
+  # only set when populated (None columns leave the rule absent so callers
+  # see "not present" with the same semantics as pre-v4).
+  if planning_mode_policy:
+    pm = planning_mode_policy
+    if pm.get("operational_distress_allows_early_losses"):
+      policy["validator_rules"]["operational_distress_allows_early_losses"] = True
+    if pm.get("operational_requires_nonnegative_from_q1") and family not in {"startup", "early"} and not explicit_distress_context:
+      policy["validator_rules"]["operational_requires_nonnegative_from_q1"] = True
+    if pm.get("operational_requires_positive_from_q5") and family not in {"startup", "early"} and not explicit_distress_context:
+      policy["validator_rules"]["operational_requires_positive_from_q5"] = True
+    if pm.get("profitability_floor_q1_q4") is not None and family not in {"startup", "early"} and not explicit_distress_context:
+      policy["validator_rules"]["q1_to_q20_min_net_income_margin_floor"] = float(pm["profitability_floor_q1_q4"])
+    if pm.get("profitability_floor_q5_q10") is not None and family not in {"startup", "early"} and not explicit_distress_context:
+      policy["validator_rules"]["q5_to_q20_min_net_income_margin_floor"] = float(pm["profitability_floor_q5_q10"])
+    if pm.get("loss_allowed_latest_quarter") is not None and "loss_allowed_latest_quarter" not in policy["validator_rules"]:
+      policy["validator_rules"]["loss_allowed_latest_quarter"] = int(pm["loss_allowed_latest_quarter"])
+    policy["planning_mode_policy_source"] = {
+      "table": _PLANNING_MODE_POLICY_TABLE_NAME,
+      "planning_mode": pm.get("planning_mode"),
+      "cycle_budget_multiplier": pm.get("cycle_budget_multiplier"),
+      "tolerated_issue_codes": pm.get("tolerated_issue_codes") or [],
+    }
+  elif family not in {"startup", "early"} and not explicit_distress_context:
+    # Fallback: planning_mode_policy missing AND the operational baseline
+    # branch was selected. Preserve the pre-v4 inline values exactly so
+    # legacy callers see no behavior change.
     policy["validator_rules"].update(
       {
         "operational_requires_nonnegative_from_q1": True,
@@ -3924,6 +3989,15 @@ def _ensure_cash_policy_lookup_table(conn) -> None:
         "ADD COLUMN debt_extra_paydown_policy VARCHAR(64) NOT NULL DEFAULT 'cash_strategy_surplus_only' AFTER debt_min_principal_source_priority_json",
         "ADD COLUMN debt_interest_rate_source_required VARCHAR(128) NOT NULL DEFAULT 'sba_loan_7a_raw' AFTER debt_extra_paydown_policy",
         "ADD COLUMN debt_interest_rate_fallback_allowed TINYINT(1) NOT NULL DEFAULT 0 AFTER debt_interest_rate_source_required",
+        # Module 4 Task 4.1 — preferred capital-structure ratios.
+        # Replaces _CASH_STRATEGY_PREFERRED_DEBT_RATIO / _CASH_STRATEGY_PREFERRED_EQUITY_RATIO
+        # constants from post_intake_cash/runner.py. Defaults match the
+        # legacy constant values exactly so behavior is identical until an
+        # operator deliberately tunes a row.
+        "ADD COLUMN preferred_debt_to_assets_ratio DECIMAL(10,4) NOT NULL DEFAULT 0.4000 AFTER debt_interest_rate_fallback_allowed",
+        "ADD COLUMN preferred_equity_to_assets_ratio DECIMAL(10,4) NOT NULL DEFAULT 0.6000 AFTER preferred_debt_to_assets_ratio",
+        "ADD COLUMN preferred_distribution_yield_target DECIMAL(10,4) NULL AFTER preferred_equity_to_assets_ratio",
+        "ADD COLUMN preferred_min_cash_runway_months DECIMAL(10,4) NULL AFTER preferred_distribution_yield_target",
       ]:
         try:
           cur.execute(
@@ -4617,6 +4691,19 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_storage_json LONGTEXT NULL AFTER produced_output_keys_json",
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN recompute_triggers_json LONGTEXT NULL AFTER output_storage_json",
         f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN output_finality VARCHAR(128) NOT NULL DEFAULT 'stage_final_no_downstream_mutation' AFTER recompute_triggers_json",
+        # Module 4 Task 4.3 — convergence guard columns. Replace the
+        # legacy `_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT`,
+        # `_CYCLE_DEADLINE_GUARD_SECONDS`, `_PLANNER_GPT_MAX_SECONDS`,
+        # `_VERIFICATION_GPT_MAX_SECONDS`, and
+        # `_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS` Python constants in
+        # `post_intake_convergence/runner.py`. NULL in the column means
+        # the convergence runner falls back to its documented default;
+        # populated values override.
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN total_phase_budget_seconds DECIMAL(10,2) NULL AFTER timeout_seconds",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN non_productive_cycle_limit INT NULL AFTER total_phase_budget_seconds",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN cycle_deadline_guard_seconds DECIMAL(10,2) NULL AFTER non_productive_cycle_limit",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN planner_gpt_max_seconds DECIMAL(10,2) NULL AFTER cycle_deadline_guard_seconds",
+        f"ALTER TABLE {_PROCESS_SEQUENCE_TABLE_NAME} ADD COLUMN verification_gpt_max_seconds DECIMAL(10,2) NULL AFTER planner_gpt_max_seconds",
       ]:
         try:
           cur.execute(ddl)
@@ -4648,6 +4735,11 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             horizon_rule,
             timeout_seconds,
             max_attempts,
+            total_phase_budget_seconds,
+            non_productive_cycle_limit,
+            cycle_deadline_guard_seconds,
+            planner_gpt_max_seconds,
+            verification_gpt_max_seconds,
             required,
             enabled,
             fail_fast_code,
@@ -4660,7 +4752,7 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             object_controls_json,
             sequence_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             phase = VALUES(phase),
             step_order = VALUES(step_order),
@@ -4682,6 +4774,11 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             horizon_rule = VALUES(horizon_rule),
             timeout_seconds = VALUES(timeout_seconds),
             max_attempts = VALUES(max_attempts),
+            total_phase_budget_seconds = VALUES(total_phase_budget_seconds),
+            non_productive_cycle_limit = VALUES(non_productive_cycle_limit),
+            cycle_deadline_guard_seconds = VALUES(cycle_deadline_guard_seconds),
+            planner_gpt_max_seconds = VALUES(planner_gpt_max_seconds),
+            verification_gpt_max_seconds = VALUES(verification_gpt_max_seconds),
             required = VALUES(required),
             enabled = VALUES(enabled),
             fail_fast_code = VALUES(fail_fast_code),
@@ -4717,6 +4814,11 @@ def _ensure_process_sequence_lookup_table(conn) -> None:
             _clean_text(row.get("horizon_rule")).lower(),
             row.get("timeout_seconds"),
             row.get("max_attempts"),
+            row.get("total_phase_budget_seconds"),
+            row.get("non_productive_cycle_limit"),
+            row.get("cycle_deadline_guard_seconds"),
+            row.get("planner_gpt_max_seconds"),
+            row.get("verification_gpt_max_seconds"),
             1 if bool(row.get("required")) else 0,
             1 if bool(row.get("enabled")) else 0,
             _clean_text(row.get("fail_fast_code")) or f"{_clean_text(row.get('step_key')).lower()}_sequence_violation",
@@ -4838,6 +4940,396 @@ def _ensure_headcount_policy_lookup_table(conn) -> None:
   ensure_post_intake_headcount_policy_lookup_table(conn)
 
 
+# --------------------------------------------------------------------------
+# Module 4 Task 4.4 — planning_mode policy table.
+#
+# Replaces the inline `if explicit_distress_context:` / `else:` branch in
+# `stage_planning_ramp_policy` with a SQL-driven lookup. Keys: planning_mode
+# (rebalance / turnaround / normalize). Values: profitability floors,
+# loss-allowed window, tolerated issue codes, cycle budget multiplier.
+#
+# Defaults match today's inline behavior exactly so behavior is identical
+# until an operator deliberately tunes a row. Currently only `turnaround`
+# diverges (it allows early losses via the distress branch); rebalance and
+# normalize use the same operational floors.
+# --------------------------------------------------------------------------
+
+
+_DEFAULT_PLANNING_MODE_POLICY_ROWS: List[Dict[str, Any]] = [
+  {
+    "planning_mode": "rebalance",
+    "profitability_floor_q1_q4": 0.0,
+    "profitability_floor_q5_q10": 0.02,
+    "profitability_floor_q11_q20": 0.0,
+    "loss_allowed_latest_quarter": None,
+    "tolerated_issue_codes": [],
+    "cycle_budget_multiplier": 1.0,
+    "operational_distress_allows_early_losses": False,
+    "operational_requires_nonnegative_from_q1": True,
+    "operational_requires_positive_from_q5": True,
+    "notes": "Operational baseline for misaligned-but-salvageable cases. Matches the pre-v4 `else` branch in stage_planning_ramp_policy.",
+  },
+  {
+    "planning_mode": "turnaround",
+    "profitability_floor_q1_q4": None,
+    "profitability_floor_q5_q10": None,
+    "profitability_floor_q11_q20": 0.0,
+    # NULL preserves pre-v4 behavior. The master-diagnostic spec proposed
+    # 8 for turnaround mode, but pre-v4 only set this for the `early`
+    # stage_family (regardless of mode). Operators can flip this to 8 in
+    # the row to give turnaround mode the same loss-allowed window without
+    # a code change.
+    "loss_allowed_latest_quarter": None,
+    "tolerated_issue_codes": ["mature_loss_state", "early_revenue_under_run_rate"],
+    "cycle_budget_multiplier": 1.0,
+    "operational_distress_allows_early_losses": True,
+    "operational_requires_nonnegative_from_q1": False,
+    "operational_requires_positive_from_q5": False,
+    "notes": "Distress / turnaround mode. Matches the pre-v4 `elif explicit_distress_context` branch in stage_planning_ramp_policy.",
+  },
+  {
+    "planning_mode": "normalize",
+    "profitability_floor_q1_q4": 0.0,
+    "profitability_floor_q5_q10": 0.02,
+    "profitability_floor_q11_q20": 0.0,
+    "loss_allowed_latest_quarter": None,
+    "tolerated_issue_codes": [],
+    "cycle_budget_multiplier": 1.0,
+    "operational_distress_allows_early_losses": False,
+    "operational_requires_nonnegative_from_q1": True,
+    "operational_requires_positive_from_q5": True,
+    "notes": "Reality-normalization mode for over-optimistic / overstated cases. Same numeric floors as rebalance.",
+  },
+]
+
+
+def _ensure_planning_mode_policy_lookup_table(conn) -> None:
+  global _ENSURE_PLANNING_MODE_POLICY_TABLE_READY
+  if _ENSURE_PLANNING_MODE_POLICY_TABLE_READY:
+    return
+  with _ENSURE_PLANNING_MODE_POLICY_TABLE_LOCK:
+    if _ENSURE_PLANNING_MODE_POLICY_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_PLANNING_MODE_POLICY_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          planning_mode VARCHAR(64) NOT NULL,
+          profitability_floor_q1_q4 DECIMAL(10,6) NULL,
+          profitability_floor_q5_q10 DECIMAL(10,6) NULL,
+          profitability_floor_q11_q20 DECIMAL(10,6) NULL,
+          loss_allowed_latest_quarter INT NULL,
+          tolerated_issue_codes_json LONGTEXT NULL,
+          cycle_budget_multiplier DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
+          operational_distress_allows_early_losses TINYINT(1) NOT NULL DEFAULT 0,
+          operational_requires_nonnegative_from_q1 TINYINT(1) NOT NULL DEFAULT 0,
+          operational_requires_positive_from_q5 TINYINT(1) NOT NULL DEFAULT 0,
+          policy_status VARCHAR(32) NOT NULL DEFAULT 'active',
+          notes LONGTEXT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_planning_mode (planning_mode),
+          KEY idx_planning_mode_status (policy_status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      for row in _DEFAULT_PLANNING_MODE_POLICY_ROWS:
+        cur.execute(
+          f"""
+          INSERT INTO {_PLANNING_MODE_POLICY_TABLE_NAME} (
+            planning_mode,
+            profitability_floor_q1_q4,
+            profitability_floor_q5_q10,
+            profitability_floor_q11_q20,
+            loss_allowed_latest_quarter,
+            tolerated_issue_codes_json,
+            cycle_budget_multiplier,
+            operational_distress_allows_early_losses,
+            operational_requires_nonnegative_from_q1,
+            operational_requires_positive_from_q5,
+            policy_status,
+            notes
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ON DUPLICATE KEY UPDATE
+            profitability_floor_q1_q4 = VALUES(profitability_floor_q1_q4),
+            profitability_floor_q5_q10 = VALUES(profitability_floor_q5_q10),
+            profitability_floor_q11_q20 = VALUES(profitability_floor_q11_q20),
+            loss_allowed_latest_quarter = VALUES(loss_allowed_latest_quarter),
+            tolerated_issue_codes_json = VALUES(tolerated_issue_codes_json),
+            cycle_budget_multiplier = VALUES(cycle_budget_multiplier),
+            operational_distress_allows_early_losses = VALUES(operational_distress_allows_early_losses),
+            operational_requires_nonnegative_from_q1 = VALUES(operational_requires_nonnegative_from_q1),
+            operational_requires_positive_from_q5 = VALUES(operational_requires_positive_from_q5),
+            notes = VALUES(notes)
+          """,
+          (
+            _clean_text(row.get("planning_mode")).lower(),
+            row.get("profitability_floor_q1_q4"),
+            row.get("profitability_floor_q5_q10"),
+            row.get("profitability_floor_q11_q20"),
+            row.get("loss_allowed_latest_quarter"),
+            _json_dumps_value(row.get("tolerated_issue_codes") or []),
+            float(row.get("cycle_budget_multiplier") or 1.0),
+            1 if bool(row.get("operational_distress_allows_early_losses")) else 0,
+            1 if bool(row.get("operational_requires_nonnegative_from_q1")) else 0,
+            1 if bool(row.get("operational_requires_positive_from_q5")) else 0,
+            _clean_text(row.get("notes")),
+          ),
+        )
+      conn.commit()
+      _ENSURE_PLANNING_MODE_POLICY_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
+@lru_cache(maxsize=1)
+def load_post_intake_planning_mode_policy_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_planning_mode_policy_lookup_table(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          planning_mode,
+          profitability_floor_q1_q4,
+          profitability_floor_q5_q10,
+          profitability_floor_q11_q20,
+          loss_allowed_latest_quarter,
+          tolerated_issue_codes_json,
+          cycle_budget_multiplier,
+          operational_distress_allows_early_losses,
+          operational_requires_nonnegative_from_q1,
+          operational_requires_positive_from_q5,
+          policy_status,
+          notes
+        FROM {_PLANNING_MODE_POLICY_TABLE_NAME}
+        WHERE policy_status = 'active'
+        """
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      cur.close()
+  finally:
+    conn.close()
+  for raw in raw_rows:
+    if not isinstance(raw, dict):
+      continue
+    mode = _clean_text(raw.get("planning_mode")).lower()
+    if not mode:
+      continue
+    rows.append(
+      {
+        "planning_mode": mode,
+        "profitability_floor_q1_q4": (
+          float(raw["profitability_floor_q1_q4"]) if raw.get("profitability_floor_q1_q4") is not None else None
+        ),
+        "profitability_floor_q5_q10": (
+          float(raw["profitability_floor_q5_q10"]) if raw.get("profitability_floor_q5_q10") is not None else None
+        ),
+        "profitability_floor_q11_q20": (
+          float(raw["profitability_floor_q11_q20"]) if raw.get("profitability_floor_q11_q20") is not None else None
+        ),
+        "loss_allowed_latest_quarter": (
+          int(raw["loss_allowed_latest_quarter"]) if raw.get("loss_allowed_latest_quarter") is not None else None
+        ),
+        "tolerated_issue_codes": _json_value(raw.get("tolerated_issue_codes_json"), []) or [],
+        "cycle_budget_multiplier": float(raw.get("cycle_budget_multiplier") or 1.0),
+        "operational_distress_allows_early_losses": _clean_bool(raw.get("operational_distress_allows_early_losses")),
+        "operational_requires_nonnegative_from_q1": _clean_bool(raw.get("operational_requires_nonnegative_from_q1")),
+        "operational_requires_positive_from_q5": _clean_bool(raw.get("operational_requires_positive_from_q5")),
+        "policy_status": _clean_text(raw.get("policy_status")).lower() or "active",
+        "notes": _clean_text(raw.get("notes")),
+      }
+    )
+  return rows
+
+
+def post_intake_planning_mode_policy_for(planning_mode: Any) -> Optional[Dict[str, Any]]:
+  mode = _clean_text(planning_mode).lower()
+  if not mode:
+    return None
+  for row in load_post_intake_planning_mode_policy_rows():
+    if row.get("planning_mode") == mode:
+      return dict(row)
+  return None
+
+
+# --------------------------------------------------------------------------
+# Module 5 Task 5.2 — R&D applicability NAICS-2 lookup.
+#
+# Replaces the GPT call `_estimate_r_and_d_applicability_with_gpt` for ~80%
+# of businesses where the NAICS-2 sector unambiguously implies R&D
+# applicability or non-applicability. Manufacturing (33) and other
+# ambiguous sectors fall through to GPT as a tiebreaker — much smaller
+# decision surface than today.
+#
+# Defaults below are master-diagnostic Part 7.2 #4 / Part 12.5 derived:
+# Information (51) and Professional/Scientific/Technical (54) → required;
+# Retail (44/45), Accommodation/Food (72), Other Services (81) →
+# not_applicable; rest → optional (defer to GPT tiebreaker).
+# --------------------------------------------------------------------------
+
+
+_DEFAULT_R_AND_D_APPLICABILITY_ROWS: List[Dict[str, Any]] = [
+  # Required — sectors with material R&D as a recurring distinct function.
+  {"naics_2": "51", "applicability_default": "required", "default_percent_when_required": 0.10, "notes": "Information (publishers, software, broadcasting, telecom) — software/product engineering is core."},
+  {"naics_2": "54", "applicability_default": "required", "default_percent_when_required": 0.08, "notes": "Professional/Scientific/Technical — R&D services, engineering, computer systems design."},
+  # Not applicable — consumer-facing or routine-operations sectors.
+  {"naics_2": "44", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Retail trade — no separate R&D function in the operating model."},
+  {"naics_2": "45", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Retail trade — same as 44."},
+  {"naics_2": "72", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Accommodation and Food Services — no separate R&D function."},
+  {"naics_2": "81", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Other Services (Except Public Administration) — routine personal/repair services."},
+  {"naics_2": "53", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Real Estate and Rental and Leasing — no separate R&D function."},
+  {"naics_2": "61", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Educational Services — curriculum development is not R&D in the cost-structure sense."},
+  # Optional — sectors where R&D applicability depends on sub-industry; GPT
+  # remains the tiebreaker.
+  {"naics_2": "31", "applicability_default": "optional", "default_percent_when_required": 0.04, "notes": "Manufacturing (food, textiles) — depends on whether the firm has a product-development function."},
+  {"naics_2": "32", "applicability_default": "optional", "default_percent_when_required": 0.06, "notes": "Manufacturing (chemicals, plastics) — pharma/chemicals subsectors typically have R&D; routine fabrication does not."},
+  {"naics_2": "33", "applicability_default": "optional", "default_percent_when_required": 0.06, "notes": "Manufacturing (computers, transportation, machinery) — depends on subsector."},
+  {"naics_2": "21", "applicability_default": "optional", "default_percent_when_required": 0.03, "notes": "Mining/Quarrying/Oil — exploration-as-R&D treatment varies by sub-industry."},
+  {"naics_2": "23", "applicability_default": "optional", "default_percent_when_required": 0.02, "notes": "Construction — most firms no; specialized construction R&D yes."},
+  {"naics_2": "42", "applicability_default": "optional", "default_percent_when_required": 0.02, "notes": "Wholesale Trade — depends on whether the firm has product-development capacity."},
+  {"naics_2": "48", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Transportation."},
+  {"naics_2": "49", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Warehousing."},
+  {"naics_2": "52", "applicability_default": "optional", "default_percent_when_required": 0.04, "notes": "Finance and Insurance — fintech sub-industry yes; traditional banks no."},
+  {"naics_2": "55", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Management of Companies and Enterprises — holding-company structures."},
+  {"naics_2": "56", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Administrative and Support Services — operational services without R&D."},
+  {"naics_2": "62", "applicability_default": "optional", "default_percent_when_required": 0.04, "notes": "Health Care — biotech / device development yes; routine clinical services no."},
+  {"naics_2": "71", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Arts, Entertainment, Recreation."},
+  {"naics_2": "11", "applicability_default": "optional", "default_percent_when_required": 0.02, "notes": "Agriculture/Forestry/Fishing — varietal R&D in some cases."},
+  {"naics_2": "22", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Utilities — operational services without R&D."},
+]
+
+
+def _ensure_r_and_d_applicability_lookup_table(conn) -> None:
+  global _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY
+  if _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY:
+    return
+  with _ENSURE_R_AND_D_APPLICABILITY_TABLE_LOCK:
+    if _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY:
+      return
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_R_AND_D_APPLICABILITY_TABLE_NAME} (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          naics_2 VARCHAR(2) NOT NULL,
+          applicability_default VARCHAR(32) NOT NULL,
+          default_percent_when_required DECIMAL(10,4) NULL,
+          notes LONGTEXT NULL,
+          active TINYINT(1) NOT NULL DEFAULT 1,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uniq_r_and_d_naics_2 (naics_2),
+          KEY idx_r_and_d_active (active)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+      )
+      for row in _DEFAULT_R_AND_D_APPLICABILITY_ROWS:
+        applicability = _clean_text(row.get("applicability_default")).lower()
+        if applicability not in {"required", "optional", "not_applicable"}:
+          raise RuntimeError(
+            f"r_and_d_applicability_default_invalid: naics_2={row.get('naics_2')} applicability={applicability}"
+          )
+        cur.execute(
+          f"""
+          INSERT INTO {_R_AND_D_APPLICABILITY_TABLE_NAME} (
+            naics_2,
+            applicability_default,
+            default_percent_when_required,
+            notes,
+            active
+          ) VALUES (%s, %s, %s, %s, 1)
+          ON DUPLICATE KEY UPDATE
+            applicability_default = VALUES(applicability_default),
+            default_percent_when_required = VALUES(default_percent_when_required),
+            notes = VALUES(notes),
+            active = VALUES(active)
+          """,
+          (
+            _clean_text(row.get("naics_2")),
+            applicability,
+            row.get("default_percent_when_required"),
+            _clean_text(row.get("notes")),
+          ),
+        )
+      conn.commit()
+      _ENSURE_R_AND_D_APPLICABILITY_TABLE_READY = True
+    finally:
+      try:
+        cur.close()
+      except Exception:
+        pass
+
+
+@lru_cache(maxsize=1)
+def load_post_intake_r_and_d_applicability_rows() -> List[Dict[str, Any]]:
+  rows: List[Dict[str, Any]] = []
+  _ensure_env_loaded()
+  conn = get_mysql_connection()
+  try:
+    _ensure_r_and_d_applicability_lookup_table(conn)
+    cur = conn.cursor(dictionary=True)
+    try:
+      cur.execute(
+        f"""
+        SELECT
+          naics_2,
+          applicability_default,
+          default_percent_when_required,
+          notes,
+          active
+        FROM {_R_AND_D_APPLICABILITY_TABLE_NAME}
+        WHERE active = 1
+        """
+      )
+      raw_rows = cur.fetchall() or []
+    finally:
+      cur.close()
+  finally:
+    conn.close()
+  for raw in raw_rows:
+    if not isinstance(raw, dict):
+      continue
+    naics_2 = _clean_text(raw.get("naics_2"))
+    if not naics_2:
+      continue
+    rows.append(
+      {
+        "naics_2": naics_2,
+        "applicability_default": _clean_text(raw.get("applicability_default")).lower(),
+        "default_percent_when_required": (
+          float(raw["default_percent_when_required"])
+          if raw.get("default_percent_when_required") is not None
+          else None
+        ),
+        "notes": _clean_text(raw.get("notes")),
+        "active": bool(raw.get("active") or 0),
+      }
+    )
+  return rows
+
+
+def post_intake_r_and_d_applicability_for_naics2(naics_2: Any) -> Optional[Dict[str, Any]]:
+  digits = "".join(ch for ch in str(naics_2 or "") if ch.isdigit())[:2]
+  if not digits:
+    return None
+  for row in load_post_intake_r_and_d_applicability_rows():
+    if row.get("naics_2") == digits:
+      return dict(row)
+  return None
+
+
 def _post_intake_snapshot_source_tables() -> List[str]:
   return [
     _MAPPING_TABLE_NAME,
@@ -4847,6 +5339,8 @@ def _post_intake_snapshot_source_tables() -> List[str]:
     "post_intake_headcount_policy_lookup",
     _PROCESS_SEQUENCE_TABLE_NAME,
     _PROCESS_CONTEXT_TABLE_NAME,
+    _PLANNING_MODE_POLICY_TABLE_NAME,
+    _R_AND_D_APPLICABILITY_TABLE_NAME,
   ]
 
 
@@ -5329,6 +5823,10 @@ def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
           debt_extra_paydown_policy,
           debt_interest_rate_source_required,
           debt_interest_rate_fallback_allowed,
+          preferred_debt_to_assets_ratio,
+          preferred_equity_to_assets_ratio,
+          preferred_distribution_yield_target,
+          preferred_min_cash_runway_months,
           cash_phase_sequence_json,
           policy_label,
           policy_status,
@@ -5379,6 +5877,21 @@ def load_post_intake_cash_policy_rows() -> List[Dict[str, Any]]:
         "debt_extra_paydown_policy": _clean_text(raw_row.get("debt_extra_paydown_policy")).lower(),
         "debt_interest_rate_source_required": _clean_text(raw_row.get("debt_interest_rate_source_required")),
         "debt_interest_rate_fallback_allowed": _clean_bool(raw_row.get("debt_interest_rate_fallback_allowed")),
+        # Module 4 Task 4.1 — preferred capital-structure ratios (replaces
+        # the legacy `_CASH_STRATEGY_PREFERRED_DEBT_RATIO` /
+        # `_CASH_STRATEGY_PREFERRED_EQUITY_RATIO` Python constants).
+        "preferred_debt_to_assets_ratio": float(raw_row.get("preferred_debt_to_assets_ratio") or 0.40),
+        "preferred_equity_to_assets_ratio": float(raw_row.get("preferred_equity_to_assets_ratio") or 0.60),
+        "preferred_distribution_yield_target": (
+          float(raw_row["preferred_distribution_yield_target"])
+          if raw_row.get("preferred_distribution_yield_target") is not None
+          else None
+        ),
+        "preferred_min_cash_runway_months": (
+          float(raw_row["preferred_min_cash_runway_months"])
+          if raw_row.get("preferred_min_cash_runway_months") is not None
+          else None
+        ),
         "cash_phase_sequence": phase_sequence if isinstance(phase_sequence, list) else [],
         "policy_label": _clean_text(raw_row.get("policy_label")),
         "policy_status": _clean_text(raw_row.get("policy_status")).lower() or "active",

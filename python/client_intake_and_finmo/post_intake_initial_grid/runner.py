@@ -541,9 +541,15 @@ def prepare_initial_grid_for_draft(
   )
   forecast_starting_ppe = int(round(max(0.0, float(safe_float((financials_json or {}).get("initial_assets")) or 0.0))))
   maintenance_rate = float(safe_float(forecast_starting_ppe_decision.get("maintenance_rate")) or 0.0)
-  if maintenance_rate < 0.02 or maintenance_rate > 0.15:
+  # Module 5 Task 5.1 — DELETED legacy `< 0.02 or > 0.15` post-validation.
+  # The deterministic NAICS-cascade function returns a real industry-typical
+  # rate; the universal 2-15% guard rejected legitimate NAICS values for
+  # capital-light services (often <2%) and capital-heavy manufacturing
+  # (often >15%). The decision payload's `naics_provenance` field documents
+  # where the value came from. Sanity-check positivity only.
+  if maintenance_rate <= 0.0:
     raise RuntimeError(
-      f"maintenance_capex_percent_maintenance_rate_invalid: GPT returned invalid maintenance_rate={maintenance_rate!r}; expected 0.02 <= rate <= 0.15."
+      f"maintenance_capex_percent_maintenance_rate_nonpositive: rate={maintenance_rate!r}"
     )
   shared_context["forecast_starting_ppe_decision"] = {
     "contract_version": forecast_starting_ppe_decision.get("contract_version"),

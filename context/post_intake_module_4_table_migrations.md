@@ -1,6 +1,6 @@
 # Module 4: Hardcoded Constants → Tables
 
-**Status:** not_started
+**Status:** completed
 **Scope:** post-intake only.
 **Depends on:** none. Parallel-safe with M1, M2, M3.
 **Unblocks:** none structurally. Removes stitching that future modules would otherwise inherit.
@@ -152,4 +152,26 @@ If M2 has already landed Task 2.1, skip this. Otherwise:
 
 ## Notes from a future session
 
-(Empty.)
+### 2026-05-06 — Module 4 COMPLETED
+
+**Files changed:**
+- `python/client_intake_and_finmo/post_intake_mapping.py` — Task 4.1: 4 new columns on `post_intake_cash_policy_lookup` (preferred_debt_to_assets_ratio, preferred_equity_to_assets_ratio, preferred_distribution_yield_target, preferred_min_cash_runway_months) with defaults 0.4000/0.6000 matching the legacy Python constants exactly. SELECT and row builder updated.
+- `python/client_intake_and_finmo/post_intake_mapping.py` — Task 4.3: 5 new columns on `post_intake_process_sequence_lookup` (total_phase_budget_seconds, non_productive_cycle_limit, cycle_deadline_guard_seconds, planner_gpt_max_seconds, verification_gpt_max_seconds). The `unified_convergence_decision` row populates them with values matching the legacy constants exactly.
+- `python/client_intake_and_finmo/post_intake_mapping.py` — Task 4.4: new `post_intake_planning_mode_policy_lookup` table with 3 default rows (rebalance, turnaround, normalize). Includes `_ensure_planning_mode_policy_lookup_table`, `load_post_intake_planning_mode_policy_rows`, `post_intake_planning_mode_policy_for`. Added to `_post_intake_snapshot_source_tables`.
+- `python/client_intake_and_finmo/post_intake_mapping.py` — Task 4.5: `stage_planning_ramp_policy` now reads validator_rules from the planning-mode policy row instead of inline if/else chains. `planning_mode_policy_source` field added to the policy payload for traceability.
+- `python/client_intake_and_finmo/post_intake_cash/runner.py` — Task 4.2: **DELETED** `_CASH_STRATEGY_PREFERRED_DEBT_RATIO = 0.40` and `_CASH_STRATEGY_PREFERRED_EQUITY_RATIO = 0.60` constants. Added `_preferred_capital_ratios_for(...)` helper that reads the cash policy row by (cash_strategy, debt_position) and returns the preferred (debt, equity) tuple. Both envelope functions (`_cash_strategy_planning_violation_envelope`, `_cash_strategy_validation_violation_envelope`) wired to use the helper. Capital structure snapshot extended with optional `selected_cash_strategy` kwarg.
+- `python/client_intake_and_finmo/post_intake_convergence/runner.py` — Task 4.3: **DELETED** `_CYCLE_DEADLINE_GUARD_SECONDS = 8.0`, `_PLANNER_GPT_MAX_SECONDS = 150.0`, `_VERIFICATION_GPT_MAX_SECONDS = 45.0`, `_CONVERGENCE_NON_PRODUCTIVE_CYCLE_LIMIT = 3`, `_CONVERGENCE_TOTAL_PHASE_BUDGET_SECONDS = 720.0` constants. Replaced with `_CONVERGENCE_GUARD_DEFAULTS` map (used as fallback when the sequence row's column is NULL) and the `_convergence_guard_float` / `_convergence_guard_int` helpers that read from the sequence row.
+- `python/client_intake_and_finmo/post_intake_contracts/runner.py` — Task 4.6: **DELETED** the hardcoded "must be at least 2 and no more than 15" prose from `_estimate_maintenance_capex_percent_with_gpt`'s `hard_rules`. Replaced the `< 2.0 or > 15.0` post-validation with a `<= 0.0` positivity guard. The Module 3 v1 NAICS-bound contract row's `minimum`/`maximum` is the authority; the OpenAI strict_json_schema enforces it before the response reaches Python.
+- (new) `Test Files/test_module4_table_migrations.py` — 16/16 pass: cash policy column presence + defaults, cash runner constants deleted, helper returns policy values, helper raises on missing strategy, convergence constants deleted, guard helpers match pre-v4 values, planning-mode table has 3 rows, policy returns expected values, `stage_planning_ramp_policy` matches pre-v4 for rebalance/operational + turnaround/operational + early-stage loss-allowed window + planning_mode_policy_source surfaced.
+- `Test Files/test_module2_stage_ramp_naics.py` — updated 2 tests for the convergence-constant rename + added `convergence_guard_defaults_match_legacy` test.
+
+**Total regression suite: 90/90 pass across 9 test files.**
+
+**Behavior preservation discipline.** Per the spec: "Pure migration, behavior should be identical." Every default in every new column was set to the exact value of the legacy Python constant it replaced. The most subtle case was the `turnaround` planning-mode row's `loss_allowed_latest_quarter`: the spec proposed `8`, but pre-v4 only set that field for the `early` stage_family. v4 keeps it NULL in the turnaround row (operators can flip it to 8 without code change). Documented in the row's `notes` and code comments.
+
+**What this looks like in operation.**
+- Edit the cash policy row for `(cash_strategy=preserve_cash, debt_position=high_debt)` and set `preferred_debt_to_assets_ratio = 0.30`. Re-run an intake. The capital-structure soft guidance produced for that cell uses 0.30 instead of the universal 0.40. No code change.
+- Edit the planning_mode row for `turnaround` and set `cycle_budget_multiplier = 1.5`. The convergence loop reads this on the next run; turnaround intakes get 50% more wall budget.
+- Edit the unified_convergence_decision sequence row's `total_phase_budget_seconds` to 480.0. Convergence loop now bails at 8 minutes instead of 12 across the board.
+
+**No follow-up work.** Module 4 is complete. The spec's lookup-snapshot refresh (Task 4.7) is an operational step (run `scripts/freeze_post_intake_golden_baseline.py`) that lands when the user wants to capture a new snapshot — not a code change.

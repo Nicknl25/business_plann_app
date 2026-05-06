@@ -377,7 +377,7 @@ __all__ = [
   "_normalize_stage_ramp_rate_for_validation",
   "_validate_stage_ramp_contract_payload",
   "_revenue_catalog_snapshot_for_starting_ppe",
-  "_estimate_maintenance_capex_percent_with_gpt",
+  "_derive_maintenance_capex_percent_from_naics",
   "_stage_ramp_gpt_timeout_seconds",
   "_r_and_d_applicability_timeout_seconds",
   "_balance_sheet_contextual_seed_timeout_seconds",
@@ -1048,132 +1048,86 @@ def _payroll_people_staffing_context(people_json: Optional[Dict[str, Any]]) -> D
   }
 
 
-def _estimate_maintenance_capex_percent_with_gpt(
+def _derive_maintenance_capex_percent_from_naics(
   *,
   business_facts: Optional[Dict[str, Any]],
   ops_json: Optional[Dict[str, Any]],
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-  api_key = _openai_key()
-  if not api_key:
-    raise RuntimeError("maintenance_capex_percent_openai_key_missing: OPENAI_API_KEY is not configured.")
-  facts = business_facts if isinstance(business_facts, dict) else {}
+  """Module 5 Task 5.1 — replaces the legacy GPT call.
+
+  The Module 1 NAICS resolver already supplies the industry-typical
+  maintenance capex percent. The Module 3 contract row already filters by
+  the same NAICS metric. The legacy GPT call did nothing the table cannot
+  do deterministically: it picked a value within a NAICS-bound range. This
+  function replaces it with a one-call resolver lookup, returning the same
+  payload shape the legacy call returned (with `decision_source = "naics_cascade"`
+  in place of `"gpt"`) so downstream consumers are unchanged.
+  """
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
-  year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
   client_reported_ppe = int(round(max(0.0, float(_safe_float(financials.get("initial_assets")) or 0.0))))
-  starting_annual_revenue = int(round(float(
-    _safe_float(year1.get("company_revenue_total_year1"))
-    or _safe_float(year1.get("revenue_total_year1"))
-    or _safe_float(financials.get("current_revenue"))
-    or 0.0
-  )))
-  starting_quarter_revenue = int(round(starting_annual_revenue / 4.0)) if starting_annual_revenue > 0 else 0
-  user_context = {
-    "task": "Return one realistic annual maintenance capex percent for the client-stated opening PPE base.",
-    "gpt_contract_field_spec": _post_intake_contract_prompt_spec("maintenance_capex_percent"),
-    "business_name": str(facts.get("business_name") or facts.get("name") or ops.get("business_name") or "").strip(),
-    "business_context": {
-      "consumer_type": ops.get("consumer_type"),
-      "business_type": ops.get("business_type"),
-      "business_stage": ops.get("business_stage"),
-      "business_description_summary": ops.get("business_description_summary"),
-      "capacity_driver": ops.get("capacity_driver"),
-      "unit_name": ops.get("unit_name"),
-      "sales_modality": ops.get("sales_modality"),
-      "geographic_scope": ops.get("geographic_scope"),
-      "fulfillment_summary": ops.get("fulfillment_summary") or ops.get("fulfillment_model_summary"),
-      "revenue_driver_snapshot": _revenue_catalog_snapshot_for_starting_ppe(ops),
-    },
-    "authoritative_balance_sheet_starting_state": {
-      "client_reported_ppe": client_reported_ppe,
-      "source": "financials_json.initial_assets",
-      "rule": "Client-stated balance sheet is authoritative. Do not upsize starting PPE to support P&L scale.",
-    },
-    "starting_operating_scale": {
-      "starting_annual_revenue": starting_annual_revenue,
-      "starting_quarter_revenue": starting_quarter_revenue,
-    },
-    "hard_rules": [
-      "Return one annual maintenance capex percent as maintenance_capex_percent, using percentage points like 8 for 8%.",
-      "maintenance_capex_percent must be at least 2 and no more than 15.",
-      "Do not return starting_ppe.",
-      "Do not change or reinterpret client_reported_ppe.",
-      "Do not forecast future PPE, capex, depreciation, or future quarters.",
-      "Treat maintenance_capex_percent as the annual maintenance spend needed to keep the client-stated PPE base productive before expansion capex.",
-    ],
-  }
-  system_prompt = post_intake_build_prompt_from_contract(
-    "maintenance_capex_percent",
-    context_payload=user_context,
-    static_instruction=(
-      "You estimate one model-input assumption for a 3-statement forecast: annual maintenance capex percent. "
-      "The client's reported balance sheet is authoritative, so do not estimate or return starting PPE."
-    ),
-    task_instruction=(
-      "Return only JSON matching the SQL contract. maintenance_capex_percent must be percentage points, "
-      "for example 8 for 8%, and must stay inside the contract range. Do not output ranges, future quarters, "
-      "capex, depreciation, or balance sheet replacements."
-    ),
+
+  business_naics_6 = "".join(
+    ch for ch in str(ops.get("business_naics_6") or "") if ch.isdigit()
   )
-  payload = {
-    "model": _openai_model(),
-    "input": [
-      {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-      {"role": "user", "content": [{"type": "input_text", "text": json.dumps(user_context, ensure_ascii=False)}]},
-    ],
-    "text": {
-      "format": {
-        "type": "json_schema",
-        "name": "maintenance_capex_percent",
-        "schema": _maintenance_capex_percent_schema(
-          business_naics=str(ops.get("business_naics_6") or "").strip() or None,
-        ),
-        "strict": True,
-      }
-    },
-  }
-  resp = _post_openai(
-    url="https://api.openai.com/v1/responses",
-    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-    payload=payload,
-  )
-  if resp.status_code >= 400:
-    raise RuntimeError(f"maintenance_capex_percent_openai_status: {resp.text[:1200]}")
-  raw_openai_response = resp.json() if isinstance(resp.json(), dict) else {"response": resp.text[:4000]}
-  parsed = _parse_responses_json_dict(raw_openai_response)
-  if not isinstance(parsed, dict):
-    raise RuntimeError("maintenance_capex_percent_parse_failed: GPT did not return a JSON object.")
-  parsed = _normalize_post_intake_contract_payload(
-    contract_name="maintenance_capex_percent",
-    payload=parsed,
-  )
-  contract_errors = _post_intake_contract_payload_errors(
-    contract_name="maintenance_capex_percent",
-    payload=parsed,
-  )
-  if contract_errors:
+  if not business_naics_6:
     raise RuntimeError(
-      "maintenance_capex_percent_contract_invalid: "
-      + "; ".join(str(item) for item in contract_errors[:10])
+      "maintenance_capex_percent_naics_missing: ops_json.business_naics_6 is required to "
+      "derive the maintenance capex band from the post_intake_industry_baseline_lookup cascade."
     )
-  maintenance_capex_percent = float(_safe_float(parsed.get("maintenance_capex_percent")) or 0.0)
-  if maintenance_capex_percent < 2.0 or maintenance_capex_percent > 15.0:
+
+  from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ignore
+    post_intake_industry_baseline_for_naics,
+  )
+  band = post_intake_industry_baseline_for_naics(
+    metric_key="maintenance_capex_percent_of_revenue",
+    naics_6=business_naics_6,
+  )
+  if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
     raise RuntimeError(
-      "maintenance_capex_percent_invalid: "
-      f"maintenance_capex_percent must be at least 2 and no more than 15. actual={parsed.get('maintenance_capex_percent')!r}"
+      f"maintenance_capex_percent_no_naics_coverage: naics_6={business_naics_6} cascade returned no_coverage"
+    )
+  target = band.get("benchmark_target")
+  if target is None:
+    target = band.get("benchmark_min") or band.get("benchmark_max")
+  if target is None:
+    raise RuntimeError(
+      f"maintenance_capex_percent_band_missing_target: naics_6={business_naics_6} band={band}"
+    )
+  # The resolver returns ratios; convert to percentage points to match the
+  # legacy GPT call's `maintenance_capex_percent` units.
+  maintenance_capex_percent = round(float(target) * 100.0, 2)
+  if maintenance_capex_percent <= 0.0:
+    raise RuntimeError(
+      f"maintenance_capex_percent_naics_band_nonpositive: naics_6={business_naics_6} target={target}"
     )
   return {
-    "contract_version": "maintenance_capex_percent_decision_v1",
-    "decision_source": "gpt",
+    "contract_version": "maintenance_capex_percent_decision_v2",
+    "decision_source": "naics_cascade",
     "starting_ppe": client_reported_ppe,
     "starting_ppe_source": "authoritative_client_balance_sheet",
-    "maintenance_capex_percent": round(float(maintenance_capex_percent), 2),
-    "maintenance_rate": round(float(maintenance_capex_percent) / 100.0, 6),
-    "prompt_context": user_context,
-    "raw_openai_response": raw_openai_response,
+    "maintenance_capex_percent": maintenance_capex_percent,
+    "maintenance_rate": round(float(target), 6),
+    "naics_provenance": {
+      "metric_key": band.get("metric_key"),
+      "naics_code_used": band.get("naics_code_used"),
+      "naics_level_used": band.get("naics_level_used"),
+      "data_source": band.get("data_source"),
+      "confidence_tier": band.get("confidence_tier"),
+      "trust_flag": band.get("trust_flag"),
+      "sample_size": band.get("sample_size"),
+    },
   }
+
+
+# Module 5 Task 5.1 — `_estimate_maintenance_capex_percent_with_gpt` was
+# DELETED entirely. The NAICS resolver gives us the same value (tighter,
+# industry-typical) without a network call. The deterministic replacement
+# is `_derive_maintenance_capex_percent_from_naics` above. Call sites in
+# `post_intake_initial_grid/runner.py` and `intake_consult.py` were
+# updated to reference the new function.
 
 def _sequence_gpt_timeout_seconds(
   *,
@@ -1396,6 +1350,74 @@ def _assert_r_and_d_applicability_policy_applied(
         + json.dumps({"stage": stage, "leaked_rows": leaked_rows[:20]}, ensure_ascii=False)
       )
 
+def _derive_r_and_d_applicability_from_naics(
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  financials_year1_json: Optional[Dict[str, Any]],
+  model_input_json: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """Module 5 Task 5.2 — deterministic NAICS-2 R&D applicability decision.
+
+  Returns:
+    - decision dict (same shape as `_estimate_r_and_d_applicability_with_gpt`)
+      when the NAICS-2 sector unambiguously implies `required` or
+      `not_applicable`
+    - None when the NAICS-2 sector is `optional` (caller falls through to
+      GPT for the smaller tiebreaker decision)
+    - None when no NAICS available (caller falls through to GPT)
+
+  Realism note: this preserves the user's "real plans" requirement. Sectors
+  with deterministic answers (Information / Software → required, Retail
+  → not_applicable, etc.) get a faithful answer without GPT variance.
+  Ambiguous sectors (Manufacturing 32/33, Health Care 62, Finance 52,
+  Wholesale 42) keep GPT — the same business judgment that produced realistic
+  decisions before continues to do so.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  business_naics_6 = "".join(
+    ch for ch in str(ops.get("business_naics_6") or "") if ch.isdigit()
+  )
+  if len(business_naics_6) < 2:
+    return None
+  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+    post_intake_r_and_d_applicability_for_naics2,
+  )
+  applicability_row = post_intake_r_and_d_applicability_for_naics2(business_naics_6[:2])
+  if not isinstance(applicability_row, dict):
+    return None
+  applicability = str(applicability_row.get("applicability_default") or "").strip().lower()
+  if applicability == "optional":
+    return None
+  if applicability == "required":
+    enabled = True
+    rationale = (
+      f"NAICS-2 {business_naics_6[:2]} ({applicability_row.get('notes', '').split(' — ')[0] if applicability_row.get('notes') else ''}) "
+      "has R&D as a structural cost line for businesses in this sector."
+    )
+  elif applicability == "not_applicable":
+    enabled = False
+    rationale = (
+      f"NAICS-2 {business_naics_6[:2]} ({applicability_row.get('notes', '').split(' — ')[0] if applicability_row.get('notes') else ''}) "
+      "does not have R&D as a structural cost line. Routine operating expenses are not R&D."
+    )
+  else:
+    return None
+  return {
+    "contract_version": "r_and_d_applicability_decision_v2",
+    "decision_source": "naics_2_lookup",
+    "r_and_d_enabled": enabled,
+    "rationale": rationale,
+    "naics_provenance": {
+      "naics_2": business_naics_6[:2],
+      "applicability_default": applicability,
+      "default_percent_when_required": applicability_row.get("default_percent_when_required"),
+      "table": "post_intake_r_and_d_applicability_lookup",
+    },
+  }
+
+
 def _estimate_r_and_d_applicability_with_gpt(
   *,
   business_facts: Optional[Dict[str, Any]],
@@ -1404,6 +1426,19 @@ def _estimate_r_and_d_applicability_with_gpt(
   financials_year1_json: Optional[Dict[str, Any]],
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+  # Module 5 Task 5.2 — try the deterministic NAICS-2 lookup first. When
+  # the sector is unambiguously `required` or `not_applicable` (~80% of
+  # businesses by NAICS coverage), we skip the GPT call entirely. When the
+  # sector is `optional`, fall through to the GPT tiebreaker below.
+  deterministic = _derive_r_and_d_applicability_from_naics(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    model_input_json=model_input_json,
+  )
+  if deterministic is not None:
+    return deterministic
   api_key = _openai_key()
   if not api_key:
     raise RuntimeError("r_and_d_applicability_openai_key_missing: OPENAI_API_KEY is not configured.")

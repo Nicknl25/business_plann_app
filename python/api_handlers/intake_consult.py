@@ -6730,7 +6730,11 @@ def _run_planning_system_for_draft_unified(
     build_planning_context_summary_payload=_build_planning_context_summary_payload,
     year1_drivers_conflict=_year1_drivers_conflict,
     compute_marketing_model_json=_compute_marketing_model_json,
-    estimate_maintenance_capex_percent_with_gpt=_estimate_maintenance_capex_percent_with_gpt,
+    # Module 5 Task 5.1 — GPT call DELETED. The deterministic NAICS-cascade
+    # function replaces it. The dependency-injection key keeps the
+    # legacy name so post_intake_initial_grid/runner.py does not need a
+    # signature change in this commit.
+    estimate_maintenance_capex_percent_with_gpt=_derive_maintenance_capex_percent_from_naics,
     safe_float=_safe_float,
     estimate_r_and_d_applicability_with_gpt=_estimate_r_and_d_applicability_with_gpt,
     r_and_d_policy_from_model_input=_r_and_d_policy_from_model_input,
