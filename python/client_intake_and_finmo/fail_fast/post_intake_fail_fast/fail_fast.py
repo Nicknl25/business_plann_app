@@ -167,6 +167,12 @@ PHASE_3_GPT_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "band_amendment_invalid_applicability_flip_on_gpt_editable_lever",
   # Pre-solver joint feasibility (Phase 5.2 R3)
   "joint_feasibility_check_failed",
+  # Pre-flight structural feasibility (Phase 6 Step 9) — raised when
+  # revenue at upper-bound utilization can't cover lower-bound fixed
+  # costs. Halts the run with a structured diagnostic + concrete
+  # recommended adjustments instead of letting the solver chase an
+  # impossible plan and the cascade paper Tier 7.
+  "structural_feasibility_check_failed",
 }
 
 

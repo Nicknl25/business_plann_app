@@ -431,6 +431,45 @@ def run_target_seeking_orchestrated_system_run(
   envelope_payload = inputs["envelope"]
   targets_payload = inputs["targets"]
 
+  # ---------- Phase 6 Step 9: pre-flight structural feasibility check ----
+  # Before Phase 3 calibration, before pre-flight bisection, before the
+  # inner runner: verify the business as configured can be modeled at
+  # all. If revenue at maximum plausible utilization cannot cover
+  # lower-bound fixed costs (payroll + lease + debt service), no
+  # combination of band-internal lever values produces a viable plan.
+  # The cascade's Tier 7 used to paper this case as success; Step 9
+  # raises a structured diagnostic upstream so the consultant sees
+  # actionable recommended adjustments instead.
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+    verify_structural_feasibility,
+  )
+  structural_feasibility = verify_structural_feasibility(
+    ops_json=ops_json or {},
+    financials_json=financials_json or {},
+    financials_year1_json=financials_year1_json or {},
+    payroll_headcount=payroll_headcount or {},
+    business_profile=business_profile_for_cohort,
+  )
+  if not structural_feasibility.feasible:
+    from client_intake_and_finmo.fail_fast.post_intake_fail_fast.fail_fast import (  # type: ignore
+      post_intake_fail_fast_raise,
+    )
+    from client_intake_and_finmo.fail_fast.common import FailFastError  # type: ignore
+    diagnostics = structural_feasibility.to_dict()
+    result = post_intake_fail_fast_raise(
+      "structural_feasibility_check_failed",
+      structural_feasibility.diagnostic_message,
+      stage="phase_6_pre_flight_structural_feasibility",
+      details=diagnostics,
+    )
+    raise FailFastError(
+      "structural_feasibility_check_failed",
+      structural_feasibility.diagnostic_message,
+      phase=result.get("phase") or "POST_INTAKE",
+      stage="phase_6_pre_flight_structural_feasibility",
+      details=diagnostics,
+    )
+
   # ---------- Phase 3 / 5.2: GPT consultants calibrate bands and targets -----
   # Three consultants run per business before the pre-flight pass. Each
   # makes per-scope GPT calls (per-lever band shaping, per-metric target
