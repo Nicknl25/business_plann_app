@@ -63,6 +63,16 @@ def _ensure_realism_check_lookup_table(conn) -> None:
       return
     cur = conn.cursor()
     try:
+      # Phase 6 Step 11: drop the orphaned ppe_percent_of_revenue row
+      # from existing deployments. PPE has no editable remediation
+      # lever (Capex schedule is python_derived), so the metric isn't
+      # cascade-recoverable; removed from the realism table. Idempotent.
+      try:
+        cur.execute(
+          f"DELETE FROM {REALISM_CHECK_TABLE_NAME} WHERE metric_key = 'ppe_percent_of_revenue'"
+        )
+      except Exception:
+        pass
       cur.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {REALISM_CHECK_TABLE_NAME} (
@@ -241,8 +251,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="(Revenue - COGS) / revenue. Cross-check on COGS; warn-mode because hard_fail on COGS already catches the same condition.",
+    governs_model_input_lever_id="expenses::Cost of Goods Sold",
   ),
   _row(
     metric_key="marketing_percent_of_revenue",
@@ -252,7 +263,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Marketing",
     notes="SEC EDGAR-backed for many NAICS (n=421). Stays at warn until Module 6 marketing schedule replaces this metric's authority entirely.",
   ),
@@ -276,7 +287,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Research & Development",
     notes="Skip when r_and_d_applicability disabled the lever; otherwise compare R&D / revenue against NAICS band.",
   ),
@@ -288,7 +299,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Lease",
     notes="FINMO emits a single `lease_rent` line; the realism check uses rent_percent_of_revenue band as the comparison.",
   ),
@@ -300,8 +311,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Marketing + G&A combined per industry_metrics_raw SGA convention.",
+    governs_model_input_lever_id="expenses::General & Administrative",
   ),
   _row(
     metric_key="payroll_percent_of_revenue",
@@ -311,7 +323,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Payroll",
     notes="Reasonableness signal only — payroll is NOT clipped to fit revenue (Golden Rule preservation). Stays at warn because payroll/revenue NAICS coverage is uneven; out-of-band surfaces likely wage_positioning / labor_intensity_class mismatch.",
   ),
@@ -323,8 +335,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Depreciation / revenue. Cross-check on capex schedule and PPE.",
+    governs_model_input_lever_id="expenses::Depreciation",
   ),
   _row(
     metric_key="effective_tax_rate",
@@ -371,7 +384,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="(EBITDA - depreciation) / revenue. Warn-mode because EBITDA hard_fail already catches the upstream condition.",
   ),
   _row(
@@ -382,7 +395,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Net income / revenue. Warn-mode — downstream of EBITDA / interest / taxes which are individually gated.",
   ),
 
@@ -424,7 +437,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_DAYS_TOL_MEDIUM,
     tolerance_bps_low_confidence=_DAYS_TOL_LOW,
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     governs_model_input_lever_id="balance_sheet::Inventory Days",
     notes="Inventory / COGS * 90. Applicability gate skips for software / professional services NAICS-2. Stays at warn pending empirical sweep on inventory-heavy businesses.",
   ),
@@ -436,8 +449,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Prepaid / revenue. SEC EDGAR-backed (n=827).",
+    governs_model_input_lever_id="balance_sheet::Prepaid Expenses (% of Revenue)",
   ),
   _row(
     metric_key="deferred_revenue_percent_of_revenue",
@@ -448,20 +462,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Deferred revenue / revenue. SEC EDGAR-backed (n=745). Applicability gate skips for retail / accommodation / personal-services NAICS-2 sectors.",
-  ),
-  _row(
-    metric_key="ppe_percent_of_revenue",
-    finmo_line_label="Property, Plant, and Equipment",
-    derivation_formula_key="ppe_dollars_div_revenue_dollars",
-    quarter_aggregation="year_one_aggregate",
-    tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
-    tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
-    tolerance_bps_low_confidence=_RATIO_TOL_LOW,
-    tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
-    notes="Year-one PPE / revenue (sum-vs-sum approximation). Cross-check on capex schedule.",
+    governs_model_input_lever_id="balance_sheet::Deferred Revenue (% of Revenue)",
   ),
   _row(
     metric_key="total_assets_to_revenue",
@@ -472,7 +475,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Year-one total assets / revenue. Cross-check on BS-vs-P&L scale (master-diagnostic Part 9.2).",
   ),
   _row(
@@ -484,8 +487,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Equity / assets. Cross-check on capital structure.",
+    governs_model_input_lever_id="balance_sheet::Owner's Capital",
   ),
   _row(
     metric_key="current_ratio",
@@ -495,7 +499,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=None,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Current assets / current liabilities. Universal liquidity sanity — stays warn-only because NAICS variation is weak.",
   ),
   _row(
@@ -506,7 +510,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=None,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="(Current assets - inventory) / current liabilities. Same as current_ratio but more conservative.",
   ),
   _row(
@@ -518,7 +522,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="(Short + long term debt) / total equity. Skip when total debt is zero.",
   ),
   _row(
@@ -530,7 +534,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Total debt / total assets.",
   ),
 
@@ -545,7 +549,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Operating CF / revenue. SEC EDGAR-backed (n=555).",
   ),
   _row(
@@ -557,8 +561,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Year-one capex / revenue. Cross-check on PPE buildup.",
+    governs_model_input_lever_id="schedules::Capital Expenditures",
   ),
   _row(
     metric_key="distributions_percent_of_net_income",
@@ -570,8 +575,9 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
     notes="Distributions / net income. Skip when distributions is zero (legitimate for early-stage / pre-profit).",
+    governs_model_input_lever_id="balance_sheet::Distributions",
   ),
 ]
 

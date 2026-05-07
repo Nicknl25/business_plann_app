@@ -29,6 +29,70 @@ def _clean_text(value: Any) -> str:
   return str(value or "").strip()
 
 
+# Phase 6 Step 11 — multi-lever metric registry.
+#
+# Realism metrics that are functions of multiple drivers (no single
+# governing lever) are promoted to hard_fail without a
+# `governs_model_input_lever_id` on the realism row. This registry
+# supplies their priority-ordered candidate-lever lists so the cascade
+# has a remediation path. The orchestrator's joint feasibility check
+# (Phase 5.2 R3) does direct-governance pairwise checks only for
+# metrics with a single governing lever; multi-lever metrics fall
+# through to the cascade and are remediated via the candidate list.
+#
+# Priority order = most-direct-impact first. The cascade tries them in
+# order; later entries are fallbacks when the earlier lever is pinned
+# at envelope edge.
+_MULTI_LEVER_METRIC_REGISTRY: Dict[str, List[str]] = {
+  "operating_margin_percent": [
+    "expenses::Cost of Goods Sold",
+    "expenses::Marketing",
+    "expenses::Research & Development",
+    "expenses::General & Administrative",
+  ],
+  "net_income_margin": [
+    "expenses::Cost of Goods Sold",
+    "expenses::Marketing",
+    "expenses::Research & Development",
+    "expenses::General & Administrative",
+    "expenses::Interest Rate",
+  ],
+  "current_ratio": [
+    "balance_sheet::Accounts Receivable Days",
+    "balance_sheet::Accounts Payable Days",
+    "balance_sheet::Inventory Days",
+    "balance_sheet::Short Term Debt (% of LTD)",
+  ],
+  "quick_ratio": [
+    "balance_sheet::Accounts Receivable Days",
+    "balance_sheet::Accounts Payable Days",
+    "balance_sheet::Short Term Debt (% of LTD)",
+  ],
+  "debt_to_equity": [
+    "schedules::Debt Issuance (New Borrowing)",
+    "schedules::Debt Repayment (Scheduled)",
+    "balance_sheet::Owner's Capital",
+  ],
+  "debt_to_assets": [
+    "schedules::Debt Issuance (New Borrowing)",
+    "schedules::Debt Repayment (Scheduled)",
+  ],
+  "operating_cash_flow_margin": [
+    "balance_sheet::Accounts Receivable Days",
+    "balance_sheet::Accounts Payable Days",
+    "balance_sheet::Inventory Days",
+    "expenses::Cost of Goods Sold",
+  ],
+  "total_assets_to_revenue": [
+    "revenue::*::*::Capacity",
+    "revenue::*::*::Unit Price",
+    "revenue::*::*::Utilization",
+    "balance_sheet::Accounts Receivable Days",
+    "balance_sheet::Inventory Days",
+  ],
+}
+
+
 def _ordered_unique(items: List[str]) -> List[str]:
   seen = set()
   out: List[str] = []
@@ -144,6 +208,34 @@ def driver_influence_map(
       "sign_hint": _sign_hint_from_repair_rules(mapping_row, metric),
       "source": "mapping_table.target_metric_name",
     })
+
+  # Phase 6 Step 11 — Pass 3: apply the multi-lever registry. Metrics
+  # whose realism row promoted them to hard_fail without a single
+  # governing lever rely on this priority-ordered list for the
+  # cascade's remediation pathway.
+  for metric_key, lever_id_list in _MULTI_LEVER_METRIC_REGISTRY.items():
+    bucket = metrics.setdefault(metric_key, {"primary_lever_id": None, "candidate_levers": []})
+    existing_lever_ids = {
+      str(item.get("lever_id") or "").strip() for item in bucket["candidate_levers"]
+    }
+    for rank, lever_id in enumerate(lever_id_list, start=1):
+      lever = _clean_text(lever_id)
+      if not lever or lever in existing_lever_ids:
+        continue
+      mapping_row = mapping_by_lever.get(lever)
+      sign_hint = (
+        _sign_hint_from_repair_rules(mapping_row, metric_key)
+        if isinstance(mapping_row, dict) else "ambiguous"
+      )
+      bucket["candidate_levers"].append({
+        "lever_id": lever,
+        "priority": 1 if rank == 1 and bucket["primary_lever_id"] is None else 1 + rank,
+        "sign_hint": sign_hint,
+        "source": "phase_6_step_11_multi_lever_registry",
+      })
+      existing_lever_ids.add(lever)
+    if bucket["primary_lever_id"] is None and bucket["candidate_levers"]:
+      bucket["primary_lever_id"] = bucket["candidate_levers"][0]["lever_id"]
 
   # Sort candidates by priority within each metric (stable, primary first).
   for metric_payload in metrics.values():
