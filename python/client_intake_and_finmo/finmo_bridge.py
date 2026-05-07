@@ -3045,6 +3045,12 @@ def _build_model_input_overlay(
   # consume its default_value entries below in lieu of the deleted per-lever
   # NAICS substitution shortcuts. The envelope payload is also stamped onto
   # the next_payload so downstream solver iterations can read it back.
+  # Phase 3: when the orchestrator already stamped a GPT-calibrated
+  # envelope / target payload onto solver_input (recognizable by the
+  # `calibration` key the consultants attach), preserve it instead of
+  # re-assembling the deterministic Python defaults. This keeps the
+  # GPT-calibrated bands authoritative across model_input rebuilds during
+  # solver iterations and the inner convergence runner.
   from client_intake_and_finmo.post_intake_solver import (  # type: ignore
     DRIVER_MOVEMENT_ENVELOPE_KEY,
     FINMO_OUTPUT_TARGET_KEY,
@@ -3052,14 +3058,29 @@ def _build_model_input_overlay(
     assemble_finmo_output_targets,
     default_value_for_lever,
   )
-  driver_envelope_payload = assemble_driver_movement_envelope(
-    business_naics_6=naics_6,
-    live_count=len(slots),
-  )
-  finmo_output_target_payload = assemble_finmo_output_targets(
-    business_naics_6=naics_6,
-    live_count=len(slots),
-  )
+  _existing_solver_input = next_payload.get("solver_input") if isinstance(next_payload.get("solver_input"), dict) else {}
+  _existing_envelope = _existing_solver_input.get(DRIVER_MOVEMENT_ENVELOPE_KEY) if isinstance(_existing_solver_input, dict) else None
+  _existing_targets = _existing_solver_input.get(FINMO_OUTPUT_TARGET_KEY) if isinstance(_existing_solver_input, dict) else None
+  if (
+    isinstance(_existing_envelope, dict)
+    and isinstance(_existing_envelope.get("calibration"), dict)
+  ):
+    driver_envelope_payload = _existing_envelope
+  else:
+    driver_envelope_payload = assemble_driver_movement_envelope(
+      business_naics_6=naics_6,
+      live_count=len(slots),
+    )
+  if (
+    isinstance(_existing_targets, dict)
+    and isinstance(_existing_targets.get("calibration"), dict)
+  ):
+    finmo_output_target_payload = _existing_targets
+  else:
+    finmo_output_target_payload = assemble_finmo_output_targets(
+      business_naics_6=naics_6,
+      live_count=len(slots),
+    )
   next_payload.setdefault("solver_input", {})
   if isinstance(next_payload.get("solver_input"), dict):
     next_payload["solver_input"][DRIVER_MOVEMENT_ENVELOPE_KEY] = deepcopy(driver_envelope_payload)

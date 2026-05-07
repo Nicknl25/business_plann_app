@@ -144,6 +144,52 @@ def _solver_input_payloads(
   }
 
 
+def _shallow_business_facts(business_facts: Dict[str, Any]) -> Dict[str, Any]:
+  """Trim business_facts to the high-signal fields the consultants need.
+
+  The full business_facts dict can be large (intake transcripts, GPT
+  output blobs); the consultants only need the planning-relevant
+  shape signals. Trimming here keeps the prompt size predictable.
+  """
+  if not isinstance(business_facts, dict):
+    return {}
+  fact_template = business_facts.get("fact_template") if isinstance(business_facts.get("fact_template"), dict) else {}
+  return {
+    "business_type": _clean_text(fact_template.get("business_type")) or _clean_text(business_facts.get("business_type")),
+    "business_naics_6": _clean_text(fact_template.get("business_naics_6")) or _clean_text(business_facts.get("business_naics_6")),
+    "business_stage": _clean_text(fact_template.get("business_stage")) or _clean_text(business_facts.get("business_stage")),
+    "primary_offering_summary": _clean_text(fact_template.get("primary_offering_summary"))[:240],
+    "growth_intent": _clean_text(fact_template.get("growth_intent"))[:240],
+    "competitive_context": _clean_text(fact_template.get("competitive_context"))[:240],
+  }
+
+
+def _stamp_solver_inputs(
+  *,
+  model_input_json: Dict[str, Any],
+  envelope_payload: Optional[Dict[str, Any]],
+  targets_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Persist the (possibly calibrated) envelope + targets back onto the
+  model_input under solver_input. Downstream finmo rebuilds will read
+  these calibrated payloads instead of re-running the Python proposers.
+  """
+  from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+    DRIVER_MOVEMENT_ENVELOPE_KEY,
+    FINMO_OUTPUT_TARGET_KEY,
+  )
+  next_input = copy.deepcopy(model_input_json or {})
+  solver_input = next_input.setdefault("solver_input", {})
+  if not isinstance(solver_input, dict):
+    solver_input = {}
+    next_input["solver_input"] = solver_input
+  if isinstance(envelope_payload, dict):
+    solver_input[DRIVER_MOVEMENT_ENVELOPE_KEY] = copy.deepcopy(envelope_payload)
+  if isinstance(targets_payload, dict):
+    solver_input[FINMO_OUTPUT_TARGET_KEY] = copy.deepcopy(targets_payload)
+  return next_input
+
+
 def _ensure_solver_inputs(
   *,
   model_input_json: Dict[str, Any],
@@ -348,6 +394,83 @@ def run_target_seeking_orchestrated_system_run(
   envelope_payload = inputs["envelope"]
   targets_payload = inputs["targets"]
 
+  # ---------- Phase 3: GPT consultants calibrate bands and targets ----------
+  # Three consultants run once per business before the pre-flight pass:
+  #   1. Driver-band shaping calibrates the driver_movement_envelope to
+  #      this specific business profile (tightening narrow industries,
+  #      widening for nascent / restructuring businesses).
+  #   2. Output target shaping calibrates the FINMO target ranges to the
+  #      business's stage and capital posture.
+  #   3. Conflict adjudication resolves any intake-vs-calibrated-band
+  #      conflicts surfaced after band shaping (per-conflict structured
+  #      decision: keep_intake / keep_band / split).
+  # All three are fail-safe: when GPT is unavailable or returns invalid
+  # output, Python defaults stand and provenance is tagged accordingly.
+  # The orchestrator never blocks on GPT availability.
+  calibration_diagnostics: Dict[str, Any] = {}
+  business_context = {
+    "draft_id": str(draft_id or "").strip(),
+    "planning_run_id": str(planning_run_id or "").strip(),
+    "planning_mode": str(planning_mode or "").strip(),
+    "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    "business_facts": _shallow_business_facts(business_facts or {}),
+  }
+  if envelope_payload:
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      calibrate_driver_movement_envelope_with_gpt,
+      adjudicate_intake_vs_band_conflicts_with_gpt,
+    )
+    band_result = calibrate_driver_movement_envelope_with_gpt(
+      envelope_proposal=envelope_payload,
+      business_context=business_context,
+    )
+    envelope_payload = band_result.get("calibrated_envelope") or envelope_payload
+    calibration_diagnostics["band_shaping"] = {
+      "decision_source": band_result.get("decision_source"),
+      "amended_lever_count": len(band_result.get("amended_lever_ids") or []),
+      "uncalibrated_lever_count": len(band_result.get("uncalibrated_lever_ids") or []),
+      "fallback_detail": (band_result.get("critic_diagnostics") or {}).get("fallback_detail"),
+    }
+    conflict_result = adjudicate_intake_vs_band_conflicts_with_gpt(
+      envelope_payload=envelope_payload,
+      financials_json=financials_json or {},
+      financials_year1_json=financials_year1_json or {},
+      business_context=business_context,
+    )
+    envelope_payload = conflict_result.get("calibrated_envelope") or envelope_payload
+    calibration_diagnostics["conflict_adjudication"] = {
+      "decision_source": conflict_result.get("decision_source"),
+      "conflicts_detected": conflict_result.get("conflicts_detected"),
+      "decisions_applied": [
+        d.get("decision") for d in (conflict_result.get("decisions_applied") or [])
+      ],
+      "fallback_detail": conflict_result.get("fallback_detail"),
+    }
+  if targets_payload:
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      calibrate_finmo_output_targets_with_gpt,
+    )
+    target_result = calibrate_finmo_output_targets_with_gpt(
+      targets_proposal=targets_payload,
+      business_context=business_context,
+    )
+    targets_payload = target_result.get("calibrated_targets") or targets_payload
+    calibration_diagnostics["target_shaping"] = {
+      "decision_source": target_result.get("decision_source"),
+      "amended_metric_count": len(target_result.get("amended_metric_keys") or []),
+      "uncalibrated_metric_count": len(target_result.get("uncalibrated_metric_keys") or []),
+      "fallback_detail": (target_result.get("critic_diagnostics") or {}).get("fallback_detail"),
+    }
+
+  # Re-stamp the calibrated envelope + targets onto the model_input so
+  # downstream callers (sanity assertion, finmo_bridge re-builds) see
+  # the calibrated payloads, not the deterministic Python defaults.
+  pre_input = _stamp_solver_inputs(
+    model_input_json=pre_input,
+    envelope_payload=envelope_payload,
+    targets_payload=targets_payload,
+  )
+
   build_finmo_callable = _build_finmo_callable(
     business_facts=business_facts or {},
     ops_json=ops_json or {},
@@ -473,6 +596,7 @@ def run_target_seeking_orchestrated_system_run(
   )
 
   diagnostics: Dict[str, Any] = {
+    "calibration": calibration_diagnostics,
     "pre_flight": {
       "status": pre_pass.get("status"),
       "iterations_used": pre_pass.get("iterations_used"),

@@ -54,14 +54,26 @@ from client_intake_and_finmo.post_intake_solver.orchestrator import (  # noqa: F
 from client_intake_and_finmo.post_intake_solver.inner_joint_fit_adapter import (  # noqa: F401
   build_inner_joint_fit_adapter,
 )
+from client_intake_and_finmo.post_intake_solver.consultant_band_shaping import (  # noqa: F401
+  calibrate_driver_movement_envelope_with_gpt,
+)
+from client_intake_and_finmo.post_intake_solver.consultant_target_shaping import (  # noqa: F401
+  calibrate_finmo_output_targets_with_gpt,
+)
+from client_intake_and_finmo.post_intake_solver.consultant_conflict_adjudication import (  # noqa: F401
+  adjudicate_intake_vs_band_conflicts_with_gpt,
+)
 
 __all__ = [
   "DRIVER_MOVEMENT_ENVELOPE_KEY",
   "FINMO_OUTPUT_TARGET_KEY",
+  "adjudicate_intake_vs_band_conflicts_with_gpt",
   "assemble_driver_movement_envelope",
   "assemble_finmo_output_targets",
   "assert_solver_respected_targets",
   "build_inner_joint_fit_adapter",
+  "calibrate_driver_movement_envelope_with_gpt",
+  "calibrate_finmo_output_targets_with_gpt",
   "default_value_for_lever",
   "driver_influence_map",
   "request_capex_schedule_recompute",
