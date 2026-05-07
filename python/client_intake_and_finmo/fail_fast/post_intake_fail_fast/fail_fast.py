@@ -146,6 +146,26 @@ TRANSLATION_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "metric_to_lever_translation_failed",
 }
 
+# Phase 3 GPT consultants — context resolver, band-amendment buffer rules,
+# pre-solver joint feasibility. Each flag is raised unconditionally
+# (fail-fast on misconfiguration / contract violation; the orchestrator
+# never silently degrades the consultant input).
+PHASE_3_GPT_TEST_MODE_FAIL_FLAGS: Set[str] = {
+  # Consultant context resolver (Phase 5.2 R1)
+  "consultant_context_lookup_no_rows",
+  "consultant_context_source_resolution_failed",
+  "consultant_context_transform_failed",
+  "consultant_context_budget_exceeded",
+  "consultant_context_scope_key_unresolved",
+  "consultant_context_unsupported_source_kind",
+  # Band-amendment buffer rules (Phase 5.2 R2)
+  "band_amendment_invalid_point_band",
+  "band_amendment_invalid_applicability_flip",
+  "band_amendment_violates_width_buffer",
+  # Pre-solver joint feasibility (Phase 5.2 R3)
+  "joint_feasibility_check_failed",
+}
+
 
 def post_intake_fail_fast_enabled() -> bool:
   return fail_fast_enabled("POST_INTAKE")

@@ -659,3 +659,169 @@ def _build_final_payload(
     "notes": list(successful_attempt.notes),
   }
   return base, successful_attempt.plan_confidence or PLAN_CONFIDENCE_GENERIC_FALLBACK, diagnostics
+
+
+# Phase 5.2 R3: pre-solver feasibility cascade. Walked when
+# verify_joint_feasibility returns False after Phase 3 calibration. We
+# reuse the existing tier transformations (GPT band walk-back; cohort
+# walk-back; tolerance widening) and exit on the first transformation
+# that restores joint feasibility. If no pre-solver tier restores
+# feasibility, the solver runs anyway — the post-flight cascade Tier 7
+# is the structural floor that always lands a plan.
+
+def run_pre_solver_feasibility_cascade(
+  *,
+  envelope_payload: Dict[str, Any],
+  targets_payload: Dict[str, Any],
+  business_profile: Optional[Dict[str, Any]],
+  initial_diagnostic: Any,
+) -> Dict[str, Any]:
+  """Walk pre-solver tiers 1->3 until verify_joint_feasibility passes.
+
+  Args:
+    envelope_payload, targets_payload: post-Phase-3-calibration payloads.
+    business_profile: forwarded to the feasibility checker.
+    initial_diagnostic: FeasibilityResult from the failing initial check.
+
+  Returns:
+    {
+      "envelope_payload": <possibly walked-back envelope>,
+      "targets_payload": <possibly widened targets>,
+      "diagnostic": { tier_landed, tier_attempts, ... },
+    }
+
+  Never raises. If no tier restores feasibility, the original payloads
+  fall through and the solver runs against them; downstream the
+  post-flight cascade picks up the residuals.
+  """
+  from client_intake_and_finmo.post_intake_solver.joint_feasibility_check import (  # type: ignore
+    verify_joint_feasibility,
+  )
+  attempts: List[Dict[str, Any]] = []
+  current_env = copy.deepcopy(envelope_payload or {})
+  current_targets = copy.deepcopy(targets_payload or {})
+
+  attempts.append({
+    "tier": 0, "tier_name": "phase_3_calibrated_initial",
+    "feasible": False,
+    "diagnostic": initial_diagnostic.to_dict() if hasattr(initial_diagnostic, "to_dict") else {},
+  })
+
+  # Tier 1: walk back GPT band amendments to Python defaults.
+  t1_env, reverted = _envelope_with_gpt_bands_reverted(current_env)
+  attempt = {"tier": 1, "tier_name": "gpt_band_relaxation",
+             "reverted_lever_ids": reverted, "attempted": bool(reverted)}
+  if reverted:
+    fr1 = verify_joint_feasibility(
+      envelope_payload=t1_env, targets_payload=current_targets,
+      business_profile=business_profile,
+    )
+    attempt["feasible_after"] = fr1.feasible
+    attempt["diagnostic"] = fr1.to_dict()
+    attempts.append(attempt)
+    if fr1.feasible:
+      return {
+        "envelope_payload": t1_env,
+        "targets_payload": current_targets,
+        "diagnostic": {
+          "tier_landed": 1, "tier_landed_name": "gpt_band_relaxation",
+          "plan_confidence": PLAN_CONFIDENCE_GPT_BAND_RELAXATION,
+          "tier_attempts": attempts,
+        },
+      }
+    current_env = t1_env  # carry forward the walked-back envelope
+  else:
+    attempt["skip_reason"] = "no_gpt_calibrated_drivers_to_revert"
+    attempts.append(attempt)
+
+  # Tier 2: cohort walk-back to NAICS cascade defaults.
+  t2_env, walked = _envelope_with_cohort_walked_back(
+    current_env, cascade_resolver=_build_cascade_resolver_callable(),
+  )
+  attempt = {"tier": 2, "tier_name": "cohort_fallback",
+             "walked_back_lever_ids": walked, "attempted": bool(walked)}
+  if walked:
+    fr2 = verify_joint_feasibility(
+      envelope_payload=t2_env, targets_payload=current_targets,
+      business_profile=business_profile,
+    )
+    attempt["feasible_after"] = fr2.feasible
+    attempt["diagnostic"] = fr2.to_dict()
+    attempts.append(attempt)
+    if fr2.feasible:
+      return {
+        "envelope_payload": t2_env,
+        "targets_payload": current_targets,
+        "diagnostic": {
+          "tier_landed": 2, "tier_landed_name": "cohort_fallback",
+          "plan_confidence": PLAN_CONFIDENCE_COHORT_FALLBACK,
+          "tier_attempts": attempts,
+        },
+      }
+    current_env = t2_env
+  else:
+    attempt["skip_reason"] = "no_cohort_matched_drivers_to_walk_back"
+    attempts.append(attempt)
+
+  # Tier 3: target tolerance widening (warn + hard_fail).
+  t3a_targets, widened_warn = _targets_with_widened_tolerance(
+    current_targets, factor=_TARGET_TOLERANCE_WIDENING, only_gate_kinds=["warn"],
+  )
+  fr3a = verify_joint_feasibility(
+    envelope_payload=current_env, targets_payload=t3a_targets,
+    business_profile=business_profile,
+  )
+  attempts.append({
+    "tier": 3, "tier_name": "target_tolerance_widened_warn",
+    "widened_metric_keys": widened_warn,
+    "feasible_after": fr3a.feasible,
+    "diagnostic": fr3a.to_dict(),
+  })
+  if fr3a.feasible:
+    return {
+      "envelope_payload": current_env,
+      "targets_payload": t3a_targets,
+      "diagnostic": {
+        "tier_landed": 3, "tier_landed_name": "target_tolerance_widened",
+        "plan_confidence": PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
+        "tier_attempts": attempts,
+      },
+    }
+  t3b_targets, widened_hard = _targets_with_widened_tolerance(
+    t3a_targets, factor=_TARGET_TOLERANCE_WIDENING, only_gate_kinds=["hard_fail"],
+  )
+  fr3b = verify_joint_feasibility(
+    envelope_payload=current_env, targets_payload=t3b_targets,
+    business_profile=business_profile,
+  )
+  attempts.append({
+    "tier": 3, "tier_name": "target_tolerance_widened_hard_fail",
+    "widened_metric_keys": widened_hard,
+    "feasible_after": fr3b.feasible,
+    "diagnostic": fr3b.to_dict(),
+  })
+  if fr3b.feasible:
+    return {
+      "envelope_payload": current_env,
+      "targets_payload": t3b_targets,
+      "diagnostic": {
+        "tier_landed": 3, "tier_landed_name": "target_tolerance_widened",
+        "plan_confidence": PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
+        "tier_attempts": attempts,
+      },
+    }
+
+  # Pre-solver tiers exhausted. Hand the still-infeasible payload to the
+  # solver; the post-flight cascade will pick up the residuals (Tier 7
+  # is the structural floor and always lands a plan).
+  return {
+    "envelope_payload": current_env,
+    "targets_payload": t3b_targets,
+    "diagnostic": {
+      "tier_landed": None,
+      "tier_landed_name": "pre_solver_tiers_exhausted",
+      "plan_confidence": None,
+      "tier_attempts": attempts,
+      "note": "pre_solver_tiers_exhausted_handing_off_to_post_flight_cascade",
+    },
+  }

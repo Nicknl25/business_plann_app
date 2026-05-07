@@ -146,26 +146,6 @@ def _solver_input_payloads(
   }
 
 
-def _shallow_business_facts(business_facts: Dict[str, Any]) -> Dict[str, Any]:
-  """Trim business_facts to the high-signal fields the consultants need.
-
-  The full business_facts dict can be large (intake transcripts, GPT
-  output blobs); the consultants only need the planning-relevant
-  shape signals. Trimming here keeps the prompt size predictable.
-  """
-  if not isinstance(business_facts, dict):
-    return {}
-  fact_template = business_facts.get("fact_template") if isinstance(business_facts.get("fact_template"), dict) else {}
-  return {
-    "business_type": _clean_text(fact_template.get("business_type")) or _clean_text(business_facts.get("business_type")),
-    "business_naics_6": _clean_text(fact_template.get("business_naics_6")) or _clean_text(business_facts.get("business_naics_6")),
-    "business_stage": _clean_text(fact_template.get("business_stage")) or _clean_text(business_facts.get("business_stage")),
-    "primary_offering_summary": _clean_text(fact_template.get("primary_offering_summary"))[:240],
-    "growth_intent": _clean_text(fact_template.get("growth_intent"))[:240],
-    "competitive_context": _clean_text(fact_template.get("competitive_context"))[:240],
-  }
-
-
 def _stamp_solver_inputs(
   *,
   model_input_json: Dict[str, Any],
@@ -451,27 +431,39 @@ def run_target_seeking_orchestrated_system_run(
   envelope_payload = inputs["envelope"]
   targets_payload = inputs["targets"]
 
-  # ---------- Phase 3: GPT consultants calibrate bands and targets ----------
-  # Three consultants run once per business before the pre-flight pass:
-  #   1. Driver-band shaping calibrates the driver_movement_envelope to
-  #      this specific business profile (tightening narrow industries,
-  #      widening for nascent / restructuring businesses).
-  #   2. Output target shaping calibrates the FINMO target ranges to the
-  #      business's stage and capital posture.
-  #   3. Conflict adjudication resolves any intake-vs-calibrated-band
-  #      conflicts surfaced after band shaping (per-conflict structured
-  #      decision: keep_intake / keep_band / split).
-  # All three are fail-safe: when GPT is unavailable or returns invalid
-  # output, Python defaults stand and provenance is tagged accordingly.
-  # The orchestrator never blocks on GPT availability.
+  # ---------- Phase 3 / 5.2: GPT consultants calibrate bands and targets -----
+  # Three consultants run per business before the pre-flight pass. Each
+  # makes per-scope GPT calls (per-lever band shaping, per-metric target
+  # shaping, per-conflict adjudication). Each call's prompt context is
+  # resolved from post_intake_gpt_context_lookup via
+  # resolve_consultant_context — the table is the single source of truth
+  # for what each consultant sees.
+  #
+  # After calibration, a pre-solver joint feasibility check verifies the
+  # calibrated bands collectively admit at least one feasible solution
+  # for the calibrated target ranges. Infeasibility triggers the
+  # adaptation cascade's pre-solver tier (Tier 1 GPT walk-back; Tier 2
+  # cohort walk-back) before the solver wastes time.
   calibration_diagnostics: Dict[str, Any] = {}
-  business_context = {
-    "draft_id": str(draft_id or "").strip(),
-    "planning_run_id": str(planning_run_id or "").strip(),
-    "planning_mode": str(planning_mode or "").strip(),
-    "planning_mode_reason": str(planning_mode_reason or "").strip(),
-    "business_facts": _shallow_business_facts(business_facts or {}),
+  resolver_runtime_objects = {
+    "business_facts": business_facts or {},
+    "ops_json": ops_json or {},
+    "target_market_json": target_market_json or {},
+    "people_json": people_json or {},
+    "financials_json": financials_json or {},
+    "financials_year1_json": financials_year1_json or {},
+    "fulfillment_json": fulfillment_json or {},
+    "marketing_model_json": marketing_model_json or {},
+    "planning_mode_context": {
+      "planning_mode": str(planning_mode or "").strip(),
+      "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    },
+    "business_profile_for_cohort": business_profile_for_cohort,
+    "stage_ramp_contract": stage_ramp_contract or {},
+    "envelope_proposal": envelope_payload or {},
+    "targets_proposal": targets_payload or {},
   }
+
   if envelope_payload:
     from client_intake_and_finmo.post_intake_solver import (  # type: ignore
       calibrate_driver_movement_envelope_with_gpt,
@@ -479,7 +471,10 @@ def run_target_seeking_orchestrated_system_run(
     )
     band_result = calibrate_driver_movement_envelope_with_gpt(
       envelope_proposal=envelope_payload,
-      business_context=business_context,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(planning_run_id or "").strip(),
+      conn=conn,
+      runtime_objects=resolver_runtime_objects,
     )
     envelope_payload = band_result.get("calibrated_envelope") or envelope_payload
     calibration_diagnostics["band_shaping"] = {
@@ -488,13 +483,18 @@ def run_target_seeking_orchestrated_system_run(
       "uncalibrated_lever_count": len(band_result.get("uncalibrated_lever_ids") or []),
       "fallback_detail": (band_result.get("critic_diagnostics") or {}).get("fallback_detail"),
     }
+    resolver_runtime_objects["envelope_proposal"] = envelope_payload
     conflict_result = adjudicate_intake_vs_band_conflicts_with_gpt(
       envelope_payload=envelope_payload,
       financials_json=financials_json or {},
       financials_year1_json=financials_year1_json or {},
-      business_context=business_context,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(planning_run_id or "").strip(),
+      conn=conn,
+      runtime_objects=resolver_runtime_objects,
     )
     envelope_payload = conflict_result.get("calibrated_envelope") or envelope_payload
+    resolver_runtime_objects["envelope_proposal"] = envelope_payload
     calibration_diagnostics["conflict_adjudication"] = {
       "decision_source": conflict_result.get("decision_source"),
       "conflicts_detected": conflict_result.get("conflicts_detected"),
@@ -509,15 +509,49 @@ def run_target_seeking_orchestrated_system_run(
     )
     target_result = calibrate_finmo_output_targets_with_gpt(
       targets_proposal=targets_payload,
-      business_context=business_context,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(planning_run_id or "").strip(),
+      conn=conn,
+      runtime_objects=resolver_runtime_objects,
     )
     targets_payload = target_result.get("calibrated_targets") or targets_payload
+    resolver_runtime_objects["targets_proposal"] = targets_payload
     calibration_diagnostics["target_shaping"] = {
       "decision_source": target_result.get("decision_source"),
       "amended_metric_count": len(target_result.get("amended_metric_keys") or []),
       "uncalibrated_metric_count": len(target_result.get("uncalibrated_metric_keys") or []),
       "fallback_detail": (target_result.get("critic_diagnostics") or {}).get("fallback_detail"),
     }
+
+  # ---------- Phase 5.2 R3: pre-solver joint feasibility check -----
+  # Verify the calibrated bands collectively admit a feasible solution
+  # for the calibrated target ranges. Infeasibility triggers the
+  # pre-solver adaptation cascade (Tier 1 walk-back -> Tier 2 cohort
+  # fallback). If the cascade restores feasibility we proceed; if not,
+  # the post-flight cascade takes over and Tier 7 always lands a plan.
+  if envelope_payload and targets_payload:
+    from client_intake_and_finmo.post_intake_solver.joint_feasibility_check import (  # type: ignore
+      verify_joint_feasibility,
+    )
+    from client_intake_and_finmo.post_intake_solver.adaptation_cascade import (  # type: ignore
+      run_pre_solver_feasibility_cascade,
+    )
+    feasibility = verify_joint_feasibility(
+      envelope_payload=envelope_payload,
+      targets_payload=targets_payload,
+      business_profile=business_profile_for_cohort,
+    )
+    calibration_diagnostics["joint_feasibility_initial"] = feasibility.to_dict()
+    if not feasibility.feasible:
+      cascade_outcome = run_pre_solver_feasibility_cascade(
+        envelope_payload=envelope_payload,
+        targets_payload=targets_payload,
+        business_profile=business_profile_for_cohort,
+        initial_diagnostic=feasibility,
+      )
+      envelope_payload = cascade_outcome.get("envelope_payload") or envelope_payload
+      targets_payload = cascade_outcome.get("targets_payload") or targets_payload
+      calibration_diagnostics["joint_feasibility_cascade"] = cascade_outcome.get("diagnostic", {})
 
   # Re-stamp the calibrated envelope + targets onto the model_input so
   # downstream callers (sanity assertion, finmo_bridge re-builds) see

@@ -1,14 +1,20 @@
-"""Phase 3 — FINMO output target shaping consultant.
+"""Phase 3 / 5.2 — Per-metric FINMO output target shaping consultant.
 
-Calibrates the deterministic finmo_output_targets payload produced by the
-Phase 2 assembler. Same proposer/critic shape as the band-shaping
-consultant.
+Calibrates the deterministic ``finmo_output_targets`` payload produced
+by the Phase 2 assembler. Per Phase 5.2 R1, GPT is invoked once per
+output metric with a per-metric scoped context dict resolved by
+``resolve_consultant_context``.
 
-Per the directive: "bootstrapped profitable from Q1 -> EBITDA target
-15-25%; VC-funded with runway focus -> EBITDA target -10% to +5% Y1,
-ramping to +20% Y3" — these per-business calibrations are exactly what
-this consultant produces. Python's defaults are the steady-state NAICS
-band; GPT shapes them for the business profile and stage.
+GPT can:
+  - Tighten the target band (typical for hard_fail metrics whose
+    Python defaults span unreasonable ranges).
+  - Widen the target band (typical for warn metrics where the
+    business's stage / planning_mode legitimately produces values
+    outside the steady-state cohort band).
+  - Reject the proposal (rare; system falls back to Python default).
+
+Each per-metric call gets a small (~3KB) payload focused on one
+metric's calibration. Temperature=0; deterministic.
 """
 
 from __future__ import annotations
@@ -18,7 +24,9 @@ from typing import Any, Dict, List, Optional
 
 
 _TARGET_SHAPING_CONSULTANT_NAME = "finmo_output_targets_calibration"
-_DEFAULT_TIMEOUT_SECONDS = 45.0
+_TARGET_SHAPING_CONTRACT_NAME = "post_intake_target_shaping_consultant"
+_TARGET_SHAPING_INCLUDE_PHASE = "target_shaping"
+_DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 def _clean_text(value: Any) -> str:
@@ -37,137 +45,134 @@ def _safe_float(value: Any) -> Optional[float]:
   return number
 
 
-_TARGET_SHAPING_RESPONSE_SCHEMA: Dict[str, Any] = {
+_PER_METRIC_RESPONSE_SCHEMA: Dict[str, Any] = {
   "type": "object",
   "additionalProperties": False,
   "properties": {
     "review_status": {"type": "string", "enum": ["accepted", "amended", "rejected"]},
-    "calibrated_metrics": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-          "metric_key": {"type": "string"},
-          "target_min": {"type": ["number", "null"]},
-          "target_target": {"type": ["number", "null"]},
-          "target_max": {"type": ["number", "null"]},
-          "rationale": {"type": "string"},
-        },
-        "required": [
-          "metric_key", "target_min", "target_target", "target_max",
-          "rationale",
-        ],
-      },
-    },
-    "critique_summary": {"type": "string"},
+    "target_min": {"type": ["number", "null"]},
+    "target_target": {"type": ["number", "null"]},
+    "target_max": {"type": ["number", "null"]},
+    "rationale": {"type": "string"},
   },
-  "required": ["review_status", "calibrated_metrics", "critique_summary"],
+  "required": [
+    "review_status", "target_min", "target_target", "target_max", "rationale",
+  ],
 }
 
 
-_TARGET_SHAPING_SYSTEM_PROMPT = (
-  "You are reviewing a deterministic Python proposal for the FINMO "
-  "output target ranges that a post-intake target-seeking solver chases. "
-  "Each metric entry has target_min, target_target, target_max from the "
-  "NAICS band plus a per-confidence-tier tolerance widening. You are "
-  "the consultant that calibrates these targets to THIS specific "
-  "business — typically tightening for steady-state mature operations, "
-  "widening for early-stage / growth / turnaround / runway-focused "
-  "businesses where launch-quarter volatility legitimately lands "
-  "outside steady-state bands.\n\n"
+_PER_METRIC_SYSTEM_PROMPT = (
+  "You are calibrating ONE FINMO output target range for a "
+  "post-intake target-seeking solver. The metric has target_min, "
+  "target_target, target_max from the NAICS / cohort band plus a "
+  "per-confidence-tier tolerance widening. You decide whether to "
+  "tighten (steady-state mature), widen (early stage / runway focus / "
+  "turnaround), or accept the Python proposal.\n\n"
   "Operating rules:\n"
-  "1. Output only `metric_key` values that already exist in the "
-  "proposal. Do NOT invent new metrics.\n"
-  "2. target_min <= target_target <= target_max must hold after your "
-  "amendment.\n"
-  "3. For metrics whose realism gate_kind is `hard_fail` (e.g., "
-  "cogs_to_revenue_ratio, ar_days_dso, ap_days_dpo, effective_tax_rate), "
-  "tightening is strongly preferred over widening — these are the "
-  "metrics the system will fail loudly on if the solver cannot land "
-  "them. Widen only when the business profile clearly justifies it.\n"
-  "4. For warn-mode metrics (ebitda_margin, gross_margin_percent, "
+  "1. target_min < target_target < target_max strictly. No point "
+  "ranges.\n"
+  "2. For hard_fail metrics (cogs_to_revenue_ratio, ar_days_dso, "
+  "ap_days_dpo, effective_tax_rate, etc.), tightening is strongly "
+  "preferred over widening — these are the metrics the system fails "
+  "loudly on if the solver cannot land them. Widen only when the "
+  "business profile clearly justifies it.\n"
+  "3. For warn metrics (ebitda_margin, gross_margin_percent, "
   "operating_margin_percent, etc.), per-stage shaping is the primary "
-  "use case. A bootstrapped Q1 ebitda may legitimately be -15% even "
-  "when the steady-state band is +18% to +28%.\n"
-  "5. Return review_status=accepted when the Python proposal is "
-  "already correct. Return review_status=amended with only the metrics "
-  "you want to change. Return review_status=rejected only when the "
-  "proposal is structurally wrong; Python will fall back as the safety "
-  "floor."
+  "use case. A bootstrapped Q1 ebitda may be -15%% even when the "
+  "steady-state cohort band is +18%% to +28%%.\n"
+  "4. review_status=accepted means keep the proposal. amended means "
+  "use the supplied target_min / target / target_max. rejected falls "
+  "back to the Python default."
 )
 
 
-def _ensure_target_invariants(entry: Dict[str, Any]) -> Dict[str, Any]:
-  mn = _safe_float(entry.get("target_min"))
-  tg = _safe_float(entry.get("target_target"))
-  mx = _safe_float(entry.get("target_max"))
-  if mn is not None and mx is not None and mx < mn:
-    mn, mx = mx, mn
-  if tg is not None and mn is not None and tg < mn:
-    tg = mn
-  if tg is not None and mx is not None and tg > mx:
-    tg = mx
-  if mn is not None:
-    entry["target_min"] = round(float(mn), 6)
-  if mx is not None:
-    entry["target_max"] = round(float(mx), 6)
-  if tg is not None:
-    entry["target_target"] = round(float(tg), 6)
-  return entry
-
-
-def _build_user_context(
+def _build_per_metric_user_context(
   *,
-  proposal: Dict[str, Any],
-  business_context: Dict[str, Any],
+  metric_key: str,
+  metric_entry: Dict[str, Any],
+  resolver_context: Dict[str, Any],
 ) -> Dict[str, Any]:
-  metrics = proposal.get("metrics") or {}
-  metric_summary: List[Dict[str, Any]] = []
-  for metric_key, entry in metrics.items():
-    if not isinstance(entry, dict):
-      continue
-    metric_summary.append({
-      "metric_key": metric_key,
-      "finmo_line_label": entry.get("finmo_line_label"),
-      "gate_kind": entry.get("gate_kind"),
-      "quarter_aggregation": entry.get("quarter_aggregation"),
-      "applicability_rule_key": entry.get("applicability_rule_key"),
-      "target_min": entry.get("target_min"),
-      "target_target": entry.get("target_target"),
-      "target_max": entry.get("target_max"),
-      "calibration_source": (entry.get("provenance") or {}).get("calibration_source"),
-      "confidence_tier": (entry.get("provenance") or {}).get("confidence_tier"),
-    })
   return {
     "consultant": _TARGET_SHAPING_CONSULTANT_NAME,
-    "horizon_quarters": proposal.get("horizon"),
-    "naics_6": proposal.get("naics_6"),
-    "business_context": business_context,
-    "proposed_metrics": metric_summary,
+    "metric_key": metric_key,
+    "finmo_line_label": metric_entry.get("finmo_line_label"),
+    "gate_kind": metric_entry.get("gate_kind"),
+    "quarter_aggregation": metric_entry.get("quarter_aggregation"),
+    "applicability_rule_key": metric_entry.get("applicability_rule_key"),
+    "governs_model_input_lever_id": metric_entry.get("governs_model_input_lever_id"),
+    "python_proposed_target": {
+      "target_min": metric_entry.get("target_min"),
+      "target_target": metric_entry.get("target_target"),
+      "target_max": metric_entry.get("target_max"),
+      "calibration_source": (metric_entry.get("provenance") or {}).get("calibration_source"),
+      "confidence_tier": (metric_entry.get("provenance") or {}).get("confidence_tier"),
+    },
+    "context": resolver_context,
   }
+
+
+def _apply_metric_amendment(
+  *, metric_key: str, original_entry: Dict[str, Any], parsed: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+  proposed_min = _safe_float(parsed.get("target_min"))
+  proposed_target = _safe_float(parsed.get("target_target"))
+  proposed_max = _safe_float(parsed.get("target_max"))
+  if proposed_min is None or proposed_max is None:
+    return None
+  if proposed_max <= proposed_min:
+    # Strict inequality — silently fall back to Python default. Targets
+    # don't have the same buffer-rule guarantees as bands; widening
+    # tolerances is handled by the cascade.
+    return None
+  if proposed_target is None:
+    proposed_target = (proposed_min + proposed_max) / 2.0
+  if proposed_target < proposed_min:
+    proposed_target = proposed_min
+  if proposed_target > proposed_max:
+    proposed_target = proposed_max
+
+  next_entry = copy.deepcopy(original_entry)
+  next_entry["target_min"] = round(float(proposed_min), 6)
+  next_entry["target_target"] = round(float(proposed_target), 6)
+  next_entry["target_max"] = round(float(proposed_max), 6)
+
+  original_provenance = (
+    original_entry.get("provenance") if isinstance(original_entry.get("provenance"), dict) else {}
+  )
+  next_provenance = copy.deepcopy(original_provenance) if original_provenance else {}
+  next_provenance["calibration_source"] = "gpt_calibrated"
+  next_provenance["python_default"] = {
+    "target_min": original_entry.get("target_min"),
+    "target_target": original_entry.get("target_target"),
+    "target_max": original_entry.get("target_max"),
+    "calibration_source_before": original_provenance.get("calibration_source"),
+  }
+  next_provenance["gpt_amendment"] = {"rationale": _clean_text(parsed.get("rationale"))}
+  next_entry["provenance"] = next_provenance
+  return next_entry
+
+
+def _tag_uncalibrated_metric(entry: Dict[str, Any], *, fallback_tag: str) -> None:
+  provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
+  original_source = _clean_text(provenance.get("calibration_source"))
+  if original_source == "naics_default":
+    return
+  provenance.setdefault("python_default_calibration_source", original_source)
+  provenance["calibration_source"] = fallback_tag
+  entry["provenance"] = provenance
 
 
 def calibrate_finmo_output_targets_with_gpt(
   *,
   targets_proposal: Dict[str, Any],
-  business_context: Optional[Dict[str, Any]] = None,
+  draft_id: str,
+  planning_run_id: str,
+  conn: Any,
+  runtime_objects: Dict[str, Any],
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
-  """Calibrate FINMO output targets via GPT target-shaping consultant.
-
-  Returns:
-    {
-      "calibrated_targets": <targets payload, possibly mutated>,
-      "decision_source": str,
-      "amended_metric_keys": [...],
-      "uncalibrated_metric_keys": [...],
-      "raw_openai_response": dict,
-      "critic_diagnostics": {...},
-    }
-  """
+  """Calibrate FINMO output targets metric-by-metric via GPT."""
   proposal = copy.deepcopy(targets_proposal or {})
-  context = copy.deepcopy(business_context or {})
   metrics = proposal.get("metrics") if isinstance(proposal.get("metrics"), dict) else {}
   if not metrics:
     return {
@@ -182,95 +187,127 @@ def calibrate_finmo_output_targets_with_gpt(
   from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
     call_gpt_with_schema_or_fallback,
   )
-  user_context = _build_user_context(proposal=proposal, business_context=context)
-  call_result = call_gpt_with_schema_or_fallback(
-    consultant_name=_TARGET_SHAPING_CONSULTANT_NAME,
-    system_prompt=_TARGET_SHAPING_SYSTEM_PROMPT,
-    user_context=user_context,
-    response_schema=_TARGET_SHAPING_RESPONSE_SCHEMA,
-    schema_name=_TARGET_SHAPING_CONSULTANT_NAME,
-    timeout_seconds=timeout_seconds,
+  from client_intake_and_finmo.post_intake_solver.consultant_context_resolver import (  # type: ignore
+    resolve_consultant_context,
   )
-  decision_source = call_result.get("decision_source") or "python_proposer_only_unknown"
-  parsed = call_result.get("parsed") if isinstance(call_result.get("parsed"), dict) else None
 
   amended_metric_keys: List[str] = []
-  if parsed and _clean_text(parsed.get("review_status")) == "amended":
-    for amend in (parsed.get("calibrated_metrics") or []):
-      if not isinstance(amend, dict):
-        continue
-      metric_key = _clean_text(amend.get("metric_key"))
-      entry = metrics.get(metric_key)
-      if not isinstance(entry, dict):
-        continue
-      original_provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
-      original_min = entry.get("target_min")
-      original_target = entry.get("target_target")
-      original_max = entry.get("target_max")
-      proposed_min = _safe_float(amend.get("target_min"))
-      proposed_target = _safe_float(amend.get("target_target"))
-      proposed_max = _safe_float(amend.get("target_max"))
-      next_entry = copy.deepcopy(entry)
-      if proposed_min is not None:
-        next_entry["target_min"] = float(proposed_min)
-      if proposed_target is not None:
-        next_entry["target_target"] = float(proposed_target)
-      if proposed_max is not None:
-        next_entry["target_max"] = float(proposed_max)
-      next_entry = _ensure_target_invariants(next_entry)
-      next_provenance = copy.deepcopy(original_provenance) if original_provenance else {}
-      next_provenance["calibration_source"] = "gpt_calibrated"
-      next_provenance["python_default"] = {
-        "target_min": original_min,
-        "target_target": original_target,
-        "target_max": original_max,
-        "calibration_source_before": original_provenance.get("calibration_source"),
-      }
-      next_provenance["gpt_amendment"] = {"rationale": _clean_text(amend.get("rationale"))}
-      next_entry["provenance"] = next_provenance
-      metrics[metric_key] = next_entry
-      amended_metric_keys.append(metric_key)
+  per_metric_diagnostics: List[Dict[str, Any]] = []
+  any_gpt_call_succeeded = False
+  any_gpt_call_failed = False
+  first_no_api_key = False
+
+  for metric_key, original_entry in list(metrics.items()):
+    if not isinstance(original_entry, dict):
+      continue
+
+    scoped_runtime = dict(runtime_objects or {})
+    scoped_runtime["metric_entry"] = copy.deepcopy(original_entry)
+
+    resolver_context = resolve_consultant_context(
+      contract_name=_TARGET_SHAPING_CONTRACT_NAME,
+      include_phase=_TARGET_SHAPING_INCLUDE_PHASE,
+      scope_key={"metric_key": metric_key},
+      draft_id=draft_id,
+      planning_run_id=planning_run_id,
+      conn=conn,
+      runtime_objects=scoped_runtime,
+    )
+
+    user_context = _build_per_metric_user_context(
+      metric_key=metric_key,
+      metric_entry=original_entry,
+      resolver_context=resolver_context,
+    )
+    call_result = call_gpt_with_schema_or_fallback(
+      consultant_name=_TARGET_SHAPING_CONSULTANT_NAME,
+      system_prompt=_PER_METRIC_SYSTEM_PROMPT,
+      user_context=user_context,
+      response_schema=_PER_METRIC_RESPONSE_SCHEMA,
+      schema_name=_TARGET_SHAPING_CONSULTANT_NAME,
+      timeout_seconds=timeout_seconds,
+    )
+    decision_source = call_result.get("decision_source") or "python_proposer_only_unknown"
+    parsed = call_result.get("parsed") if isinstance(call_result.get("parsed"), dict) else None
+
+    if decision_source == "python_proposer_plus_gpt_critic":
+      any_gpt_call_succeeded = True
+    elif decision_source == "python_proposer_only_no_api_key":
+      first_no_api_key = True
+      any_gpt_call_failed = True
+    else:
+      any_gpt_call_failed = True
+
+    if not parsed or _clean_text(parsed.get("review_status")) != "amended":
+      per_metric_diagnostics.append({
+        "metric_key": metric_key,
+        "decision_source": decision_source,
+        "review_status": _clean_text((parsed or {}).get("review_status")),
+        "amended": False,
+      })
+      continue
+
+    amended = _apply_metric_amendment(
+      metric_key=metric_key, original_entry=original_entry, parsed=parsed,
+    )
+    if amended is None:
+      per_metric_diagnostics.append({
+        "metric_key": metric_key,
+        "decision_source": decision_source,
+        "review_status": _clean_text(parsed.get("review_status")),
+        "amended": False,
+        "reason": "rejected_invalid_or_point_range",
+      })
+      continue
+    metrics[metric_key] = amended
+    amended_metric_keys.append(metric_key)
+    per_metric_diagnostics.append({
+      "metric_key": metric_key,
+      "decision_source": decision_source,
+      "review_status": "amended",
+      "amended": True,
+    })
 
   uncalibrated_metric_keys: List[str] = []
-  if decision_source != "python_proposer_plus_gpt_critic":
+  if not any_gpt_call_succeeded:
     fallback_tag = (
-      "uncalibrated_due_to_no_api_key"
-      if decision_source == "python_proposer_only_no_api_key"
+      "uncalibrated_due_to_no_api_key" if first_no_api_key
       else "uncalibrated_due_to_gpt_failure"
     )
     for metric_key, entry in metrics.items():
       if not isinstance(entry, dict):
         continue
-      provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
-      original_source = _clean_text(provenance.get("calibration_source"))
-      if original_source == "naics_default":
-        continue
-      provenance.setdefault("python_default_calibration_source", original_source)
-      provenance["calibration_source"] = fallback_tag
-      entry["provenance"] = provenance
+      _tag_uncalibrated_metric(entry, fallback_tag=fallback_tag)
       uncalibrated_metric_keys.append(metric_key)
 
   proposal["metrics"] = metrics
+  if amended_metric_keys or any_gpt_call_succeeded:
+    rolling_decision_source = "python_proposer_plus_gpt_critic"
+  elif first_no_api_key:
+    rolling_decision_source = "python_proposer_only_no_api_key"
+  elif any_gpt_call_failed:
+    rolling_decision_source = "python_proposer_only_critic_failure"
+  else:
+    rolling_decision_source = "python_proposer_only_no_metrics_to_calibrate"
+
   proposal["calibration"] = {
     "consultant_name": _TARGET_SHAPING_CONSULTANT_NAME,
-    "decision_source": decision_source,
-    "model_used": call_result.get("model_used"),
+    "decision_source": rolling_decision_source,
     "amended_metric_keys": amended_metric_keys,
     "uncalibrated_metric_keys": uncalibrated_metric_keys,
-    "review_status": _clean_text((parsed or {}).get("review_status")) or "not_invoked",
-    "critique_summary": _clean_text((parsed or {}).get("critique_summary")),
-    "fallback_detail": call_result.get("detail"),
+    "per_metric_diagnostics": per_metric_diagnostics,
+    "scope": "per_metric",
   }
 
   return {
     "calibrated_targets": proposal,
-    "decision_source": decision_source,
+    "decision_source": rolling_decision_source,
     "amended_metric_keys": amended_metric_keys,
     "uncalibrated_metric_keys": uncalibrated_metric_keys,
-    "raw_openai_response": call_result.get("raw_openai_response") or {},
+    "raw_openai_response": {},
     "critic_diagnostics": {
-      "review_status": _clean_text((parsed or {}).get("review_status")) or "not_invoked",
-      "critique_summary": _clean_text((parsed or {}).get("critique_summary")),
-      "fallback_detail": call_result.get("detail"),
+      "scope": "per_metric",
+      "per_metric_diagnostic_count": len(per_metric_diagnostics),
+      "fallback_detail": "" if any_gpt_call_succeeded else rolling_decision_source,
     },
   }

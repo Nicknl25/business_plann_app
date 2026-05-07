@@ -1,42 +1,27 @@
-"""Phase 3 — Intake-vs-band conflict adjudication consultant.
+"""Phase 3 / 5.2 — Per-conflict intake-vs-band adjudication consultant.
 
-After the band-shaping consultant calibrates the driver envelope, some
-intake-implied driver values may fall outside the calibrated band — for
-example, intake says R&D is 3% of revenue but the calibrated band for
-this business is 8-18%. Per the directive, the assembler does not
-silently override either way. Instead, this consultant is invoked once
-per detected conflict with (driver, intake_value, calibrated_band,
-business_context) and asks GPT for one of three decisions:
+After band shaping calibrates the driver envelope, the intake-implied
+value for some levers may fall outside the calibrated band. Per
+Phase 5.2 R1, GPT is invoked once per detected conflict with a
+per-conflict scoped context dict resolved by
+``resolve_consultant_context``.
 
-  - keep_intake: widen the band so it includes the intake value. The
-    intake-implied value flows through Q0 (always preserved) AND becomes
-    the Q1+ trajectory anchor; the band is widened to accommodate it.
-  - keep_band: override the intake value. Q0 stays at intake (Phase 1's
-    invariant — Stub 0 is intake), but Q1+ uses the band's default_value
-    and the band stays unchanged.
-  - split: explicit Q0/Q1+ split. Q0 stays at intake; Q1+ uses the band
-    unchanged. (This is the same outcome as keep_band but recorded with
-    a different rationale: GPT believes the intake value reflects
-    historical reality that should not propagate into the forecast.)
+Three legal decisions per conflict:
+  - keep_intake: widen the calibrated band to include the intake value.
+    Q0 stub stays at intake AND Q1+ trajectory anchors near intake too.
+  - keep_band: keep the calibrated band; the intake value is implausible
+    (data-entry error, pre-restructure artifact). Q0 stays at intake
+    (per the solver's Phase 1 invariant) but Q1+ uses the band default.
+  - split: explicit Q0/Q1+ split. Same band as keep_band but with a
+    different rationale: the intake value is plausible historically but
+    should not propagate to the forecast.
 
-Stub 0 is never written by the solver (Phase 1 invariant). The
-distinction between keep_band and split is provenance: keep_band means
-GPT thinks the intake value is implausible even at Q0 (still recorded
-but flagged); split means GPT thinks the intake value is plausible at
-Q0 but should not propagate.
-
-Conflicts are detected for the levers that have a clear intake-implied
-value:
-  - balance_sheet::Accounts Receivable Days     (ar_balance / quarter_revenue * 90)
-  - balance_sheet::Accounts Payable Days         (ap_balance / quarter_revenue * 90)
-  - balance_sheet::Inventory Days                (inventory_balance / quarter_revenue * 90)
-  - expenses::Cost of Goods Sold                 (cogs_year_one / revenue_year_one)
-  - expenses::Marketing                          (marketing_percent_of_revenue from intake)
-  - expenses::Research & Development             (r_and_d_percent from intake)
-  - expenses::Taxes                              (taxes_percent from intake)
-
-For levers without a clear intake value, no conflict is even possible
-(the band default stands by construction).
+Buffer rules (Phase 5.2 R2):
+  - For keep_intake amendments, the resulting band must satisfy
+    min_allowed < max_allowed strictly. The Python proposer's band
+    already satisfies this and keep_intake only widens, so this is
+    a sanity assertion rather than a normal rejection path.
+  - keep_band / split don't change the band, so no buffer check fires.
 """
 
 from __future__ import annotations
@@ -46,6 +31,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 _CONFLICT_ADJUDICATION_CONSULTANT_NAME = "solver_intake_band_conflict"
+_CONFLICT_ADJUDICATION_CONTRACT_NAME = "post_intake_conflict_adjudication_consultant"
+_CONFLICT_ADJUDICATION_INCLUDE_PHASE = "conflict_adjudication"
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
@@ -65,79 +52,52 @@ def _safe_float(value: Any) -> Optional[float]:
   return number
 
 
-_CONFLICT_ADJUDICATION_RESPONSE_SCHEMA: Dict[str, Any] = {
+_PER_CONFLICT_RESPONSE_SCHEMA: Dict[str, Any] = {
   "type": "object",
   "additionalProperties": False,
   "properties": {
-    "decisions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-          "lever_id": {"type": "string"},
-          "decision": {
-            "type": "string",
-            "enum": ["keep_intake", "keep_band", "split"],
-          },
-          "resolved_min_allowed": {"type": ["number", "null"]},
-          "resolved_max_allowed": {"type": ["number", "null"]},
-          "resolved_default_value": {"type": ["number", "null"]},
-          "rationale": {"type": "string"},
-        },
-        "required": [
-          "lever_id", "decision", "resolved_min_allowed",
-          "resolved_max_allowed", "resolved_default_value", "rationale",
-        ],
-      },
+    "decision": {
+      "type": "string",
+      "enum": ["keep_intake", "keep_band", "split"],
     },
-    "summary": {"type": "string"},
+    "resolved_min_allowed": {"type": ["number", "null"]},
+    "resolved_max_allowed": {"type": ["number", "null"]},
+    "resolved_default_value": {"type": ["number", "null"]},
+    "rationale": {"type": "string"},
   },
-  "required": ["decisions", "summary"],
+  "required": [
+    "decision", "resolved_min_allowed", "resolved_max_allowed",
+    "resolved_default_value", "rationale",
+  ],
 }
 
 
-_CONFLICT_ADJUDICATION_SYSTEM_PROMPT = (
-  "You are adjudicating conflicts between intake-implied driver values "
-  "and calibrated driver bands for a post-intake target-seeking solver. "
-  "Each conflict represents a driver where the value implied by what "
-  "the client provided at intake (e.g., AR balance / revenue * 90 = "
-  "implied AR days) sits outside the band that band-shaping calibration "
-  "produced for this business.\n\n"
-  "For each conflict, decide one of three resolutions:\n"
+_PER_CONFLICT_SYSTEM_PROMPT = (
+  "You are adjudicating ONE conflict between an intake-implied driver "
+  "value and the calibrated band for that driver. Decide one of three "
+  "resolutions:\n"
   "  - keep_intake: the intake value is correct for this business; "
   "    widen the band to include it (return resolved_min_allowed / "
   "    resolved_max_allowed that span both the original band and the "
   "    intake value, plus a resolved_default_value at the intake value).\n"
-  "  - keep_band: the intake value is implausible (likely a data-entry "
-  "    error or a pre-restructure artifact); keep the band unchanged "
-  "    (return the original min/max/default unchanged).\n"
-  "  - split: the intake value is plausible historically but should not "
-  "    propagate to the forecast (e.g., a turnaround business where "
-  "    historical operations are not the future operations); keep the "
-  "    band unchanged for Q1+ (return the original min/max/default "
-  "    unchanged). Stub 0 (Q0) is intake-as-stated and is preserved by "
-  "    the solver invariants regardless of your decision.\n\n"
+  "  - keep_band: the intake value is implausible (data-entry error or "
+  "    pre-restructure artifact); keep the band unchanged (return "
+  "    nulls and Python preserves the originals).\n"
+  "  - split: the intake value is plausible historically but should "
+  "    not propagate to the forecast; keep the band unchanged for Q1+. "
+  "    Q0 stub stays at intake regardless.\n\n"
   "Operating rules:\n"
-  "1. Output exactly one decision per input conflict. Do NOT add or "
-  "drop conflicts.\n"
-  "2. resolved_min_allowed <= resolved_default_value <= resolved_max_allowed.\n"
-  "3. For decision=keep_band or decision=split, return the original "
-  "band's min/max/default unchanged (you may pass null and Python will "
-  "preserve the originals).\n"
-  "4. For decision=keep_intake, the resolved band must include the "
-  "intake value: resolved_min_allowed <= intake_value <= "
-  "resolved_max_allowed.\n"
-  "5. Default to keep_band when the intake value is plausibly a data "
-  "error or the business has clearly changed since the intake snapshot. "
-  "Default to keep_intake only when the intake value is well-attested "
-  "and characteristic of the business as it will operate going forward."
+  "1. resolved_min_allowed < resolved_max_allowed strictly.\n"
+  "2. For keep_band / split, return null for resolved_* fields.\n"
+  "3. For keep_intake, the resolved band must include the intake value: "
+  "   resolved_min_allowed <= intake_value <= resolved_max_allowed.\n"
+  "4. Default to keep_band when the intake value looks like a data "
+  "   entry error or the business has clearly changed since the intake "
+  "   snapshot. Default to keep_intake only when the intake value is "
+  "   well-attested and characteristic of forward operations."
 )
 
 
-# Per-lever intake-implied value extractors. Each returns a tuple of
-# (intake_value, intake_value_provenance) or None when the intake doesn't
-# supply enough to compute the value.
 def _intake_implied_for_lever(
   *,
   lever_id: str,
@@ -222,7 +182,7 @@ def _detect_conflicts(
       continue
     intake_value, intake_provenance = intake
     if mn <= intake_value <= mx:
-      continue  # in-band; no conflict
+      continue
     conflicts.append({
       "lever_id": lever_id,
       "intake_value": round(float(intake_value), 6),
@@ -260,8 +220,6 @@ def _apply_decision(
 
   next_entry = copy.deepcopy(entry)
   if decision_kind == "keep_intake" and intake_value is not None:
-    # Widen the band to include the intake value. Use GPT's resolved
-    # band when valid; otherwise widen symmetrically by the gap.
     original_min = _safe_float(entry.get("min_allowed"))
     original_max = _safe_float(entry.get("max_allowed"))
     if resolved_min is None or resolved_max is None or resolved_default is None:
@@ -272,14 +230,21 @@ def _apply_decision(
       resolved_min = intake_value
     if resolved_max < intake_value:
       resolved_max = intake_value
-    if resolved_default < resolved_min:
-      resolved_default = resolved_min
-    if resolved_default > resolved_max:
-      resolved_default = resolved_max
-    next_entry["min_allowed"] = round(float(resolved_min), 6)
-    next_entry["max_allowed"] = round(float(resolved_max), 6)
-    next_entry["default_value"] = round(float(resolved_default), 6)
-  # For keep_band and split: the band stays unchanged; only provenance changes.
+    if resolved_max <= resolved_min:
+      # Buffer rule mechanic 1: strict inequality. Adjudication may not
+      # produce a point band; treat as a fall-back to keep_band.
+      decision_kind = "keep_band"
+      provenance = next_entry.get("provenance") if isinstance(next_entry.get("provenance"), dict) else {}
+      provenance["intake_band_conflict_keep_intake_rejected_point_band"] = True
+      next_entry["provenance"] = provenance
+    else:
+      if resolved_default < resolved_min:
+        resolved_default = resolved_min
+      if resolved_default > resolved_max:
+        resolved_default = resolved_max
+      next_entry["min_allowed"] = round(float(resolved_min), 6)
+      next_entry["max_allowed"] = round(float(resolved_max), 6)
+      next_entry["default_value"] = round(float(resolved_default), 6)
 
   provenance = next_entry.get("provenance") if isinstance(next_entry.get("provenance"), dict) else {}
   provenance.setdefault("python_default_calibration_source", provenance.get("calibration_source"))
@@ -311,27 +276,13 @@ def adjudicate_intake_vs_band_conflicts_with_gpt(
   envelope_payload: Dict[str, Any],
   financials_json: Optional[Dict[str, Any]],
   financials_year1_json: Optional[Dict[str, Any]],
-  business_context: Optional[Dict[str, Any]] = None,
+  draft_id: str,
+  planning_run_id: str,
+  conn: Any,
+  runtime_objects: Dict[str, Any],
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
-  """Detect intake-vs-band conflicts and adjudicate via GPT.
-
-  Returns:
-    {
-      "calibrated_envelope": <envelope after applied decisions>,
-      "decision_source": str,
-      "conflicts_detected": int,
-      "decisions_applied": [...],
-      "raw_openai_response": dict,
-      "fallback_detail": str,
-    }
-
-  When no conflicts are detected, GPT is not called. When the GPT call
-  fails or returns an unparseable payload, every detected conflict
-  defaults to `keep_band` (the conservative-by-default policy: trust
-  the calibrated band over a single intake data point) and provenance
-  records the fallback.
-  """
+  """Detect intake-vs-band conflicts and adjudicate per-conflict via GPT."""
   envelope = copy.deepcopy(envelope_payload or {})
   fin = financials_json or {}
   year1 = financials_year1_json or {}
@@ -354,52 +305,85 @@ def adjudicate_intake_vs_band_conflicts_with_gpt(
   from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
     call_gpt_with_schema_or_fallback,
   )
-  user_context = {
-    "consultant": _CONFLICT_ADJUDICATION_CONSULTANT_NAME,
-    "naics_6": envelope.get("naics_6"),
-    "business_context": business_context or {},
-    "conflicts": conflicts,
-  }
-  call_result = call_gpt_with_schema_or_fallback(
-    consultant_name=_CONFLICT_ADJUDICATION_CONSULTANT_NAME,
-    system_prompt=_CONFLICT_ADJUDICATION_SYSTEM_PROMPT,
-    user_context=user_context,
-    response_schema=_CONFLICT_ADJUDICATION_RESPONSE_SCHEMA,
-    schema_name=_CONFLICT_ADJUDICATION_CONSULTANT_NAME,
-    timeout_seconds=timeout_seconds,
+  from client_intake_and_finmo.post_intake_solver.consultant_context_resolver import (  # type: ignore
+    resolve_consultant_context,
   )
-  decision_source = call_result.get("decision_source") or "python_proposer_only_unknown"
-  parsed = call_result.get("parsed") if isinstance(call_result.get("parsed"), dict) else None
-
-  decisions_by_lever: Dict[str, Dict[str, Any]] = {}
-  if parsed:
-    for item in (parsed.get("decisions") or []):
-      if not isinstance(item, dict):
-        continue
-      lever_id = _clean_text(item.get("lever_id"))
-      decisions_by_lever[lever_id] = item
 
   applied: List[Dict[str, Any]] = []
+  any_gpt_call_succeeded = False
+  any_gpt_call_failed = False
+  first_no_api_key = False
+
   for conflict in conflicts:
     lever_id = _clean_text(conflict.get("lever_id"))
-    gpt_decision = decisions_by_lever.get(lever_id)
-    decision_came_from_gpt = isinstance(gpt_decision, dict)
-    if decision_came_from_gpt:
-      decision_payload = gpt_decision
+
+    scoped_runtime = dict(runtime_objects or {})
+    scoped_runtime["conflict"] = copy.deepcopy(conflict)
+    drivers = envelope.get("drivers") if isinstance(envelope.get("drivers"), dict) else {}
+    scoped_runtime["lever_entry"] = copy.deepcopy(drivers.get(lever_id) or {})
+
+    resolver_context = resolve_consultant_context(
+      contract_name=_CONFLICT_ADJUDICATION_CONTRACT_NAME,
+      include_phase=_CONFLICT_ADJUDICATION_INCLUDE_PHASE,
+      scope_key={"lever_id": lever_id},
+      draft_id=draft_id,
+      planning_run_id=planning_run_id,
+      conn=conn,
+      runtime_objects=scoped_runtime,
+    )
+
+    user_context = {
+      "consultant": _CONFLICT_ADJUDICATION_CONSULTANT_NAME,
+      "lever_id": lever_id,
+      "value_kind": conflict.get("value_kind"),
+      "metric_key": conflict.get("metric_key"),
+      "intake_value": conflict.get("intake_value"),
+      "intake_provenance": conflict.get("intake_provenance"),
+      "calibrated_band": {
+        "min_allowed": conflict.get("calibrated_min_allowed"),
+        "max_allowed": conflict.get("calibrated_max_allowed"),
+        "default_value": conflict.get("calibrated_default_value"),
+      },
+      "side": conflict.get("side"),
+      "context": resolver_context,
+    }
+    call_result = call_gpt_with_schema_or_fallback(
+      consultant_name=_CONFLICT_ADJUDICATION_CONSULTANT_NAME,
+      system_prompt=_PER_CONFLICT_SYSTEM_PROMPT,
+      user_context=user_context,
+      response_schema=_PER_CONFLICT_RESPONSE_SCHEMA,
+      schema_name=_CONFLICT_ADJUDICATION_CONSULTANT_NAME,
+      timeout_seconds=timeout_seconds,
+    )
+    decision_source = call_result.get("decision_source") or "python_proposer_only_unknown"
+    parsed = call_result.get("parsed") if isinstance(call_result.get("parsed"), dict) else None
+
+    if decision_source == "python_proposer_plus_gpt_critic":
+      any_gpt_call_succeeded = True
+    elif decision_source == "python_proposer_only_no_api_key":
+      first_no_api_key = True
+      any_gpt_call_failed = True
     else:
-      # No GPT decision for this lever (or GPT call failed). Conservative
-      # default: keep_band.
+      any_gpt_call_failed = True
+
+    decision_came_from_gpt = bool(parsed)
+    if decision_came_from_gpt:
+      decision_payload = {
+        "lever_id": lever_id,
+        "decision": parsed.get("decision"),
+        "resolved_min_allowed": parsed.get("resolved_min_allowed"),
+        "resolved_max_allowed": parsed.get("resolved_max_allowed"),
+        "resolved_default_value": parsed.get("resolved_default_value"),
+        "rationale": _clean_text(parsed.get("rationale")),
+      }
+    else:
       decision_payload = {
         "lever_id": lever_id,
         "decision": "keep_band",
-        "resolved_min_allowed": conflict.get("calibrated_min_allowed"),
-        "resolved_max_allowed": conflict.get("calibrated_max_allowed"),
-        "resolved_default_value": conflict.get("calibrated_default_value"),
-        "rationale": (
-          "fallback_keep_band_conservative_default"
-          if decision_source == "python_proposer_plus_gpt_critic"
-          else f"fallback_keep_band:{decision_source}"
-        ),
+        "resolved_min_allowed": None,
+        "resolved_max_allowed": None,
+        "resolved_default_value": None,
+        "rationale": f"fallback_keep_band:{decision_source}",
       }
     envelope = _apply_decision(
       envelope_payload=envelope,
@@ -417,24 +401,33 @@ def adjudicate_intake_vs_band_conflicts_with_gpt(
       },
       "decision": _clean_text(decision_payload.get("decision")),
       "rationale": _clean_text(decision_payload.get("rationale")),
+      "decision_source": decision_source,
     })
+
+  if any_gpt_call_succeeded:
+    rolling_decision_source = "python_proposer_plus_gpt_critic"
+  elif first_no_api_key:
+    rolling_decision_source = "python_proposer_only_no_api_key"
+  elif any_gpt_call_failed:
+    rolling_decision_source = "python_proposer_only_critic_failure"
+  else:
+    rolling_decision_source = "no_conflicts_detected"
 
   envelope.setdefault("calibration", {})
   if isinstance(envelope.get("calibration"), dict):
     envelope["calibration"]["conflict_adjudication"] = {
       "consultant_name": _CONFLICT_ADJUDICATION_CONSULTANT_NAME,
-      "decision_source": decision_source,
+      "decision_source": rolling_decision_source,
       "conflicts_detected": len(conflicts),
       "decisions_applied": applied,
-      "summary": _clean_text((parsed or {}).get("summary")),
-      "fallback_detail": call_result.get("detail"),
+      "scope": "per_conflict",
     }
 
   return {
     "calibrated_envelope": envelope,
-    "decision_source": decision_source,
+    "decision_source": rolling_decision_source,
     "conflicts_detected": len(conflicts),
     "decisions_applied": applied,
-    "raw_openai_response": call_result.get("raw_openai_response") or {},
-    "fallback_detail": call_result.get("detail") or "",
+    "raw_openai_response": {},
+    "fallback_detail": "" if any_gpt_call_succeeded else rolling_decision_source,
   }
