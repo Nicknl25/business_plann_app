@@ -1430,6 +1430,12 @@ def _ensure_table_inner(conn) -> None:
     planning_runs_alters.append("ADD COLUMN stopped_at DATETIME(6) NULL")
   if "completed_at" not in planning_runs_cols:
     planning_runs_alters.append("ADD COLUMN completed_at DATETIME(6) NULL")
+  if "plan_confidence" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN plan_confidence VARCHAR(64) NULL")
+  if "cascade_landed_tier" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN cascade_landed_tier TINYINT NULL")
+  if "cascade_tiers_attempted_json" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN cascade_tiers_attempted_json LONGTEXT NULL")
   if "idx_planning_runs_draft_id" not in planning_runs_indexes:
     planning_runs_alters.append("ADD KEY idx_planning_runs_draft_id (draft_id)")
   if "idx_planning_runs_client_id" not in planning_runs_indexes:
@@ -3058,6 +3064,117 @@ def persist_post_intake_execution_state(
     "convergence_state_json": convergence_payload,
     "financial_story": financial_story_payload,
     "debt_schedule": copy.deepcopy(debt_schedule or {}),
+  }
+
+
+_PLAN_CONFIDENCE_TO_TIER = {
+  "high_no_adaptation": 0,
+  "medium_gpt_band_relaxation": 1,
+  "medium_cohort_fallback": 2,
+  "low_target_tolerance_widened": 3,
+  "low_supplementary_levers_used": 4,
+  "low_planning_mode_shifted": 5,
+  "low_stage_family_widened": 6,
+  "generic_fallback_no_calibration": 7,
+}
+
+
+def persist_adaptation_cascade_outcome(
+  conn,
+  *,
+  draft_id: str,
+  planning_run_id: str,
+  plan_confidence: Optional[str],
+  cascade_diagnostics: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """Phase 3.8 — persist orchestrator plan_confidence + cascade diagnostics.
+
+  UPDATEs planning_runs (plan_confidence, cascade_landed_tier,
+  cascade_tiers_attempted_json) and emits one planning_stage_events row
+  with event_type='adaptation_cascade_completed' when cascade_diagnostics
+  is non-None and the landed tier > 0. Tier 0 (no adaptation) skips the
+  event INSERT.
+  """
+  pr_id = str(planning_run_id or "").strip()
+  d_id = str(draft_id or "").strip()
+  conf = str(plan_confidence or "").strip() or None
+  if not pr_id:
+    return {"persisted": False, "reason": "missing_planning_run_id"}
+  ensure_table(conn)
+  diag = cascade_diagnostics if isinstance(cascade_diagnostics, dict) else None
+  tier: Optional[int] = None
+  if diag is not None:
+    raw = diag.get("tier_landed")
+    try:
+      if raw is not None:
+        tier = int(raw)
+    except Exception:
+      tier = None
+  if tier is None and conf:
+    tier = _PLAN_CONFIDENCE_TO_TIER.get(conf)
+  attempts_json: Optional[str] = None
+  if diag is not None and isinstance(diag.get("tier_attempts"), list):
+    attempts_json = json.dumps(
+      [
+        {
+          "tier": x.get("tier"), "tier_name": x.get("tier_name"),
+          "attempted": bool(x.get("attempted")), "success": bool(x.get("success")),
+          "skip_reason": x.get("skip_reason"),
+          "residual_hard_fail_count": x.get("residual_hard_fail_count"),
+        }
+        for x in diag["tier_attempts"] if isinstance(x, dict)
+      ],
+      ensure_ascii=False,
+    )
+  now = current_app_timestamp_str()
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute("SELECT client_id FROM planning_runs WHERE planning_run_id = %s", (pr_id,))
+    row = cur.fetchone()
+    client_id = str((row or {}).get("client_id") or "").strip()
+  finally:
+    try: cur.close()
+    except Exception: pass
+  cur = conn.cursor()
+  event_emitted = False
+  try:
+    cur.execute(
+      """
+      UPDATE planning_runs
+      SET plan_confidence = %s, cascade_landed_tier = %s,
+          cascade_tiers_attempted_json = %s, updated_at = %s
+      WHERE planning_run_id = %s
+      """,
+      (conf, tier, attempts_json, now, pr_id),
+    )
+    if diag is not None and tier is not None and int(tier) > 0 and client_id:
+      cur.execute(
+        """
+        INSERT INTO planning_stage_events (
+          event_id, planning_run_id, draft_id, client_id, stage, stage_status,
+          iteration, retry_count, cycle, event_type, event_summary, event_payload_json, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+          uuid.uuid4().hex, pr_id, d_id, client_id,
+          "post_intake_finalize", "completed", None, None, None,
+          "adaptation_cascade_completed", conf,
+          json.dumps(diag, ensure_ascii=False), now,
+        ),
+      )
+      event_emitted = True
+    conn.commit()
+  except Exception:
+    try: conn.rollback()
+    except Exception: pass
+    raise
+  finally:
+    try: cur.close()
+    except Exception: pass
+  return {
+    "persisted": True, "planning_run_id": pr_id,
+    "plan_confidence": conf, "cascade_landed_tier": tier,
+    "cascade_event_emitted": event_emitted,
   }
 
 

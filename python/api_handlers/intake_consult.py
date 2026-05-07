@@ -6699,7 +6699,7 @@ def _run_unified_post_grid_system_run(
   from client_intake_and_finmo.post_intake_solver import (  # type: ignore
     run_target_seeking_orchestrated_system_run,
   )
-  return run_target_seeking_orchestrated_system_run(
+  result = run_target_seeking_orchestrated_system_run(
     conn=conn,
     draft_id=draft_id,
     planning_run_id=planning_run_id,
@@ -6722,6 +6722,26 @@ def _run_unified_post_grid_system_run(
     stage_ramp_contract=stage_ramp_contract,
     payroll_headcount=copy.deepcopy(payroll_headcount or {}),
   )
+  # Phase 3.8: persist plan_confidence and cascade diagnostics to the run
+  # report. UPDATE planning_runs row, and emit one
+  # `adaptation_cascade_completed` event per cascade-firing run (Tier 0
+  # high_no_adaptation skips the event INSERT).
+  try:
+    from client_intake_and_finmo.intake_consult_draft import (  # type: ignore
+      persist_adaptation_cascade_outcome,
+    )
+    persist_adaptation_cascade_outcome(
+      conn,
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(planning_run_id or "").strip(),
+      plan_confidence=(result.get("plan_confidence") if isinstance(result, dict) else None),
+      cascade_diagnostics=(
+        result.get("adaptation_cascade_diagnostics") if isinstance(result, dict) else None
+      ),
+    )
+  except Exception as exc:
+    logger.warning("persist_adaptation_cascade_outcome_failed: %s", exc)
+  return result
 def _run_planning_system_for_draft_unified(
   *,
   conn,
