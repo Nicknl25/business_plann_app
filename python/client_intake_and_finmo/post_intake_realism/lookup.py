@@ -349,15 +349,18 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
-    gate_kind="warn",
+    gate_kind="hard_fail",
+    governs_model_input_lever_id="expenses::Cost of Goods Sold",
     notes=(
-      "EBITDA / revenue. Demoted to warn — Q1 of a forecast routinely shows "
-      "launch-quarter volatility (low fixed costs not yet absorbed, revenue "
-      "ramping unevenly) that lands outside steady-state NAICS bands without "
-      "indicating an implausible cost stack. Cost realism is enforced upstream "
-      "by `cogs_to_revenue_ratio` and the line-level expense ratio bands, "
-      "which are still hard_fail. Promote back to hard_fail once the gate "
-      "applies a steady-state-quarter rule (e.g., Q5+) or a per-stage band."
+      "EBITDA / revenue. Promoted back to hard_fail in Phase 4 — the "
+      "target-seeking solver now lands EBITDA in band by construction: "
+      "the Phase 3 target-shaping consultant calibrates EBITDA target "
+      "ranges to the business stage (early-stage / runway-focused / "
+      "bootstrapped-profitable), the outer loop tweaks drivers to land "
+      "EBITDA within those calibrated ranges, and the Phase 3.7 "
+      "adaptation cascade widens tolerances when the original calibration "
+      "is too tight. A residual hard_fail at finalize is a real solver "
+      "bug, not launch-quarter volatility."
     ),
   ),
   _row(
