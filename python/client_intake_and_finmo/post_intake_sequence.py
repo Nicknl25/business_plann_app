@@ -120,6 +120,52 @@ def _push_active_sequence_context(row: Dict[str, Any]) -> contextvars.Token[Tupl
   return _ACTIVE_SEQUENCE_CONTEXT.set(stack + (_active_context_from_row(row),))
 
 
+import contextlib  # noqa: E402  (deliberately scoped near the helper that uses it)
+
+
+@contextlib.contextmanager
+def post_intake_sequence_step_scope(
+  *,
+  step_key: str,
+  phase: str = "post_intake_target_seeking",
+  executor_function: str = "",
+  parent_step_key: str = "",
+  step_kind: str = "orchestration",
+):
+  """Context manager that pushes a synthetic sequence-controller scope for
+  the duration of an orchestration-level operation.
+
+  Some post-intake helpers (payroll capacity derivation, debt schedule
+  rebuild, contract validators) gate themselves with
+  `assert_post_intake_sequence_controller_active(...)` to prevent ad-hoc
+  invocation outside the declared step graph. The Phase 2.5 / 3.7
+  target-seeking orchestrator and Phase 3.7 adaptation cascade are
+  legitimate orchestration-level callers that need to invoke those
+  helpers (FINMO build, etc.) outside any specific table-declared step.
+  This scope satisfies the controller-active guard with a context that
+  honestly identifies itself as an orchestration step.
+
+  Usage:
+      with post_intake_sequence_step_scope(step_key="post_intake_target_seeking_pre_flight"):
+          run_target_seeking_solver(...)
+  """
+  row = {
+    "step_key": str(step_key or "post_intake_orchestration").strip(),
+    "phase": str(phase or "post_intake_target_seeking").strip(),
+    "executor_function": str(executor_function or "").strip(),
+    "parent_step_key": str(parent_step_key or "").strip(),
+    "step_kind": str(step_kind or "orchestration").strip(),
+    "handler_key": str(executor_function or step_key or "post_intake_orchestration").strip(),
+    "sequence_path": "post_intake_target_seeking_orchestration",
+    "source_of_truth": "post_intake_solver.orchestrator_synthetic_scope",
+  }
+  token = _push_active_sequence_context(row)
+  try:
+    yield
+  finally:
+    _ACTIVE_SEQUENCE_CONTEXT.reset(token)
+
+
 def _invoke_registered_handler(
   handler: Callable[..., Any],
   *,

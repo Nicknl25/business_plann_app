@@ -79,19 +79,21 @@ def _build_finmo_callable(
   evaluate FINMO from a candidate model_input. Heavy imports are lazy so
   this module loads cleanly during Phase 2.5 wiring."""
 
+  # The auxiliary kwargs (business_facts, ops_json, etc.) aren't part of
+  # build_python_finmo_json's signature — they're already stamped onto
+  # model_input_json by the time _build_model_input_overlay runs. The
+  # closure-captured args are kept here only for potential future use
+  # (e.g. if FINMO build grows side-channel inputs); today they are
+  # intentionally unused.
+  _ = (business_facts, ops_json, people_json, financials_json,
+       financials_year1_json, fulfillment_json, marketing_model_json)
+
   def _build(model_input_json: Dict[str, Any]) -> Dict[str, Any]:
     from client_intake_and_finmo.finmo_bridge import (  # type: ignore
       build_python_finmo_json,
     )
     payload = build_python_finmo_json(
       model_input_json=copy.deepcopy(model_input_json or {}),
-      business_facts=copy.deepcopy(business_facts or {}),
-      ops_json=copy.deepcopy(ops_json or {}),
-      people_json=copy.deepcopy(people_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      financials_year1_json=copy.deepcopy(financials_year1_json or {}),
-      fulfillment_json=copy.deepcopy(fulfillment_json or {}),
-      marketing_model_json=copy.deepcopy(marketing_model_json or {}),
     )
     return payload if isinstance(payload, dict) else {}
 
@@ -246,6 +248,9 @@ def _run_target_seeking_pass(
   from client_intake_and_finmo.post_intake_solver import (  # type: ignore
     run_target_seeking_solver,
   )
+  from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+    post_intake_sequence_step_scope,
+  )
   inner_callable = None
   if enable_inner_joint_fit:
     from client_intake_and_finmo.post_intake_solver.inner_joint_fit_adapter import (  # type: ignore
@@ -256,17 +261,26 @@ def _run_target_seeking_pass(
       envelope_payload=envelope_payload,
       horizon=horizon,
     )
-  result = run_target_seeking_solver(
-    model_input_json=model_input_json,
-    build_finmo_callable=build_finmo_callable,
-    apply_lever_value_callable=apply_lever_callable,
-    output_targets_payload=targets_payload,
-    driver_envelope_payload=envelope_payload,
-    influence_map_payload=influence_payload,
-    max_iterations=max_iterations,
-    numeric_tolerance=numeric_tolerance,
-    inner_joint_fit_callable=inner_callable,
-  )
+  # Phase 4 fix: target-seeking passes invoke FINMO build via
+  # build_finmo_callable, which requires an active post-intake sequence
+  # context. The orchestrator is a top-level convergence step; we push a
+  # synthetic scope for the duration of the pass so the sequence-gated
+  # helpers (payroll capacity derivation, etc.) accept the call.
+  with post_intake_sequence_step_scope(
+    step_key=f"post_intake_target_seeking_{pass_label}",
+    executor_function=f"target_seeking_solver_{pass_label}",
+  ):
+    result = run_target_seeking_solver(
+      model_input_json=model_input_json,
+      build_finmo_callable=build_finmo_callable,
+      apply_lever_value_callable=apply_lever_callable,
+      output_targets_payload=targets_payload,
+      driver_envelope_payload=envelope_payload,
+      influence_map_payload=influence_payload,
+      max_iterations=max_iterations,
+      numeric_tolerance=numeric_tolerance,
+      inner_joint_fit_callable=inner_callable,
+    )
   result["pass_label"] = pass_label
   return result
 
