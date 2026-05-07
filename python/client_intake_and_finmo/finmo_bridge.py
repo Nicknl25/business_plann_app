@@ -3333,62 +3333,51 @@ def _build_model_input_overlay(
       g_and_a = max(0.0, _safe_float(slot.get("g_and_a")) or 0.0)
       ap_expense_base = marketing + r_and_d + lease + payroll + g_and_a
       if label == "Accounts Receivable Days":
-        # Stub 0 (Q0) preserves the intake-implied days from `ar_balance` —
-        # that's the intake fact and is set elsewhere. The Q1+ trajectory
-        # uses NAICS days (per master diagnostic Part 12.6: "Tier A for
-        # stub 0; NAICS for trajectory"). Explicit working-capital input
-        # from intake still wins when present (operator-provided override).
         explicit_value = _safe_float(working_capital.get("dso"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
-        elif revenue > 0.0 and ar_days_band:
+        elif ar_days_band:
           values.append(round(float(ar_days_band["benchmark_target"]), 6))
-        elif revenue > 0.0 and ar_balance_seed > 0.0:
+        else:
           envelope_value = _envelope_default("balance_sheet::Accounts Receivable Days")
           if envelope_value is None:
             raise ValueError(
-              "ar_days_naics_no_coverage_and_envelope_unset: ar_days_dso has "
-              "no NAICS coverage and the driver-movement envelope produced no "
-              "default. Phase 3 GPT calibration must supply a band. naics_6="
-              + str(naics_6 or "")
+              "ar_days_no_coverage: ar_days_dso has no NAICS coverage and the "
+              "driver-movement envelope produced no default. Phase 3 GPT "
+              "calibration must supply a band. naics_6=" + str(naics_6 or "")
             )
           values.append(round(float(envelope_value), 6))
-        else:
-          values.append(0.0)
       elif label == "Inventory Days":
         explicit_value = _safe_float(working_capital.get("inventory_days"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
-        elif cogs > 0.0 and inventory_days_band:
+        elif inventory_days_band:
           values.append(round(float(inventory_days_band["benchmark_target"]), 6))
-        elif cogs > 0.0 and inventory_balance_seed > 0.0:
+        else:
           envelope_value = _envelope_default("balance_sheet::Inventory Days")
           if envelope_value is None:
             raise ValueError(
-              "inventory_days_naics_no_coverage_and_envelope_unset: "
-              "inventory_days has no NAICS coverage and the driver-movement "
-              "envelope produced no default. naics_6=" + str(naics_6 or "")
+              "inventory_days_no_coverage: inventory_days has no NAICS "
+              "coverage and the driver-movement envelope produced no default. "
+              "Phase 3 GPT calibration must supply a band. naics_6="
+              + str(naics_6 or "")
             )
           values.append(round(float(envelope_value), 6))
-        else:
-          values.append(0.0)
       elif label == "Accounts Payable Days":
         explicit_value = _safe_float(working_capital.get("dpo"))
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
-        elif ap_expense_base > 0.0 and ap_days_band:
+        elif ap_days_band:
           values.append(round(float(ap_days_band["benchmark_target"]), 6))
-        elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
+        else:
           envelope_value = _envelope_default("balance_sheet::Accounts Payable Days")
           if envelope_value is None:
             raise ValueError(
-              "ap_days_naics_no_coverage_and_envelope_unset: ap_days_dpo has "
-              "no NAICS coverage and the driver-movement envelope produced no "
-              "default. naics_6=" + str(naics_6 or "")
+              "ap_days_no_coverage: ap_days_dpo has no NAICS coverage and the "
+              "driver-movement envelope produced no default. Phase 3 GPT "
+              "calibration must supply a band. naics_6=" + str(naics_6 or "")
             )
           values.append(round(float(envelope_value), 6))
-        else:
-          values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":
         existing = (
           _safe_float(base_values[min(slot_idx, len(base_values) - 1)])
@@ -3397,11 +3386,16 @@ def _build_model_input_overlay(
         )
         if existing is not None and existing > 0.0:
           values.append(round(existing, 6))
-        elif revenue > 0.0 and prepaid_pct_band:
-          # Module 1 Task 1.6.
+        elif prepaid_pct_band:
           values.append(round(float(prepaid_pct_band["benchmark_target"]), 6))
         else:
-          values.append(0.0)
+          envelope_value = _envelope_default("balance_sheet::Prepaid Expenses (% of Revenue)")
+          if envelope_value is None:
+            raise ValueError(
+              "prepaid_expenses_percent_of_revenue_no_coverage: no NAICS "
+              "coverage and no envelope default. naics_6=" + str(naics_6 or "")
+            )
+          values.append(round(float(envelope_value), 6))
       elif label == "Deferred Revenue (% of Revenue)":
         existing = (
           _safe_float(base_values[min(slot_idx, len(base_values) - 1)])
@@ -3410,12 +3404,21 @@ def _build_model_input_overlay(
         )
         if existing is not None and existing > 0.0:
           values.append(round(existing, 6))
-        elif revenue > 0.0 and deferred_pct_band:
-          # Module 1 Task 1.6: gated by `_deferred_revenue_applicable` AND
-          # NAICS-2 sector applicability.
+        elif deferred_pct_band:
+          # NAICS-2 sector applicability gates the band itself; deferred_pct_band
+          # is None when _deferred_revenue_applicable is False or NAICS-2
+          # excludes it (software/professional services, etc.).
           values.append(round(float(deferred_pct_band["benchmark_target"]), 6))
         else:
-          values.append(0.0)
+          envelope_value = _envelope_default("balance_sheet::Deferred Revenue (% of Revenue)")
+          if envelope_value is None:
+            raise ValueError(
+              "deferred_revenue_percent_of_revenue_no_coverage: no NAICS "
+              "coverage and no envelope default. naics_6=" + str(naics_6 or "")
+            )
+          # _envelope_default returns 0.0 for not-applicable levers (the
+          # assembler tags applicability_gate_not_applicable with min=max=default=0).
+          values.append(round(float(envelope_value), 6))
       elif label == "Short Term Debt (% of LTD)":
         short_term_ratio = _ratio((financials_json or {}).get("short_term_debt"), (financials_json or {}).get("total_debt_outstanding"))
         values.append(round(short_term_ratio, 6))
