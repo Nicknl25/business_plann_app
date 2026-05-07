@@ -55,6 +55,13 @@ class RealismCheckResult:
   status: str  # 'in_band' | 'out_of_band_warn' | 'out_of_band_hard_fail' | 'skipped' | 'no_coverage'
   reason: str
   governs_lever_id: Optional[str] = None
+  # Phase 6 Step 5 — band-source provenance. Records WHICH path resolved
+  # the band edges so the run report can audit why each metric was
+  # checked against what.
+  band_source: str = "naics_baseline"
+  planning_mode_floor_applied: Optional[float] = None
+  planning_mode_active: Optional[str] = None
+  tolerated_issue_code: Optional[str] = None
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -78,6 +85,10 @@ class RealismCheckResult:
       "status": self.status,
       "reason": self.reason,
       "governs_lever_id": self.governs_lever_id,
+      "band_source": self.band_source,
+      "planning_mode_floor_applied": self.planning_mode_floor_applied,
+      "planning_mode_active": self.planning_mode_active,
+      "tolerated_issue_code": self.tolerated_issue_code,
     }
 
 
@@ -255,6 +266,111 @@ def _tolerance_bps_for_confidence(
 
 
 # ----------------------------------------------------------------------------
+# Phase 6 Step 5 — band-resolution helpers.
+# ----------------------------------------------------------------------------
+
+
+# Profitability metrics whose effective_min is floored by the active
+# planning_mode_policy.profitability_floor_q* values. Other metrics
+# ignore the floor.
+_PROFITABILITY_FLOOR_METRICS = frozenset({
+  "ebitda_margin",
+  "net_income_margin",
+  "operating_margin_percent",
+})
+
+
+# Mapping from realism metric_key (when violated below band) to the
+# planning_mode_policy.tolerated_issue_codes entry that, when listed for
+# the active mode, downgrades hard_fail to warn. Only configured for
+# metrics where the violation maps cleanly onto an issue code already
+# used by the convergence issue detector / planning_mode policy.
+_REALISM_METRIC_BELOW_BAND_TO_ISSUE_CODE: Dict[str, str] = {
+  "ebitda_margin": "mature_loss_state",
+  "net_income_margin": "mature_loss_state",
+  "operating_margin_percent": "mature_loss_state",
+  "gross_margin_percent": "early_revenue_under_run_rate",
+}
+
+
+def _profitability_floor_for_quarter(
+  policy: Optional[Dict[str, Any]], quarter_index: Optional[int],
+) -> Optional[float]:
+  """Return the planning_mode_policy.profitability_floor_q* value that
+  applies for the given quarter index, or None when no floor applies for
+  the active mode (e.g., turnaround Q1-Q10 where all floors are NULL).
+  """
+  if not isinstance(policy, dict) or quarter_index is None:
+    return None
+  q = int(quarter_index)
+  if q <= 0:
+    return None
+  if q <= 4:
+    raw = policy.get("profitability_floor_q1_q4")
+  elif q <= 10:
+    raw = policy.get("profitability_floor_q5_q10")
+  else:
+    raw = policy.get("profitability_floor_q11_q20")
+  if raw is None:
+    return None
+  try:
+    return float(raw)
+  except Exception:
+    return None
+
+
+def _phase_3_calibrated_band(
+  *,
+  solver_input_targets_payload: Optional[Dict[str, Any]],
+  metric_key: str,
+) -> Optional[Dict[str, Any]]:
+  """Return Phase 3 calibrated band for the metric, or None if absent.
+
+  The Phase 3 target-shaping consultant calibrates per-metric bands and
+  stamps them on solver_input.finmo_output_targets.metrics. When present
+  for the metric being validated, the realism gate prefers this
+  business-specific band over the static NAICS baseline.
+  """
+  if not isinstance(solver_input_targets_payload, dict):
+    return None
+  metrics = solver_input_targets_payload.get("metrics")
+  if not isinstance(metrics, dict):
+    return None
+  entry = metrics.get(metric_key)
+  if not isinstance(entry, dict):
+    return None
+  target_min = _safe_float(entry.get("target_min"))
+  target_max = _safe_float(entry.get("target_max"))
+  if target_min is None or target_max is None:
+    return None
+  return {
+    "target_min": target_min,
+    "target_max": target_max,
+    "target_target": _safe_float(entry.get("target_target")),
+    "calibration_source": (
+      ((entry.get("provenance") or {}).get("calibration_source"))
+      if isinstance(entry.get("provenance"), dict) else None
+    ),
+    "confidence_tier": (
+      ((entry.get("provenance") or {}).get("confidence_tier"))
+      if isinstance(entry.get("provenance"), dict) else None
+    ),
+  }
+
+
+def _planning_mode_policy(planning_mode: Optional[str]) -> Optional[Dict[str, Any]]:
+  if not planning_mode:
+    return None
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      post_intake_planning_mode_policy_for,
+    )
+    return post_intake_planning_mode_policy_for(planning_mode)
+  except Exception:
+    return None
+
+
+# ----------------------------------------------------------------------------
 # The validator.
 # ----------------------------------------------------------------------------
 
@@ -267,6 +383,8 @@ def validate_industry_realism_bands(
   ops_json: Optional[Dict[str, Any]] = None,
   financials_json: Optional[Dict[str, Any]] = None,
   rows_override: Optional[List[Dict[str, Any]]] = None,
+  solver_input_targets_payload: Optional[Dict[str, Any]] = None,
+  planning_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
   """Run the realism gate over the configured check rows.
 
@@ -276,12 +394,42 @@ def validate_industry_realism_bands(
 
   `rows_override` is for tests — production callers should let the
   validator load from `post_intake_finalize_realism_check_lookup`.
+
+  Phase 6 Step 5 — band-resolution cascade and planning-mode wiring:
+    1. Phase 3 calibrated band from
+       ``solver_input_targets_payload.metrics[metric_key]`` is preferred
+       when present. The Phase 3 target-shaping consultant calibrates
+       these per-metric bands per business; using them instead of the
+       static NAICS baseline closes the disconnect between "what the
+       solver targeted" and "what the gate accepts."
+    2. NAICS baseline is the fallback when Phase 3 didn't calibrate the
+       metric.
+    3. For profitability metrics (ebitda_margin / net_income_margin /
+       operating_margin_percent), the active planning_mode policy's
+       per-quarter ``profitability_floor_q*`` is enforced as a floor on
+       the effective minimum. None floor (e.g., turnaround Q1-Q10) leaves
+       the band unchanged. A non-None floor that's higher than the
+       resolved band's lower edge raises the effective_min to the floor.
+    4. Hard-fail violations are downgraded to warnings when the
+       metric's derived issue code (per
+       ``_REALISM_METRIC_BELOW_BAND_TO_ISSUE_CODE``) appears in the
+       planning_mode policy's tolerated_issue_codes list.
+
+  Every result records its band_source provenance so the run report
+  can audit which path resolved each metric's band.
   """
   rows = rows_override if rows_override is not None else post_intake_finalize_realism_check_rows()
   results: List[RealismCheckResult] = []
   warnings_list: List[Dict[str, Any]] = []
   ops = ops_json if isinstance(ops_json, dict) else {}
   financials = financials_json if isinstance(financials_json, dict) else {}
+  active_mode = str(planning_mode or "").strip().lower() or None
+  active_policy = _planning_mode_policy(active_mode)
+  tolerated_codes: set = set(
+    str(code or "").strip().lower()
+    for code in ((active_policy or {}).get("tolerated_issue_codes") or [])
+    if str(code or "").strip()
+  )
 
   # Lazy import the resolver so the validator module can be imported even
   # when the resolver package is not yet on sys.path (tests / migrations).
@@ -307,7 +455,14 @@ def validate_industry_realism_bands(
     else:
       quarter_indices = [None]
 
-    # Resolve the NAICS band once per row (independent of quarter).
+    # Phase 6 Step 5 — band resolution cascade. Phase 3 calibrated band
+    # is preferred when present; NAICS baseline is the fallback. The
+    # band_source provenance travels onto every RealismCheckResult so
+    # the run report can audit per-metric why each check used what.
+    phase_3_band = _phase_3_calibrated_band(
+      solver_input_targets_payload=solver_input_targets_payload,
+      metric_key=metric_key,
+    )
     naics_band: Optional[Dict[str, Any]] = None
     if business_naics_6:
       try:
@@ -317,14 +472,26 @@ def validate_industry_realism_bands(
       except Exception:
         naics_band = None
 
-    band_naics_code = (naics_band or {}).get("naics_code_used")
-    band_naics_level = (naics_band or {}).get("naics_level_used")
-    band_confidence = (naics_band or {}).get("confidence_tier")
-    band_data_source = (naics_band or {}).get("data_source")
-    band_trust_flag = (naics_band or {}).get("trust_flag")
-    band_target = (naics_band or {}).get("benchmark_target")
-    band_min = (naics_band or {}).get("benchmark_min")
-    band_max = (naics_band or {}).get("benchmark_max")
+    if phase_3_band is not None:
+      row_band_source = "phase_3_calibrated"
+      band_target = phase_3_band["target_target"]
+      band_min = phase_3_band["target_min"]
+      band_max = phase_3_band["target_max"]
+      band_confidence = phase_3_band.get("confidence_tier") or "high"
+      band_naics_code = (naics_band or {}).get("naics_code_used")
+      band_naics_level = (naics_band or {}).get("naics_level_used")
+      band_data_source = "phase_3_target_shaping_consultant"
+      band_trust_flag = phase_3_band.get("calibration_source") or "gpt_calibrated"
+    else:
+      row_band_source = "naics_baseline"
+      band_naics_code = (naics_band or {}).get("naics_code_used")
+      band_naics_level = (naics_band or {}).get("naics_level_used")
+      band_confidence = (naics_band or {}).get("confidence_tier")
+      band_data_source = (naics_band or {}).get("data_source")
+      band_trust_flag = (naics_band or {}).get("trust_flag")
+      band_target = (naics_band or {}).get("benchmark_target")
+      band_min = (naics_band or {}).get("benchmark_min")
+      band_max = (naics_band or {}).get("benchmark_max")
 
     # No coverage — handle per gate_kind.
     no_coverage = (
@@ -355,6 +522,8 @@ def validate_industry_realism_bands(
           status="skipped",
           reason="no_naics_coverage_skip_per_row_policy",
           governs_lever_id=governs_lever,
+          band_source=row_band_source,
+          planning_mode_active=active_mode,
         )
       )
       continue
@@ -385,6 +554,8 @@ def validate_industry_realism_bands(
           status="skipped",
           reason=f"no_tolerance_bps_for_confidence_tier_{band_confidence}",
           governs_lever_id=governs_lever,
+          band_source=row_band_source,
+          planning_mode_active=active_mode,
         )
       )
       continue
@@ -421,6 +592,8 @@ def validate_industry_realism_bands(
             status="skipped",
             reason=skip_reason,
             governs_lever_id=governs_lever,
+            band_source=row_band_source,
+            planning_mode_active=active_mode,
           )
         )
         continue
@@ -455,6 +628,8 @@ def validate_industry_realism_bands(
             status="skipped",
             reason=f"formula_error:{type(exc).__name__}:{exc}",
             governs_lever_id=governs_lever,
+            band_source=row_band_source,
+            planning_mode_active=active_mode,
           )
         )
         continue
@@ -481,6 +656,8 @@ def validate_industry_realism_bands(
             status="skipped",
             reason="formula_returned_none",
             governs_lever_id=governs_lever,
+            band_source=row_band_source,
+            planning_mode_active=active_mode,
           )
         )
         continue
@@ -516,6 +693,8 @@ def validate_industry_realism_bands(
             status="skipped",
             reason="band_min_max_missing",
             governs_lever_id=governs_lever,
+            band_source=row_band_source,
+            planning_mode_active=active_mode,
           )
         )
         continue
@@ -540,19 +719,59 @@ def validate_industry_realism_bands(
 
       lower = float(effective_min) - tolerance_units
       upper = float(effective_max) + tolerance_units
+
+      # Phase 6 Step 5 — apply planning_mode profitability floor for the
+      # configured profitability metrics. The floor enforces a minimum
+      # for the active mode/quarter; when the floor exceeds the band's
+      # post-tolerance lower edge, it raises lower to the floor and the
+      # band_source becomes "{prior_band_source}_with_planning_mode_floor".
+      # When the floor is None for the active mode/quarter (e.g.,
+      # turnaround Q1-Q10), the band is unchanged.
+      effective_band_source = row_band_source
+      planning_mode_floor: Optional[float] = None
+      if metric_key in _PROFITABILITY_FLOOR_METRICS and active_policy is not None:
+        floor = _profitability_floor_for_quarter(active_policy, q)
+        if floor is not None and float(floor) > lower:
+          lower = float(floor)
+          planning_mode_floor = float(floor)
+          effective_band_source = f"{row_band_source}_with_planning_mode_floor"
+
       in_band = lower <= float(actual) <= upper
 
       if in_band:
         status = "in_band"
         reason = ""
+        derived_issue_code: Optional[str] = None
       else:
-        status = "out_of_band_warn" if gate_kind == "warn" else "out_of_band_hard_fail"
+        below_band = float(actual) < lower
+        # Phase 6 Step 5 — derive an issue code for below-band hits;
+        # downgrade hard_fail to warn when the active planning_mode
+        # tolerates that issue code.
+        derived_issue_code = (
+          _REALISM_METRIC_BELOW_BAND_TO_ISSUE_CODE.get(metric_key)
+          if below_band else None
+        )
+        if (
+          gate_kind == "hard_fail"
+          and derived_issue_code is not None
+          and derived_issue_code in tolerated_codes
+        ):
+          status = "out_of_band_warn"
+          effective_band_source = (
+            f"{effective_band_source}_tolerated_per_planning_mode"
+          )
+        else:
+          status = "out_of_band_warn" if gate_kind == "warn" else "out_of_band_hard_fail"
         reason = (
           f"actual={float(actual):.6f} band=[{lower:.6f},{upper:.6f}] "
           f"target={(_safe_float(band_target) or 0.0):.6f} "
           f"tolerance_bps={tolerance_bps} confidence_tier={band_confidence} "
-          f"naics_level_used={band_naics_level}"
+          f"naics_level_used={band_naics_level} band_source={effective_band_source}"
         )
+        if planning_mode_floor is not None:
+          reason += f" planning_mode_floor={planning_mode_floor:.6f}"
+        if derived_issue_code is not None:
+          reason += f" derived_issue_code={derived_issue_code}"
 
       result = RealismCheckResult(
         metric_key=metric_key,
@@ -575,6 +794,14 @@ def validate_industry_realism_bands(
         status=status,
         reason=reason,
         governs_lever_id=governs_lever,
+        band_source=effective_band_source,
+        planning_mode_floor_applied=planning_mode_floor,
+        planning_mode_active=active_mode,
+        tolerated_issue_code=(
+          derived_issue_code
+          if (status == "out_of_band_warn" and derived_issue_code in tolerated_codes)
+          else None
+        ),
       )
       results.append(result)
 
