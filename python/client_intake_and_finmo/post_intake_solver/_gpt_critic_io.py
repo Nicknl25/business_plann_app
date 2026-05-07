@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 _DEFAULT_OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 _DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 _DEFAULT_TIMEOUT_SECONDS = 45.0
+# Phase 6 Step 2 — reproducible-output seed. temperature=0 minimizes but does
+# not eliminate OpenAI's sampling variance; the seed parameter (combined with
+# temperature=0) gives reproducible outputs across calls. Phase 3 consultants
+# run per-scope (per-lever / per-metric / per-conflict) and the diagnostic
+# value of "same scope key → same GPT amendment across runs" is high.
+_PHASE_3_CONSULTANT_SEED = 1729
 
 
 def _resolve_api_key() -> Optional[str]:
@@ -132,6 +138,7 @@ def call_gpt_with_schema_or_fallback(
   payload = {
     "model": model,
     "temperature": 0.0,
+    "seed": _PHASE_3_CONSULTANT_SEED,
     "input": [
       {
         "role": "system",

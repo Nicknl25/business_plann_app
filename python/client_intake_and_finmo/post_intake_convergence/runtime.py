@@ -51,6 +51,17 @@ _CONVERGENCE_DEFAULT_QUARTER_COUNT = int(
   )
   or 20
 )
+# Phase 6 Step 2 — reproducible-output seed for the unified_convergence_decision
+# OpenAI call. Combined with temperature=0, the seed parameter bounds OpenAI's
+# residual sampling variance (documented at
+# https://platform.openai.com/docs/guides/text-generation/reproducible-outputs).
+# Without it, the Phase 5.2 audit observed Sunny Glaze hitting different
+# planner-status failures across consecutive runs of the same intake — a
+# symptom of unseeded cross-call variance in the legacy gpt-5.1 planner.
+# Stamped onto both the initial planner payload and its validation-retry
+# payload so the retry's "fix the contract" prompt deterministically
+# corresponds to the original prompt.
+_UNIFIED_CONVERGENCE_DECISION_SEED = 1729
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
 _CONVERGENCE_MAX_FOCUS_LEVER_FAMILIES = 3
 _CONVERGENCE_MAX_FOCUS_DRIVER_PATHS = 12
@@ -3157,6 +3168,7 @@ def _run_unified_convergence_openai(
   payload = {
     "model": _openai_model(),
     "temperature": 0,
+    "seed": _UNIFIED_CONVERGENCE_DECISION_SEED,
     "input": [
       {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
       {"role": "user", "content": [{"type": "input_text", "text": json.dumps(planner_input_packet, ensure_ascii=False)}]},
@@ -3412,6 +3424,7 @@ def _run_unified_convergence_openai(
     retry_payload = {
       "model": payload.get("model"),
       "temperature": payload.get("temperature", 0),
+      "seed": payload.get("seed", _UNIFIED_CONVERGENCE_DECISION_SEED),
       "input": [
         {"role": "system", "content": [{"type": "input_text", "text": retry_system_prompt}]},
         {
