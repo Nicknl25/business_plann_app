@@ -309,6 +309,31 @@ def _repair_summary(repair: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 # --- Top-level cascade ---------------------------------------------------
 
 
+def _starting_tier_for_abort_reason(abort_reason: Optional[str]) -> int:
+  """Phase 6 Step 8 — pick the cascade tier that best matches the
+  abort_reason from the inner runner. Lower-numbered tiers are tried
+  first; the cascade always walks 1 -> 7 sequentially, so this is a
+  starting tier, not the only tier attempted.
+
+  Mapping per Phase 6 directive:
+    convergence_total_phase_budget_exceeded → Tier 1
+        (walk back GPT band amendments — less-aggressive bands mean
+         fewer cycles needed, fewer cycles fit in budget)
+    solver_not_invoked → Tier 1
+        (zero editable cells; walk back GPT band amendments to restore
+         editability; Tier 4 broader lever set is the next step)
+    no_meaningful_progress → Tier 5
+        (planning_mode shift to turnaround relaxes posture and floor
+         constraints, breaking the stuck pattern)
+
+  Unknown / unspecified abort_reason → Tier 1 (least invasive default).
+  """
+  reason = str(abort_reason or "").strip().lower()
+  if reason == "no_meaningful_progress":
+    return 5
+  return 1
+
+
 def run_adaptation_cascade(
   *,
   pre_input: Dict[str, Any],
@@ -334,10 +359,20 @@ def run_adaptation_cascade(
   business_naics_6: Optional[str] = None,
   business_stage: Optional[str] = None,
   horizon: int = 20,
+  abort_reason: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
   """Walk tiers 1->7 until a tier lands. Returns (final_result_payload,
-  plan_confidence, cascade_diagnostics). Tier 7 is the structural floor."""
+  plan_confidence, cascade_diagnostics). Tier 7 is the structural floor.
+
+  Phase 6 Step 8 — when ``abort_reason`` is supplied (set by the
+  orchestrator when the inner runner returned status=abort_for_cascade),
+  the cascade selects a starting tier matched to that reason instead of
+  always Tier 1. Tiers below the start tier are still attempted IF
+  later tiers fail, but they're attempted in their normal slot — the
+  starting tier is only a starting point optimization, not a skip.
+  """
   attempts: List[CascadeAttempt] = []
+  starting_tier = _starting_tier_for_abort_reason(abort_reason)
 
   def _retry_post_flight(
     *, envelope: Dict[str, Any], targets: Dict[str, Any], influence: Dict[str, Any],
@@ -428,92 +463,125 @@ def run_adaptation_cascade(
       skip_reason=reason,
     ))
 
+  # Phase 6 Step 8 — when starting_tier > 1, the orchestrator's
+  # abort_reason chose to skip ahead. Tiers prior to starting_tier are
+  # recorded as skipped (with a reason carrying the abort_reason) so
+  # the run report still shows the full attempt history. The cascade
+  # then walks the remaining tiers in their normal sequence; Tier 7 is
+  # the final structural floor regardless of starting tier.
+  skip_reason_for_jump = (
+    f"skipped_per_abort_reason={str(abort_reason or '').strip().lower() or 'unknown'}"
+  )
+
   # Tier 1: GPT band walk-back
-  t1_env, reverted = _envelope_with_gpt_bands_reverted(envelope_payload_post)
-  if reverted:
-    repair, residuals = _retry_post_flight(
-      envelope=t1_env, targets=targets_payload_post, influence=influence_payload,
-    )
-    if not residuals:
-      return _land(tier=1, name="gpt_band_relaxation",
-                   confidence=PLAN_CONFIDENCE_GPT_BAND_RELAXATION,
-                   mods={"reverted_lever_ids": reverted}, repair=repair, inner=inner_result)
-    _record_failed(tier=1, name="gpt_band_relaxation",
-                   mods={"reverted_lever_ids": reverted},
-                   residuals=residuals, repair=repair)
-  else:
+  if starting_tier > 1:
     _record_skipped(tier=1, name="gpt_band_relaxation",
-                    reason="no_gpt_calibrated_drivers_to_revert")
+                    reason=skip_reason_for_jump)
+  else:
+    t1_env, reverted = _envelope_with_gpt_bands_reverted(envelope_payload_post)
+    if reverted:
+      repair, residuals = _retry_post_flight(
+        envelope=t1_env, targets=targets_payload_post, influence=influence_payload,
+      )
+      if not residuals:
+        return _land(tier=1, name="gpt_band_relaxation",
+                     confidence=PLAN_CONFIDENCE_GPT_BAND_RELAXATION,
+                     mods={"reverted_lever_ids": reverted}, repair=repair, inner=inner_result)
+      _record_failed(tier=1, name="gpt_band_relaxation",
+                     mods={"reverted_lever_ids": reverted},
+                     residuals=residuals, repair=repair)
+    else:
+      _record_skipped(tier=1, name="gpt_band_relaxation",
+                      reason="no_gpt_calibrated_drivers_to_revert")
 
   # Tier 2: cohort walk-back
-  t2_env, walked = _envelope_with_cohort_walked_back(
-    envelope_payload_post, cascade_resolver=_build_cascade_resolver_callable(),
-  )
-  if walked:
+  if starting_tier > 2:
+    _record_skipped(tier=2, name="cohort_fallback",
+                    reason=skip_reason_for_jump)
+  else:
+    t2_env, walked = _envelope_with_cohort_walked_back(
+      envelope_payload_post, cascade_resolver=_build_cascade_resolver_callable(),
+    )
+    if walked:
+      repair, residuals = _retry_post_flight(
+        envelope=t2_env, targets=targets_payload_post, influence=influence_payload,
+      )
+      if not residuals:
+        return _land(tier=2, name="cohort_fallback",
+                     confidence=PLAN_CONFIDENCE_COHORT_FALLBACK,
+                     mods={"walked_back_lever_ids": walked}, repair=repair, inner=inner_result)
+      _record_failed(tier=2, name="cohort_fallback",
+                     mods={"walked_back_lever_ids": walked},
+                     residuals=residuals, repair=repair)
+    else:
+      _record_skipped(tier=2, name="cohort_fallback",
+                      reason="no_cohort_matched_drivers_to_walk_back")
+
+  # Tier 3: target tolerance widening (warn first, then hard_fail).
+  # When skipped per abort_reason, t3b_targets still needs a value for
+  # downstream tiers — fall back to the original targets_payload_post.
+  if starting_tier > 3:
+    _record_skipped(tier=3, name="target_tolerance_widened",
+                    reason=skip_reason_for_jump)
+    t3b_targets = targets_payload_post
+    widened_warn = []
+    widened_hard = []
+  else:
+    # Tier 3a: warn-mode widening
+    t3a_targets, widened_warn = _targets_with_widened_tolerance(
+      targets_payload_post, factor=_TARGET_TOLERANCE_WIDENING, only_gate_kinds=["warn"],
+    )
     repair, residuals = _retry_post_flight(
-      envelope=t2_env, targets=targets_payload_post, influence=influence_payload,
+      envelope=envelope_payload_post, targets=t3a_targets, influence=influence_payload,
     )
     if not residuals:
-      return _land(tier=2, name="cohort_fallback",
-                   confidence=PLAN_CONFIDENCE_COHORT_FALLBACK,
-                   mods={"walked_back_lever_ids": walked}, repair=repair, inner=inner_result)
-    _record_failed(tier=2, name="cohort_fallback",
-                   mods={"walked_back_lever_ids": walked},
+      return _land(tier=3, name="target_tolerance_widened",
+                   confidence=PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
+                   mods={"widened_warn_metric_keys": widened_warn,
+                         "factor": _TARGET_TOLERANCE_WIDENING},
+                   repair=repair, inner=inner_result)
+    # Tier 3b: also widen hard_fail
+    t3b_targets, widened_hard = _targets_with_widened_tolerance(
+      t3a_targets, factor=_TARGET_TOLERANCE_WIDENING, only_gate_kinds=["hard_fail"],
+    )
+    repair, residuals = _retry_post_flight(
+      envelope=envelope_payload_post, targets=t3b_targets, influence=influence_payload,
+    )
+    if not residuals:
+      return _land(tier=3, name="target_tolerance_widened",
+                   confidence=PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
+                   mods={"widened_warn_metric_keys": widened_warn,
+                         "widened_hard_fail_metric_keys": widened_hard,
+                         "factor": _TARGET_TOLERANCE_WIDENING},
+                   repair=repair, inner=inner_result)
+    _record_failed(tier=3, name="target_tolerance_widened",
+                   mods={"widened_warn_metric_keys": widened_warn,
+                         "widened_hard_fail_metric_keys": widened_hard,
+                         "factor": _TARGET_TOLERANCE_WIDENING},
                    residuals=residuals, repair=repair)
-  else:
-    _record_skipped(tier=2, name="cohort_fallback",
-                    reason="no_cohort_matched_drivers_to_walk_back")
-
-  # Tier 3a: warn-mode widening
-  t3a_targets, widened_warn = _targets_with_widened_tolerance(
-    targets_payload_post, factor=_TARGET_TOLERANCE_WIDENING, only_gate_kinds=["warn"],
-  )
-  repair, residuals = _retry_post_flight(
-    envelope=envelope_payload_post, targets=t3a_targets, influence=influence_payload,
-  )
-  if not residuals:
-    return _land(tier=3, name="target_tolerance_widened",
-                 confidence=PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
-                 mods={"widened_warn_metric_keys": widened_warn,
-                       "factor": _TARGET_TOLERANCE_WIDENING},
-                 repair=repair, inner=inner_result)
-  # Tier 3b: also widen hard_fail
-  t3b_targets, widened_hard = _targets_with_widened_tolerance(
-    t3a_targets, factor=_TARGET_TOLERANCE_WIDENING, only_gate_kinds=["hard_fail"],
-  )
-  repair, residuals = _retry_post_flight(
-    envelope=envelope_payload_post, targets=t3b_targets, influence=influence_payload,
-  )
-  if not residuals:
-    return _land(tier=3, name="target_tolerance_widened",
-                 confidence=PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
-                 mods={"widened_warn_metric_keys": widened_warn,
-                       "widened_hard_fail_metric_keys": widened_hard,
-                       "factor": _TARGET_TOLERANCE_WIDENING},
-                 repair=repair, inner=inner_result)
-  _record_failed(tier=3, name="target_tolerance_widened",
-                 mods={"widened_warn_metric_keys": widened_warn,
-                       "widened_hard_fail_metric_keys": widened_hard,
-                       "factor": _TARGET_TOLERANCE_WIDENING},
-                 residuals=residuals, repair=repair)
 
   # Tier 4: influence-map breadth expansion
-  t4_influence = _influence_map_without_targeting_allowed_filter()
-  if t4_influence and t4_influence.get("metrics"):
-    repair, residuals = _retry_post_flight(
-      envelope=envelope_payload_post, targets=t3b_targets, influence=t4_influence,
-    )
-    if not residuals:
-      return _land(tier=4, name="supplementary_levers_used",
-                   confidence=PLAN_CONFIDENCE_SUPPLEMENTARY_LEVERS,
-                   mods={"influence_map_targeting_allowed_filter": "removed"},
-                   repair=repair, inner=inner_result)
-    _record_failed(tier=4, name="supplementary_levers_used",
-                   mods={"influence_map_targeting_allowed_filter": "removed"},
-                   residuals=residuals, repair=repair)
-  else:
+  if starting_tier > 4:
     _record_skipped(tier=4, name="supplementary_levers_used",
-                    reason="influence_map_rebuild_failed_or_empty")
+                    reason=skip_reason_for_jump)
+    t4_influence = None
+  else:
+    t4_influence = _influence_map_without_targeting_allowed_filter()
+    if t4_influence and t4_influence.get("metrics"):
+      repair, residuals = _retry_post_flight(
+        envelope=envelope_payload_post, targets=t3b_targets, influence=t4_influence,
+      )
+      if not residuals:
+        return _land(tier=4, name="supplementary_levers_used",
+                     confidence=PLAN_CONFIDENCE_SUPPLEMENTARY_LEVERS,
+                     mods={"influence_map_targeting_allowed_filter": "removed"},
+                     repair=repair, inner=inner_result)
+      _record_failed(tier=4, name="supplementary_levers_used",
+                     mods={"influence_map_targeting_allowed_filter": "removed"},
+                     residuals=residuals, repair=repair)
+    else:
+      _record_skipped(tier=4, name="supplementary_levers_used",
+                      reason="influence_map_rebuild_failed_or_empty")
 
   # Tier 5: planning_mode shift to turnaround
   if _clean_text(original_planning_mode).lower() != "turnaround":

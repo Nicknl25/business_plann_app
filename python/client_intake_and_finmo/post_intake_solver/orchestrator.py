@@ -799,6 +799,7 @@ def run_target_seeking_orchestrated_system_run(
       business_naics_6=business_naics_6_for_cascade or None,
       business_stage=business_stage_for_cascade or None,
       horizon=horizon,
+      abort_reason=inner_runner_abort_reason,
     )
     diagnostics["adaptation_cascade"] = cascade_diagnostics
     final_model_input_json = final_payload.get("model_input_json") or final_model_input_json
