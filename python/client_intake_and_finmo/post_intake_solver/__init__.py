@@ -48,6 +48,12 @@ from client_intake_and_finmo.post_intake_solver.schedule_tweak import (  # noqa:
 from client_intake_and_finmo.post_intake_solver.target_seeking_loop import (  # noqa: F401
   run_target_seeking_solver,
 )
+from client_intake_and_finmo.post_intake_solver.orchestrator import (  # noqa: F401
+  run_target_seeking_orchestrated_system_run,
+)
+from client_intake_and_finmo.post_intake_solver.inner_joint_fit_adapter import (  # noqa: F401
+  build_inner_joint_fit_adapter,
+)
 
 __all__ = [
   "DRIVER_MOVEMENT_ENVELOPE_KEY",
@@ -55,10 +61,12 @@ __all__ = [
   "assemble_driver_movement_envelope",
   "assemble_finmo_output_targets",
   "assert_solver_respected_targets",
+  "build_inner_joint_fit_adapter",
   "default_value_for_lever",
   "driver_influence_map",
   "request_capex_schedule_recompute",
   "request_debt_schedule_recompute",
   "request_payroll_schedule_recompute",
+  "run_target_seeking_orchestrated_system_run",
   "run_target_seeking_solver",
 ]

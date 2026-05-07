@@ -196,6 +196,10 @@ def run_target_seeking_solver(
   influence_map_payload: Optional[Dict[str, Any]] = None,
   max_iterations: int = _DEFAULT_MAX_ITERATIONS,
   numeric_tolerance: float = _DEFAULT_NUMERIC_TOLERANCE,
+  inner_joint_fit_callable: Optional[
+    Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]
+  ] = None,
+  inner_joint_fit_after_iterations: int = 6,
 ) -> Dict[str, Any]:
   """Run the target-seeking outer loop.
 
@@ -252,6 +256,9 @@ def run_target_seeking_solver(
   final_finmo: Dict[str, Any] = {}
   iterations_used = 0
   pinned_keys: set[Tuple[str, str]] = set()
+  iterations_since_progress = 0
+  last_severity: Optional[float] = None
+  inner_invocations = 0
 
   for iteration in range(1, int(max(1, max_iterations)) + 1):
     iterations_used = iteration
@@ -266,6 +273,7 @@ def run_target_seeking_solver(
         "status": "converged",
         "iterations_used": iterations_used,
         "trace": trace,
+        "inner_invocations": inner_invocations,
         "final_model_input_json": state_input,
         "final_finmo_json": final_finmo,
       }
@@ -276,6 +284,7 @@ def run_target_seeking_solver(
         "iterations_used": iterations_used,
         "trace": trace,
         "worst_unresolved": worst,
+        "inner_invocations": inner_invocations,
         "final_model_input_json": state_input,
         "final_finmo_json": final_finmo,
       }
@@ -297,12 +306,55 @@ def run_target_seeking_solver(
       desired_direction=desired_direction,
       current_lever_values=current_lever_values,
     )
+    # Track progress against severity. Stagnation after a configurable
+    # number of iterations triggers the inner-joint-fit adapter (if the
+    # caller supplied one) so the outer loop can delegate gap-closing to
+    # the existing scipy/issue-code solver for joint multi-lever fitting.
+    if last_severity is None or worst["severity"] < last_severity - numeric_tolerance:
+      iterations_since_progress = 0
+    else:
+      iterations_since_progress += 1
+    last_severity = worst["severity"]
+    invoke_inner = (
+      inner_joint_fit_callable is not None
+      and iterations_since_progress >= max(1, int(inner_joint_fit_after_iterations))
+    )
+    if invoke_inner:
+      try:
+        inner_result = inner_joint_fit_callable(state_input, worst)
+      except Exception as exc:
+        inner_result = {"status": "inner_joint_fit_raised", "detail": str(exc)}
+      inner_invocations += 1
+      if isinstance(inner_result, dict) and isinstance(inner_result.get("model_input_json"), dict):
+        state_input = inner_result["model_input_json"]
+        trace.append({
+          "iteration": iteration,
+          "worst_metric": worst["metric_key"],
+          "worst_quarter_index": worst.get("quarter_index"),
+          "worst_residual_before": worst["residual"],
+          "chosen_tool": "inner_joint_fit_adapter",
+          "inner_status": _clean_text(inner_result.get("status")) or "completed",
+          "inner_invocation": inner_invocations,
+        })
+        iterations_since_progress = 0
+        last_severity = None
+        continue
+      else:
+        trace.append({
+          "iteration": iteration,
+          "worst_metric": worst["metric_key"],
+          "chosen_tool": "inner_joint_fit_adapter",
+          "inner_status": "no_progress",
+          "inner_detail": (inner_result or {}).get("detail") if isinstance(inner_result, dict) else None,
+        })
+
     if pick is None or pick.get("room", 0.0) <= numeric_tolerance:
       return {
         "status": "stuck_pinned",
         "iterations_used": iterations_used,
         "trace": trace,
         "worst_unresolved": worst,
+        "inner_invocations": inner_invocations,
         "final_model_input_json": state_input,
         "final_finmo_json": final_finmo,
       }
@@ -312,6 +364,7 @@ def run_target_seeking_solver(
         "iterations_used": iterations_used,
         "trace": trace,
         "worst_unresolved": worst,
+        "inner_invocations": inner_invocations,
         "final_model_input_json": state_input,
         "final_finmo_json": final_finmo,
       }
@@ -344,6 +397,7 @@ def run_target_seeking_solver(
     "status": "max_iterations_reached",
     "iterations_used": iterations_used,
     "trace": trace,
+    "inner_invocations": inner_invocations,
     "final_model_input_json": state_input,
     "final_finmo_json": final_finmo,
   }

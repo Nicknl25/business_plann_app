@@ -74,7 +74,6 @@ from client_intake_and_finmo.post_intake_convergence import (  # type: ignore
   full_horizon_retry_scope_mode as convergence_full_horizon_retry_scope_mode,
   retry_scope_lever_ids as convergence_retry_scope_lever_ids,
   retry_scope_quarters as convergence_retry_scope_quarters,
-  run_unified_post_grid_system_run,
   subset_numeric_solver_contract as convergence_subset_numeric_solver_contract,
   unified_convergence_contract_constraints,
   validate_unified_convergence_contract_horizon,
@@ -6691,7 +6690,16 @@ def _run_unified_post_grid_system_run(
   payroll_headcount: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   _bind_post_intake_runtime_dependencies()
-  return run_unified_post_grid_system_run(
+  # Phase 2.5: the target-seeking orchestrator is the authoritative top-
+  # level convergence path. The existing scipy/issue-code solver in
+  # numeric_solver.py and post_intake_convergence/runtime.py is repositioned
+  # as an inner tool the outer loop calls when single-driver bisection
+  # cannot close a numeric gap. The orchestrator's signature mirrors
+  # run_unified_post_grid_system_run so this swap is a drop-in.
+  from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+    run_target_seeking_orchestrated_system_run,
+  )
+  return run_target_seeking_orchestrated_system_run(
     conn=conn,
     draft_id=draft_id,
     planning_run_id=planning_run_id,
