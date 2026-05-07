@@ -162,6 +162,9 @@ PHASE_3_GPT_TEST_MODE_FAIL_FLAGS: Set[str] = {
   "band_amendment_invalid_point_band",
   "band_amendment_invalid_applicability_flip",
   "band_amendment_violates_width_buffer",
+  # Phase 6 Step 4 — GPT may not remove a gpt_editable lever from the
+  # convergence solver's editable set via the applicability flag.
+  "band_amendment_invalid_applicability_flip_on_gpt_editable_lever",
   # Pre-solver joint feasibility (Phase 5.2 R3)
   "joint_feasibility_check_failed",
 }

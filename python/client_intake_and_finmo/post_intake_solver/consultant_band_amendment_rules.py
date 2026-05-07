@@ -95,6 +95,26 @@ def _python_proposer_band_width(original_entry: Dict[str, Any]) -> Optional[floa
   return max(0.0, float(mx) - float(mn))
 
 
+def _gpt_editable_lookup(lever_id: str) -> str:
+  """Return lowercase ``control_owner`` for a lever from the mapping table.
+
+  Returns empty string when the lever isn't in the mapping table or when
+  the lookup cannot be performed (e.g., during unit tests with no DB).
+  Used to gate applicability-flip restriction for the convergence
+  solver's degrees-of-freedom (the gpt_editable subset).
+  """
+  try:
+    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+      post_intake_driver_target_mapping_entry,
+    )
+    entry = post_intake_driver_target_mapping_entry(lever_id)
+  except Exception:
+    return ""
+  if not isinstance(entry, dict):
+    return ""
+  return _clean_text(entry.get("control_owner")).lower()
+
+
 def validate_band_amendment(
   *,
   lever_id: str,
@@ -127,6 +147,30 @@ def validate_band_amendment(
 
   # Mechanic 2: applicability flip restriction
   if original_applicable and not bool(proposed_applicable):
+    # Phase 6 Step 4: gpt_editable levers are the convergence solver's
+    # degrees of freedom (the ~8 levers with control_owner='gpt_editable'
+    # in post_intak_mapping_lookup). GPT may tighten their bands within
+    # the width buffer but may NOT remove them from the editable set via
+    # the applicability flag — flipping them collapses the band to
+    # [0, 0, 0] and starves the full_horizon_model_input_repair_contract
+    # of editable cells, which produced Sunny Glaze's
+    # `failed_missing_full_horizon_model_input_contract` failure mode.
+    control_owner = _gpt_editable_lookup(lever)
+    if control_owner == "gpt_editable":
+      _ff_raise(
+        "band_amendment_invalid_applicability_flip_on_gpt_editable_lever",
+        f"GPT proposed applicable=false for {lever!r} but the lever's "
+        f"mapping-table control_owner is 'gpt_editable'; gpt_editable "
+        "levers are the convergence solver's degrees of freedom and "
+        "may not be removed from the editable set via the applicability "
+        "flag. Tightening within the width buffer is allowed.",
+        details={
+          "lever_id": lever,
+          "proposed_applicable": False,
+          "original_applicable": True,
+          "control_owner": control_owner,
+        },
+      )
     if applicability_reason == _APPLICABILITY_REASON_NO_RULE:
       _ff_raise(
         "band_amendment_invalid_applicability_flip",
