@@ -929,6 +929,7 @@ def _run_unified_post_grid_system_run(
       issue_status_records=copy.deepcopy(realism_issue_ledger),
       iteration=0,
       current_finmo_json=copy.deepcopy(final_finmo_json),
+      planning_mode=planning_mode,
     )
     return {
       "resolution_summary": summary_payload,
@@ -1173,6 +1174,7 @@ def _run_unified_post_grid_system_run(
         issue_status_records=copy.deepcopy(realism_issue_ledger),
         iteration=iteration,
         current_finmo_json=copy.deepcopy(final_finmo_json),
+        planning_mode=planning_mode,
       )
       return {
         "resolution_summary": summary_payload,
@@ -2242,6 +2244,7 @@ def _run_unified_post_grid_system_run(
         issue_status_records=copy.deepcopy(realism_issue_ledger),
         iteration=next_iteration,
         current_finmo_json=copy.deepcopy(final_finmo_json),
+        planning_mode=planning_mode,
       )
       protected_resolved_issue_constraints = _build_strategy_resolved_issue_constraints(
         copy.deepcopy(realism_issue_ledger)

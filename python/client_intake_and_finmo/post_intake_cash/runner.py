@@ -3771,6 +3771,7 @@ def _validate_cash_strategy_post_pass(
   candidate_model_input_json: Optional[Dict[str, Any]],
   candidate_finmo_json: Optional[Dict[str, Any]],
   iteration: int,
+  planning_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
   scan_memo = {
     "contract_version": "post_intake_deterministic_cash_validation_v1",
@@ -3796,6 +3797,7 @@ def _validate_cash_strategy_post_pass(
     issue_status_records=copy.deepcopy(refreshed_issue_ledger),
     iteration=iteration,
     current_finmo_json=copy.deepcopy(candidate_finmo_json or {}),
+    planning_mode=planning_mode,
   )
   hard_rule_assessment = _build_unified_hard_rule_assessment(
     controller_resolution_state=copy.deepcopy(controller_resolution_state),

@@ -9,7 +9,7 @@ import calendar
 import logging
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from client_intake_and_finmo.post_intake_mapping import (
   post_intake_contract_forecast_horizon_quarter_count,
@@ -938,6 +938,7 @@ def _controller_issue_completion_snapshot(
   *,
   quarter_count: int = _CONVERGENCE_DEFAULT_QUARTER_COUNT,
   current_finmo_json: Optional[Dict[str, Any]] = None,
+  planning_mode_tolerated_codes: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
   record = item if isinstance(item, dict) else {}
   total_quarters = max(1, int(_safe_float(quarter_count) or _CONVERGENCE_DEFAULT_QUARTER_COUNT))
@@ -1025,35 +1026,65 @@ def _controller_issue_completion_snapshot(
   if average_relevant_score_pct < _CONVERGENCE_ISSUE_PASS_SCORE_PCT:
     closure_reasons.append("average_issue_score_below_closure_threshold")
   all_metric_specs_within_boundary = all(bool(spec.get("within_boundary")) for spec in metric_specs)
+  # Phase 6 Step 6 — planning_mode policy honors. When the active mode's
+  # tolerated_issue_codes list includes this issue's code, the issue is
+  # tolerated regardless of score thresholds. Hard issues
+  # (table_policy_disallows_tolerating_this_issue) are still excepted —
+  # the planning_mode policy can't override the issue's intrinsic
+  # tolerance_allowed gate (config decision: a "do not tolerate this
+  # issue ever" mapping row beats a "tolerate this issue in turnaround"
+  # planning mode policy).
+  policy_tolerated_set: Set[str] = {
+    str(code or "").strip().lower()
+    for code in (planning_mode_tolerated_codes or [])
+    if str(code or "").strip()
+  }
+  issue_code_norm = str(record.get("issue_code") or "").strip().lower()
+  tolerated_via_planning_mode = bool(
+    issue_code_norm
+    and issue_code_norm in policy_tolerated_set
+    and not hard_issue
+    and tolerance_allowed
+  )
   if verifier_status == "resolved":
     effective_status = "resolved"
+    tolerated_via = None
   elif hard_issue:
     effective_status = (
       "resolved"
       if all_metric_specs_within_boundary
       else "open"
     )
+    tolerated_via = None
   elif not tolerance_allowed:
     effective_status = (
       "resolved"
       if all_metric_specs_within_boundary
       else "open"
     )
+    tolerated_via = None
   elif all_metric_specs_within_boundary:
     effective_status = "resolved"
+    tolerated_via = None
+  elif tolerated_via_planning_mode:
+    effective_status = "tolerated"
+    tolerated_via = "planning_mode_policy"
   elif (
     lowest_relevant_score_pct >= _CONVERGENCE_ISSUE_WARN_SCORE_PCT
     and average_relevant_score_pct >= _CONVERGENCE_ISSUE_PASS_SCORE_PCT
   ):
     effective_status = "tolerated"
+    tolerated_via = "score_threshold"
   else:
     effective_status = "open"
+    tolerated_via = None
   completion_score_pct = average_relevant_score_pct
   return {
     "issue_code": str(record.get("issue_code") or "").strip().lower(),
     "verifier_status": verifier_status,
     "effective_status": effective_status,
     "blocking": effective_status == "open",
+    "tolerated_via": tolerated_via,
     "remaining_issue_materiality": materiality,
     "remaining_issue_severity_score": severity,
     "completion_score_pct": completion_score_pct,
@@ -5697,10 +5728,26 @@ def _build_controller_resolution_state_from_issue_ledger(
   verification_payload: Optional[Dict[str, Any]] = None,
   issue_keys: Optional[List[str]] = None,
   current_finmo_json: Optional[Dict[str, Any]] = None,
+  planning_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
   filtered_records = _filter_issue_status_records(issue_status_records, issue_keys)
   full_records = _clone_issue_status_records(_filter_issue_status_records(issue_status_records, None))
   detected_records = filtered_records if issue_keys else full_records
+  # Phase 6 Step 6 — resolve the active planning_mode policy's
+  # tolerated_issue_codes once per call so each per-issue completion
+  # snapshot below uses the same policy.
+  planning_mode_tolerated_codes: List[str] = []
+  if planning_mode:
+    try:
+      from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+        post_intake_planning_mode_policy_for,
+      )
+      pm_policy = post_intake_planning_mode_policy_for(planning_mode) or {}
+      planning_mode_tolerated_codes = list(
+        pm_policy.get("tolerated_issue_codes") or []
+      )
+    except Exception:
+      planning_mode_tolerated_codes = []
   detected_issues = [
     _controller_issue_public_record(
       item,
@@ -5718,6 +5765,7 @@ def _build_controller_resolution_state_from_issue_ledger(
       _controller_issue_completion_snapshot(
         item,
         current_finmo_json=current_finmo_json,
+        planning_mode_tolerated_codes=planning_mode_tolerated_codes,
       ).get("effective_status")
       or ""
     ).strip().lower() == "resolved"
@@ -5732,6 +5780,7 @@ def _build_controller_resolution_state_from_issue_ledger(
       _controller_issue_completion_snapshot(
         item,
         current_finmo_json=current_finmo_json,
+        planning_mode_tolerated_codes=planning_mode_tolerated_codes,
       ).get("effective_status")
       or ""
     ).strip().lower() == "tolerated"
@@ -5746,6 +5795,7 @@ def _build_controller_resolution_state_from_issue_ledger(
       _controller_issue_completion_snapshot(
         item,
         current_finmo_json=current_finmo_json,
+        planning_mode_tolerated_codes=planning_mode_tolerated_codes,
       ).get("blocking")
     )
   ]
