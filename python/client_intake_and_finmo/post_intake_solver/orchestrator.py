@@ -659,19 +659,83 @@ def run_target_seeking_orchestrated_system_run(
     "final_hard_fail_count": len(final_hard_fails),
   }
 
+  # Phase 3.7: when post-flight repair leaves hard_fail residuals, hand
+  # off to the adaptation cascade. The cascade walks tiers 1->7 of
+  # progressively more permissive inputs until a plan lands. Tier 7 is
+  # structurally guaranteed to produce a plan via pure NAICS-cascade
+  # defaults + maximally permissive planning_mode + 2x target tolerance.
+  # The terminal raise is reserved for genuine internal bugs (the
+  # cascade module itself crashing); band-respecting failures are now
+  # always converted into a plan with a confidence indicator.
+  plan_confidence: str = "high_no_adaptation"
+  cascade_diagnostics: Optional[Dict[str, Any]] = None
   if final_hard_fails:
-    failure_message = _band_respecting_failure_diagnostic(
-      pass_result=repair_pass or pre_pass,
-      envelope_payload=envelope_payload_post,
-      targets_payload=targets_payload_post,
+    from client_intake_and_finmo.post_intake_solver.adaptation_cascade import (  # type: ignore
+      run_adaptation_cascade,
     )
-    diagnostics["final_failure"] = failure_message
-    raise ValueError(
-      "target_seeking_outer_loop_unresolved: "
-      + (failure_message or "post_flight repair could not bring all hard_fail metrics into target ranges")
-      + " | residual_violations="
-      + str(final_hard_fails[:6])
+    inner_runner_kwargs = {
+      "conn": conn,
+      "draft_id": draft_id,
+      "planning_run_id": planning_run_id,
+      "business_facts": business_facts,
+      "planning_context_summary_json": planning_context_summary_json,
+      "ops_json": ops_json,
+      "target_market_json": target_market_json,
+      "people_json": people_json,
+      "financials_json": financials_json,
+      "financials_year1_json": financials_year1_json,
+      "fulfillment_json": fulfillment_json,
+      "marketing_model_json": marketing_model_json,
+      "planning_mode": planning_mode,
+      "planning_mode_reason": planning_mode_reason,
+      "planning_result": planning_result,
+      "grid_application_summary": grid_application_summary,
+      "catalog_source_model_input_json": catalog_source_model_input_json,
+      "applied_finmo_json": applied_finmo_json,
+      "stage_ramp_contract": stage_ramp_contract,
+      "payroll_headcount": payroll_headcount,
+    }
+    original_stage_family: Optional[str] = None
+    if isinstance(stage_ramp_contract, dict):
+      original_stage_family = _clean_text(stage_ramp_contract.get("stage_family")) or None
+    business_naics_6_for_cascade = ""
+    if isinstance(ops_json, dict):
+      business_naics_6_for_cascade = "".join(
+        ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
+      )
+    business_stage_for_cascade = (
+      _clean_text((business_facts or {}).get("fact_template", {}).get("business_stage"))
+      if isinstance(business_facts, dict) else ""
     )
+    final_payload, plan_confidence, cascade_diagnostics = run_adaptation_cascade(
+      pre_input=pre_input,
+      post_inner_model=post_inner_model,
+      inner_result=inner_result,
+      final_finmo_json=final_finmo_json or {},
+      envelope_payload_post=envelope_payload_post or {},
+      targets_payload_post=targets_payload_post or {},
+      influence_payload=influence_payload or {},
+      final_hard_fails=final_hard_fails,
+      pre_pass=pre_pass,
+      repair_pass=repair_pass,
+      build_finmo_callable=build_finmo_callable,
+      apply_lever_callable=apply_lever_callable,
+      run_target_seeking_pass_callable=_run_target_seeking_pass,
+      hard_fail_violations_callable=_hard_fail_violations_from_assertion,
+      inner_runner_callable=_inner_runner,
+      inner_runner_kwargs=inner_runner_kwargs,
+      original_planning_mode=planning_mode,
+      original_planning_mode_reason=planning_mode_reason or "",
+      original_stage_family=original_stage_family,
+      original_stage_ramp_contract=stage_ramp_contract,
+      business_naics_6=business_naics_6_for_cascade or None,
+      business_stage=business_stage_for_cascade or None,
+      horizon=horizon,
+    )
+    diagnostics["adaptation_cascade"] = cascade_diagnostics
+    final_model_input_json = final_payload.get("model_input_json") or final_model_input_json
+    final_finmo_json = final_payload.get("finmo_json") or final_finmo_json
+    inner_result = final_payload if isinstance(final_payload, dict) else inner_result
 
   # Successful run — augment inner_result with diagnostics and the
   # potentially-repaired final state.
@@ -681,4 +745,7 @@ def run_target_seeking_orchestrated_system_run(
   if final_finmo_json:
     next_result["finmo_json"] = final_finmo_json
   next_result["target_seeking_diagnostics"] = diagnostics
+  next_result["plan_confidence"] = plan_confidence
+  if cascade_diagnostics is not None:
+    next_result["adaptation_cascade_diagnostics"] = cascade_diagnostics
   return next_result

@@ -73,6 +73,17 @@ from client_intake_and_finmo.post_intake_solver.cohort_band_resolver import (  #
   map_revenue_to_cap_categories,
   resolve_cohort_band,
 )
+from client_intake_and_finmo.post_intake_solver.adaptation_cascade import (  # noqa: F401
+  PLAN_CONFIDENCE_COHORT_FALLBACK,
+  PLAN_CONFIDENCE_GENERIC_FALLBACK,
+  PLAN_CONFIDENCE_GPT_BAND_RELAXATION,
+  PLAN_CONFIDENCE_HIGH_NO_ADAPTATION,
+  PLAN_CONFIDENCE_PLANNING_MODE_SHIFTED,
+  PLAN_CONFIDENCE_STAGE_FAMILY_WIDENED,
+  PLAN_CONFIDENCE_SUPPLEMENTARY_LEVERS,
+  PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED,
+  run_adaptation_cascade,
+)
 
 __all__ = [
   "CohortBandResult",
@@ -80,6 +91,15 @@ __all__ = [
   "FINMO_OUTPUT_TARGET_KEY",
   "LEVER_TO_METRIC_COLUMN",
   "METRIC_KEY_TO_COLUMN",
+  "PLAN_CONFIDENCE_COHORT_FALLBACK",
+  "PLAN_CONFIDENCE_GENERIC_FALLBACK",
+  "PLAN_CONFIDENCE_GPT_BAND_RELAXATION",
+  "PLAN_CONFIDENCE_HIGH_NO_ADAPTATION",
+  "PLAN_CONFIDENCE_PLANNING_MODE_SHIFTED",
+  "PLAN_CONFIDENCE_STAGE_FAMILY_WIDENED",
+  "PLAN_CONFIDENCE_SUPPLEMENTARY_LEVERS",
+  "PLAN_CONFIDENCE_TARGET_TOLERANCE_WIDENED",
+  "run_adaptation_cascade",
   "adjudicate_intake_vs_band_conflicts_with_gpt",
   "assemble_driver_movement_envelope",
   "assemble_finmo_output_targets",
