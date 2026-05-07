@@ -620,12 +620,76 @@ def run_finalize_post_intake_validation(
   except Exception as exc:
     errors.append(f"cash_phase_trace_sequence_failed: {exc}")
 
-  # Realism-band aggregation removed as part of the post-intake solver shift.
-  # Phase 2 reintroduces a sanity assertion here that asserts the solver
-  # respected its calibrated targets within numeric tolerance, but it does NOT
-  # aggregate warnings — band data is consumed upstream as solver targets, so
-  # any residual deviation is by definition a solver bug, not a workbook
-  # warning.
+  # Phase 2 sanity assertion. Asserts the solver respected its calibrated
+  # output target ranges within numeric tolerance. By construction this
+  # passes silently when the solver did its job; if it fails, the diagnostic
+  # names which targets the solver couldn't land, the residual deviation,
+  # and which drivers are pinned at their envelope edges. Targets and
+  # envelope are read from solver_input on the model_input_json payload
+  # (written by finmo_bridge during _build_model_input_overlay).
+  solver_target_assertion: Dict[str, Any] = {
+    "checked": False,
+    "status": "skipped",
+    "reason": "solver_input_payload_missing",
+  }
+  try:
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      DRIVER_MOVEMENT_ENVELOPE_KEY,
+      FINMO_OUTPUT_TARGET_KEY,
+      assemble_finmo_output_targets,
+      assert_solver_respected_targets,
+    )
+    business_naics_6 = ""
+    if isinstance(ops_json, dict):
+      business_naics_6 = "".join(
+        ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
+      )
+    solver_input = (
+      (model_input_json or {}).get("solver_input")
+      if isinstance(model_input_json, dict)
+      else None
+    )
+    target_payload = (
+      solver_input.get(FINMO_OUTPUT_TARGET_KEY)
+      if isinstance(solver_input, dict)
+      else None
+    )
+    if not isinstance(target_payload, dict) or not target_payload.get("metrics"):
+      target_payload = assemble_finmo_output_targets(
+        business_naics_6=business_naics_6 or None,
+      )
+    envelope_payload = (
+      solver_input.get(DRIVER_MOVEMENT_ENVELOPE_KEY)
+      if isinstance(solver_input, dict)
+      else None
+    )
+    assertion = assert_solver_respected_targets(
+      finmo_json=copy.deepcopy(finmo_json or {}),
+      output_targets_payload=target_payload,
+      driver_envelope_payload=envelope_payload,
+    )
+    solver_target_assertion = {
+      "checked": True,
+      "status": assertion.get("status"),
+      "checked_metric_count": assertion.get("checked_metric_count"),
+      "violations": assertion.get("violations") or [],
+      "pinned_drivers": assertion.get("pinned_drivers") or [],
+    }
+    hard_violations = [
+      v for v in (assertion.get("violations") or [])
+      if str((v or {}).get("gate_kind") or "").lower() == "hard_fail"
+    ]
+    if hard_violations:
+      errors.append(
+        "solver_target_residual: "
+        + "; ".join(
+          f"{v.get('metric_key')}@q{v.get('quarter_index')}: produced={v.get('produced')} "
+          f"target=[{v.get('target_min')},{v.get('target_max')}] residual={v.get('residual')}"
+          for v in hard_violations[:10]
+        )
+      )
+  except Exception as exc:
+    errors.append(f"solver_target_assertion_failed: {exc}")
 
   _raise_if_errors(errors)
   return {
@@ -637,6 +701,7 @@ def run_finalize_post_intake_validation(
     "required_process_sequence": copy.deepcopy(required_process_sequence),
     "process_step_contexts": copy.deepcopy(process_step_contexts),
     "process_context_row_count": process_context_row_count,
+    "solver_target_assertion": solver_target_assertion,
     "validated_outputs": [
       "model_input_json",
       "finmo_json",
@@ -645,5 +710,6 @@ def run_finalize_post_intake_validation(
       "debt_schedule",
       "cash_pass_phase_trace",
       "balance_sheet_driver_formula_application",
+      "solver_target_assertion",
     ],
   }

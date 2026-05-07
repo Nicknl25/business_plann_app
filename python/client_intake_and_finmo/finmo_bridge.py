@@ -3041,8 +3041,49 @@ def _build_model_input_overlay(
   cogs_ratio_baseline = _cogs_ratio_from_financials(financials_json, revenue_total_year1)
   naics_6 = _naics_6_from_ops(ops_json)
   naics_2 = naics_6[:2] if naics_6 and len(naics_6) >= 2 else None
+  # Phase 2: assemble the per-business driver movement envelope once and
+  # consume its default_value entries below in lieu of the deleted per-lever
+  # NAICS substitution shortcuts. The envelope payload is also stamped onto
+  # the next_payload so downstream solver iterations can read it back.
+  from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+    DRIVER_MOVEMENT_ENVELOPE_KEY,
+    FINMO_OUTPUT_TARGET_KEY,
+    assemble_driver_movement_envelope,
+    assemble_finmo_output_targets,
+    default_value_for_lever,
+  )
+  driver_envelope_payload = assemble_driver_movement_envelope(
+    business_naics_6=naics_6,
+    live_count=len(slots),
+  )
+  finmo_output_target_payload = assemble_finmo_output_targets(
+    business_naics_6=naics_6,
+    live_count=len(slots),
+  )
+  next_payload.setdefault("solver_input", {})
+  if isinstance(next_payload.get("solver_input"), dict):
+    next_payload["solver_input"][DRIVER_MOVEMENT_ENVELOPE_KEY] = deepcopy(driver_envelope_payload)
+    next_payload["solver_input"][FINMO_OUTPUT_TARGET_KEY] = deepcopy(finmo_output_target_payload)
+
+  def _envelope_default(lever_id: str) -> Optional[float]:
+    entry = default_value_for_lever(envelope_payload=driver_envelope_payload, lever_id=lever_id)
+    if not isinstance(entry, dict):
+      return None
+    if not entry.get("applicable"):
+      return 0.0
+    value = entry.get("default_value")
+    return float(value) if value is not None else None
+
   baseline_substitution_provenance: Dict[str, Dict[str, Any]] = {}
   cogs_ratio_forecast = cogs_ratio_baseline
+  if cogs_ratio_forecast <= 0.0:
+    envelope_value = _envelope_default("expenses::Cost of Goods Sold")
+    if envelope_value is not None:
+      cogs_ratio_forecast = float(envelope_value)
+      baseline_substitution_provenance["cogs_percent_of_revenue"] = {
+        "calibration_source": "driver_movement_envelope",
+        "default_value": cogs_ratio_forecast,
+      }
   marketing_ratio_baseline = (
     _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
     if isinstance(marketing_model_json, dict) else None
@@ -3050,6 +3091,14 @@ def _build_model_input_overlay(
   if marketing_ratio_baseline is None:
     marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
   marketing_ratio_forecast = marketing_ratio_baseline
+  if not marketing_ratio_forecast:
+    envelope_value = _envelope_default("expenses::Marketing")
+    if envelope_value is not None:
+      marketing_ratio_forecast = float(envelope_value)
+      baseline_substitution_provenance["marketing_percent_of_revenue"] = {
+        "calibration_source": "driver_movement_envelope",
+        "default_value": marketing_ratio_forecast,
+      }
   r_and_d_ratio_baseline = (
     _safe_ratio((financials_json or {}).get("r_and_d_percent"))
     or _safe_ratio((financials_json or {}).get("research_and_development_percent"))
@@ -3085,6 +3134,14 @@ def _build_model_input_overlay(
   )
   intake_tax_rate = _safe_ratio((financials_json or {}).get("taxes_percent"))
   tax_rate_forecast: Optional[float] = intake_tax_rate
+  if not tax_rate_forecast:
+    envelope_value = _envelope_default("expenses::Taxes")
+    if envelope_value is not None:
+      tax_rate_forecast = float(envelope_value)
+      baseline_substitution_provenance["effective_tax_rate"] = {
+        "calibration_source": "driver_movement_envelope",
+        "default_value": tax_rate_forecast,
+      }
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -3157,13 +3214,12 @@ def _build_model_input_overlay(
       elif label == "Interest Rate":
         values.append(round(interest_rate_baseline, 6))
       elif label == "Depreciation":
-        raise ValueError(
-          "depreciation_expense_row_band_required: depreciation expense row "
-          "must be supplied by the unified driver-band assembler (Phase 2). "
-          "Hardcoded 0.0 placeholder is removed; downstream capex schedule "
-          "writes the actual depreciation series and must run before this row "
-          "is composed."
-        )
+        # Phase 2: depreciation expense row is a placeholder seeded from
+        # the driver-movement envelope (NAICS depreciation_percent_of_revenue
+        # band). The downstream capex/depreciation schedule overwrites
+        # these values with the actual amortization series before finalize.
+        envelope_value = _envelope_default("expenses::Depreciation")
+        values.append(round(float(envelope_value or 0.0), 6))
       elif label == "Taxes":
         if projection_mode:
           projected = _safe_ratio((financials_json or {}).get("taxes_percent")) or _ratio(slot.get("taxes"), revenue)
@@ -3174,12 +3230,18 @@ def _build_model_input_overlay(
         else:
           values.append(round(tax_rate_forecast or 0.0, 6))
       else:
-        raise ValueError(
-          f"expense_row_label_unhandled_in_band_assembler: label={label!r}. "
-          "The unified driver-band assembler (Phase 2) must own every "
-          "expense-row Q1+ value; the silent catch-all that fell back to "
-          "base_live_values[0] is removed."
-        )
+        # Phase 2: unhandled labels fall back to the driver-movement
+        # envelope's per-lever default. If the envelope has no entry for
+        # this label, raise — the lever is unmapped and Phase 3 GPT
+        # calibration must register it.
+        envelope_value = _envelope_default(_simple_lever_id("expenses", label))
+        if envelope_value is None:
+          raise ValueError(
+            f"expense_row_label_unhandled_in_band_assembler: label={label!r}. "
+            "Driver-movement envelope has no default_value for this lever; "
+            "Phase 3 GPT calibration consultant must add a calibrated band."
+          )
+        values.append(round(float(envelope_value), 6))
     # Module 1: stamp NAICS-cascade provenance on rows whose forecast values
     # were substituted. Stub 0 is unchanged; provenance describes the seed
     # source for forecast Q1-Q20.
@@ -3241,12 +3303,15 @@ def _build_model_input_overlay(
         elif revenue > 0.0 and ar_days_band:
           values.append(round(float(ar_days_band["benchmark_target"]), 6))
         elif revenue > 0.0 and ar_balance_seed > 0.0:
-          raise ValueError(
-            "ar_days_naics_no_coverage: NAICS band missing for ar_days_dso. "
-            "Tier A intake-implied-days fallback is removed; the unified band "
-            "assembler must supply a calibrated band (NAICS default + GPT "
-            "calibration). naics_6=" + str(naics_6 or "")
-          )
+          envelope_value = _envelope_default("balance_sheet::Accounts Receivable Days")
+          if envelope_value is None:
+            raise ValueError(
+              "ar_days_naics_no_coverage_and_envelope_unset: ar_days_dso has "
+              "no NAICS coverage and the driver-movement envelope produced no "
+              "default. Phase 3 GPT calibration must supply a band. naics_6="
+              + str(naics_6 or "")
+            )
+          values.append(round(float(envelope_value), 6))
         else:
           values.append(0.0)
       elif label == "Inventory Days":
@@ -3256,12 +3321,14 @@ def _build_model_input_overlay(
         elif cogs > 0.0 and inventory_days_band:
           values.append(round(float(inventory_days_band["benchmark_target"]), 6))
         elif cogs > 0.0 and inventory_balance_seed > 0.0:
-          raise ValueError(
-            "inventory_days_naics_no_coverage: NAICS band missing for inventory_days. "
-            "Tier A intake-implied-days fallback is removed; the unified band "
-            "assembler must supply a calibrated band (NAICS default + GPT "
-            "calibration). naics_6=" + str(naics_6 or "")
-          )
+          envelope_value = _envelope_default("balance_sheet::Inventory Days")
+          if envelope_value is None:
+            raise ValueError(
+              "inventory_days_naics_no_coverage_and_envelope_unset: "
+              "inventory_days has no NAICS coverage and the driver-movement "
+              "envelope produced no default. naics_6=" + str(naics_6 or "")
+            )
+          values.append(round(float(envelope_value), 6))
         else:
           values.append(0.0)
       elif label == "Accounts Payable Days":
@@ -3271,12 +3338,14 @@ def _build_model_input_overlay(
         elif ap_expense_base > 0.0 and ap_days_band:
           values.append(round(float(ap_days_band["benchmark_target"]), 6))
         elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
-          raise ValueError(
-            "ap_days_naics_no_coverage: NAICS band missing for ap_days_dpo. "
-            "Tier A intake-implied-days fallback is removed; the unified band "
-            "assembler must supply a calibrated band (NAICS default + GPT "
-            "calibration). naics_6=" + str(naics_6 or "")
-          )
+          envelope_value = _envelope_default("balance_sheet::Accounts Payable Days")
+          if envelope_value is None:
+            raise ValueError(
+              "ap_days_naics_no_coverage_and_envelope_unset: ap_days_dpo has "
+              "no NAICS coverage and the driver-movement envelope produced no "
+              "default. naics_6=" + str(naics_6 or "")
+            )
+          values.append(round(float(envelope_value), 6))
         else:
           values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":
