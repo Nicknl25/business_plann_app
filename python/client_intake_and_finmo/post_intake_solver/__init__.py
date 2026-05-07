@@ -63,9 +63,6 @@ from client_intake_and_finmo.post_intake_solver.consultant_target_shaping import
 from client_intake_and_finmo.post_intake_solver.consultant_conflict_adjudication import (  # noqa: F401
   adjudicate_intake_vs_band_conflicts_with_gpt,
 )
-from client_intake_and_finmo.post_intake_solver.consultant_context_resolver import (  # noqa: F401
-  resolve_consultant_context,
-)
 from client_intake_and_finmo.post_intake_solver.cohort_band_resolver import (  # noqa: F401
   CohortBandResult,
   LEVER_TO_METRIC_COLUMN,
@@ -120,7 +117,6 @@ __all__ = [
   "request_debt_schedule_recompute",
   "request_payroll_schedule_recompute",
   "resolve_cohort_band",
-  "resolve_consultant_context",
   "run_target_seeking_orchestrated_system_run",
   "run_target_seeking_solver",
 ]

@@ -146,6 +146,26 @@ def _solver_input_payloads(
   }
 
 
+def _shallow_business_facts(business_facts: Dict[str, Any]) -> Dict[str, Any]:
+  """Trim business_facts to the high-signal fields the consultants need.
+
+  The full business_facts dict can be large (intake transcripts, GPT
+  output blobs); the consultants only need the planning-relevant
+  shape signals. Trimming here keeps the prompt size predictable.
+  """
+  if not isinstance(business_facts, dict):
+    return {}
+  fact_template = business_facts.get("fact_template") if isinstance(business_facts.get("fact_template"), dict) else {}
+  return {
+    "business_type": _clean_text(fact_template.get("business_type")) or _clean_text(business_facts.get("business_type")),
+    "business_naics_6": _clean_text(fact_template.get("business_naics_6")) or _clean_text(business_facts.get("business_naics_6")),
+    "business_stage": _clean_text(fact_template.get("business_stage")) or _clean_text(business_facts.get("business_stage")),
+    "primary_offering_summary": _clean_text(fact_template.get("primary_offering_summary"))[:240],
+    "growth_intent": _clean_text(fact_template.get("growth_intent"))[:240],
+    "competitive_context": _clean_text(fact_template.get("competitive_context"))[:240],
+  }
+
+
 def _stamp_solver_inputs(
   *,
   model_input_json: Dict[str, Any],
@@ -445,39 +465,21 @@ def run_target_seeking_orchestrated_system_run(
   # output, Python defaults stand and provenance is tagged accordingly.
   # The orchestrator never blocks on GPT availability.
   calibration_diagnostics: Dict[str, Any] = {}
-  from client_intake_and_finmo.post_intake_solver import (  # type: ignore
-    resolve_consultant_context,
-  )
-
-  _resolver_kwargs: Dict[str, Any] = {
-    "draft_id": draft_id,
-    "planning_run_id": planning_run_id,
-    "business_facts": business_facts or {},
-    "ops_json": ops_json or {},
-    "target_market_json": target_market_json or {},
-    "people_json": people_json or {},
-    "financials_json": financials_json or {},
-    "financials_year1_json": financials_year1_json or {},
-    "fulfillment_json": fulfillment_json or {},
-    "marketing_model_json": marketing_model_json or {},
-    "planning_mode": planning_mode,
-    "planning_mode_reason": planning_mode_reason,
-    "business_profile_for_cohort": business_profile_for_cohort,
-    "stage_ramp_contract": stage_ramp_contract,
+  business_context = {
+    "draft_id": str(draft_id or "").strip(),
+    "planning_run_id": str(planning_run_id or "").strip(),
+    "planning_mode": str(planning_mode or "").strip(),
+    "planning_mode_reason": str(planning_mode_reason or "").strip(),
+    "business_facts": _shallow_business_facts(business_facts or {}),
   }
   if envelope_payload:
     from client_intake_and_finmo.post_intake_solver import (  # type: ignore
       calibrate_driver_movement_envelope_with_gpt,
       adjudicate_intake_vs_band_conflicts_with_gpt,
     )
-    band_business_context = resolve_consultant_context(
-      contract_name="post_intake_band_shaping_consultant",
-      include_phase="band_shaping",
-      **_resolver_kwargs,
-    )
     band_result = calibrate_driver_movement_envelope_with_gpt(
       envelope_proposal=envelope_payload,
-      business_context=band_business_context,
+      business_context=business_context,
     )
     envelope_payload = band_result.get("calibrated_envelope") or envelope_payload
     calibration_diagnostics["band_shaping"] = {
@@ -486,16 +488,11 @@ def run_target_seeking_orchestrated_system_run(
       "uncalibrated_lever_count": len(band_result.get("uncalibrated_lever_ids") or []),
       "fallback_detail": (band_result.get("critic_diagnostics") or {}).get("fallback_detail"),
     }
-    conflict_business_context = resolve_consultant_context(
-      contract_name="post_intake_conflict_adjudication_consultant",
-      include_phase="conflict_adjudication",
-      **_resolver_kwargs,
-    )
     conflict_result = adjudicate_intake_vs_band_conflicts_with_gpt(
       envelope_payload=envelope_payload,
       financials_json=financials_json or {},
       financials_year1_json=financials_year1_json or {},
-      business_context=conflict_business_context,
+      business_context=business_context,
     )
     envelope_payload = conflict_result.get("calibrated_envelope") or envelope_payload
     calibration_diagnostics["conflict_adjudication"] = {
@@ -510,14 +507,9 @@ def run_target_seeking_orchestrated_system_run(
     from client_intake_and_finmo.post_intake_solver import (  # type: ignore
       calibrate_finmo_output_targets_with_gpt,
     )
-    target_business_context = resolve_consultant_context(
-      contract_name="post_intake_target_shaping_consultant",
-      include_phase="target_shaping",
-      **_resolver_kwargs,
-    )
     target_result = calibrate_finmo_output_targets_with_gpt(
       targets_proposal=targets_payload,
-      business_context=target_business_context,
+      business_context=business_context,
     )
     targets_payload = target_result.get("calibrated_targets") or targets_payload
     calibration_diagnostics["target_shaping"] = {
