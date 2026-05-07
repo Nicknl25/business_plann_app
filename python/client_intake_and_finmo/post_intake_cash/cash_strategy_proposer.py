@@ -13,11 +13,9 @@ when GPT fails or the critique drives the payload outside the deterministic
 bounds, Python's proposal stands as the safety floor.
 
 Surplus deployment (deployable cash above the strategy ceiling) is
-intentionally NOT placed in `quarter_funding_plan` here — the legacy
-`_normalize_cash_strategy_review_decision_from_funding_plan` comment
-documents the reason: "Surplus deployment is intentionally applied later
-from the rebuilt post-action FINMO state so early distributions cannot
-overdraw future cash." The proposer mirrors that policy.
+intentionally NOT placed in `quarter_funding_plan` here. Surplus deployment
+is applied later from the rebuilt post-action FINMO state so early
+distributions cannot overdraw future cash.
 """
 
 from __future__ import annotations

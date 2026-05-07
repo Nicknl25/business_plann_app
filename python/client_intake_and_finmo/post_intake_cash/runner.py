@@ -188,7 +188,6 @@ __all__ = [
   "_cash_strategy_review_failure_payload",
   "_wrap_cash_strategy_review_decision",
   "_cash_strategy_gross_up_effective_support",
-  "_normalize_cash_strategy_review_decision_from_funding_plan",
   "_cash_strategy_review_decision_contract_error",
   "_run_cash_strategy_review_openai",
   "_translate_cash_strategy_adjustment",
@@ -1792,86 +1791,6 @@ def _cash_strategy_gross_up_effective_support(amount: int, multiplier: float) ->
       return int(value)
   return int(math.ceil(target / factor))
 
-def _normalize_cash_strategy_review_decision_from_funding_plan(
-  *,
-  parsed: Optional[Dict[str, Any]],
-  cash_strategy_review_context: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-  decision = copy.deepcopy(parsed if isinstance(parsed, dict) else {})
-  if str(decision.get("recommendation_mode") or "").strip().lower() != "adjust":
-    return decision
-  context_payload = cash_strategy_review_context if isinstance(cash_strategy_review_context, dict) else {}
-  required_funding_quarters = {
-    int(_safe_float(item.get("quarter_index")) or 0)
-    for item in (context_payload.get("required_funding_quarters") or [])
-    if isinstance(item, dict) and int(_safe_float(item.get("quarter_index")) or 0) >= 1
-  }
-  lever_bounds_payload = (
-    context_payload.get("lever_bounds")
-    if isinstance(context_payload.get("lever_bounds"), dict)
-    else {}
-  )
-  funding_source_policy = (
-    context_payload.get("funding_source_policy")
-    if isinstance(context_payload.get("funding_source_policy"), dict)
-    else {}
-  )
-  policy_allowed_funding_sources = {
-    str(item).strip()
-    for item in (
-      funding_source_policy.get("allowed_funding_source_lever_ids")
-      or _CASH_STRATEGY_FUNDING_SOURCE_LEVER_IDS
-    )
-    if str(item).strip()
-  }
-  lever_bound_lookup: Dict[tuple[str, int], Dict[str, Any]] = {}
-  for lever_id, rows in (lever_bounds_payload.get("lever_bounds") or {}).items():
-    for row in rows or []:
-      if not isinstance(row, dict):
-        continue
-      quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
-      if quarter_index >= 1:
-        lever_bound_lookup[(str(lever_id or "").strip(), quarter_index)] = row
-  derived_adjustments: List[Dict[str, Any]] = []
-  if required_funding_quarters:
-    for quarter_plan in (decision.get("quarter_funding_plan") or []):
-      if not isinstance(quarter_plan, dict):
-        continue
-      quarter_index = int(_safe_float(quarter_plan.get("quarter_index")) or 0)
-      if quarter_index not in required_funding_quarters:
-        continue
-      funding_sources = [
-        source for source in (quarter_plan.get("funding_sources") or [])
-        if isinstance(source, dict)
-      ]
-      if len(funding_sources) != 1:
-        continue
-      source = funding_sources[0]
-      lever_id = str(source.get("lever_id") or "").strip()
-      amount = int(round(float(_safe_float(source.get("amount")) or 0.0)))
-      if not lever_id:
-        continue
-      exact_value = amount
-      if lever_id == _CASH_STRATEGY_DEBT_ISSUANCE_LEVER_ID:
-        bound = lever_bound_lookup.get((lever_id, quarter_index)) or {}
-        supporting_metrics = bound.get("supporting_metrics") if isinstance(bound.get("supporting_metrics"), dict) else {}
-        multiplier = float(_safe_float(supporting_metrics.get("cash_support_multiplier")) or 1.0)
-        exact_value = _cash_strategy_gross_up_effective_support(amount, multiplier)
-      derived_adjustments.append(
-        {
-          "lever_id": lever_id,
-          "timing_start_q": quarter_index,
-          "timing_end_q": quarter_index,
-          "exact_value": int(exact_value),
-          "business_reason": str(quarter_plan.get("business_reason") or "Derived deterministically from quarter_funding_plan.").strip(),
-        }
-      )
-  # Only liquidity funding gaps are translated from the pre-action GPT review.
-  # Surplus deployment is intentionally applied later from the rebuilt
-  # post-action FINMO state so early distributions cannot overdraw future cash.
-  decision["recommended_adjustments"] = derived_adjustments
-  return decision
-
 def _cash_strategy_review_decision_contract_error(
   *,
   parsed: Optional[Dict[str, Any]],
@@ -2285,10 +2204,6 @@ def _run_cash_strategy_review_openai(
   for key in ("executive_summary", "capital_posture_summary", "funding_mix_summary", "confidence"):
     if key in amended:
       amended_full[key] = amended.get(key)
-  amended_full = _normalize_cash_strategy_review_decision_from_funding_plan(
-    parsed=amended_full,
-    cash_strategy_review_context=context_payload,
-  )
   amended_full = _normalize_post_intake_contract_payload(
     contract_name="cash_strategy_review",
     payload=amended_full,

@@ -31,6 +31,9 @@ from client_intake_and_finmo.post_intake_industry_baseline import (  # type: ign
   post_intake_baseline_applicability_for_naics2,
   post_intake_industry_baseline_for_naics,
 )
+from client_intake_and_finmo.post_intake_balance_sheet.contextual_seed import (  # type: ignore
+  apply_balance_sheet_contextual_seed_to_model_input,
+)
 
 
 DEBT_ISSUANCE_LABEL = "Debt Issuance (New Borrowing)"
@@ -1802,417 +1805,6 @@ def _model_input_live_values_for_label(
   ]
 
 
-def _apply_authoritative_working_capital_driver_policies(
-  model_input_json: Optional[Dict[str, Any]],
-  *,
-  live_count: int,
-) -> Dict[str, Any]:
-  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
-  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
-  schedules = sections.get("schedules") if isinstance(sections.get("schedules"), dict) else {}
-  if not isinstance(sections, dict) or not isinstance(schedules, dict):
-    return next_payload
-  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
-  if not balance_rows:
-    return next_payload
-
-  ar_balance_seed = max(0.0, _safe_float(schedules.get("accounts_receivable_opening_balance_seed")) or 0.0)
-  inventory_balance_seed = max(0.0, _safe_float(schedules.get("inventory_opening_balance_seed")) or 0.0)
-  ap_balance_seed = max(0.0, _safe_float(schedules.get("accounts_payable_opening_balance_seed")) or 0.0)
-  if ar_balance_seed <= 0.0 and inventory_balance_seed <= 0.0 and ap_balance_seed <= 0.0:
-    return next_payload
-
-  days_in_quarter = 90.0
-  revenue_series = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
-  cogs_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Cost of Goods Sold",
-    live_count=live_count,
-  )
-  marketing_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Marketing",
-    live_count=live_count,
-  )
-  r_and_d_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Research & Development",
-    live_count=live_count,
-  )
-  lease_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Lease",
-    live_count=live_count,
-  )
-  payroll_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Payroll",
-    live_count=live_count,
-  )
-  g_and_a_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="General & Administrative",
-    live_count=live_count,
-  )
-
-  # Module 5 Task 5.3: When intake provides AR/AP/Inventory opening balances,
-  # the Q1+ trajectory now uses NAICS-cascade days as the steady-state target,
-  # not `intake_balance / per-quarter-activity` propagation. Per master diagnostic
-  # Part 12.6: "AR/AP/inventory: intake-anchored at stub 0 (Tier A); seed step's
-  # residual job is the *trajectory* into Q1 (deterministic via NAICS days)."
-  # The legacy "balance / activity" propagation produced quarter-1 lever values
-  # well outside NAICS bands for sectors where intake reality diverges from
-  # industry norms (e.g., software businesses with low AP balances), tripping
-  # the M3 finalize realism gate. Stub 0 is preserved unchanged (set by the
-  # initial intake/opening-balance build and never written here).
-  #
-  # Source priority for NAICS days target, in order:
-  #   1. `derived_driver_policies[balance_sheet_contextual_seed]` — written by
-  #      the M5 seed step; per-lever NAICS target is the `seed_value` field.
-  #      This is the authoritative source after the seed step runs.
-  #   2. NAICS resolver (post_intake_industry_baseline) — when the seed policy
-  #      hasn't been written yet (e.g., during initial model_input
-  #      construction before post-intake pipeline runs). Requires NAICS in the
-  #      payload; we look at `business_naics_6` first, then `ops.business_naics_6`.
-  policies = next_payload.get("derived_driver_policies") if isinstance(next_payload.get("derived_driver_policies"), dict) else {}
-  seed_policy = policies.get(BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY) if isinstance(policies, dict) else {}
-  seed_grid = (seed_policy or {}).get("balance_sheet_seed_grid") or []
-  seed_by_lever_id: Dict[str, float] = {}
-  for entry in seed_grid:
-    if not isinstance(entry, dict):
-      continue
-    lever_id = str(entry.get("lever_id") or "").strip()
-    if not lever_id or not bool(entry.get("applicable")):
-      continue
-    seed_value = _safe_float(entry.get("seed_value"))
-    if seed_value is None or seed_value <= 0.0:
-      continue
-    seed_by_lever_id[lever_id] = float(seed_value)
-
-  business_naics_6 = "".join(ch for ch in str(next_payload.get("business_naics_6") or "") if ch.isdigit())
-  if not business_naics_6:
-    ops_section = next_payload.get("ops") if isinstance(next_payload.get("ops"), dict) else {}
-    business_naics_6 = "".join(ch for ch in str(ops_section.get("business_naics_6") or "") if ch.isdigit())
-
-  def _naics_days_target(metric_key: str, lever_id: str) -> Optional[float]:
-    seeded = seed_by_lever_id.get(lever_id)
-    if seeded is not None:
-      return seeded
-    if not business_naics_6:
-      return None
-    try:
-      band = post_intake_industry_baseline_for_naics(metric_key=metric_key, naics_6=business_naics_6)
-    except Exception:
-      return None
-    if not isinstance(band, dict) or band.get("trust_flag") == "no_coverage":
-      return None
-    target = band.get("benchmark_target")
-    if target is None:
-      target = band.get("benchmark_min") or band.get("benchmark_max")
-    return float(target) if target is not None else None
-
-  ar_naics_days = _naics_days_target("ar_days_dso", "balance_sheet::Accounts Receivable Days")
-  ap_naics_days = _naics_days_target("ap_days_dpo", "balance_sheet::Accounts Payable Days")
-  inv_naics_days = _naics_days_target("inventory_days", "balance_sheet::Inventory Days")
-
-  runtime_rows: List[Dict[str, Any]] = []
-  pending_dependency_rows: List[Dict[str, Any]] = []
-  seen_working_capital_labels: set[str] = set()
-  for row in balance_rows:
-    label = str(row.get("label") or "").strip()
-    if label not in {"Accounts Receivable Days", "Inventory Days", "Accounts Payable Days"}:
-      continue
-    seen_working_capital_labels.add(label)
-    stub_value, _existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
-    existing_live_values = list(_existing_live_values or [])
-    live_values: List[float] = []
-    derivation_basis = "naics_target_days_for_q1_to_qN_trajectory"
-    for idx in range(max(0, live_count)):
-      revenue = max(0.0, float(revenue_series[idx]) if idx < len(revenue_series) else 0.0)
-      cogs_ratio = max(0.0, float(cogs_ratio_series[idx]) if idx < len(cogs_ratio_series) else 0.0)
-      marketing_ratio = max(0.0, float(marketing_ratio_series[idx]) if idx < len(marketing_ratio_series) else 0.0)
-      r_and_d_ratio = max(0.0, float(r_and_d_ratio_series[idx]) if idx < len(r_and_d_ratio_series) else 0.0)
-      lease = max(0.0, float(lease_series[idx]) if idx < len(lease_series) else 0.0)
-      payroll = max(0.0, float(payroll_series[idx]) if idx < len(payroll_series) else 0.0)
-      g_and_a_ratio = max(0.0, float(g_and_a_ratio_series[idx]) if idx < len(g_and_a_ratio_series) else 0.0)
-      cogs = revenue * cogs_ratio
-      ap_expense_base = (revenue * marketing_ratio) + (revenue * r_and_d_ratio) + lease + payroll + (revenue * g_and_a_ratio)
-      existing_value = (
-        round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
-        if idx < len(existing_live_values)
-        else 0.0
-      )
-      if label == "Accounts Receivable Days":
-        if ar_balance_seed > 0.0 and revenue <= 0.0:
-          raise ValueError(
-            "working_capital_days_contract_failed: Accounts Receivable Days requires positive live revenue "
-            f"when authoritative opening AR exists. quarter_index={idx + 1} ar_balance_seed={ar_balance_seed} revenue={revenue}"
-          )
-        if revenue > 0.0 and ar_naics_days is not None:
-          value = ar_naics_days
-        elif revenue > 0.0 and ar_balance_seed > 0.0:
-          # No NAICS coverage; Tier A intake-implied days as last resort.
-          value = (ar_balance_seed / revenue) * days_in_quarter
-          derivation_basis = "tier_a_intake_implied_days_naics_no_coverage_fallback"
-        else:
-          value = existing_value
-      elif label == "Inventory Days":
-        if inventory_balance_seed > 0.0 and cogs <= 0.0:
-          pending_dependency_rows.append(
-            {
-              "label": label,
-              "quarter_index": idx + 1,
-              "dependency": "Cost of Goods Sold",
-              "opening_balance_seed": inventory_balance_seed,
-              "dependency_value": cogs,
-              "preserved_existing_value": existing_value,
-            }
-          )
-          value = existing_value
-        elif cogs > 0.0 and inv_naics_days is not None:
-          value = inv_naics_days
-        elif cogs > 0.0 and inventory_balance_seed > 0.0:
-          value = (inventory_balance_seed / cogs) * days_in_quarter
-          derivation_basis = "tier_a_intake_implied_days_naics_no_coverage_fallback"
-        else:
-          value = existing_value
-      else:  # Accounts Payable Days
-        if ap_balance_seed > 0.0 and ap_expense_base <= 0.0:
-          raise ValueError(
-            "working_capital_days_contract_failed: Accounts Payable Days requires positive live AP expense base "
-            f"when authoritative opening AP exists. quarter_index={idx + 1} ap_balance_seed={ap_balance_seed} ap_expense_base={ap_expense_base}"
-          )
-        if ap_expense_base > 0.0 and ap_naics_days is not None:
-          value = ap_naics_days
-        elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
-          value = (ap_balance_seed / ap_expense_base) * days_in_quarter
-          derivation_basis = "tier_a_intake_implied_days_naics_no_coverage_fallback"
-        else:
-          value = existing_value
-      if (
-        (label == "Accounts Receivable Days" and ar_balance_seed > 0.0 and revenue > 0.0)
-        or (label == "Inventory Days" and inventory_balance_seed > 0.0 and cogs > 0.0)
-        or (label == "Accounts Payable Days" and ap_balance_seed > 0.0 and ap_expense_base > 0.0)
-      ) and value <= 0.0:
-        raise ValueError(
-          "working_capital_days_contract_failed: authoritative working-capital trajectory produced a non-positive live driver. "
-          f"label={label} quarter_index={idx + 1} value={value}"
-        )
-      live_values.append(round(float(value), 6))
-    row["derived_driver"] = "authoritative_balance_sheet_working_capital_days"
-    row["working_capital_derivation"] = {
-      "source": "naics_cascade_with_intake_anchored_stub_0",
-      "driver_basis": derivation_basis,
-      "days_in_quarter": days_in_quarter,
-      "naics_6": business_naics_6 or None,
-      "naics_target_days": (
-        ar_naics_days if label == "Accounts Receivable Days"
-        else inv_naics_days if label == "Inventory Days"
-        else ap_naics_days
-      ),
-      "opening_balance_seed": round(
-        ar_balance_seed
-        if label == "Accounts Receivable Days"
-        else inventory_balance_seed
-        if label == "Inventory Days"
-        else ap_balance_seed,
-        6,
-      ),
-    }
-    row["values"] = _compose_period_values(stub_value=stub_value, live_values=live_values)
-    runtime_rows.append(
-      {
-        "lever_id": str(row.get("lever_id") or "").strip(),
-        "label": label,
-        "opening_balance_seed": row["working_capital_derivation"]["opening_balance_seed"],
-        "naics_target_days": row["working_capital_derivation"]["naics_target_days"],
-        "live_values": deepcopy(live_values),
-      }
-    )
-
-  required_missing: List[str] = []
-  if ar_balance_seed > 0.0 and "Accounts Receivable Days" not in seen_working_capital_labels:
-    required_missing.append("Accounts Receivable Days")
-  if inventory_balance_seed > 0.0 and "Inventory Days" not in seen_working_capital_labels:
-    required_missing.append("Inventory Days")
-  if ap_balance_seed > 0.0 and "Accounts Payable Days" not in seen_working_capital_labels:
-    required_missing.append("Accounts Payable Days")
-  if required_missing:
-    raise ValueError(
-      "working_capital_days_contract_failed: authoritative working-capital balances require model-input day driver rows. "
-      + json.dumps(
-        {
-          "missing_rows": required_missing,
-          "ar_balance_seed": ar_balance_seed,
-          "inventory_balance_seed": inventory_balance_seed,
-          "ap_balance_seed": ap_balance_seed,
-        },
-        ensure_ascii=False,
-      )
-    )
-
-  if runtime_rows:
-    next_payload.setdefault("derived_driver_runtime", {})
-    if isinstance(next_payload.get("derived_driver_runtime"), dict):
-      next_payload["derived_driver_runtime"]["authoritative_balance_sheet_working_capital_days"] = {
-        "source": "authoritative_balance_sheet_opening_balances",
-        "rows": runtime_rows,
-        "pending_dependency_rows": pending_dependency_rows,
-      }
-  return next_payload
-
-
-def _apply_contextual_balance_sheet_driver_seed_policy(
-  model_input_json: Optional[Dict[str, Any]],
-  *,
-  live_count: int,
-) -> Dict[str, Any]:
-  next_payload = _clone(model_input_json if isinstance(model_input_json, dict) else {})
-  sections = next_payload.get("sections") if isinstance(next_payload.get("sections"), dict) else {}
-  if not isinstance(sections, dict):
-    return next_payload
-  balance_rows = [row for row in (sections.get("balance_sheet") or []) if isinstance(row, dict)]
-  if not balance_rows:
-    return next_payload
-  revenue_series = _revenue_live_series_from_model_input(next_payload, live_count=live_count)
-  cogs_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Cost of Goods Sold",
-    live_count=live_count,
-  )
-  marketing_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Marketing",
-    live_count=live_count,
-  )
-  r_and_d_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Research & Development",
-    live_count=live_count,
-  )
-  lease_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Lease",
-    live_count=live_count,
-  )
-  payroll_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="Payroll",
-    live_count=live_count,
-  )
-  g_and_a_ratio_series = _model_input_live_values_for_label(
-    next_payload,
-    section_key="expenses",
-    label="General & Administrative",
-    live_count=live_count,
-  )
-  policies = next_payload.get("derived_driver_policies") if isinstance(next_payload.get("derived_driver_policies"), dict) else {}
-  policy = policies.get(BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY) if isinstance(policies, dict) else {}
-  seed_rows = [
-    item for item in ((policy or {}).get("balance_sheet_seed_grid") or [])
-    if isinstance(item, dict)
-  ]
-  seed_by_lever = {
-    str(item.get("lever_id") or "").strip(): item
-    for item in seed_rows
-    if str(item.get("lever_id") or "").strip()
-  }
-  lever_by_label = {
-    "Accounts Receivable Days": "balance_sheet::Accounts Receivable Days",
-    "Accounts Payable Days": "balance_sheet::Accounts Payable Days",
-    "Inventory Days": "balance_sheet::Inventory Days",
-    "Prepaid Expenses (% of Revenue)": "balance_sheet::Prepaid Expenses (% of Revenue)",
-    "Deferred Revenue (% of Revenue)": "balance_sheet::Deferred Revenue (% of Revenue)",
-  }
-  runtime_rows: List[Dict[str, Any]] = []
-  for row in balance_rows:
-    label = str(row.get("label") or "").strip()
-    lever_id = str(row.get("lever_id") or lever_by_label.get(label) or "").strip()
-    seed_row = seed_by_lever.get(lever_id)
-    if not isinstance(seed_row, dict) or not bool(seed_row.get("applicable")):
-      continue
-    seed_value = _safe_float(seed_row.get("seed_value"))
-    if seed_value is None or seed_value <= 0.0:
-      raise ValueError(
-        "balance_sheet_contextual_seed_invalid: applicable balance-sheet driver is missing a positive business-context seed. "
-        f"lever_id={lever_id} seed_value={seed_row.get('seed_value')!r}"
-      )
-    stub_value, existing_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
-    live_values: List[float] = []
-    changed_quarters: List[int] = []
-    for idx in range(max(0, live_count)):
-      revenue = max(0.0, float(revenue_series[idx]) if idx < len(revenue_series) else 0.0)
-      cogs_ratio = max(0.0, float(cogs_ratio_series[idx]) if idx < len(cogs_ratio_series) else 0.0)
-      marketing_ratio = max(0.0, float(marketing_ratio_series[idx]) if idx < len(marketing_ratio_series) else 0.0)
-      r_and_d_ratio = max(0.0, float(r_and_d_ratio_series[idx]) if idx < len(r_and_d_ratio_series) else 0.0)
-      lease = max(0.0, float(lease_series[idx]) if idx < len(lease_series) else 0.0)
-      payroll = max(0.0, float(payroll_series[idx]) if idx < len(payroll_series) else 0.0)
-      g_and_a_ratio = max(0.0, float(g_and_a_ratio_series[idx]) if idx < len(g_and_a_ratio_series) else 0.0)
-      ap_expense_base = (revenue * marketing_ratio) + (revenue * r_and_d_ratio) + lease + payroll + (revenue * g_and_a_ratio)
-      existing_value = (
-        round(float(_safe_float(existing_live_values[idx]) or 0.0), 6)
-        if idx < len(existing_live_values)
-        else 0.0
-      )
-      cogs = revenue * cogs_ratio
-      should_apply = (
-        (label in {"Accounts Receivable Days", "Prepaid Expenses (% of Revenue)", "Deferred Revenue (% of Revenue)"} and revenue > 0.0)
-        or (label == "Accounts Payable Days" and ap_expense_base > 0.0)
-        or (label == "Inventory Days" and cogs > 0.0)
-      )
-      # Module 5 Task 5.3: when the proposer/critic decided this lever is
-      # applicable, the seed_value (NAICS target, possibly amended by the
-      # critic) is the authoritative Q1+ trajectory. Overwrite any prior
-      # value the model_input overlay placed there. The legacy "fill zeros
-      # only" behavior preserved Tier A intake-implied days across Q1+,
-      # which violated the diagnostic Part 12.6 invariant ("Tier A for
-      # stub 0; NAICS for trajectory") and tripped the realism gate at
-      # finalize for sectors where intake reality is well outside NAICS
-      # bands (e.g., software businesses with low AP balances).
-      if should_apply:
-        live_values.append(round(float(seed_value), 6))
-        if abs(float(seed_value) - float(existing_value)) > 1e-9:
-          changed_quarters.append(idx + 1)
-      else:
-        live_values.append(existing_value)
-    if changed_quarters:
-      row["derived_driver"] = "balance_sheet_contextual_seed"
-      row["balance_sheet_contextual_seed"] = {
-        "source_contract": "balance_sheet_contextual_seed",
-        "source_table": "post_intake_gpt_contract_lookup",
-        "lever_id": lever_id,
-        "business_applicability_key": str(seed_row.get("business_applicability_key") or "").strip(),
-        "rationale": str(seed_row.get("rationale") or "").strip(),
-        "changed_quarters": changed_quarters,
-      }
-      row["values"] = _compose_period_values(stub_value=stub_value, live_values=live_values)
-      runtime_rows.append(
-        {
-          "lever_id": lever_id,
-          "label": label,
-          "seed_value": round(float(seed_value), 6),
-          "changed_quarters": changed_quarters,
-        }
-      )
-  if runtime_rows and isinstance(next_payload.get("derived_driver_runtime"), dict):
-    next_payload["derived_driver_runtime"][BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY] = {
-      "source_contract": "balance_sheet_contextual_seed",
-      "rows": runtime_rows,
-    }
-  return next_payload
-
-
 def apply_derived_driver_policies_to_model_input(
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -2296,14 +1888,18 @@ def apply_derived_driver_policies_to_model_input(
     live_count=live_count,
   )
 
-  next_payload = _apply_authoritative_working_capital_driver_policies(
-    next_payload,
-    live_count=live_count,
+  _bs_seed_policies = next_payload.get("derived_driver_policies") or {}
+  _bs_seed_payload = (
+    _bs_seed_policies.get(BALANCE_SHEET_CONTEXTUAL_SEED_POLICY_KEY)
+    if isinstance(_bs_seed_policies, dict)
+    else None
   )
-  next_payload = _apply_contextual_balance_sheet_driver_seed_policy(
-    next_payload,
-    live_count=live_count,
-  )
+  if isinstance(_bs_seed_payload, dict) and _bs_seed_payload.get("balance_sheet_seed_grid"):
+    next_payload = apply_balance_sheet_contextual_seed_to_model_input(
+      next_payload,
+      _bs_seed_payload,
+      live_count=live_count,
+    )
   next_payload = _enforce_balance_sheet_stock_level_carryforward(
     next_payload,
     live_count=live_count,
@@ -3443,21 +3039,10 @@ def _build_model_input_overlay(
     or 0.0,
   )
   cogs_ratio_baseline = _cogs_ratio_from_financials(financials_json, revenue_total_year1)
-  # Module 1 Tasks 1.3-1.5: NAICS-cascade substitution for forecast Q1-Q20
-  # ONLY. Stub 0 (= intake fact per Part 9.1) keeps the intake-derived values
-  # below; the *_forecast variables carry the substituted target into the
-  # forecast slot loop. When no NAICS coverage / applicability fails / no
-  # naics_6 available, the *_forecast variables stay equal to the *_baseline
-  # variables and the silent zero is preserved as a legitimate zero.
   naics_6 = _naics_6_from_ops(ops_json)
   naics_2 = naics_6[:2] if naics_6 and len(naics_6) >= 2 else None
   baseline_substitution_provenance: Dict[str, Dict[str, Any]] = {}
   cogs_ratio_forecast = cogs_ratio_baseline
-  if cogs_ratio_forecast <= 0.0:
-    band = _naics_substitute_ratio("cogs_percent_of_revenue", naics_6)
-    if band:
-      cogs_ratio_forecast = float(band["benchmark_target"])
-      baseline_substitution_provenance["cogs_percent_of_revenue"] = band
   marketing_ratio_baseline = (
     _safe_ratio((marketing_model_json or {}).get("marketing_percent_of_revenue"))
     if isinstance(marketing_model_json, dict) else None
@@ -3465,12 +3050,6 @@ def _build_model_input_overlay(
   if marketing_ratio_baseline is None:
     marketing_ratio_baseline = _safe_ratio((financials_json or {}).get("marketing_percent_of_revenue"))
   marketing_ratio_forecast = marketing_ratio_baseline
-  if not marketing_ratio_forecast:
-    # NOTE: replaced by marketing schedule in Module 6.
-    band = _naics_substitute_ratio("marketing_percent_of_revenue", naics_6)
-    if band:
-      marketing_ratio_forecast = float(band["benchmark_target"])
-      baseline_substitution_provenance["marketing_percent_of_revenue"] = band
   r_and_d_ratio_baseline = (
     _safe_ratio((financials_json or {}).get("r_and_d_percent"))
     or _safe_ratio((financials_json or {}).get("research_and_development_percent"))
@@ -3504,16 +3083,8 @@ def _build_model_input_overlay(
     ops_json,
     financials_json,
   )
-  # Module 1 Task 1.5: NAICS-cascade tax rate substitution. Stub 0 keeps the
-  # intake-derived value (None -> falls back to base_stub_value below);
-  # forecast quarters use tax_rate_forecast.
   intake_tax_rate = _safe_ratio((financials_json or {}).get("taxes_percent"))
   tax_rate_forecast: Optional[float] = intake_tax_rate
-  if not tax_rate_forecast:
-    band = _naics_substitute_ratio("effective_tax_rate", naics_6)
-    if band:
-      tax_rate_forecast = float(band["benchmark_target"])
-      baseline_substitution_provenance["effective_tax_rate"] = band
   expense_rows = [row for row in (sections.get("expenses") or []) if isinstance(row, dict)]
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
@@ -3586,7 +3157,13 @@ def _build_model_input_overlay(
       elif label == "Interest Rate":
         values.append(round(interest_rate_baseline, 6))
       elif label == "Depreciation":
-        values.append(0.0)
+        raise ValueError(
+          "depreciation_expense_row_band_required: depreciation expense row "
+          "must be supplied by the unified driver-band assembler (Phase 2). "
+          "Hardcoded 0.0 placeholder is removed; downstream capex schedule "
+          "writes the actual depreciation series and must run before this row "
+          "is composed."
+        )
       elif label == "Taxes":
         if projection_mode:
           projected = _safe_ratio((financials_json or {}).get("taxes_percent")) or _ratio(slot.get("taxes"), revenue)
@@ -3597,7 +3174,12 @@ def _build_model_input_overlay(
         else:
           values.append(round(tax_rate_forecast or 0.0, 6))
       else:
-        values.append(base_live_values[0] if base_live_values else 0.0)
+        raise ValueError(
+          f"expense_row_label_unhandled_in_band_assembler: label={label!r}. "
+          "The unified driver-band assembler (Phase 2) must own every "
+          "expense-row Q1+ value; the silent catch-all that fell back to "
+          "base_live_values[0] is removed."
+        )
     # Module 1: stamp NAICS-cascade provenance on rows whose forecast values
     # were substituted. Stub 0 is unchanged; provenance describes the seed
     # source for forecast Q1-Q20.
@@ -3659,9 +3241,12 @@ def _build_model_input_overlay(
         elif revenue > 0.0 and ar_days_band:
           values.append(round(float(ar_days_band["benchmark_target"]), 6))
         elif revenue > 0.0 and ar_balance_seed > 0.0:
-          # No NAICS coverage; Tier A intake-implied days is the last-resort
-          # anchor. Realism gate will surface any out-of-band result.
-          values.append(round((ar_balance_seed / revenue) * days_in_quarter, 6))
+          raise ValueError(
+            "ar_days_naics_no_coverage: NAICS band missing for ar_days_dso. "
+            "Tier A intake-implied-days fallback is removed; the unified band "
+            "assembler must supply a calibrated band (NAICS default + GPT "
+            "calibration). naics_6=" + str(naics_6 or "")
+          )
         else:
           values.append(0.0)
       elif label == "Inventory Days":
@@ -3669,13 +3254,14 @@ def _build_model_input_overlay(
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
         elif cogs > 0.0 and inventory_days_band:
-          # NAICS owns the trajectory. Software-style sectors keep 0 via
-          # NAICS-2 applicability gate (band returns no_coverage there).
           values.append(round(float(inventory_days_band["benchmark_target"]), 6))
         elif cogs > 0.0 and inventory_balance_seed > 0.0:
-          # No NAICS coverage; Tier A intake-implied days as the last
-          # resort, only when COGS is present (inventory makes sense).
-          values.append(round((inventory_balance_seed / cogs) * days_in_quarter, 6))
+          raise ValueError(
+            "inventory_days_naics_no_coverage: NAICS band missing for inventory_days. "
+            "Tier A intake-implied-days fallback is removed; the unified band "
+            "assembler must supply a calibrated band (NAICS default + GPT "
+            "calibration). naics_6=" + str(naics_6 or "")
+          )
         else:
           values.append(0.0)
       elif label == "Accounts Payable Days":
@@ -3683,11 +3269,14 @@ def _build_model_input_overlay(
         if explicit_value is not None and explicit_value > 0.0:
           values.append(round(explicit_value, 6))
         elif ap_expense_base > 0.0 and ap_days_band:
-          # NAICS owns the Q1+ trajectory.
           values.append(round(float(ap_days_band["benchmark_target"]), 6))
         elif ap_expense_base > 0.0 and ap_balance_seed > 0.0:
-          # No NAICS coverage; Tier A intake-implied days is the last resort.
-          values.append(round((ap_balance_seed / ap_expense_base) * days_in_quarter, 6))
+          raise ValueError(
+            "ap_days_naics_no_coverage: NAICS band missing for ap_days_dpo. "
+            "Tier A intake-implied-days fallback is removed; the unified band "
+            "assembler must supply a calibrated band (NAICS default + GPT "
+            "calibration). naics_6=" + str(naics_6 or "")
+          )
         else:
           values.append(0.0)
       elif label == "Prepaid Expenses (% of Revenue)":

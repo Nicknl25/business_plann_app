@@ -1407,7 +1407,6 @@ def _derive_r_and_d_applicability_from_naics(
     "naics_provenance": {
       "naics_2": business_naics_6[:2],
       "applicability_default": applicability,
-      "default_percent_when_required": applicability_row.get("default_percent_when_required"),
       "table": "post_intake_r_and_d_applicability_lookup",
     },
   }

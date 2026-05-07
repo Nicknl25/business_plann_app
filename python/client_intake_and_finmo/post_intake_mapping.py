@@ -5181,32 +5181,32 @@ def post_intake_planning_mode_policy_for(planning_mode: Any) -> Optional[Dict[st
 
 _DEFAULT_R_AND_D_APPLICABILITY_ROWS: List[Dict[str, Any]] = [
   # Required — sectors with material R&D as a recurring distinct function.
-  {"naics_2": "51", "applicability_default": "required", "default_percent_when_required": 0.10, "notes": "Information (publishers, software, broadcasting, telecom) — software/product engineering is core."},
-  {"naics_2": "54", "applicability_default": "required", "default_percent_when_required": 0.08, "notes": "Professional/Scientific/Technical — R&D services, engineering, computer systems design."},
+  {"naics_2": "51", "applicability_default": "required", "notes": "Information (publishers, software, broadcasting, telecom) — software/product engineering is core."},
+  {"naics_2": "54", "applicability_default": "required", "notes": "Professional/Scientific/Technical — R&D services, engineering, computer systems design."},
   # Not applicable — consumer-facing or routine-operations sectors.
-  {"naics_2": "44", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Retail trade — no separate R&D function in the operating model."},
-  {"naics_2": "45", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Retail trade — same as 44."},
-  {"naics_2": "72", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Accommodation and Food Services — no separate R&D function."},
-  {"naics_2": "81", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Other Services (Except Public Administration) — routine personal/repair services."},
-  {"naics_2": "53", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Real Estate and Rental and Leasing — no separate R&D function."},
-  {"naics_2": "61", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Educational Services — curriculum development is not R&D in the cost-structure sense."},
+  {"naics_2": "44", "applicability_default": "not_applicable", "notes": "Retail trade — no separate R&D function in the operating model."},
+  {"naics_2": "45", "applicability_default": "not_applicable", "notes": "Retail trade — same as 44."},
+  {"naics_2": "72", "applicability_default": "not_applicable", "notes": "Accommodation and Food Services — no separate R&D function."},
+  {"naics_2": "81", "applicability_default": "not_applicable", "notes": "Other Services (Except Public Administration) — routine personal/repair services."},
+  {"naics_2": "53", "applicability_default": "not_applicable", "notes": "Real Estate and Rental and Leasing — no separate R&D function."},
+  {"naics_2": "61", "applicability_default": "not_applicable", "notes": "Educational Services — curriculum development is not R&D in the cost-structure sense."},
   # Optional — sectors where R&D applicability depends on sub-industry; GPT
   # remains the tiebreaker.
-  {"naics_2": "31", "applicability_default": "optional", "default_percent_when_required": 0.04, "notes": "Manufacturing (food, textiles) — depends on whether the firm has a product-development function."},
-  {"naics_2": "32", "applicability_default": "optional", "default_percent_when_required": 0.06, "notes": "Manufacturing (chemicals, plastics) — pharma/chemicals subsectors typically have R&D; routine fabrication does not."},
-  {"naics_2": "33", "applicability_default": "optional", "default_percent_when_required": 0.06, "notes": "Manufacturing (computers, transportation, machinery) — depends on subsector."},
-  {"naics_2": "21", "applicability_default": "optional", "default_percent_when_required": 0.03, "notes": "Mining/Quarrying/Oil — exploration-as-R&D treatment varies by sub-industry."},
-  {"naics_2": "23", "applicability_default": "optional", "default_percent_when_required": 0.02, "notes": "Construction — most firms no; specialized construction R&D yes."},
-  {"naics_2": "42", "applicability_default": "optional", "default_percent_when_required": 0.02, "notes": "Wholesale Trade — depends on whether the firm has product-development capacity."},
-  {"naics_2": "48", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Transportation."},
-  {"naics_2": "49", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Warehousing."},
-  {"naics_2": "52", "applicability_default": "optional", "default_percent_when_required": 0.04, "notes": "Finance and Insurance — fintech sub-industry yes; traditional banks no."},
-  {"naics_2": "55", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Management of Companies and Enterprises — holding-company structures."},
-  {"naics_2": "56", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Administrative and Support Services — operational services without R&D."},
-  {"naics_2": "62", "applicability_default": "optional", "default_percent_when_required": 0.04, "notes": "Health Care — biotech / device development yes; routine clinical services no."},
-  {"naics_2": "71", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Arts, Entertainment, Recreation."},
-  {"naics_2": "11", "applicability_default": "optional", "default_percent_when_required": 0.02, "notes": "Agriculture/Forestry/Fishing — varietal R&D in some cases."},
-  {"naics_2": "22", "applicability_default": "not_applicable", "default_percent_when_required": None, "notes": "Utilities — operational services without R&D."},
+  {"naics_2": "31", "applicability_default": "optional", "notes": "Manufacturing (food, textiles) — depends on whether the firm has a product-development function."},
+  {"naics_2": "32", "applicability_default": "optional", "notes": "Manufacturing (chemicals, plastics) — pharma/chemicals subsectors typically have R&D; routine fabrication does not."},
+  {"naics_2": "33", "applicability_default": "optional", "notes": "Manufacturing (computers, transportation, machinery) — depends on subsector."},
+  {"naics_2": "21", "applicability_default": "optional", "notes": "Mining/Quarrying/Oil — exploration-as-R&D treatment varies by sub-industry."},
+  {"naics_2": "23", "applicability_default": "optional", "notes": "Construction — most firms no; specialized construction R&D yes."},
+  {"naics_2": "42", "applicability_default": "optional", "notes": "Wholesale Trade — depends on whether the firm has product-development capacity."},
+  {"naics_2": "48", "applicability_default": "not_applicable", "notes": "Transportation."},
+  {"naics_2": "49", "applicability_default": "not_applicable", "notes": "Warehousing."},
+  {"naics_2": "52", "applicability_default": "optional", "notes": "Finance and Insurance — fintech sub-industry yes; traditional banks no."},
+  {"naics_2": "55", "applicability_default": "not_applicable", "notes": "Management of Companies and Enterprises — holding-company structures."},
+  {"naics_2": "56", "applicability_default": "not_applicable", "notes": "Administrative and Support Services — operational services without R&D."},
+  {"naics_2": "62", "applicability_default": "optional", "notes": "Health Care — biotech / device development yes; routine clinical services no."},
+  {"naics_2": "71", "applicability_default": "not_applicable", "notes": "Arts, Entertainment, Recreation."},
+  {"naics_2": "11", "applicability_default": "optional", "notes": "Agriculture/Forestry/Fishing — varietal R&D in some cases."},
+  {"naics_2": "22", "applicability_default": "not_applicable", "notes": "Utilities — operational services without R&D."},
 ]
 
 
@@ -5225,7 +5225,6 @@ def _ensure_r_and_d_applicability_lookup_table(conn) -> None:
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
           naics_2 VARCHAR(2) NOT NULL,
           applicability_default VARCHAR(32) NOT NULL,
-          default_percent_when_required DECIMAL(10,4) NULL,
           notes LONGTEXT NULL,
           active TINYINT(1) NOT NULL DEFAULT 1,
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -5246,20 +5245,17 @@ def _ensure_r_and_d_applicability_lookup_table(conn) -> None:
           INSERT INTO {_R_AND_D_APPLICABILITY_TABLE_NAME} (
             naics_2,
             applicability_default,
-            default_percent_when_required,
             notes,
             active
-          ) VALUES (%s, %s, %s, %s, 1)
+          ) VALUES (%s, %s, %s, 1)
           ON DUPLICATE KEY UPDATE
             applicability_default = VALUES(applicability_default),
-            default_percent_when_required = VALUES(default_percent_when_required),
             notes = VALUES(notes),
             active = VALUES(active)
           """,
           (
             _clean_text(row.get("naics_2")),
             applicability,
-            row.get("default_percent_when_required"),
             _clean_text(row.get("notes")),
           ),
         )
@@ -5286,7 +5282,6 @@ def load_post_intake_r_and_d_applicability_rows() -> List[Dict[str, Any]]:
         SELECT
           naics_2,
           applicability_default,
-          default_percent_when_required,
           notes,
           active
         FROM {_R_AND_D_APPLICABILITY_TABLE_NAME}
@@ -5308,11 +5303,6 @@ def load_post_intake_r_and_d_applicability_rows() -> List[Dict[str, Any]]:
       {
         "naics_2": naics_2,
         "applicability_default": _clean_text(raw.get("applicability_default")).lower(),
-        "default_percent_when_required": (
-          float(raw["default_percent_when_required"])
-          if raw.get("default_percent_when_required") is not None
-          else None
-        ),
         "notes": _clean_text(raw.get("notes")),
         "active": bool(raw.get("active") or 0),
       }
