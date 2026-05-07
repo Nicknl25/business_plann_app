@@ -781,10 +781,23 @@ def _validate_stage_ramp_contract_payload(
       parsed["cogs_percent_of_revenue_max"] = parsed.get("cogs_percent_of_revenue_target", 0.0)
     if revenue_spike_allowed and parsed.get("revenue_qoq_spike_max", 0.0) < parsed.get("revenue_qoq_max", 0.0) - 1e-9:
       errors.append(f"quarter_ramp_grid Q{quarter_index} revenue_qoq_spike_max must be >= revenue_qoq_max")
-    if not bool(r_and_d_enabled) and abs(float(parsed.get("rd_percent_of_revenue_max") or 0.0)) > 1e-9:
-      errors.append(
-        f"quarter_ramp_grid Q{quarter_index} rd_max must be 0.00 because R&D applicability is disabled before forecast"
-      )
+    if not bool(r_and_d_enabled):
+      _rd_max_received = float(parsed.get("rd_percent_of_revenue_max") or 0.0)
+      if abs(_rd_max_received) > 1e-9:
+        # Contract invariant: when R&D is disabled by applicability, rd_max
+        # must be 0.0. GPT may return a tiny non-zero drift (e.g. 0.01)
+        # intending "rounds to zero." Coerce to the contract value here —
+        # the parser layer enforces the architectural invariant regardless
+        # of GPT's exact output. Log so cohort-level GPT-drift is visible.
+        try:
+          logger.warning(
+            "stage_ramp_contract_rd_max_coerced_to_zero: Q%s received %s; "
+            "coerced to 0.0 (R&D disabled by applicability)",
+            quarter_index, _rd_max_received,
+          )
+        except Exception:
+          pass
+        parsed["rd_percent_of_revenue_max"] = 0.0
     profitability_posture = str(item.get("posture") or "").strip().lower()
     if profitability_posture not in {"loss_allowed", "improving_losses", "near_breakeven", "positive"}:
       errors.append(
