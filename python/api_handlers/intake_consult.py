@@ -39,34 +39,46 @@ except Exception:
   build_shared_context = None  # type: ignore
 from client_intake_and_finmo.fact_templates import sanitize_fact_template  # type: ignore
 from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
-from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
-  bind_runtime_dependencies as bind_cash_runtime_dependencies,
-)
-from client_intake_and_finmo.post_intake_issues.runner import (  # type: ignore
-  bind_runtime_dependencies as bind_issue_runtime_dependencies,
-)
-from client_intake_and_finmo.post_intake_contracts.runner import (  # type: ignore
-  bind_runtime_dependencies as bind_contract_runtime_dependencies,
-  _assert_r_and_d_applicability_policy_applied,
-  _derive_maintenance_capex_percent_from_naics,
-  _estimate_balance_sheet_contextual_seed_with_gpt,
-  _estimate_r_and_d_applicability_with_gpt,
-  _estimate_stage_ramp_contract_with_gpt,
-  _extract_numeric_solver_feedback_for_persistence,
-  _first_contract_product_missing_periods,
-  _r_and_d_policy_from_model_input,
-)
+# Phase 4 / Issue 1: explicit module imports replace wildcards. Each runner
+# module is imported by name; cross-runner helpers are pulled via the
+# runner's __all__ list at dependency-dict-build time. No wildcard imports;
+# no globals() round-trip; the dependency contract is the runner's __all__.
+from client_intake_and_finmo.post_intake_cash import runner as _post_intake_cash_runner  # type: ignore
+from client_intake_and_finmo.post_intake_issues import runner as _post_intake_issues_runner  # type: ignore
+from client_intake_and_finmo.post_intake_contracts import runner as _post_intake_contracts_runner  # type: ignore
+from client_intake_and_finmo.post_intake_state import runner as _post_intake_state_runner  # type: ignore
+from client_intake_and_finmo.post_intake_convergence import runner as _post_intake_convergence_runner  # type: ignore
+from client_intake_and_finmo.post_intake_convergence import runtime as _post_intake_convergence_runtime  # type: ignore
 from client_intake_and_finmo.post_intake_initial_grid import prepare_initial_grid_for_draft  # type: ignore
 from client_intake_and_finmo.post_intake_sequence import run_targeted_process_step  # type: ignore
-from client_intake_and_finmo.post_intake_state.runner import (  # type: ignore
-  bind_runtime_dependencies as bind_state_runtime_dependencies,
-  _build_planning_run_payload,
-  _maybe_interrupt_planning_run,
-  _persist_failed_system_run_snapshot,
-)
-from client_intake_and_finmo.post_intake_convergence import (  # type: ignore
-  bind_runtime_dependencies as bind_convergence_runtime_dependencies,
-  bind_convergence_runtime_dependencies as bind_convergence_execution_runtime_dependencies,
+
+# Bind-runtime-dependencies callables exposed under their handler-side names.
+bind_cash_runtime_dependencies = _post_intake_cash_runner.bind_runtime_dependencies
+bind_issue_runtime_dependencies = _post_intake_issues_runner.bind_runtime_dependencies
+bind_contract_runtime_dependencies = _post_intake_contracts_runner.bind_runtime_dependencies
+bind_state_runtime_dependencies = _post_intake_state_runner.bind_runtime_dependencies
+bind_convergence_runtime_dependencies = _post_intake_convergence_runtime.bind_runtime_dependencies
+bind_convergence_execution_runtime_dependencies = _post_intake_convergence_runner.bind_runtime_dependencies
+
+# Cross-runner helpers used directly within this module. The bind dict
+# below carries the union of every runner's __all__, so these names are
+# also reachable through that path; importing them here is for direct use
+# by intake_consult.py code paths.
+_assert_r_and_d_applicability_policy_applied = _post_intake_contracts_runner._assert_r_and_d_applicability_policy_applied
+_derive_maintenance_capex_percent_from_naics = _post_intake_contracts_runner._derive_maintenance_capex_percent_from_naics
+_estimate_balance_sheet_contextual_seed_with_gpt = _post_intake_contracts_runner._estimate_balance_sheet_contextual_seed_with_gpt
+_estimate_r_and_d_applicability_with_gpt = _post_intake_contracts_runner._estimate_r_and_d_applicability_with_gpt
+_estimate_stage_ramp_contract_with_gpt = _post_intake_contracts_runner._estimate_stage_ramp_contract_with_gpt
+_extract_numeric_solver_feedback_for_persistence = _post_intake_contracts_runner._extract_numeric_solver_feedback_for_persistence
+_first_contract_product_missing_periods = _post_intake_contracts_runner._first_contract_product_missing_periods
+_r_and_d_policy_from_model_input = _post_intake_contracts_runner._r_and_d_policy_from_model_input
+_build_planning_run_payload = _post_intake_state_runner._build_planning_run_payload
+_maybe_interrupt_planning_run = _post_intake_state_runner._maybe_interrupt_planning_run
+_persist_failed_system_run_snapshot = _post_intake_state_runner._persist_failed_system_run_snapshot
+_build_planning_context_summary_payload = _post_intake_convergence_runtime._build_planning_context_summary_payload
+
+# Convergence package surface re-exported under aliases used elsewhere.
+from client_intake_and_finmo.post_intake_convergence import (  # type: ignore  # noqa: E402
   build_retry_scope_payload as convergence_build_retry_scope_payload,
   build_unified_convergence_contract_policy,
   evaluate_retry_improvement as convergence_evaluate_retry_improvement,
@@ -77,9 +89,6 @@ from client_intake_and_finmo.post_intake_convergence import (  # type: ignore
   subset_numeric_solver_contract as convergence_subset_numeric_solver_contract,
   unified_convergence_contract_constraints,
   validate_unified_convergence_contract_horizon,
-)
-from client_intake_and_finmo.post_intake_convergence.runtime import (  # type: ignore
-  _build_planning_context_summary_payload,
 )
 
 OPS_CONFIRM_QUESTION = "Does this look right before we move on to Target Market?"
@@ -107,8 +116,96 @@ class StructuredSystemRunFailure(RuntimeError):
     )
 
 
+_POST_INTAKE_RUNTIME_DEPENDENCY_PROVIDER_MODULES = (
+  _post_intake_cash_runner,
+  _post_intake_issues_runner,
+  _post_intake_contracts_runner,
+  _post_intake_state_runner,
+  _post_intake_convergence_runtime,
+  # convergence.runner has no __all__ — it's a consumer, not a provider.
+)
+
+# Helpers and aliases defined inside intake_consult.py (or imported into
+# its module scope) that runners need at runtime via the bind injection.
+# Listed explicitly — replacing the legacy globals()-as-source pattern
+# with an enumerated allow-list. Source-truth: derived from an AST audit
+# of every runner's referenced-but-not-locally-defined names, intersected
+# with intake_consult.py's module attributes, minus names already
+# provided by any runner's __all__.
+_INTAKE_CONSULT_OWN_RUNTIME_DEPENDENCY_NAMES = (
+  "PlanningRunLifecycleInterrupt",
+  "StructuredSystemRunFailure",
+  # intake_consult-private helpers consumed by runners.
+  "_format_currency",
+  "_is_missing_number_value",
+  "_openai_call_telemetry_snapshot",
+  "_openai_key",
+  "_openai_model",
+  "_parse_json_dict",
+  "_parse_milestones",
+  "_parse_responses_text",
+  "_parse_responses_json_dict",
+  "_post_openai",
+  "_safe_float",
+  "_safe_int",
+  "_series_changed_count",
+  "_set_active_openai_deadline",
+  "_structured_system_run_failure_detail",
+  "post_openai_with_retries",
+  "build_shared_context",
+  "logger",
+  # Convergence package re-exports under intake_consult-side aliases.
+  "build_unified_convergence_contract_policy",
+  "convergence_build_retry_scope_payload",
+  "convergence_evaluate_retry_improvement",
+  "convergence_full_horizon_quarters",
+  "convergence_full_horizon_retry_scope_mode",
+  "convergence_retry_scope_lever_ids",
+  "convergence_retry_scope_quarters",
+  "convergence_subset_numeric_solver_contract",
+  "unified_convergence_contract_constraints",
+  "validate_unified_convergence_contract_horizon",
+  # intake_consult_draft helpers consumed via injection.
+  "append_messages",
+  "begin_planning_run",
+  "clear_planning_run_action",
+  "current_app_timestamp_iso",
+  "current_app_timestamp_str",
+  "current_app_timezone_name",
+  "get_draft",
+  "get_latest_planning_run_checkpoint",
+  "get_planning_run",
+  "persist_post_intake_execution_state",
+  "request_planning_run_action",
+)
+
+
+def _post_intake_runtime_dependency_dict() -> Dict[str, Any]:
+  """Phase 4 / Issue 1: build the cross-runner dependency dict explicitly.
+
+  Source of truth for cross-runner helpers is each provider module's
+  __all__; intake_consult.py-owned helpers come from a named allow-list
+  above. No reliance on `globals()` as a symbol bridge; no wildcard
+  imports anywhere. Each helper is sourced from a named module.
+  """
+  dependencies: Dict[str, Any] = {}
+  for module in _POST_INTAKE_RUNTIME_DEPENDENCY_PROVIDER_MODULES:
+    for name in getattr(module, "__all__", ()) or ():
+      if name in dependencies:
+        continue
+      attr = getattr(module, name, None)
+      if attr is None:
+        continue
+      dependencies[name] = attr
+  module_globals = globals()
+  for name in _INTAKE_CONSULT_OWN_RUNTIME_DEPENDENCY_NAMES:
+    if name not in dependencies and name in module_globals:
+      dependencies[name] = module_globals[name]
+  return dependencies
+
+
 def _bind_post_intake_runtime_dependencies() -> None:
-  dependencies = globals()
+  dependencies = _post_intake_runtime_dependency_dict()
   bind_cash_runtime_dependencies(dependencies)
   bind_issue_runtime_dependencies(dependencies)
   bind_contract_runtime_dependencies(dependencies)
