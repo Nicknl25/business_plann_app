@@ -3108,8 +3108,6 @@ def stage_planning_ramp_policy(
   # see "not present" with the same semantics as pre-v4).
   if planning_mode_policy:
     pm = planning_mode_policy
-    if pm.get("operational_distress_allows_early_losses"):
-      policy["validator_rules"]["operational_distress_allows_early_losses"] = True
     if pm.get("operational_requires_nonnegative_from_q1") and family not in {"startup", "early"} and not explicit_distress_context:
       policy["validator_rules"]["operational_requires_nonnegative_from_q1"] = True
     if pm.get("operational_requires_positive_from_q5") and family not in {"startup", "early"} and not explicit_distress_context:
@@ -3120,12 +3118,6 @@ def stage_planning_ramp_policy(
       policy["validator_rules"]["q5_to_q20_min_net_income_margin_floor"] = float(pm["profitability_floor_q5_q10"])
     if pm.get("loss_allowed_latest_quarter") is not None and "loss_allowed_latest_quarter" not in policy["validator_rules"]:
       policy["validator_rules"]["loss_allowed_latest_quarter"] = int(pm["loss_allowed_latest_quarter"])
-    policy["planning_mode_policy_source"] = {
-      "table": _PLANNING_MODE_POLICY_TABLE_NAME,
-      "planning_mode": pm.get("planning_mode"),
-      "cycle_budget_multiplier": pm.get("cycle_budget_multiplier"),
-      "tolerated_issue_codes": pm.get("tolerated_issue_codes") or [],
-    }
   elif family not in {"startup", "early"} and not explicit_distress_context:
     # Fallback: planning_mode_policy missing AND the operational baseline
     # branch was selected. Preserve the pre-v4 inline values exactly so
@@ -4964,7 +4956,6 @@ _DEFAULT_PLANNING_MODE_POLICY_ROWS: List[Dict[str, Any]] = [
     "loss_allowed_latest_quarter": None,
     "tolerated_issue_codes": [],
     "cycle_budget_multiplier": 1.0,
-    "operational_distress_allows_early_losses": False,
     "operational_requires_nonnegative_from_q1": True,
     "operational_requires_positive_from_q5": True,
     "notes": "Operational baseline for misaligned-but-salvageable cases. Matches the pre-v4 `else` branch in stage_planning_ramp_policy.",
@@ -4982,7 +4973,6 @@ _DEFAULT_PLANNING_MODE_POLICY_ROWS: List[Dict[str, Any]] = [
     "loss_allowed_latest_quarter": None,
     "tolerated_issue_codes": ["mature_loss_state", "early_revenue_under_run_rate"],
     "cycle_budget_multiplier": 1.0,
-    "operational_distress_allows_early_losses": True,
     "operational_requires_nonnegative_from_q1": False,
     "operational_requires_positive_from_q5": False,
     "notes": "Distress / turnaround mode. Matches the pre-v4 `elif explicit_distress_context` branch in stage_planning_ramp_policy.",
@@ -4995,7 +4985,6 @@ _DEFAULT_PLANNING_MODE_POLICY_ROWS: List[Dict[str, Any]] = [
     "loss_allowed_latest_quarter": None,
     "tolerated_issue_codes": [],
     "cycle_budget_multiplier": 1.0,
-    "operational_distress_allows_early_losses": False,
     "operational_requires_nonnegative_from_q1": True,
     "operational_requires_positive_from_q5": True,
     "notes": "Reality-normalization mode for over-optimistic / overstated cases. Same numeric floors as rebalance.",
@@ -5023,7 +5012,6 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
           loss_allowed_latest_quarter INT NULL,
           tolerated_issue_codes_json LONGTEXT NULL,
           cycle_budget_multiplier DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
-          operational_distress_allows_early_losses TINYINT(1) NOT NULL DEFAULT 0,
           operational_requires_nonnegative_from_q1 TINYINT(1) NOT NULL DEFAULT 0,
           operational_requires_positive_from_q5 TINYINT(1) NOT NULL DEFAULT 0,
           policy_status VARCHAR(32) NOT NULL DEFAULT 'active',
@@ -5035,6 +5023,26 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
+      # Phase 6 Step 1: drop the orphaned operational_distress_allows_early_losses
+      # column from existing deployments. The column is set but never read by
+      # any consumer; carrying it forward is dead schema.
+      cur.execute(
+        f"""
+        SELECT COUNT(*) FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = '{_PLANNING_MODE_POLICY_TABLE_NAME}'
+          AND COLUMN_NAME = 'operational_distress_allows_early_losses'
+        """
+      )
+      _orphan_col_count_row = cur.fetchone()
+      _orphan_col_count = (
+        int(_orphan_col_count_row[0]) if _orphan_col_count_row else 0
+      )
+      if _orphan_col_count > 0:
+        cur.execute(
+          f"ALTER TABLE {_PLANNING_MODE_POLICY_TABLE_NAME} "
+          "DROP COLUMN operational_distress_allows_early_losses"
+        )
       for row in _DEFAULT_PLANNING_MODE_POLICY_ROWS:
         cur.execute(
           f"""
@@ -5046,12 +5054,11 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
             loss_allowed_latest_quarter,
             tolerated_issue_codes_json,
             cycle_budget_multiplier,
-            operational_distress_allows_early_losses,
             operational_requires_nonnegative_from_q1,
             operational_requires_positive_from_q5,
             policy_status,
             notes
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)
           ON DUPLICATE KEY UPDATE
             profitability_floor_q1_q4 = VALUES(profitability_floor_q1_q4),
             profitability_floor_q5_q10 = VALUES(profitability_floor_q5_q10),
@@ -5059,7 +5066,6 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
             loss_allowed_latest_quarter = VALUES(loss_allowed_latest_quarter),
             tolerated_issue_codes_json = VALUES(tolerated_issue_codes_json),
             cycle_budget_multiplier = VALUES(cycle_budget_multiplier),
-            operational_distress_allows_early_losses = VALUES(operational_distress_allows_early_losses),
             operational_requires_nonnegative_from_q1 = VALUES(operational_requires_nonnegative_from_q1),
             operational_requires_positive_from_q5 = VALUES(operational_requires_positive_from_q5),
             notes = VALUES(notes)
@@ -5072,7 +5078,6 @@ def _ensure_planning_mode_policy_lookup_table(conn) -> None:
             row.get("loss_allowed_latest_quarter"),
             _json_dumps_value(row.get("tolerated_issue_codes") or []),
             float(row.get("cycle_budget_multiplier") or 1.0),
-            1 if bool(row.get("operational_distress_allows_early_losses")) else 0,
             1 if bool(row.get("operational_requires_nonnegative_from_q1")) else 0,
             1 if bool(row.get("operational_requires_positive_from_q5")) else 0,
             _clean_text(row.get("notes")),
@@ -5106,7 +5111,6 @@ def load_post_intake_planning_mode_policy_rows() -> List[Dict[str, Any]]:
           loss_allowed_latest_quarter,
           tolerated_issue_codes_json,
           cycle_budget_multiplier,
-          operational_distress_allows_early_losses,
           operational_requires_nonnegative_from_q1,
           operational_requires_positive_from_q5,
           policy_status,
@@ -5143,7 +5147,6 @@ def load_post_intake_planning_mode_policy_rows() -> List[Dict[str, Any]]:
         ),
         "tolerated_issue_codes": _json_value(raw.get("tolerated_issue_codes_json"), []) or [],
         "cycle_budget_multiplier": float(raw.get("cycle_budget_multiplier") or 1.0),
-        "operational_distress_allows_early_losses": _clean_bool(raw.get("operational_distress_allows_early_losses")),
         "operational_requires_nonnegative_from_q1": _clean_bool(raw.get("operational_requires_nonnegative_from_q1")),
         "operational_requires_positive_from_q5": _clean_bool(raw.get("operational_requires_positive_from_q5")),
         "policy_status": _clean_text(raw.get("policy_status")).lower() or "active",
