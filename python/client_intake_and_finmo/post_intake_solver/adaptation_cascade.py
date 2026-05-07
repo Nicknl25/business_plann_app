@@ -39,7 +39,17 @@ PLAN_CONFIDENCE_PLANNING_MODE_SHIFTED = "low_planning_mode_shifted"
 PLAN_CONFIDENCE_STAGE_FAMILY_WIDENED = "low_stage_family_widened"
 PLAN_CONFIDENCE_GENERIC_FALLBACK = "generic_fallback_no_calibration"
 
-_GPT_BAND_TIGHTENING_THRESHOLD_PCT = 0.25
+# Phase 6 Step 3: Tier 1 walk-back floor — aligned with the Phase 5.2 R2
+# buffer rule's _PYTHON_DEFAULT_WIDTH_RETENTION_FRACTION at
+# consultant_band_amendment_rules.py:28. A GPT amendment is walked back
+# only when its remaining band width has fallen BELOW the buffer floor —
+# meaning the amendment got past the buffer (a legacy code path or a
+# missed validation). The buffer rule already rejects amendments below
+# this floor at the consultant layer, so in a healthy system Tier 1 is a
+# defensive no-op. Pre-Phase 6 this was 0.75 (walked back any amendment
+# narrowed by ≥25%), which contradicted the buffer rule by reverting
+# amendments the buffer had explicitly approved.
+_GPT_BAND_RETENTION_FLOOR_PCT = 0.25
 _TARGET_TOLERANCE_WIDENING = 1.5
 _TARGET_TOLERANCE_GENERIC_WIDENING = 2.0
 
@@ -92,7 +102,7 @@ def _clean_text(value: Any) -> str:
 def _envelope_with_gpt_bands_reverted(
   envelope_payload: Dict[str, Any],
   *,
-  tightening_threshold_pct: float = _GPT_BAND_TIGHTENING_THRESHOLD_PCT,
+  retention_floor_pct: float = _GPT_BAND_RETENTION_FLOOR_PCT,
 ) -> Tuple[Dict[str, Any], List[str]]:
   next_env = copy.deepcopy(envelope_payload or {})
   drivers = next_env.get("drivers") if isinstance(next_env.get("drivers"), dict) else {}
@@ -115,8 +125,14 @@ def _envelope_with_gpt_bands_reverted(
     cur_max = _safe_float(entry.get("max_allowed"))
     py_width = max(0.0, py_max - py_min)
     cur_width = max(0.0, (cur_max or 0) - (cur_min or 0))
-    pct_remaining = (cur_width / py_width) if py_width > 0 else 1.0
-    if pct_remaining > (1.0 - float(tightening_threshold_pct)):
+    # Walk back only when remaining width has fallen BELOW the buffer
+    # rule's retention floor. Mirrors the buffer rule's exact comparison
+    # shape (consultant_band_amendment_rules.py:151:
+    # `if proposed_width < required_width: reject`). Amendments at or
+    # above the floor were validated by the consultant layer (R2 buffer
+    # rule); reverting them here contradicts the consultant contract.
+    required_width = float(retention_floor_pct) * py_width
+    if cur_width >= required_width:
       continue
     entry["min_allowed"] = float(py_min)
     entry["max_allowed"] = float(py_max)
