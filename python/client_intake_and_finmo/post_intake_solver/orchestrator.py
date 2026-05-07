@@ -195,6 +195,7 @@ def _ensure_solver_inputs(
   model_input_json: Dict[str, Any],
   ops_json: Optional[Dict[str, Any]],
   horizon: int,
+  business_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Guarantees model_input_json carries solver_input.envelope and
   solver_input.finmo_output_targets even if upstream skipped finmo_bridge.
@@ -217,11 +218,13 @@ def _ensure_solver_inputs(
     solver_input[DRIVER_MOVEMENT_ENVELOPE_KEY] = assemble_driver_movement_envelope(
       business_naics_6=naics_6 or None,
       live_count=horizon,
+      business_profile=business_profile,
     )
   if not solver_input.get(FINMO_OUTPUT_TARGET_KEY):
     solver_input[FINMO_OUTPUT_TARGET_KEY] = assemble_finmo_output_targets(
       business_naics_6=naics_6 or None,
       live_count=horizon,
+      business_profile=business_profile,
     )
   return next_input
 
@@ -385,10 +388,50 @@ def run_target_seeking_orchestrated_system_run(
 
   horizon = int(QUARTER_COUNT)
 
+  # Phase 3.5: build the business_profile that the cohort-matched band
+  # resolver consumes. NAICS comes from ops; target_annual_revenue is the
+  # year-1 projection (more representative of the planned business than
+  # the current-state snapshot); stage comes from business_facts.
+  _bf_template = (business_facts or {}).get("fact_template") if isinstance(business_facts, dict) else {}
+  if not isinstance(_bf_template, dict):
+    _bf_template = {}
+  _target_annual_revenue: Optional[float] = None
+  for source in (financials_year1_json or {}, financials_json or {}):
+    if not isinstance(source, dict):
+      continue
+    for key in ("company_revenue_total_year1", "revenue_total_year1", "current_revenue"):
+      raw = source.get(key)
+      try:
+        if raw is None or raw == "":
+          continue
+        candidate = float(raw)
+      except Exception:
+        continue
+      if candidate and candidate > 0:
+        _target_annual_revenue = candidate
+        break
+    if _target_annual_revenue is not None:
+      break
+  business_profile_for_cohort = {
+    "naics_6": (
+      "".join(ch for ch in str((ops_json or {}).get("business_naics_6") or "") if ch.isdigit())
+      if isinstance(ops_json, dict)
+      else None
+    ),
+    "target_annual_revenue": _target_annual_revenue,
+    "stage": (
+      _clean_text(_bf_template.get("business_stage"))
+      or _clean_text((business_facts or {}).get("business_stage"))
+      or None
+    ),
+    "business_model": _clean_text(_bf_template.get("business_model")) or None,
+  }
+
   pre_input = _ensure_solver_inputs(
     model_input_json=applied_model_input_json or {},
     ops_json=ops_json,
     horizon=horizon,
+    business_profile=business_profile_for_cohort,
   )
   inputs = _solver_input_payloads(pre_input)
   envelope_payload = inputs["envelope"]
@@ -545,6 +588,7 @@ def run_target_seeking_orchestrated_system_run(
     model_input_json=inner_model_input_json or {},
     ops_json=ops_json,
     horizon=horizon,
+    business_profile=business_profile_for_cohort,
   )
   post_inputs = _solver_input_payloads(post_inner_model)
   envelope_payload_post = post_inputs["envelope"] or envelope_payload

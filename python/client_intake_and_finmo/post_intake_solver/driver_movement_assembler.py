@@ -109,6 +109,48 @@ def _resolve_naics_band(metric_key: str, naics_6: str) -> Optional[Dict[str, Any
   return band
 
 
+def _resolve_cohort_band_for_lever(
+  *,
+  lever_id: str,
+  metric_key: str,
+  business_profile: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+  """First-priority band source: cohort-matched percentiles.
+
+  Phase 3.5: queries industry_metrics_raw at runtime against a business
+  cohort (NAICS prefix + revenue window + cap_category set + recent date
+  window). Returns the cascade resolver's payload shape so the caller
+  doesn't need to branch on the source. Returns None when:
+    - business_profile is missing
+    - the lever has no industry_metrics_raw column mapping
+    - the cohort is too small at every widening tier (caller falls back
+      to the cascade resolver via _resolve_naics_band)
+  """
+  if not isinstance(business_profile, dict) or not business_profile:
+    return None
+  try:
+    from client_intake_and_finmo.post_intake_solver.cohort_band_resolver import (  # type: ignore
+      LEVER_TO_METRIC_COLUMN,
+      cohort_calibration_source_for_confidence,
+      resolve_cohort_band,
+    )
+  except Exception:
+    return None
+  metric_column = LEVER_TO_METRIC_COLUMN.get(_clean_text(lever_id))
+  if not metric_column:
+    return None
+  result = resolve_cohort_band(
+    metric_key=metric_key or lever_id,
+    business_profile=business_profile,
+    metric_column_override=metric_column,
+  )
+  if result is None:
+    return None
+  payload = result.to_dict()
+  payload["calibration_source"] = cohort_calibration_source_for_confidence(result.confidence_tier)
+  return payload
+
+
 def _resolve_per_lever_applicability(lever_id: str, naics_2: str) -> Optional[Dict[str, Any]]:
   rule = _PER_LEVER_APPLICABILITY.get(lever_id)
   if not rule or not naics_2:
@@ -181,6 +223,7 @@ def _envelope_for_lever(
   mapping_row: Dict[str, Any],
   naics_6: str,
   naics_2: str,
+  business_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   lever_id = _clean_text(mapping_row.get("lever_id"))
   metric_key = _metric_key_for_lever(mapping_row)
@@ -215,6 +258,54 @@ def _envelope_for_lever(
         "naics_band": None,
       },
     }
+
+  # Phase 3.5: cohort-matched bands take priority over the cascade
+  # resolver's pre-aggregated single-band-per-NAICS rows. When the
+  # business cohort is too small at every widening tier, the function
+  # returns None and we fall through to the cascade.
+  cohort_band = _resolve_cohort_band_for_lever(
+    lever_id=lever_id,
+    metric_key=metric_key,
+    business_profile=business_profile,
+  )
+  if cohort_band is not None:
+    raw_min = _safe_float(cohort_band.get("benchmark_min"))
+    raw_target = _safe_float(cohort_band.get("benchmark_target"))
+    raw_max = _safe_float(cohort_band.get("benchmark_max"))
+    if raw_target is not None or raw_min is not None or raw_max is not None:
+      target = raw_target if raw_target is not None else (raw_min if raw_min is not None else raw_max)
+      lo = raw_min if raw_min is not None else target
+      hi = raw_max if raw_max is not None else target
+      default_value = _clamp_to_bounds(float(target), mapping_min, mapping_max)
+      min_allowed = _clamp_to_bounds(float(lo), mapping_min, mapping_max)
+      max_allowed = _clamp_to_bounds(float(hi), mapping_min, mapping_max)
+      if max_allowed < min_allowed:
+        min_allowed, max_allowed = max_allowed, min_allowed
+      return {
+        "lever_id": lever_id,
+        "metric_key": metric_key,
+        "value_kind": value_kind,
+        "applicable": True,
+        "schedule_locked": schedule_locked,
+        "default_value": round(default_value, 6),
+        "min_allowed": round(min_allowed, 6),
+        "max_allowed": round(max_allowed, 6),
+        "provenance": {
+          "calibration_source": cohort_band.get("calibration_source") or "cohort_matched_unknown",
+          "applicability": copy.deepcopy(applicability),
+          "cohort_band": {
+            "metric_column": cohort_band.get("metric_column"),
+            "benchmark_min": raw_min,
+            "benchmark_target": raw_target,
+            "benchmark_max": raw_max,
+            "cohort_size": cohort_band.get("cohort_size"),
+            "confidence_tier": cohort_band.get("confidence_tier"),
+            "cohort_query": cohort_band.get("cohort_query"),
+            "data_source": cohort_band.get("data_source"),
+          },
+          "naics_band": None,
+        },
+      }
 
   band = _resolve_naics_band(metric_key, naics_6) if metric_key else None
   if band is not None:
@@ -301,6 +392,7 @@ def assemble_driver_movement_envelope(
   business_naics_6: Optional[str],
   live_count: int = HORIZON,
   mapping_rows: Optional[List[Dict[str, Any]]] = None,
+  business_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Build the deterministic driver movement envelope for a business.
 
@@ -309,6 +401,12 @@ def assemble_driver_movement_envelope(
     live_count: number of forecast quarters (typically 20).
     mapping_rows: optional pre-loaded mapping rows; when None, the active
       rows from the post_intake_mapping_lookup are loaded.
+    business_profile: Phase 3.5 — when supplied with naics_6 +
+      target_annual_revenue + stage (+ optional business_model), the
+      cohort-matched percentile resolver runs first; cascade resolver
+      stays as fallback when the cohort is too small. When None, the
+      assembler skips the cohort path and uses the cascade resolver
+      exactly as in Phase 2.
 
   Returns:
     A payload dict with shape:
@@ -320,10 +418,18 @@ def assemble_driver_movement_envelope(
         "applicable_lever_ids": [...],
         "schedule_locked_lever_ids": [...],
         "uncalibrated_lever_ids": [...],   # for traceability
+        "cohort_resolver_used": bool,
+        "cohort_matched_lever_count": int,
       }
   """
   naics_6 = _normalized_naics_6(business_naics_6)
   naics_2 = _naics_2_from_naics_6(naics_6)
+
+  effective_profile: Optional[Dict[str, Any]] = None
+  if isinstance(business_profile, dict):
+    effective_profile = dict(business_profile)
+    if "naics_6" not in effective_profile:
+      effective_profile["naics_6"] = naics_6
 
   if mapping_rows is None:
     from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
@@ -337,6 +443,7 @@ def assemble_driver_movement_envelope(
   applicable_lever_ids: List[str] = []
   schedule_locked_lever_ids: List[str] = []
   uncalibrated_lever_ids: List[str] = []
+  cohort_matched_lever_ids: List[str] = []
 
   for raw_row in rows:
     if not isinstance(raw_row, dict):
@@ -350,6 +457,7 @@ def assemble_driver_movement_envelope(
       mapping_row=raw_row,
       naics_6=naics_6,
       naics_2=naics_2,
+      business_profile=effective_profile,
     )
     drivers[lever_id] = envelope
     if envelope.get("applicable"):
@@ -357,7 +465,15 @@ def assemble_driver_movement_envelope(
     if envelope.get("schedule_locked"):
       schedule_locked_lever_ids.append(lever_id)
     calibration_source = (envelope.get("provenance") or {}).get("calibration_source")
-    if calibration_source not in {"naics_default", "applicability_gate_not_applicable"}:
+    if isinstance(calibration_source, str) and calibration_source.startswith("cohort_matched_"):
+      cohort_matched_lever_ids.append(lever_id)
+    if calibration_source not in {
+      "naics_default",
+      "applicability_gate_not_applicable",
+      "cohort_matched_high_confidence",
+      "cohort_matched_medium_confidence",
+      "cohort_matched_low_confidence",
+    }:
       uncalibrated_lever_ids.append(lever_id)
 
   return {
@@ -370,6 +486,9 @@ def assemble_driver_movement_envelope(
     "applicable_lever_ids": sorted(applicable_lever_ids),
     "schedule_locked_lever_ids": sorted(schedule_locked_lever_ids),
     "uncalibrated_lever_ids": sorted(uncalibrated_lever_ids),
+    "cohort_resolver_used": bool(effective_profile),
+    "cohort_matched_lever_ids": sorted(cohort_matched_lever_ids),
+    "cohort_matched_lever_count": len(cohort_matched_lever_ids),
   }
 
 

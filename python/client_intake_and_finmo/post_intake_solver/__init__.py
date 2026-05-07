@@ -63,10 +63,23 @@ from client_intake_and_finmo.post_intake_solver.consultant_target_shaping import
 from client_intake_and_finmo.post_intake_solver.consultant_conflict_adjudication import (  # noqa: F401
   adjudicate_intake_vs_band_conflicts_with_gpt,
 )
+from client_intake_and_finmo.post_intake_solver.cohort_band_resolver import (  # noqa: F401
+  CohortBandResult,
+  LEVER_TO_METRIC_COLUMN,
+  METRIC_KEY_TO_COLUMN,
+  clear_cohort_cache,
+  cohort_calibration_source_for_confidence,
+  compute_band_from_rows,
+  map_revenue_to_cap_categories,
+  resolve_cohort_band,
+)
 
 __all__ = [
+  "CohortBandResult",
   "DRIVER_MOVEMENT_ENVELOPE_KEY",
   "FINMO_OUTPUT_TARGET_KEY",
+  "LEVER_TO_METRIC_COLUMN",
+  "METRIC_KEY_TO_COLUMN",
   "adjudicate_intake_vs_band_conflicts_with_gpt",
   "assemble_driver_movement_envelope",
   "assemble_finmo_output_targets",
@@ -74,11 +87,16 @@ __all__ = [
   "build_inner_joint_fit_adapter",
   "calibrate_driver_movement_envelope_with_gpt",
   "calibrate_finmo_output_targets_with_gpt",
+  "clear_cohort_cache",
+  "cohort_calibration_source_for_confidence",
+  "compute_band_from_rows",
   "default_value_for_lever",
   "driver_influence_map",
+  "map_revenue_to_cap_categories",
   "request_capex_schedule_recompute",
   "request_debt_schedule_recompute",
   "request_payroll_schedule_recompute",
+  "resolve_cohort_band",
   "run_target_seeking_orchestrated_system_run",
   "run_target_seeking_solver",
 ]

@@ -3058,6 +3058,24 @@ def _build_model_input_overlay(
     assemble_finmo_output_targets,
     default_value_for_lever,
   )
+  # Phase 3.5: pass a business_profile so the assemblers can run the
+  # cohort-matched percentile resolver before falling back to the
+  # cascade. target_annual_revenue prefers the year-1 projection (more
+  # representative of the planned business than the current-state
+  # snapshot); stage prefers fact_template.business_stage.
+  _bf_template = (business_facts or {}).get("fact_template") if isinstance(business_facts, dict) else {}
+  if not isinstance(_bf_template, dict):
+    _bf_template = {}
+  _stage = (
+    str(_bf_template.get("business_stage") or (business_facts or {}).get("business_stage") or "").strip()
+    or None
+  )
+  _business_profile = {
+    "naics_6": naics_6,
+    "target_annual_revenue": float(revenue_total_year1) if revenue_total_year1 else None,
+    "stage": _stage,
+    "business_model": str(_bf_template.get("business_model") or "").strip() or None,
+  }
   _existing_solver_input = next_payload.get("solver_input") if isinstance(next_payload.get("solver_input"), dict) else {}
   _existing_envelope = _existing_solver_input.get(DRIVER_MOVEMENT_ENVELOPE_KEY) if isinstance(_existing_solver_input, dict) else None
   _existing_targets = _existing_solver_input.get(FINMO_OUTPUT_TARGET_KEY) if isinstance(_existing_solver_input, dict) else None
@@ -3070,6 +3088,7 @@ def _build_model_input_overlay(
     driver_envelope_payload = assemble_driver_movement_envelope(
       business_naics_6=naics_6,
       live_count=len(slots),
+      business_profile=_business_profile,
     )
   if (
     isinstance(_existing_targets, dict)
@@ -3080,6 +3099,7 @@ def _build_model_input_overlay(
     finmo_output_target_payload = assemble_finmo_output_targets(
       business_naics_6=naics_6,
       live_count=len(slots),
+      business_profile=_business_profile,
     )
   next_payload.setdefault("solver_input", {})
   if isinstance(next_payload.get("solver_input"), dict):
