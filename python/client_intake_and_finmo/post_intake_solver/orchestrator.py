@@ -627,6 +627,24 @@ def run_target_seeking_orchestrated_system_run(
     payroll_headcount=payroll_headcount,
   )
 
+  # Phase 6 Step 7 — band-respecting failures from the inner runner now
+  # return status="abort_for_cascade" with an abort_reason instead of
+  # raising. The orchestrator detects the signal and forces hard_fails
+  # so the post-flight cascade fires below. Step 8 makes the cascade
+  # reason-aware (start at the tier matched to the abort_reason instead
+  # of always Tier 1).
+  inner_runner_abort_reason: Optional[str] = None
+  inner_runner_abort_diagnostics: Optional[Dict[str, Any]] = None
+  if (
+    isinstance(inner_result, dict)
+    and _clean_text(inner_result.get("status")) == "abort_for_cascade"
+  ):
+    inner_runner_abort_reason = _clean_text(inner_result.get("abort_reason")) or "unknown_abort"
+    inner_runner_abort_diagnostics = (
+      copy.deepcopy(inner_result.get("diagnostics"))
+      if isinstance(inner_result.get("diagnostics"), dict) else {}
+    )
+
   inner_model_input_json = inner_result.get("model_input_json") if isinstance(inner_result, dict) else None
   inner_finmo_json = inner_result.get("finmo_json") if isinstance(inner_result, dict) else None
 
@@ -695,6 +713,8 @@ def run_target_seeking_orchestrated_system_run(
       "trace_length": len(pre_pass.get("trace") or []),
     },
     "inner_runner_invoked": True,
+    "inner_runner_abort_reason": inner_runner_abort_reason,
+    "inner_runner_abort_diagnostics": inner_runner_abort_diagnostics,
     "post_flight_repair": (
       {
         "status": repair_pass.get("status"),
@@ -707,17 +727,17 @@ def run_target_seeking_orchestrated_system_run(
     "final_hard_fail_count": len(final_hard_fails),
   }
 
-  # Phase 3.7: when post-flight repair leaves hard_fail residuals, hand
-  # off to the adaptation cascade. The cascade walks tiers 1->7 of
-  # progressively more permissive inputs until a plan lands. Tier 7 is
-  # structurally guaranteed to produce a plan via pure NAICS-cascade
-  # defaults + maximally permissive planning_mode + 2x target tolerance.
-  # The terminal raise is reserved for genuine internal bugs (the
-  # cascade module itself crashing); band-respecting failures are now
-  # always converted into a plan with a confidence indicator.
+  # Phase 3.7 + 6 Step 7: cascade fires on either of two signals:
+  #   (a) post-flight repair left hard_fail residuals (existing behavior)
+  #   (b) inner runner returned status=abort_for_cascade with a
+  #       band-respecting reason — Tier 1+ adaptation is the designed
+  #       remediation path, replacing the prior raise-and-die.
+  # Tier 7 is structurally guaranteed to produce a plan; Step 8 makes
+  # the cascade pick its starting tier based on abort_reason instead of
+  # always Tier 1.
   plan_confidence: str = "high_no_adaptation"
   cascade_diagnostics: Optional[Dict[str, Any]] = None
-  if final_hard_fails:
+  if final_hard_fails or inner_runner_abort_reason is not None:
     from client_intake_and_finmo.post_intake_solver.adaptation_cascade import (  # type: ignore
       run_adaptation_cascade,
     )

@@ -136,6 +136,45 @@ def _bounded_cycle_deadline(cycle_deadline: float, max_seconds: float) -> float:
   return min(guarded_cycle_deadline, now + max(1.0, float(max_seconds)))
 
 
+def _abort_for_cascade_result(
+  *,
+  abort_reason: str,
+  diagnostics: Dict[str, Any],
+  model_input_json: Optional[Dict[str, Any]] = None,
+  finmo_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """Phase 6 Step 7 — convert a mid-flight band-respecting failure into a
+  cascade-routable status return, instead of raising and bypassing the
+  cascade entirely.
+
+  The three reasons the directive specified as cascade-routable:
+    - convergence_total_phase_budget_exceeded — runner.py:1264
+    - solver_not_invoked / planner_not_completed (incl.
+      failed_missing_full_horizon_model_input_contract) — runner.py:1748
+    - no_meaningful_progress — runner.py:1791, 1799, 2393
+
+  Other StructuredSystemRunFailure raises in this file
+  (payroll_validation_failed, solver_target_miss_before_verification,
+  negative_net_income_hard_gate, convergence_cycle_timeout,
+  convergence_cycle_insufficient_stage_budget) stay as raises — those
+  are real internal bugs / hard-gate violations the cascade can't fix
+  by retrying with relaxed inputs.
+
+  The orchestrator inspects ``status == "abort_for_cascade"`` after
+  ``_inner_runner(...)`` returns and routes the result through
+  ``run_adaptation_cascade`` with the last-known-good model_input + finmo
+  payloads, the abort_reason as input for tier selection (Step 8), and
+  the diagnostics preserved for the run report.
+  """
+  return {
+    "status": "abort_for_cascade",
+    "abort_reason": str(abort_reason or "").strip() or "unknown_abort",
+    "diagnostics": copy.deepcopy(diagnostics or {}),
+    "model_input_json": copy.deepcopy(model_input_json) if isinstance(model_input_json, dict) else None,
+    "finmo_json": copy.deepcopy(finmo_json) if isinstance(finmo_json, dict) else None,
+  }
+
+
 def bind_runtime_dependencies(dependencies: Dict[str, Any]) -> None:
   """Bind handler/runtime helpers used by the extracted convergence loop."""
   bind_table_safe_runtime_dependencies(globals(), dependencies or {})
@@ -1261,8 +1300,11 @@ def _run_unified_post_grid_system_run(
     # cycle 180s wall on the 8th cycle.
     total_elapsed_seconds = time.perf_counter() - unified_convergence_phase_started_at
     if total_elapsed_seconds > _convergence_guard_float("total_phase_budget_seconds"):
-      raise StructuredSystemRunFailure(
-        detail="convergence_total_phase_budget_exceeded",
+      # Phase 6 Step 7 — return abort_for_cascade instead of raising so the
+      # orchestrator can route this band-respecting failure through the
+      # post-flight cascade.
+      return _abort_for_cascade_result(
+        abort_reason="convergence_total_phase_budget_exceeded",
         diagnostics={
           "stage": "convergence",
           "cycles_attempted": int(unified_convergence_cycle_count - 1),
@@ -1271,6 +1313,8 @@ def _run_unified_post_grid_system_run(
           "last_controller_resolution_state": copy.deepcopy(controller_resolution_state),
           "last_hard_rule_assessment": copy.deepcopy(hard_rule_assessment),
         },
+        model_input_json=final_model_input_json,
+        finmo_json=final_finmo_json,
       )
     cycle_started_at = time.perf_counter()
     cycle_deadline = cycle_started_at + float(_UNIFIED_CONVERGENCE_CYCLE_TIMEOUT_SECONDS)
@@ -1745,12 +1789,17 @@ def _run_unified_post_grid_system_run(
           diagnostics=copy.deepcopy(diagnostics),
         )
       if _convergence_test_mode_enabled():
-        raise StructuredSystemRunFailure(
-          detail=_structured_system_run_failure_detail(
-            diagnostics=diagnostics,
-            fallback="solver_not_invoked",
-          ),
-          diagnostics=copy.deepcopy(diagnostics),
+        # Phase 6 Step 7 — solver_not_invoked / planner_not_completed
+        # (incl. failed_missing_full_horizon_model_input_contract) is a
+        # band-respecting failure: the convergence planner couldn't
+        # produce an executable contract because the editable surface
+        # was starved. Route to cascade — Tier 1 walks back GPT band
+        # amendments, Tier 4 widens the lever set.
+        return _abort_for_cascade_result(
+          abort_reason="solver_not_invoked",
+          diagnostics=diagnostics,
+          model_input_json=final_model_input_json,
+          finmo_json=final_finmo_json,
         )
       non_productive_tracker = _update_non_productive_cycle_tracker(
         retry_memory=retry_memory,
@@ -1788,17 +1837,25 @@ def _run_unified_post_grid_system_run(
           or (diagnostics.get("pre_solver_validation") or {}).get("flags")
         )
       ):
-        raise StructuredSystemRunFailure(
-          detail="no_meaningful_progress",
+        # Phase 6 Step 7 — no_meaningful_progress is band-respecting; the
+        # cascade's planning_mode shift (Tier 5) is exactly the right
+        # remediation when convergence is stuck repeating the same
+        # pattern.
+        return _abort_for_cascade_result(
+          abort_reason="no_meaningful_progress",
           diagnostics=progress_failure_diagnostics,
+          model_input_json=final_model_input_json,
+          finmo_json=final_finmo_json,
         )
       if (
         int(_safe_float(non_productive_tracker.get("consecutive_non_productive_cycles")) or 0)
         >= _convergence_guard_int("non_productive_cycle_limit")
       ):
-        raise StructuredSystemRunFailure(
-          detail="no_meaningful_progress",
+        return _abort_for_cascade_result(
+          abort_reason="no_meaningful_progress",
           diagnostics=progress_failure_diagnostics,
+          model_input_json=final_model_input_json,
+          finmo_json=final_finmo_json,
         )
       retry_memory["attempt_records"] = _bounded_tail(
         list(retry_memory.get("attempt_records") or []) + [
@@ -2390,8 +2447,11 @@ def _run_unified_post_grid_system_run(
       and not bool(quality_assessment.get("meaningful_progress"))
       and not bool(controller_resolution_state.get("all_cleared"))
     ):
-      raise StructuredSystemRunFailure(
-        detail="no_meaningful_progress",
+      # Phase 6 Step 7 — final no_meaningful_progress site, post-cycle.
+      # Same routing: cascade Tier 5 (planning_mode shift) is the
+      # designed remediation for stuck cycles.
+      return _abort_for_cascade_result(
+        abort_reason="no_meaningful_progress",
         diagnostics=_build_convergence_progress_failure_diagnostics(
           cycles_attempted=unified_convergence_cycle_count,
           last_known_state={
@@ -2413,6 +2473,8 @@ def _run_unified_post_grid_system_run(
           },
           planner_plan_status=plan_status,
         ),
+        model_input_json=final_model_input_json,
+        finmo_json=final_finmo_json,
       )
     _raise_unified_convergence_cycle_timeout_if_needed(
       cycle=unified_convergence_cycle_count,
