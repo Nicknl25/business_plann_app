@@ -1199,16 +1199,12 @@ def _run_post_cascade_completion(
     )
     unit_price_lever_id = ""
     bundle_unit_prices: List[float] = []
-    revenue_section = None
-    for section in (final_model_input_json or {}).get("sections") or []:
-      if not isinstance(section, dict):
-        continue
-      if str(section.get("section_name") or "").strip().lower() == "revenue":
-        revenue_section = section
-        break
+    sections = (final_model_input_json or {}).get("sections")
     rev_rows = []
-    if isinstance(revenue_section, dict):
-      rev_rows = revenue_section.get("rows") or []
+    if isinstance(sections, dict):
+      raw = sections.get("revenue")
+      if isinstance(raw, list):
+        rev_rows = raw
     for row in rev_rows:
       if not isinstance(row, dict):
         continue
