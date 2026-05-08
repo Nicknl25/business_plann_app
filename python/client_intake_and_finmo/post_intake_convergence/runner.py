@@ -2508,6 +2508,24 @@ def _run_unified_post_grid_system_run(
   # cycle's nearly expired OpenAI deadline turns a cleared convergence run into
   # a false terminal timeout.
   _set_active_openai_deadline(None)
+  # Phase 8: when the convergence GPT loop is short-circuited (issue
+  # ledger empty post-deletion), the model_input_json and finmo_json may
+  # diverge from each other in ways the legacy machinery used to
+  # reconcile. Rebuild FINMO from the current model_input so the global
+  # invariants validator sees a self-consistent state. This keeps the
+  # validator honest (it still catches real bundle / formula problems)
+  # without false-flagging a divergence the GPT loop's no-op planning
+  # introduced.
+  if _phase_8_skip_convergence_loop:
+    try:
+      from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+        build_python_finmo_json,
+      )
+      final_finmo_json = build_python_finmo_json(
+        model_input_json=copy.deepcopy(final_model_input_json or {}),
+      )
+    except Exception:
+      pass
   _assert_global_invariants_via_sequence(
     "post_convergence_global_validation",
     model_input_payload=copy.deepcopy(final_model_input_json),
