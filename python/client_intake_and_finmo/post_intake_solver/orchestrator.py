@@ -968,4 +968,58 @@ def run_target_seeking_orchestrated_system_run(
   next_result["plan_confidence"] = plan_confidence
   if cascade_diagnostics is not None:
     next_result["adaptation_cascade_diagnostics"] = cascade_diagnostics
+
+  # Phase 7.2: build the debt schedule snapshot from the final state and
+  # persist to draft.debt_schedule. The convergence runner did this in
+  # its cash-pass step; the target-seeking orchestrator is a drop-in
+  # replacement for that runner and must produce the same artifact so
+  # workbook export and downstream finalization can complete. Without
+  # this, validate_draft_data raises 'Draft is missing workbook export
+  # inputs: debt_schedule'.
+  debt_schedule_payload: Optional[Dict[str, Any]] = None
+  try:
+    from client_intake_and_finmo.post_intake_debt_schedule import (  # type: ignore
+      build_debt_schedule_snapshot,
+    )
+    debt_schedule_payload = build_debt_schedule_snapshot(
+      finmo_payload=copy.deepcopy(final_finmo_json or {}),
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      source_stage="target_seeking_orchestrator_completed",
+    )
+    if isinstance(debt_schedule_payload, dict):
+      debt_schedule_payload["persisted_column"] = "intake_consult_drafts.debt_schedule"
+      next_result["debt_schedule"] = debt_schedule_payload
+  except Exception as exc:
+    diagnostics["debt_schedule_build_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+
+  # Persist the debt_schedule directly to the draft row so the workbook
+  # export reads it (it queries draft.debt_schedule, not the orchestrator
+  # result). Use a minimal SQL UPDATE — the larger persist_post_intake_
+  # execution_state path is owned by the convergence runner; replicating
+  # its full surface here would conflict with what the runner already
+  # wrote earlier in the flow.
+  if isinstance(debt_schedule_payload, dict) and debt_schedule_payload and conn is not None:
+    try:
+      import json as _json
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          "UPDATE intake_consult_drafts SET debt_schedule=%s WHERE draft_id=%s",
+          (
+            _json.dumps(debt_schedule_payload, ensure_ascii=False, default=str),
+            str(draft_id or "").strip(),
+          ),
+        )
+        conn.commit()
+      finally:
+        try:
+          cur.close()
+        except Exception:
+          pass
+    except Exception as exc:
+      diagnostics["debt_schedule_persist_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+
+  if isinstance(payroll_headcount, dict) and payroll_headcount:
+    next_result.setdefault("payroll_headcount", payroll_headcount)
+
   return next_result
