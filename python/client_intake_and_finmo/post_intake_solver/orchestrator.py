@@ -383,29 +383,23 @@ def run_target_seeking_orchestrated_system_run(
   horizon = int(QUARTER_COUNT)
 
   # Phase 3.5: build the business_profile that the cohort-matched band
-  # resolver consumes. NAICS comes from ops; target_annual_revenue is the
-  # year-1 projection (more representative of the planned business than
-  # the current-state snapshot); stage comes from business_facts.
+  # resolver consumes. NAICS comes from ops; target_annual_revenue is
+  # capacity-driven mature-state revenue (capacity * price * periods *
+  # upper-bound utilization) — the structural answer to "what cohort
+  # cap-category is this business?" The operator's Year-1 ramp projection
+  # is a planning expectation, not a cohort-bucket key; using it
+  # under-buckets ramping businesses and returns bands that are too tight.
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+    authoritative_annual_revenue,
+  )
   _bf_template = (business_facts or {}).get("fact_template") if isinstance(business_facts, dict) else {}
   if not isinstance(_bf_template, dict):
     _bf_template = {}
-  _target_annual_revenue: Optional[float] = None
-  for source in (financials_year1_json or {}, financials_json or {}):
-    if not isinstance(source, dict):
-      continue
-    for key in ("company_revenue_total_year1", "revenue_total_year1", "current_revenue"):
-      raw = source.get(key)
-      try:
-        if raw is None or raw == "":
-          continue
-        candidate = float(raw)
-      except Exception:
-        continue
-      if candidate and candidate > 0:
-        _target_annual_revenue = candidate
-        break
-    if _target_annual_revenue is not None:
-      break
+  _target_annual_revenue = authoritative_annual_revenue(
+    ops_json=ops_json or {},
+    financials_year1_json=financials_year1_json or {},
+    financials_json=financials_json or {},
+  )
   business_profile_for_cohort = {
     "naics_6": (
       "".join(ch for ch in str((ops_json or {}).get("business_naics_6") or "") if ch.isdigit())
@@ -531,6 +525,7 @@ def run_target_seeking_orchestrated_system_run(
       planning_run_id=str(planning_run_id or "").strip(),
       conn=conn,
       runtime_objects=resolver_runtime_objects,
+      ops_json=ops_json or {},
     )
     envelope_payload = conflict_result.get("calibrated_envelope") or envelope_payload
     resolver_runtime_objects["envelope_proposal"] = envelope_payload

@@ -155,9 +155,23 @@ def _build_baseline_financial_summary(
   financials_year1_json: Dict[str, Any],
   ops_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+  """Baseline financial summary used by ``determine_planning_mode`` when
+  FINMO doesn't yet have data.
+
+  Revenue uses capacity-driven mature-state revenue (capacity * price *
+  periods * upper-bound utilization) — not the operator's Year-1 ramp
+  projection. Anchoring planning-mode classification on a ramp's first
+  year vs steady-state cost diagnoses every legitimate startup as
+  turnaround.
+  """
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+    authoritative_annual_revenue,
+  )
   financials = financials_json if isinstance(financials_json, dict) else {}
   year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
-  revenue = _safe_float(year1.get("company_revenue_total_year1") or financials.get("current_revenue"))
+  revenue = _safe_float(authoritative_annual_revenue(
+    ops_json=ops_json, financials_year1_json=year1, financials_json=financials,
+  ))
   cogs = _cogs_dollars_from_financials(financials, year1, revenue, ops_json=ops_json)
   gross_profit = revenue - cogs
   payroll = _safe_float(

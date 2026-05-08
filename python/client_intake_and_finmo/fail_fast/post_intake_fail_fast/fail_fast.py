@@ -1343,9 +1343,15 @@ def assert_post_intake_revenue_driver_integrity(
     int(_safe_float(row.get("quarter_index")) or 0): float(_safe_float(row.get("revenue")) or 0.0)
     for row in _live_quarter_rows(finmo_json)
   }
+  # Compare in cents (rounded to 2 decimal places) rather than integer
+  # dollars. Revenue values can legitimately carry cents precision and
+  # multiplication order (capacity * price * util vs capacity * util *
+  # price) produces sub-cent floating-point drift — int rounding at the
+  # 0.5 boundary then splits across integers and bank-rounds in opposite
+  # directions, false-flagging an off-by-$1.
   for quarter in range(1, horizon + 1):
-    expected = int(round(computed_revenue_by_q.get(quarter) or 0.0))
-    actual = int(round(actual_revenue_by_q.get(quarter) or 0.0))
+    expected = round(float(computed_revenue_by_q.get(quarter) or 0.0), 2)
+    actual = round(float(actual_revenue_by_q.get(quarter) or 0.0), 2)
     if expected != actual:
       formula_violations.append(
         {

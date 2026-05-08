@@ -3031,12 +3031,20 @@ def _build_model_input_overlay(
     )
 
   lease_amount = _quarter_lease_amount(financials_json or {})
+  # Capacity-driven mature-state revenue is the authoritative answer for
+  # COGS ratio fallback denominator (Site #5) and cohort target_annual_revenue
+  # (Site #6). Operator's Year-1 ramp projection is a planning expectation,
+  # not a structural ceiling.
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+    authoritative_annual_revenue,
+  )
   revenue_total_year1 = max(
     0.0,
-    _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
-    or _safe_float((financials_year1_json or {}).get("revenue_total_year1"))
-    or _safe_float((financials_json or {}).get("current_revenue"))
-    or 0.0,
+    _safe_float(authoritative_annual_revenue(
+      ops_json=ops_json,
+      financials_year1_json=financials_year1_json,
+      financials_json=financials_json,
+    )) or 0.0,
   )
   cogs_ratio_baseline = _cogs_ratio_from_financials(financials_json, revenue_total_year1)
   naics_6 = _naics_6_from_ops(ops_json)
@@ -3058,11 +3066,12 @@ def _build_model_input_overlay(
     assemble_finmo_output_targets,
     default_value_for_lever,
   )
-  # Phase 3.5: pass a business_profile so the assemblers can run the
-  # cohort-matched percentile resolver before falling back to the
-  # cascade. target_annual_revenue prefers the year-1 projection (more
-  # representative of the planned business than the current-state
-  # snapshot); stage prefers fact_template.business_stage.
+  # business_profile.target_annual_revenue is the cohort selection key —
+  # determines which percentile band the lever calibration draws from.
+  # Capacity-driven mature-state revenue (computed above) is the right
+  # cap-bucket key; an under-projecting operator buckets the business
+  # into a smaller-cap cohort than its actual capacity warrants, returning
+  # bands that are too tight.
   _bf_template = (business_facts or {}).get("fact_template") if isinstance(business_facts, dict) else {}
   if not isinstance(_bf_template, dict):
     _bf_template = {}

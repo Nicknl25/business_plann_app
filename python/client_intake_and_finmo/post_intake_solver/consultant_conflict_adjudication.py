@@ -103,13 +103,22 @@ def _intake_implied_for_lever(
   lever_id: str,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  ops_json: Optional[Dict[str, Any]] = None,
 ) -> Optional[Tuple[float, Dict[str, Any]]]:
+  """Compute intake-implied lever value (AR days, AP days, inventory days,
+  COGS %, marketing %, R&D %).
+
+  Uses capacity-driven mature-state revenue as the divisor for days
+  computations; the operator's Year-1 ramp projection isn't authoritative
+  for derived ratios.
+  """
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+    authoritative_annual_revenue,
+  )
   fin = financials_json if isinstance(financials_json, dict) else {}
   year1 = financials_year1_json if isinstance(financials_year1_json, dict) else {}
-  revenue_year_one = (
-    _safe_float(year1.get("company_revenue_total_year1"))
-    or _safe_float(year1.get("revenue_total_year1"))
-    or _safe_float(fin.get("current_revenue"))
+  revenue_year_one = authoritative_annual_revenue(
+    ops_json=ops_json, financials_year1_json=year1, financials_json=fin,
   )
   quarter_revenue = float(revenue_year_one) / 4.0 if revenue_year_one and revenue_year_one > 0 else None
 
@@ -135,7 +144,7 @@ def _intake_implied_for_lever(
       if pct is None:
         return None
       return float(pct), {"formula": "cogs_percent_of_revenue (intake)"}
-    return float(cogs) / float(revenue_year_one), {"formula": "cogs_year_one / revenue_year_one"}
+    return float(cogs) / float(revenue_year_one), {"formula": "cogs / capacity_driven_annual_revenue"}
   if lever_id == "expenses::Marketing":
     pct = _safe_float(fin.get("marketing_percent_of_revenue"))
     if pct is None:
@@ -163,6 +172,7 @@ def _detect_conflicts(
   envelope_payload: Dict[str, Any],
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  ops_json: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
   drivers = envelope_payload.get("drivers") if isinstance(envelope_payload.get("drivers"), dict) else {}
   conflicts: List[Dict[str, Any]] = []
@@ -177,6 +187,7 @@ def _detect_conflicts(
       lever_id=lever_id,
       financials_json=financials_json,
       financials_year1_json=financials_year1_json,
+      ops_json=ops_json,
     )
     if intake is None:
       continue
@@ -281,15 +292,18 @@ def adjudicate_intake_vs_band_conflicts_with_gpt(
   conn: Any,
   runtime_objects: Dict[str, Any],
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+  ops_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Detect intake-vs-band conflicts and adjudicate per-conflict via GPT."""
   envelope = copy.deepcopy(envelope_payload or {})
   fin = financials_json or {}
   year1 = financials_year1_json or {}
+  ops = ops_json or {}
   conflicts = _detect_conflicts(
     envelope_payload=envelope,
     financials_json=fin,
     financials_year1_json=year1,
+    ops_json=ops,
   )
 
   if not conflicts:

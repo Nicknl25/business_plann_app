@@ -295,14 +295,23 @@ def _proposer_intake_implied_seed(
   lever_id: str,
   financials_json: Dict[str, Any],
   financials_year1_json: Dict[str, Any],
+  ops_json: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
   """Tier A: when intake stub-0 supplies the balance, return the implied
   days/percent for the trajectory anchor. None when intake didn't provide.
+
+  Uses capacity-driven mature-state revenue as the divisor (not
+  operator's Year-1 ramp projection) — for ramping businesses, the
+  Year-1 denominator inflates implied days. The seed drives the
+  planning anchor for the lever.
   """
-  revenue_year_one = (
-    _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
-    or _safe_float((financials_year1_json or {}).get("revenue_total_year1"))
-    or _safe_float((financials_json or {}).get("current_revenue"))
+  from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+    authoritative_annual_revenue,
+  )
+  revenue_year_one = authoritative_annual_revenue(
+    ops_json=ops_json,
+    financials_year1_json=financials_year1_json,
+    financials_json=financials_json,
   )
   if revenue_year_one is None or revenue_year_one <= 0.0:
     return None
@@ -452,6 +461,7 @@ def propose_balance_sheet_contextual_seed_payload(
         lever_id=lever_id,
         financials_json=financials,
         financials_year1_json=year1,
+        ops_json=ops,
       )
       if intake_implied is not None and intake_implied > 0.0:
         tier_a_intake_anchor_days = float(intake_implied)
