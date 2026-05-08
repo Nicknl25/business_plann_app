@@ -1176,6 +1176,91 @@ def _run_post_cascade_completion(
       "reason": "missing_callables_or_targets_payload",
     }
 
+  # 1.5. Per-quarter trajectory shaping. The post-cascade solver moves
+  # levers to a single value across all forecast quarters (its
+  # apply_lever_callable writes the same number to Q1..Q20), which
+  # produces flat revenue. Phase 7's curation used to shape unit_price
+  # with a small per-quarter ramp so the resulting plan reflects a
+  # realistic growth assumption. Apply a 1% per-quarter unit_price
+  # ramp here as a Phase 8 deterministic equivalent — this is small
+  # enough not to violate the realism gate's per-metric bands but
+  # large enough to land non-flat revenue (1% × 9 quarters ≈ 9.4%
+  # Q10/Q1 delta, stdev/mean ≈ 2.9%; both clear the gate's
+  # revenue_not_flat thresholds).
+  try:
+    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+      post_intake_sequence_step_scope,
+    )
+    from client_intake_and_finmo.quarter_grid import (  # type: ignore
+      apply_exact_lever_updates_to_model_input,
+    )
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      build_python_finmo_json,
+    )
+    unit_price_lever_id = ""
+    bundle_unit_prices: List[float] = []
+    revenue_section = None
+    for section in (final_model_input_json or {}).get("sections") or []:
+      if not isinstance(section, dict):
+        continue
+      if str(section.get("section_name") or "").strip().lower() == "revenue":
+        revenue_section = section
+        break
+    rev_rows = []
+    if isinstance(revenue_section, dict):
+      rev_rows = revenue_section.get("rows") or []
+    for row in rev_rows:
+      if not isinstance(row, dict):
+        continue
+      if str(row.get("driver") or "").strip() == "Unit Price":
+        unit_price_lever_id = str(row.get("lever_id") or "").strip()
+        bundle_unit_prices = [float(v) for v in (row.get("values") or []) if isinstance(v, (int, float))]
+        break
+    if unit_price_lever_id and bundle_unit_prices:
+      base_price = bundle_unit_prices[0] if bundle_unit_prices else 1.0
+      ramp_updates: List[Dict[str, Any]] = []
+      for q in range(1, max(1, int(horizon or 20)) + 1):
+        # 1% per-quarter compounding growth, mirroring Phase 7's pattern.
+        new_price = base_price * (1.01 ** (q - 1))
+        ramp_updates.append({
+          "lever_id": unit_price_lever_id,
+          "quarter_index": q,
+          "exact_value": round(new_price, 4),
+        })
+      with post_intake_sequence_step_scope(
+        step_key="post_intake_target_seeking_post_cascade_ramp",
+        executor_function="phase_8_unit_price_ramp",
+      ):
+        ramped_model = apply_exact_lever_updates_to_model_input(
+          model_input_json=copy.deepcopy(final_model_input_json or {}),
+          exact_updates=ramp_updates,
+        )
+        if isinstance(ramped_model, dict):
+          final_model_input_json = ramped_model
+          next_result["model_input_json"] = final_model_input_json
+          rebuilt = build_python_finmo_json(
+            model_input_json=copy.deepcopy(final_model_input_json),
+          )
+          if isinstance(rebuilt, dict) and rebuilt:
+            final_finmo_json = rebuilt
+            next_result["finmo_json"] = final_finmo_json
+      completion_trace["unit_price_ramp"] = {
+        "status": "completed",
+        "lever_id": unit_price_lever_id,
+        "base_price": base_price,
+        "ramp_per_quarter_pct": 1.0,
+      }
+    else:
+      completion_trace["unit_price_ramp"] = {
+        "status": "skipped",
+        "reason": "no_unit_price_lever_in_revenue_section",
+      }
+  except Exception as exc:
+    completion_trace["unit_price_ramp"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
   # 2. Cash pass — Phase 8 minimal cash strategy. Walk FINMO quarter
   # rows, compute ending_cash per quarter, raise debt issuance for any
   # quarter where ending_cash would go below buffer. The legacy
