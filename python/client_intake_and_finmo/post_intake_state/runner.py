@@ -1045,6 +1045,7 @@ def _persist_failed_system_run_snapshot(
   detail: str,
   active_run: Optional[Dict[str, Any]] = None,
   failure_diagnostics: Optional[Dict[str, Any]] = None,
+  failure_details: Optional[Dict[str, Any]] = None,
 ) -> None:
   draft = get_draft(conn, draft_id=str(draft_id).strip())
   planning_run_payload = _parse_json_dict(draft.get("planning_run_json"))
@@ -1103,6 +1104,14 @@ def _persist_failed_system_run_snapshot(
     )
     planning_run_payload["cash_strategy_failure_diagnostics"] = copy.deepcopy(
       failure_diagnostics
+    )
+  # FailFastError carries `details` — per-violation structured data
+  # (violations, expected/actual, the specific rows that failed). Persist
+  # them on the planning_run failure snapshot so post-mortem analysis
+  # never requires re-running with ad-hoc instrumentation.
+  if isinstance(failure_details, dict) and failure_details:
+    planning_run_payload["terminal_failure_context"]["fail_fast_details"] = copy.deepcopy(
+      failure_details
     )
   persist_post_intake_execution_state(
     conn,

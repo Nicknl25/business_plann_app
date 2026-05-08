@@ -1361,11 +1361,32 @@ def assert_post_intake_revenue_driver_integrity(
           "formula": "sum(Capacity * Unit Price * Utilization)",
         }
       )
+  # Phase 7.2: enrich `details` with the full per-quarter computed-vs-
+  # actual table and the bundle's driver values so any caller (API
+  # response, planning_run failure snapshot) sees complete diagnostics
+  # without needing re-runs. The base _raise_if_violations attaches
+  # `violations[:50]` and `violation_count`; this adds the underlying
+  # data that produced those violations.
+  extra_details = {
+    "horizon": horizon,
+    "computed_revenue_by_q": {str(k): v for k, v in computed_revenue_by_q.items()},
+    "actual_revenue_by_q": {str(k): v for k, v in actual_revenue_by_q.items()},
+    "bundle_slots": list(bundle.keys()),
+    "bundle_driver_values": {
+      slot: {
+        drv: _row_live_values(drivers.get(drv), horizon=horizon)
+        for drv in ("Capacity", "Unit Price", "Utilization")
+        if drv in drivers
+      }
+      for slot, drivers in bundle.items()
+    },
+  }
   _raise_if_violations(
     "post_intake_revenue_driver_formula_mismatch",
     "FINMO revenue must equal model-input Capacity x Unit Price x Utilization for every live quarter.",
     stage=stage,
     violations=formula_violations,
+    extra_details=extra_details,
   )
 
 

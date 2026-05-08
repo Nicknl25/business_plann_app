@@ -7100,19 +7100,41 @@ def post_intake_consult_system_run_handler(*, app, request):
           run_status="failed",
           failure_reason=detail,
         )
+      failure_diagnostics_payload = (
+        copy.deepcopy(getattr(exc, "diagnostics", {}))
+        if isinstance(getattr(exc, "diagnostics", {}), dict)
+        else None
+      )
+      # FailFastError carries `details` (per-violation diagnostics) on
+      # attribute named `details`; preserve those so the API caller and
+      # the persisted planning_run_json both see them without needing to
+      # re-run the system with ad-hoc instrumentation.
+      failure_details_payload = (
+        copy.deepcopy(getattr(exc, "details", {}))
+        if isinstance(getattr(exc, "details", {}), dict)
+        else None
+      )
       _persist_failed_system_run_snapshot(
         conn=conn,
         draft_id=draft_id,
         detail=detail,
         active_run=active_run if isinstance(active_run, dict) else None,
-        failure_diagnostics=(
-          copy.deepcopy(getattr(exc, "diagnostics", {}))
-          if isinstance(getattr(exc, "diagnostics", {}), dict)
-          else None
-        ),
+        failure_diagnostics=failure_diagnostics_payload,
+        failure_details=failure_details_payload,
       )
-      app.logger.exception("System run failed for draft %s: %s", draft_id, detail)
-      return (jsonify({"error": "system_run_failed", "detail": detail}), 500)
+      app.logger.exception(
+        "System run failed for draft %s: %s | details=%s",
+        draft_id, detail, failure_details_payload,
+      )
+      return (
+        jsonify({
+          "error": "system_run_failed",
+          "detail": detail,
+          "diagnostics": failure_diagnostics_payload or {},
+          "details": failure_details_payload or {},
+        }),
+        500,
+      )
     except Exception as exc:
       active_run = get_planning_run(
         conn,
