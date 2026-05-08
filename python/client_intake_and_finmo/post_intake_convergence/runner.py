@@ -1283,9 +1283,26 @@ def _run_unified_post_grid_system_run(
   # Module 2 Task 2.2 — capture the total-phase start once. Used to enforce
   # the loop-wide wall budget (`_convergence_guard_float("total_phase_budget_seconds")`).
   unified_convergence_phase_started_at = time.perf_counter()
+  # Phase 8: if the realism issue ledger is empty (the legacy issue
+  # machinery has been replaced; the new architecture exposes
+  # all_cleared=True by default), skip the GPT-driven convergence loop
+  # entirely. The orchestrator-driven cascade and post-cascade tail
+  # (cash pass + realism gate + finalize) are the new authority on
+  # whether the model needs adjustment, not the convergence loop's
+  # GPT-issue-resolution machinery. Running the loop with no issues
+  # produces destructive no-op planning that overwrites legitimate
+  # post-grid driver values (Capacity, Unit Price, Utilization) with
+  # baseline placeholders.
+  _phase_8_skip_convergence_loop = (
+    bool(controller_resolution_state.get("all_cleared"))
+    and not realism_issue_ledger
+  )
   while (
-    not bool(controller_resolution_state.get("all_cleared"))
-    or not bool(hard_rule_assessment.get("all_hard_rules_cleared"))
+    not _phase_8_skip_convergence_loop
+    and (
+      not bool(controller_resolution_state.get("all_cleared"))
+      or not bool(hard_rule_assessment.get("all_hard_rules_cleared"))
+    )
   ):
     if (
       bool(controller_resolution_state.get("all_cleared"))
