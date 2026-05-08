@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(.\\context\\ensure_5050_backend.ps1*)",
+      "PowerShell(./context/ensure_5050_backend.ps1*)",
+      "Bash(powershell*ensure_5050_backend.ps1*)",
+      "Bash(./.venv/Scripts/python.exe \"Test Files/run_persisted_system_run.py\"*)",
+      "Bash(./.venv/Scripts/python.exe \"Test Files/_list_completed_drafts.py\")",
+      "Bash(./.venv/Scripts/python.exe \"Test Files/_*\")",
+      "Bash(./.venv/Scripts/python.exe \"Test Files/_*\"*)",
+      "Bash(./.venv/Scripts/python.exe Test*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git status*)",
+      "Bash(grep*)",
+      "Bash(./.venv/Scripts/python.exe scripts/post_intake_golden_preflight.py*)",
+      "Bash(./.venv/Scripts/python.exe scripts/freeze_post_intake_golden_baseline.py*)"
+    ]
+  }
+}

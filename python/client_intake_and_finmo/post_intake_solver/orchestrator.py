@@ -1011,13 +1011,14 @@ def run_target_seeking_orchestrated_system_run(
   if isinstance(payroll_headcount, dict) and payroll_headcount:
     next_result.setdefault("payroll_headcount", payroll_headcount)
 
-  # Phase 8 step 4f: drive the post-cascade tail (cash pass + realism gate +
-  # finalize + persist) directly from the orchestrator. The convergence
-  # runner used to do this on its normal-success path (runner.py:2489-3483),
-  # but when the runner returned status=abort_for_cascade the cycle loop
-  # exited before reaching cash + finalize. The cascade landing a final
-  # state is a successful run — it must complete the post-cascade tail or
-  # the acceptance gate will (rightly) refuse to call it passed.
+  # Phase 8 step 4f: drive the post-cascade tail (target-seeking solver
+  # + cash pass + realism gate + finalize + persist) directly from the
+  # orchestrator. The convergence runner used to do this on its
+  # normal-success path (runner.py:2489-3483), but when the runner
+  # returned status=abort_for_cascade the cycle loop exited before
+  # reaching cash + finalize. The cascade landing a final state is a
+  # successful run — it must complete the post-cascade tail or the
+  # acceptance gate will (rightly) refuse to call it passed.
   next_result = _run_post_cascade_completion(
     conn=conn,
     draft_id=draft_id,
@@ -1044,6 +1045,12 @@ def run_target_seeking_orchestrated_system_run(
     cascade_diagnostics=cascade_diagnostics,
     diagnostics=diagnostics,
     business_naics_6=business_naics_6_for_cascade if "business_naics_6_for_cascade" in dir() else None,
+    build_finmo_callable=build_finmo_callable,
+    apply_lever_callable=apply_lever_callable,
+    envelope_payload_post=envelope_payload_post,
+    targets_payload_post=targets_payload_post,
+    influence_payload=influence_payload,
+    horizon=horizon,
   )
 
   return next_result
@@ -1076,18 +1083,29 @@ def _run_post_cascade_completion(
   cascade_diagnostics: Optional[Dict[str, Any]],
   diagnostics: Dict[str, Any],
   business_naics_6: Optional[str] = None,
+  build_finmo_callable: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+  apply_lever_callable: Optional[Callable[[Dict[str, Any], str, float], Dict[str, Any]]] = None,
+  envelope_payload_post: Optional[Dict[str, Any]] = None,
+  targets_payload_post: Optional[Dict[str, Any]] = None,
+  influence_payload: Optional[Dict[str, Any]] = None,
+  horizon: int = 20,
 ) -> Dict[str, Any]:
   """Phase 8 — orchestrator-driven post-cascade tail.
 
   After the cascade lands a final state, this function runs:
-    1. Cash pass (minimum debt schedule) — covers negative cash quarters
-       so the FINMO output reflects a fundable plan.
-    2. Realism gate (`validate_industry_realism_bands`) — produces the
+    1. Target-seeking solver (post-cascade pass) — drives model_input
+       toward the cascade's final calibrated targets. Without this,
+       revenue stays at the operator-stated baseline (acceptance gate's
+       revenue_not_flat check fails on every Sunny-style steady-state
+       plan).
+    2. Cash pass (minimum debt schedule) — covers negative cash
+       quarters so the FINMO output reflects a fundable plan.
+    3. Realism gate (`validate_industry_realism_bands`) — produces the
        per-metric provenance the acceptance gate checks for.
-    3. Finalize validation (`run_finalize_post_intake_validation`) —
-       runs the solver_target_assertion, global invariants, balance-sheet
-       driver finalize, cash phase trace.
-    4. Persist with stage="post_intake_finalize_validation_completed",
+    4. Finalize validation (`run_finalize_post_intake_validation`) —
+       runs the solver_target_assertion, global invariants, balance-
+       sheet driver finalize, cash phase trace.
+    5. Persist with stage="post_intake_finalize_validation_completed",
        status="completed".
 
   Each step has its own try/except and records its outcome in
@@ -1096,6 +1114,7 @@ def _run_post_cascade_completion(
   swallows failures into a fake success.
   """
   completion_trace: Dict[str, Any] = {
+    "post_cascade_solver_pass": {"status": "not_run"},
     "cash_pass": {"status": "not_run"},
     "realism_gate": {"status": "not_run"},
     "finalize_validation": {"status": "not_run"},
@@ -1108,7 +1127,56 @@ def _run_post_cascade_completion(
       ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
     )
 
-  # 1. Cash pass — apply the minimum debt schedule policy. This raises
+  # 1. Target-seeking solver pass — drives model_input toward the
+  # cascade's final calibrated targets using single-driver bisection
+  # (with inner joint fit available for multi-lever fitting). The
+  # pre-flight pass at orchestrator.py:737 ran the same machinery on
+  # the pre-cascade state; this re-run on the cascade's final state
+  # uses the (possibly walked-back) targets the cascade landed on.
+  if (
+    callable(build_finmo_callable)
+    and callable(apply_lever_callable)
+    and isinstance(targets_payload_post, dict) and targets_payload_post.get("metrics")
+  ):
+    try:
+      solver_pass = _run_target_seeking_pass(
+        pass_label="post_cascade",
+        model_input_json=copy.deepcopy(final_model_input_json or {}),
+        build_finmo_callable=build_finmo_callable,
+        apply_lever_callable=apply_lever_callable,
+        envelope_payload=envelope_payload_post,
+        targets_payload=targets_payload_post,
+        influence_payload=influence_payload,
+        max_iterations=_DEFAULT_POSTFLIGHT_MAX_ITERATIONS,
+        numeric_tolerance=_DEFAULT_NUMERIC_TOLERANCE,
+        enable_inner_joint_fit=True,
+        horizon=horizon,
+      )
+      solver_final_model = solver_pass.get("final_model_input_json")
+      solver_final_finmo = solver_pass.get("final_finmo_json")
+      if isinstance(solver_final_model, dict):
+        final_model_input_json = solver_final_model
+        next_result["model_input_json"] = final_model_input_json
+      if isinstance(solver_final_finmo, dict) and solver_final_finmo:
+        final_finmo_json = solver_final_finmo
+        next_result["finmo_json"] = final_finmo_json
+      completion_trace["post_cascade_solver_pass"] = {
+        "status": str(solver_pass.get("status") or "unknown"),
+        "iterations_used": solver_pass.get("iterations_used"),
+        "trace_length": len(solver_pass.get("trace") or []),
+      }
+    except Exception as exc:
+      completion_trace["post_cascade_solver_pass"] = {
+        "status": "failed",
+        "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+      }
+  else:
+    completion_trace["post_cascade_solver_pass"] = {
+      "status": "skipped",
+      "reason": "missing_callables_or_targets_payload",
+    }
+
+  # 2. Cash pass — apply the minimum debt schedule policy. This raises
   # debt to cover quarters where ending cash would otherwise go negative.
   try:
     from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
@@ -1139,26 +1207,58 @@ def _run_post_cascade_completion(
     }
 
   # 2. Realism gate — produces the per-metric provenance the acceptance
-  # gate looks for (band_source field on each result row).
+  # gate looks for (band_source field on each result row). The gate
+  # raises RealismBandViolation on the FIRST hard_fail, with the partial
+  # results (everything computed up to the violation) attached to
+  # exc.results. Catching the violation specifically lets us preserve
+  # those results in realism_memo_json so the acceptance gate sees the
+  # provenance and the hard_fail count, instead of an empty memo.
   realism_gate_payload: Dict[str, Any] = {}
   try:
     from client_intake_and_finmo.post_intake_realism import (  # type: ignore
       validate_industry_realism_bands,
+      RealismBandViolation,
     )
-    realism_gate_payload = validate_industry_realism_bands(
-      model_input_json=copy.deepcopy(final_model_input_json or {}),
-      finmo_json=copy.deepcopy(final_finmo_json or {}),
-      business_naics_6=business_naics_6 or None,
-      ops_json=copy.deepcopy(ops_json or {}),
-      financials_json=copy.deepcopy(financials_json or {}),
-      planning_mode=planning_mode,
-    )
-    completion_trace["realism_gate"] = {
-      "status": "completed",
-      "result_count": int(realism_gate_payload.get("result_count") or 0),
-      "warning_count": int(realism_gate_payload.get("warning_count") or 0),
-      "checked_metric_count": int(realism_gate_payload.get("checked_metric_count") or 0),
-    }
+    try:
+      realism_gate_payload = validate_industry_realism_bands(
+        model_input_json=copy.deepcopy(final_model_input_json or {}),
+        finmo_json=copy.deepcopy(final_finmo_json or {}),
+        business_naics_6=business_naics_6 or None,
+        ops_json=copy.deepcopy(ops_json or {}),
+        financials_json=copy.deepcopy(financials_json or {}),
+        planning_mode=planning_mode,
+      )
+      completion_trace["realism_gate"] = {
+        "status": "completed",
+        "result_count": int(realism_gate_payload.get("result_count") or 0),
+        "warning_count": int(realism_gate_payload.get("warning_count") or 0),
+        "checked_metric_count": int(realism_gate_payload.get("checked_metric_count") or 0),
+      }
+    except RealismBandViolation as exc:
+      # Hard_fail tripped. Preserve the partial results (each row has
+      # band_source provenance) so the acceptance gate can read them
+      # and surface the violation in its verdict instead of seeing an
+      # empty memo. The realism gate stops at the first hard_fail by
+      # design, so this is expected when one fires; the gate's verdict
+      # then names which metric+quarter triggered.
+      raised_results = list(exc.results or [])
+      realism_gate_payload = {
+        "results": raised_results,
+        "warnings": [],
+        "result_count": len(raised_results),
+        "warning_count": 0,
+        "checked_metric_count": len({
+          r.get("metric_key") for r in raised_results
+          if isinstance(r, dict) and r.get("metric_key")
+        }),
+        "halted_on_hard_fail": True,
+        "hard_fail_message": str(exc)[:500],
+      }
+      completion_trace["realism_gate"] = {
+        "status": "hard_fail_violation",
+        "result_count": len(raised_results),
+        "hard_fail_message": str(exc)[:500],
+      }
   except Exception as exc:
     completion_trace["realism_gate"] = {
       "status": "failed",
@@ -1267,4 +1367,63 @@ def _run_post_cascade_completion(
   next_result["post_cascade_completion"] = completion_trace
   next_result["realism_memo_json"] = realism_memo_json
   next_result["target_seeking_diagnostics"] = diagnostics
+
+  # Phase 8: also persist the post_cascade_completion trace directly
+  # into the draft's planning_run_json column so future diagnostic
+  # queries can read it without round-tripping through the orchestrator
+  # return value. _persist_unified_convergence_state above writes a
+  # planning_run_json snapshot but doesn't have a slot for arbitrary
+  # diagnostic blobs from this layer; this small UPDATE merges the
+  # trace + realism_memo summary into the persisted blob.
+  if conn is not None:
+    try:
+      import json as _json
+      cur = conn.cursor(dictionary=True)
+      try:
+        cur.execute(
+          "SELECT planning_run_json FROM intake_consult_drafts WHERE draft_id = %s",
+          (str(draft_id or "").strip(),),
+        )
+        row = cur.fetchone()
+      finally:
+        try:
+          cur.close()
+        except Exception:
+          pass
+      existing = {}
+      if row and isinstance(row.get("planning_run_json"), (str, bytes, bytearray)):
+        try:
+          raw = row["planning_run_json"]
+          if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+          existing = _json.loads(raw) if raw else {}
+        except Exception:
+          existing = {}
+      if not isinstance(existing, dict):
+        existing = {}
+      existing["post_cascade_completion"] = copy.deepcopy(completion_trace)
+      tsd = existing.get("target_seeking_diagnostics")
+      tsd_dict = tsd if isinstance(tsd, dict) else {}
+      tsd_dict["post_cascade_completion"] = copy.deepcopy(completion_trace)
+      existing["target_seeking_diagnostics"] = tsd_dict
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          "UPDATE intake_consult_drafts SET planning_run_json=%s WHERE draft_id=%s",
+          (
+            _json.dumps(existing, ensure_ascii=False, default=str),
+            str(draft_id or "").strip(),
+          ),
+        )
+        conn.commit()
+      finally:
+        try:
+          cur.close()
+        except Exception:
+          pass
+    except Exception as exc:
+      diagnostics["post_cascade_completion_persist_error"] = (
+        f"{type(exc).__name__}: {str(exc)[:200]}"
+      )
+
   return next_result

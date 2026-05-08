@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/IgnatiusHenry/OneDrive - Tithe Financial Wealth Management/Apps/New Runner/**)",
+      "Bash(./.venv/Scripts/python.exe scripts/load_industry_baseline_lookup.py)",
+      "Bash(./.venv/Scripts/python.exe -c \"import requests; print\\(requests.__version__\\)\")",
+      "Bash(./.venv/Scripts/python.exe python/data_pull/sec_edgar_xbrl_pull.py)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(awk -F: '$1+0 < 487 {prev=$0} END {print prev}')"
+    ]
+  }
+}
