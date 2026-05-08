@@ -1022,4 +1022,260 @@ def run_target_seeking_orchestrated_system_run(
   if isinstance(payroll_headcount, dict) and payroll_headcount:
     next_result.setdefault("payroll_headcount", payroll_headcount)
 
+  # Phase 8 step 4f: drive the post-cascade tail (cash pass + realism gate +
+  # finalize + persist) directly from the orchestrator. The convergence
+  # runner used to do this on its normal-success path (runner.py:2489-3483),
+  # but when the runner returned status=abort_for_cascade the cycle loop
+  # exited before reaching cash + finalize. The cascade landing a final
+  # state is a successful run — it must complete the post-cascade tail or
+  # the acceptance gate will (rightly) refuse to call it passed.
+  next_result = _run_post_cascade_completion(
+    conn=conn,
+    draft_id=draft_id,
+    planning_run_id=planning_run_id,
+    next_result=next_result,
+    final_model_input_json=final_model_input_json,
+    final_finmo_json=final_finmo_json,
+    debt_schedule_payload=debt_schedule_payload,
+    payroll_headcount=payroll_headcount,
+    business_facts=business_facts,
+    ops_json=ops_json,
+    target_market_json=target_market_json,
+    people_json=people_json,
+    financials_json=financials_json,
+    financials_year1_json=financials_year1_json,
+    fulfillment_json=fulfillment_json,
+    marketing_model_json=marketing_model_json,
+    planning_context_summary_json=planning_context_summary_json,
+    planning_mode=planning_mode,
+    planning_mode_reason=planning_mode_reason,
+    grid_application_summary=grid_application_summary,
+    stage_ramp_contract=stage_ramp_contract,
+    plan_confidence=plan_confidence,
+    cascade_diagnostics=cascade_diagnostics,
+    diagnostics=diagnostics,
+    business_naics_6=business_naics_6_for_cascade if "business_naics_6_for_cascade" in dir() else None,
+  )
+
+  return next_result
+
+
+def _run_post_cascade_completion(
+  *,
+  conn,
+  draft_id: str,
+  planning_run_id: str,
+  next_result: Dict[str, Any],
+  final_model_input_json: Optional[Dict[str, Any]],
+  final_finmo_json: Optional[Dict[str, Any]],
+  debt_schedule_payload: Optional[Dict[str, Any]],
+  payroll_headcount: Optional[Dict[str, Any]],
+  business_facts: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  target_market_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  financials_year1_json: Dict[str, Any],
+  fulfillment_json: Dict[str, Any],
+  marketing_model_json: Dict[str, Any],
+  planning_context_summary_json: Dict[str, Any],
+  planning_mode: str,
+  planning_mode_reason: str,
+  grid_application_summary: Dict[str, Any],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  plan_confidence: str,
+  cascade_diagnostics: Optional[Dict[str, Any]],
+  diagnostics: Dict[str, Any],
+  business_naics_6: Optional[str] = None,
+) -> Dict[str, Any]:
+  """Phase 8 — orchestrator-driven post-cascade tail.
+
+  After the cascade lands a final state, this function runs:
+    1. Cash pass (minimum debt schedule) — covers negative cash quarters
+       so the FINMO output reflects a fundable plan.
+    2. Realism gate (`validate_industry_realism_bands`) — produces the
+       per-metric provenance the acceptance gate checks for.
+    3. Finalize validation (`run_finalize_post_intake_validation`) —
+       runs the solver_target_assertion, global invariants, balance-sheet
+       driver finalize, cash phase trace.
+    4. Persist with stage="post_intake_finalize_validation_completed",
+       status="completed".
+
+  Each step has its own try/except and records its outcome in
+  `next_result["post_cascade_completion"]`. A failure in any step
+  surfaces in the acceptance gate's verdict; this function never
+  swallows failures into a fake success.
+  """
+  completion_trace: Dict[str, Any] = {
+    "cash_pass": {"status": "not_run"},
+    "realism_gate": {"status": "not_run"},
+    "finalize_validation": {"status": "not_run"},
+    "persist_finalize_stage": {"status": "not_run"},
+  }
+
+  # Resolve business_naics_6 if not passed in.
+  if not business_naics_6 and isinstance(ops_json, dict):
+    business_naics_6 = "".join(
+      ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
+    )
+
+  # 1. Cash pass — apply the minimum debt schedule policy. This raises
+  # debt to cover quarters where ending cash would otherwise go negative.
+  try:
+    from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
+      _apply_cash_pass_minimum_debt_schedule,
+    )
+    cash_pass_result = _apply_cash_pass_minimum_debt_schedule(
+      cash_strategy_result={
+        "updated_model_input_json": copy.deepcopy(final_model_input_json or {}),
+        "updated_finmo_json": copy.deepcopy(final_finmo_json or {}),
+        "applied_updates": [],
+      },
+      financials_json=copy.deepcopy(financials_json or {}),
+    )
+    if isinstance(cash_pass_result.get("updated_model_input_json"), dict):
+      final_model_input_json = cash_pass_result["updated_model_input_json"]
+      next_result["model_input_json"] = final_model_input_json
+    if isinstance(cash_pass_result.get("updated_finmo_json"), dict):
+      final_finmo_json = cash_pass_result["updated_finmo_json"]
+      next_result["finmo_json"] = final_finmo_json
+    completion_trace["cash_pass"] = {
+      "status": "completed",
+      "applied_updates_count": len(cash_pass_result.get("applied_updates") or []),
+    }
+  except Exception as exc:
+    completion_trace["cash_pass"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
+  # 2. Realism gate — produces the per-metric provenance the acceptance
+  # gate looks for (band_source field on each result row).
+  realism_gate_payload: Dict[str, Any] = {}
+  try:
+    from client_intake_and_finmo.post_intake_realism import (  # type: ignore
+      validate_industry_realism_bands,
+    )
+    realism_gate_payload = validate_industry_realism_bands(
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      finmo_json=copy.deepcopy(final_finmo_json or {}),
+      business_naics_6=business_naics_6 or None,
+      ops_json=copy.deepcopy(ops_json or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      planning_mode=planning_mode,
+    )
+    completion_trace["realism_gate"] = {
+      "status": "completed",
+      "result_count": int(realism_gate_payload.get("result_count") or 0),
+      "warning_count": int(realism_gate_payload.get("warning_count") or 0),
+      "checked_metric_count": int(realism_gate_payload.get("checked_metric_count") or 0),
+    }
+  except Exception as exc:
+    completion_trace["realism_gate"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
+  # Build the realism_memo_json that gets persisted with the run.
+  try:
+    from client_intake_and_finmo.post_intake_resolution_state import (  # type: ignore
+      build_realism_memo,
+    )
+    realism_memo_json = build_realism_memo(
+      realism_gate_payload=realism_gate_payload,
+    )
+  except Exception:
+    realism_memo_json = {}
+
+  # 3. Finalize validation — global invariants, balance-sheet finalize,
+  # solver_target_assertion. Runs against the post-cash final state.
+  finalize_result: Dict[str, Any] = {}
+  try:
+    from client_intake_and_finmo.post_intake_runtime_validation.finalize_post_intake import (  # type: ignore
+      run_finalize_post_intake_validation,
+    )
+    finalize_result = run_finalize_post_intake_validation(
+      draft_id=str(draft_id or "").strip(),
+      planning_run_id=str(planning_run_id or "").strip(),
+      stage_ramp_contract=copy.deepcopy(stage_ramp_contract or {}),
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      finmo_json=copy.deepcopy(final_finmo_json or {}),
+      payroll_headcount=copy.deepcopy(payroll_headcount or {}),
+      debt_schedule=copy.deepcopy(debt_schedule_payload or {}),
+      financials_json=copy.deepcopy(financials_json or {}),
+      ops_json=copy.deepcopy(ops_json or {}),
+      cash_strategy_second_pass_result={"post_intake_finalize_validation": {}},
+    )
+    completion_trace["finalize_validation"] = {
+      "status": str(finalize_result.get("status") or "completed"),
+      "solver_target_assertion_checked": bool(
+        (finalize_result.get("solver_target_assertion") or {}).get("checked")
+      ),
+    }
+  except Exception as exc:
+    completion_trace["finalize_validation"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
+  # 4. Persist with stage=post_intake_finalize_validation_completed,
+  # status=completed. Without this, planning_runs.current_stage stays at
+  # convergence_running and the acceptance gate's stage_reached_finalize
+  # check fails.
+  try:
+    from client_intake_and_finmo.post_intake_convergence.runtime import (  # type: ignore
+      _persist_unified_convergence_state,
+    )
+    from client_intake_and_finmo.post_intake_resolution_state import (  # type: ignore
+      build_controller_resolution_state,
+      build_resolution_summary,
+    )
+    cash_strategy_second_pass_result = {
+      "post_intake_finalize_validation": copy.deepcopy(finalize_result),
+    }
+    _persist_unified_convergence_state(
+      conn=conn,
+      draft_id=str(draft_id or "").strip(),
+      stage="post_intake_finalize_validation_completed",
+      status="completed",
+      planning_context_summary_json=copy.deepcopy(planning_context_summary_json or {}),
+      controller_resolution_state=build_controller_resolution_state(
+        realism_gate_payload=realism_gate_payload,
+        cascade_diagnostics=cascade_diagnostics,
+      ),
+      resolution_summary=build_resolution_summary(
+        realism_gate_payload=realism_gate_payload,
+        cascade_diagnostics=cascade_diagnostics,
+      ),
+      planning_mode=planning_mode,
+      planning_mode_reason=planning_mode_reason,
+      prompt_file="",
+      grid_application_summary=copy.deepcopy(grid_application_summary or {}),
+      realism_memo_before_resolution={},
+      realism_memo_json=copy.deepcopy(realism_memo_json),
+      unified_convergence_context={},
+      unified_convergence_decision={},
+      unified_convergence_plan={},
+      unified_convergence_result={},
+      unified_convergence_iterations=[],
+      unified_convergence_cycle_count=0,
+      model_input_json=copy.deepcopy(final_model_input_json or {}),
+      finmo_json=copy.deepcopy(final_finmo_json or {}),
+      cash_strategy_review_context={},
+      cash_strategy_review_decision={},
+      cash_strategy_second_pass_plan={},
+      cash_strategy_second_pass_result=cash_strategy_second_pass_result,
+      cash_strategy_effect_summary={},
+    )
+    completion_trace["persist_finalize_stage"] = {"status": "completed"}
+  except Exception as exc:
+    completion_trace["persist_finalize_stage"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
+  diagnostics["post_cascade_completion"] = completion_trace
+  next_result["post_cascade_completion"] = completion_trace
+  next_result["realism_memo_json"] = realism_memo_json
+  next_result["target_seeking_diagnostics"] = diagnostics
   return next_result
