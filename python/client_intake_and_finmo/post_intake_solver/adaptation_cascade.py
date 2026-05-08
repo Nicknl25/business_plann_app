@@ -439,7 +439,7 @@ def run_adaptation_cascade(
     attempt = CascadeAttempt(
       tier=tier, tier_name=name, attempted=True, success=True,
       plan_confidence=confidence, residual_hard_fail_count=0,
-      modifications=mods, post_flight_repair=None,
+      modifications=mods,
       final_model_input_json=repair.get("final_model_input_json") or post_inner_model,
       final_finmo_json=repair.get("final_finmo_json") or final_finmo_json,
       inner_result=inner,
