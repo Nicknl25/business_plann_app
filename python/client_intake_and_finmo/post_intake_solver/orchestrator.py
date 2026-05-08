@@ -172,6 +172,78 @@ def _stamp_solver_inputs(
   return next_input
 
 
+def _apply_restoration_to_model_input(
+  *,
+  model_input_json: Dict[str, Any],
+  adjusted_ops_json: Dict[str, Any],
+  adjusted_payroll_headcount: Dict[str, Any],
+  horizon: int,
+) -> Dict[str, Any]:
+  """Patch model_input revenue rows + payroll rows to match the Phase
+  7.2 restoration cascade adjustments.
+
+  Revenue drivers (Capacity / Unit Price / Utilization) get their q1-q20
+  values rewritten from adjusted_ops_json scalars. Payroll expense rows
+  get their q1-q20 values rewritten from adjusted_payroll_headcount
+  quarter_totals. q0 stub stays at the original intake-fact value.
+  """
+  next_input = copy.deepcopy(model_input_json or {})
+  sections = next_input.get("sections")
+  if not isinstance(sections, dict):
+    return next_input
+
+  # Revenue rows
+  revenue_rows = sections.get("revenue")
+  if isinstance(revenue_rows, list):
+    new_capacity = (
+      _safe_float(adjusted_ops_json.get("units_per_period_capacity"))
+      or _safe_float(adjusted_ops_json.get("units_per_week_capacity"))
+    )
+    new_price = _safe_float(adjusted_ops_json.get("unit_price"))
+    new_util = _safe_float(adjusted_ops_json.get("utilization_rate"))
+    for row in revenue_rows:
+      if not isinstance(row, dict):
+        continue
+      driver = str(row.get("driver") or "").strip()
+      values = row.get("values")
+      if not isinstance(values, list) or not values:
+        continue
+      if driver == "Capacity" and new_capacity is not None and new_capacity > 0:
+        for idx in range(1, min(horizon + 1, len(values))):
+          values[idx] = float(new_capacity)
+      elif driver == "Unit Price" and new_price is not None and new_price > 0:
+        for idx in range(1, min(horizon + 1, len(values))):
+          values[idx] = float(new_price)
+      elif driver == "Utilization" and new_util is not None and new_util > 0:
+        for idx in range(1, min(horizon + 1, len(values))):
+          values[idx] = float(new_util)
+
+  # Payroll rows (in expenses section)
+  expenses_rows = sections.get("expenses")
+  if isinstance(expenses_rows, list):
+    quarter_totals = adjusted_payroll_headcount.get("quarter_totals")
+    if isinstance(quarter_totals, list) and quarter_totals:
+      payroll_per_quarter = []
+      for row in quarter_totals[:horizon]:
+        if isinstance(row, dict):
+          payroll = _safe_float(row.get("payroll"))
+          payroll_per_quarter.append(float(payroll) if payroll is not None else 0.0)
+      for row in expenses_rows:
+        if not isinstance(row, dict):
+          continue
+        lever_id = str(row.get("lever_id") or "").strip()
+        if "Payroll" not in lever_id:
+          continue
+        values = row.get("values")
+        if not isinstance(values, list) or not values:
+          continue
+        for idx, payroll_q in enumerate(payroll_per_quarter, start=1):
+          if idx < len(values):
+            values[idx] = payroll_q
+
+  return next_input
+
+
 def _ensure_solver_inputs(
   *,
   model_input_json: Dict[str, Any],
@@ -432,8 +504,12 @@ def run_target_seeking_orchestrated_system_run(
   # lower-bound fixed costs (payroll + lease + debt service), no
   # combination of band-internal lever values produces a viable plan.
   # The cascade's Tier 7 used to paper this case as success; Step 9
-  # raises a structured diagnostic upstream so the consultant sees
-  # actionable recommended adjustments instead.
+  # produces structured recommended_adjustments so the cascade /
+  # consultants see actionable guidance. Per Phase 7.2 directive: the
+  # check NEVER halts the run — the system's job is to adapt and produce
+  # a feasible plan, not to refuse to plan. Infeasibility becomes context
+  # the cascade uses to know which bands to widen (capacity / price) and
+  # which costs to push down (payroll headcount when over-staffed).
   from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
     verify_structural_feasibility,
   )
@@ -444,25 +520,66 @@ def run_target_seeking_orchestrated_system_run(
     payroll_headcount=payroll_headcount or {},
     business_profile=business_profile_for_cohort,
   )
+  structural_feasibility_diagnostic: Dict[str, Any] = (
+    structural_feasibility.to_dict() if not structural_feasibility.feasible else {}
+  )
+  feasibility_restoration_diagnostic: Dict[str, Any] = {}
   if not structural_feasibility.feasible:
-    from client_intake_and_finmo.fail_fast.post_intake_fail_fast.fail_fast import (  # type: ignore
-      post_intake_fail_fast_raise,
+    # Phase 7.2: feasibility restoration cascade. Hard-fail catalyst from
+    # the structural check is what triggers adaptation here. Levers are
+    # tried in priority (headcount rationalization, unit price within
+    # band, utilization within band, capacity expansion as final
+    # unbounded guarantee). Customer always gets a plan; the cascade
+    # adjusts the inputs and downstream Phase 3 / solver continue with
+    # the adapted configuration.
+    from client_intake_and_finmo.post_intake_solver.feasibility_restoration import (  # type: ignore
+      restore_feasibility,
     )
-    from client_intake_and_finmo.fail_fast.common import FailFastError  # type: ignore
-    diagnostics = structural_feasibility.to_dict()
-    result = post_intake_fail_fast_raise(
-      "structural_feasibility_check_failed",
-      structural_feasibility.diagnostic_message,
-      stage="phase_6_pre_flight_structural_feasibility",
-      details=diagnostics,
+    naics_6 = business_profile_for_cohort.get("naics_6") if isinstance(business_profile_for_cohort, dict) else None
+    restoration = restore_feasibility(
+      structural_result=structural_feasibility,
+      ops_json=ops_json or {},
+      financials_json=financials_json or {},
+      financials_year1_json=financials_year1_json or {},
+      payroll_headcount=payroll_headcount or {},
+      business_naics_6=naics_6,
     )
-    raise FailFastError(
-      "structural_feasibility_check_failed",
-      structural_feasibility.diagnostic_message,
-      phase=result.get("phase") or "POST_INTAKE",
-      stage="phase_6_pre_flight_structural_feasibility",
-      details=diagnostics,
-    )
+    feasibility_restoration_diagnostic = restoration.to_dict()
+    if restoration.applied_adjustments:
+      # Swap in the adapted intake. ops_json and payroll_headcount are
+      # consumed downstream by Phase 3 consultants (via resolver_runtime_objects)
+      # and by the band assemblers; updating them here propagates the
+      # adapted configuration across every site that reads these payloads.
+      if isinstance(restoration.adjusted_ops_json, dict):
+        ops_json = restoration.adjusted_ops_json
+      if isinstance(restoration.adjusted_payroll_headcount, dict):
+        payroll_headcount = restoration.adjusted_payroll_headcount
+      # Patch the in-memory model_input_json revenue rows + payroll rows
+      # so downstream FINMO computations see the adapted values.
+      applied_model_input_json = _apply_restoration_to_model_input(
+        model_input_json=applied_model_input_json or {},
+        adjusted_ops_json=ops_json,
+        adjusted_payroll_headcount=payroll_headcount,
+        horizon=horizon,
+      )
+      # Recompute capacity-driven cohort revenue / envelope payload to
+      # match the adapted scale (capacity expansion lever changes the
+      # cohort target_annual_revenue too).
+      _target_annual_revenue = authoritative_annual_revenue(
+        ops_json=ops_json or {},
+        financials_year1_json=financials_year1_json or {},
+        financials_json=financials_json or {},
+      )
+      business_profile_for_cohort["target_annual_revenue"] = _target_annual_revenue
+      pre_input = _ensure_solver_inputs(
+        model_input_json=applied_model_input_json or {},
+        ops_json=ops_json,
+        horizon=horizon,
+        business_profile=business_profile_for_cohort,
+      )
+      inputs = _solver_input_payloads(pre_input)
+      envelope_payload = inputs["envelope"]
+      targets_payload = inputs["targets"]
 
   # ---------- Phase 3 / 5.2: GPT consultants calibrate bands and targets -----
   # Three consultants run per business before the pre-flight pass. Each
