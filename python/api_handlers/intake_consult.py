@@ -7179,6 +7179,60 @@ def post_intake_consult_system_run_handler(*, app, request):
       else {}
     )
     result_draft_id = str(result.get("draft_id") or draft_id).strip()
+
+    # Phase 8 acceptance gate. Exit code 0 from the orchestrator no
+    # longer means "passed." The gate verifies new-architecture criteria
+    # (stage reached finalize, cascade tier landed, realism gate
+    # provenance, solver_target_assertion clean, workbook integrity)
+    # and is the only authority on whether this run actually succeeded.
+    # A failed verdict short-circuits the workbook export and returns
+    # HTTP 500 with the structured diagnostic so the caller sees exactly
+    # which checks failed and the offending values.
+    try:
+      from client_intake_and_finmo.post_intake_acceptance import verify_run_acceptance  # type: ignore
+      acceptance_planning_run_id = (
+        str(planning_run_json.get("planning_run_id") or "").strip()
+        if isinstance(planning_run_json, dict)
+        else ""
+      ) or planning_run_id
+      acceptance_verdict = verify_run_acceptance(
+        conn,
+        draft_id=result_draft_id,
+        planning_run_id=acceptance_planning_run_id or None,
+      )
+    except Exception as exc:
+      app.logger.exception(
+        "Acceptance gate raised for draft %s: %s", result_draft_id, exc
+      )
+      return (
+        jsonify(
+          {
+            "error": "acceptance_gate_internal_error",
+            "detail": str(exc),
+            "draft_id": result_draft_id,
+          }
+        ),
+        500,
+      )
+    if not bool(acceptance_verdict.get("passed")):
+      app.logger.error(
+        "Acceptance gate failed for draft %s: %s",
+        result_draft_id,
+        acceptance_verdict.get("failed_checks"),
+      )
+      return (
+        jsonify(
+          {
+            "error": "acceptance_gate_failed",
+            "detail": "run_did_not_meet_acceptance_criteria",
+            "draft_id": result_draft_id,
+            "planning_run_id": acceptance_verdict.get("planning_run_id"),
+            "acceptance_verdict": acceptance_verdict,
+          }
+        ),
+        500,
+      )
+
     client_workbook_path = ""
     try:
       from client_statements_output_excel.export_client_workbook import export_workbook_for_draft_id  # type: ignore
@@ -7213,6 +7267,7 @@ def post_intake_consult_system_run_handler(*, app, request):
         "planning_run_json": planning_run_json,
         "planning_runtime_json": planning_runtime_json,
         "numeric_solver_feedback_json": numeric_solver_feedback_json,
+        "acceptance_verdict": acceptance_verdict,
       }
     )
   finally:

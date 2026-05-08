@@ -1136,6 +1136,7 @@ def _ensure_table_inner(conn) -> None:
         paused_at DATETIME(6) NULL,
         stopped_at DATETIME(6) NULL,
         completed_at DATETIME(6) NULL,
+        acceptance_verdict_json LONGTEXT NULL,
         KEY idx_planning_runs_draft_id (draft_id),
         KEY idx_planning_runs_client_id (client_id),
         KEY idx_planning_runs_run_status (run_status),
@@ -1436,6 +1437,8 @@ def _ensure_table_inner(conn) -> None:
     planning_runs_alters.append("ADD COLUMN cascade_landed_tier TINYINT NULL")
   if "cascade_tiers_attempted_json" not in planning_runs_cols:
     planning_runs_alters.append("ADD COLUMN cascade_tiers_attempted_json LONGTEXT NULL")
+  if "acceptance_verdict_json" not in planning_runs_cols:
+    planning_runs_alters.append("ADD COLUMN acceptance_verdict_json LONGTEXT NULL")
   if "idx_planning_runs_draft_id" not in planning_runs_indexes:
     planning_runs_alters.append("ADD KEY idx_planning_runs_draft_id (draft_id)")
   if "idx_planning_runs_client_id" not in planning_runs_indexes:
