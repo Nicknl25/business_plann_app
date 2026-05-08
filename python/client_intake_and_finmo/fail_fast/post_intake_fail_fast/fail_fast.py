@@ -1343,16 +1343,21 @@ def assert_post_intake_revenue_driver_integrity(
     int(_safe_float(row.get("quarter_index")) or 0): float(_safe_float(row.get("revenue")) or 0.0)
     for row in _live_quarter_rows(finmo_json)
   }
-  # Compare in cents (rounded to 2 decimal places) rather than integer
-  # dollars. Revenue values can legitimately carry cents precision and
-  # multiplication order (capacity * price * util vs capacity * util *
-  # price) produces sub-cent floating-point drift — int rounding at the
-  # 0.5 boundary then splits across integers and bank-rounds in opposite
-  # directions, false-flagging an off-by-$1.
+  # Compare with a 1.5-cent absolute tolerance on the unrounded values
+  # to neutralize floating-point rounding-mode disagreements. Values like
+  # 59695.725 (from sum(Capacity * Unit Price * Utilization) =
+  # 39797.15 * 2.0 * 0.75 = 59695.72500000001) round to 59695.73 in one
+  # path and 59695.72 in another (banker's rounding), false-flagging an
+  # off-by-$0.01. Comparing the raw FP values with a >$0.015 tolerance
+  # absorbs that drift while still catching real revenue formula
+  # violations (which are at least $1+ apart in practice).
+  _REVENUE_FORMULA_TOLERANCE = 0.015
   for quarter in range(1, horizon + 1):
-    expected = round(float(computed_revenue_by_q.get(quarter) or 0.0), 2)
-    actual = round(float(actual_revenue_by_q.get(quarter) or 0.0), 2)
-    if expected != actual:
+    expected_raw = float(computed_revenue_by_q.get(quarter) or 0.0)
+    actual_raw = float(actual_revenue_by_q.get(quarter) or 0.0)
+    expected = round(expected_raw, 2)
+    actual = round(actual_raw, 2)
+    if abs(expected_raw - actual_raw) > _REVENUE_FORMULA_TOLERANCE:
       formula_violations.append(
         {
           "quarter_index": quarter,

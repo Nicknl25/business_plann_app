@@ -202,6 +202,7 @@ _synthetic_controller_issue_completion_snapshot = _empty_dict
 _normalize_issue_record_to_controller_truth = _identity_dict
 _refresh_issue_status_records_from_scan = _identity_list
 _clone_issue_status_records = _identity_list
+_controller_state_issue_summaries = _empty_list
 
 # Realism planner state (only consulted by deprecated GPT planning).
 _build_realism_planner_issue_state = _empty_dict
