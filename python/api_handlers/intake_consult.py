@@ -44,11 +44,13 @@ from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_s
 # runner's __all__ list at dependency-dict-build time. No wildcard imports;
 # no globals() round-trip; the dependency contract is the runner's __all__.
 from client_intake_and_finmo.post_intake_cash import runner as _post_intake_cash_runner  # type: ignore
-# Phase 8: post_intake_issues legacy machinery deleted. The realism gate +
-# influence_map + planning_mode_policy + adaptation cascade are now the
-# authority on resolution state. No replacement runner module — callers
-# that previously read the legacy ledger now consult the new architecture
-# directly.
+# Phase 8: post_intake_issues legacy machinery deleted. The replacement
+# is post_intake_resolution_state, which provides the small set of
+# realism-gate-backed helpers the convergence runner / cash / contracts
+# / runtime / state runner consume + legacy-name compat shims for the
+# bound underscore-prefixed helpers callers used to receive via the
+# legacy runner's __all__.
+from client_intake_and_finmo import post_intake_resolution_state as _post_intake_resolution_state  # type: ignore
 from client_intake_and_finmo.post_intake_contracts import runner as _post_intake_contracts_runner  # type: ignore
 from client_intake_and_finmo.post_intake_state import runner as _post_intake_state_runner  # type: ignore
 from client_intake_and_finmo.post_intake_convergence import runner as _post_intake_convergence_runner  # type: ignore
@@ -122,7 +124,9 @@ class StructuredSystemRunFailure(RuntimeError):
 
 _POST_INTAKE_RUNTIME_DEPENDENCY_PROVIDER_MODULES = (
   _post_intake_cash_runner,
-  # Phase 8: _post_intake_issues_runner removed; legacy machinery deleted.
+  # Phase 8: post_intake_resolution_state replaces _post_intake_issues_runner
+  # as the source of bound helpers (realism-gate-backed + legacy-name shims).
+  _post_intake_resolution_state,
   _post_intake_contracts_runner,
   _post_intake_state_runner,
   _post_intake_convergence_runtime,
