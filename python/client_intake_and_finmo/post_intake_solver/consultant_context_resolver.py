@@ -391,7 +391,71 @@ def _transform_value(
     return _slim_metric_entry(value)
   if kind == "slim_mapping_row":
     return _slim_mapping_row(value)
+  if kind == "slim_operating_model":
+    return _slim_operating_model(value)
   raise ValueError(f"unsupported_transform_kind: {kind}")
+
+
+_SLIM_OPERATING_MODEL_SCALAR_KEYS = (
+  "business_type", "business_naics_6", "business_stage", "consumer_type",
+  "sales_modality", "shipping_method", "capacity_driver",
+  "unit_name", "unit_description", "unit_cadence", "unit_price",
+  "units_per_period_capacity", "utilization_rate", "operating_periods_per_year",
+  "primary_growth_lever", "geographic_coverage", "geographic_scope",
+  "legal_entity",
+)
+_SLIM_OPERATING_MODEL_PRODUCT_KEYS = (
+  "product_name", "unit_name", "unit_cadence", "unit_price",
+  "units_per_period_capacity", "utilization_rate",
+)
+
+
+def _slim_operating_model(value: Any) -> Any:
+  """Phase 7 — extract the curated operating-model signal subset.
+
+  Drops the long narrative fields (`business_description_summary`,
+  `competitive_advantage`) that have no discriminating signal for band
+  shaping. Keeps the raw classification fields the directive asked for
+  (consumer_type, sales_modality, shipping_method, capacity_driver,
+  business_type), pricing/capacity scalars, and a truncated lob_models
+  view (first 5 LOBs, first 3 products each, product scalars only).
+  """
+  if not isinstance(value, dict):
+    return value
+  out: Dict[str, Any] = {}
+  for k in _SLIM_OPERATING_MODEL_SCALAR_KEYS:
+    if k in value and value[k] not in (None, ""):
+      out[k] = copy.deepcopy(value[k])
+  lobs = value.get("lob_models")
+  if isinstance(lobs, list) and lobs:
+    slim_lobs: List[Dict[str, Any]] = []
+    for lob in lobs[:5]:
+      if not isinstance(lob, dict):
+        continue
+      slim_lob: Dict[str, Any] = {}
+      lob_name = lob.get("lob_name")
+      if lob_name:
+        slim_lob["lob_name"] = lob_name
+      products = lob.get("products")
+      if isinstance(products, list) and products:
+        slim_products: List[Dict[str, Any]] = []
+        for prod in products[:3]:
+          if not isinstance(prod, dict):
+            continue
+          slim_products.append({
+            k: copy.deepcopy(prod[k]) for k in _SLIM_OPERATING_MODEL_PRODUCT_KEYS
+            if k in prod and prod[k] not in (None, "")
+          })
+        if slim_products:
+          slim_lob["products"] = slim_products
+      if slim_lob:
+        slim_lobs.append(slim_lob)
+    if slim_lobs:
+      out["lob_models"] = slim_lobs
+  milestones = value.get("milestones")
+  if isinstance(milestones, list) and milestones:
+    out["milestones"] = copy.deepcopy(milestones[:5])
+  return out
 
 
 def _slim_mapping_row(value: Any) -> Any:
