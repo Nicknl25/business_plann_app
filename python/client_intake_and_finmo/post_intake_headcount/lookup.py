@@ -1083,7 +1083,14 @@ def validate_payroll_headcount_payload(
         continue
       if number < 0:
         errors.append(f"payroll_headcount_quarter_total_negative_{field}:{index}")
-      if field == "payroll" and abs(number - round(number)) > 0:
+      # Phase 8: relax exact-integer check to a $0.01 tolerance.
+      # Float arithmetic during cash-pass debt-schedule application
+      # introduces sub-cent drift (e.g. 240000.0000000001) that the
+      # legacy GPT loop's authority reapplication used to round away.
+      # Anything within a cent is conceptually integer; larger drift
+      # is a real schedule corruption that the acceptance gate will
+      # surface via the integrity checks downstream.
+      if field == "payroll" and abs(number - round(number)) > 0.01:
         errors.append(f"payroll_headcount_quarter_total_payroll_not_integer:{index}")
   if seen_quarters != set(range(1, expected_horizon + 1)):
     errors.append("payroll_headcount_quarter_totals_missing_required_quarters")
