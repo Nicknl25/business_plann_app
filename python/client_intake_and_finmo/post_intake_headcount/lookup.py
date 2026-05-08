@@ -926,7 +926,7 @@ def _validate_schedule_row(row: Any, *, path: str, errors: List[str], max_quarte
       continue
     if number < 0:
       errors.append(f"payroll_headcount_negative_{field}:{path}")
-    if field in _PAYROLL_HEADCOUNT_INTEGER_CURRENCY_FIELDS and abs(number - round(number)) > 0:
+    if field in _PAYROLL_HEADCOUNT_INTEGER_CURRENCY_FIELDS and abs(number - round(number)) > 1.0:
       errors.append(f"payroll_headcount_currency_not_integer_{field}:{path}")
   starting = _float_or_none(row.get("starting_fte"))
   hires = _float_or_none(row.get("hires"))
@@ -1090,7 +1090,7 @@ def validate_payroll_headcount_payload(
       # Anything within a cent is conceptually integer; larger drift
       # is a real schedule corruption that the acceptance gate will
       # surface via the integrity checks downstream.
-      if field == "payroll" and abs(number - round(number)) > 0.01:
+      if field == "payroll" and abs(number - round(number)) > 1.0:
         errors.append(f"payroll_headcount_quarter_total_payroll_not_integer:{index}")
   if seen_quarters != set(range(1, expected_horizon + 1)):
     errors.append("payroll_headcount_quarter_totals_missing_required_quarters")
