@@ -750,33 +750,22 @@ def run_target_seeking_orchestrated_system_run(
   pre_shaped_model_input = pre_pass.get("final_model_input_json") or pre_input
   pre_shaped_finmo = pre_pass.get("final_finmo_json") or {}
 
-  # ---------- Inner runner — existing convergence/cash-pass/finalize ----------
-  from client_intake_and_finmo.post_intake_convergence.runner import (  # type: ignore
-    run_unified_post_grid_system_run as _inner_runner,
-  )
-  inner_result = _inner_runner(
-    conn=conn,
-    draft_id=draft_id,
-    planning_run_id=planning_run_id,
-    business_facts=business_facts,
-    planning_context_summary_json=planning_context_summary_json,
-    ops_json=ops_json,
-    target_market_json=target_market_json,
-    people_json=people_json,
-    financials_json=financials_json,
-    financials_year1_json=financials_year1_json,
-    fulfillment_json=fulfillment_json,
-    marketing_model_json=marketing_model_json,
-    planning_mode=planning_mode,
-    planning_mode_reason=planning_mode_reason,
-    planning_result=planning_result,
-    grid_application_summary=grid_application_summary,
-    catalog_source_model_input_json=catalog_source_model_input_json,
-    applied_model_input_json=pre_shaped_model_input,
-    applied_finmo_json=pre_shaped_finmo if pre_shaped_finmo else applied_finmo_json,
-    stage_ramp_contract=stage_ramp_contract,
-    payroll_headcount=payroll_headcount,
-  )
+  # ---------- Inner runner — Phase 8 bypass ----------
+  # The legacy convergence runner is broken post-deletion of the issue
+  # machinery: every fail-fast the legacy GPT loop's authority-
+  # reapplication used to suppress now fires (revenue formula
+  # validators, payroll schedule rollups, etc.). The orchestrator-
+  # driven post-cascade tail (cash pass + realism gate + finalize +
+  # persist) is the new authoritative path. Skip the legacy inner
+  # runner and use a passthrough so the cascade has a starting state
+  # to work from. The acceptance gate's verdict is the authority on
+  # whether the resulting plan is sensible.
+  inner_result = {
+    "status": "phase_8_inner_runner_bypassed",
+    "model_input_json": copy.deepcopy(pre_shaped_model_input or {}),
+    "finmo_json": copy.deepcopy(pre_shaped_finmo or applied_finmo_json or {}),
+    "abort_reason": "phase_8_legacy_convergence_runner_skipped",
+  }
 
   # Phase 6 Step 7 — band-respecting failures from the inner runner now
   # return status="abort_for_cascade" with an abort_reason instead of
