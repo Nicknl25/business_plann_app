@@ -92,24 +92,11 @@ def _headcount_policy_errors() -> List[str]:
 
 
 def _issue_detector_alignment_errors() -> List[str]:
-  errors: List[str] = []
-  try:
-    from client_intake_and_finmo.post_intake_issues.detection import (  # type: ignore
-      post_intake_issue_detector_alignment_errors,
-    )
-  except Exception as exc:
-    errors.append(f"post_intake_issue_detector_alignment_unavailable: {exc}")
-  else:
-    errors.extend(str(item) for item in (post_intake_issue_detector_alignment_errors() or []))
-  try:
-    from client_intake_and_finmo.post_intake_cash.runner import (  # type: ignore
-      post_intake_cash_issue_alignment_errors,
-    )
-  except Exception as exc:
-    errors.append(f"post_intake_cash_issue_alignment_unavailable: {exc}")
-  else:
-    errors.extend(str(item) for item in (post_intake_cash_issue_alignment_errors() or []))
-  return errors
+  # Phase 8: post_intake_issues machinery deleted. The realism gate is the
+  # authoritative metric-coverage check; its alignment is verified at the
+  # finalize stage by walking post_intake_finalize_realism_check_lookup.
+  # No legacy detector alignment to assert here anymore.
+  return []
 
 
 def _intake_boundary_errors() -> List[str]:

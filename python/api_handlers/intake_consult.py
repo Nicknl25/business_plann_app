@@ -44,7 +44,11 @@ from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_s
 # runner's __all__ list at dependency-dict-build time. No wildcard imports;
 # no globals() round-trip; the dependency contract is the runner's __all__.
 from client_intake_and_finmo.post_intake_cash import runner as _post_intake_cash_runner  # type: ignore
-from client_intake_and_finmo.post_intake_issues import runner as _post_intake_issues_runner  # type: ignore
+# Phase 8: post_intake_issues legacy machinery deleted. The realism gate +
+# influence_map + planning_mode_policy + adaptation cascade are now the
+# authority on resolution state. No replacement runner module — callers
+# that previously read the legacy ledger now consult the new architecture
+# directly.
 from client_intake_and_finmo.post_intake_contracts import runner as _post_intake_contracts_runner  # type: ignore
 from client_intake_and_finmo.post_intake_state import runner as _post_intake_state_runner  # type: ignore
 from client_intake_and_finmo.post_intake_convergence import runner as _post_intake_convergence_runner  # type: ignore
@@ -54,7 +58,7 @@ from client_intake_and_finmo.post_intake_sequence import run_targeted_process_st
 
 # Bind-runtime-dependencies callables exposed under their handler-side names.
 bind_cash_runtime_dependencies = _post_intake_cash_runner.bind_runtime_dependencies
-bind_issue_runtime_dependencies = _post_intake_issues_runner.bind_runtime_dependencies
+# Phase 8: bind_issue_runtime_dependencies removed; legacy runner deleted.
 bind_contract_runtime_dependencies = _post_intake_contracts_runner.bind_runtime_dependencies
 bind_state_runtime_dependencies = _post_intake_state_runner.bind_runtime_dependencies
 bind_convergence_runtime_dependencies = _post_intake_convergence_runtime.bind_runtime_dependencies
@@ -118,7 +122,7 @@ class StructuredSystemRunFailure(RuntimeError):
 
 _POST_INTAKE_RUNTIME_DEPENDENCY_PROVIDER_MODULES = (
   _post_intake_cash_runner,
-  _post_intake_issues_runner,
+  # Phase 8: _post_intake_issues_runner removed; legacy machinery deleted.
   _post_intake_contracts_runner,
   _post_intake_state_runner,
   _post_intake_convergence_runtime,
@@ -207,7 +211,7 @@ def _post_intake_runtime_dependency_dict() -> Dict[str, Any]:
 def _bind_post_intake_runtime_dependencies() -> None:
   dependencies = _post_intake_runtime_dependency_dict()
   bind_cash_runtime_dependencies(dependencies)
-  bind_issue_runtime_dependencies(dependencies)
+  # Phase 8: bind_issue_runtime_dependencies removed; legacy runner deleted.
   bind_contract_runtime_dependencies(dependencies)
   bind_state_runtime_dependencies(dependencies)
   bind_convergence_execution_runtime_dependencies(dependencies)
