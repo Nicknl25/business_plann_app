@@ -674,6 +674,21 @@ def run_target_seeking_orchestrated_system_run(
 
   horizon = int(QUARTER_COUNT)
 
+  # ---------- Phase 9 Phase H: reset GPT call budget for this run --------
+  # Doctrine Q4: maximum 4 GPT calls per planning run, hard runtime cap.
+  # Reset the counter at the top of every orchestrator invocation so
+  # consecutive runs don't bleed budget. The counter is enforced at the
+  # call_gpt_with_schema_or_fallback chokepoint — when the budget is
+  # exhausted, subsequent calls fall through to the consultant's
+  # python_proposer fallback path.
+  try:
+    from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
+      reset_gpt_call_budget,
+    )
+    reset_gpt_call_budget()
+  except Exception:
+    pass
+
   # ---------- Phase 9 Phase B Step 0: adaptive policy contract -----------
   # Single source of truth for stage profile, planning mode, loss-tolerance
   # window, viability deadlines, allowed adaptation families, and per-driver
@@ -1230,6 +1245,21 @@ def run_target_seeking_orchestrated_system_run(
   # downstream consumers (acceptance gate, workbook export, run report)
   # see the same policy the cascade saw. Single source of truth.
   next_result["adaptive_policy"] = adaptive_policy.to_dict()
+
+  # Phase 9 Phase H: stamp the GPT call diagnostic so the acceptance gate
+  # sees how much of the 4-call budget was used and which consultants ran.
+  try:
+    from client_intake_and_finmo.post_intake_solver._gpt_critic_io import (  # type: ignore
+      get_gpt_call_count,
+      get_gpt_call_log,
+    )
+    next_result["gpt_call_budget_diagnostic"] = {
+      "calls_used": get_gpt_call_count(),
+      "budget": 4,
+      "log": get_gpt_call_log(),
+    }
+  except Exception:
+    pass
 
   # Phase 7.2: build the debt schedule snapshot from the final state and
   # persist to draft.debt_schedule. The convergence runner did this in

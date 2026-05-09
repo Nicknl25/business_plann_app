@@ -26,7 +26,8 @@ import copy
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+import threading
+from typing import Any, Dict, List, Optional
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,61 @@ _DEFAULT_TIMEOUT_SECONDS = 45.0
 # run per-scope (per-lever / per-metric / per-conflict) and the diagnostic
 # value of "same scope key → same GPT amendment across runs" is high.
 _PHASE_3_CONSULTANT_SEED = 1729
+
+
+# ----------------------------------------------------------------------------
+# Phase 9 Phase H — GPT call budget per planning run.
+#
+# Doctrine Q4: maximum 4 GPT calls per planning run, hard runtime cap.
+# Allocation: 1 band shaping batch, 1 target shaping batch, 1 conflict
+# adjudication batch, 1 final realism critique on assembled plan.
+#
+# The cap is enforced at this single chokepoint (call_gpt_with_schema_or_fallback)
+# rather than scattered across consultants — every Phase 3 GPT call routes
+# through here. When the budget is exhausted, the call returns the standard
+# "python_proposer_only" fallback so the consultant's existing fallback path
+# applies its Python-only proposal. No exceptions, no broken runs.
+# ----------------------------------------------------------------------------
+
+_GPT_CALL_BUDGET_PER_RUN = 4
+_gpt_call_state_lock = threading.Lock()
+_gpt_call_count: int = 0
+_gpt_call_log: List[Dict[str, Any]] = []
+
+
+def reset_gpt_call_budget() -> None:
+  """Reset the per-run GPT call counter. Called at the start of each
+  planning run by the orchestrator (run_target_seeking_orchestrated_system_run)."""
+  global _gpt_call_count, _gpt_call_log
+  with _gpt_call_state_lock:
+    _gpt_call_count = 0
+    _gpt_call_log = []
+
+
+def get_gpt_call_count() -> int:
+  with _gpt_call_state_lock:
+    return int(_gpt_call_count)
+
+
+def get_gpt_call_log() -> List[Dict[str, Any]]:
+  with _gpt_call_state_lock:
+    return [dict(entry) for entry in _gpt_call_log]
+
+
+def _record_gpt_call(consultant_name: str, decision_source: str) -> None:
+  global _gpt_call_count, _gpt_call_log
+  with _gpt_call_state_lock:
+    _gpt_call_count += 1
+    _gpt_call_log.append({
+      "consultant_name": str(consultant_name or ""),
+      "call_index": _gpt_call_count,
+      "decision_source": str(decision_source or ""),
+    })
+
+
+def _budget_exhausted() -> bool:
+  with _gpt_call_state_lock:
+    return _gpt_call_count >= _GPT_CALL_BUDGET_PER_RUN
 
 
 def _resolve_api_key() -> Optional[str]:
@@ -125,8 +181,23 @@ def call_gpt_with_schema_or_fallback(
   safety floor" and tags affected entries with calibration_source=
   uncalibrated_due_to_gpt_failure.
   """
+  # Phase 9 Phase H — enforce 4-call budget per planning run.
+  if _budget_exhausted():
+    _record_gpt_call(consultant_name, "python_proposer_only_budget_exhausted")
+    return {
+      "parsed": None,
+      "raw_openai_response": {},
+      "decision_source": "python_proposer_only_budget_exhausted",
+      "detail": (
+        f"gpt_call_budget_exhausted: {_GPT_CALL_BUDGET_PER_RUN} "
+        f"calls already issued in this planning run; subsequent "
+        f"consultants fall back to Python proposal."
+      ),
+      "model_used": "",
+    }
   api_key = _resolve_api_key()
   if not api_key:
+    _record_gpt_call(consultant_name, "python_proposer_only_no_api_key")
     return {
       "parsed": None,
       "raw_openai_response": {},
@@ -176,6 +247,7 @@ def call_gpt_with_schema_or_fallback(
     )
   except TimeoutError as exc:
     logger.warning("post_intake_solver:%s_critic_timeout: %s", consultant_name, exc)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_timeout")
     return {
       "parsed": None,
       "raw_openai_response": {},
@@ -185,6 +257,7 @@ def call_gpt_with_schema_or_fallback(
     }
   except Exception as exc:
     logger.warning("post_intake_solver:%s_critic_unexpected_error: %s", consultant_name, exc)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_unexpected_error")
     return {
       "parsed": None,
       "raw_openai_response": {},
@@ -199,6 +272,7 @@ def call_gpt_with_schema_or_fallback(
       "post_intake_solver:%s_critic_http_error: status=%s body=%s",
       consultant_name, status, body_text[:200],
     )
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_http_error")
     return {
       "parsed": None,
       "raw_openai_response": {"status": status, "body": body_text},
@@ -210,6 +284,7 @@ def call_gpt_with_schema_or_fallback(
     raw = resp.json() if isinstance(resp.json(), dict) else {"response": body_text}
   except Exception as exc:
     logger.warning("post_intake_solver:%s_critic_invalid_json: %s", consultant_name, exc)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_invalid_json")
     return {
       "parsed": None,
       "raw_openai_response": {"response": body_text},
@@ -220,6 +295,7 @@ def call_gpt_with_schema_or_fallback(
   parsed = _parse_responses_json_dict(raw)
   if not parsed:
     logger.warning("post_intake_solver:%s_critic_invalid_json: no parseable json in response", consultant_name)
+    _record_gpt_call(consultant_name, "python_proposer_only_critic_invalid_json")
     return {
       "parsed": None,
       "raw_openai_response": copy.deepcopy(raw),
@@ -227,6 +303,7 @@ def call_gpt_with_schema_or_fallback(
       "detail": "no_parseable_json_in_response",
       "model_used": model,
     }
+  _record_gpt_call(consultant_name, "python_proposer_plus_gpt_critic")
   return {
     "parsed": parsed,
     "raw_openai_response": copy.deepcopy(raw),
