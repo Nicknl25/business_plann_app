@@ -230,6 +230,21 @@ _GAP_B_INCREASE_FACTOR = 1.15     # bump mature anchor up 15% per iteration
 _GAP_B_DECREASE_FACTOR = 0.85     # cut mature anchor down 15% per iteration
 _GAP_B_MAX_ITERATIONS = 5
 
+# Cash-pass-owned levers: written per-quarter (with stock carry-forward
+# for equity) by run_mode_based_cash_strategy. _remediate_realism_hard_fails
+# must NOT flat-stamp these — doing so wipes the cash strategy's per-
+# quarter ramp and causes the cash pass / remediation loop to oscillate
+# until post-validation gives up and reverts to the flat-stamped state,
+# leaving cash deeply negative in the persisted model_input.
+_CASH_PASS_OWNED_LEVER_IDS = frozenset({
+  "balance_sheet::Owner's Capital",
+  "balance_sheet::Other Equity",
+  "balance_sheet::Distributions",
+  "balance_sheet::Short Term Debt (% of LTD)",
+  "schedules::Debt Issuance (New Borrowing)",
+  "schedules::Debt Repayment (Scheduled)",
+})
+
 
 def _remediate_realism_hard_fails(
   *,
@@ -414,7 +429,21 @@ def _remediate_realism_hard_fails(
       factor = _GAP_B_INCREASE_FACTOR if applied_direction == "increase" else _GAP_B_DECREASE_FACTOR
 
       for lever_id in (list(route.primary_levers) or []):
-        row = rows_by_lever_id.get(str(lever_id or "").strip())
+        lever_id_clean = str(lever_id or "").strip()
+        # Cash-pass-owned levers (Owner's Capital, Other Equity,
+        # Distributions, Debt Issuance/Repayment, Short Term Debt %)
+        # are written by run_mode_based_cash_strategy with per-quarter
+        # ramps. Flat-stamping them here wipes the cash ramp and the
+        # next cash invocation has to re-write it; eventually post-
+        # validation gives up (keep_changes=False) and the model reverts
+        # to this flat-stamped state, leaving cash deeply negative.
+        # Skip these — let the cash strategy own them. The realism
+        # gate's owners_capital / current_ratio / leverage checks
+        # remain visible in the verdict; they're being addressed in a
+        # separate cleanup that prunes those metrics from the gate.
+        if lever_id_clean in _CASH_PASS_OWNED_LEVER_IDS:
+          continue
+        row = rows_by_lever_id.get(lever_id_clean)
         if not row:
           continue
         values_list = row.get("values") or []
