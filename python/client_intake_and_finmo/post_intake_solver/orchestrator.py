@@ -241,6 +241,7 @@ def _remediate_realism_hard_fails(
   horizon: int = 20,
   conn: Any = None,
   max_iterations: int = _GAP_B_MAX_ITERATIONS,
+  solver_input_targets_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Phase 9 Gap B — when the realism gate produces hard_fail_violations,
   route each through the issue_router and adjust its primary_levers'
@@ -484,6 +485,7 @@ def _remediate_realism_hard_fails(
         business_naics_6=business_naics_6,
         ops_json=copy.deepcopy(ops_json),
         financials_json=copy.deepcopy(financials_json),
+        solver_input_targets_payload=solver_input_targets_payload,
         planning_mode=planning_mode,
       )
     except Exception as exc:
@@ -1978,6 +1980,22 @@ def _run_post_cascade_completion(
       validate_industry_realism_bands,
       RealismBandViolation,
     )
+    # Phase 9 Gap C — extract the Phase 3 calibrated targets payload from
+    # final_model_input_json["solver_input"][FINMO_OUTPUT_TARGET_KEY] so
+    # the validator can resolve phase_3_calibrated bands instead of
+    # falling back to wide NAICS baselines for every metric. Without
+    # this, the gate's phase_3_calibrated_bands_consulted check always
+    # fails (zero calibrated bands) and the cascade never has tighter
+    # bands to aim at.
+    from client_intake_and_finmo.post_intake_solver import (  # type: ignore
+      FINMO_OUTPUT_TARGET_KEY,
+    )
+    solver_input = (final_model_input_json or {}).get("solver_input")
+    realism_solver_input_targets_payload: Optional[Dict[str, Any]] = None
+    if isinstance(solver_input, dict):
+      candidate = solver_input.get(FINMO_OUTPUT_TARGET_KEY)
+      if isinstance(candidate, dict) and candidate:
+        realism_solver_input_targets_payload = copy.deepcopy(candidate)
     try:
       realism_gate_payload = validate_industry_realism_bands(
         model_input_json=copy.deepcopy(final_model_input_json or {}),
@@ -1985,6 +2003,7 @@ def _run_post_cascade_completion(
         business_naics_6=business_naics_6 or None,
         ops_json=copy.deepcopy(ops_json or {}),
         financials_json=copy.deepcopy(financials_json or {}),
+        solver_input_targets_payload=realism_solver_input_targets_payload,
         planning_mode=planning_mode,
       )
       completion_trace["realism_gate"] = {
@@ -2049,6 +2068,7 @@ def _run_post_cascade_completion(
       business_naics_6=business_naics_6 or None,
       planning_mode=planning_mode,
       financials_json=financials_json or {},
+      solver_input_targets_payload=realism_solver_input_targets_payload,
       horizon=int(horizon or 20),
       conn=conn,
       max_iterations=3,
