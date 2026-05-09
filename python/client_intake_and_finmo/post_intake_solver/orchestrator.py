@@ -142,11 +142,39 @@ def _build_finmo_callable(
 def _build_apply_lever_callable(
   *,
   horizon: int,
+  stage_ramp_contract: Optional[Dict[str, Any]] = None,
+  adaptive_policy_dict: Optional[Dict[str, Any]] = None,
+  industry_targets: Optional[Dict[str, float]] = None,
 ) -> Callable[[Dict[str, Any], str, float], Dict[str, Any]]:
-  """Closure that writes a single (lever_id, value) to all forecast
-  quarters Q1..Q<horizon>. Wraps the existing
-  apply_exact_lever_updates_to_model_input from quarter_grid.
+  """Path-aware lever writer (Phase 9 Phase C3).
+
+  Pre-Phase-C this closure broadcast a single scalar across Q1..Q<horizon>.
+  Per the Real ramp rule that violated the doctrine for every driver
+  except genuinely flat ones (rent, distributions, statutory tax).
+
+  Phase C3 routes every solver lever movement through the path engine.
+  ``base_value`` is now the Q1 starting value the solver chose; the path
+  engine reinterprets it as the ramp's amplitude and returns Q1..Q<horizon>
+  values consistent with the registered shape (s_curve, glidepath,
+  capacity_expansion, linear_to_mature, industry_convergence_decay).
+
+  Non-writable shapes (hiring_schedule, stock_carryforward, calculated,
+  schedule_locked) preserve the pre-Phase-C broadcast behavior so the
+  solver doesn't loop trying to move drivers the path engine declines
+  to write. Phase D's issue router will tighten this when influence_map
+  is rebuilt to exclude non-writable lever_ids.
+
+  ``industry_targets`` is an optional ``lever_id -> mature target`` map.
+  Phase E populates it from the unified industry profile; Phase C falls
+  back to the contract's quarter_ramp_grid where available, then to a
+  flat broadcast when no target can be resolved.
   """
+
+  resolved_industry_targets: Dict[str, float] = (
+    {str(k): float(v) for k, v in industry_targets.items() if v is not None}
+    if isinstance(industry_targets, dict)
+    else {}
+  )
 
   def _apply(
     model_input_json: Dict[str, Any], lever_id: str, value: float
@@ -154,14 +182,51 @@ def _build_apply_lever_callable(
     from client_intake_and_finmo.quarter_grid import (  # type: ignore
       apply_exact_lever_updates_to_model_input,
     )
-    updates = [
-      {
-        "lever_id": str(lever_id or "").strip(),
-        "quarter_index": int(q),
-        "exact_value": float(value),
-      }
-      for q in range(1, max(1, int(horizon)) + 1)
-    ]
+    from client_intake_and_finmo.post_intake_adaptive_planning import (  # type: ignore
+      WRITABLE_SHAPES,
+      compute_per_quarter_values,
+    )
+
+    h = max(1, int(horizon))
+    industry_target = resolved_industry_targets.get(str(lever_id or "").strip())
+
+    path = compute_per_quarter_values(
+      lever_id=str(lever_id or "").strip(),
+      base_value=float(value),
+      horizon=h,
+      stage_ramp_contract=stage_ramp_contract,
+      adaptive_policy=adaptive_policy_dict,
+      industry_target=industry_target,
+    )
+
+    if (
+      path.shape_kind in WRITABLE_SHAPES
+      and isinstance(path.per_quarter_values, list)
+      and path.per_quarter_values
+    ):
+      updates = [
+        {
+          "lever_id": str(lever_id or "").strip(),
+          "quarter_index": int(q + 1),
+          "exact_value": float(v),
+        }
+        for q, v in enumerate(path.per_quarter_values)
+      ]
+    else:
+      # Non-writable shape — fall back to the pre-Phase-C broadcast so
+      # the solver loop's expectation that every move lands somewhere
+      # holds. The path engine's skip_write_reason explains why a
+      # path wasn't computed; the broadcast keeps the system convergent
+      # while Phase D rewires influence_map.
+      updates = [
+        {
+          "lever_id": str(lever_id or "").strip(),
+          "quarter_index": int(q),
+          "exact_value": float(value),
+        }
+        for q in range(1, h + 1)
+      ]
+
     return apply_exact_lever_updates_to_model_input(
       model_input_json=model_input_json or {},
       exact_updates=updates,
@@ -781,7 +846,11 @@ def run_target_seeking_orchestrated_system_run(
     fulfillment_json=fulfillment_json or {},
     marketing_model_json=marketing_model_json or {},
   )
-  apply_lever_callable = _build_apply_lever_callable(horizon=horizon)
+  apply_lever_callable = _build_apply_lever_callable(
+    horizon=horizon,
+    stage_ramp_contract=stage_ramp_contract,
+    adaptive_policy_dict=adaptive_policy.to_dict(),
+  )
 
   from client_intake_and_finmo.post_intake_solver import (  # type: ignore
     driver_influence_map,
@@ -1241,86 +1310,19 @@ def _run_post_cascade_completion(
       "reason": "missing_callables_or_targets_payload",
     }
 
-  # 1.5. Per-quarter trajectory shaping. The post-cascade solver moves
-  # levers to a single value across all forecast quarters (its
-  # apply_lever_callable writes the same number to Q1..Q20), which
-  # produces flat revenue. Phase 7's curation used to shape unit_price
-  # with a small per-quarter ramp so the resulting plan reflects a
-  # realistic growth assumption. Apply a 1% per-quarter unit_price
-  # ramp here as a Phase 8 deterministic equivalent — this is small
-  # enough not to violate the realism gate's per-metric bands but
-  # large enough to land non-flat revenue (1% × 9 quarters ≈ 9.4%
-  # Q10/Q1 delta, stdev/mean ≈ 2.9%; both clear the gate's
-  # revenue_not_flat thresholds).
-  try:
-    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
-      post_intake_sequence_step_scope,
-    )
-    from client_intake_and_finmo.quarter_grid import (  # type: ignore
-      apply_exact_lever_updates_to_model_input,
-    )
-    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
-      build_python_finmo_json,
-    )
-    unit_price_lever_id = ""
-    bundle_unit_prices: List[float] = []
-    sections = (final_model_input_json or {}).get("sections")
-    rev_rows = []
-    if isinstance(sections, dict):
-      raw = sections.get("revenue")
-      if isinstance(raw, list):
-        rev_rows = raw
-    for row in rev_rows:
-      if not isinstance(row, dict):
-        continue
-      if str(row.get("driver") or "").strip() == "Unit Price":
-        unit_price_lever_id = str(row.get("lever_id") or "").strip()
-        bundle_unit_prices = [float(v) for v in (row.get("values") or []) if isinstance(v, (int, float))]
-        break
-    if unit_price_lever_id and bundle_unit_prices:
-      base_price = bundle_unit_prices[0] if bundle_unit_prices else 1.0
-      ramp_updates: List[Dict[str, Any]] = []
-      for q in range(1, max(1, int(horizon or 20)) + 1):
-        # 1% per-quarter compounding growth, mirroring Phase 7's pattern.
-        new_price = base_price * (1.01 ** (q - 1))
-        ramp_updates.append({
-          "lever_id": unit_price_lever_id,
-          "quarter_index": q,
-          "exact_value": round(new_price, 4),
-        })
-      with post_intake_sequence_step_scope(
-        step_key="post_intake_target_seeking_post_cascade_ramp",
-        executor_function="phase_8_unit_price_ramp",
-      ):
-        ramped_model = apply_exact_lever_updates_to_model_input(
-          model_input_json=copy.deepcopy(final_model_input_json or {}),
-          exact_updates=ramp_updates,
-        )
-        if isinstance(ramped_model, dict):
-          final_model_input_json = ramped_model
-          next_result["model_input_json"] = final_model_input_json
-          rebuilt = build_python_finmo_json(
-            model_input_json=copy.deepcopy(final_model_input_json),
-          )
-          if isinstance(rebuilt, dict) and rebuilt:
-            final_finmo_json = rebuilt
-            next_result["finmo_json"] = final_finmo_json
-      completion_trace["unit_price_ramp"] = {
-        "status": "completed",
-        "lever_id": unit_price_lever_id,
-        "base_price": base_price,
-        "ramp_per_quarter_pct": 1.0,
-      }
-    else:
-      completion_trace["unit_price_ramp"] = {
-        "status": "skipped",
-        "reason": "no_unit_price_lever_in_revenue_section",
-      }
-  except Exception as exc:
-    completion_trace["unit_price_ramp"] = {
-      "status": "failed",
-      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
-    }
+  # 1.5. Phase 9 Phase C3: the 1% per-quarter unit_price ramp deleted
+  # here. The post-cascade solver's apply_lever_callable is now path-
+  # aware (Phase C3), so Unit Price moves with industry_convergence_decay
+  # shape, Capacity uses capacity_expansion, Utilization uses s_curve,
+  # COGS / Marketing / R&D / G&A use glidepath, and AR/AP/Inventory days
+  # use linear_to_mature. Path shapes are computed against the persisted
+  # stage_ramp_contract.quarter_ramp_grid and the adaptive policy's
+  # viability deadlines. The Phase 8 1% nudge was a band-aid for the
+  # flat-write problem; the path-aware writer makes it unnecessary.
+  completion_trace["unit_price_ramp"] = {
+    "status": "deleted_phase_9_c3",
+    "reason": "path_aware_writer_replaces_post_cascade_ramp",
+  }
 
   # 2. Cash pass — Phase 8 minimal cash strategy. Walk FINMO quarter
   # rows, compute ending_cash per quarter, raise debt issuance for any
