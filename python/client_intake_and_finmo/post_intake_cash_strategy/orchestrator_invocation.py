@@ -463,6 +463,15 @@ def run_mode_based_cash_strategy(
     # Universal: same logic for any business; smart policy gates
     # debt_issuance when chronic + drag, gates other_equity when not
     # justified, owners_capital is always available.
+    #
+    # Stock vs flow semantics:
+    #   - debt_issuance: FLOW (per-quarter increment); FINMO accumulates
+    #     debt balance from increments + repayments.
+    #   - owners_capital: STOCK (cumulative balance per quarter). Writing
+    #     Q1=$X, Q2=$X gives a BALANCE of $X at both quarters (no
+    #     accumulation). To inject $X/quarter we must write the running
+    #     cumulative total: Q1=$X, Q2=$2X, Q3=$3X, etc.
+    #   - other_equity: STOCK (same semantics as owners_capital).
     if funding_gap > 0.0 and effective_funding_priority:
       remaining = float(funding_gap)
       for driver in effective_funding_priority:
@@ -476,15 +485,29 @@ def run_mode_based_cash_strategy(
         cumulative_funding_applied += float(remaining)
         if driver == "debt_issuance":
           total_debt_issued += float(remaining)
+          exact_updates.append({
+            "lever_id": lever_id,
+            "quarter_index": q,
+            "exact_value": amount,
+          })
         elif driver == "owners_capital":
           total_owners_capital_added += float(remaining)
+          # STOCK semantics: write cumulative balance for THIS quarter
+          # AND every later quarter (carry-forward via overwrite).
+          for q_carry in range(q, max(1, int(horizon)) + 1):
+            exact_updates.append({
+              "lever_id": lever_id,
+              "quarter_index": q_carry,
+              "exact_value": round(float(total_owners_capital_added), 2),
+            })
         elif driver == "other_equity":
           total_other_equity_added += float(remaining)
-        exact_updates.append({
-          "lever_id": lever_id,
-          "quarter_index": q,
-          "exact_value": amount,
-        })
+          for q_carry in range(q, max(1, int(horizon)) + 1):
+            exact_updates.append({
+              "lever_id": lever_id,
+              "quarter_index": q_carry,
+              "exact_value": round(float(total_other_equity_added), 2),
+            })
         notes.append(f"funded_gap_via_{driver}:{round(remaining, 0)}")
         remaining = 0.0
 
