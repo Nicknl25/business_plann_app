@@ -251,7 +251,11 @@ def _check_realism_no_hard_fail(realism_memo: Dict[str, Any]) -> Tuple[bool, Dic
           continue
         status = str(row.get("status") or "").strip().lower()
         gate_kind = str(row.get("gate_kind") or row.get("severity") or "").strip().lower()
-        if status in ("hard_fail", "violation_hard_fail") or (
+        # Phase 9 audit fix #1 — the realism validator emits status
+        # "out_of_band_hard_fail" (see validator.py line 829), not the
+        # legacy "hard_fail". The pre-fix consumer only matched legacy
+        # values, so every realism hard_fail was invisible to the gate.
+        if status in ("hard_fail", "violation_hard_fail", "out_of_band_hard_fail") or (
           status == "fail" and gate_kind == "hard_fail"
         ):
           hard_violations.append(

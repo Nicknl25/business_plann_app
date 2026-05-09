@@ -90,7 +90,9 @@ def realism_gate_hard_fail_metric_keys(
   for r in _realism_results_from(realism_gate_payload):
     status = str(r.get("status") or "").strip().lower()
     gate_kind = str(r.get("gate_kind") or "").strip().lower()
-    if status in ("hard_fail", "violation_hard_fail") or (
+    # Phase 9 audit fix #1 — match the validator's actual status value
+    # ("out_of_band_hard_fail") in addition to the legacy aliases.
+    if status in ("hard_fail", "violation_hard_fail", "out_of_band_hard_fail") or (
       status == "fail" and gate_kind == "hard_fail"
     ):
       key = str(r.get("metric_key") or "").strip()
