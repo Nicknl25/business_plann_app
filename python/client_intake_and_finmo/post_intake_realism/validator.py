@@ -532,7 +532,11 @@ def validate_industry_realism_bands(
         continue
       passed = float(trajectory_value) >= 0.0
       status = "in_band" if passed else "out_of_band_hard_fail"
-      results.append(RealismCheckResult(
+      trajectory_reason = (
+        None if passed
+        else f"viability_check_failed: value={trajectory_value:.4f} below universal floor 0.0"
+      )
+      trajectory_result = RealismCheckResult(
         metric_key=metric_key, finmo_line_label=finmo_label,
         derivation_formula_key=formula_key, quarter_aggregation=aggregation,
         quarter_index=None, actual_value=float(trajectory_value),
@@ -541,14 +545,34 @@ def validate_industry_realism_bands(
         band_data_source="universal_viability_doctrine",
         band_trust_flag="phase_9_doctrine",
         tolerance_applied_bps=None, effective_min=0.0, effective_max=None,
-        status=status, reason=None if passed else f"viability_check_failed: value={trajectory_value:.4f} below universal floor 0.0",
+        status=status, reason=trajectory_reason,
         governs_lever_id=governs_lever, band_source="universal_viability_doctrine",
         planning_mode_active=active_mode,
-      ))
-      # trajectory_check rows DO NOT raise RealismBandViolation; they
-      # surface as hard_fail status and the cascade reads them via the
-      # issue router. This avoids halting the run on Q11 EBITDA<0 when
-      # the cascade is actively trying to repair it.
+      )
+      results.append(trajectory_result)
+      # trajectory_check rows DO NOT raise RealismBandViolation, but
+      # they MUST surface in hard_fail_violations so the cascade can
+      # route them through the issue_router (the per-quarter loop
+      # below is the only other path that appends to
+      # hard_fail_violations, and it's skipped via `continue` for
+      # trajectory rows). The doctrine deadline / family /
+      # primary_levers travel on the realism lookup row and are
+      # resolved by route_realism_violation from `metric_key`.
+      if status == "out_of_band_hard_fail":
+        hard_fail_violations.append({
+          "metric_key": metric_key,
+          "quarter_index": None,
+          "reason": trajectory_reason or "viability_check_failed",
+          "message": (
+            "post_intake_finalize_realism_band_violation: "
+            f"metric={metric_key} {trajectory_reason or 'viability_check_failed'}"
+          ),
+          "governs_lever_id": governs_lever,
+          "actual_value": float(trajectory_value),
+          "effective_min": 0.0,
+          "effective_max": None,
+          "band_source": "universal_viability_doctrine",
+        })
       continue
 
     # Phase 9 audit Bucket B — per_year_aggregate runs the formula for

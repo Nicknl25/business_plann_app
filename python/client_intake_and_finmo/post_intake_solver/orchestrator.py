@@ -246,6 +246,140 @@ _CASH_PASS_OWNED_LEVER_IDS = frozenset({
 })
 
 
+# Phase 9 Gap B direction classification.
+#
+# Metric kinds drive how a lever change translates into a metric change:
+#   margin_metric  — higher is better (gross_margin, ebitda_margin,
+#                    net_income_margin, operating_margin, ocf_margin).
+#                    Cost lever down OR revenue lever up raises margin.
+#   cost_ratio_metric — lower is better when above ceiling, higher when
+#                       below floor (cogs%, payroll%, marketing%, sga%,
+#                       rent%, depreciation%, r&d%, prepaid%, deferred%).
+#                       Cost lever moves in the same direction as the
+#                       metric needs to move.
+#   days_metric    — lever IS the days value (ar_days_dso, ap_days_dpo,
+#                    inventory_days). Lever moves with the metric.
+#   leverage_metric — higher cost lever raises ratio (debt_to_equity,
+#                     debt_to_assets, total_assets_to_revenue). For these
+#                     the cash pass owns the levers anyway, so the
+#                     remediation skips via _CASH_PASS_OWNED_LEVER_IDS.
+#   trajectory_universal — universal viability rules (ebitda_positive_by_q11
+#                          family). Margin-metric semantics: cost down,
+#                          revenue up to lift the trajectory.
+_MARGIN_METRICS = frozenset({
+  "gross_margin_percent",
+  "ebitda_margin",
+  "operating_margin_percent",
+  "net_income_margin",
+  "operating_cash_flow_margin",
+})
+_COST_RATIO_METRICS = frozenset({
+  "cogs_percent_of_revenue",
+  "marketing_percent_of_revenue",
+  "advertising_percent_of_revenue",
+  "r_and_d_percent_of_revenue",
+  "rent_percent_of_revenue",
+  "sga_percent_of_revenue",
+  "payroll_percent_of_revenue",
+  "depreciation_percent_of_revenue",
+  "effective_tax_rate",
+  "prepaid_expenses_percent_of_revenue",
+  "deferred_revenue_percent_of_revenue",
+  "capex_percent_of_revenue",
+})
+_DAYS_METRICS = frozenset({
+  "ar_days_dso",
+  "ap_days_dpo",
+  "inventory_days",
+})
+_LEVERAGE_METRICS = frozenset({
+  "debt_to_equity",
+  "debt_to_assets",
+  "total_assets_to_revenue",
+  "current_ratio",
+  "quick_ratio",
+})
+_TRAJECTORY_UNIVERSAL_METRICS = frozenset({
+  "ebitda_positive_by_q11",
+  "ebitda_recovery_trend_q5_q11",
+  "loss_window_funded_through_q5",
+  "no_post_recovery_relapse_q11_q20",
+  "gross_margin_supports_ebitda_recovery",
+  "fixed_cost_burden_reduced_or_scaled_by_q11",
+})
+
+
+def _classify_metric_for_direction(metric_key: str) -> str:
+  mk = str(metric_key or "").strip()
+  if mk in _MARGIN_METRICS or mk in _TRAJECTORY_UNIVERSAL_METRICS:
+    return "margin_metric"
+  if mk in _COST_RATIO_METRICS:
+    return "cost_ratio_metric"
+  if mk in _DAYS_METRICS:
+    return "days_metric"
+  if mk in _LEVERAGE_METRICS:
+    return "leverage_metric"
+  return "unknown"
+
+
+def _classify_lever_kind(lever_id: str) -> str:
+  lid = str(lever_id or "").strip()
+  if lid.startswith("revenue::"):
+    return "revenue"
+  if lid.startswith("expenses::"):
+    return "cost"
+  if lid.startswith("balance_sheet::"):
+    # Days-style balance sheet rows behave like the days metric — the
+    # lever IS the days value, so move with the metric.
+    return "balance_sheet"
+  if lid.startswith("schedules::"):
+    return "schedule"
+  return "unknown"
+
+
+def _resolve_lever_direction(
+  *,
+  metric_direction: Optional[str],
+  metric_kind: str,
+  lever_id: str,
+) -> Optional[str]:
+  """Return "increase" / "decrease" / None for this (metric, lever) pair.
+
+  Returns None when the direction is undefined (unknown metric kind or
+  unknown lever kind) — the caller skips so we don't blindly stamp.
+  """
+  if metric_direction not in ("increase", "decrease"):
+    return None
+  lever_kind = _classify_lever_kind(lever_id)
+  # margin metric: cost down + revenue up to RAISE; cost up + revenue
+  # down to LOWER.
+  if metric_kind == "margin_metric":
+    if lever_kind == "cost":
+      return "decrease" if metric_direction == "increase" else "increase"
+    if lever_kind == "revenue":
+      return "increase" if metric_direction == "increase" else "decrease"
+    return None
+  # cost-ratio metric: cost lever moves WITH the metric direction
+  # (metric too high -> cost lever down; metric too low -> cost lever up).
+  # Revenue lever moves OPPOSITE the metric (metric too high -> revenue
+  # up to dilute; metric too low -> revenue down).
+  if metric_kind == "cost_ratio_metric":
+    if lever_kind == "cost":
+      return "decrease" if metric_direction == "decrease" else "increase"
+    if lever_kind == "revenue":
+      return "increase" if metric_direction == "decrease" else "decrease"
+    return None
+  # days metric: lever IS the days value, move with the metric.
+  if metric_kind == "days_metric":
+    if lever_kind == "balance_sheet":
+      return metric_direction
+    return None
+  # leverage metric: levers are cash-pass-owned, caller already skips.
+  if metric_kind == "leverage_metric":
+    return None
+  return None
+
+
 def _remediate_realism_hard_fails(
   *,
   model_input_json: Dict[str, Any],
@@ -391,42 +525,38 @@ def _remediate_realism_hard_fails(
       else:
         continue
 
-      # Family-aware lever adjustment direction:
-      #   margin_compression metric below floor (e.g. gross_margin too
-      #   low) -> we want to RAISE gross margin, which means LOWER cogs%.
-      # The detected_value is the metric, not the lever value. Translate
-      # via metric semantics:
-      #   below-floor + cost-ratio metric -> DECREASE the cost lever
-      #   below-floor + margin/profit metric -> DECREASE cost levers
-      #   above-ceiling + cost-ratio metric -> DECREASE the cost lever
-      #   below-floor + revenue/scale metric -> INCREASE revenue levers
+      # Per-lever adjustment direction. The metric direction
+      # (`direction` above) tells us which way the metric needs to
+      # move; how each lever moves to achieve that depends on whether
+      # the lever is on the cost side or the revenue side of the ratio.
+      #
+      # For a margin-style metric (gross_margin, ebitda_margin, etc.):
+      #   metric below floor (need to RAISE margin):
+      #     cost lever -> DECREASE
+      #     revenue lever -> INCREASE
+      #   metric above ceiling (need to LOWER margin):
+      #     cost lever -> INCREASE
+      #     revenue lever -> DECREASE
+      #
+      # For a cost-ratio metric (cogs_percent_of_revenue, payroll_pct,
+      # marketing_pct, etc.):
+      #   metric below floor (cost too low for industry):
+      #     cost lever -> INCREASE
+      #     revenue lever -> DECREASE (less common; capacity/utilization)
+      #   metric above ceiling (cost too high):
+      #     cost lever -> DECREASE
+      #     revenue lever -> INCREASE
+      #
+      # For days metrics (ar_days_dso, ap_days_dpo, inventory_days):
+      #   the lever IS the days value, so move the lever in the same
+      #   direction the metric needs to move.
+      #
+      # The pre-Phase-9.5 logic hardcoded one direction per family
+      # which silently broke whenever a metric was on the inverse side
+      # of its band (e.g. ExpressLogix's COGS at 0.32 vs industry
+      # band [0.67, 1.07] — too profitable, not too costly).
       family = str(route.adaptation_family or "")
-      family_translates_to_decrease = family in {
-        "margin_compression",
-        "industry_normalization",
-        "balance_sheet_adaptation",
-        "payroll_ratio_excess",
-        "leverage_excess",
-        "capital_intensity_adaptation",
-      }
-      if family_translates_to_decrease:
-        # For these families the primary_levers are COST levers; the
-        # remediation is always to DECREASE them so the metric (which
-        # is a ratio of cost / revenue) lands closer to industry mature.
-        applied_direction = "decrease"
-      elif family in {
-        "ramp_adaptation",
-        "operating_scale_adaptation",
-        "revenue_achievability",
-        "turnaround_recovery_q5_q11",
-      }:
-        # Revenue / capacity / unit-price levers — bump UP to grow
-        # revenue and lift profitability.
-        applied_direction = "increase"
-      else:
-        applied_direction = direction
-
-      factor = _GAP_B_INCREASE_FACTOR if applied_direction == "increase" else _GAP_B_DECREASE_FACTOR
+      metric_kind = _classify_metric_for_direction(route.issue_code)
 
       for lever_id in (list(route.primary_levers) or []):
         lever_id_clean = str(lever_id or "").strip()
@@ -437,10 +567,7 @@ def _remediate_realism_hard_fails(
         # next cash invocation has to re-write it; eventually post-
         # validation gives up (keep_changes=False) and the model reverts
         # to this flat-stamped state, leaving cash deeply negative.
-        # Skip these — let the cash strategy own them. The realism
-        # gate's owners_capital / current_ratio / leverage checks
-        # remain visible in the verdict; they're being addressed in a
-        # separate cleanup that prunes those metrics from the gate.
+        # Skip these — let the cash strategy own them.
         if lever_id_clean in _CASH_PASS_OWNED_LEVER_IDS:
           continue
         row = rows_by_lever_id.get(lever_id_clean)
@@ -458,16 +585,34 @@ def _remediate_realism_hard_fails(
             break
         if current_mature is None:
           continue
+        applied_direction = _resolve_lever_direction(
+          metric_direction=direction,
+          metric_kind=metric_kind,
+          lever_id=lever_id_clean,
+        )
+        if applied_direction is None:
+          # Direction undefined for this (metric_kind, lever_id) pair —
+          # skip rather than guess. Caught in iteration diagnostic.
+          continue
+        factor = (
+          _GAP_B_INCREASE_FACTOR
+          if applied_direction == "increase"
+          else _GAP_B_DECREASE_FACTOR
+        )
         new_mature = float(current_mature) * float(factor)
         # Stamp the new mature value across all quarters; the path stamp
-        # below re-shapes the trajectory from stage Q1 anchor.
+        # below re-shapes the trajectory from stage Q1 anchor (when
+        # there is no industry_target for the lever — when industry
+        # _target IS available the path stamp pulls toward it instead).
         new_values = [float(new_mature) for _ in range(len(values_list))]
         row["values"] = new_values
         levers_adjusted.append({
           "lever_id": lever_id,
           "metric_triggering": route.issue_code,
           "family": family,
-          "direction": applied_direction,
+          "metric_kind": metric_kind,
+          "metric_direction": direction,
+          "applied_direction": applied_direction,
           "factor": factor,
           "from": round(float(current_mature), 4),
           "to": round(float(new_mature), 4),
