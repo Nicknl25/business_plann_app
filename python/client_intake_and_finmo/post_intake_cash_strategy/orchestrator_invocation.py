@@ -246,11 +246,45 @@ def run_mode_based_cash_strategy(
   funding_priority = _MODE_FUNDING_LEVER_PRIORITY.get(cash_strategy_mode, ("debt_issuance", "owners_capital"))
   distribution_fraction = _MODE_DISTRIBUTION_FRACTION.get(cash_strategy_mode, 0.30)
 
-  # Phase 9 E2E iteration #2: track cumulative funding applied so far so
-  # we don't double-fund. The FINMO snapshot is a single pre-action read;
-  # without per-quarter FINMO rebuild, each Q's `cash` reading reflects
-  # the pre-action state. Subtract cumulative_funding from each quarter's
-  # observed-deficit so we only cover the incremental gap.
+  # Phase 9 Gap D — Cumulative cash trough funding.
+  #
+  # Pre-pass: walk Q1..Q20 and identify the cumulative trough — the
+  # quarter where projected ending_cash dips lowest. Compute the total
+  # funding needed at the trough plus the required buffer, then
+  # distribute that funding across the deficit quarters Q1..trough_q
+  # as incremental per-quarter debt / owners_capital. This avoids the
+  # eeea439 lump-sum dump pattern AND avoids the iter-#2 under-funding
+  # caused by interest drag from issued debt.
+  #
+  # Universal: same algorithm regardless of business — read mode and
+  # interest rate from inputs, compute trough by walking finmo rows.
+  _INTEREST_DRAG_BUFFER_FACTOR = 1.15  # 15% over-fund to absorb interest drag
+
+  trough_q: int = 1
+  trough_cash: float = float("inf")
+  trough_required_buffer: float = 0.0
+  for q_pre in range(1, max(1, int(horizon)) + 1):
+    row_pre = rows_by_q.get(q_pre) or {}
+    cash_pre = _safe_float(row_pre.get("cash"))
+    qopex_pre = _quarter_operating_expense_base(row_pre)
+    monthly_pre = max(qopex_pre / 3.0, 1.0)
+    buf_pre = buffer_months * monthly_pre
+    if cash_pre < trough_cash:
+      trough_cash = cash_pre
+      trough_q = q_pre
+      trough_required_buffer = buf_pre
+
+  # Total deficit to fund (with interest drag buffer) — distributed
+  # across Q1..trough_q. Per-quarter slice = total_deficit / num_deficit_qs.
+  total_deficit_to_fund = 0.0
+  per_quarter_funding_slice = 0.0
+  if trough_cash < trough_required_buffer:
+    total_deficit_to_fund = max(
+      0.0, (trough_required_buffer - trough_cash) * _INTEREST_DRAG_BUFFER_FACTOR
+    )
+    deficit_quarters = max(1, int(trough_q))
+    per_quarter_funding_slice = total_deficit_to_fund / float(deficit_quarters)
+
   cumulative_funding_applied: float = 0.0
 
   for q in range(1, max(1, int(horizon)) + 1):
@@ -267,7 +301,14 @@ def run_mode_based_cash_strategy(
     # already applied in earlier quarters (which the FINMO snapshot
     # cannot see since we rebuild only once at the end).
     effective_cash = cash + cumulative_funding_applied
-    funding_gap = max(0.0, required_buffer - effective_cash)
+
+    # Phase 9 Gap D: in deficit quarters (Q1..trough_q), ensure each
+    # gets its cumulative-trough slice. Beyond trough_q, only fund if
+    # effective_cash dips below buffer (post-trough recovery).
+    if q <= trough_q and per_quarter_funding_slice > 0.0:
+      funding_gap = max(per_quarter_funding_slice, required_buffer - effective_cash)
+    else:
+      funding_gap = max(0.0, required_buffer - effective_cash)
     surplus = max(0.0, effective_cash - surplus_threshold_value)
 
     decisions: Dict[str, float] = {}
@@ -367,7 +408,7 @@ def run_mode_based_cash_strategy(
         applied_updates_count=0,
       )
 
-  return CashStrategyResult(
+  result = CashStrategyResult(
     cash_strategy_mode=cash_strategy_mode,
     buffer_months=buffer_months,
     buffer_floor_months=floor_months,
@@ -380,3 +421,17 @@ def run_mode_based_cash_strategy(
     status="completed",
     applied_updates_count=len(exact_updates),
   )
+  # Phase 9 Gap D — surface the trough diagnostic so the acceptance gate
+  # and run report see how the funding was sized.
+  result_dict = result.to_dict()
+  result_dict["trough_diagnostic"] = {
+    "trough_quarter": int(trough_q),
+    "trough_cash_pre_action": round(float(trough_cash) if trough_cash != float("inf") else 0.0, 2),
+    "trough_required_buffer": round(float(trough_required_buffer), 2),
+    "total_deficit_to_fund_with_drag": round(float(total_deficit_to_fund), 2),
+    "per_quarter_funding_slice": round(float(per_quarter_funding_slice), 2),
+    "interest_drag_factor": _INTEREST_DRAG_BUFFER_FACTOR,
+  }
+  # Re-pack into CashStrategyResult-shaped dict by overlaying trough on the dataclass
+  setattr(result, "trough_diagnostic", result_dict["trough_diagnostic"])
+  return result
