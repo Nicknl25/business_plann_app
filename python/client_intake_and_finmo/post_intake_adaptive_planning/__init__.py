@@ -34,6 +34,7 @@ from client_intake_and_finmo.post_intake_adaptive_planning.path_engine import (
   SHAPE_SCHEDULE_LOCKED,
   SHAPE_STOCK_CARRYFORWARD,
   WRITABLE_SHAPES,
+  apply_path_stamp_pass,
   capacity_expansion,
   compute_per_quarter_values,
   flat_path,
@@ -42,6 +43,7 @@ from client_intake_and_finmo.post_intake_adaptive_planning.path_engine import (
   linear_to_mature,
   lookup_shape_for_lever,
   s_curve,
+  stage_q1_anchor_fraction,
 )
 from client_intake_and_finmo.post_intake_adaptive_planning.issue_router import (
   ALL_SEVERITIES,
@@ -91,6 +93,7 @@ __all__ = [
   "SHAPE_SCHEDULE_LOCKED",
   "SHAPE_STOCK_CARRYFORWARD",
   "WRITABLE_SHAPES",
+  "apply_path_stamp_pass",
   "capacity_expansion",
   "compute_adaptive_policy",
   "compute_per_quarter_values",
@@ -108,4 +111,5 @@ __all__ = [
   "route_schedule_sanity_warning",
   "route_solver_residual",
   "s_curve",
+  "stage_q1_anchor_fraction",
 ]

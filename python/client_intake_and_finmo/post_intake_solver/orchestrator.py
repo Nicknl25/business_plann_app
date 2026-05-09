@@ -220,6 +220,306 @@ def _validate_composite_revenue_against_contract(
   }
 
 
+# Phase 9 Gap B — direction-only adjustment factors per family.
+# Universal: applied to any business's primary_levers regardless of NAICS.
+_GAP_B_INCREASE_FACTOR = 1.07     # bump mature anchor up 7% per iteration
+_GAP_B_DECREASE_FACTOR = 0.93     # cut mature anchor down 7% per iteration
+_GAP_B_MAX_ITERATIONS = 3
+
+
+def _remediate_realism_hard_fails(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  realism_gate_payload: Dict[str, Any],
+  adaptive_policy_dict: Optional[Dict[str, Any]],
+  stage_ramp_contract: Optional[Dict[str, Any]],
+  ops_json: Dict[str, Any],
+  business_naics_6: Optional[str],
+  planning_mode: str,
+  financials_json: Dict[str, Any],
+  horizon: int = 20,
+  conn: Any = None,
+  max_iterations: int = _GAP_B_MAX_ITERATIONS,
+) -> Dict[str, Any]:
+  """Phase 9 Gap B — when the realism gate produces hard_fail_violations,
+  route each through the issue_router and adjust its primary_levers'
+  mature anchors. Re-run the path stamp pass, rebuild FINMO, re-evaluate
+  realism. Iterate up to ``max_iterations``.
+
+  Returns a diagnostic dict carrying iteration history and the final
+  realism payload. Mutates ``model_input_json`` in place.
+  """
+  if not isinstance(realism_gate_payload, dict):
+    return {"attempted": False, "reason": "no_realism_payload"}
+
+  hard_fails = list(realism_gate_payload.get("hard_fail_violations") or [])
+  if not hard_fails:
+    return {
+      "attempted": True,
+      "status": "skipped_no_hard_fails",
+      "iterations_completed": 0,
+    }
+
+  from client_intake_and_finmo.post_intake_realism import (  # type: ignore
+    validate_industry_realism_bands,
+  )
+  from client_intake_and_finmo.post_intake_realism.lookup import (  # type: ignore
+    post_intake_finalize_realism_check_rows,
+  )
+  from client_intake_and_finmo.post_intake_adaptive_planning import (  # type: ignore
+    apply_path_stamp_pass,
+    get_industry_profile,
+    order_routes_by_deadline,
+    route_realism_violation,
+  )
+  from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+    build_python_finmo_json,
+  )
+  from client_intake_and_finmo.quarter_grid import (  # type: ignore
+    apply_exact_lever_updates_to_model_input,
+  )
+  from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+    post_intake_sequence_step_scope,
+  )
+
+  realism_rows_by_metric: Dict[str, Dict[str, Any]] = {}
+  try:
+    for r in post_intake_finalize_realism_check_rows():
+      mk = str(r.get("metric_key") or "").strip()
+      if mk:
+        realism_rows_by_metric[mk] = r
+  except Exception:
+    pass
+
+  industry_profile_dict = None
+  try:
+    industry_profile_dict = get_industry_profile(
+      naics_6=business_naics_6,
+      stage_profile=(adaptive_policy_dict or {}).get("stage_profile", "operational"),
+      target_annual_revenue=None,
+    ).to_dict()
+  except Exception:
+    industry_profile_dict = None
+
+  iterations: List[Dict[str, Any]] = []
+  current_payload: Dict[str, Any] = realism_gate_payload
+  rebuilt_finmo: Optional[Dict[str, Any]] = None
+
+  for iteration_n in range(1, max_iterations + 1):
+    violations = list((current_payload or {}).get("hard_fail_violations") or [])
+    if not violations:
+      break
+
+    routes = []
+    for v in violations:
+      mk = str(v.get("metric_key") or "")
+      row = realism_rows_by_metric.get(mk, {})
+      try:
+        route = route_realism_violation(
+          metric_key=mk,
+          realism_row=row,
+          detected_value=_safe_float(v.get("actual_value")),
+          expected_floor=_safe_float(v.get("effective_min")),
+          expected_ceiling=_safe_float(v.get("effective_max")),
+          adaptive_policy=adaptive_policy_dict,
+          source_quarter=v.get("quarter_index"),
+        )
+        routes.append(route)
+      except Exception:
+        continue
+
+    if not routes:
+      iterations.append({
+        "iteration": iteration_n,
+        "violations": len(violations),
+        "routes_built": 0,
+        "status": "no_routes_built",
+      })
+      break
+
+    ordered_routes = order_routes_by_deadline(routes)
+
+    # Adjust each route's primary_levers' mature anchors.
+    levers_adjusted: List[Dict[str, Any]] = []
+    sections = (model_input_json or {}).get("sections") or {}
+    if not isinstance(sections, dict):
+      sections = {}
+    rows_by_lever_id: Dict[str, Dict[str, Any]] = {}
+    for _section_name, _rows in sections.items():
+      if not isinstance(_rows, list):
+        continue
+      for _row in _rows:
+        if not isinstance(_row, dict):
+          continue
+        _lev = str(_row.get("lever_id") or "").strip()
+        if _lev:
+          rows_by_lever_id[_lev] = _row
+
+    for route in ordered_routes:
+      detected = route.detected_value
+      floor = route.expected_floor
+      ceiling = route.expected_ceiling
+      if detected is None:
+        continue
+      direction: Optional[str] = None
+      if floor is not None and float(detected) < float(floor):
+        direction = "increase"
+      elif ceiling is not None and float(detected) > float(ceiling):
+        direction = "decrease"
+      else:
+        continue
+
+      # Family-aware lever adjustment direction:
+      #   margin_compression metric below floor (e.g. gross_margin too
+      #   low) -> we want to RAISE gross margin, which means LOWER cogs%.
+      # The detected_value is the metric, not the lever value. Translate
+      # via metric semantics:
+      #   below-floor + cost-ratio metric -> DECREASE the cost lever
+      #   below-floor + margin/profit metric -> DECREASE cost levers
+      #   above-ceiling + cost-ratio metric -> DECREASE the cost lever
+      #   below-floor + revenue/scale metric -> INCREASE revenue levers
+      family = str(route.adaptation_family or "")
+      family_translates_to_decrease = family in {
+        "margin_compression",
+        "industry_normalization",
+        "balance_sheet_adaptation",
+        "payroll_ratio_excess",
+        "leverage_excess",
+        "capital_intensity_adaptation",
+      }
+      if family_translates_to_decrease:
+        # For these families the primary_levers are COST levers; the
+        # remediation is always to DECREASE them so the metric (which
+        # is a ratio of cost / revenue) lands closer to industry mature.
+        applied_direction = "decrease"
+      elif family in {
+        "ramp_adaptation",
+        "operating_scale_adaptation",
+        "revenue_achievability",
+        "turnaround_recovery_q5_q11",
+      }:
+        # Revenue / capacity / unit-price levers — bump UP to grow
+        # revenue and lift profitability.
+        applied_direction = "increase"
+      else:
+        applied_direction = direction
+
+      factor = _GAP_B_INCREASE_FACTOR if applied_direction == "increase" else _GAP_B_DECREASE_FACTOR
+
+      for lever_id in (list(route.primary_levers) or []):
+        row = rows_by_lever_id.get(str(lever_id or "").strip())
+        if not row:
+          continue
+        values_list = row.get("values") or []
+        if not values_list:
+          continue
+        # Use last quarter as mature anchor.
+        current_mature: Optional[float] = None
+        for candidate in (values_list[-1], values_list[0]):
+          v_f = _safe_float(candidate)
+          if v_f is not None and abs(v_f) > 1e-9:
+            current_mature = v_f
+            break
+        if current_mature is None:
+          continue
+        new_mature = float(current_mature) * float(factor)
+        # Stamp the new mature value across all quarters; the path stamp
+        # below re-shapes the trajectory from stage Q1 anchor.
+        new_values = [float(new_mature) for _ in range(len(values_list))]
+        row["values"] = new_values
+        levers_adjusted.append({
+          "lever_id": lever_id,
+          "metric_triggering": route.issue_code,
+          "family": family,
+          "direction": applied_direction,
+          "factor": factor,
+          "from": round(float(current_mature), 4),
+          "to": round(float(new_mature), 4),
+        })
+
+    if not levers_adjusted:
+      iterations.append({
+        "iteration": iteration_n,
+        "violations": len(violations),
+        "levers_adjusted": 0,
+        "status": "no_lever_adjustment_possible",
+      })
+      break
+
+    # Re-stamp paths with adjusted anchors, rebuild FINMO, re-evaluate.
+    try:
+      with post_intake_sequence_step_scope(
+        step_key="post_intake_target_seeking_realism_remediation",
+        executor_function=f"phase_9_gap_b_iter_{iteration_n}",
+      ):
+        stamp_again = apply_path_stamp_pass(
+          model_input_json=model_input_json,
+          stage_ramp_contract=stage_ramp_contract,
+          adaptive_policy=adaptive_policy_dict,
+          industry_profile=industry_profile_dict,
+          horizon=horizon,
+        )
+        rebuilt = build_python_finmo_json(
+          model_input_json=copy.deepcopy(model_input_json),
+        )
+    except Exception as exc:
+      iterations.append({
+        "iteration": iteration_n,
+        "violations": len(violations),
+        "levers_adjusted": len(levers_adjusted),
+        "status": "rebuild_failed",
+        "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+      })
+      break
+
+    if isinstance(rebuilt, dict) and rebuilt:
+      rebuilt_finmo = rebuilt
+      finmo_json = rebuilt
+
+    try:
+      next_realism = validate_industry_realism_bands(
+        model_input_json=copy.deepcopy(model_input_json),
+        finmo_json=copy.deepcopy(finmo_json),
+        business_naics_6=business_naics_6,
+        ops_json=copy.deepcopy(ops_json),
+        financials_json=copy.deepcopy(financials_json),
+        planning_mode=planning_mode,
+      )
+    except Exception as exc:
+      iterations.append({
+        "iteration": iteration_n,
+        "violations": len(violations),
+        "levers_adjusted": len(levers_adjusted),
+        "status": "realism_re_eval_failed",
+        "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+      })
+      break
+
+    new_hard_fail_count = int((next_realism or {}).get("hard_fail_count") or 0)
+    iterations.append({
+      "iteration": iteration_n,
+      "violations": len(violations),
+      "levers_adjusted": len(levers_adjusted),
+      "status": "iteration_completed",
+      "hard_fails_after": new_hard_fail_count,
+      "stamp_rows": stamp_again.get("rows_stamped_count", 0),
+    })
+    current_payload = next_realism
+
+    if new_hard_fail_count == 0:
+      break
+
+  return {
+    "attempted": True,
+    "status": "completed",
+    "iterations_completed": len(iterations),
+    "iterations": iterations,
+    "final_realism_payload": current_payload,
+    "rebuilt_finmo": rebuilt_finmo,
+  }
+
+
 def _build_finmo_callable(
   *,
   business_facts: Dict[str, Any],
@@ -1495,6 +1795,69 @@ def _run_post_cascade_completion(
     "reason": "path_aware_writer_replaces_post_cascade_ramp",
   }
 
+  # 1.55. Phase 9 Gap A — post-cascade path stamp pass.
+  #
+  # When the cascade lands tier-0 (no movement needed because operator-
+  # baseline already satisfies targets), the in-solver path engine never
+  # fires for un-moved levers. Result: model_input keeps flat Q1-Q20
+  # values for capacity / unit_price / utilization / cogs% / marketing% /
+  # ar_days / etc. — the universal-flat regime the doctrine forbids.
+  #
+  # This pass walks every solver-controlled row and applies the doctrinal
+  # shape. Universal across business types: stage_profile reads from the
+  # adaptive policy contract (Phase B), per-driver shape from the path
+  # engine registry (Phase C2), industry mature target from the
+  # IndustryProfile (Phase E). Q1 anchor = stage_anchor_fraction × target.
+  try:
+    from client_intake_and_finmo.post_intake_adaptive_planning import (  # type: ignore
+      apply_path_stamp_pass,
+      get_industry_profile,
+    )
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      build_python_finmo_json,
+    )
+    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+      post_intake_sequence_step_scope,
+    )
+    naics_for_stamp = ""
+    if isinstance(ops_json, dict):
+      naics_for_stamp = "".join(
+        ch for ch in str(ops_json.get("business_naics_6") or "") if ch.isdigit()
+      )
+    stamp_industry_profile = get_industry_profile(
+      naics_6=naics_for_stamp or None,
+      stage_profile=(adaptive_policy_dict or {}).get("stage_profile", "operational"),
+      target_annual_revenue=None,
+    ).to_dict()
+    with post_intake_sequence_step_scope(
+      step_key="post_intake_target_seeking_post_cascade_path_stamp",
+      executor_function="phase_9_gap_a_path_stamp_pass",
+    ):
+      stamp_result = apply_path_stamp_pass(
+        model_input_json=final_model_input_json or {},
+        stage_ramp_contract=stage_ramp_contract,
+        adaptive_policy=adaptive_policy_dict,
+        industry_profile=stamp_industry_profile,
+        horizon=int(horizon or 20),
+      )
+      if stamp_result.get("applied_updates_count", 0) > 0:
+        # Rebuild FINMO so the rest of the post-cascade tail (composite
+        # revenue check, cash strategy, realism gate, finalize) sees the
+        # path-shaped state.
+        rebuilt = build_python_finmo_json(
+          model_input_json=copy.deepcopy(final_model_input_json or {}),
+        )
+        if isinstance(rebuilt, dict) and rebuilt:
+          final_finmo_json = rebuilt
+          next_result["finmo_json"] = final_finmo_json
+          next_result["model_input_json"] = final_model_input_json
+    completion_trace["path_stamp_pass"] = stamp_result
+  except Exception as exc:
+    completion_trace["path_stamp_pass"] = {
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+    }
+
   # 1.6. Phase 9 Phase C4: composite revenue trajectory check against
   # stage_ramp_contract.quarter_ramp_grid. Per-driver path shaping
   # (Capacity × Unit Price × Utilization) does not guarantee that the
@@ -1660,6 +2023,56 @@ def _run_post_cascade_completion(
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
     }
+
+  # Phase 9 Gap B — cascade re-fire on realism hard_fails.
+  #
+  # When the realism gate produces hard_fail_violations after the path
+  # stamp + cash strategy, route each violation through the issue_router
+  # (Phase D3) to determine the adaptation family. For each routed
+  # family, adjust the violation's primary_levers' mature anchors by a
+  # small factor, re-run the path stamp pass, rebuild FINMO, and
+  # re-evaluate realism. Iterate up to 3 times.
+  #
+  # Universal across business types: the issue_router is metric-keyed
+  # (Phase D1 metadata), the lever adjustment factor is direction-only
+  # (increase / decrease), and the iteration cap protects against
+  # divergence. No NAICS or business-name branches.
+  realism_remediation_diag: Dict[str, Any] = {"attempted": False}
+  try:
+    realism_remediation_diag = _remediate_realism_hard_fails(
+      model_input_json=final_model_input_json or {},
+      finmo_json=final_finmo_json or {},
+      realism_gate_payload=realism_gate_payload,
+      adaptive_policy_dict=adaptive_policy_dict,
+      stage_ramp_contract=stage_ramp_contract,
+      ops_json=ops_json or {},
+      business_naics_6=business_naics_6 or None,
+      planning_mode=planning_mode,
+      financials_json=financials_json or {},
+      horizon=int(horizon or 20),
+      conn=conn,
+      max_iterations=3,
+    )
+    if realism_remediation_diag.get("final_realism_payload"):
+      realism_gate_payload = realism_remediation_diag["final_realism_payload"]
+      completion_trace["realism_gate"] = {
+        "status": "completed_after_gap_b_remediation",
+        "result_count": int(realism_gate_payload.get("result_count") or 0),
+        "warning_count": int(realism_gate_payload.get("warning_count") or 0),
+        "hard_fail_count": int(realism_gate_payload.get("hard_fail_count") or 0),
+        "remediation_iterations": realism_remediation_diag.get("iterations_completed", 0),
+      }
+    if realism_remediation_diag.get("rebuilt_finmo"):
+      final_finmo_json = realism_remediation_diag["rebuilt_finmo"]
+      next_result["finmo_json"] = final_finmo_json
+      next_result["model_input_json"] = final_model_input_json
+  except Exception as exc:
+    realism_remediation_diag = {
+      "attempted": True,
+      "status": "failed",
+      "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+    }
+  completion_trace["realism_remediation"] = realism_remediation_diag
 
   # Build the realism_memo_json that gets persisted with the run.
   try:
