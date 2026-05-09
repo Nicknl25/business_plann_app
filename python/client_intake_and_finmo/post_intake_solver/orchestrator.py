@@ -670,7 +670,23 @@ def _remediate_realism_hard_fails(
       # payroll quarter values from adjusted_payroll_headcount.
       adjusted_ops = getattr(restoration, "adjusted_ops_json", None) or {}
       adjusted_payroll_hc = getattr(restoration, "adjusted_payroll_headcount", None) or {}
-      if isinstance(adjusted_ops, dict):
+      applied_adjustments_raw = getattr(restoration, "applied_adjustments", []) or []
+      # Build a set of adjusted lever names so we ONLY overwrite the
+      # revenue rows that restoration's lever ladder ACTUALLY touched.
+      # ExpressLogix's restoration applies only headcount_rationalization;
+      # overwriting capacity/price/utilization with adjusted_ops (which
+      # is just a deepcopy of operator ops) flattens the path-stamped
+      # ramp from Gap A, breaking revenue_not_flat.
+      adjusted_lever_names: set = set()
+      for adj in applied_adjustments_raw:
+        if isinstance(adj, dict):
+          name = str(adj.get("lever") or "").strip().lower()
+          if name:
+            adjusted_lever_names.add(name)
+      capacity_adjusted = "capacity_expansion_unbounded" in adjusted_lever_names
+      price_adjusted = "unit_price_within_band" in adjusted_lever_names
+      utilization_adjusted = "utilization_within_band" in adjusted_lever_names
+      if isinstance(adjusted_ops, dict) and (capacity_adjusted or price_adjusted or utilization_adjusted):
         rev_rows = (model_input_json or {}).get("sections", {}).get("revenue") or []
         if isinstance(rev_rows, list):
           for row in rev_rows:
@@ -678,15 +694,15 @@ def _remediate_realism_hard_fails(
               continue
             driver = str(row.get("driver") or "").strip().lower()
             new_val = None
-            if driver == "capacity":
+            if driver == "capacity" and capacity_adjusted:
               new_val = (
                 _safe_float(adjusted_ops.get("units_per_period_capacity"))
                 or _safe_float(adjusted_ops.get("units_per_week_capacity"))
                 or _safe_float(adjusted_ops.get("operating_capacity_per_period"))
               )
-            elif driver == "unit price":
+            elif driver == "unit price" and price_adjusted:
               new_val = _safe_float(adjusted_ops.get("unit_price"))
-            elif driver == "utilization":
+            elif driver == "utilization" and utilization_adjusted:
               new_val = (
                 _safe_float(adjusted_ops.get("utilization_rate"))
                 or _safe_float(adjusted_ops.get("operating_utilization_target"))
