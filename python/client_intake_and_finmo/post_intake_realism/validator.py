@@ -447,6 +447,70 @@ def validate_industry_realism_bands(
     governs_lever = row.get("governs_model_input_lever_id")
     gate_kind = str(row.get("gate_kind") or "warn").strip().lower()
 
+    # Phase 9 Phase D — trajectory_check rows (universal viability
+    # timeline) are evaluated separately from the band-comparison loop.
+    # The formula returns a value where >= 0.0 = pass, < 0.0 = fail.
+    # No NAICS band needed — the doctrine itself is the threshold.
+    if aggregation == "trajectory_check":
+      try:
+        trajectory_value = evaluate_realism_formula(
+          formula_key,
+          model_input_json=model_input_json,
+          finmo_json=finmo_json,
+          quarter_index=None,
+        )
+      except Exception as exc:
+        results.append(RealismCheckResult(
+          metric_key=metric_key, finmo_line_label=finmo_label,
+          derivation_formula_key=formula_key, quarter_aggregation=aggregation,
+          quarter_index=None, actual_value=None,
+          band_min=0.0, band_max=None, band_target=0.0,
+          band_naics_code=None, band_naics_level=None, band_confidence_tier=None,
+          band_data_source="universal_viability_doctrine",
+          band_trust_flag="phase_9_doctrine",
+          tolerance_applied_bps=None, effective_min=0.0, effective_max=None,
+          status="skipped",
+          reason=f"trajectory_formula_exception: {type(exc).__name__}: {str(exc)[:200]}",
+          governs_lever_id=governs_lever, band_source="universal_viability_doctrine",
+          planning_mode_active=active_mode,
+        ))
+        continue
+      if trajectory_value is None:
+        results.append(RealismCheckResult(
+          metric_key=metric_key, finmo_line_label=finmo_label,
+          derivation_formula_key=formula_key, quarter_aggregation=aggregation,
+          quarter_index=None, actual_value=None,
+          band_min=0.0, band_max=None, band_target=0.0,
+          band_naics_code=None, band_naics_level=None, band_confidence_tier=None,
+          band_data_source="universal_viability_doctrine",
+          band_trust_flag="phase_9_doctrine",
+          tolerance_applied_bps=None, effective_min=0.0, effective_max=None,
+          status="skipped", reason="trajectory_formula_returned_none",
+          governs_lever_id=governs_lever, band_source="universal_viability_doctrine",
+          planning_mode_active=active_mode,
+        ))
+        continue
+      passed = float(trajectory_value) >= 0.0
+      status = "in_band" if passed else "out_of_band_hard_fail"
+      results.append(RealismCheckResult(
+        metric_key=metric_key, finmo_line_label=finmo_label,
+        derivation_formula_key=formula_key, quarter_aggregation=aggregation,
+        quarter_index=None, actual_value=float(trajectory_value),
+        band_min=0.0, band_max=None, band_target=0.0,
+        band_naics_code=None, band_naics_level=None, band_confidence_tier="universal",
+        band_data_source="universal_viability_doctrine",
+        band_trust_flag="phase_9_doctrine",
+        tolerance_applied_bps=None, effective_min=0.0, effective_max=None,
+        status=status, reason=None if passed else f"viability_check_failed: value={trajectory_value:.4f} below universal floor 0.0",
+        governs_lever_id=governs_lever, band_source="universal_viability_doctrine",
+        planning_mode_active=active_mode,
+      ))
+      # trajectory_check rows DO NOT raise RealismBandViolation; they
+      # surface as hard_fail status and the cascade reads them via the
+      # issue router. This avoids halting the run on Q11 EBITDA<0 when
+      # the cascade is actively trying to repair it.
+      continue
+
     quarter_indices: List[Optional[int]]
     if aggregation == "per_quarter":
       quarter_indices = list(range(1, HORIZON_QUARTERS + 1))

@@ -246,6 +246,13 @@ def run_mode_based_cash_strategy(
   funding_priority = _MODE_FUNDING_LEVER_PRIORITY.get(cash_strategy_mode, ("debt_issuance", "owners_capital"))
   distribution_fraction = _MODE_DISTRIBUTION_FRACTION.get(cash_strategy_mode, 0.30)
 
+  # Phase 9 E2E iteration #2: track cumulative funding applied so far so
+  # we don't double-fund. The FINMO snapshot is a single pre-action read;
+  # without per-quarter FINMO rebuild, each Q's `cash` reading reflects
+  # the pre-action state. Subtract cumulative_funding from each quarter's
+  # observed-deficit so we only cover the incremental gap.
+  cumulative_funding_applied: float = 0.0
+
   for q in range(1, max(1, int(horizon)) + 1):
     row = rows_by_q.get(q) or {}
     cash = _safe_float(row.get("cash"))
@@ -256,8 +263,12 @@ def run_mode_based_cash_strategy(
     required_buffer = buffer_months * monthly_opex
     surplus_threshold_value = required_buffer * surplus_threshold
 
-    funding_gap = max(0.0, required_buffer - cash)
-    surplus = max(0.0, cash - surplus_threshold_value)
+    # Effective cash = observed pre-action cash + cumulative funding
+    # already applied in earlier quarters (which the FINMO snapshot
+    # cannot see since we rebuild only once at the end).
+    effective_cash = cash + cumulative_funding_applied
+    funding_gap = max(0.0, required_buffer - effective_cash)
+    surplus = max(0.0, effective_cash - surplus_threshold_value)
 
     decisions: Dict[str, float] = {}
     notes: List[str] = []
@@ -271,6 +282,7 @@ def run_mode_based_cash_strategy(
         if driver == "debt_issuance" and debt_issuance_lever:
           decisions["debt_issuance"] = round(remaining, 2)
           total_debt_issued += remaining
+          cumulative_funding_applied += remaining
           exact_updates.append({
             "lever_id": debt_issuance_lever,
             "quarter_index": q,
@@ -282,6 +294,7 @@ def run_mode_based_cash_strategy(
           # preserve_cash prefers owners_capital first to avoid leverage.
           decisions["owners_capital"] = round(remaining, 2)
           total_owners_capital_added += remaining
+          cumulative_funding_applied += remaining
           exact_updates.append({
             "lever_id": owners_capital_lever,
             "quarter_index": q,
