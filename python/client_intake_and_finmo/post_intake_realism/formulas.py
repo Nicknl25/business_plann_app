@@ -643,18 +643,32 @@ def _formula_trajectory_no_post_recovery_relapse(
   return float(min(values))
 
 
+_GROSS_MARGIN_RECOVERY_FLOOR = 0.20
+
 def _formula_trajectory_gross_margin_supports_recovery(
   *,
   model_input_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int] = None,
 ) -> Optional[float]:
-  """Gross margin at Q11. The validator compares against an industry-derived
-  floor (default 0.20 — sufficient to support a positive EBITDA at typical
-  OpEx ratios). Below the floor is routed to margin_compression."""
-  _ = (model_input_json, quarter_index)
-  return _quarter_gross_margin(finmo_json, 11)
+  """Q11 gross margin minus the recovery-supporting floor (0.20).
 
+  The validator's universal trajectory test is `>= 0.0`, so we shift the
+  doctrine threshold into the formula: returning `gm - 0.20` makes the
+  validator's `>= 0.0` test mean "Q11 gross margin >= 20%". Phase E will
+  replace 0.20 with the NAICS-keyed floor; until then the constant lives
+  next to the formula.
+
+  Audit fix #7 — pre-fix the formula returned the raw gross margin and
+  the validator compared to 0.0, which let any positive Q11 GM pass."""
+  _ = (model_input_json, quarter_index)
+  gm = _quarter_gross_margin(finmo_json, 11)
+  if gm is None:
+    return None
+  return float(gm) - _GROSS_MARGIN_RECOVERY_FLOOR
+
+
+_FIXED_COST_BURDEN_INDUSTRY_MAX = 0.65
 
 def _formula_trajectory_fixed_cost_burden_at_industry_floor(
   *,
@@ -662,13 +676,16 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int] = None,
 ) -> Optional[float]:
-  """(Payroll + Lease + G&A) / Revenue at Q11.
+  """(Revenue - Payroll - Lease - G&A) / Revenue at Q11, shifted by the
+  doctrine slack so the validator's universal `>= 0.0` test means
+  "fixed cost burden <= 65% of revenue at Q11".
 
-  Returns the negation: positive = burden reduced (in band); negative =
-  burden too high. The validator's threshold expectation is encoded as
-  industry_max ~ 0.65 of revenue for typical small-business operations;
-  Phase E will plug in the NAICS-keyed value. Below the floor is routed
-  to operating_scale_adaptation."""
+  Returns ((revenue - fixed) / revenue) - 0.35. Positive = fixed cost
+  burden at or below the 65% industry ceiling; negative = burden too
+  high. Phase E will plug in the NAICS-keyed industry max.
+
+  Audit fix #8 — pre-fix the formula returned the raw slack and the
+  validator compared to 0.0, which only caught fixed > 100% of revenue."""
   _ = (model_input_json, quarter_index)
   payroll = _finmo_quarter_field(finmo_json, 11, "payroll")
   rent = _finmo_quarter_field(finmo_json, 11, "lease_rent")
@@ -677,7 +694,8 @@ def _formula_trajectory_fixed_cost_burden_at_industry_floor(
   if revenue is None or revenue <= 0:
     return None
   fixed = float(payroll or 0.0) + float(rent or 0.0) + float(ga or 0.0)
-  return float(revenue - fixed) / float(revenue)
+  slack = float(revenue - fixed) / float(revenue)
+  return slack - (1.0 - _FIXED_COST_BURDEN_INDUSTRY_MAX)
 
 
 # ----------------------------------------------------------------------------
