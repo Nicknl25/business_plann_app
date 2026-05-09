@@ -545,11 +545,143 @@ def _remediate_realism_hard_fails(
     if new_hard_fail_count == 0:
       break
 
+  # Phase 9 corrective directive — restoration always lands.
+  # When the lever-adjustment iterations exhaust without clearing
+  # hard_fails, engage the feasibility_restoration cascade with a
+  # synthetic gap built from the residual realism violations. The
+  # restoration cascade's lever ladder ends with unbounded capacity
+  # expansion, so it ALWAYS closes the gap. The plan ships with a
+  # documented adjustment narrative for consultant review.
+  restoration_landed_diag: Dict[str, Any] = {"engaged": False}
+  final_residual_count = int((current_payload or {}).get("hard_fail_count") or 0)
+  if final_residual_count > 0:
+    try:
+      from client_intake_and_finmo.post_intake_solver.feasibility_restoration import (  # type: ignore
+        restore_feasibility,
+      )
+      from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+        StructuralFeasibilityResult,
+      )
+      # Build a synthetic gap from current FINMO Q1-Q11 cumulative
+      # operating losses + a buffer. Universal computation — no
+      # business-type branches.
+      cumulative_loss = 0.0
+      for q in range(1, 12):
+        for fr in (finmo_json or {}).get("quarter_rows") or []:
+          if not isinstance(fr, dict):
+            continue
+          if int(_safe_float(fr.get("quarter_index")) or 0) == q:
+            ebitda = _safe_float(fr.get("ebitda")) or 0.0
+            if ebitda < 0:
+              cumulative_loss += abs(ebitda)
+            break
+      synthetic_gap = max(cumulative_loss, 1.0) * 4.0  # annualize Q1-Q11 quarterly losses (rough)
+      synth = StructuralFeasibilityResult(
+        feasible=False,
+        feasibility_gap=synthetic_gap,
+        upper_bound_annual_revenue=0.0,
+        lower_bound_annual_fixed_cost=0.0,
+        diagnostic={
+          "source": "phase_9_corrective_realism_remediation_residual",
+          "residual_hard_fails": final_residual_count,
+        },
+      )
+      restoration = restore_feasibility(
+        structural_result=synth,
+        ops_json=ops_json or {},
+        financials_json=financials_json or {},
+        financials_year1_json={},
+        payroll_headcount={},
+        business_naics_6=business_naics_6,
+      )
+      restoration_landed_diag = {
+        "engaged": True,
+        "feasible_after_adjustment": getattr(restoration, "feasible_after_adjustment", False),
+        "applied_adjustments": getattr(restoration, "applied_adjustments", []),
+        "diagnostic_narrative": getattr(restoration, "diagnostic_narrative", ""),
+      }
+      # Apply restoration's adjusted ops back into model_input revenue rows.
+      adjusted_ops = getattr(restoration, "adjusted_ops_json", None) or {}
+      if isinstance(adjusted_ops, dict):
+        rev_rows = (model_input_json or {}).get("sections", {}).get("revenue") or []
+        if isinstance(rev_rows, list):
+          for row in rev_rows:
+            if not isinstance(row, dict):
+              continue
+            driver = str(row.get("driver") or "").strip().lower()
+            new_val = None
+            if driver == "capacity":
+              new_val = _safe_float(adjusted_ops.get("operating_capacity_per_period"))
+            elif driver == "unit price":
+              new_val = _safe_float(adjusted_ops.get("unit_price"))
+            elif driver == "utilization":
+              new_val = _safe_float(adjusted_ops.get("operating_utilization_target"))
+            if new_val is not None and new_val > 0:
+              row["values"] = [float(new_val) for _ in range(len(row.get("values") or [horizon]))]
+      # Re-stamp + rebuild FINMO + final realism check.
+      try:
+        with post_intake_sequence_step_scope(
+          step_key="post_intake_target_seeking_restoration_landed",
+          executor_function="phase_9_restoration_always_lands",
+        ):
+          apply_path_stamp_pass(
+            model_input_json=model_input_json,
+            stage_ramp_contract=stage_ramp_contract,
+            adaptive_policy=adaptive_policy_dict,
+            industry_profile=industry_profile_dict,
+            horizon=horizon,
+          )
+          rebuilt_post_restoration = build_python_finmo_json(
+            model_input_json=copy.deepcopy(model_input_json),
+          )
+          if isinstance(rebuilt_post_restoration, dict) and rebuilt_post_restoration:
+            from client_intake_and_finmo.post_intake_cash_strategy import (  # type: ignore
+              run_mode_based_cash_strategy,
+            )
+            run_mode_based_cash_strategy(
+              draft_id="",
+              planning_run_id="",
+              model_input_json=model_input_json,
+              finmo_json=rebuilt_post_restoration,
+              industry_profile=industry_profile_dict,
+              adaptive_policy=adaptive_policy_dict,
+              conn=conn,
+              horizon=horizon,
+            )
+            rebuilt_post_restoration2 = build_python_finmo_json(
+              model_input_json=copy.deepcopy(model_input_json),
+            )
+            if isinstance(rebuilt_post_restoration2, dict) and rebuilt_post_restoration2:
+              rebuilt_finmo = rebuilt_post_restoration2
+              finmo_json = rebuilt_post_restoration2
+            else:
+              rebuilt_finmo = rebuilt_post_restoration
+              finmo_json = rebuilt_post_restoration
+        final_realism = validate_industry_realism_bands(
+          model_input_json=copy.deepcopy(model_input_json),
+          finmo_json=copy.deepcopy(finmo_json),
+          business_naics_6=business_naics_6,
+          ops_json=copy.deepcopy(ops_json),
+          financials_json=copy.deepcopy(financials_json),
+          solver_input_targets_payload=solver_input_targets_payload,
+          planning_mode=planning_mode,
+        )
+        current_payload = final_realism
+        restoration_landed_diag["final_hard_fail_count"] = int(final_realism.get("hard_fail_count") or 0)
+      except Exception as exc:
+        restoration_landed_diag["post_restoration_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+    except Exception as exc:
+      restoration_landed_diag = {
+        "engaged": True,
+        "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+      }
+
   return {
     "attempted": True,
     "status": "completed",
     "iterations_completed": len(iterations),
     "iterations": iterations,
+    "restoration_landed": restoration_landed_diag,
     "final_realism_payload": current_payload,
     "rebuilt_finmo": rebuilt_finmo,
   }

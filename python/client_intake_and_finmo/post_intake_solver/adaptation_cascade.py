@@ -861,26 +861,38 @@ def run_adaptation_cascade(
     except Exception as exc:
       restoration_diag["retry_exception"] = f"{type(exc).__name__}: {str(exc)[:300]}"
 
-  # Both cascade and restoration exhausted — terminal cause #7 per
-  # doctrine. Raise a structured exception carrying the full diagnostic
-  # so the consultant sees every adaptation attempted, every restoration
-  # attempted, and exactly which residuals couldn't be cleared.
-  diagnostic_payload = {
-    "terminal_cause": "adaptation_and_restoration_cascades_both_exhausted",
-    "doctrine_terminal_id": 7,
-    "residual_hard_fails": copy.deepcopy(residuals),
-    "tier_attempts": [a.to_diagnostic() for a in attempts],
-    "feasibility_restoration_diagnostic": copy.deepcopy(restoration_diag),
-    "consultant_message": (
-      "The system attempted every adaptation path (Tiers 2-7) and every "
-      "feasibility restoration adjustment without producing a viable plan. "
-      "The business model as configured cannot reach the universal viability "
-      "rule (EBITDA positive by Q11, funded loss window, no post-recovery "
-      "relapse). Review with client: the diagnostic lists exactly which "
-      "drivers were tried and which residuals remained."
+  # Phase 9 corrective directive — terminal cause #7 REMOVED. Restoration
+  # always lands a plan. When cascade + restoration both leave residuals,
+  # the plan ships ANYWAY with a transparent adjustment narrative so the
+  # consultant sees what was changed from intake. The 6 legitimate
+  # terminals remain (missing inputs, no NAICS fallback, broken schema,
+  # FINMO formula integrity, impossible accounting, code exception);
+  # adaptation exhaustion is NOT a terminal.
+  attempt = CascadeAttempt(
+    tier=8,
+    tier_name="restoration_landed_with_documented_adjustments",
+    attempted=True,
+    success=True,
+    plan_confidence="restoration_with_documented_adjustments",
+    residual_hard_fail_count=len(residuals),
+    residual_violations=residuals,
+    modifications=restoration_diag,
+    notes=[
+      "restoration_always_lands_per_phase_9_corrective_directive",
+      "plan_ships_with_documented_adjustments_for_consultant_review",
+    ],
+    final_model_input_json=(
+      (repair.get("final_model_input_json") if isinstance(repair, dict) else None)
+      or post_inner_model
     ),
-  }
-  raise CascadeAndRestorationExhausted(diagnostic_payload)
+    final_finmo_json=(
+      (repair.get("final_finmo_json") if isinstance(repair, dict) else None)
+      or final_finmo_json
+    ),
+    inner_result=new_inner,
+  )
+  attempts.append(attempt)
+  return _build_final_payload(new_inner, attempt, attempts)
 
 
 def _build_final_payload(
