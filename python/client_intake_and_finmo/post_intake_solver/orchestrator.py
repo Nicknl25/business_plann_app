@@ -576,15 +576,16 @@ def _remediate_realism_hard_fails(
               cumulative_loss += abs(ebitda)
             break
       synthetic_gap = max(cumulative_loss, 1.0) * 4.0  # annualize Q1-Q11 quarterly losses (rough)
+      import json as _json_for_restoration
       synth = StructuralFeasibilityResult(
         feasible=False,
         feasibility_gap=synthetic_gap,
         upper_bound_annual_revenue=0.0,
         lower_bound_annual_fixed_cost=0.0,
-        diagnostic={
+        diagnostic_message=_json_for_restoration.dumps({
           "source": "phase_9_corrective_realism_remediation_residual",
           "residual_hard_fails": final_residual_count,
-        },
+        }),
       )
       restoration = restore_feasibility(
         structural_result=synth,
@@ -599,6 +600,9 @@ def _remediate_realism_hard_fails(
         "feasible_after_adjustment": getattr(restoration, "feasible_after_adjustment", False),
         "applied_adjustments": getattr(restoration, "applied_adjustments", []),
         "diagnostic_narrative": getattr(restoration, "diagnostic_narrative", ""),
+        "executed_marker": "restore_feasibility_call_returned_normally",
+        "synthetic_gap_input": synthetic_gap,
+        "initial_residual_count": final_residual_count,
       }
       # Apply restoration's adjusted ops back into model_input revenue rows.
       adjusted_ops = getattr(restoration, "adjusted_ops_json", None) or {}
