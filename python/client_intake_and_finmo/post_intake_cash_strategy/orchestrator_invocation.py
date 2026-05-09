@@ -1,211 +1,149 @@
-"""Phase 9 Phase F — mode-based cash strategy.
+"""Phase 9 Phase F — mode-based cash strategy entry point.
 
-Walks the FINMO quarter rows, applies the client-selected cash strategy
-mode (preserve_cash / balanced / shareholder_return), and persists per-
-quarter debt issuance, debt repayment, owners_capital, and distributions
-to model_input. Industry-derived buffer + interest rate + loan term come
-from the unified industry profile (Phase E).
+Restored f949316 invocation flow. Calls the runner.py cash-strategy
+functions in the same order the convergence runner used at the golden
+tag, so the cash pass:
 
-Doctrine binding:
+  1. Seeds a minimum debt schedule (covers any negative-cash quarter
+     with new long-term debt at the industry rate, leaves operator-
+     stated opening debt at its operator-stated rate).
+  2. Seeds the short-term debt current portion (splits LTD into
+     short_term_debt + long_term_debt per the cash policy).
+  3. Builds the cash strategy review context (per-quarter cash policy
+     envelope, funding source policy, lever bounds, debt schedule
+     snapshot, numeric solver contract). Mode is carried through
+     ``selected_cash_strategy`` from financials_json.
+  4. Runs the cash strategy review (Python proposer + GPT critic).
+  5. Translates the GPT decision into an exact-update plan.
+  6. Applies the exact updates against model_input + rebuilds FINMO.
+  7. Re-applies the minimum debt schedule (post-cash floor).
+  8. Re-applies the short-term debt current portion (post-cash floor).
+  9. Surplus cleanup — distributions / debt repayment of true surplus
+     above the cash ceiling per cash policy weights.
+  10. Validates the post-pass state (buffer, surplus ceiling, debt
+      schedule rules). Reverts to the pre-cash state on failure.
+
+The funding source policy that excludes debt_issuance under chronic
+gaps + material drag, and excludes other_equity when not justified by
+chronic gaps or material leverage, is exercised inside step 3 (it
+lives on ``runner._cash_strategy_funding_source_policy`` and runs
+inside ``_build_cash_strategy_review_context_payload``).
+
+Doctrine binding (unchanged from f949316):
   - Cash pass MAY adjust: debt_issuance, debt_repayment, owners_capital,
     other_equity, distributions, minimum cash buffer, short_term_debt_pct
   - Cash pass MAY NOT adjust: revenue, COGS, payroll, G&A, marketing,
     R&D, lease, pricing, utilization, capacity, EBITDA target tolerances
-  - Cash pass runs AFTER operating viability is established. If the
-    operating model has no route to viability, the cascade fires the
-    revenue_achievability / turnaround_recovery_q5_q11 families first;
-    cash pass is the final funding pass.
 """
 
 from __future__ import annotations
 
 import copy
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 _DEFAULT_HORIZON = 20
-_OPERATING_EXPENSE_FIELDS = (
-  "payroll", "lease_rent", "marketing", "research_and_development",
-  "general_and_administrative", "cost_of_goods_sold",
-)
-_DEFAULT_INTEREST_RATE = 0.09
-_SURPLUS_THRESHOLD_MULTIPLIER_DEFAULT = 1.5
-
-_MODE_DISTRIBUTION_FRACTION = {
-  "preserve_cash": 0.0,
-  "balanced": 0.30,
-  "shareholder_return": 0.70,
-}
-
-# Phase 9 corrective: mode preference is now the ORDER of exploration
-# WITHIN allowed sources, not a gate on what's allowed. The gate is
-# _cash_strategy_funding_source_policy() (post_intake_cash/runner.py:1162),
-# which excludes debt_issuance when chronic gaps + material drag exist
-# and excludes other_equity when the situation doesn't justify outside
-# investor capital. All three modes now include other_equity in their
-# preference list so the smart policy can route to it when appropriate.
-_MODE_FUNDING_LEVER_PREFERENCE_ORDER = {
-  # preserve_cash: own equity first (lowest leverage drag), then outside
-  # equity if chronic, then debt only as last bridge.
-  "preserve_cash": ("owners_capital", "other_equity", "debt_issuance"),
-  # balanced: debt for short bridges, then owner equity, then outside.
-  "balanced": ("debt_issuance", "owners_capital", "other_equity"),
-  # shareholder_return: same lever order as balanced; mode affects
-  # distribution fraction not funding source.
-  "shareholder_return": ("debt_issuance", "owners_capital", "other_equity"),
-}
-
-
-@dataclass
-class CashQuarterDecision:
-  quarter_index: int
-  starting_cash: float
-  required_buffer: float
-  funding_gap: float
-  surplus_above_threshold: float
-  ending_cash_pre_action: float
-  decisions: Dict[str, float] = field(default_factory=dict)
-  notes: List[str] = field(default_factory=list)
-
-  def to_dict(self) -> Dict[str, Any]:
-    return asdict(self)
 
 
 @dataclass
 class CashStrategyResult:
   cash_strategy_mode: str
-  buffer_months: float
-  buffer_floor_months: float
-  interest_rate: float
-  loan_term_months: int
-  per_quarter: List[CashQuarterDecision]
+  status: str = "completed"
+  reason: Optional[str] = None
+  applied_updates_count: int = 0
   total_debt_issued: float = 0.0
   total_distributions: float = 0.0
   total_owners_capital_added: float = 0.0
   total_other_equity_added: float = 0.0
-  status: str = "completed"
-  reason: Optional[str] = None
-  applied_updates_count: int = 0
+  per_quarter: List[Dict[str, Any]] = field(default_factory=list)
   funding_source_policy: Dict[str, Any] = field(default_factory=dict)
-  effective_funding_priority: List[str] = field(default_factory=list)
+  review_decision: Dict[str, Any] = field(default_factory=dict)
+  second_pass_plan: Dict[str, Any] = field(default_factory=dict)
+  second_pass_result: Dict[str, Any] = field(default_factory=dict)
+  post_validation: Dict[str, Any] = field(default_factory=dict)
 
   def to_dict(self) -> Dict[str, Any]:
-    return {
-      "cash_strategy_mode": self.cash_strategy_mode,
-      "buffer_months": self.buffer_months,
-      "buffer_floor_months": self.buffer_floor_months,
-      "interest_rate": self.interest_rate,
-      "loan_term_months": self.loan_term_months,
-      "per_quarter": [q.to_dict() for q in self.per_quarter],
-      "total_debt_issued": self.total_debt_issued,
-      "total_distributions": self.total_distributions,
-      "total_owners_capital_added": self.total_owners_capital_added,
-      "total_other_equity_added": self.total_other_equity_added,
-      "status": self.status,
-      "reason": self.reason,
-      "applied_updates_count": self.applied_updates_count,
-      "funding_source_policy": dict(self.funding_source_policy),
-      "effective_funding_priority": list(self.effective_funding_priority),
-    }
+    return asdict(self)
 
 
-def _safe_float(value: Any) -> float:
-  if value is None or value == "":
-    return 0.0
-  try:
-    n = float(value)
-  except Exception:
-    return 0.0
-  if n != n:
-    return 0.0
-  return n
+def _ensure_cash_strategy_on_financials(
+  financials_json: Optional[Dict[str, Any]],
+  adaptive_policy: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+  """Return a deep-copied financials_json with ``cash_strategy`` set.
 
-
-def _normalize_cash_strategy_mode(adaptive_policy: Optional[Dict[str, Any]]) -> str:
-  if not isinstance(adaptive_policy, dict):
-    return "balanced"
-  raw = (
-    adaptive_policy.get("selected_cash_strategy")
-    or adaptive_policy.get("cash_strategy")
-    or "balanced"
-  )
-  norm = str(raw or "").strip().lower()
-  if norm in ("conservative",):
-    return "preserve_cash"
-  if norm in ("aggressive",):
-    return "shareholder_return"
-  if norm in _MODE_FUNDING_LEVER_PREFERENCE_ORDER:
-    return norm
-  return "balanced"
-
-
-def _quarter_row_lookup(finmo_json: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
-  out: Dict[int, Dict[str, Any]] = {}
-  for row in (finmo_json or {}).get("quarter_rows") or []:
-    if not isinstance(row, dict):
-      continue
-    try:
-      q = int(round(float(row.get("quarter_index"))))
-    except Exception:
-      continue
-    if q >= 1:
-      out[q] = row
+  ``runner._resolved_cash_strategy`` reads ``cash_strategy`` /
+  ``selected_cash_strategy`` off financials_json. The intake captures
+  the operator's selection on financials, but if it's missing we copy
+  the value from adaptive_policy so the runner sees a non-empty mode.
+  """
+  out = copy.deepcopy(financials_json) if isinstance(financials_json, dict) else {}
+  if str(out.get("cash_strategy") or "").strip() or str(out.get("selected_cash_strategy") or "").strip():
+    return out
+  if isinstance(adaptive_policy, dict):
+    raw = (
+      adaptive_policy.get("selected_cash_strategy")
+      or adaptive_policy.get("cash_strategy")
+      or ""
+    )
+    if str(raw or "").strip():
+      out["cash_strategy"] = str(raw).strip()
   return out
 
 
-def _quarter_operating_expense_base(row: Dict[str, Any]) -> float:
-  total = 0.0
-  for field_name in _OPERATING_EXPENSE_FIELDS:
-    total += _safe_float(row.get(field_name))
-  return max(total, 0.0)
-
-
-def _resolve_lever_id(driver_key: str) -> str:
-  try:
-    from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
-      post_intake_driver_target_single_lever_id_for_target_driver,
-    )
-    lever = post_intake_driver_target_single_lever_id_for_target_driver(driver_key)
-    return str(lever or "").strip()
-  except Exception:
-    return ""
-
-
-def _industry_profile_or_default(
+def _summarize_applied_totals(
   *,
-  industry_profile: Optional[Dict[str, Any]],
-  adaptive_policy: Optional[Dict[str, Any]],
-) -> Tuple[float, float, float, int]:
-  """Return (buffer_months, buffer_floor_months, interest_rate, loan_term_months)
-  from the industry_profile dict; falls back to conservative defaults if
-  the profile is missing.
+  exact_updates: List[Dict[str, Any]],
+) -> Dict[str, float]:
+  """Walk applied_updates and bucket totals by lever role.
+
+  We resolve lever_id → driver_key via the mapping module and
+  accumulate the numeric flows that the Phase 9 acceptance gate /
+  workbook reports surface.
   """
-  if isinstance(industry_profile, dict) and industry_profile:
-    base = _safe_float(industry_profile.get("cash_buffer_base_months")) or 1.5
-    floor = _safe_float(industry_profile.get("cash_buffer_floor_months")) or 0.5
-    rate = _safe_float(industry_profile.get("interest_rate")) or _DEFAULT_INTEREST_RATE
-    term = int(industry_profile.get("loan_term_months") or 84)
-  else:
-    base, floor, rate, term = 1.5, 0.5, _DEFAULT_INTEREST_RATE, 84
-  return base, floor, rate, term
-
-
-def _cash_buffer_months_for_mode(
-  *,
-  industry_profile: Optional[Dict[str, Any]],
-  cash_strategy_mode: str,
-) -> float:
-  if isinstance(industry_profile, dict):
-    multipliers = industry_profile.get("cash_strategy_mode_multipliers") or {}
-    multiplier = float(multipliers.get(cash_strategy_mode) or 1.0)
-    base = _safe_float(industry_profile.get("cash_buffer_base_months")) or 1.5
-    floor = _safe_float(industry_profile.get("cash_buffer_floor_months")) or 0.5
-    return max(base * multiplier, floor)
-  # Defaults if profile missing.
-  return {"preserve_cash": 2.25, "balanced": 1.5, "shareholder_return": 1.05}.get(
-    cash_strategy_mode, 1.5
+  from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
+    post_intake_driver_target_single_lever_id_for_target_driver,
   )
+
+  debt_issuance_lever = (
+    post_intake_driver_target_single_lever_id_for_target_driver("debt_issuance") or ""
+  ).strip()
+  distributions_lever = (
+    post_intake_driver_target_single_lever_id_for_target_driver("distributions") or ""
+  ).strip()
+  owners_capital_lever = (
+    post_intake_driver_target_single_lever_id_for_target_driver("owners_capital") or ""
+  ).strip()
+  other_equity_lever = (
+    post_intake_driver_target_single_lever_id_for_target_driver("other_equity") or ""
+  ).strip()
+
+  totals = {
+    "total_debt_issued": 0.0,
+    "total_distributions": 0.0,
+    "total_owners_capital_added": 0.0,
+    "total_other_equity_added": 0.0,
+  }
+  for update in exact_updates:
+    if not isinstance(update, dict):
+      continue
+    lever_id = str(update.get("lever_id") or "").strip()
+    try:
+      value = float(update.get("exact_value") or 0.0)
+    except Exception:
+      value = 0.0
+    if not lever_id:
+      continue
+    if lever_id == debt_issuance_lever:
+      totals["total_debt_issued"] += value
+    elif lever_id == distributions_lever:
+      totals["total_distributions"] += value
+    elif lever_id == owners_capital_lever:
+      totals["total_owners_capital_added"] += value
+    elif lever_id == other_equity_lever:
+      totals["total_other_equity_added"] += value
+  return totals
 
 
 def run_mode_based_cash_strategy(
@@ -216,451 +154,298 @@ def run_mode_based_cash_strategy(
   finmo_json: Dict[str, Any],
   industry_profile: Optional[Dict[str, Any]] = None,
   adaptive_policy: Optional[Dict[str, Any]] = None,
+  business_facts: Optional[Dict[str, Any]] = None,
+  ops_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  planning_mode: Optional[str] = None,
+  planning_mode_reason: Optional[str] = None,
+  prompt_file: Optional[str] = None,
   conn: Any = None,
   horizon: int = _DEFAULT_HORIZON,
   finmo_rebuild_callable: Optional[Any] = None,
 ) -> CashStrategyResult:
-  """Phase 9 Phase F entry point.
+  """Phase 9 cash strategy entry point.
 
-  Replaces the Phase 8 minimal cash strategy (Q1 lump-sum dump) with a
-  per-quarter mode-driven funding policy. Returns CashStrategyResult
-  carrying the per-quarter decisions and totals; mutates ``model_input_json``
-  in place via apply_exact_lever_updates_to_model_input().
+  Wires the runner.py cash-strategy sequence from f949316. Mutates
+  ``model_input_json`` and ``finmo_json`` in place (matches the prior
+  Phase 9 entry-point contract; downstream code expects the in-place
+  effect). Returns a CashStrategyResult that carries the totals,
+  the GPT decision, and the post-pass validation payload for the
+  acceptance gate / completion trace.
   """
-  cash_strategy_mode = _normalize_cash_strategy_mode(adaptive_policy)
-  buffer_months = _cash_buffer_months_for_mode(
-    industry_profile=industry_profile,
-    cash_strategy_mode=cash_strategy_mode,
-  )
-  base_months, floor_months, interest_rate, loan_term_months = _industry_profile_or_default(
-    industry_profile=industry_profile,
-    adaptive_policy=adaptive_policy,
-  )
-  surplus_threshold = _SURPLUS_THRESHOLD_MULTIPLIER_DEFAULT
+  del planning_run_id, industry_profile, conn  # unused in the runner-driven flow
+  del finmo_rebuild_callable  # FINMO rebuild now happens inside the runner steps
 
-  rows_by_q = _quarter_row_lookup(finmo_json)
-  if not rows_by_q:
-    return CashStrategyResult(
+  from client_intake_and_finmo.post_intake_cash import runner as _cash_runner  # type: ignore
+  from client_intake_and_finmo.finmo_bridge import build_python_finmo_json  # type: ignore
+
+  financials_for_runner = _ensure_cash_strategy_on_financials(financials_json, adaptive_policy)
+  cash_strategy_mode = _cash_runner._resolved_cash_strategy(financials_for_runner, adaptive_policy or {})
+
+  pre_cash_model_input_json = copy.deepcopy(model_input_json or {})
+  pre_cash_finmo_json = copy.deepcopy(finmo_json or {})
+
+  draft_id_str = str(draft_id or "").strip()
+  business_facts_dict = copy.deepcopy(business_facts) if isinstance(business_facts, dict) else {}
+  ops_json_dict = copy.deepcopy(ops_json) if isinstance(ops_json, dict) else {}
+  planning_mode_str = str(planning_mode or "").strip()
+  planning_mode_reason_str = str(planning_mode_reason or "").strip()
+  prompt_file_str = str(prompt_file or "").strip()
+
+  # Step 1 — minimum debt schedule (pre-review seed). Covers any
+  # negative-cash quarter with new long-term debt at the industry
+  # rate. Does NOT touch operator-stated opening debt — only adds
+  # incremental issuance.
+  seed_after_min_debt = _cash_runner._apply_cash_pass_minimum_debt_schedule(
+    cash_strategy_result={
+      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+      "applied_updates": [],
+    },
+    financials_json=copy.deepcopy(financials_for_runner),
+  )
+  if isinstance(seed_after_min_debt.get("updated_model_input_json"), dict):
+    pre_cash_model_input_json = copy.deepcopy(seed_after_min_debt["updated_model_input_json"])
+  if isinstance(seed_after_min_debt.get("updated_finmo_json"), dict):
+    pre_cash_finmo_json = copy.deepcopy(seed_after_min_debt["updated_finmo_json"])
+
+  # Step 2 — short-term debt current portion seed (splits LTD into
+  # short_term_debt and long_term_debt per cash policy).
+  seed_after_short_term = _cash_runner._apply_cash_pass_short_term_debt_current_portion(
+    cash_strategy_result={
+      "updated_model_input_json": copy.deepcopy(pre_cash_model_input_json),
+      "updated_finmo_json": copy.deepcopy(pre_cash_finmo_json),
+      "applied_updates": copy.deepcopy(seed_after_min_debt.get("applied_updates") or []),
+    },
+  )
+  if isinstance(seed_after_short_term.get("updated_model_input_json"), dict):
+    pre_cash_model_input_json = copy.deepcopy(seed_after_short_term["updated_model_input_json"])
+  if isinstance(seed_after_short_term.get("updated_finmo_json"), dict):
+    pre_cash_finmo_json = copy.deepcopy(seed_after_short_term["updated_finmo_json"])
+
+  # Step 3 — build the cash strategy review context. Internally invokes
+  # _cash_strategy_funding_source_policy() for the smart funding source
+  # gate (excludes debt_issuance under chronic gaps + material drag,
+  # excludes other_equity when not justified). Mode is read off
+  # financials_for_runner["cash_strategy"].
+  try:
+    cash_strategy_review_context = _cash_runner._build_cash_strategy_review_context_payload(
+      draft_id=draft_id_str,
+      business_facts=business_facts_dict,
+      ops_json=ops_json_dict,
+      financials_json=copy.deepcopy(financials_for_runner),
+      planning_mode=planning_mode_str,
+      planning_mode_reason=planning_mode_reason_str,
+      prompt_file=prompt_file_str,
+      solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
+      solved_finmo_json=copy.deepcopy(pre_cash_finmo_json),
+      controller_resolution_state={},
+      prior_numeric_feedback={},
+    )
+  except Exception as exc:
+    return _failure_result(
       cash_strategy_mode=cash_strategy_mode,
-      buffer_months=buffer_months,
-      buffer_floor_months=floor_months,
-      interest_rate=interest_rate,
-      loan_term_months=loan_term_months,
-      per_quarter=[],
-      status="skipped",
-      reason="no_finmo_quarter_rows",
+      reason=f"build_context_failed: {type(exc).__name__}: {str(exc)[:300]}",
     )
-
-  debt_issuance_lever = _resolve_lever_id("debt_issuance")
-  owners_capital_lever = _resolve_lever_id("owners_capital")
-  other_equity_lever = _resolve_lever_id("other_equity")
-  distributions_lever = _resolve_lever_id("distributions")
-
-  # Map driver-key -> resolved lever_id so we can look up by either.
-  _DRIVER_TO_LEVER: Dict[str, str] = {
-    "debt_issuance": debt_issuance_lever,
-    "owners_capital": owners_capital_lever,
-    "other_equity": other_equity_lever,
-  }
-  _LEVER_TO_DRIVER: Dict[str, str] = {
-    v: k for k, v in _DRIVER_TO_LEVER.items() if v
-  }
-
-  per_quarter_decisions: List[CashQuarterDecision] = []
-  exact_updates: List[Dict[str, Any]] = []
-  total_debt_issued = 0.0
-  total_distributions = 0.0
-  total_owners_capital_added = 0.0
-  total_other_equity_added = 0.0
-
-  preference_order = _MODE_FUNDING_LEVER_PREFERENCE_ORDER.get(
-    cash_strategy_mode, ("debt_issuance", "owners_capital", "other_equity")
+  funding_source_policy_payload = (
+    cash_strategy_review_context.get("funding_source_policy") or {}
+    if isinstance(cash_strategy_review_context, dict)
+    else {}
   )
-  distribution_fraction = _MODE_DISTRIBUTION_FRACTION.get(cash_strategy_mode, 0.30)
 
-  # Phase 9 corrective — inline doctrine of the smart funding source
-  # policy (post_intake_cash/runner.py:1162). The function there relies
-  # on runtime-bound _safe_float that's only injected via the legacy
-  # convergence-runner bind path, so we re-compute the same decisions
-  # here using local _safe_float. Same logic, same thresholds, same
-  # output schema — death-spiral prevention via:
-  #   chronic_gap (>= 5 deficit quarters) AND debt_drag_material
-  #   (max_interest_rate >= 3%)  -> EXCLUDE debt_issuance
-  #   NOT (chronic_gap OR leverage_material max_debt_ratio >= 55%)
-  #   -> EXCLUDE other_equity (reserved for outside-investor justified)
-  funding_policy: Dict[str, Any] = {}
-  funding_policy_allowed_levers: List[str] = []
-  funding_policy_excluded_levers: List[str] = []
-
-  residual_gap_quarters: List[int] = []
-  debt_ratios_seen: List[float] = []
-  for q_pol in range(1, max(1, int(horizon)) + 1):
-    row_pol = rows_by_q.get(q_pol) or {}
-    cash_pol = _safe_float(row_pol.get("cash"))
-    qopex_pol = _quarter_operating_expense_base(row_pol)
-    monthly_pol = max(qopex_pol / 3.0, 1.0)
-    buf_pol = buffer_months * monthly_pol
-    if cash_pol < buf_pol:
-      residual_gap_quarters.append(q_pol)
-    total_debt_pol = (
-      _safe_float(row_pol.get("total_debt"))
-      or _safe_float(row_pol.get("long_term_debt"))
-      or 0.0
+  # Step 4 — run cash strategy review (Python proposer + GPT critic).
+  try:
+    cash_strategy_review_decision = _cash_runner._run_cash_strategy_review_openai(
+      draft_id=draft_id_str,
+      business_facts=business_facts_dict,
+      ops_json=ops_json_dict,
+      financials_json=copy.deepcopy(financials_for_runner),
+      planning_mode=planning_mode_str,
+      planning_mode_reason=planning_mode_reason_str,
+      planning_mode_prompt_file=prompt_file_str,
+      first_pass_handoff={},
+      cash_strategy_review_context=copy.deepcopy(cash_strategy_review_context),
+      solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
+      solved_finmo_json=copy.deepcopy(pre_cash_finmo_json),
+      prior_numeric_feedback={},
+      controller_retry_context={},
     )
-    total_assets_pol = (
-      _safe_float(row_pol.get("total_assets"))
-      or _safe_float(row_pol.get("assets"))
-      or 0.0
+  except Exception as exc:
+    return _failure_result(
+      cash_strategy_mode=cash_strategy_mode,
+      funding_source_policy=funding_source_policy_payload,
+      reason=f"review_failed: {type(exc).__name__}: {str(exc)[:300]}",
     )
-    if total_assets_pol > 0:
-      debt_ratios_seen.append(float(total_debt_pol) / float(total_assets_pol))
+  if not isinstance(cash_strategy_review_decision, dict):
+    cash_strategy_review_decision = {}
+  # Mirror the f949316 pattern of attaching the context to the decision so
+  # the second-pass plan builder can lift lever_bounds / required-funding
+  # quarters / numeric solver contract from a single payload.
+  review_payload_with_context = copy.deepcopy(cash_strategy_review_decision)
+  review_payload_with_context["cash_strategy_review_context"] = copy.deepcopy(cash_strategy_review_context)
+  review_payload_with_context["numeric_solver_contract"] = copy.deepcopy(
+    cash_strategy_review_context.get("numeric_solver_contract")
+    if isinstance(cash_strategy_review_context.get("numeric_solver_contract"), dict)
+    else {}
+  )
 
-  gap_count = len(set(residual_gap_quarters))
-  chronic_gap = bool(gap_count >= 5)
-  max_interest_rate = float(interest_rate or _DEFAULT_INTEREST_RATE)
-  debt_drag_material = bool(max_interest_rate >= 0.03)
-  max_debt_ratio = max(debt_ratios_seen) if debt_ratios_seen else 0.0
-  leverage_material = bool(max_debt_ratio >= 0.55)
-  external_equity_justified = bool(chronic_gap or leverage_material)
+  # Step 5 — translate GPT decision into exact-update plan. Internally
+  # invokes _translate_cash_strategy_adjustment per quarter against the
+  # lever_bounds in the review context.
+  try:
+    cash_strategy_second_pass_plan = _cash_runner._build_cash_strategy_second_pass_plan(
+      review_decision_payload=copy.deepcopy(review_payload_with_context),
+      solved_model_input_json=copy.deepcopy(pre_cash_model_input_json),
+      financials_json=copy.deepcopy(financials_for_runner),
+      numeric_solver_contract=copy.deepcopy(
+        cash_strategy_review_context.get("numeric_solver_contract")
+        if isinstance(cash_strategy_review_context.get("numeric_solver_contract"), dict)
+        else {}
+      ),
+    )
+  except Exception as exc:
+    return _failure_result(
+      cash_strategy_mode=cash_strategy_mode,
+      funding_source_policy=funding_source_policy_payload,
+      review_decision=cash_strategy_review_decision,
+      reason=f"plan_failed: {type(exc).__name__}: {str(exc)[:300]}",
+    )
 
-  funding_policy_allowed_levers = [
-    debt_issuance_lever, owners_capital_lever, other_equity_lever
-  ]
-  funding_policy_allowed_levers = [x for x in funding_policy_allowed_levers if x]
-  if chronic_gap and debt_drag_material and debt_issuance_lever in funding_policy_allowed_levers:
-    funding_policy_allowed_levers = [
-      x for x in funding_policy_allowed_levers if x != debt_issuance_lever
-    ]
-    funding_policy_excluded_levers.append(debt_issuance_lever)
-  if not external_equity_justified and other_equity_lever in funding_policy_allowed_levers:
-    funding_policy_allowed_levers = [
-      x for x in funding_policy_allowed_levers if x != other_equity_lever
-    ]
-    funding_policy_excluded_levers.append(other_equity_lever)
+  # Step 6 — apply the exact updates against model_input and rebuild FINMO.
+  try:
+    cash_strategy_second_pass_result = _cash_runner._apply_cash_strategy_exact_updates(
+      review_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+      current_model_input_json=copy.deepcopy(pre_cash_model_input_json),
+      current_finmo_json=copy.deepcopy(pre_cash_finmo_json),
+    )
+  except Exception as exc:
+    return _failure_result(
+      cash_strategy_mode=cash_strategy_mode,
+      funding_source_policy=funding_source_policy_payload,
+      review_decision=cash_strategy_review_decision,
+      second_pass_plan=cash_strategy_second_pass_plan,
+      reason=f"apply_failed: {type(exc).__name__}: {str(exc)[:300]}",
+    )
 
-  policy_reasons: List[str] = []
-  if debt_issuance_lever and debt_issuance_lever in funding_policy_excluded_levers:
-    policy_reasons.append(
-      "Chronic liquidity gaps with material debt interest must not be solved with new debt because FINMO interest drag can reopen later cash-buffer violations."
+  # Step 7 — re-apply the minimum debt schedule on the post-update state.
+  cash_strategy_second_pass_result = _cash_runner._apply_cash_pass_minimum_debt_schedule(
+    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+    financials_json=copy.deepcopy(financials_for_runner),
+  )
+
+  # Step 8 — re-apply the short-term debt current portion.
+  cash_strategy_second_pass_result = _cash_runner._apply_cash_pass_short_term_debt_current_portion(
+    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+  )
+
+  # Step 9 — surplus cleanup (distributions / debt repayment of true
+  # surplus above the cash ceiling per cash policy weights).
+  cash_strategy_second_pass_result = _cash_runner._apply_cash_policy_surplus_cleanup(
+    cash_strategy_result=copy.deepcopy(cash_strategy_second_pass_result),
+    financials_json=copy.deepcopy(financials_for_runner),
+  )
+
+  # Step 10 — post-pass validation (buffer, surplus ceiling, debt
+  # schedule). On hard-failure we revert to the pre-cash state.
+  try:
+    cash_post_validation = _cash_runner._validate_cash_strategy_post_pass(
+      ops_json=ops_json_dict,
+      financials_json=copy.deepcopy(financials_for_runner),
+      baseline_issue_ledger=[],
+      candidate_model_input_json=copy.deepcopy(
+        cash_strategy_second_pass_result.get("updated_model_input_json") or {}
+      ),
+      candidate_finmo_json=copy.deepcopy(
+        cash_strategy_second_pass_result.get("updated_finmo_json") or {}
+      ),
+      iteration=1,
+      planning_mode=planning_mode_str or None,
+    )
+  except Exception as exc:
+    cash_post_validation = {
+      "status": "validation_failed",
+      "keep_changes": False,
+      "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+    }
+
+  keep_changes = bool(cash_post_validation.get("keep_changes", True))
+  if keep_changes:
+    final_model_input_json = (
+      cash_strategy_second_pass_result.get("updated_model_input_json")
+      if isinstance(cash_strategy_second_pass_result.get("updated_model_input_json"), dict)
+      else copy.deepcopy(pre_cash_model_input_json)
+    )
+    final_finmo_json = (
+      cash_strategy_second_pass_result.get("updated_finmo_json")
+      if isinstance(cash_strategy_second_pass_result.get("updated_finmo_json"), dict)
+      else copy.deepcopy(pre_cash_finmo_json)
     )
   else:
-    policy_reasons.append(
-      "Debt issuance remains available because the liquidity gap is not chronic or interest drag is not material."
+    final_model_input_json = copy.deepcopy(pre_cash_model_input_json)
+    final_finmo_json = copy.deepcopy(pre_cash_finmo_json)
+
+  # Final FINMO rebuild — guarantees cash, interest, debt balance,
+  # short_term/long_term split reflect every applied update from the
+  # cash sequence above, regardless of which sub-step rebuilt last.
+  try:
+    rebuilt_finmo = build_python_finmo_json(
+      model_input_json=copy.deepcopy(final_model_input_json or {})
     )
-  if other_equity_lever and other_equity_lever in funding_policy_excluded_levers:
-    policy_reasons.append(
-      "Other Equity is reserved for outside-investor funding and is only available for chronic liquidity gaps or materially leveraged capital structures."
-    )
-  elif other_equity_lever and other_equity_lever in funding_policy_allowed_levers:
-    policy_reasons.append(
-      "Other Equity is available because the gap is chronic or leverage is material enough to justify outside-investor funding."
-    )
+    if isinstance(rebuilt_finmo, dict) and rebuilt_finmo:
+      final_finmo_json = rebuilt_finmo
+  except Exception:
+    # If the final rebuild fails, leave the runner-supplied state in place;
+    # downstream callers (the orchestrator) also rebuild FINMO when the
+    # applied_updates_count > 0, so the outer rebuild is a second guard.
+    pass
 
-  funding_policy = {
-    "contract_version": "cash_strategy_funding_source_policy_v1",
-    "allowed_funding_source_lever_ids": list(funding_policy_allowed_levers),
-    "excluded_funding_source_lever_ids": list(funding_policy_excluded_levers),
-    "chronic_liquidity_gap": chronic_gap,
-    "residual_gap_quarter_count": gap_count,
-    "max_interest_rate": round(float(max_interest_rate), 6),
-    "max_debt_ratio": round(float(max_debt_ratio), 2),
-    "debt_interest_drag_material": debt_drag_material,
-    "external_equity_justified": external_equity_justified,
-    "external_equity_semantics": (
-      "Other Equity means outside investor capital such as angel, VC, silent partners, crowdfunding, "
-      "or another investor ownership stake. It is not routine working-capital funding."
-    ),
-    "owner_capital_semantics": "Owner's Capital means owner/founder/member/insider capital contributions.",
-    "policy_reason": " ".join(policy_reasons),
-  }
+  # Mutate caller-supplied dicts in place (matches the prior contract).
+  if isinstance(model_input_json, dict):
+    model_input_json.clear()
+    model_input_json.update(final_model_input_json or {})
+  if isinstance(finmo_json, dict):
+    finmo_json.clear()
+    finmo_json.update(final_finmo_json or {})
 
-  # Build the effective funding-source order: walk preference_order
-  # (mode-driven), keep only drivers whose lever_id is in
-  # funding_policy_allowed_levers (smart-policy gate). This is the
-  # actual "mode chooses order within allowed sources" wiring the
-  # corrective directive specified.
-  effective_funding_priority: List[str] = []
-  for driver_key in preference_order:
-    lever_id = _DRIVER_TO_LEVER.get(driver_key, "")
-    if lever_id and lever_id in funding_policy_allowed_levers:
-      effective_funding_priority.append(driver_key)
-  if not effective_funding_priority:
-    # Smart policy excluded everything — fall back to owners_capital
-    # (the safest residual lever; never excluded by the smart policy).
-    if owners_capital_lever:
-      effective_funding_priority = ["owners_capital"]
+  applied_updates_list = [
+    item for item in (cash_strategy_second_pass_result.get("applied_updates") or [])
+    if isinstance(item, dict)
+  ]
+  totals = _summarize_applied_totals(exact_updates=applied_updates_list)
 
-  # Phase 9 Gap D — Cumulative cash trough funding.
-  #
-  # Pre-pass: walk Q1..Q20 and identify the cumulative trough — the
-  # quarter where projected ending_cash dips lowest. Compute the total
-  # funding needed at the trough plus the required buffer, then
-  # distribute that funding across the deficit quarters Q1..trough_q
-  # as incremental per-quarter debt / owners_capital. This avoids the
-  # eeea439 lump-sum dump pattern AND avoids the iter-#2 under-funding
-  # caused by interest drag from issued debt.
-  #
-  # Universal: same algorithm regardless of business — read mode and
-  # interest rate from inputs, compute trough by walking finmo rows.
-  _INTEREST_DRAG_BUFFER_FACTOR = 1.15  # 15% over-fund to absorb interest drag
-
-  # Phase 9 corrective — find the WORST projected cash quarter across
-  # the entire horizon (not just where pre-action cash bottoms). Every
-  # quarter's required buffer must be funded; the worst quarter's
-  # implied cumulative shortfall sets the total OC/equity injection.
-  trough_q: int = 1
-  trough_cash: float = float("inf")
-  trough_required_buffer: float = 0.0
-  worst_cumulative_shortfall: float = 0.0
-  for q_pre in range(1, max(1, int(horizon)) + 1):
-    row_pre = rows_by_q.get(q_pre) or {}
-    cash_pre = _safe_float(row_pre.get("cash"))
-    qopex_pre = _quarter_operating_expense_base(row_pre)
-    monthly_pre = max(qopex_pre / 3.0, 1.0)
-    buf_pre = buffer_months * monthly_pre
-    if cash_pre < trough_cash:
-      trough_cash = cash_pre
-      trough_q = q_pre
-      trough_required_buffer = buf_pre
-    # Cumulative shortfall at this quarter: how much injection would be
-    # needed BY this quarter to keep ending_cash >= buffer.
-    shortfall_at_q = max(0.0, buf_pre - cash_pre)
-    if shortfall_at_q > worst_cumulative_shortfall:
-      worst_cumulative_shortfall = shortfall_at_q
-
-  # Total deficit to fund — sized at the worst-cumulative-shortfall
-  # quarter (not just trough). Distributed across the full horizon as
-  # cumulative writes (Q1..Q20), each quarter's cumulative balance
-  # ramps to cover that quarter's projected shortfall.
-  total_deficit_to_fund = 0.0
-  per_quarter_funding_slice = 0.0
-  if worst_cumulative_shortfall > 0.0:
-    total_deficit_to_fund = worst_cumulative_shortfall * _INTEREST_DRAG_BUFFER_FACTOR
-    # Distribute across the full deficit window (every quarter where
-    # cash projected below buffer). Non-deficit quarters contribute 0.
-    deficit_quarter_count = sum(
-      1 for q_pre in range(1, max(1, int(horizon)) + 1)
-      if (
-        _safe_float((rows_by_q.get(q_pre) or {}).get("cash"))
-        < buffer_months * max(_quarter_operating_expense_base(rows_by_q.get(q_pre) or {}) / 3.0, 1.0)
-      )
-    )
-    deficit_quarters = max(1, int(deficit_quarter_count))
-    per_quarter_funding_slice = total_deficit_to_fund / float(deficit_quarters)
-
-  cumulative_funding_applied: float = 0.0
-
-  for q in range(1, max(1, int(horizon)) + 1):
-    row = rows_by_q.get(q) or {}
-    cash = _safe_float(row.get("cash"))
-    revenue = _safe_float(row.get("revenue"))
-    ebitda = _safe_float(row.get("ebitda"))
-    quarter_opex = _quarter_operating_expense_base(row)
-    monthly_opex = max(quarter_opex / 3.0, 1.0)
-    required_buffer = buffer_months * monthly_opex
-    surplus_threshold_value = required_buffer * surplus_threshold
-
-    # Effective cash = observed pre-action cash + cumulative funding
-    # already applied in earlier quarters (which the FINMO snapshot
-    # cannot see since we rebuild only once at the end).
-    effective_cash = cash + cumulative_funding_applied
-
-    # Phase 9 corrective — every quarter where pre-action cash dips
-    # below buffer gets the per-quarter slice (sized to cover the
-    # worst projected cumulative shortfall across the full horizon).
-    # Quarters that don't dip get a normal max-of-buffer-or-slice gap.
-    cash_pre_q = _safe_float((rows_by_q.get(q) or {}).get("cash"))
-    monthly_pre_q = max(_quarter_operating_expense_base(rows_by_q.get(q) or {}) / 3.0, 1.0)
-    buffer_pre_q = buffer_months * monthly_pre_q
-    if cash_pre_q < buffer_pre_q and per_quarter_funding_slice > 0.0:
-      funding_gap = max(per_quarter_funding_slice, required_buffer - effective_cash)
-    else:
-      funding_gap = max(0.0, required_buffer - effective_cash)
-    surplus = max(0.0, effective_cash - surplus_threshold_value)
-
-    decisions: Dict[str, float] = {}
-    notes: List[str] = []
-
-    # 1) Close funding gap walking effective_funding_priority (mode
-    # preference filtered through smart-policy allowed sources).
-    # Universal: same logic for any business; smart policy gates
-    # debt_issuance when chronic + drag, gates other_equity when not
-    # justified, owners_capital is always available.
-    #
-    # Stock vs flow semantics:
-    #   - debt_issuance: FLOW (per-quarter increment); FINMO accumulates
-    #     debt balance from increments + repayments.
-    #   - owners_capital: STOCK (cumulative balance per quarter). Writing
-    #     Q1=$X, Q2=$X gives a BALANCE of $X at both quarters (no
-    #     accumulation). To inject $X/quarter we must write the running
-    #     cumulative total: Q1=$X, Q2=$2X, Q3=$3X, etc.
-    #   - other_equity: STOCK (same semantics as owners_capital).
-    if funding_gap > 0.0 and effective_funding_priority:
-      remaining = float(funding_gap)
-      for driver in effective_funding_priority:
-        if remaining <= 1.0:
-          break
-        lever_id = _DRIVER_TO_LEVER.get(driver, "")
-        if not lever_id:
-          continue
-        amount = round(float(remaining), 2)
-        decisions[driver] = amount
-        cumulative_funding_applied += float(remaining)
-        if driver == "debt_issuance":
-          total_debt_issued += float(remaining)
-          exact_updates.append({
-            "lever_id": lever_id,
-            "quarter_index": q,
-            "exact_value": amount,
-          })
-        elif driver == "owners_capital":
-          total_owners_capital_added += float(remaining)
-          # STOCK semantics: write THIS quarter's cumulative balance only.
-          # apply_exact_lever_updates_to_model_input overwrites per-quarter
-          # values; later cumulative writes propagate via the existing
-          # row's values, but we must explicitly set every quarter we
-          # touch otherwise it's clobbered.
-          exact_updates.append({
-            "lever_id": lever_id,
-            "quarter_index": q,
-            "exact_value": round(float(total_owners_capital_added), 2),
-          })
-        elif driver == "other_equity":
-          total_other_equity_added += float(remaining)
-          exact_updates.append({
-            "lever_id": lever_id,
-            "quarter_index": q,
-            "exact_value": round(float(total_other_equity_added), 2),
-          })
-        notes.append(f"funded_gap_via_{driver}:{round(remaining, 0)}")
-        remaining = 0.0
-
-    # 2) Distribute surplus per mode (NEVER raises debt to fund payouts).
-    if surplus > 0.0 and ebitda > 0.0 and distribution_fraction > 0.0 and distributions_lever:
-      payout = round(surplus * distribution_fraction, 2)
-      if payout >= 1.0:
-        decisions["distributions"] = payout
-        total_distributions += payout
-        exact_updates.append({
-          "lever_id": distributions_lever,
-          "quarter_index": q,
-          "exact_value": payout,
-        })
-        notes.append(f"distributed_surplus:{round(payout, 0)}")
-
-    if not decisions:
-      notes.append("no_action_required")
-
-    per_quarter_decisions.append(CashQuarterDecision(
-      quarter_index=q,
-      starting_cash=round(cash, 2),
-      required_buffer=round(required_buffer, 2),
-      funding_gap=round(funding_gap, 2),
-      surplus_above_threshold=round(surplus, 2),
-      ending_cash_pre_action=round(cash, 2),
-      decisions=decisions,
-      notes=notes,
-    ))
-
-  # Phase 9 corrective — STOCK-lever carry-forward.
-  # owners_capital and other_equity are stock balances. Quarters where
-  # we wrote a NEW cumulative get that value. Quarters AFTER the last
-  # write must inherit the final cumulative (otherwise they retain the
-  # original Q1-baseline value and the stock balance "drops" mid-horizon).
-  # Build a per-lever map of quarter->cumulative. Fill any unwritten
-  # quarter Q with the most recent prior write's value (carry forward).
-  if total_owners_capital_added > 0 or total_other_equity_added > 0:
-    by_lever_quarter: Dict[str, Dict[int, float]] = {}
-    for upd in exact_updates:
-      lid = str(upd.get("lever_id") or "")
-      if lid not in (owners_capital_lever, other_equity_lever) or not lid:
-        continue
-      qi = int(upd.get("quarter_index") or 0)
-      val = float(upd.get("exact_value") or 0.0)
-      by_lever_quarter.setdefault(lid, {})[qi] = val
-    for lid, q_map in by_lever_quarter.items():
-      if not q_map:
-        continue
-      last_val = 0.0
-      for q_idx in range(1, max(1, int(horizon)) + 1):
-        if q_idx in q_map:
-          last_val = q_map[q_idx]
-        else:
-          # Carry-forward the last cumulative balance into this quarter.
-          if last_val > 0:
-            exact_updates.append({
-              "lever_id": lid,
-              "quarter_index": q_idx,
-              "exact_value": round(float(last_val), 2),
-            })
-
-  # Apply the per-quarter updates to model_input.
-  if exact_updates:
-    try:
-      from client_intake_and_finmo.quarter_grid import (  # type: ignore
-        apply_exact_lever_updates_to_model_input,
-      )
-      from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
-        post_intake_sequence_step_scope,
-      )
-      with post_intake_sequence_step_scope(
-        step_key="post_intake_target_seeking_post_cascade_cash",
-        executor_function="phase_9_mode_based_cash_strategy",
-      ):
-        updated = apply_exact_lever_updates_to_model_input(
-          model_input_json=model_input_json or {},
-          exact_updates=exact_updates,
-        )
-        if isinstance(updated, dict):
-          # In-place mutation: copy keys from updated into the caller's dict.
-          model_input_json.clear()
-          model_input_json.update(updated)
-    except Exception as exc:
-      return CashStrategyResult(
-        cash_strategy_mode=cash_strategy_mode,
-        buffer_months=buffer_months,
-        buffer_floor_months=floor_months,
-        interest_rate=interest_rate,
-        loan_term_months=loan_term_months,
-        per_quarter=per_quarter_decisions,
-        total_debt_issued=total_debt_issued,
-        total_distributions=total_distributions,
-        total_owners_capital_added=total_owners_capital_added,
-        total_other_equity_added=total_other_equity_added,
-        status="failed",
-        reason=f"{type(exc).__name__}: {str(exc)[:300]}",
-        applied_updates_count=0,
-        funding_source_policy=dict(funding_policy),
-        effective_funding_priority=list(effective_funding_priority),
-      )
-
-  result = CashStrategyResult(
+  return CashStrategyResult(
     cash_strategy_mode=cash_strategy_mode,
-    buffer_months=buffer_months,
-    buffer_floor_months=floor_months,
-    interest_rate=interest_rate,
-    loan_term_months=loan_term_months,
-    per_quarter=per_quarter_decisions,
-    total_debt_issued=round(total_debt_issued, 2),
-    total_distributions=round(total_distributions, 2),
-    total_owners_capital_added=round(total_owners_capital_added, 2),
-    total_other_equity_added=round(total_other_equity_added, 2),
-    status="completed",
-    applied_updates_count=len(exact_updates),
-    funding_source_policy=dict(funding_policy),
-    effective_funding_priority=list(effective_funding_priority),
+    status=str(cash_strategy_second_pass_result.get("status") or "completed"),
+    applied_updates_count=int(cash_strategy_second_pass_result.get("applied_update_count") or len(applied_updates_list)),
+    total_debt_issued=round(totals["total_debt_issued"], 2),
+    total_distributions=round(totals["total_distributions"], 2),
+    total_owners_capital_added=round(totals["total_owners_capital_added"], 2),
+    total_other_equity_added=round(totals["total_other_equity_added"], 2),
+    per_quarter=[],
+    funding_source_policy=copy.deepcopy(funding_source_policy_payload),
+    review_decision=copy.deepcopy(cash_strategy_review_decision),
+    second_pass_plan=copy.deepcopy(cash_strategy_second_pass_plan),
+    second_pass_result=copy.deepcopy(cash_strategy_second_pass_result),
+    post_validation=copy.deepcopy(cash_post_validation),
   )
-  # Phase 9 Gap D — surface the trough diagnostic so the acceptance gate
-  # and run report see how the funding was sized.
-  result_dict = result.to_dict()
-  result_dict["trough_diagnostic"] = {
-    "trough_quarter": int(trough_q),
-    "trough_cash_pre_action": round(float(trough_cash) if trough_cash != float("inf") else 0.0, 2),
-    "trough_required_buffer": round(float(trough_required_buffer), 2),
-    "total_deficit_to_fund_with_drag": round(float(total_deficit_to_fund), 2),
-    "per_quarter_funding_slice": round(float(per_quarter_funding_slice), 2),
-    "interest_drag_factor": _INTEREST_DRAG_BUFFER_FACTOR,
-  }
-  # Re-pack into CashStrategyResult-shaped dict by overlaying trough on the dataclass
-  setattr(result, "trough_diagnostic", result_dict["trough_diagnostic"])
-  return result
+
+
+def _failure_result(
+  *,
+  cash_strategy_mode: str,
+  reason: str,
+  funding_source_policy: Optional[Dict[str, Any]] = None,
+  review_decision: Optional[Dict[str, Any]] = None,
+  second_pass_plan: Optional[Dict[str, Any]] = None,
+  second_pass_result: Optional[Dict[str, Any]] = None,
+) -> CashStrategyResult:
+  return CashStrategyResult(
+    cash_strategy_mode=cash_strategy_mode,
+    status="failed",
+    reason=reason,
+    applied_updates_count=0,
+    funding_source_policy=copy.deepcopy(funding_source_policy or {}),
+    review_decision=copy.deepcopy(review_decision or {}),
+    second_pass_plan=copy.deepcopy(second_pass_plan or {}),
+    second_pass_result=copy.deepcopy(second_pass_result or {}),
+  )

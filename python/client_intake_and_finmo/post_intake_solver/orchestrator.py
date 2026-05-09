@@ -487,6 +487,9 @@ def _remediate_realism_hard_fails(
               finmo_json=rebuilt,
               industry_profile=industry_profile_dict,
               adaptive_policy=adaptive_policy_dict,
+              ops_json=ops_json,
+              financials_json=financials_json,
+              planning_mode=planning_mode,
               conn=conn,
               horizon=horizon,
             )
@@ -771,6 +774,9 @@ def _remediate_realism_hard_fails(
               finmo_json=rebuilt_post_restoration,
               industry_profile=industry_profile_dict,
               adaptive_policy=adaptive_policy_dict,
+              ops_json=ops_json,
+              financials_json=financials_json,
+              planning_mode=planning_mode,
               conn=conn,
               horizon=horizon,
             )
@@ -2238,6 +2244,11 @@ def _run_post_cascade_completion(
         finmo_json=final_finmo_json or {},
         industry_profile=cash_industry_profile,
         adaptive_policy=adaptive_policy_dict,
+        business_facts=business_facts,
+        ops_json=ops_json,
+        financials_json=financials_json,
+        planning_mode=planning_mode,
+        planning_mode_reason=planning_mode_reason,
         conn=conn,
         horizon=int(horizon or 20),
       )
