@@ -1,17 +1,22 @@
 """Pull XBRL financial concepts from SEC EDGAR into a raw staging table.
 
 This is an OFFLINE data-pull script. It populates `sec_edgar_facts`, which is
-later aggregated by the baseline loader into `post_intake_industry_baseline_lookup`.
-Production runtime never reads `sec_edgar_facts` directly.
+later aggregated into `post_intake_industry_baseline_lookup` AND consumed
+by `edgar_data_growth_rates.py` to write per-firm-quarter rows into
+`industry_metrics_raw` for SEC firms that aren't in alpha_data.
 
 Source: SEC EDGAR XBRL Frames API (https://data.sec.gov/api/xbrl/frames/...).
 Public, no auth, but SEC fair-access policy requires a User-Agent header and
 caps at ~10 requests/second. We pace at ~7 r/s to stay polite.
 
-Three things this script does:
+What this script does:
 
-1. Downloads the SEC ticker -> CIK map (one HTTP call) and joins with our
-   existing `alpha_match_naics_industry` table to produce CIK -> NAICS.
+1. Builds a CIK -> NAICS map from two sources, in priority order:
+     a. `alpha_match_naics_industry` (ticker -> NAICS) joined via SEC's
+        ticker -> CIK map.
+     b. SEC submissions API (CIK -> SIC) for CIKs not in (a), then
+        SIC -> NAICS-6 via `sic_to_naics_crosswalk.SIC_TO_NAICS_6`.
+   Step (b) is what extends EDGAR coverage beyond Alpha's universe.
 2. Iterates over a configurable list of US-GAAP concepts. For each concept,
    pulls the last N calendar quarters via the Frames API (one call per
    period). Frames returns one row per company that reported that concept in
@@ -43,10 +48,20 @@ SEC_USER_AGENT = (
 )
 SEC_BASE = "https://data.sec.gov"
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 RATE_LIMIT_SLEEP = 0.15  # seconds between requests; ~7 req/sec
 HTTP_TIMEOUT = 30
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0
+
+
+try:
+  from data_pull.sic_to_naics_crosswalk import sic_to_naics6  # type: ignore
+except Exception:
+  # When the script is invoked as `python python/data_pull/sec_edgar_xbrl_pull.py`,
+  # the `python` directory is on sys.path and the import above resolves. Some
+  # invocations (e.g. running from inside data_pull/) may need the relative form.
+  from sic_to_naics_crosswalk import sic_to_naics6  # type: ignore
 
 
 _session = requests.Session()
@@ -171,8 +186,54 @@ def load_ticker_to_naics(conn) -> Dict[str, str]:
     cur.close()
 
 
+def fetch_cik_submission(cik_padded: str) -> Optional[Dict[str, Any]]:
+  """Hit /submissions/CIK{padded}.json. Returns parsed JSON or None on 4xx/5xx."""
+  url = SEC_SUBMISSIONS_URL.format(cik=cik_padded)
+  return _http_get(url)
+
+
+def fetch_sic_for_unmapped_ciks(
+  ciks: List[str],
+  *,
+  progress_every: int = 200,
+) -> Dict[str, Dict[str, str]]:
+  """Hit SEC submissions API for each CIK, return {cik: {'sic': S, 'tickers': T}}.
+
+  Single-pass; rate-limited by RATE_LIMIT_SLEEP. Tickers list (if any) is
+  joined comma-separated so callers can also enrich the ticker column for
+  CIKs SEC's ticker file omitted.
+  """
+  out: Dict[str, Dict[str, str]] = {}
+  for i, cik in enumerate(ciks):
+    payload = fetch_cik_submission(cik)
+    time.sleep(RATE_LIMIT_SLEEP)
+    if not isinstance(payload, dict):
+      continue
+    sic = str(payload.get("sic") or "").strip()
+    tickers = payload.get("tickers")
+    ticker_str = ""
+    if isinstance(tickers, list) and tickers:
+      ticker_str = str(tickers[0] or "").strip().upper()
+    if sic:
+      out[cik] = {"sic": sic, "ticker": ticker_str}
+    if (i + 1) % progress_every == 0:
+      print(f"  submissions API: {i + 1}/{len(ciks)} CIKs fetched, "
+            f"{len(out)} with SIC", file=sys.stderr)
+  return out
+
+
 def build_cik_to_naics_map(conn) -> Dict[str, Dict[str, str]]:
-  """Return {cik_padded10: {'ticker': T, 'naics': N}}."""
+  """Return {cik_padded10: {'ticker': T, 'naics': N, 'naics_source': src}}.
+
+  Two-stage resolution:
+    1. alpha_match_naics_industry via ticker -> CIK join.
+    2. SEC submissions API + SIC->NAICS crosswalk for unmapped CIKs that
+       SEC's ticker file lists but alpha_match doesn't classify.
+
+  Source tag distinguishes "alpha_match" (high-confidence private mapping)
+  from "sic_crosswalk" (Census 1997 concordance) so downstream callers can
+  filter or weight as needed.
+  """
   print("Downloading SEC ticker -> CIK map ...")
   ticker_to_cik = fetch_sec_ticker_to_cik()
   print(f"  SEC ticker map: {len(ticker_to_cik)} tickers")
@@ -180,14 +241,33 @@ def build_cik_to_naics_map(conn) -> Dict[str, Dict[str, str]]:
   ticker_to_naics = load_ticker_to_naics(conn)
   print(f"  ticker->NAICS map: {len(ticker_to_naics)} tickers")
   out: Dict[str, Dict[str, str]] = {}
-  matched = 0
+  alpha_matched = 0
   for ticker, cik in ticker_to_cik.items():
     naics = ticker_to_naics.get(ticker)
     if not naics:
       continue
-    out[cik] = {"ticker": ticker, "naics": naics}
-    matched += 1
-  print(f"  CIK->NAICS coverage: {matched} CIKs mapped")
+    out[cik] = {"ticker": ticker, "naics": naics, "naics_source": "alpha_match"}
+    alpha_matched += 1
+  print(f"  CIK->NAICS via alpha_match: {alpha_matched} CIKs")
+
+  # Stage 2: SIC crosswalk for SEC-listed CIKs not in alpha_match.
+  unmapped = [cik for ticker, cik in ticker_to_cik.items() if cik not in out]
+  print(f"  unmapped (will fetch SIC from SEC submissions): {len(unmapped)} CIKs")
+  if unmapped:
+    sic_lookup = fetch_sic_for_unmapped_ciks(unmapped)
+    cw_matched = 0
+    cw_no_naics = 0
+    for cik, info in sic_lookup.items():
+      naics = sic_to_naics6(info.get("sic"))
+      if not naics or len(naics) < 6:
+        cw_no_naics += 1
+        continue
+      ticker = info.get("ticker") or ""
+      out[cik] = {"ticker": ticker, "naics": naics, "naics_source": "sic_crosswalk"}
+      cw_matched += 1
+    print(f"  CIK->NAICS via SIC crosswalk: {cw_matched} CIKs "
+          f"({cw_no_naics} SICs not in crosswalk)")
+  print(f"  Total CIK->NAICS coverage: {len(out)} CIKs")
   return out
 
 

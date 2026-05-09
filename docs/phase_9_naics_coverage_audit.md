@@ -282,7 +282,196 @@ NAICS-2  firms
 81       29    (Other Services)
 ```
 
-## 6. Summary — what the data says about the freight-brokerage hypothesis
+## 6. Two-stage EDGAR coverage expansion (executed 2026-05-09)
+
+The audit above measured the cohort as it was on 2026-05-09. Subsequent
+work expanded the cohort by classifying SEC filers that aren't in Alpha
+and aggregating EDGAR concept facts into `industry_metrics_raw`.
+
+### 6.1 Stage 1 — NAICS classification of EDGAR-only CIKs
+
+Code: [python/data_pull/sic_to_naics_crosswalk.py](python/data_pull/sic_to_naics_crosswalk.py),
+[python/data_pull/enrich_edgar_naics.py](python/data_pull/enrich_edgar_naics.py),
+modifications to [python/data_pull/sec_edgar_xbrl_pull.py](python/data_pull/sec_edgar_xbrl_pull.py).
+
+Premise correction: the original audit assumed EDGAR coverage was
+constrained by an `alpha_match_naics_industry` filter inside the pull
+script. It is not — `sec_edgar_xbrl_pull.py` already pulls the full
+SEC universe via the Frames API. What `alpha_match` provided was NAICS
+*classification*, not the CIK filter. Of the 6,994 distinct CIKs in
+`sec_edgar_facts`, 3,773 had no ticker and therefore no NAICS — they
+were unclassified rather than unpulled.
+
+Approach:
+
+1. Built a SIC → NAICS-6 canonical crosswalk covering all 309 SIC codes
+   observed in `sec_edgar_facts` for ticker-less CIKs with rev+cost
+   concepts. Source: Census Bureau 1997 SIC → 1997 NAICS Concordance,
+   with 2022 NAICS revisions applied (511 → 513/516/519). When a SIC
+   maps to multiple NAICS-6 codes, the crosswalk picks the canonical
+   primary correspondence. Long-tail SICs not in the table fall back to
+   a NAICS-2 fallback (`_SIC_2_TO_NAICS_2`, 20 entries).
+2. Wrote `enrich_edgar_naics.py`: for each unmapped CIK with rev+cost
+   concepts, hit `https://data.sec.gov/submissions/CIK{cik}.json` to
+   fetch SIC, then UPDATE `sec_edgar_facts` to fill `naics_code` (and
+   `ticker` when SEC has one we didn't).
+3. Modified `sec_edgar_xbrl_pull.py`'s `build_cik_to_naics_map()` to
+   apply the same SIC fallback on future pulls automatically.
+
+Run results (1,946 CIKs, ~5 min at SEC's 7 req/sec):
+
+| step | count |
+|---|---:|
+| Unmapped CIKs scanned | 1,946 |
+| Resolved to NAICS-6 | **1,945** |
+| No SIC in submissions | 1 |
+| SICs missing in crosswalk | 0 |
+| sec_edgar_facts rows updated | 184,109 |
+
+EDGAR coverage in `sec_edgar_facts` after Stage 1:
+
+| | pre-Stage-1 | post-Stage-1 | delta |
+|---|---:|---:|---:|
+| Distinct CIKs with NAICS-6 | 3,221 | 5,166 | +1,945 |
+| EDGAR usable cohort firms (rev + cost concepts AND NAICS-6) | 2,547 | 4,492 | +1,945 |
+| Distinct NAICS-6 codes covered | 352 | 450 | +98 |
+
+### 6.2 Stage 2 — EDGAR aggregation into industry_metrics_raw
+
+Code: [python/data_pull/edgar_data_growth_rates.py](python/data_pull/edgar_data_growth_rates.py)
+(mirror of `alpha_data_growth_rates.py`).
+
+Approach:
+- Pivoted `sec_edgar_facts` rows from per-concept normalized form into
+  `(cik, fp_end_at) → {concept: value}` buckets, picking the latest
+  accession_number per concept when a period had amendments.
+- Computed the same metric set as `alpha_data_growth_rates.py`:
+  cogs_percent, gross_margin_q, ebitda_margin_q, sga_percent, dso, dpo,
+  inventory_days, current_ratio, debt_to_equity, debt_to_assets,
+  capex_percent_revenue, etc. (~24 derived ratios).
+- Applied bounded sanity guards before insert: e.g.
+  cogs_percent ∈ [0, 1.5], gross_margin_q ∈ [-1, 1], dso ∈ [0, 365].
+  Out-of-range ratios are nulled (the row still inserts with valid
+  columns); rows with non-positive total_revenue are dropped entirely.
+- Added a `source` VARCHAR(10) NOT NULL DEFAULT 'alpha' column to
+  `industry_metrics_raw` (idempotent; only added when missing).
+- **Dedupe rule per directive**: Alpha-preferred. Only inserts EDGAR rows
+  whose `(symbol, fiscalDateEnding)` is not already in
+  `industry_metrics_raw`. Existing Alpha rows therefore "win" any
+  overlap. EDGAR's contribution is firms (and quarters) Alpha doesn't
+  track. For ticker-less EDGAR firms the symbol is `EDGAR_<cik_padded10>`.
+
+Aggregation summary (2026-05-09):
+
+| step | count |
+|---|---:|
+| EDGAR (cik, period) buckets pivoted | 35,156 |
+| Rows dropped — non-positive revenue | 14,249 |
+| Rows skipped — Alpha already has (symbol, fiscalDateEnding) | 11,590 |
+| Rows inserted into industry_metrics_raw | **9,317** |
+| Distinct new firms added | 3,083 |
+
+Of the 3,083 newly-added EDGAR firms: 2,485 have real tickers (where
+the ticker wasn't already in Alpha for any period), 598 are
+`EDGAR_<cik>`-keyed because SEC has no ticker for that CIK.
+
+### 6.3 Stage 3 — Coverage delta
+
+`industry_metrics_raw` row counts by source (post-Stage-2):
+
+| source | rows | distinct firms | distinct NAICS-6 |
+|---|---:|---:|---:|
+| alpha | 137,579 | 3,667 | 388 |
+| edgar | 9,317 | 3,083 | 407 |
+
+Delta in NAICS-6 coverage at each digit level (firm count `≥N`):
+
+| digit | total NAICS pre→post | ≥2 firms pre→post (Δ) | ≥5 (Δ) | ≥8 (Δ) | ≥10 (Δ) | ≥20 (Δ) | ≥50 (Δ) |
+|---|---|---|---|---|---|---|---|
+| 6 | 388 → **473** (+85) | 252 → **335** (+83) | 132 → **194** (+62) | 92 → **131** (+39) | 80 → **110** (+30) | 41 → **62** (+21) | 10 → **20** (+10) |
+| 5 | 307 → 367 (+60) | 220 → 278 (+58) | 119 → 166 (+47) | 83 → 116 (+33) | 70 → 98 (+28) | 43 → 58 (+15) | 14 → 22 (+8) |
+| 4 | 213 → 232 (+19) | 177 → 199 (+22) | 109 → 150 (+41) | 84 → 114 (+30) | 71 → 97 (+26) | 45 → 62 (+17) | 16 → 23 (+7) |
+| 3 | 82 → 85 (+3) | 75 → 81 (+6) | 68 → 72 (+4) | 59 → 65 (+6) | 55 → 63 (+8) | 39 → 49 (+10) | 15 → 25 (+10) |
+| 2 | 24 → 24 | 24 → 24 | 23 → 23 | 23 → 23 | 22 → 22 | 20 → 22 (+2) | 18 → 19 (+1) |
+
+Headline: **NAICS-6 codes meeting the ≥2-firm threshold went from 252 to 335 (+33%)**.
+Codes meeting ≥5 went from 132 to 194 (+47%). The realism gate's de
+facto threshold is sample_size ≥ 10 (medium tier); NAICS-6 codes
+clearing that bar went from 80 to 110 (+38%).
+
+### 6.4 ExpressLogix 488510 (Freight Transportation Arrangement)
+
+| | pre | post |
+|---|---:|---:|
+| Distinct firms | 3 (CHRW, EXPD, HUBG) | **9** |
+| Source breakdown post | — | 3 alpha + 6 EDGAR-only |
+
+The 6 newly-added 488510 firms are ticker-less CIKs (3 EDGAR_<cik>-keyed)
+plus 3 ticker'd firms (MGSD, NUTR, UNXP) that weren't in alpha_match. The
+freight-brokerage cohort is now ~3× larger. Future cohort_band_resolver
+queries against 488510 will draw from a deeper pool, with band stability
+benefits visible at the next solver run.
+
+### 6.5 Spot-check — NAICS-6 codes that were 1–2 firms in Alpha
+
+Top expansions among NAICS-6 codes that Alpha barely covered:
+
+| naics_6 | pre | post | delta | sector |
+|---|---:|---:|---:|---|
+| 523991 | 1 | 53 | +52 | Trust, Fiduciary, Custody |
+| 211130 | 1 | 33 | +32 | Crude Petroleum Extraction |
+| 111998 | 1 | 18 | +17 | Other Misc Crop Farming |
+| 335312 | 1 | 6 | +5 | Motor & Generator Mfg |
+| 336411 | 1 | 6 | +5 | Aircraft Mfg |
+| 337122 | 1 | 6 | +5 | Non-upholstered Wood Household Furniture |
+| 423310 | 1 | 6 | +5 | Lumber Wholesale |
+| 423690 | 1 | 6 | +5 | Other Electronic Parts Wholesale |
+| 325211 | 2 | 6 | +4 | Plastics Material & Resin Mfg |
+| 334511 | 2 | 6 | +4 | Search/Detection/Navigation Mfg |
+| 456110 | 2 | 6 | +4 | Pharmacies & Drug Stores |
+| 811111 | 2 | 6 | +4 | General Auto Repair |
+
+### 6.6 Newly-covered NAICS-6 codes (didn't exist in Alpha at all)
+
+85 NAICS-6 codes are newly represented in `industry_metrics_raw`. Top
+by firm count:
+
+| naics_6 | firms | title |
+|---|---:|---|
+| 713990 | 24 | All Other Amusement and Recreation Industries |
+| 454110 | 18 | Vending Machine Operators |
+| 325411 | 18 | Medicinal and Botanical Manufacturing |
+| 459990 | 17 | All Other Misc Store Retailers |
+| 517919 | 14 | All Other Telecommunications |
+| 523140 | 12 | Commodity Contracts Dealing |
+| 333249 | 9 | Other Industrial Machinery Mfg |
+| 522298 | 9 | All Other Nondepository Credit Intermediation |
+| 334210 | 9 | Telephone Apparatus Manufacturing |
+| 621399 | 8 | Offices of All Other Misc Health Practitioners |
+
+### 6.7 Caveats
+
+- **Cap_category for EDGAR-only firms is approximated from trailing 4Q
+  revenue** (revenue < $250M → small, < $2B → mid, else large) since
+  market_cap isn't in EDGAR. This may mis-sort firms whose enterprise
+  value diverges from revenue scale. Acceptable for cohort resolution
+  (cap_category gates cohort widening, not band computation).
+- **EDGAR-derived ratios are not yet validated against Alpha-derived
+  ratios on the same firm-quarter.** Per the directive's plan, the next
+  step is a sanity check (cogs% within ±2pp on overlap firms) before
+  considering flipping the dedupe preference to EDGAR.
+- **Sanity guards null individual ratios but keep the row.** A row that
+  passed revenue check but had an out-of-range debt_to_equity (say,
+  because tse was near zero) will still contribute to other metrics'
+  cohorts. This matches Alpha's behavior — the realism gate's per-metric
+  cohort sums null values, not whole rows.
+- **EDGAR pulls 4-8 quarters back by default** (`SEC_EDGAR_QUARTERS_BACK`
+  env var). Alpha's history goes back to 2015. EDGAR's per-firm history
+  in `industry_metrics_raw` is therefore shallower; the ~37 quarters/firm
+  median for Alpha drops to ~3 quarters/firm for EDGAR-only rows. Deeper
+  history would require expanding the Frames pull horizon.
+
+## 7. Summary — what the data says about the freight-brokerage hypothesis
 
 - The hypothesis was that 488510 is silently aggregating up to all-of-NAICS-488 trucking. **For the realism gate, this is not happening.** 488510 has 3 firms × ~15 quarters = 129 rows in Alpha. The `post_intake_industry_baseline_lookup` aggregates to 45 sample-size rows at L6 with confidence=high; the realism cascade picks NAICS-6 directly for cogs / gross_margin / ebitda / net_income / sga / capex / current_ratio / debt_to_equity / debt_to_assets / ap_days_dpo / inventory_days.
 - The metrics where 488510 DOES fall through:
