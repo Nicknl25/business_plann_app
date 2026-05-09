@@ -2505,7 +2505,7 @@ def _run_post_cascade_completion(
   # convergence_running and the acceptance gate's stage_reached_finalize
   # check fails.
   try:
-    from client_intake_and_finmo.post_intake_convergence.runtime import (  # type: ignore
+    from client_intake_and_finmo.post_intake_state.runner import (  # type: ignore
       _persist_unified_convergence_state,
     )
     from client_intake_and_finmo.post_intake_resolution_state import (  # type: ignore

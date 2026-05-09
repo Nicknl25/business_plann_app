@@ -26,14 +26,30 @@ safely deleted.
 
 ## Recommended migration sequence
 
-1. **Extract `_persist_unified_convergence_state`** to a new
-   `post_intake_persistence/` module. Update orchestrator.py:2483 import.
+1. ~~**Extract `_persist_unified_convergence_state`**~~ **Done 2026-05-09**
+   — wrapper added to `post_intake_state/runner.py`; orchestrator.py
+   updated to import from the new location. The convergence-package copy
+   stays in place because the dead `runner.py` GPT loop still calls it
+   internally; it disappears when the directory is deleted in step 5.
 2. **Extract `_build_planning_context_summary_payload`** to either a new
    `post_intake_planning_context/` module or merge into
-   `post_intake_state/`. Update intake_consult.py:84.
-3. **Audit each public re-export consumer** (lines 87-98) — grep the
-   codebase for `convergence_build_retry_scope_payload` etc. If no live
-   callers, remove from `__all__` and the re-export block.
+   `post_intake_state/`. Update intake_consult.py:84. **DEFERRED** — the
+   helper depends on `_compact_summary_section` and
+   `_build_planning_mode_context`, which are also imported by
+   `post_intake_contracts/runner.py` (line 2793). Migration touches
+   three modules and merits a focused commit + E2E.
+3. **Audit each public re-export consumer** (intake_consult.py
+   lines 87-98) — `post_intake_contracts/runner.py` calls every one of
+   the `convergence_*` aliases (lines 2758, 3394, 6019-6176). They are
+   LIVE, not Phase-8-bypassed. The earlier audit's "most likely
+   Phase-8-bypassed" guess was wrong; do not delete without first
+   relocating those public symbols (`build_unified_convergence_contract_policy`,
+   `unified_convergence_contract_constraints`,
+   `validate_unified_convergence_contract_horizon`,
+   `build_retry_scope_payload`, `evaluate_retry_improvement`,
+   `full_horizon_quarters`, `full_horizon_retry_scope_mode`,
+   `retry_scope_lever_ids`, `retry_scope_quarters`,
+   `subset_numeric_solver_contract`).
 4. **Remove bind_runtime_dependencies hooks** from intake_consult.py
    (lines 66-67, 221-222) once the runtime helpers are extracted.
 5. **Delete `python/client_intake_and_finmo/post_intake_convergence/`**
