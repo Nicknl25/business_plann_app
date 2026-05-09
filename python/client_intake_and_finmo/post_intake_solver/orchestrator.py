@@ -2104,7 +2104,7 @@ def _run_post_cascade_completion(
       solver_input_targets_payload=realism_solver_input_targets_payload,
       horizon=int(horizon or 20),
       conn=conn,
-      max_iterations=3,
+      max_iterations=_GAP_B_MAX_ITERATIONS,
     )
     if realism_remediation_diag.get("final_realism_payload"):
       realism_gate_payload = realism_remediation_diag["final_realism_payload"]
