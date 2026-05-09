@@ -62,6 +62,10 @@ class RealismCheckResult:
   planning_mode_floor_applied: Optional[float] = None
   planning_mode_active: Optional[str] = None
   tolerated_issue_code: Optional[str] = None
+  # Phase 9 audit Bucket B — for per_year_aggregate rows, this is the
+  # year (1..5) the result corresponds to. None for per_quarter,
+  # year_one_aggregate, trajectory_check, and other aggregations.
+  year_index: Optional[int] = None
 
   def to_dict(self) -> Dict[str, Any]:
     return {
@@ -70,6 +74,7 @@ class RealismCheckResult:
       "derivation_formula_key": self.derivation_formula_key,
       "quarter_aggregation": self.quarter_aggregation,
       "quarter_index": self.quarter_index,
+      "year_index": self.year_index,
       "actual_value": self.actual_value,
       "band_min": self.band_min,
       "band_max": self.band_max,
@@ -120,6 +125,7 @@ def _applicability_skip(
   financials_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int],
+  year_index: Optional[int] = None,
 ) -> Optional[str]:
   """Return a non-empty reason string when the check should be skipped, else None."""
   if not rule_key:
@@ -143,9 +149,18 @@ def _applicability_skip(
       return "skip_operating_expense_zero"
     return None
   if rule == "skip_when_pretax_income_nonpositive":
+    # Phase 9 audit fix #2 — when called for a per_year_aggregate row,
+    # scope the skip to that year's 4 quarters; pre-fix the rule always
+    # checked Y1 only, which silently skipped Y2..Y5 tax checks for any
+    # business with a Y1 loss.
+    if year_index is not None:
+      y = int(year_index)
+      quarters = tuple(range((y - 1) * 4 + 1, (y - 1) * 4 + 5))
+    else:
+      quarters = (1, 2, 3, 4)
     pretax = 0.0
     found = False
-    for q in (1, 2, 3, 4):
+    for q in quarters:
       v = _safe_float(_quarter_field(finmo_json, q, "pretax_income"))
       if v is None:
         v = _safe_float(_quarter_field(finmo_json, q, "ebt"))
@@ -198,7 +213,16 @@ def _applicability_skip(
       return "skip_debt_zero"
     return None
   if rule == "skip_when_distributions_zero":
-    distributions_total = 0.0
+    # Phase 9 audit fix — when called for a per_year_aggregate row,
+    # scope the skip to that year's 4 quarters. Pre-fix the rule was
+    # horizon-wide: any business with zero distributions across all 20
+    # quarters silently skipped the whole metric, hiding "we forgot to
+    # schedule distributions" and also masking Y2..Y5 distribution drift.
+    if year_index is not None:
+      y = int(year_index)
+      target_quarters = set(range((y - 1) * 4 + 1, (y - 1) * 4 + 5))
+    else:
+      target_quarters = None
     nonzero = False
     for row in (finmo_json or {}).get("quarter_rows") or []:
       if not isinstance(row, dict):
@@ -206,12 +230,13 @@ def _applicability_skip(
       qi = int(_safe_float(row.get("quarter_index")) or 0)
       if qi < 1:
         continue
+      if target_quarters is not None and qi not in target_quarters:
+        continue
       v = _safe_float(row.get("distributions"))
       if v is None:
         v = _safe_float(row.get("owner_distributions"))
       if v is None:
         continue
-      distributions_total += float(v)
       if abs(float(v)) > 1e-6:
         nonzero = True
     if not nonzero:
@@ -512,13 +537,27 @@ def validate_industry_realism_bands(
       # the cascade is actively trying to repair it.
       continue
 
-    quarter_indices: List[Optional[int]]
+    # Phase 9 audit Bucket B — per_year_aggregate runs the formula for
+    # each year (Y1..Y5) so Y2..Y5 drift on tax / capex / capital
+    # structure / distributions becomes visible. Iteration values for
+    # per_year_aggregate are year_indices (1..5), passed to the formula
+    # via evaluate_realism_formula's year_index kwarg. For per_quarter,
+    # values are quarter_indices (1..20). For year_one_aggregate /
+    # horizon_average / others, values are [None] (single check).
+    iteration_values: List[Optional[int]]
+    iteration_kind: str
     if aggregation == "per_quarter":
-      quarter_indices = list(range(1, HORIZON_QUARTERS + 1))
+      iteration_values = list(range(1, HORIZON_QUARTERS + 1))
+      iteration_kind = "quarter"
+    elif aggregation == "per_year_aggregate":
+      iteration_values = list(range(1, (HORIZON_QUARTERS // 4) + 1))
+      iteration_kind = "year"
     elif aggregation in ("year_one_aggregate", "horizon_average"):
-      quarter_indices = [None]
+      iteration_values = [None]
+      iteration_kind = "none"
     else:
-      quarter_indices = [None]
+      iteration_values = [None]
+      iteration_kind = "none"
 
     # Phase 6 Step 5 — band resolution cascade. Phase 3 calibrated band
     # is preferred when present; NAICS baseline is the fallback. The
@@ -625,7 +664,20 @@ def validate_industry_realism_bands(
       )
       continue
 
-    for q in quarter_indices:
+    for iter_value in iteration_values:
+      # Normalize the iteration value into the legacy `q` and the new
+      # `year_index_arg`. Per-quarter rows put the value in q; per-year
+      # rows put it in year_index_arg; year_one_aggregate / others pass
+      # both as None.
+      if iteration_kind == "quarter":
+        q = iter_value
+        year_index_arg: Optional[int] = None
+      elif iteration_kind == "year":
+        q = None
+        year_index_arg = iter_value
+      else:
+        q = None
+        year_index_arg = None
       skip_reason = _applicability_skip(
         rule_key=row.get("applicability_rule_key"),
         business_naics_6=business_naics_6,
@@ -633,6 +685,7 @@ def validate_industry_realism_bands(
         financials_json=financials,
         finmo_json=finmo_json,
         quarter_index=q,
+        year_index=year_index_arg,
       )
       if skip_reason is not None:
         results.append(
@@ -642,6 +695,7 @@ def validate_industry_realism_bands(
             derivation_formula_key=formula_key,
             quarter_aggregation=aggregation,
             quarter_index=q,
+            year_index=year_index_arg,
             actual_value=None,
             band_min=_safe_float(band_min),
             band_max=_safe_float(band_max),
@@ -669,6 +723,7 @@ def validate_industry_realism_bands(
           model_input_json=model_input_json,
           finmo_json=finmo_json,
           quarter_index=q,
+          year_index=year_index_arg,
         )
       except Exception as exc:
         results.append(
@@ -844,6 +899,7 @@ def validate_industry_realism_bands(
         derivation_formula_key=formula_key,
         quarter_aggregation=aggregation,
         quarter_index=q,
+        year_index=year_index_arg,
         actual_value=float(actual),
         band_min=_safe_float(band_min),
         band_max=_safe_float(band_max),

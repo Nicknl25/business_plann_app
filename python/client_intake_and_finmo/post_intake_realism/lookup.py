@@ -22,9 +22,15 @@ REALISM_CHECK_TABLE_NAME = "post_intake_finalize_realism_check_lookup"
 # Phase 9 Phase D adds "trajectory_check" for viability timeline checks
 # (Q5-Q11 recovery trend, Q11+ no-relapse, etc.) where the validator
 # evaluates a per-quarter sequence rather than a single ratio.
+#
+# Phase 9 audit Bucket B adds "per_year_aggregate" — a row with this
+# aggregation runs 5 times (Y1..Y5), each spanning 4 quarters, so
+# Y2..Y5 drift on tax rate / capex / distributions / capital structure
+# is no longer invisible. year_one_aggregate is preserved for back-compat.
 _QUARTER_AGGREGATIONS = {
   "per_quarter",
   "year_one_aggregate",
+  "per_year_aggregate",
   "horizon_average",
   "trajectory_check",
 }
@@ -536,8 +542,8 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
   _row(
     metric_key="effective_tax_rate",
     finmo_line_label="Taxes",
-    derivation_formula_key="taxes_div_pretax_income_year_one",
-    quarter_aggregation="year_one_aggregate",
+    derivation_formula_key="taxes_div_pretax_income_per_year",
+    quarter_aggregation="per_year_aggregate",
     applicability_rule_key="skip_when_pretax_income_nonpositive",
     tolerance_bps_high_confidence=500,
     tolerance_bps_medium_confidence=1000,
@@ -551,7 +557,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=[],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Year-one aggregate (per-quarter tax rates noisy). Promoted to hard_fail — n=1,519 IRS_SOI rows; tax rate that's far off industry typical is a signal of either tax-loss-carry-forward or a model error.",
+    notes="Per-year aggregate (Y1..Y5). Each year's tax rate is taxes/pretax_income summed over that year's 4 quarters; a year with non-positive pretax_income is skipped per applicability rule. Phase 9 audit Bucket B promoted from year_one_aggregate so Y2..Y5 tax drift is visible. n=1,519 IRS_SOI rows; out-of-band tax rate signals tax-loss-carry-forward or model error.",
   ),
   _row(
     metric_key="ebitda_margin",
@@ -734,8 +740,8 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
   _row(
     metric_key="total_assets_to_revenue",
     finmo_line_label="Total Assets",
-    derivation_formula_key="total_assets_div_revenue",
-    quarter_aggregation="year_one_aggregate",
+    derivation_formula_key="total_assets_div_revenue_per_year",
+    quarter_aggregation="per_year_aggregate",
     tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
@@ -747,13 +753,13 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["balance_sheet::Owner's Capital"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Year-one total assets / revenue. Cross-check on BS-vs-P&L scale (master-diagnostic Part 9.2).",
+    notes="Per-year (Y1..Y5) end-of-year total assets / sum-of-year revenue. Cross-check on BS-vs-P&L scale (master-diagnostic Part 9.2). Phase 9 audit Bucket B promoted from year_one_aggregate; pre-fix the formula returned None for year_one_aggregate (it required a quarter_index) so the metric was silently skipped every run.",
   ),
   _row(
     metric_key="owners_capital_percent_of_assets",
     finmo_line_label="Owner's Capital",
-    derivation_formula_key="owners_capital_div_total_assets",
-    quarter_aggregation="year_one_aggregate",
+    derivation_formula_key="owners_capital_div_total_assets_per_year",
+    quarter_aggregation="per_year_aggregate",
     tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
@@ -766,7 +772,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["balance_sheet::Other Equity"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Equity / assets. Cross-check on capital structure.",
+    notes="Per-year (Y1..Y5) end-of-year equity / total assets. Capital-structure cross-check. Phase 9 audit Bucket B promoted from year_one_aggregate; pre-fix the formula was silently skipped (see total_assets_to_revenue note).",
   ),
   _row(
     metric_key="current_ratio",
@@ -874,8 +880,8 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
   _row(
     metric_key="capex_percent_of_revenue",
     finmo_line_label="Capital Expenditures",
-    derivation_formula_key="capex_div_revenue_year_one",
-    quarter_aggregation="year_one_aggregate",
+    derivation_formula_key="capex_div_revenue_per_year",
+    quarter_aggregation="per_year_aggregate",
     tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
@@ -888,13 +894,13 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["revenue::Capacity"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Year-one capex / revenue. Cross-check on PPE buildup.",
+    notes="Per-year (Y1..Y5) capex / revenue. Cross-check on PPE buildup. Phase 9 audit Bucket B promoted from year_one_aggregate so Y2..Y5 capex bursts are visible.",
   ),
   _row(
     metric_key="distributions_percent_of_net_income",
     finmo_line_label="Distributions",
-    derivation_formula_key="distributions_div_net_income_year_one",
-    quarter_aggregation="year_one_aggregate",
+    derivation_formula_key="distributions_div_net_income_per_year",
+    quarter_aggregation="per_year_aggregate",
     applicability_rule_key="skip_when_distributions_zero",
     tolerance_bps_high_confidence=_RATIO_TOL_HIGH,
     tolerance_bps_medium_confidence=_RATIO_TOL_MEDIUM,
@@ -908,7 +914,7 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
     stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
     deadline_quarter=20,
-    notes="Distributions / net income. Skip when distributions is zero (legitimate for early-stage / pre-profit).",
+    notes="Per-year (Y1..Y5) distributions / net income. Skip per-year when distributions is zero for that year (legitimate for early-stage / pre-profit). Phase 9 audit Bucket B promoted from year_one_aggregate; the per-year skip replaces the prior horizon-wide silent skip.",
   ),
 
   # ============================================================

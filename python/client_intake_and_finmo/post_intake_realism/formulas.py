@@ -80,6 +80,37 @@ def _finmo_year_one_sum(finmo_json: Dict[str, Any], field_name: str) -> Optional
   return total if found else None
 
 
+def _year_quarter_range(year_index: int) -> tuple:
+  """Map year 1..5 to that year's 4 quarters. Y1 = Q1..Q4, Y5 = Q17..Q20."""
+  y = int(year_index)
+  start = (y - 1) * 4 + 1
+  return tuple(range(start, start + 4))
+
+
+def _finmo_year_n_sum(
+  finmo_json: Dict[str, Any], year_index: int, field_name: str
+) -> Optional[float]:
+  """Sum a quarterly field across the four quarters of the given year."""
+  total = 0.0
+  found = False
+  for q in _year_quarter_range(year_index):
+    value = _finmo_quarter_field(finmo_json, q, field_name)
+    if value is None:
+      continue
+    total += float(value)
+    found = True
+  return total if found else None
+
+
+def _finmo_year_end_field(
+  finmo_json: Dict[str, Any], year_index: int, field_name: str
+) -> Optional[float]:
+  """Return the year-end (last-quarter-of-year) value for a stock field."""
+  y = int(year_index)
+  q = y * 4
+  return _finmo_quarter_field(finmo_json, q, field_name)
+
+
 def _ratio(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
   if numerator is None or denominator is None:
     return None
@@ -545,6 +576,98 @@ def _formula_distributions_div_net_income_year_one(
 
 
 # ----------------------------------------------------------------------------
+# Phase 9 audit Bucket B — per-year aggregate formulas (Y1..Y5).
+#
+# Each takes a ``year_index`` (1..5) and returns the metric value for that
+# year. Aggregation conventions:
+#   - flow metrics (taxes, capex, distributions, revenue, net_income) — sum
+#     across the four quarters of the year.
+#   - stock metrics (total_assets, owners_capital) — read the year-end
+#     (last-quarter-of-year) snapshot.
+# ----------------------------------------------------------------------------
+
+
+def _formula_taxes_div_pretax_income_per_year(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  year_index: Optional[int] = None,
+) -> Optional[float]:
+  _ = model_input_json
+  if year_index is None:
+    return None
+  taxes = _finmo_year_n_sum(finmo_json, year_index, "taxes")
+  pretax_total = 0.0
+  found = False
+  for q in _year_quarter_range(year_index):
+    pretax_q = _quarter_pretax_income(finmo_json, q)
+    if pretax_q is not None:
+      pretax_total += float(pretax_q)
+      found = True
+  if not found:
+    return None
+  return _ratio(taxes, pretax_total)
+
+
+def _formula_capex_div_revenue_per_year(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  year_index: Optional[int] = None,
+) -> Optional[float]:
+  _ = model_input_json
+  if year_index is None:
+    return None
+  capex = _finmo_year_n_sum(finmo_json, year_index, "capital_expenditures")
+  revenue = _finmo_year_n_sum(finmo_json, year_index, "revenue")
+  return _ratio(capex, revenue)
+
+
+def _formula_distributions_div_net_income_per_year(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  year_index: Optional[int] = None,
+) -> Optional[float]:
+  _ = model_input_json
+  if year_index is None:
+    return None
+  distributions = _finmo_year_n_sum(finmo_json, year_index, "distributions")
+  if distributions is None:
+    distributions = _finmo_year_n_sum(finmo_json, year_index, "owner_distributions")
+  net_income = _finmo_year_n_sum(finmo_json, year_index, "net_income")
+  return _ratio(distributions, net_income)
+
+
+def _formula_total_assets_div_revenue_per_year(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  year_index: Optional[int] = None,
+) -> Optional[float]:
+  _ = model_input_json
+  if year_index is None:
+    return None
+  total_assets = _finmo_year_end_field(finmo_json, year_index, "total_assets")
+  revenue = _finmo_year_n_sum(finmo_json, year_index, "revenue")
+  return _ratio(total_assets, revenue)
+
+
+def _formula_owners_capital_div_total_assets_per_year(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  year_index: Optional[int] = None,
+) -> Optional[float]:
+  _ = model_input_json
+  if year_index is None:
+    return None
+  owners_capital = _finmo_year_end_field(finmo_json, year_index, "owners_capital")
+  total_assets = _finmo_year_end_field(finmo_json, year_index, "total_assets")
+  return _ratio(owners_capital, total_assets)
+
+
+# ----------------------------------------------------------------------------
 # Phase 9 Phase D — Universal viability timeline formulas.
 #
 # Each returns a float interpretation of a trajectory check. Positive
@@ -736,6 +859,12 @@ _FORMULA_REGISTRY: Dict[str, Callable[..., Optional[float]]] = {
   "operating_cash_flow_div_revenue": _formula_operating_cash_flow_div_revenue,
   "capex_div_revenue_year_one": _formula_capex_div_revenue_year_one,
   "distributions_div_net_income_year_one": _formula_distributions_div_net_income_year_one,
+  # Phase 9 audit Bucket B — per-year aggregate formulas (Y1..Y5).
+  "taxes_div_pretax_income_per_year": _formula_taxes_div_pretax_income_per_year,
+  "capex_div_revenue_per_year": _formula_capex_div_revenue_per_year,
+  "distributions_div_net_income_per_year": _formula_distributions_div_net_income_per_year,
+  "total_assets_div_revenue_per_year": _formula_total_assets_div_revenue_per_year,
+  "owners_capital_div_total_assets_per_year": _formula_owners_capital_div_total_assets_per_year,
   # Phase 9 Phase D — universal viability timeline trajectory checks.
   "trajectory_ebitda_positive_at_quarter": _formula_trajectory_ebitda_positive_at_quarter,
   "trajectory_ebitda_recovery_trend": _formula_trajectory_ebitda_recovery_trend,
@@ -756,12 +885,24 @@ def evaluate_realism_formula(
   model_input_json: Dict[str, Any],
   finmo_json: Dict[str, Any],
   quarter_index: Optional[int] = None,
+  year_index: Optional[int] = None,
 ) -> Optional[float]:
+  """Dispatch to the named formula. Per-year formulas take ``year_index``;
+  per-quarter and trajectory formulas ignore it."""
   key = str(formula_key or "").strip()
   fn = _FORMULA_REGISTRY.get(key)
   if fn is None:
     raise RealismFormulaNotRegistered(
       f"post_intake_realism_formula_not_registered: formula_key={key}"
+    )
+  # Per-year formulas take year_index instead of quarter_index. The
+  # registry suffix `_per_year` is the dispatch hint; per-quarter
+  # formulas keep their existing signature.
+  if key.endswith("_per_year"):
+    return fn(
+      model_input_json=model_input_json or {},
+      finmo_json=finmo_json or {},
+      year_index=year_index,
     )
   return fn(
     model_input_json=model_input_json or {},
