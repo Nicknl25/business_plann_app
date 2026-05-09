@@ -19,8 +19,34 @@ from client_intake_and_finmo.intake_submission import get_mysql_connection
 
 REALISM_CHECK_TABLE_NAME = "post_intake_finalize_realism_check_lookup"
 
-_QUARTER_AGGREGATIONS = {"per_quarter", "year_one_aggregate", "horizon_average"}
+# Phase 9 Phase D adds "trajectory_check" for viability timeline checks
+# (Q5-Q11 recovery trend, Q11+ no-relapse, etc.) where the validator
+# evaluates a per-quarter sequence rather than a single ratio.
+_QUARTER_AGGREGATIONS = {
+  "per_quarter",
+  "year_one_aggregate",
+  "horizon_average",
+  "trajectory_check",
+}
 _GATE_KINDS = {"hard_fail", "warn", "skip_if_no_coverage"}
+
+# Phase 9 Phase D — adaptation family vocabulary. Mirrors
+# post_intake_adaptive_planning.policy.ADAPTATION_FAMILIES so the
+# issue router can resolve metric → family lookups deterministically.
+_ADAPTATION_FAMILIES = {
+  "ramp_adaptation",
+  "turnaround_recovery_q5_q11",
+  "industry_normalization",
+  "operating_scale_adaptation",
+  "funding_adaptation",
+  "balance_sheet_adaptation",
+  "schedule_adaptation",
+  "revenue_achievability",
+  "payroll_ratio_excess",
+  "leverage_excess",
+  "capital_intensity_adaptation",
+  "margin_compression",
+}
 
 _ENSURE_TABLE_READY = False
 _ENSURE_TABLE_LOCK = threading.Lock()
@@ -88,17 +114,58 @@ def _ensure_realism_check_lookup_table(conn) -> None:
           tolerance_bps_generic_default INT NULL,
           gate_kind VARCHAR(32) NOT NULL,
           governs_model_input_lever_id VARCHAR(128) NULL,
+          issue_family VARCHAR(64) NULL,
+          remediation_family VARCHAR(64) NULL,
+          primary_levers TEXT NULL,
+          secondary_levers TEXT NULL,
+          stage_sensitivity TEXT NULL,
+          deadline_quarter TINYINT UNSIGNED NULL,
           notes LONGTEXT NULL,
           active TINYINT(1) NOT NULL DEFAULT 1,
           created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
           updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
           UNIQUE KEY uniq_realism_check_metric_aggregation (metric_key, quarter_aggregation),
           KEY idx_realism_check_active (active),
-          KEY idx_realism_check_gate_kind (gate_kind)
+          KEY idx_realism_check_gate_kind (gate_kind),
+          KEY idx_realism_check_issue_family (issue_family),
+          KEY idx_realism_check_remediation_family (remediation_family)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
       )
+      # Phase 9 Phase D — idempotent ALTER TABLE for already-deployed
+      # databases. Add the doctrine metadata columns if they are not
+      # already present. Each ADD COLUMN runs in its own try/except so
+      # MySQL's "Duplicate column name" error doesn't abort the others.
+      _phase9_d_columns = (
+        ("issue_family", "VARCHAR(64) NULL"),
+        ("remediation_family", "VARCHAR(64) NULL"),
+        ("primary_levers", "TEXT NULL"),
+        ("secondary_levers", "TEXT NULL"),
+        ("stage_sensitivity", "TEXT NULL"),
+        ("deadline_quarter", "TINYINT UNSIGNED NULL"),
+      )
+      for column_name, column_decl in _phase9_d_columns:
+        try:
+          cur.execute(
+            f"ALTER TABLE {REALISM_CHECK_TABLE_NAME} ADD COLUMN {column_name} {column_decl}"
+          )
+        except Exception:
+          # Column already exists or other ALTER failure — ignore.
+          pass
+      for index_name, index_column in (
+        ("idx_realism_check_issue_family", "issue_family"),
+        ("idx_realism_check_remediation_family", "remediation_family"),
+      ):
+        try:
+          cur.execute(
+            f"ALTER TABLE {REALISM_CHECK_TABLE_NAME} ADD KEY {index_name} ({index_column})"
+          )
+        except Exception:
+          pass
       for row in _DEFAULT_REALISM_CHECK_ROWS:
+        primary_levers = row.get("primary_levers") or []
+        secondary_levers = row.get("secondary_levers") or []
+        stage_sensitivity = row.get("stage_sensitivity") or {}
         cur.execute(
           f"""
           INSERT INTO {REALISM_CHECK_TABLE_NAME} (
@@ -113,9 +180,15 @@ def _ensure_realism_check_lookup_table(conn) -> None:
             tolerance_bps_generic_default,
             gate_kind,
             governs_model_input_lever_id,
+            issue_family,
+            remediation_family,
+            primary_levers,
+            secondary_levers,
+            stage_sensitivity,
+            deadline_quarter,
             notes,
             active
-          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
           ON DUPLICATE KEY UPDATE
             finmo_line_label = VALUES(finmo_line_label),
             derivation_formula_key = VALUES(derivation_formula_key),
@@ -126,6 +199,12 @@ def _ensure_realism_check_lookup_table(conn) -> None:
             tolerance_bps_generic_default = VALUES(tolerance_bps_generic_default),
             gate_kind = VALUES(gate_kind),
             governs_model_input_lever_id = VALUES(governs_model_input_lever_id),
+            issue_family = VALUES(issue_family),
+            remediation_family = VALUES(remediation_family),
+            primary_levers = VALUES(primary_levers),
+            secondary_levers = VALUES(secondary_levers),
+            stage_sensitivity = VALUES(stage_sensitivity),
+            deadline_quarter = VALUES(deadline_quarter),
             notes = VALUES(notes),
             active = VALUES(active)
           """,
@@ -141,6 +220,12 @@ def _ensure_realism_check_lookup_table(conn) -> None:
             int(row["tolerance_bps_generic_default"]) if row.get("tolerance_bps_generic_default") is not None else None,
             _clean_text(row.get("gate_kind")) or "warn",
             _clean_text(row.get("governs_model_input_lever_id")) or None,
+            _clean_text(row.get("issue_family")) or None,
+            _clean_text(row.get("remediation_family")) or None,
+            json.dumps(primary_levers) if primary_levers else None,
+            json.dumps(secondary_levers) if secondary_levers else None,
+            json.dumps(stage_sensitivity) if stage_sensitivity else None,
+            int(row["deadline_quarter"]) if row.get("deadline_quarter") is not None else None,
             _clean_text(row.get("notes")) or None,
             1 if row.get("active", True) else 0,
           ),
@@ -183,6 +268,12 @@ def _row(
   tolerance_bps_generic_default: Optional[int] = None,
   gate_kind: str = "warn",
   governs_model_input_lever_id: Optional[str] = None,
+  issue_family: Optional[str] = None,
+  remediation_family: Optional[str] = None,
+  primary_levers: Optional[List[str]] = None,
+  secondary_levers: Optional[List[str]] = None,
+  stage_sensitivity: Optional[Dict[str, float]] = None,
+  deadline_quarter: Optional[int] = None,
   notes: str = "",
   active: bool = True,
 ) -> Dict[str, Any]:
@@ -198,9 +289,58 @@ def _row(
     "tolerance_bps_generic_default": tolerance_bps_generic_default,
     "gate_kind": gate_kind,
     "governs_model_input_lever_id": governs_model_input_lever_id,
+    "issue_family": issue_family,
+    "remediation_family": remediation_family,
+    "primary_levers": list(primary_levers) if primary_levers else None,
+    "secondary_levers": list(secondary_levers) if secondary_levers else None,
+    "stage_sensitivity": dict(stage_sensitivity) if stage_sensitivity else None,
+    "deadline_quarter": deadline_quarter,
     "notes": notes,
     "active": active,
   }
+
+
+# Phase 9 Phase D — stage tolerance multipliers.
+#
+# When a metric is out-of-band, the multiplier widens the tolerance for
+# stage-appropriate cases (startups can absorb more deviation; mature
+# businesses get tighter expectations). Used by the issue router to
+# decide severity (adaptation_required vs stage_tolerable).
+_STAGE_SENSITIVITY_PROFITABILITY = {
+  # Startups can be deeply unprofitable through the loss window;
+  # mature businesses must be near-industry steady state.
+  "startup": 3.0,
+  "early": 2.0,
+  "operational": 1.2,
+  "mature": 0.8,
+}
+_STAGE_SENSITIVITY_RAMP_LIGHT = {
+  # Marketing %, R&D %, G&A % — startups invest more, mature less.
+  "startup": 1.5,
+  "early": 1.3,
+  "operational": 1.0,
+  "mature": 0.9,
+}
+_STAGE_SENSITIVITY_RAMP_HEAVY = {
+  # Payroll, capacity-driven costs — startups ramp slowly.
+  "startup": 1.6,
+  "early": 1.3,
+  "operational": 1.0,
+  "mature": 0.9,
+}
+_STAGE_SENSITIVITY_LEVERAGE = {
+  # Startups carry higher D/E, mature must steady.
+  "startup": 2.0,
+  "early": 1.5,
+  "operational": 1.0,
+  "mature": 0.8,
+}
+_STAGE_SENSITIVITY_FLAT = {
+  "startup": 1.0,
+  "early": 1.0,
+  "operational": 1.0,
+  "mature": 1.0,
+}
 
 
 # Module 3 v3 default tolerances. Two profiles, by metric kind:
@@ -241,6 +381,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Cost of Goods Sold",
+    issue_family="margin_compression",
+    remediation_family="margin_compression",
+    primary_levers=["expenses::Cost of Goods Sold"],
+    secondary_levers=["revenue::Unit Price"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=11,
     notes="Per-quarter COGS / revenue. Strong NAICS coverage (n=1,686). Promoted to hard_fail in v3 — high-confidence metric with broad NAICS-6/5/4 coverage.",
   ),
   _row(
@@ -252,8 +398,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="(Revenue - COGS) / revenue. Cross-check on COGS; warn-mode because hard_fail on COGS already catches the same condition.",
     governs_model_input_lever_id="expenses::Cost of Goods Sold",
+    issue_family="margin_compression",
+    remediation_family="margin_compression",
+    primary_levers=["expenses::Cost of Goods Sold", "revenue::Unit Price"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=11,
+    notes="(Revenue - COGS) / revenue. Cross-check on COGS; warn-mode because hard_fail on COGS already catches the same condition.",
   ),
   _row(
     metric_key="marketing_percent_of_revenue",
@@ -265,6 +417,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Marketing",
+    issue_family="industry_normalization",
+    remediation_family="industry_normalization",
+    primary_levers=["expenses::Marketing"],
+    secondary_levers=["expenses::General & Administrative"],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_LIGHT,
+    deadline_quarter=11,
     notes="SEC EDGAR-backed for many NAICS (n=421). Stays at warn until Module 6 marketing schedule replaces this metric's authority entirely.",
   ),
   _row(
@@ -276,6 +434,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="skip_if_no_coverage",
+    issue_family="industry_normalization",
+    remediation_family="industry_normalization",
+    primary_levers=["expenses::Marketing"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_LIGHT,
+    deadline_quarter=11,
     notes="FINMO does not split advertising from marketing today; the formula returns None to skip cleanly. Active row reserved for the future split.",
   ),
   _row(
@@ -289,6 +453,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Research & Development",
+    issue_family="industry_normalization",
+    remediation_family="industry_normalization",
+    primary_levers=["expenses::Research & Development"],
+    secondary_levers=["expenses::General & Administrative"],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_LIGHT,
+    deadline_quarter=11,
     notes="Skip when r_and_d_applicability disabled the lever; otherwise compare R&D / revenue against NAICS band.",
   ),
   _row(
@@ -301,6 +471,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Lease",
+    issue_family="operating_scale_adaptation",
+    remediation_family="operating_scale_adaptation",
+    primary_levers=["revenue::Unit Price", "revenue::Capacity", "revenue::Utilization"],
+    secondary_levers=["expenses::Lease"],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_HEAVY,
+    deadline_quarter=11,
     notes="FINMO emits a single `lease_rent` line; the realism check uses rent_percent_of_revenue band as the comparison.",
   ),
   _row(
@@ -312,8 +488,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Marketing + G&A combined per industry_metrics_raw SGA convention.",
     governs_model_input_lever_id="expenses::General & Administrative",
+    issue_family="industry_normalization",
+    remediation_family="industry_normalization",
+    primary_levers=["expenses::General & Administrative"],
+    secondary_levers=["expenses::Marketing"],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_LIGHT,
+    deadline_quarter=11,
+    notes="Marketing + G&A combined per industry_metrics_raw SGA convention.",
   ),
   _row(
     metric_key="payroll_percent_of_revenue",
@@ -325,6 +507,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Payroll",
+    issue_family="payroll_ratio_excess",
+    remediation_family="payroll_ratio_excess",
+    primary_levers=["expenses::Payroll"],
+    secondary_levers=["revenue::Capacity", "revenue::Utilization"],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_HEAVY,
+    deadline_quarter=11,
     notes="Reasonableness signal only — payroll is NOT clipped to fit revenue (Golden Rule preservation). Stays at warn because payroll/revenue NAICS coverage is uneven; out-of-band surfaces likely wage_positioning / labor_intensity_class mismatch.",
   ),
   _row(
@@ -336,8 +524,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Depreciation / revenue. Cross-check on capex schedule and PPE.",
     governs_model_input_lever_id="expenses::Depreciation",
+    issue_family="capital_intensity_adaptation",
+    remediation_family="capital_intensity_adaptation",
+    primary_levers=["schedules::Capital Expenditures"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Depreciation / revenue. Cross-check on capex schedule and PPE.",
   ),
   _row(
     metric_key="effective_tax_rate",
@@ -351,6 +545,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=3000,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Taxes",
+    issue_family="industry_normalization",
+    remediation_family="industry_normalization",
+    primary_levers=["expenses::Taxes"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
     notes="Year-one aggregate (per-quarter tax rates noisy). Promoted to hard_fail — n=1,519 IRS_SOI rows; tax rate that's far off industry typical is a signal of either tax-loss-carry-forward or a model error.",
   ),
   _row(
@@ -364,6 +564,19 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="expenses::Cost of Goods Sold",
+    issue_family="turnaround_recovery_q5_q11",
+    remediation_family="turnaround_recovery_q5_q11",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+      "expenses::Payroll",
+      "revenue::Unit Price",
+      "revenue::Utilization",
+    ],
+    secondary_levers=["revenue::Capacity"],
+    stage_sensitivity=_STAGE_SENSITIVITY_PROFITABILITY,
+    deadline_quarter=11,
     notes=(
       "EBITDA / revenue. Promoted back to hard_fail in Phase 4 — the "
       "target-seeking solver now lands EBITDA in band by construction: "
@@ -385,6 +598,17 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
+    issue_family="turnaround_recovery_q5_q11",
+    remediation_family="turnaround_recovery_q5_q11",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+      "revenue::Unit Price",
+    ],
+    secondary_levers=["expenses::Depreciation"],
+    stage_sensitivity=_STAGE_SENSITIVITY_PROFITABILITY,
+    deadline_quarter=11,
     notes="(EBITDA - depreciation) / revenue. Warn-mode because EBITDA hard_fail already catches the upstream condition.",
   ),
   _row(
@@ -396,6 +620,17 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
+    issue_family="turnaround_recovery_q5_q11",
+    remediation_family="turnaround_recovery_q5_q11",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+      "revenue::Unit Price",
+    ],
+    secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
+    stage_sensitivity=_STAGE_SENSITIVITY_PROFITABILITY,
+    deadline_quarter=11,
     notes="Net income / revenue. Warn-mode — downstream of EBITDA / interest / taxes which are individually gated.",
   ),
 
@@ -413,6 +648,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="balance_sheet::Accounts Receivable Days",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=["balance_sheet::Accounts Receivable Days"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_HEAVY,
+    deadline_quarter=20,
     notes="AR / revenue * 90. Strong NAICS coverage. Promoted to hard_fail.",
   ),
   _row(
@@ -426,6 +667,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="balance_sheet::Accounts Payable Days",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=["balance_sheet::Accounts Payable Days"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_HEAVY,
+    deadline_quarter=20,
     notes="AP / operating_expense_base * 90. Promoted to hard_fail.",
   ),
   _row(
@@ -439,6 +686,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_generic_default=_DAYS_TOL_GENERIC,
     gate_kind="hard_fail",
     governs_model_input_lever_id="balance_sheet::Inventory Days",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=["balance_sheet::Inventory Days"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_RAMP_HEAVY,
+    deadline_quarter=20,
     notes="Inventory / COGS * 90. Applicability gate skips for software / professional services NAICS-2. Stays at warn pending empirical sweep on inventory-heavy businesses.",
   ),
   _row(
@@ -450,8 +703,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Prepaid / revenue. SEC EDGAR-backed (n=827).",
     governs_model_input_lever_id="balance_sheet::Prepaid Expenses (% of Revenue)",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=["balance_sheet::Prepaid Expenses (% of Revenue)"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Prepaid / revenue. SEC EDGAR-backed (n=827).",
   ),
   _row(
     metric_key="deferred_revenue_percent_of_revenue",
@@ -463,8 +722,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Deferred revenue / revenue. SEC EDGAR-backed (n=745). Applicability gate skips for retail / accommodation / personal-services NAICS-2 sectors.",
     governs_model_input_lever_id="balance_sheet::Deferred Revenue (% of Revenue)",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=["balance_sheet::Deferred Revenue (% of Revenue)"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Deferred revenue / revenue. SEC EDGAR-backed (n=745). Applicability gate skips for retail / accommodation / personal-services NAICS-2 sectors.",
   ),
   _row(
     metric_key="total_assets_to_revenue",
@@ -476,6 +741,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
+    issue_family="capital_intensity_adaptation",
+    remediation_family="capital_intensity_adaptation",
+    primary_levers=["revenue::Capacity", "schedules::Capital Expenditures"],
+    secondary_levers=["balance_sheet::Owner's Capital"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
     notes="Year-one total assets / revenue. Cross-check on BS-vs-P&L scale (master-diagnostic Part 9.2).",
   ),
   _row(
@@ -488,8 +759,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Equity / assets. Cross-check on capital structure.",
     governs_model_input_lever_id="balance_sheet::Owner's Capital",
+    issue_family="leverage_excess",
+    remediation_family="leverage_excess",
+    primary_levers=["balance_sheet::Owner's Capital", "schedules::Debt Issuance (New Borrowing)"],
+    secondary_levers=["balance_sheet::Other Equity"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Equity / assets. Cross-check on capital structure.",
   ),
   _row(
     metric_key="current_ratio",
@@ -500,6 +777,16 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=None,
     gate_kind="hard_fail",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=[
+      "balance_sheet::Accounts Receivable Days",
+      "balance_sheet::Accounts Payable Days",
+      "balance_sheet::Inventory Days",
+    ],
+    secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
     notes="Current assets / current liabilities. Universal liquidity sanity — stays warn-only because NAICS variation is weak.",
   ),
   _row(
@@ -511,6 +798,15 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=None,
     gate_kind="hard_fail",
+    issue_family="balance_sheet_adaptation",
+    remediation_family="balance_sheet_adaptation",
+    primary_levers=[
+      "balance_sheet::Accounts Receivable Days",
+      "balance_sheet::Accounts Payable Days",
+    ],
+    secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
     notes="(Current assets - inventory) / current liabilities. Same as current_ratio but more conservative.",
   ),
   _row(
@@ -523,6 +819,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
+    issue_family="leverage_excess",
+    remediation_family="leverage_excess",
+    primary_levers=["schedules::Debt Issuance (New Borrowing)", "balance_sheet::Owner's Capital"],
+    secondary_levers=["balance_sheet::Distributions"],
+    stage_sensitivity=_STAGE_SENSITIVITY_LEVERAGE,
+    deadline_quarter=20,
     notes="(Short + long term debt) / total equity. Skip when total debt is zero.",
   ),
   _row(
@@ -535,6 +837,12 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
+    issue_family="leverage_excess",
+    remediation_family="leverage_excess",
+    primary_levers=["schedules::Debt Issuance (New Borrowing)", "balance_sheet::Owner's Capital"],
+    secondary_levers=["balance_sheet::Distributions"],
+    stage_sensitivity=_STAGE_SENSITIVITY_LEVERAGE,
+    deadline_quarter=20,
     notes="Total debt / total assets.",
   ),
 
@@ -550,6 +858,17 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
+    issue_family="turnaround_recovery_q5_q11",
+    remediation_family="turnaround_recovery_q5_q11",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+      "balance_sheet::Accounts Receivable Days",
+    ],
+    secondary_levers=["revenue::Unit Price"],
+    stage_sensitivity=_STAGE_SENSITIVITY_PROFITABILITY,
+    deadline_quarter=11,
     notes="Operating CF / revenue. SEC EDGAR-backed (n=555).",
   ),
   _row(
@@ -562,8 +881,14 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Year-one capex / revenue. Cross-check on PPE buildup.",
     governs_model_input_lever_id="schedules::Capital Expenditures",
+    issue_family="capital_intensity_adaptation",
+    remediation_family="capital_intensity_adaptation",
+    primary_levers=["schedules::Capital Expenditures"],
+    secondary_levers=["revenue::Capacity"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Year-one capex / revenue. Cross-check on PPE buildup.",
   ),
   _row(
     metric_key="distributions_percent_of_net_income",
@@ -576,8 +901,163 @@ _DEFAULT_REALISM_CHECK_ROWS: List[Dict[str, Any]] = [
     tolerance_bps_low_confidence=_RATIO_TOL_LOW,
     tolerance_bps_generic_default=_RATIO_TOL_GENERIC,
     gate_kind="hard_fail",
-    notes="Distributions / net income. Skip when distributions is zero (legitimate for early-stage / pre-profit).",
     governs_model_input_lever_id="balance_sheet::Distributions",
+    issue_family="funding_adaptation",
+    remediation_family="funding_adaptation",
+    primary_levers=["balance_sheet::Distributions"],
+    secondary_levers=["schedules::Debt Issuance (New Borrowing)"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Distributions / net income. Skip when distributions is zero (legitimate for early-stage / pre-profit).",
+  ),
+
+  # ============================================================
+  # Phase 9 Phase D — Universal viability timeline checks.
+  #
+  # Every plan must satisfy the universal viability rule:
+  #   Q1-Q5    losses tolerated when funded and stage-appropriate
+  #   Q6-Q10   recovery trajectory required
+  #   Q11      EBITDA positive (NI margin >= 0)
+  #   Q12-Q20  no relapse unless deliberate funded expansion
+  #
+  # These six checks are trajectory_check rows — the validator
+  # evaluates the entire Q1..Q20 sequence rather than a single
+  # ratio. Issue routing maps each violation to its remediation
+  # family so the cascade picks the right adaptation.
+  # ============================================================
+  _row(
+    metric_key="ebitda_positive_by_q11",
+    finmo_line_label="EBITDA",
+    derivation_formula_key="trajectory_ebitda_positive_at_quarter",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="turnaround_recovery_q5_q11",
+    remediation_family="turnaround_recovery_q5_q11",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+      "expenses::Payroll",
+      "revenue::Unit Price",
+      "revenue::Utilization",
+    ],
+    secondary_levers=["revenue::Capacity"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=11,
+    notes="Universal viability rule: by Q11, EBITDA margin must be >= 0 regardless of stage. Stage shifts WHEN inside Q1-Q11 the floor binds (loss tolerance window per stage), not WHETHER it binds.",
+  ),
+  _row(
+    metric_key="ebitda_recovery_trend_q5_q11",
+    finmo_line_label="EBITDA",
+    derivation_formula_key="trajectory_ebitda_recovery_trend",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="turnaround_recovery_q5_q11",
+    remediation_family="turnaround_recovery_q5_q11",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+      "revenue::Unit Price",
+      "revenue::Utilization",
+    ],
+    secondary_levers=["expenses::Payroll"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=11,
+    notes="Universal viability rule: Q5-Q11 must show EBITDA recovery (improvement quarter-over-quarter or material upward trend). Pure flat or declining trajectory in this window fails.",
+  ),
+  _row(
+    metric_key="loss_window_funded_through_q5",
+    finmo_line_label="Cash",
+    derivation_formula_key="trajectory_loss_window_funded",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="funding_adaptation",
+    remediation_family="funding_adaptation",
+    primary_levers=[
+      "schedules::Debt Issuance (New Borrowing)",
+      "balance_sheet::Owner's Capital",
+      "balance_sheet::Other Equity",
+    ],
+    secondary_levers=["balance_sheet::Distributions"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=5,
+    notes="Universal viability rule: losses through Q5 must be FUNDED (cash never goes below zero, debt covers the gap, equity covers the gap). Unfunded losses fail.",
+  ),
+  _row(
+    metric_key="no_post_recovery_relapse_q11_q20",
+    finmo_line_label="EBITDA",
+    derivation_formula_key="trajectory_no_post_recovery_relapse",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="industry_normalization",
+    remediation_family="industry_normalization",
+    primary_levers=[
+      "expenses::Cost of Goods Sold",
+      "expenses::Marketing",
+      "expenses::General & Administrative",
+    ],
+    secondary_levers=["revenue::Unit Price", "expenses::Payroll"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=20,
+    notes="Universal viability rule: once EBITDA goes positive at Q11, it stays positive through Q20 unless a deliberate funded expansion event causes a temporary dip. Drift back into losses fails.",
+  ),
+  _row(
+    metric_key="gross_margin_supports_ebitda_recovery",
+    finmo_line_label="Gross Profit",
+    derivation_formula_key="trajectory_gross_margin_supports_recovery",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="margin_compression",
+    remediation_family="margin_compression",
+    primary_levers=["expenses::Cost of Goods Sold", "revenue::Unit Price"],
+    secondary_levers=[],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=11,
+    notes="Gross margin at Q11 must be high enough that EBITDA can land >= 0 given typical operating expense ratios. If gross margin is structurally too thin, no amount of OpEx tightening can restore EBITDA.",
+  ),
+  _row(
+    metric_key="fixed_cost_burden_reduced_or_scaled_by_q11",
+    finmo_line_label="Operating Income",
+    derivation_formula_key="trajectory_fixed_cost_burden_at_industry_floor",
+    quarter_aggregation="trajectory_check",
+    tolerance_bps_high_confidence=0,
+    tolerance_bps_medium_confidence=0,
+    tolerance_bps_low_confidence=0,
+    tolerance_bps_generic_default=None,
+    gate_kind="hard_fail",
+    issue_family="operating_scale_adaptation",
+    remediation_family="operating_scale_adaptation",
+    primary_levers=[
+      "revenue::Capacity",
+      "revenue::Unit Price",
+      "revenue::Utilization",
+      "expenses::Payroll",
+    ],
+    secondary_levers=["expenses::Lease", "expenses::General & Administrative"],
+    stage_sensitivity=_STAGE_SENSITIVITY_FLAT,
+    deadline_quarter=11,
+    notes="(Payroll + Rent + G&A) / Revenue at Q11 must be at industry-floor or below so the operating margin can land positive. Either revenue scaled into the cost base or the cost base trimmed to fit revenue.",
   ),
 ]
 
@@ -609,6 +1089,12 @@ def _load_realism_check_rows() -> List[Dict[str, Any]]:
           tolerance_bps_generic_default,
           gate_kind,
           governs_model_input_lever_id,
+          issue_family,
+          remediation_family,
+          primary_levers,
+          secondary_levers,
+          stage_sensitivity,
+          deadline_quarter,
           notes,
           active
         FROM {REALISM_CHECK_TABLE_NAME}
@@ -628,6 +1114,16 @@ def _load_realism_check_rows() -> List[Dict[str, Any]]:
     metric_key = _clean_text(raw.get("metric_key"))
     if not metric_key:
       continue
+    def _decode_json(value: Any) -> Any:
+      if value is None or value == "":
+        return None
+      if isinstance(value, (list, dict)):
+        return value
+      try:
+        return json.loads(value)
+      except Exception:
+        return None
+
     rows.append(
       {
         "metric_key": metric_key,
@@ -645,6 +1141,14 @@ def _load_realism_check_rows() -> List[Dict[str, Any]]:
         ),
         "gate_kind": _clean_text(raw.get("gate_kind")) or "warn",
         "governs_model_input_lever_id": _clean_text(raw.get("governs_model_input_lever_id")) or None,
+        "issue_family": _clean_text(raw.get("issue_family")) or None,
+        "remediation_family": _clean_text(raw.get("remediation_family")) or None,
+        "primary_levers": _decode_json(raw.get("primary_levers")) or None,
+        "secondary_levers": _decode_json(raw.get("secondary_levers")) or None,
+        "stage_sensitivity": _decode_json(raw.get("stage_sensitivity")) or None,
+        "deadline_quarter": (
+          int(raw["deadline_quarter"]) if raw.get("deadline_quarter") is not None else None
+        ),
         "notes": _clean_text(raw.get("notes")) or None,
         "active": bool(raw.get("active") or 0),
       }

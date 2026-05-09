@@ -30,6 +30,25 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+class CascadeAndRestorationExhausted(RuntimeError):
+  """Phase 9 Phase D — terminal cause #7 per doctrine.
+
+  Raised when the adaptation cascade exhausts every tier AND the
+  feasibility_restoration cascade also exhausts without producing a
+  plan that satisfies the universal viability rule. Carries the full
+  diagnostic so the consultant sees every adaptation attempted, every
+  restoration attempted, and exactly which residuals couldn't be
+  cleared. The orchestrator catches this and surfaces the diagnostic
+  to the client interface — it is NOT an unhandled exception.
+  """
+
+  def __init__(self, diagnostic_payload: Dict[str, Any]):
+    super().__init__(
+      f"adaptation_cascade_and_restoration_exhausted: residuals={len(diagnostic_payload.get('residual_hard_fails') or [])}"
+    )
+    self.diagnostic_payload = diagnostic_payload
+
+
 PLAN_CONFIDENCE_HIGH_NO_ADAPTATION = "high_no_adaptation"
 PLAN_CONFIDENCE_GPT_BAND_RELAXATION = "medium_gpt_band_relaxation"
 PLAN_CONFIDENCE_COHORT_FALLBACK = "medium_cohort_fallback"
@@ -473,26 +492,15 @@ def run_adaptation_cascade(
     f"skipped_per_abort_reason={str(abort_reason or '').strip().lower() or 'unknown'}"
   )
 
-  # Tier 1: GPT band walk-back
-  if starting_tier > 1:
-    _record_skipped(tier=1, name="gpt_band_relaxation",
-                    reason=skip_reason_for_jump)
-  else:
-    t1_env, reverted = _envelope_with_gpt_bands_reverted(envelope_payload_post)
-    if reverted:
-      repair, residuals = _retry_post_flight(
-        envelope=t1_env, targets=targets_payload_post, influence=influence_payload,
-      )
-      if not residuals:
-        return _land(tier=1, name="gpt_band_relaxation",
-                     confidence=PLAN_CONFIDENCE_GPT_BAND_RELAXATION,
-                     mods={"reverted_lever_ids": reverted}, repair=repair, inner=inner_result)
-      _record_failed(tier=1, name="gpt_band_relaxation",
-                     mods={"reverted_lever_ids": reverted},
-                     residuals=residuals, repair=repair)
-    else:
-      _record_skipped(tier=1, name="gpt_band_relaxation",
-                      reason="no_gpt_calibrated_drivers_to_revert")
+  # Phase 9 Phase D — Tier 1 (gpt_band_relaxation) removed per Q2.
+  # The R2 buffer rule at consultant_band_amendment_rules.py already
+  # rejects band amendments below the retention floor; Tier 1 was a
+  # defensive no-op in a healthy system. Doctrine Q2 directs removal so
+  # the cascade does not carry contradictory remediation logic. The
+  # tier slot is preserved in attempts diagnostic for backwards-
+  # compatible diagnostic readers.
+  _record_skipped(tier=1, name="gpt_band_relaxation",
+                  reason="removed_per_phase_9_doctrine_q2_redundant_with_r2_buffer_rule")
 
   # Tier 2: cohort walk-back
   if starting_tier > 2:
@@ -693,35 +701,186 @@ def run_adaptation_cascade(
     repair = repair_pass or {}
     residuals = []
 
-  attempt = CascadeAttempt(
-    tier=7, tier_name="generic_fallback_no_calibration",
-    attempted=True, success=True,  # structural floor — always lands
-    plan_confidence=PLAN_CONFIDENCE_GENERIC_FALLBACK,
+  # Phase 9 Phase D — Tier 7 NEVER ships success with residuals.
+  # When residuals remain after Tier 7's NAICS-cascade fallback, the
+  # cascade has exhausted the adaptation space. Per doctrine Q5,
+  # escalate to feasibility_restoration (business-model lever
+  # adjustments — capacity, headcount, price, utilization). If
+  # restoration also exhausts, raise terminal cause #7 with full
+  # diagnostic of every adaptation attempted and every restoration
+  # attempted so the consultant sees what specifically couldn't reach
+  # viability.
+  if not residuals:
+    attempt = CascadeAttempt(
+      tier=7, tier_name="generic_fallback_no_calibration",
+      attempted=True, success=True,
+      plan_confidence=PLAN_CONFIDENCE_GENERIC_FALLBACK,
+      residual_hard_fail_count=0,
+      residual_violations=[],
+      modifications={
+        "envelope_source": "naics_cascade_only_no_cohort_no_gpt",
+        "target_tolerance_widening_factor": _TARGET_TOLERANCE_GENERIC_WIDENING,
+        "widened_metric_keys": widened_all,
+        "planning_mode_forced": "turnaround",
+        "stage_family_forced": "operational",
+      },
+      notes=[
+        "tier_7_landed_clean_no_residuals",
+        "low_confidence_plan_manual_review_recommended",
+      ],
+      final_model_input_json=(
+        (repair.get("final_model_input_json") if isinstance(repair, dict) else None)
+        or post_inner_model
+      ),
+      final_finmo_json=(
+        (repair.get("final_finmo_json") if isinstance(repair, dict) else None)
+        or final_finmo_json
+      ),
+      inner_result=new_inner,
+    )
+    attempts.append(attempt)
+    return _build_final_payload(new_inner, attempt, attempts)
+
+  # Tier 7 left residuals — escalate to feasibility_restoration.
+  _record_failed(tier=7, name="generic_fallback_no_calibration",
+                 mods={
+                   "envelope_source": "naics_cascade_only_no_cohort_no_gpt",
+                   "target_tolerance_widening_factor": _TARGET_TOLERANCE_GENERIC_WIDENING,
+                   "widened_metric_keys": widened_all,
+                   "planning_mode_forced": "turnaround",
+                   "stage_family_forced": "operational",
+                 },
+                 residuals=residuals, repair=repair)
+
+  # Phase 9 Phase D — feasibility_restoration cascade after adaptation
+  # exhausts. Modifies business-model levers (capacity, headcount,
+  # price, utilization) — the kind of changes the consultant must
+  # discuss with the client.
+  restoration_diag: Dict[str, Any] = {"attempted": False}
+  try:
+    from client_intake_and_finmo.post_intake_solver.feasibility_restoration import (  # type: ignore
+      restore_feasibility,
+    )
+    restoration = restore_feasibility(
+      structural_result=None,  # the cascade reached this point on FINMO residuals,
+      ops_json=(inner_runner_kwargs or {}).get("ops_json") or {},
+      financials_json=(inner_runner_kwargs or {}).get("financials_json") or {},
+      financials_year1_json=(inner_runner_kwargs or {}).get("financials_year1_json") or {},
+      payroll_headcount=(inner_runner_kwargs or {}).get("payroll_headcount") or {},
+      business_naics_6=business_naics_6,
+    )
+    restoration_diag = restoration.to_dict() if hasattr(restoration, "to_dict") else {"attempted": True}
+  except TypeError:
+    # restore_feasibility's signature requires a structural_result; build a
+    # synthetic one carrying the residuals as the gap.
+    try:
+      from client_intake_and_finmo.post_intake_solver.feasibility_restoration import (  # type: ignore
+        restore_feasibility,
+      )
+      from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
+        StructuralFeasibilityResult,
+      )
+      synth = StructuralFeasibilityResult(
+        feasible=False,
+        reason="adaptation_cascade_exhausted_with_residuals",
+        diagnostic={
+          "residual_hard_fails": residuals[:6],
+          "tier_7_widened_targets": widened_all,
+        },
+        recommended_adjustments={},
+      )
+      restoration = restore_feasibility(
+        structural_result=synth,
+        ops_json=(inner_runner_kwargs or {}).get("ops_json") or {},
+        financials_json=(inner_runner_kwargs or {}).get("financials_json") or {},
+        financials_year1_json=(inner_runner_kwargs or {}).get("financials_year1_json") or {},
+        payroll_headcount=(inner_runner_kwargs or {}).get("payroll_headcount") or {},
+        business_naics_6=business_naics_6,
+      )
+      restoration_diag = restoration.to_dict() if hasattr(restoration, "to_dict") else {"attempted": True}
+    except Exception as exc:
+      restoration_diag = {
+        "attempted": True,
+        "exception": f"{type(exc).__name__}: {str(exc)[:300]}",
+        "applied_adjustments": [],
+      }
+  except Exception as exc:
+    restoration_diag = {
+      "attempted": True,
+      "exception": f"{type(exc).__name__}: {str(exc)[:300]}",
+      "applied_adjustments": [],
+    }
+
+  # Persist the restoration attempt in attempts so downstream sees it.
+  attempts.append(CascadeAttempt(
+    tier=8, tier_name="feasibility_restoration_after_cascade_exhaustion",
+    attempted=True,
+    success=bool(restoration_diag.get("applied_adjustments")),
     residual_hard_fail_count=len(residuals),
     residual_violations=residuals,
-    modifications={
-      "envelope_source": "naics_cascade_only_no_cohort_no_gpt",
-      "target_tolerance_widening_factor": _TARGET_TOLERANCE_GENERIC_WIDENING,
-      "widened_metric_keys": widened_all,
-      "planning_mode_forced": "turnaround",
-      "stage_family_forced": "operational",
-    },
-    notes=[
-      "tier_7_is_structural_floor_accepts_residuals",
-      "low_confidence_plan_manual_review_recommended",
-    ] + (["residuals_remain_but_accepted"] if residuals else []),
-    final_model_input_json=(
-      (repair.get("final_model_input_json") if isinstance(repair, dict) else None)
-      or post_inner_model
+    modifications=restoration_diag,
+    notes=["restoration_after_cascade_exhausted"],
+  ))
+
+  # If restoration applied changes, retry post-flight with the adjusted state.
+  if restoration_diag.get("applied_adjustments"):
+    try:
+      retry_inner = inner_runner_callable(**dict(inner_runner_kwargs))
+      retry_post_model = (
+        retry_inner.get("model_input_json") if isinstance(retry_inner, dict) else None
+      ) or post_inner_model
+      retry_repair = run_target_seeking_pass_callable(
+        pass_label="post_flight_repair_after_restoration",
+        model_input_json=retry_post_model,
+        build_finmo_callable=build_finmo_callable,
+        apply_lever_callable=apply_lever_callable,
+        envelope_payload=t7_env, targets_payload=t7_targets, influence_payload=influence_payload,
+        max_iterations=24, numeric_tolerance=1e-6,
+        enable_inner_joint_fit=True, horizon=horizon,
+      )
+      retry_final_fin = retry_repair.get("final_finmo_json") or final_finmo_json
+      retry_residuals = hard_fail_violations_callable(
+        finmo_json=retry_final_fin, envelope_payload=t7_env, targets_payload=t7_targets,
+      )
+      if not retry_residuals:
+        attempt = CascadeAttempt(
+          tier=8, tier_name="feasibility_restoration_landed",
+          attempted=True, success=True,
+          plan_confidence="restoration_after_cascade_exhausted",
+          residual_hard_fail_count=0,
+          modifications=restoration_diag,
+          notes=["restoration_business_model_lever_adjustments_landed"],
+          final_model_input_json=(
+            retry_repair.get("final_model_input_json") or retry_post_model
+          ),
+          final_finmo_json=retry_final_fin,
+          inner_result=retry_inner,
+        )
+        attempts.append(attempt)
+        return _build_final_payload(retry_inner, attempt, attempts)
+    except Exception as exc:
+      restoration_diag["retry_exception"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+
+  # Both cascade and restoration exhausted — terminal cause #7 per
+  # doctrine. Raise a structured exception carrying the full diagnostic
+  # so the consultant sees every adaptation attempted, every restoration
+  # attempted, and exactly which residuals couldn't be cleared.
+  diagnostic_payload = {
+    "terminal_cause": "adaptation_and_restoration_cascades_both_exhausted",
+    "doctrine_terminal_id": 7,
+    "residual_hard_fails": copy.deepcopy(residuals),
+    "tier_attempts": [a.to_diagnostic() for a in attempts],
+    "feasibility_restoration_diagnostic": copy.deepcopy(restoration_diag),
+    "consultant_message": (
+      "The system attempted every adaptation path (Tiers 2-7) and every "
+      "feasibility restoration adjustment without producing a viable plan. "
+      "The business model as configured cannot reach the universal viability "
+      "rule (EBITDA positive by Q11, funded loss window, no post-recovery "
+      "relapse). Review with client: the diagnostic lists exactly which "
+      "drivers were tried and which residuals remained."
     ),
-    final_finmo_json=(
-      (repair.get("final_finmo_json") if isinstance(repair, dict) else None)
-      or final_finmo_json
-    ),
-    inner_result=new_inner,
-  )
-  attempts.append(attempt)
-  return _build_final_payload(new_inner, attempt, attempts)
+  }
+  raise CascadeAndRestorationExhausted(diagnostic_payload)
 
 
 def _build_final_payload(

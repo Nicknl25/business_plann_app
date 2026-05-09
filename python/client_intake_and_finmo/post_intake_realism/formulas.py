@@ -545,6 +545,142 @@ def _formula_distributions_div_net_income_year_one(
 
 
 # ----------------------------------------------------------------------------
+# Phase 9 Phase D — Universal viability timeline formulas.
+#
+# Each returns a float interpretation of a trajectory check. Positive
+# values pass the universal viability rule for that check; non-positive
+# values flag a violation the validator routes to the appropriate
+# adaptation family.
+# ----------------------------------------------------------------------------
+
+
+def _quarter_ebitda_margin(finmo_json: Dict[str, Any], quarter_index: int) -> Optional[float]:
+  ebitda = _finmo_quarter_field(finmo_json, quarter_index, "ebitda")
+  revenue = _finmo_quarter_field(finmo_json, quarter_index, "revenue")
+  return _ratio(ebitda, revenue)
+
+
+def _quarter_gross_margin(finmo_json: Dict[str, Any], quarter_index: int) -> Optional[float]:
+  cogs = _finmo_quarter_field(finmo_json, quarter_index, "cost_of_goods_sold")
+  revenue = _finmo_quarter_field(finmo_json, quarter_index, "revenue")
+  if cogs is None or revenue is None or revenue <= 0:
+    return None
+  return float(revenue - cogs) / float(revenue)
+
+
+def _quarter_ending_cash(finmo_json: Dict[str, Any], quarter_index: int) -> Optional[float]:
+  for field_name in ("ending_cash", "cash", "cash_balance"):
+    value = _finmo_quarter_field(finmo_json, quarter_index, field_name)
+    if value is not None:
+      return value
+  return None
+
+
+def _formula_trajectory_ebitda_positive_at_quarter(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Universal viability rule — Q11 EBITDA margin must be >= 0.
+
+  Returns Q11 EBITDA margin. The validator compares against the floor
+  encoded in the row's band (default 0.0). Values below the floor are
+  routed to turnaround_recovery_q5_q11.
+  """
+  _ = (model_input_json, quarter_index)
+  return _quarter_ebitda_margin(finmo_json, 11)
+
+
+def _formula_trajectory_ebitda_recovery_trend(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Q11 EBITDA margin minus Q5 EBITDA margin. Positive = real recovery."""
+  _ = (model_input_json, quarter_index)
+  q5 = _quarter_ebitda_margin(finmo_json, 5)
+  q11 = _quarter_ebitda_margin(finmo_json, 11)
+  if q5 is None or q11 is None:
+    return None
+  return float(q11) - float(q5)
+
+
+def _formula_trajectory_loss_window_funded(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Minimum ending cash across Q1..Q5. Positive = funded loss window."""
+  _ = (model_input_json, quarter_index)
+  values: List[float] = []
+  for q in (1, 2, 3, 4, 5):
+    v = _quarter_ending_cash(finmo_json, q)
+    if v is not None:
+      values.append(float(v))
+  if not values:
+    return None
+  return float(min(values))
+
+
+def _formula_trajectory_no_post_recovery_relapse(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Minimum EBITDA margin across Q11..Q20. Positive = no post-recovery relapse."""
+  _ = (model_input_json, quarter_index)
+  values: List[float] = []
+  for q in range(11, 21):
+    v = _quarter_ebitda_margin(finmo_json, q)
+    if v is not None:
+      values.append(float(v))
+  if not values:
+    return None
+  return float(min(values))
+
+
+def _formula_trajectory_gross_margin_supports_recovery(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """Gross margin at Q11. The validator compares against an industry-derived
+  floor (default 0.20 — sufficient to support a positive EBITDA at typical
+  OpEx ratios). Below the floor is routed to margin_compression."""
+  _ = (model_input_json, quarter_index)
+  return _quarter_gross_margin(finmo_json, 11)
+
+
+def _formula_trajectory_fixed_cost_burden_at_industry_floor(
+  *,
+  model_input_json: Dict[str, Any],
+  finmo_json: Dict[str, Any],
+  quarter_index: Optional[int] = None,
+) -> Optional[float]:
+  """(Payroll + Lease + G&A) / Revenue at Q11.
+
+  Returns the negation: positive = burden reduced (in band); negative =
+  burden too high. The validator's threshold expectation is encoded as
+  industry_max ~ 0.65 of revenue for typical small-business operations;
+  Phase E will plug in the NAICS-keyed value. Below the floor is routed
+  to operating_scale_adaptation."""
+  _ = (model_input_json, quarter_index)
+  payroll = _finmo_quarter_field(finmo_json, 11, "payroll")
+  rent = _finmo_quarter_field(finmo_json, 11, "lease_rent")
+  ga = _finmo_quarter_field(finmo_json, 11, "general_and_administrative")
+  revenue = _finmo_quarter_field(finmo_json, 11, "revenue")
+  if revenue is None or revenue <= 0:
+    return None
+  fixed = float(payroll or 0.0) + float(rent or 0.0) + float(ga or 0.0)
+  return float(revenue - fixed) / float(revenue)
+
+
+# ----------------------------------------------------------------------------
 # Registry.
 # ----------------------------------------------------------------------------
 
@@ -582,6 +718,13 @@ _FORMULA_REGISTRY: Dict[str, Callable[..., Optional[float]]] = {
   "operating_cash_flow_div_revenue": _formula_operating_cash_flow_div_revenue,
   "capex_div_revenue_year_one": _formula_capex_div_revenue_year_one,
   "distributions_div_net_income_year_one": _formula_distributions_div_net_income_year_one,
+  # Phase 9 Phase D — universal viability timeline trajectory checks.
+  "trajectory_ebitda_positive_at_quarter": _formula_trajectory_ebitda_positive_at_quarter,
+  "trajectory_ebitda_recovery_trend": _formula_trajectory_ebitda_recovery_trend,
+  "trajectory_loss_window_funded": _formula_trajectory_loss_window_funded,
+  "trajectory_no_post_recovery_relapse": _formula_trajectory_no_post_recovery_relapse,
+  "trajectory_gross_margin_supports_recovery": _formula_trajectory_gross_margin_supports_recovery,
+  "trajectory_fixed_cost_burden_at_industry_floor": _formula_trajectory_fixed_cost_burden_at_industry_floor,
 }
 
 

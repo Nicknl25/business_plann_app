@@ -1159,32 +1159,57 @@ def run_target_seeking_orchestrated_system_run(
       _clean_text((business_facts or {}).get("fact_template", {}).get("business_stage"))
       if isinstance(business_facts, dict) else ""
     )
-    final_payload, plan_confidence, cascade_diagnostics = run_adaptation_cascade(
-      pre_input=pre_input,
-      post_inner_model=post_inner_model,
-      inner_result=inner_result,
-      final_finmo_json=final_finmo_json or {},
-      envelope_payload_post=envelope_payload_post or {},
-      targets_payload_post=targets_payload_post or {},
-      influence_payload=influence_payload or {},
-      final_hard_fails=final_hard_fails,
-      pre_pass=pre_pass,
-      repair_pass=repair_pass,
-      build_finmo_callable=build_finmo_callable,
-      apply_lever_callable=apply_lever_callable,
-      run_target_seeking_pass_callable=_run_target_seeking_pass,
-      hard_fail_violations_callable=_hard_fail_violations_from_assertion,
-      inner_runner_callable=_inner_runner,
-      inner_runner_kwargs=inner_runner_kwargs,
-      original_planning_mode=planning_mode,
-      original_planning_mode_reason=planning_mode_reason or "",
-      original_stage_family=original_stage_family,
-      original_stage_ramp_contract=stage_ramp_contract,
-      business_naics_6=business_naics_6_for_cascade or None,
-      business_stage=business_stage_for_cascade or None,
-      horizon=horizon,
-      abort_reason=inner_runner_abort_reason,
-    )
+    try:
+      final_payload, plan_confidence, cascade_diagnostics = run_adaptation_cascade(
+        pre_input=pre_input,
+        post_inner_model=post_inner_model,
+        inner_result=inner_result,
+        final_finmo_json=final_finmo_json or {},
+        envelope_payload_post=envelope_payload_post or {},
+        targets_payload_post=targets_payload_post or {},
+        influence_payload=influence_payload or {},
+        final_hard_fails=final_hard_fails,
+        pre_pass=pre_pass,
+        repair_pass=repair_pass,
+        build_finmo_callable=build_finmo_callable,
+        apply_lever_callable=apply_lever_callable,
+        run_target_seeking_pass_callable=_run_target_seeking_pass,
+        hard_fail_violations_callable=_hard_fail_violations_from_assertion,
+        inner_runner_callable=_inner_runner,
+        inner_runner_kwargs=inner_runner_kwargs,
+        original_planning_mode=planning_mode,
+        original_planning_mode_reason=planning_mode_reason or "",
+        original_stage_family=original_stage_family,
+        original_stage_ramp_contract=stage_ramp_contract,
+        business_naics_6=business_naics_6_for_cascade or None,
+        business_stage=business_stage_for_cascade or None,
+        horizon=horizon,
+        abort_reason=inner_runner_abort_reason,
+      )
+    except Exception as cascade_exc:
+      # Phase 9 Phase D — catch CascadeAndRestorationExhausted (terminal
+      # cause #7). Surface the diagnostic to the orchestrator's result
+      # so the consultant sees what was tried; do NOT let this become an
+      # unhandled exception (which would be terminal cause #6).
+      from client_intake_and_finmo.post_intake_solver.adaptation_cascade import (  # type: ignore
+        CascadeAndRestorationExhausted,
+      )
+      if isinstance(cascade_exc, CascadeAndRestorationExhausted):
+        cascade_diagnostics = {
+          "tier_landed": None,
+          "tier_landed_name": "terminal_cause_7_cascade_and_restoration_exhausted",
+          "plan_confidence": "terminal_cause_7",
+          "diagnostic": cascade_exc.diagnostic_payload,
+        }
+        final_payload = copy.deepcopy(inner_result if isinstance(inner_result, dict) else {})
+        if final_model_input_json is not None:
+          final_payload["model_input_json"] = final_model_input_json
+        if final_finmo_json:
+          final_payload["finmo_json"] = final_finmo_json
+        plan_confidence = "terminal_cause_7"
+      else:
+        # Unexpected exception — re-raise (becomes doctrine cause #6).
+        raise
     diagnostics["adaptation_cascade"] = cascade_diagnostics
     final_model_input_json = final_payload.get("model_input_json") or final_model_input_json
     final_finmo_json = final_payload.get("finmo_json") or final_finmo_json
@@ -1446,17 +1471,33 @@ def _run_post_cascade_completion(
   # composite revenue stays inside the contract's revenue_qoq_target /
   # revenue_qoq_max envelope — three glidepaths multiplied together can
   # diverge. This check records, per-quarter, whether the realized
-  # composite is inside the contract bounds. Phase D's adaptation
-  # cascade reads this trace and routes any out-of-band quarters to the
-  # revenue_achievability family. C4 is observation-only; it does not
-  # auto-repair. Repair is Phase D's job.
+  # composite is inside the contract bounds.
+  #
+  # Phase D5: out-of-band quarters are routed through the issue_router
+  # to the revenue_achievability adaptation family. Routes are stamped
+  # on completion_trace so the cascade and the acceptance gate see the
+  # remediation queue.
   try:
-    completion_trace["composite_revenue_check"] = (
-      _validate_composite_revenue_against_contract(
-        model_input_json=final_model_input_json or {},
-        stage_ramp_contract=stage_ramp_contract,
-      )
+    composite_check = _validate_composite_revenue_against_contract(
+      model_input_json=final_model_input_json or {},
+      stage_ramp_contract=stage_ramp_contract,
     )
+    completion_trace["composite_revenue_check"] = composite_check
+    out_of_band = [
+      q for q in (composite_check.get("per_quarter") or [])
+      if isinstance(q, dict) and q.get("status") == "out_of_band"
+    ]
+    if out_of_band:
+      from client_intake_and_finmo.post_intake_adaptive_planning import (  # type: ignore
+        route_composite_revenue_violation,
+      )
+      composite_routes = route_composite_revenue_violation(
+        out_of_band_quarters=out_of_band,
+        adaptive_policy=adaptive_policy_dict,
+      )
+      completion_trace["composite_revenue_routes"] = [
+        r.to_dict() for r in composite_routes
+      ]
   except Exception as exc:
     completion_trace["composite_revenue_check"] = {
       "status": "failed",
