@@ -286,6 +286,7 @@ class AdaptivePolicyContract:
   primary_objective: str
   allowed_adaptation_families: List[str]
   cash_pass_role: str = "funding_only"
+  selected_cash_strategy: str = "balanced"
   steady_state_target_basis: str = "naics_edgar"
   client_input_authority: Dict[str, str] = field(
     default_factory=lambda: dict(DEFAULT_CLIENT_INPUT_AUTHORITY)
@@ -304,6 +305,32 @@ class AdaptivePolicyContract:
 # ----------------------------------------------------------------------------
 # Entry point
 # ----------------------------------------------------------------------------
+
+_VALID_CASH_STRATEGIES: List[str] = ["preserve_cash", "balanced", "shareholder_return"]
+
+
+def _normalize_selected_cash_strategy(
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+) -> str:
+  """Pull the client-selected cash strategy mode from intake. Defaults to
+  ``balanced`` when unset. Aliases (conservative -> preserve_cash,
+  aggressive -> shareholder_return) are normalized."""
+  for source in (business_facts or {}, (business_facts or {}).get("fact_template") or {}, ops_json or {}):
+    if not isinstance(source, dict):
+      continue
+    raw = source.get("cash_strategy") or source.get("selected_cash_strategy")
+    if not raw:
+      continue
+    norm = str(raw).strip().lower().replace("-", "_")
+    if norm == "conservative":
+      return "preserve_cash"
+    if norm == "aggressive":
+      return "shareholder_return"
+    if norm in _VALID_CASH_STRATEGIES:
+      return norm
+  return "balanced"
+
 
 def compute_adaptive_policy(
   *,
@@ -348,6 +375,7 @@ def compute_adaptive_policy(
   primary_objective = _primary_objective_for(mode, stage_profile)
   allowed_families = _allowed_families_for(mode, stage_profile)
   steady_state_basis = _safe_industry_basis(industry_profile)
+  selected_cash_strategy = _normalize_selected_cash_strategy(business_facts, ops_json)
 
   computation_inputs: Dict[str, Any] = {
     "raw_business_stage": raw_stage,
@@ -368,6 +396,7 @@ def compute_adaptive_policy(
     ebitda_positive_required_by_q=DEFAULT_VIABILITY_DEADLINE_QUARTERS["ebitda_positive"],
     primary_objective=primary_objective,
     allowed_adaptation_families=allowed_families,
+    selected_cash_strategy=selected_cash_strategy,
     steady_state_target_basis=steady_state_basis,
     explicit_distress_context=distress,
     computation_inputs=computation_inputs,

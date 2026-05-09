@@ -1555,6 +1555,9 @@ def _run_post_cascade_completion(
     from client_intake_and_finmo.finmo_bridge import (  # type: ignore
       build_python_finmo_json,
     )
+    from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
+      post_intake_sequence_step_scope,
+    )
     naics_for_cash = ""
     if isinstance(ops_json, dict):
       naics_for_cash = "".join(
@@ -1565,26 +1568,33 @@ def _run_post_cascade_completion(
       stage_profile=(adaptive_policy_dict or {}).get("stage_profile", "operational"),
       target_annual_revenue=None,
     ).to_dict()
-    cash_result = run_mode_based_cash_strategy(
-      draft_id=str(draft_id or "").strip(),
-      planning_run_id=str(planning_run_id or "").strip(),
-      model_input_json=final_model_input_json or {},
-      finmo_json=final_finmo_json or {},
-      industry_profile=cash_industry_profile,
-      adaptive_policy=adaptive_policy_dict,
-      conn=conn,
-      horizon=int(horizon or 20),
-    )
-    if cash_result.applied_updates_count > 0:
-      # Rebuild FINMO so cash, interest, debt balance reflect the
-      # per-quarter mode-based decisions.
-      rebuilt = build_python_finmo_json(
-        model_input_json=copy.deepcopy(final_model_input_json or {}),
+    # Phase 9 Phase F — sequence-controller scope is required for the
+    # cash strategy's apply_exact_lever_updates_to_model_input call and
+    # FINMO rebuild. Same scope the Phase 8 minimal cash strategy used.
+    with post_intake_sequence_step_scope(
+      step_key="post_intake_target_seeking_post_cascade_cash",
+      executor_function="phase_9_mode_based_cash_strategy",
+    ):
+      cash_result = run_mode_based_cash_strategy(
+        draft_id=str(draft_id or "").strip(),
+        planning_run_id=str(planning_run_id or "").strip(),
+        model_input_json=final_model_input_json or {},
+        finmo_json=final_finmo_json or {},
+        industry_profile=cash_industry_profile,
+        adaptive_policy=adaptive_policy_dict,
+        conn=conn,
+        horizon=int(horizon or 20),
       )
-      if isinstance(rebuilt, dict) and rebuilt:
-        final_finmo_json = rebuilt
-        next_result["finmo_json"] = final_finmo_json
-        next_result["model_input_json"] = final_model_input_json
+      if cash_result.applied_updates_count > 0:
+        # Rebuild FINMO so cash, interest, debt balance reflect the
+        # per-quarter mode-based decisions.
+        rebuilt = build_python_finmo_json(
+          model_input_json=copy.deepcopy(final_model_input_json or {}),
+        )
+        if isinstance(rebuilt, dict) and rebuilt:
+          final_finmo_json = rebuilt
+          next_result["finmo_json"] = final_finmo_json
+          next_result["model_input_json"] = final_model_input_json
     completion_trace["cash_pass"] = cash_result.to_dict()
   except Exception as exc:
     completion_trace["cash_pass"] = {
