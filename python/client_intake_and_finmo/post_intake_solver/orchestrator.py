@@ -222,9 +222,13 @@ def _validate_composite_revenue_against_contract(
 
 # Phase 9 Gap B — direction-only adjustment factors per family.
 # Universal: applied to any business's primary_levers regardless of NAICS.
-_GAP_B_INCREASE_FACTOR = 1.07     # bump mature anchor up 7% per iteration
-_GAP_B_DECREASE_FACTOR = 0.93     # cut mature anchor down 7% per iteration
-_GAP_B_MAX_ITERATIONS = 3
+# Iter-#5 calibration: 7% × 3 iters (~22%) was insufficient for Sunny's
+# deep negative-EBITDA structural problem. 15% × 5 iters (~100%) gives
+# the cascade enough range to land Q11 viability for badly-positioned
+# startups while staying conservative for already-near-viable businesses.
+_GAP_B_INCREASE_FACTOR = 1.15     # bump mature anchor up 15% per iteration
+_GAP_B_DECREASE_FACTOR = 0.85     # cut mature anchor down 15% per iteration
+_GAP_B_MAX_ITERATIONS = 5
 
 
 def _remediate_realism_hard_fails(
@@ -464,6 +468,35 @@ def _remediate_realism_hard_fails(
         rebuilt = build_python_finmo_json(
           model_input_json=copy.deepcopy(model_input_json),
         )
+
+        # Phase 9 Gap D follow-up — re-run cash strategy on the
+        # remediated operating model. The pre-remediation cash pass
+        # funded a non-viable operating model with too much debt; now
+        # that operating costs are trimmed and revenue grown, refund
+        # against the viable trajectory.
+        if isinstance(rebuilt, dict) and rebuilt:
+          try:
+            from client_intake_and_finmo.post_intake_cash_strategy import (  # type: ignore
+              run_mode_based_cash_strategy,
+            )
+            run_mode_based_cash_strategy(
+              draft_id="",
+              planning_run_id="",
+              model_input_json=model_input_json,
+              finmo_json=rebuilt,
+              industry_profile=industry_profile_dict,
+              adaptive_policy=adaptive_policy_dict,
+              conn=conn,
+              horizon=horizon,
+            )
+            # Rebuild FINMO again after the new cash plan.
+            rebuilt2 = build_python_finmo_json(
+              model_input_json=copy.deepcopy(model_input_json),
+            )
+            if isinstance(rebuilt2, dict) and rebuilt2:
+              rebuilt = rebuilt2
+          except Exception:
+            pass
     except Exception as exc:
       iterations.append({
         "iteration": iteration_n,
