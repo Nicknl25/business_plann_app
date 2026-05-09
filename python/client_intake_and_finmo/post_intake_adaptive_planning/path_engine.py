@@ -138,18 +138,26 @@ _STAGE_Q1_ANCHOR_FRACTIONS: Dict[str, Dict[str, float]] = {
     "operational": 0.90,
     "mature": 1.00,
   },
-  # Expense ratios — start HIGHER (less efficient), glide DOWN to industry mature.
+  # Expense ratios — start slightly higher (mild inefficiency at launch),
+  # glide DOWN to industry mature. Phase 9 Step 2d: softened from
+  # 1.30/1.15/1.05/1.00 to 1.10/1.05/1.02/1.00 because the original
+  # fractions double-counted inefficiency when the operator's stated
+  # mature value was already at-or-above industry mature. The softer
+  # fractions still represent doctrine's "startup starts less efficient,
+  # glides down" — just less aggressive penalty so adaptation can land.
   "expense_ratio": {
-    "startup": 1.30,
-    "early": 1.15,
-    "operational": 1.05,
+    "startup": 1.10,
+    "early": 1.05,
+    "operational": 1.02,
     "mature": 1.00,
   },
-  # Days metrics (AR/AP/Inventory) — start HIGHER, glide DOWN to industry by Q11.
+  # Days metrics (AR/AP/Inventory) — start somewhat higher, glide DOWN
+  # to industry by Q11. Step 2d: softened from 1.50/1.25/1.10/1.00 to
+  # 1.20/1.10/1.05/1.00 for the same reason as expense_ratios.
   "days_metric": {
-    "startup": 1.50,
-    "early": 1.25,
-    "operational": 1.10,
+    "startup": 1.20,
+    "early": 1.10,
+    "operational": 1.05,
     "mature": 1.00,
   },
 }

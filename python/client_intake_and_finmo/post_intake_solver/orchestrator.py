@@ -562,20 +562,77 @@ def _remediate_realism_hard_fails(
       from client_intake_and_finmo.post_intake_solver.structural_feasibility_check import (  # type: ignore
         StructuralFeasibilityResult,
       )
-      # Build a synthetic gap from current FINMO Q1-Q11 cumulative
-      # operating losses + a buffer. Universal computation — no
-      # business-type branches.
-      cumulative_loss = 0.0
-      for q in range(1, 12):
-        for fr in (finmo_json or {}).get("quarter_rows") or []:
-          if not isinstance(fr, dict):
+      # Phase 9 Step 2a — synthetic gap from IssueRoute violations.
+      #
+      # Build the gap from the realism gate's actual hard_fail_violations,
+      # routed through issue_router. For each violation, compute the
+      # dollar-equivalent shortfall using the metric's per-quarter
+      # revenue (when the metric is a margin/profit ratio) and sum. This
+      # gives restoration a precise target instead of a FINMO Q1-Q11
+      # cumulative-loss approximation that bypasses the router output.
+      #
+      # Universal — applies to any business; the router is metric-keyed.
+      def _quarter_revenue_for_q(qf: int) -> float:
+        for fr_in in (finmo_json or {}).get("quarter_rows") or []:
+          if isinstance(fr_in, dict) and int(_safe_float(fr_in.get("quarter_index")) or 0) == int(qf):
+            return float(_safe_float(fr_in.get("revenue")) or 0.0)
+        return 0.0
+
+      _MARGIN_LIKE_METRICS = {
+        "ebitda_margin", "operating_margin_percent", "net_income_margin",
+        "gross_margin_percent", "operating_cash_flow_margin",
+      }
+      _COST_RATIO_METRICS = {
+        "cogs_percent_of_revenue", "marketing_percent_of_revenue",
+        "rent_percent_of_revenue", "sga_percent_of_revenue",
+        "payroll_percent_of_revenue", "depreciation_percent_of_revenue",
+        "r_and_d_percent_of_revenue", "advertising_percent_of_revenue",
+      }
+
+      router_dollar_gap = 0.0
+      router_violations_routed: List[IssueRoute] = []
+      try:
+        for v_synth in (current_payload.get("hard_fail_violations") or []):
+          mk_synth = str(v_synth.get("metric_key") or "")
+          row_synth = realism_rows_by_metric.get(mk_synth, {})
+          if not row_synth:
             continue
-          if int(_safe_float(fr.get("quarter_index")) or 0) == q:
-            ebitda = _safe_float(fr.get("ebitda")) or 0.0
-            if ebitda < 0:
-              cumulative_loss += abs(ebitda)
-            break
-      synthetic_gap = max(cumulative_loss, 1.0) * 4.0  # annualize Q1-Q11 quarterly losses (rough)
+          route_synth = route_realism_violation(
+            metric_key=mk_synth,
+            realism_row=row_synth,
+            detected_value=_safe_float(v_synth.get("actual_value")),
+            expected_floor=_safe_float(v_synth.get("effective_min")),
+            expected_ceiling=_safe_float(v_synth.get("effective_max")),
+            adaptive_policy=adaptive_policy_dict,
+            source_quarter=v_synth.get("quarter_index"),
+          )
+          router_violations_routed.append(route_synth)
+          detected_synth = route_synth.detected_value
+          floor_synth = route_synth.expected_floor
+          ceil_synth = route_synth.expected_ceiling
+          if detected_synth is None:
+            continue
+          # Compute dollar shortfall for this single violation.
+          # Margin-like metrics: dollar_gap = (floor - detected) * quarter_revenue
+          # Cost-ratio metrics: dollar_gap = (detected - ceil) * quarter_revenue
+          q_synth = int(v_synth.get("quarter_index") or 0)
+          qrev = _quarter_revenue_for_q(q_synth) if q_synth >= 1 else 0.0
+          if mk_synth in _MARGIN_LIKE_METRICS and floor_synth is not None and detected_synth < floor_synth:
+            shortfall = (float(floor_synth) - float(detected_synth)) * qrev
+            router_dollar_gap += max(0.0, shortfall)
+          elif mk_synth in _COST_RATIO_METRICS and ceil_synth is not None and detected_synth > ceil_synth:
+            overage = (float(detected_synth) - float(ceil_synth)) * qrev
+            router_dollar_gap += max(0.0, overage)
+      except Exception:
+        router_dollar_gap = 0.0
+
+      # Annualize: if we summed across Q1-Q10 quarterly shortfalls, divide
+      # by 10 then multiply by 4 to get annual run-rate equivalent. Or
+      # just take it as-is (each quarter contribution is already a
+      # quarter-dollar measure; the sum across multiple quarters
+      # over-states the annual gap, but restoration's capacity expansion
+      # responds proportionally).
+      synthetic_gap = float(router_dollar_gap) if router_dollar_gap > 0 else 1.0
       import json as _json_for_restoration
       synth = StructuralFeasibilityResult(
         feasible=False,
@@ -594,6 +651,7 @@ def _remediate_realism_hard_fails(
         financials_year1_json={},
         payroll_headcount={},
         business_naics_6=business_naics_6,
+        industry_profile=industry_profile_dict,
       )
       restoration_landed_diag = {
         "engaged": True,
@@ -604,8 +662,13 @@ def _remediate_realism_hard_fails(
         "synthetic_gap_input": synthetic_gap,
         "initial_residual_count": final_residual_count,
       }
-      # Apply restoration's adjusted ops back into model_input revenue rows.
+      # Apply restoration's adjusted_ops_json + adjusted_payroll_headcount
+      # back into model_input. Phase 9 Step 2c: payroll headcount is
+      # restoration's lever 1 (capacity-implied rationalization). The old
+      # code only wrote revenue rows from adjusted_ops; this also writes
+      # payroll quarter values from adjusted_payroll_headcount.
       adjusted_ops = getattr(restoration, "adjusted_ops_json", None) or {}
+      adjusted_payroll_hc = getattr(restoration, "adjusted_payroll_headcount", None) or {}
       if isinstance(adjusted_ops, dict):
         rev_rows = (model_input_json or {}).get("sections", {}).get("revenue") or []
         if isinstance(rev_rows, list):
@@ -615,13 +678,46 @@ def _remediate_realism_hard_fails(
             driver = str(row.get("driver") or "").strip().lower()
             new_val = None
             if driver == "capacity":
-              new_val = _safe_float(adjusted_ops.get("operating_capacity_per_period"))
+              new_val = (
+                _safe_float(adjusted_ops.get("units_per_period_capacity"))
+                or _safe_float(adjusted_ops.get("units_per_week_capacity"))
+                or _safe_float(adjusted_ops.get("operating_capacity_per_period"))
+              )
             elif driver == "unit price":
               new_val = _safe_float(adjusted_ops.get("unit_price"))
             elif driver == "utilization":
-              new_val = _safe_float(adjusted_ops.get("operating_utilization_target"))
+              new_val = (
+                _safe_float(adjusted_ops.get("utilization_rate"))
+                or _safe_float(adjusted_ops.get("operating_utilization_target"))
+              )
             if new_val is not None and new_val > 0:
               row["values"] = [float(new_val) for _ in range(len(row.get("values") or [horizon]))]
+      if isinstance(adjusted_payroll_hc, dict):
+        quarter_totals = adjusted_payroll_hc.get("quarter_totals") or []
+        if isinstance(quarter_totals, list) and quarter_totals:
+          payroll_by_q: Dict[int, float] = {}
+          for qt in quarter_totals:
+            if not isinstance(qt, dict):
+              continue
+            qi = _safe_float(qt.get("quarter_index"))
+            pv = _safe_float(qt.get("payroll"))
+            if qi is None or pv is None:
+              continue
+            payroll_by_q[int(round(qi))] = float(pv)
+          if payroll_by_q:
+            expense_rows = (model_input_json or {}).get("sections", {}).get("expenses") or []
+            if isinstance(expense_rows, list):
+              for erow in expense_rows:
+                if not isinstance(erow, dict):
+                  continue
+                if str(erow.get("lever_id") or "").strip() == "expenses::Payroll":
+                  new_vals = list(erow.get("values") or [])
+                  for q_idx in range(1, len(new_vals) + 1):
+                    if q_idx in payroll_by_q:
+                      new_vals[q_idx - 1] = payroll_by_q[q_idx]
+                  erow["values"] = new_vals
+                  restoration_landed_diag["payroll_quarters_overwritten"] = len(payroll_by_q)
+                  break
       # Re-stamp + rebuild FINMO + final realism check.
       try:
         with post_intake_sequence_step_scope(

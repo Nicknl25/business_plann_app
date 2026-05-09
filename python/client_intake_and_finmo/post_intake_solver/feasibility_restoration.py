@@ -97,7 +97,25 @@ class RestorationResult:
     }
 
 
-def _naics_payroll_pct(business_naics_6: Optional[str]) -> Optional[float]:
+def _naics_payroll_pct(
+  business_naics_6: Optional[str],
+  *,
+  industry_profile: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+  """Phase 9 Step 2b — prefer Phase E IndustryProfile when provided.
+
+  Falls back to direct NAICS lookup so the function still works when
+  industry_profile isn't threaded through (e.g., upstream structural
+  feasibility check that runs at intake time).
+  """
+  if isinstance(industry_profile, dict):
+    bands = industry_profile.get("bands") or {}
+    if isinstance(bands, dict):
+      band_p = bands.get("payroll_percent_of_revenue")
+      if isinstance(band_p, dict):
+        target_p = _safe_float(band_p.get("benchmark_target"))
+        if target_p is not None and 0.0 < target_p < 1.0:
+          return float(target_p)
   if not business_naics_6:
     return None
   try:
@@ -141,6 +159,7 @@ def _apply_headcount_rationalization(
   capacity_revenue_annual: float,
   business_naics_6: Optional[str],
   adjustments: List[Dict[str, Any]],
+  industry_profile: Optional[Dict[str, Any]] = None,
 ) -> float:
   """Lever 1: cap payroll schedule at NAICS-implied capacity-appropriate
   level. Returns annual savings (positive number) or 0 when no
@@ -157,7 +176,10 @@ def _apply_headcount_rationalization(
   if current_annual is None or current_annual <= 0:
     return 0.0
 
-  payroll_pct = _naics_payroll_pct(business_naics_6) or _FALLBACK_PAYROLL_PCT_OF_REVENUE
+  payroll_pct = (
+    _naics_payroll_pct(business_naics_6, industry_profile=industry_profile)
+    or _FALLBACK_PAYROLL_PCT_OF_REVENUE
+  )
   target_annual = capacity_revenue_annual * payroll_pct
   if current_annual <= target_annual:
     return 0.0
@@ -385,6 +407,7 @@ def restore_feasibility(
   financials_year1_json: Optional[Dict[str, Any]],
   payroll_headcount: Optional[Dict[str, Any]],
   business_naics_6: Optional[str],
+  industry_profile: Optional[Dict[str, Any]] = None,
 ) -> RestorationResult:
   """Phase 7.2 cascade entry point. Tries levers in priority until gap
   closes; final lever (capacity expansion) is unbounded so the customer
@@ -429,6 +452,7 @@ def restore_feasibility(
     capacity_revenue_annual=current_capacity_revenue,
     business_naics_6=business_naics_6,
     adjustments=adjustments,
+    industry_profile=industry_profile,
   )
   current_gap -= payroll_savings
 
