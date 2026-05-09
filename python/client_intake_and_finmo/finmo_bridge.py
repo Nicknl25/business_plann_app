@@ -3233,19 +3233,44 @@ def _build_model_input_overlay(
   for row in expense_rows:
     label = str(row.get("label") or "").strip()
     base_stub_value, base_live_values = _row_stub_and_live_values(row.get("values") or [], live_count=len(slots))
+    # Bug #1 defensive guard: COGS / Marketing / R&D / G&A / Taxes /
+    # Depreciation rows are %-of-revenue ratios. Upstream intake or
+    # mapping-table seeds occasionally hand back values >1.0 (raw dollar
+    # amounts or percentage points like 23 instead of 0.23). The Q0 stub
+    # is read by FINMO's stub-period builder and then by the rest of the
+    # forecast as a ratio — so any value >1.0 here distorts Q0 dollar
+    # amounts (and hence Q1 starting cash / RE) by orders of magnitude.
+    # Normalize defensively: in (1, 100] treat as percentage points,
+    # >100 treat as a raw dollar / mis-scaled value and either back-out
+    # via revenue or zero it (better to under-stub than to inject
+    # garbage that contaminates downstream).
+    def _coerce_ratio_stub(raw: Any, *, revenue_year1: float) -> float:
+      v = _safe_float(raw)
+      if v is None or v <= 0.0:
+        return 0.0
+      if v <= 1.0:
+        return float(v)
+      if v <= 100.0:
+        return float(v) / 100.0
+      if revenue_year1 and revenue_year1 > 0.0:
+        derived = float(v) / float(revenue_year1)
+        if 0.0 < derived <= 1.0:
+          return derived
+      return 0.0
+
     intake_stub_value = base_stub_value
     if label == "Cost of Goods Sold":
-      intake_stub_value = round(cogs_ratio_baseline, 6)
+      intake_stub_value = round(_coerce_ratio_stub(cogs_ratio_baseline, revenue_year1=revenue_total_year1), 6)
     elif label == "Marketing":
-      intake_stub_value = round(marketing_ratio_baseline or 0.0, 6)
+      intake_stub_value = round(_coerce_ratio_stub(marketing_ratio_baseline or 0.0, revenue_year1=revenue_total_year1), 6)
     elif label == "Research & Development":
-      intake_stub_value = round(r_and_d_ratio_baseline, 6)
+      intake_stub_value = round(_coerce_ratio_stub(r_and_d_ratio_baseline, revenue_year1=revenue_total_year1), 6)
     elif label == "Lease":
       intake_stub_value = round(lease_amount, 6)
     elif label == "Payroll":
       intake_stub_value = round(quarterly_payroll, 6)
     elif label == "General & Administrative":
-      intake_stub_value = round(max(0.0, g_and_a_ratio_baseline), 6)
+      intake_stub_value = round(_coerce_ratio_stub(max(0.0, g_and_a_ratio_baseline), revenue_year1=revenue_total_year1), 6)
     elif label == "Interest Rate":
       intake_stub_value = round(intake_interest_rate_stub, 6)
     elif label == "Taxes":
